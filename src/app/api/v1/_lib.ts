@@ -1,1 +1,34 @@
-export const publicHeaders={"access-control-allow-origin":"*","cache-control":"public, s-maxage=60, stale-while-revalidate=300"};export function data<T>(value:T,meta?:Record<string,unknown>){return Response.json({data:value,...(meta?{meta}:{})},{headers:publicHeaders})}function safeEqual(left:string,right:string){if(left.length!==right.length)return false;let result=0;for(let index=0;index<left.length;index+=1)result|=left.charCodeAt(index)^right.charCodeAt(index);return result===0}export function authorize(request:Request){const key=process.env.OPENBOARD_API_KEY??"";return Boolean(key)&&safeEqual(request.headers.get("authorization")??"",`Bearer ${key}`)}
+import { initialDemoState } from "@/shared/demo/seed";
+import { getEnv } from "@/shared/lib/env";
+
+// Public DTO responses are shared-cacheable; keyed responses must never enter
+// a shared cache, so they ship private, no-store.
+export const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
+export const privateHeaders = { "cache-control": "private, no-store" };
+
+export function data<T>(value: T, meta?: Record<string, unknown>) {
+  return Response.json({ data: value, ...(meta ? { meta } : {}) }, { headers: publicHeaders });
+}
+export function privateData<T>(value: T, meta?: Record<string, unknown>) {
+  return Response.json({ data: value, ...(meta ? { meta } : {}) }, { headers: privateHeaders });
+}
+export function notFoundResponse() {
+  return Response.json({ error: { code: "NOT_FOUND", message: "Event not found" } }, { status: 404, headers: privateHeaders });
+}
+export function resolveEvent(slug: string) {
+  return initialDemoState.events.find((item) => item.slug === slug);
+}
+
+function safeEqual(left: string, right: string) {
+  const length = Math.max(left.length, right.length);
+  let mismatch = left.length === right.length ? 0 : 1;
+  for (let index = 0; index < length; index += 1) mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return mismatch === 0;
+}
+
+// Demo mode: one environment-scoped key. Hashed per-event api_keys (see the
+// api_keys table) take over when the database lands.
+export function authorize(request: Request) {
+  const key = getEnv().OPENBOARD_API_KEY;
+  return Boolean(key) && safeEqual(request.headers.get("authorization") ?? "", `Bearer ${key}`);
+}

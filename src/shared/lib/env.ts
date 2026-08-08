@@ -2,5 +2,6 @@
 export function getEnv() {
   return {
     CRON_SECRET: process.env.CRON_SECRET ?? "",
+    OPENBOARD_API_KEY: process.env.OPENBOARD_API_KEY ?? "",
   };
 }

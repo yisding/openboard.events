@@ -12,7 +12,17 @@ export function buildInvite(event: IcsEvent, method: "REQUEST" | "CANCEL" | "PUB
   return lines.map(fold).join("\r\n");
 }
 
+// Extract the complete VEVENT block by its markers rather than by line
+// offsets, which shift when folding splits long lines.
+function extractVevent(invite: string) {
+  const lines = invite.split("\r\n");
+  const start = lines.indexOf("BEGIN:VEVENT");
+  const end = lines.lastIndexOf("END:VEVENT");
+  if (start === -1 || end === -1 || end < start) throw new Error("malformed VEVENT block");
+  return lines.slice(start, end + 1).join("\r\n");
+}
+
 export function buildFeed(name: string, events: IcsEvent[]) {
-  const eventBlocks = events.map((event) => buildInvite(event, "PUBLISH").split("\r\n").slice(5, -3).join("\r\n"));
+  const eventBlocks = events.map((event) => extractVevent(buildInvite(event, "PUBLISH")));
   return ["BEGIN:VCALENDAR", "PRODID:-//Openboard//Event Calendar//EN", "VERSION:2.0", "CALSCALE:GREGORIAN", `X-WR-CALNAME:${escapeValue(name)}`, ...eventBlocks, "END:VCALENDAR", ""].join("\r\n");
 }
