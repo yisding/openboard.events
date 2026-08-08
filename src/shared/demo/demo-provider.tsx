@@ -24,7 +24,11 @@ function reducer(state: DemoState, action: DemoAction): DemoState {
     case "ADD_SPEAKER": return { ...state, speakers: [...state.speakers, action.speaker] };
     case "UPDATE_SPEAKER": return { ...state, speakers: state.speakers.map((item) => item.id === action.speakerId ? { ...item, ...action.patch } : item) };
     case "ADD_TASK": return { ...state, tasks: [...state.tasks, action.task] };
-    case "COMPLETE_TASK": return { ...state, completions: [...state.completions.filter((item) => !(item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId)), action.completion] };
+    case "UPDATE_TASK": return { ...state, tasks: state.tasks.map((item) => item.id === action.taskId ? { ...item, ...action.patch } : item) };
+    case "COMPLETE_TASK": {
+      const alreadyCompleted = state.completions.some((item) => item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId);
+      return { ...state, completions: [...state.completions.filter((item) => !(item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId)), action.completion], tasks: alreadyCompleted ? state.tasks : state.tasks.map((item) => item.id === action.completion.taskId ? { ...item, completed: item.completed + 1 } : item) };
+    }
     case "ADD_SESSION": return { ...state, sessions: [...state.sessions, action.session] };
     case "UPDATE_SESSION": return { ...state, sessions: state.sessions.map((item) => item.id === action.sessionId ? { ...item, ...action.patch } : item) };
     case "ADD_COMMUNICATION": return { ...state, communications: [action.communication, ...state.communications] };

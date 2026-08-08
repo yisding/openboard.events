@@ -65,6 +65,7 @@ export type DemoAction =
   | { type: "ADD_SPEAKER"; speaker: SpeakerRecord }
   | { type: "UPDATE_SPEAKER"; speakerId: string; patch: Partial<SpeakerRecord> }
   | { type: "ADD_TASK"; task: TaskRecord }
+  | { type: "UPDATE_TASK"; taskId: string; patch: Partial<TaskRecord> }
   | { type: "COMPLETE_TASK"; completion: TaskCompletion }
   | { type: "ADD_SESSION"; session: SessionRecord }
   | { type: "UPDATE_SESSION"; sessionId: string; patch: Partial<SessionRecord> }
