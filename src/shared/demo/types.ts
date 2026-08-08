@@ -7,7 +7,7 @@ export type EventRecord = {
 
 export type FormFieldRecord = {
   id: string; key: string; label: string; type: FieldType; required: boolean; locked: boolean; helpText: string;
-  placeholder: string; maxChars: number | null; options: string[]; visibility?: { fieldId: string; operator: "eq" | "neq" | "answered" | "empty"; value?: string };
+  placeholder: string; maxChars: number | null; options: string[]; visibility?: { fieldId: string; operator: "eq" | "neq" | "answered" | "empty"; value?: string } | null;
 };
 export type FormSectionRecord = { id: string; title: string; description: string; fields: FormFieldRecord[] };
 export type FormRecord = {
@@ -45,11 +45,13 @@ export type CommunicationRecord = {
 };
 
 export type ReviewRecord = { id: string; submissionId: string; reviewer: string; score: number; note: string; createdAt: string };
+export type PlanRecord = { id: string; eventId: string; name: string; scale: string; trackScope: string; status: "open" | "closed" };
 export type ResourceRecord = { id: string; eventId: string; title: string; slug: string; summary: string; body: string; published: boolean };
 
 export type DemoState = {
   events: EventRecord[]; forms: FormRecord[]; speakers: SpeakerRecord[]; submissions: SubmissionRecord[]; sessions: SessionRecord[];
   tasks: TaskRecord[]; completions: TaskCompletion[]; communications: CommunicationRecord[]; reviews: ReviewRecord[]; resources: ResourceRecord[];
+  plans: PlanRecord[];
 };
 
 export type DemoAction =
@@ -63,6 +65,9 @@ export type DemoAction =
   | { type: "ADD_SUBMISSION"; submission: SubmissionRecord }
   | { type: "UPDATE_SUBMISSION"; submissionId: string; patch: Partial<SubmissionRecord> }
   | { type: "ADD_REVIEW"; review: ReviewRecord }
+  | { type: "UPSERT_REVIEW"; review: ReviewRecord }
+  | { type: "ADD_PLAN"; plan: PlanRecord }
+  | { type: "ADD_SPEAKER"; speaker: SpeakerRecord }
   | { type: "UPDATE_SPEAKER"; speakerId: string; patch: Partial<SpeakerRecord> }
   | { type: "ADD_TASK"; task: TaskRecord }
   | { type: "COMPLETE_TASK"; completion: TaskCompletion }
