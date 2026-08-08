@@ -117,7 +117,7 @@ Exit non-zero on any hit. Each grep excludes exactly one owner path:
 | 10 | `drizzle-kit push` | nowhere |
 | 11 | R2 binding / `aws4fetch` import | `src/shared/server/r2.ts` ([M07](./M07-r2-storage.md)'s module boundary) |
 | 12 | `from '(\.\./)+(store\|wizard\|steps)'` / `next/navigation` / `@/features/(portal\|submissions)` **inside** `src/features/forms/runtime/form-field-renderer.tsx` + `src/features/forms/runtime/field-inputs/` | nowhere — the `<FormFieldRenderer>` boundary grep ([M15](./M15-public-cfp-wizard.md)) |
-| 13 | `\.toLocale(Date\|Time)?String\(` / `getTimezoneOffset\(` / non-UTC accessors `\.(get\|set)(FullYear\|Month\|Date\|Day\|Hours\|Minutes)\(` — scope `src/**` | `src/shared/lib/time.ts` (`getUTC*`/`setUTC*`/`Date.now()` are deliberately not matched; rev. 3 delta #18) |
+| 13 | `\.toLocale(Date\|Time)?String\(` / `getTimezoneOffset\(` / non-UTC accessors `\.(get\|set)(FullYear\|Year\|Month\|Date\|Day\|Hours\|Minutes\|Seconds\|Milliseconds)\(` — scope `src/**` | `src/shared/lib/time.ts` (`getUTC*`/`setUTC*`/`Date.now()`/`getTime` are deliberately not matched; rev. 3 delta #18) |
 
 **Greps 11–13 ship tonight, with the rest of the table.** Greps 11 and 12 exist because [M07](./M07-r2-storage.md) and [M15](./M15-public-cfp-wizard.md) both need them; grep 13 closes the local-tz raw-`Date`-math hole the date-library grep cannot see (the DST/off-by-one bug class from resolution #9). Neither feature lane may edit this file: `scripts/check-invariants.sh` is architect-owned, and any later change to it is an **architect-labeled one-line PR**, never a direct edit from a feature lane (risk #8's hot-file rule).
 

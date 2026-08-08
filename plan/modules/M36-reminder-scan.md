@@ -38,7 +38,7 @@ export async function sendReminderNow(eventId: EventId, taskId: TaskId, contactI
 ## Step-by-step implementation
 
 1. **Contract-first slice.** Append the three signatures to the barrel with `scanReminders` returning `{scanned:0}` and `nudgeOutbox` already real (it is 5 lines: `waitUntil(dispatchOutbox(10).catch(e => log.warn(…)))`). Tell WS-B/C/E in the channel that `nudgeOutbox` is importable now.
-   **Done when:** `pnpm tsc --noEmit` green and [M08](./M08-jobs-worker.md)'s `/api/jobs/reminders` route imports `scanReminders` instead of the stub.
+   **Done when:** `pnpm tsc --noEmit` green with the three exports importable. The deployed `/api/jobs/reminders` route **still imports [M08](./M08-jobs-worker.md)'s stub** — the swap to `scanReminders` is step 6's job, gated on the AC suite (delta #20), so no partially-implemented pass can ever ride a cron tick.
 2. **Pass 1 — `task_assigned`, insert-or-ignore.** In `server/reminders.ts`, select the candidates in one statement:
    ```sql
    SELECT a.event_id, a.task_id, a.contact_id, a.submission_id
