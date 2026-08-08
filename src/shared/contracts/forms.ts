@@ -1,15 +1,21 @@
 import { z } from "zod";
-import { CONDITION_OPERATORS, FIELD_TYPES } from "./enums";
+import { FIELD_TYPES } from "./enums";
 
 export const answerValueSchema = z.union([z.string(), z.array(z.string()), z.boolean(), z.number(), z.null()]);
 export type AnswerValue = z.infer<typeof answerValueSchema>;
 export type Answers = Record<string, AnswerValue>;
 
-export const conditionSchema = z.object({
+// Comparison operators require an explicit value; presence operators forbid one.
+export const comparisonConditionSchema = z.object({
   sourceFieldId: z.string(),
-  operator: z.enum(CONDITION_OPERATORS),
-  value: answerValueSchema.optional(),
+  operator: z.enum(["eq", "neq", "in", "not_in"]),
+  value: answerValueSchema,
 });
+export const presenceConditionSchema = z.object({
+  sourceFieldId: z.string(),
+  operator: z.enum(["answered", "empty"]),
+});
+export const conditionSchema = z.union([comparisonConditionSchema, presenceConditionSchema]);
 export type Condition = z.infer<typeof conditionSchema>;
 
 export const formFieldSchema = z.object({

@@ -2,13 +2,21 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useState } from "react";
 import { initialDemoState } from "./seed";
-import type { DemoAction, DemoState } from "./types";
+import type { DemoAction, DemoState, SpeakerRecord } from "./types";
 
 const STORAGE_KEY = "openboard-demo-state-v3";
+
+const DEMO_COLLECTIONS = ["events", "forms", "speakers", "submissions", "sessions", "tasks", "completions", "communications", "reviews", "resources"] as const;
+
+function isDemoSnapshot(value: unknown): value is DemoState {
+  if (!value || typeof value !== "object") return false;
+  return DEMO_COLLECTIONS.every((key) => Array.isArray((value as Record<string, unknown>)[key]));
+}
 
 function reducer(state: DemoState, action: DemoAction): DemoState {
   switch (action.type) {
     case "RESET": return structuredClone(initialDemoState);
+    case "HYDRATE": return action.state;
     case "ADD_FORM": return { ...state, forms: [...state.forms, action.form] };
     case "UPDATE_FORM": return { ...state, forms: state.forms.map((item) => item.id === action.formId ? { ...item, ...action.patch } : item) };
     case "ADD_FIELD": return { ...state, forms: state.forms.map((form) => form.id !== action.formId ? form : { ...form, version: form.version + 1, sections: form.sections.map((section) => section.id === action.sectionId ? { ...section, fields: [...section.fields, action.field] } : section) }) };
@@ -23,7 +31,14 @@ function reducer(state: DemoState, action: DemoAction): DemoState {
     }) };
     case "UPDATE_SPEAKER": return { ...state, speakers: state.speakers.map((item) => item.id === action.speakerId ? { ...item, ...action.patch } : item) };
     case "ADD_TASK": return { ...state, tasks: [...state.tasks, action.task] };
-    case "COMPLETE_TASK": return { ...state, completions: [...state.completions.filter((item) => !(item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId)), action.completion] };
+    case "COMPLETE_TASK": {
+      const alreadyCompleted = state.completions.some((item) => item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId);
+      return {
+        ...state,
+        completions: [...state.completions.filter((item) => !(item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId)), action.completion],
+        tasks: alreadyCompleted ? state.tasks : state.tasks.map((task) => task.id === action.completion.taskId ? { ...task, completed: Math.min(task.assigned, task.completed + 1) } : task),
+      };
+    }
     case "ADD_SESSION": return { ...state, sessions: [...state.sessions, action.session] };
     case "UPDATE_SESSION": return { ...state, sessions: state.sessions.map((item) => item.id === action.sessionId ? { ...item, ...action.patch } : item) };
     case "ADD_COMMUNICATION": return { ...state, communications: [action.communication, ...state.communications] };
@@ -45,12 +60,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as DemoState;
-        for (const form of parsed.forms) dispatch({ type: "UPDATE_FORM", formId: form.id, patch: form });
-        for (const submission of parsed.submissions.filter((item) => !initialDemoState.submissions.some((seed) => seed.id === item.id))) dispatch({ type: "ADD_SUBMISSION", submission });
-        for (const speaker of parsed.speakers) dispatch({ type: "UPDATE_SPEAKER", speakerId: speaker.id, patch: speaker });
-        for (const session of parsed.sessions) dispatch({ type: "UPDATE_SESSION", sessionId: session.id, patch: session });
-        for (const completion of parsed.completions.filter((item) => !initialDemoState.completions.some((seed) => seed.taskId === item.taskId && seed.speakerId === item.speakerId))) dispatch({ type: "COMPLETE_TASK", completion });
+        const parsed: unknown = JSON.parse(saved);
+        if (!isDemoSnapshot(parsed)) throw new Error("invalid snapshot");
+        dispatch({ type: "HYDRATE", state: parsed });
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       }
@@ -75,5 +87,3 @@ export function useDemo() {
 export function speakerName(speaker: SpeakerRecord | undefined) {
   return speaker ? `${speaker.firstName} ${speaker.lastName}` : "Unknown speaker";
 }
-
-import type { SpeakerRecord } from "./types";
