@@ -5,6 +5,12 @@ export const DEMO_EVENT_SLUG = "ai-engineer";
 export const DEMO_FORM_ID = "technical-talks";
 export const DEMO_SPEAKER_ID = "spk_nadia";
 
+// Demo stand-in for the DB-backed non-consuming ics_download tokens (M35):
+// each token maps to exactly one speaker; unknown tokens must 404.
+export const DEMO_CAL_TOKENS: Record<string, string> = {
+  tok_cal_nadia_8f21c4d7a6: DEMO_SPEAKER_ID,
+};
+
 const speakers: SpeakerRecord[] = [
   { id: "spk_nadia", eventId: DEMO_EVENT_ID, firstName: "Nadia", lastName: "Rahman", email: "nadia@vectorlab.ai", company: "VectorLab", title: "VP of AI", bio: "Nadia builds reliable AI systems for high-stakes environments. She leads applied research at VectorLab and is a frequent speaker on evaluation, observability, and human-centered AI.", location: "New York, NY", website: "https://vectorlab.ai", linkedin: "linkedin.com/in/nadiarahman", avatar: "NR", avatarColor: "#6958d7", confirmation: "confirmed", profileCompletion: 100, tags: ["Keynote", "AI systems"] },
   { id: "spk_alex", eventId: DEMO_EVENT_ID, firstName: "Alex", lastName: "Chen", email: "alex@latent.space", company: "Latent Space", title: "Founder", bio: "Alex explores the intersection of developer tools and foundation models.", location: "San Francisco, CA", website: "https://latent.space", linkedin: "linkedin.com/in/alexchen", avatar: "AC", avatarColor: "#2d8d79", confirmation: "confirmed", profileCompletion: 92, tags: ["Agents"] },
