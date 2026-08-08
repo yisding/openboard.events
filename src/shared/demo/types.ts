@@ -37,7 +37,7 @@ export type TaskRecord = {
   id: string; eventId: string; title: string; description: string; mode: "manual" | "form" | "file_request";
   target: "contact" | "submission"; dueAt: string; assigned: number; completed: number; required: boolean;
 };
-export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string };
+export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string; payload?: Record<string, string>; submissionId?: string };
 
 export type CommunicationRecord = {
   id: string; eventId: string; recipient: string; subject: string; template: string; status: "queued" | "sent" | "failed";
@@ -70,6 +70,7 @@ export type DemoAction =
   | { type: "ADD_SPEAKER"; speaker: SpeakerRecord }
   | { type: "UPDATE_SPEAKER"; speakerId: string; patch: Partial<SpeakerRecord> }
   | { type: "ADD_TASK"; task: TaskRecord }
+  | { type: "UPDATE_TASK"; taskId: string; patch: Partial<TaskRecord> }
   | { type: "COMPLETE_TASK"; completion: TaskCompletion }
   | { type: "ADD_SESSION"; session: SessionRecord }
   | { type: "UPDATE_SESSION"; sessionId: string; patch: Partial<SessionRecord> }

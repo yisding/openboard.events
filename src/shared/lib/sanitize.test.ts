@@ -7,9 +7,13 @@ describe("sanitize", () => {
     expect(sanitize('<a href="javascript:alert(1)">bad</a>')).not.toContain("javascript:");
   });
   it("allows iframe embeds only for resources", () => {
-    const iframe = '<iframe src="https://player.example.com/demo" allowfullscreen></iframe>';
+    const iframe = '<iframe src="https://player.vimeo.com/video/123" allowfullscreen></iframe>';
     expect(sanitize(iframe)).toBe("");
-    expect(sanitize(iframe, "wide")).toContain("iframe");
+    expect(sanitize(iframe, "wide")).toContain("player.vimeo.com");
+  });
+  it("strips iframe hosts outside the embed allowlist", () => {
+    expect(sanitize('<iframe src="https://player.example.com/demo"></iframe>', "wide")).not.toContain("player.example.com");
+    expect(sanitize('<iframe src="http://www.youtube.com/embed/x"></iframe>', "wide")).not.toContain("http://www.youtube.com");
   });
   it("drops author-supplied rel and normalizes target links", () => {
     const result = sanitize('<a href="https://example.com" rel="opener" target="_blank">x</a>');

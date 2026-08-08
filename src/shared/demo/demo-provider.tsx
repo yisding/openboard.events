@@ -43,6 +43,7 @@ function reducer(state: DemoState, action: DemoAction): DemoState {
     case "ADD_SPEAKER": return { ...state, speakers: [...state.speakers, action.speaker] };
     case "UPDATE_SPEAKER": return { ...state, speakers: state.speakers.map((item) => item.id === action.speakerId ? { ...item, ...action.patch } : item) };
     case "ADD_TASK": return { ...state, tasks: [...state.tasks, action.task] };
+    case "UPDATE_TASK": return { ...state, tasks: state.tasks.map((item) => item.id === action.taskId ? { ...item, ...action.patch } : item) };
     case "COMPLETE_TASK": {
       const alreadyCompleted = state.completions.some((item) => item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId);
       return {
