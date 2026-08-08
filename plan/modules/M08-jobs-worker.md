@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — steps 1–4 landed with the foundation PR (#1, review fixes in `5ed137c`): `defineJobRoute` + `JobResult` envelope with constant-time secret compare in `src/app/api/jobs/_lib.ts`, four secret-guarded no-op stub routes, `JobName`/`JobStats` in `src/shared/contracts/jobs.ts`, and the dispatcher worker (scheduledTime-derived minute/hour, cleanup daily 09:00 UTC, airtable at `%10 === 5`, per-dispatch `ok`/status logging). `wrangler.jsonc` has a localhost default plus a `production` env; `deploy:jobs` targets `--env production`. Remaining: steps 5–6 (deployed end-to-end check + tail transcript) pending Cloudflare credentials, and the stub→feature swaps as M34/M36/M39/M07 land. |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API). **Executor differs from the catalog's WS-A origin** — M08 was moved from the architect to WS-F (PLAN §4 note and §6 WS-F order). Zero app imports in `workers/jobs/`. |
 | **Scheduled** | **Sat AM** — the first thing WS-F builds, before M34 (PLAN §6 WS-F order, §7 Sat AM). |
 | **Size** | S (≈2h) |

@@ -54,6 +54,7 @@ export type DemoState = {
 
 export type DemoAction =
   | { type: "RESET" }
+  | { type: "HYDRATE"; state: DemoState }
   | { type: "ADD_FORM"; form: FormRecord }
   | { type: "UPDATE_FORM"; formId: string; patch: Partial<FormRecord> }
   | { type: "ADD_FIELD"; formId: string; sectionId: string; field: FormFieldRecord }

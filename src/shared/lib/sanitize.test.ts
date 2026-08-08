@@ -11,6 +11,11 @@ describe("sanitize", () => {
     expect(sanitize(iframe)).toBe("");
     expect(sanitize(iframe, "wide")).toContain("iframe");
   });
+  it("drops author-supplied rel and normalizes target links", () => {
+    const result = sanitize('<a href="https://example.com" rel="opener" target="_blank">x</a>');
+    expect(result).toContain('rel="noopener noreferrer"');
+    expect(result).not.toContain('rel="opener"');
+  });
   it("is idempotent", () => {
     const value = "<h2>Hello</h2><p><strong>World</strong></p>";
     expect(sanitize(sanitize(value))).toBe(sanitize(value));
