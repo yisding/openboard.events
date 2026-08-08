@@ -23,11 +23,11 @@ const addableTypes: Array<{ type: FieldType; label: string; description: string 
   { type: "url", label: "Website", description: "Validated web address" }, { type: "file", label: "File upload", description: "PDF, slides, or document" },
 ];
 
-export function FormBuilder({ formId }: { formId: string }) {
+export function FormBuilder({ eventId, formId }: { eventId: string; formId: string }) {
   const { state, dispatch } = useDemo();
   const { toast } = useToast();
-  const form = state.forms.find((item) => item.id === formId);
-  const event = state.events[0];
+  const event = state.events.find((item) => item.id === eventId);
+  const form = state.forms.find((item) => item.id === formId && item.eventId === eventId);
   const [step, setStep] = useState<BuilderStep>("abstract");
   const [selected, setSelected] = useState<{ sectionId: string; fieldId: string } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -49,7 +49,13 @@ export function FormBuilder({ formId }: { formId: string }) {
   function addField() {
     const section = currentForm.sections.find((item) => step === "participant" ? item.id.includes("speaker") : !item.id.includes("speaker")) ?? currentForm.sections[0];
     if (!section || !newLabel.trim()) return;
-    const field: FormFieldRecord = { id: `fld_${Date.now()}`, key: newLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_"), label: newLabel.trim(), type: newType, required: false, locked: false, helpText: "", placeholder: "", maxChars: ["text", "textarea", "richtext"].includes(newType) ? 500 : null, options: ["dropdown", "multiselect"].includes(newType) ? ["Option 1", "Option 2"] : [] };
+    // Answer keys must be unique across the form: answers are stored by key,
+    // so a collision would make two questions overwrite each other.
+    const existingKeys = new Set(currentForm.sections.flatMap((item) => item.fields).map((item) => item.key));
+    const base = newLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "question";
+    let key = base;
+    for (let suffix = 2; existingKeys.has(key); suffix += 1) key = `${base}_${suffix}`;
+    const field: FormFieldRecord = { id: `fld_${Date.now()}`, key, label: newLabel.trim(), type: newType, required: false, locked: false, helpText: "", placeholder: "", maxChars: ["text", "textarea", "richtext"].includes(newType) ? 500 : null, options: ["dropdown", "multiselect"].includes(newType) ? ["Option 1", "Option 2"] : [] };
     dispatch({ type: "ADD_FIELD", formId: currentForm.id, sectionId: section.id, field }); setAdding(false); setNewLabel(""); setSelected({ sectionId: section.id, fieldId: field.id }); toast("Question added");
   }
   function publish() { updateForm({ status: currentForm.status === "open" ? "draft" : "open" }); toast(currentForm.status === "open" ? "Form moved to draft" : "Form is live and accepting submissions"); }
@@ -98,9 +104,9 @@ function FieldInspector({ field, form, onChange, onDelete, locked }: { field: Fo
       <Field label="Help text"><textarea value={field.helpText} onChange={(event) => onChange({ helpText: event.target.value })} /></Field>
       <Field label="Placeholder"><input value={field.placeholder} onChange={(event) => onChange({ placeholder: event.target.value })} /></Field>
       <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question</small></div><button className={`switch ${field.required ? "on" : ""}`} onClick={() => !field.locked && onChange({ required: !field.required })}><i /></button></div>
-      {field.options.length > 0 && <Field label="Options" hint="One option per line"><textarea value={field.options.join("\n")} onChange={(event) => onChange({ options: event.target.value.split("\n").filter(Boolean) })} /></Field>}
-      <div className="condition-card"><div><b>Conditional visibility</b><small>Show this question based on an earlier answer.</small></div><button className={`switch ${visibility ? "on" : ""}`} onClick={() => onChange({ visibility: visibility ? null : { fieldId: earlier[0]?.id ?? "", operator: "eq", value: "Yes" } })}><i /></button>
-        {visibility && <div className="condition-editor"><span>Show when</span><select value={visibility.fieldId} onChange={(event) => onChange({ visibility: { ...visibility, fieldId: event.target.value } })}>{earlier.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><select value={visibility.operator} onChange={(event) => onChange({ visibility: { ...visibility, operator: event.target.value as "eq" | "neq" | "answered" | "empty" } })}><option value="eq">is</option><option value="neq">is not</option><option value="answered">is answered</option><option value="empty">is empty</option></select>{["eq", "neq"].includes(visibility.operator) && <input value={visibility.value ?? ""} onChange={(event) => onChange({ visibility: { ...visibility, value: event.target.value } })} placeholder="Value" />}</div>}
+      {field.options.length > 0 && <Field label="Options" hint={locked ? "Options are locked while the form has submissions — saved answers reference them." : "One option per line"}><textarea disabled={locked} value={field.options.join("\n")} onChange={(event) => { if (locked) return; onChange({ options: event.target.value.split("\n").filter(Boolean) }); }} /></Field>}
+      <div className="condition-card"><div><b>Conditional visibility</b><small>{field.locked ? "Locked identity fields are always visible." : locked ? "Visibility rules are locked while the form has submissions." : "Show this question based on an earlier answer."}</small></div><button disabled={field.locked || locked} className={`switch ${visibility ? "on" : ""}`} onClick={() => { if (field.locked || locked) return; onChange({ visibility: visibility ? null : { fieldId: earlier[0]?.id ?? "", operator: "eq", value: "Yes" } }); }}><i /></button>
+        {visibility && !field.locked && <div className="condition-editor"><span>Show when</span><select disabled={locked} value={visibility.fieldId} onChange={(event) => onChange({ visibility: { ...visibility, fieldId: event.target.value } })}>{earlier.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><select disabled={locked} value={visibility.operator} onChange={(event) => onChange({ visibility: { ...visibility, operator: event.target.value as "eq" | "neq" | "answered" | "empty" } })}><option value="eq">is</option><option value="neq">is not</option><option value="answered">is answered</option><option value="empty">is empty</option></select>{["eq", "neq"].includes(visibility.operator) && <input disabled={locked} value={visibility.value ?? ""} onChange={(event) => onChange({ visibility: { ...visibility, value: event.target.value } })} placeholder="Value" />}</div>}
       </div>
       {!field.locked && <Button variant="ghost" disabled={locked} className="delete-field" onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
     </div>
