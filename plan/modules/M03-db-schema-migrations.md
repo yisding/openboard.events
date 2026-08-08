@@ -36,7 +36,7 @@ export async function withTx<T>(fn: (tx: TxDb) => Promise<T>): Promise<T> {
 }
 export type TxDb = Parameters<Parameters<typeof withTx>[0]>[0];
 ```
-`withTx` is confined to **four** audited call sites (resolution #4): `createSubmission`, `notifyDecisions`, `completeTaskViaResponse`/`completeTaskViaUpload`, `moveSession`. Put that list in a doc comment at the top of the file. Every other write is a single statement (guarded UPDATE, `ON CONFLICT` upsert, CTE insert).
+`withTx` is confined to **eight** audited runtime call sites (resolution #4): `requestPortalLogin`, `createSubmission`, `upsertDraft`, `updateSubmissionFromCfp`, `notifyDecisions`, `completeTaskViaResponse`, `completeTaskViaUpload`, and `moveSession`. Put that list in a doc comment at the top of the file. Every other deployed write is a single statement (guarded UPDATE, `ON CONFLICT` upsert, CTE insert); M09's CLI seed orchestrator is the documented non-runtime exception.
 - **Done when:** `import { db, withTx } from '@/db/client'` typechecks from a scratch `features/x/server/probe.ts` and fails lint from `src/app/page.tsx`.
 
 ### 2. Enum declarations from the contracts arrays
@@ -75,7 +75,7 @@ Conventions applied to **every** event-scoped table (data-model §2): `id uuid P
 - `file_assets` — `r2_key` UNIQUE, `mime`/`size_bytes` server-validated, `uploaded_by_contact_id` FK added after `contacts` (circular).
 - `tracks`/`rooms`/`session_formats`/`tags` — `UNIQUE (event_id, name)` each; `tracks.color` hex default `#6366f1`; `session_formats.default_duration_mins` default 30. **One vocabulary** shared by CFP dropdowns, routing, evaluation scope, agenda and embeds — options reference **ids**, never labels, so renames never orphan rules.
 - `contacts` — **`UNIQUE (event_id, email)`** (per-event identity; no global speaker), `bio_html` sanitized ≤5000 plaintext (app-enforced), `confirmation_status` default `unconfirmed`, `unsubscribed_at` suppresses **reminder-class mail only**.
-- `portal_tokens` ★2 — `token_hash` UNIQUE (sha256; raw never stored), `purpose`, `expires_at`, `consumed_at` (NULL forever for `ics_download`), **`attempts`**.
+- `portal_tokens` ★2 — `token_hash` UNIQUE plus nullable `otp_hash` (sha256; raw values never stored), `purpose`, `expires_at`, `consumed_at` (NULL forever for `ics_download`), **`attempts`**.
 - `portal_sessions` — `token_hash` UNIQUE, composite FK to `(contact_id, event_id)`, `impersonated_by_user_id`.
 - `forms` ★7 ★8 — `id` doubles as the public URL token; `context` cfp|portal; `page_heading varchar(15)`; `closes_at` (**closes new AND updated submissions**); `submission_limit` NULL → event cap; `participant_roles jsonb`; `target_type` required when `context='portal'` (CHECK); `current_version` (0 = never published).
 - `form_fields` — **immutable `id`** (answers key on it); `locked` (Title/First/Last/Email); `options jsonb` carrying `trackId`/`formatId`/`tagId`; `visibility jsonb` (the rule AST); `maps_to` closed allowlist; **`deleted_at` soft delete**; `UNIQUE (form_id, key) WHERE deleted_at IS NULL`.
@@ -89,26 +89,27 @@ Conventions applied to **every** event-scoped table (data-model §2): `id uuid P
 - `portal_tasks` — `completion_mode` with the two CHECK-paired columns (`(mode='form') = (form_id IS NOT NULL)`, same for `file_request`), both FKs **`ON DELETE RESTRICT`** ("revert task to manual first"), `due_at` = end-of-day in event tz written by the app, `created_at` (used by [M36](./M36-reminder-scan.md)'s suppression rule).
 - `task_completions` — **`UNIQUE NULLS NOT DISTINCT (task_id, contact_id, submission_id)`** (idempotent complete; `ON CONFLICT DO NOTHING`). Assignments are **lazy view rows**; only completions are stored.
 - `form_responses` — **`UNIQUE NULLS NOT DISTINCT (form_id, contact_id, submission_id)`** (resubmit = overwrite), `answers jsonb`, `form_version` pinned.
-- `communication_logs` ★9 — **`idempotency_key` UNIQUE** (insert-first = the double-send firewall), `status` queued|sent|failed|**skipped**, `attempts`/`next_attempt_at`/`locked_until` (the `FOR UPDATE SKIP LOCKED` claim), `subject_rendered`/`body_rendered_html` (**the judge-mode fallback surface**), `provider_message_id`, `ics_uid`, entity refs, partial index `(event_id, status) WHERE status='queued'` and `(event_id, contact_id, created_at DESC)`.
-- `calendar_invites` — `UNIQUE (contact_id, session_id)`, `ics_uid` UNIQUE and **stable**, `sequence` monotonic, `last_method` request|cancel.
+- `communication_logs` ★9 — **`idempotency_key` UNIQUE** (insert-first = the double-send firewall), `status` queued|sent|failed|**skipped**, `attempts`/`next_attempt_at`/`locked_until` (the `FOR UPDATE SKIP LOCKED` claim), `subject_rendered`/`body_rendered_html`, `secret_payload_ciphertext` (nullable; encrypted `portal_login` only, cleared after dispatch), `provider_message_id`, `ics_uid`, entity refs, partial index `(event_id, status) WHERE status='queued'` and `(event_id, contact_id, created_at DESC)`.
+- `calendar_invites` — `UNIQUE (contact_id, session_id)`, `ics_uid` UNIQUE and **stable**, `sequence` monotonic, `last_method` request|cancel, and `organizer_email` stamped on first send and never overwritten.
 - `airtable_sync_state` — `UNIQUE (table_name, record_pk)` → `airtable_record_id`, `content_hash`.
 
 - **Done when:** `pnpm db:generate` emits `0000_init.sql` and a diff-read against data-model.md §3 shows no missing column, no missing UNIQUE, and no plain FK where a composite is specified.
 
 ### 4. The ★ review deltas — all of them land in 0000/0001 **before** the Sat-noon freeze
-These are the only intentional differences from data-model.md. Each one is load-bearing for a named module.
+These are the binding review additions/removals already folded into data-model.md; the table
+exists as the migration audit checklist. Each item is load-bearing for a named module.
 
 | ★ | Change | Why / who needs it |
 |---|---|---|
 | ★1 | `submissions.notify_revision int NOT NULL DEFAULT 0` | part of the decision idempotency key; makes re-notify after organizer undo possible → [M18](./M18-submission-mutations-notify.md), [M34](./M34-comms-outbox-dispatcher.md) |
-| ★2 | `portal_tokens.attempts int NOT NULL DEFAULT 0` | OTP brute-force guard: 5 failed verifies → token consumed → [M06b](./M06b-portal-auth.md) |
+| ★2 | `portal_tokens.attempts int NOT NULL DEFAULT 0` + nullable `otp_hash` | OTP brute-force guard and hash-only OTP lookup: 5 failed verifies → token consumed → [M06b](./M06b-portal-auth.md) |
 | ★3 | `CREATE UNIQUE INDEX submissions_one_draft_uq ON submissions (form_id, submitter_contact_id) WHERE status = 'draft'` | **one server draft per (contact, form)** → [M15](./M15-public-cfp-wizard.md), [M16](./M16-submit-pipeline.md), [M18](./M18-submission-mutations-notify.md) |
 | ★4 | Every Airtable-exported view exposes `greatest(a.updated_at, b.updated_at, …) AS updated_at` | [M39](./M39-airtable-export.md)'s watermark must never skip rows whose freshness comes from a joined table |
 | ★5 | `task_assignments_v` bakes in the resolution-#14 fan-out rule, with the rule text as a SQL comment | [M23](./M23-tasks-admin.md), [M25](./M25-task-runtime.md), [M36](./M36-reminder-scan.md), [M38](./M38-dashboard.md) consume it and never re-derive |
 | ★6 | Trigger clears `notified_at` and bumps `notify_revision` when a row **leaves** `accepted`/`declined` | organizer-undo → re-notify produces a distinct idempotency key → [M18](./M18-submission-mutations-notify.md) |
 | ★7 | `forms.allow_multiple_drafts` **removed** | single draft by construction (★3) |
 | ★8 | `forms.cross_field_limits`, `forms.admin_alert_new_user_ids`, `forms.admin_alert_updated_user_ids` **removed** | never-build list (PLAN §1) + [M14](./M14-form-settings-notifications.md)'s cut; unbuilt columns invite improvisation |
-| ★9 | `communication_logs` carries `attempts`, `next_attempt_at`, `locked_until`, `body_rendered_html`, plus `status='skipped'`. **`comm_status` stays exactly `('queued','sent','failed','skipped')` — there is no `sending` value**; [M34](./M34-comms-outbox-dispatcher.md)'s claim keeps `status='queued'` and claims purely via `locked_until` | dispatcher claim/backoff + the judge-mode fallback surface → [M34](./M34-comms-outbox-dispatcher.md), [M37](./M37-comms-admin-ui.md) |
+| ★9 | `communication_logs` carries `attempts`, `next_attempt_at`, `locked_until`, `body_rendered_html`, nullable `secret_payload_ciphertext`, plus `status='skipped'`. **`comm_status` stays exactly `('queued','sent','failed','skipped')` — there is no `sending` value**; [M34](./M34-comms-outbox-dispatcher.md)'s claim keeps `status='queued'` and claims purely via `locked_until`. Ciphertext is legal only for `portal_login`, cleared on terminal dispatch, and its production body is redacted | dispatcher claim/backoff + secure auth delivery/audit → [M06b](./M06b-portal-auth.md), [M34](./M34-comms-outbox-dispatcher.md), [M37](./M37-comms-admin-ui.md) |
 | ★10 | `template_key` pgEnum gains an **8th** value `portal_login` (additive `ADD VALUE`) | [M06b](./M06b-portal-auth.md)'s OTP / magic-link mail goes through the one outbox path; `magic_link` is not and never was a template key → [M02](./M02-shared-contracts.md) §1, [M34](./M34-comms-outbox-dispatcher.md), [M37](./M37-comms-admin-ui.md) |
 
 `contacts.confirmation_status` needs no DDL change but carries a comment: *"auto-set to `confirmed` by `notifyDecisions` on the primary contact of each accepted submission (resolution #15); admin overrides in [M27](./M27-speakers-admin.md)."*
@@ -186,7 +187,7 @@ psql "$DATABASE_URL_DIRECT" -c "update submissions set status='accepted' where s
 - **Single-writer schema.** Only the architect runs `drizzle-kit generate`, only on `main`, serially. Feature agents may *propose* a column by editing their own `src/db/schema/<feature>.ts` in a PR; they never touch `drizzle/`. This kills the interleaved-journal failure mode that six parallel agents otherwise guarantee.
 - **Event scoping is impossible-by-construction, not a code-review hope** (data-model §8): `event_id NOT NULL` + `UNIQUE(id, event_id)` on all 30 event-scoped tables; every inter-table FK composite. If a composite FK is inconvenient, the query is wrong — do not weaken the constraint.
 - **The trigger is a backstop, not the mechanism.** Application writes are guarded `UPDATE … WHERE status = $expected`; the loser of a race changes nothing and fires nothing ([M18](./M18-submission-mutations-notify.md)). The trigger catches raw writes from an agent who skipped the repo function.
-- **`withTx` is confined to four functions.** A fifth transactional path is a design change requiring the architect. If spike S2 failed, those four become single-statement guarded CTEs — the schema does not change either way.
+- **`withTx` is confined to eight runtime functions.** A ninth deployed transactional path is a design change requiring the architect. M09's command-line seed transaction is the sole non-runtime exception. If spike S2 failed, those eight runtime paths become single-statement guarded CTEs — the schema does not change either way.
 - **Views are the only read path** for [M38](./M38-dashboard.md), [M32](./M32-public-schedule-gallery.md), [M33](./M33-embed-shells.md), [M39](./M39-airtable-export.md), [M40](./M40-public-api.md). One counting rule, draft-leak-proof by construction. A dashboard widget querying `submissions` directly is a review-blocker.
 - **Timezone edge case:** every instant column is `timestamptz`; day-grouping happens in the event's IANA zone via [M04](./M04-shared-libs.md)'s `eventDayKey`, **never** `DATE(starts_at)` in UTC. A 9 PM Pacific session must bin to the correct event day.
 - **Empty-state edge case:** every view must return 0 rows (not error) for the seeded empty second event — [M09](./M09-seed-demo-script.md)'s standing empty-state test depends on it.
@@ -196,5 +197,5 @@ psql "$DATABASE_URL_DIRECT" -c "update submissions set status='accepted' where s
 ## If blocked
 - **Neon not reachable:** apply `0000`/`0001` to PGlite and write all 9 integration tests — that is the majority of the value and it runs offline. Apply to Neon the moment it is up.
 - **drizzle-kit refuses a PG15 form:** move that statement into `0001` as raw SQL (it is a `--custom` migration; plpgsql and views already live there) and keep going. Do not redesign the constraint.
-- **S2 (Pool) verdict still pending:** implement `withTx` against the Pool anyway; the fallback rewrite is inside the four consumers, not here.
+- **S2 (Pool) verdict still pending:** implement `withTx` against the Pool anyway; the fallback rewrite is inside the eight consumers, not here.
 - **Schema done early:** write the `src/db/views.ts` typed row helpers, then start [M04](./M04-shared-libs.md)'s `time.ts` DST table — it is the next thing every workstream needs.

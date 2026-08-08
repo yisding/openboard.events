@@ -225,7 +225,7 @@ graph TD
 | **M28 -.-> M21** | `getMySessions(eventId, contactId): MySessionDTO[]` for the My Sessions card | fixture-backed until M28 lands |
 | **M34 -.-> M27** | `listLog(eventId, filters): CommLogRow[]` | fixture comm-log rows Monday, real Tue with M37 |
 | **M34 -.-> M11** | `seedDefaultTemplates(dbOrTx, eventId)` | stub in event-create until M34 lands |
-| **M06b -.-> M34**, **M06b → M35** | `issuePortalToken(dbOrTx, {contactId, eventId, purpose, ttl})` → `{raw, expiresAt}` (res. #12) + `verifyPortalToken(raw, {purpose})` (non-consuming; **hard** for M35's `/cal` routes) | stub Sat; tokens minted **at send time**, never at enqueue |
+| **M06b -.-> M34**, **M06b → M35** | `issuePortalToken(dbOrTx, {contactId, eventId, purpose, ttl, withOtp?})` → `{tokenId, raw, otp?, expiresAt}` (res. #12) + `verifyPortalToken(raw, {purpose})` (non-consuming; **hard** for M35's `/cal` routes) | ordinary links minted at dispatch; `portal_login` uses `withOtp:true`, `tokenId` for idempotency, encrypted delivery, and clear-after-dispatch |
 | **M07 → M32** | `/f/{fileId}` immutable file URLs | seeded headshots are real R2 objects, so the gallery works without WS-D |
 | **M32 → M40**, **M38 → M40** | `getPublishedSchedule`/`getPublishedSpeakers`, overview endpoint | API is a thin wrapper: zero drift, zero leak paths |
 
@@ -239,7 +239,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 
 | Lane | Fri evening |
 |---|---|
-| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, **WAF rate rules configured now (incl. the OTP verify route)**, hello page deployed to workers.dev. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM/DMARC) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
+| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, canonical environment configs, measured Workers Free bundle/CPU gate, mandatory application auth throttles, hello page deployed to workers.dev. A custom-domain WAF rule is optional defense-in-depth. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM/DMARC) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
 | **B1** | Read `PLAN.md` + `analysis/event-config-cfp.md` + `analysis/form-builder.md`; prep M11/M12 against the contracts draft. |
 | **B2** | **M13a** — evaluator + the ~30-case table-driven test file, written against the contracts draft. Needs nothing but M02. |
 | **WS-C** | Read `analysis/abstracts-review.md`; **[M20](modules/M20-csv-export.md)'s `toCsv` + `csv.test.ts`** — pure RFC-4180 serializer + the quoting/newline/injection test table. Zero dependencies (fixtures only); the test file is the spec. |
@@ -265,7 +265,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 
 | Lane | Sun AM | Sun PM |
 |---|---|---|
-| **Architect** | ° **M09 seed v2** (per-feature modules composed) | ° **M10 golden-path spec** · CP2 drive on the deployed preview · **Sun-noon email fallback decision point** |
+| **Architect** | ° **M09 seed v2** (per-feature modules composed) | ° **M10 golden-path spec** · CP2 drive on the deployed preview · **Sun-noon production-email go/no-go decision** |
 | **B1** | ° **M12 builder core + finish** (Step 1's contract slice landed Sat PM) | ° **M13b** rules UI · **M14** form settings + notifications |
 | **B2** | ° **M16 complete** (version pinning, `FORM_VERSION_STALE`, draft promotion) | ° **M15 end-to-end** incl. Account step (M06b) + server-draft upsert |
 | **WS-C** | ° **M18 complete** (notify w/ `notify_revision`, auto-confirm, submitter-only recipient) · ° **M17 polish** rides along (column picker, empty states, `?submission=` deep link) — same agent, same feature folder | **M19 start** (§6: Sun PM–Mon) · **Sun-noon swarm-capacity check** |
@@ -290,7 +290,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 
 | Lane | Tue AM | Tue PM |
 |---|---|---|
-| **Architect** | ° **M10**: full 6-spec Playwright green vs sb-test · **M09 seed v3** matched to the walkthrough videos | ° perf pass (cache headers verified, bundle gz check, Neon scale-to-zero off, dashboard single-endpoint confirmed) · prod email config re-verified (`EMAIL_MODE=send`, allowlist unset, domain green) · README / API docs / demo-script complete (admin + reviewer + speaker credentials; comms-log fallback instructions) · daily spend evidence captured · **CP4 drive** |
+| **Architect** | ° **M10**: full 6-spec Playwright green vs sb-test · **M09 seed v3** matched to the walkthrough videos | ° perf pass (cache headers verified, bundle gz check, Neon scale-to-zero off, dashboard single-endpoint confirmed) · prod email config re-verified (`EMAIL_MODE=send`, allowlist unset, domain green) · README / API docs / demo-script complete (admin + reviewer + speaker credentials; preview-only email-diagnostics instructions) · daily spend evidence captured · **CP4 drive** |
 | **B1** | closed-form / limit / `FORM_VERSION_STALE` copy pass + forms-list **Closed**-tab counts | deferred post-CP4 COULDs **only if CP4 is green**: phone/number/date field types (the pgEnum is already extensible; the builder's type picker and M15's `field-inputs/` are the only edits) |
 | **B2** | pair on **M41** — B2 owns both artifacts M41 consumes (M16's `runSubmitPipeline`, M15's `<FormFieldRenderer>`), so take the **PATCH-handler half** while WS-D takes the page + gate | `cfp-submit.spec` de-flake vs `sb-test` + the 390 px phone pass |
 | **WS-C** | ° **M20 CSV export** | ° AI-review button (M19 stretch) — **only if everything above is green** |
@@ -318,7 +318,7 @@ Each checkpoint is a gate on the **deployed preview**, driven by the architect. 
 - [ ] Any failed spike → its **pre-decided fallback adopted the same hour** (ISR → force-dynamic + Cache-API; better-auth → jose-signed HMAC cookie + seeded creds behind the same `requireAdmin` signature; per-PR previews → staging worker)
 - [ ] Contracts draft circulated (all Phase-0 signature stubs, fan-out rule, idempotency-key recipes, `FormFieldRendererProps`, golden FormSnapshot fixture)
 - [ ] Friday walkthrough video watched and diffed against the six analyses → `DECISIONS.md`
-- [ ] CI red/green demonstrably gates a PR; WAF rate rules visible in the dashboard config; Resend domain DNS submitted
+- [ ] CI red/green demonstrably gates a PR; Workers gzip/CPU decision and application auth-throttle proof recorded; Resend domain DNS submitted; any custom-domain WAF rule labeled optional defense-in-depth
 - [ ] Discord-watch rotation started; organizer question queue posted
 
 **Demo bar:** a URL on Cloudflare loads.
@@ -333,7 +333,7 @@ Gates **M02 / M03 / M04 + M05a + M06a only**. M07 and M05b's prop stubs land **S
 - [ ] Every route renders a stub page
 - [ ] CI + deploy pipeline green
 - [ ] **Contracts FROZEN** — from here, `src/shared/contracts` changes require architect-labeled PRs
-- [ ] **HARD GATE: Resend domain verification checked.** Checked = a probe email **sent through Resend from the production `EMAIL_FROM`** to a team Gmail shows `Authentication-Results: spf=pass dkim=pass dmarc=pass` **with aligned identities** (`header.from` and DKIM `header.d`/`header.i` on the `EMAIL_FROM` domain; Show original; screenshot → `DECISIONS.md`) — the dashboard flag alone does not gate, and a generic pass from another sender proves nothing (rev. 3 delta #17). Not propagated → debug/resubmit **immediately**, re-check Sat night, fallback decision Sun noon
+- [ ] **HARD GATE: Resend domain verification checked.** Checked = a probe email **sent through Resend from the production `EMAIL_FROM`** to a team Gmail shows `Authentication-Results: spf=pass dkim=pass dmarc=pass` **with aligned identities** (`header.from` and DKIM `header.d`/`header.i` on the `EMAIL_FROM` domain; Show original; screenshot → `DECISIONS.md`) — the dashboard flag alone does not gate, and a generic pass from another sender proves nothing (rev. 3 delta #17). Not propagated → debug/resubmit **immediately**, re-check Sat night, production-email go/no-go Sun noon
 - [ ] Idempotency-key recipes frozen in `contracts/`; fan-out rule (res. #14) written into the 0001 view SQL and `contracts/`
 - [ ] **Six Playwright specs exist and run with most steps skipped (0 failures)** — M10's skeleton. A spec that has been running skipped since Saturday goes green in minutes; one that appears the day its feature lands has never been debugged.
 
@@ -366,7 +366,7 @@ On the deployed preview, in one run:
 - [ ] **Public schedule + gallery pages live**
 - [ ] Golden-path Playwright green
 - [ ] **50-concurrent submit load test run against the preview (M10), p95 recorded**
-- [ ] **Sun noon decision point (email):** domain verified → prod flips to `EMAIL_MODE=send`, allowlist unset. Not verified → `EMAIL_FALLBACK_UI=1` path + comms-log instructions go into the demo script **now**
+- [ ] **Sun noon decision point (email):** domain verified → prod flips to `EMAIL_MODE=send`, allowlist unset, `EMAIL_FALLBACK_UI=0`. Not verified → production email/auth stays red; preview log/fallback tooling remains diagnostics-only and the team swarms deliverability
 - [ ] **Sun noon swarm check:** golden path red → WS-C pauses M19 and takes wizard/pipeline tasks from B2's queue
 
 **Demo bar:** brief feature #1 fully demoable; #2 / #4 / #9 substantially demoable.
@@ -387,7 +387,7 @@ On the deployed preview, in one run:
 
 **Demo bar:** all 9 primary features demoable end-to-end (rough edges allowed).
 
-### ☐ CP4 — Tue night · **FEATURE FREEZE**
+### ☐ CP4 — plan-Tue / Wed Aug 12, 2:00 PM PT · **FEATURE FREEZE**
 
 - [ ] M39 Airtable (double-run idempotency runbook clean: zero duplicates, hash-skips logged, watermark resume proven)
 - [ ] M40 public API + docs (paste-and-run curl examples)
@@ -399,11 +399,11 @@ On the deployed preview, in one run:
 - [ ] **Full 6-spec Playwright green vs sb-test**
 - [ ] Seed v3 matched to the walkthrough videos
 - [ ] Prod email config re-verified (`EMAIL_MODE=send`, allowlist unset, domain green)
-- [ ] README / API docs / `docs/demo-script.md` complete — admin + reviewer + speaker credentials, comms-log fallback instructions
+- [ ] README / API docs / `docs/demo-script.md` complete — admin + reviewer + speaker credentials, preview-only email-diagnostics instructions
 - [ ] Daily spend evidence in `docs/spend/`
 - [ ] AI-review button **only if everything above is green**
 
-**Anything not merged by Tue midnight is cut.** Branch protection tightens: bug fixes + copy + seed only.
+**Anything not merged by Wed Aug 12 at 2:00 PM PT (CP4) is cut.** Branch protection then tightens: bug fixes + copy + seed only.
 
 **Demo bar:** a judge following `docs/demo-script.md` completes all 9 features unassisted.
 

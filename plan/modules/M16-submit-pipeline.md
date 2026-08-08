@@ -24,7 +24,7 @@ The server side of the public CFP: a **pure** 5-step pipeline (parse → visibil
 - **[M18](./M18-submission-mutations-notify.md)** `createSubmission(eventId, CreateSubmissionInput)`, `upsertDraft(eventId, contactId, formId, formVersion)`, `nextSubmissionCode(tx, eventId)` — Phase-0 throwing stubs Saturday morning; **WS-C lands the real `createSubmission`/`nextSubmissionCode` slice Sat PM** specifically to power the Sat-night thin-slice. **Swap step:** none — the import is already `from '@/features/submissions'`; the stub simply starts working. Never re-declare these signatures locally.
 - **[M12](./M12-form-builder-core.md)** `getPinnedSnapshot`, `getCurrentSnapshot`, `getActiveRoutingRules` — Saturday these return the golden fixture / seeded rows from M12's Step-1 contract slice. **Swap step:** none.
 - **[M14](./M14-form-settings-notifications.md)** `formOpenState` — advisory pre-check only; the authoritative gate is `is_form_open()` inside `createSubmission`.
-- **[M06b](./M06b-portal-auth.md)** `requirePortal(eventSlug)` — until Sat PM, a `DEV_SKIP_OTP` header supplies the contactId.
+- **[M06b](./M06b-portal-auth.md)** `requirePortal(eventSlug)` — until Sat PM, the existing `TEST_AUTH=1` isolated-preview path may supply a fixture contactId.
 
 ## Provides (interfaces others consume)
 
@@ -145,7 +145,7 @@ Verification:
 - **Resolution #8 is the single most important rule here.** The `forms` feature owns only the **pure** pipeline and calls WS-C's mutations. `grep -rn "INSERT INTO submissions\|insert(submissions)" src/features/forms` must return **nothing** — CI enforces it. Do not "temporarily" insert a row to unblock yourself; use WS-C's stub and wait.
 - **Never invent or shadow the WS-C signatures**: `createSubmission(eventId, CreateSubmissionInput)`, `updateSubmissionFromCfp(eventId, contactId, submissionId, CleanAnswers)`, `upsertDraft(eventId, contactId, formId, formVersion)`, `nextSubmissionCode(tx, eventId)`. If a field you need is missing from `CreateSubmissionInput`, open an architect-labeled contracts PR — do not add a second parameter or a local type.
 - **Resolution #12** — magic links are **not** minted here. `createSubmission` enqueues `submission_received`; the dispatcher mints the portal token at send time. The only comms call this module makes is the fire-and-forget `nudgeOutbox(ctx.waitUntil)` in step 9 — it sends nothing itself, it just wakes the dispatcher early.
-- **Resolution #4** — the only transaction on this path is inside `createSubmission` (one of the 4 audited `withTx` functions). This module never opens a Pool transaction; the draft-answer upsert is a single statement on `neon-http`.
+- **Resolution #4** — the final-submit transaction on this path is inside `createSubmission` (one of the 8 audited `withTx` functions); Account-step draft allocation calls the separately audited `upsertDraft`. This forms module never opens a Pool transaction itself, and its local draft-answer upsert is a single statement on `neon-http`.
 - **Resolution #3 / #16** — the payload always carries the client-rendered `form_version`; a structural mismatch is a typed `FORM_VERSION_STALE` carrying the fresh snapshot, never a silent re-validate against a different schema and never a 500.
 - **Deadline is SQL** (quality-strategy S2) — `closes_at > now()` evaluated against the DB clock inside the submit transaction. The `formOpenState` pre-check exists only to render a nicer error faster; it must never be the sole gate.
 - **Limit semantics (contracts)** — count **submitted non-draft** rows only. Drafts never consume the limit. M14's UI copy says the same thing; if the two ever disagree, the contracts comment wins.
@@ -160,5 +160,5 @@ Verification:
 
 - Blocked on WS-C's `createSubmission` (Saturday morning): build Steps 1–3 entirely — the pure pipeline, its 18 unit tests, the draft endpoint's pipeline half, and `snapshot-compat.ts`. That is the majority of the module and needs no DB write path.
 - Blocked on M12's `getPinnedSnapshot`: read `form_versions` directly (same feature folder, allowed) behind a local helper you delete when M12's export lands.
-- Blocked on M06b (`requirePortal`): accept a `x-dev-contact-id` header behind `getEnv().DEV_SKIP_OTP`, and delete it before CP2 (add it to the invariant grep list so it cannot ship).
+- Blocked on M06b (`requirePortal`): accept a `x-dev-contact-id` header only behind the existing `TEST_AUTH=1` guard, and delete the header path before CP2 (add it to the invariant grep list so it cannot ship). Never introduce `DEV_SKIP_OTP` as a second bypass.
 - Never idle: write `tests/integration/cfp-submit.test.ts` cases as failing tests first (they are the spec), then help [M15](./M15-public-cfp-wizard.md) — same agent, and the wizard's Review/stale-recovery work is the other half of this seam.

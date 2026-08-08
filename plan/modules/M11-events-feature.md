@@ -77,7 +77,7 @@ Create the barrel with **every signature above**, each implemented as `throw new
 
 ### Step 2 — Read queries against real tables
 Files: `src/features/events/server/queries.ts`.
-Implement all `list*`/`get*` with Drizzle over `neon-http` `db` (never `withTx` — resolution #4 confines the Pool to 4 functions, none of them here). Every signature starts with `eventId` except `getEventBySlug`/`listEvents` (token/global lookups that *resolve to* an event, per R4's stated exception). `getEventVocabulary` issues 4 parallel selects. Map rows → DTOs with `z.parse` on the way out. Point the barrel at these; delete the fixture returns but keep `fixtures.ts` (tests + other agents' stubs use it).
+Implement all `list*`/`get*` with Drizzle over `neon-http` `db` (never `withTx` — resolution #4 confines the runtime Pool to 8 named functions, none of them here). Every signature starts with `eventId` except `getEventBySlug`/`listEvents` (token/global lookups that *resolve to* an event, per R4's stated exception). `getEventVocabulary` issues 4 parallel selects. Map rows → DTOs with `z.parse` on the way out. Point the barrel at these; delete the fixture returns but keep `fixtures.ts` (tests + other agents' stubs use it).
 **Done when:** `curl -s localhost:3000/api/internal/events/$EVENT_ID/vocab/tracks | jq '.data|length'` prints the seeded track count (4 after `pnpm seed`).
 
 ### Step 3 — Event create + update mutations with optimistic concurrency
@@ -85,7 +85,7 @@ Files: `src/features/events/server/mutations.ts`, `src/features/events/server/gu
 - `createEvent`: zod-validate `CreateEventInput` = `{ name (1..200), slug, eventType, websiteUrl?, location?, timezone (IANA), startsAtLocal, endsAtLocal, theme? (≤1000) }`. Slug: `slugify(input.slug ?? input.name)` then assert `^[a-z0-9](-?[a-z0-9])*$` and not in the reserved list (`api, submit, admin, portal, e, embed, assets, app, cal, f, login` — **import `RESERVED_SLUGS` from `@/shared/lib/slug`, never retype it**; the same 11 values are the `events.slug` CHECK in [M03](./M03-db-schema-migrations.md)); let the DB `UNIQUE` be the real arbiter and map `23505` → `AppError('VALIDATION', 'That slug is taken')` on the `slug` field.
 - Timezone: validate with `Intl.supportedValuesOf('timeZone').includes(tz)`; convert the two local datetime strings with `zonedInputToUtc(value, tz)` from `time.ts` (**never** `new Date(str)` — CI greps ban date libs outside `time.ts`).
 - Reject `endsAt <= startsAt` in zod `.refine()` before hitting the CHECK, so the user sees a field error not a 500.
-- After insert (single statement, no transaction): call `seedDefaultTemplates(db, eventId)` — the signature is **`seedDefaultTemplates(dbOrTx: DbOrTx, eventId: EventId)`** ([M02](./M02-shared-contracts.md) §11: `DbOrTx = typeof db | TxDb`), which is what makes passing the neon-http handle legal here without opening a 5th `withTx` — then insert the **5 default session formats** — Keynote/45, Talk/30, Workshop/90, Panel/45, Break/15 — with `sort_order` 0..4. Tracks/rooms/tags start empty on purpose (they drive the designed empty states). `seedDefaultTemplates` is `ON CONFLICT DO NOTHING` inside M34, so re-invoking it is safe; do **not** hand-write `email_templates` rows here (PLAN §3: single owner).
+- After insert (single statement, no transaction): call `seedDefaultTemplates(db, eventId)` — the signature is **`seedDefaultTemplates(dbOrTx: DbOrTx, eventId: EventId)`** ([M02](./M02-shared-contracts.md) §11: `DbOrTx = typeof db | TxDb`), which is what makes passing the neon-http handle legal here without opening another `withTx` path — then insert the **5 default session formats** — Keynote/45, Talk/30, Workshop/90, Panel/45, Break/15 — with `sort_order` 0..4. Tracks/rooms/tags start empty on purpose (they drive the designed empty states). `seedDefaultTemplates` is `ON CONFLICT DO NOTHING` inside M34, so re-invoking it is safe; do **not** hand-write `email_templates` rows here (PLAN §3: single owner).
 - `updateEvent(eventId, patch, expectedUpdatedAt)`: guarded `UPDATE events SET … , row_version = row_version + 1, updated_at = now() WHERE id = $1 AND updated_at = $expected` → 0 rows ⇒ `AppError('STALE_WRITE')` (R11).
 **Done when:** PGlite/vitest `src/features/events/server/mutations.test.ts` proves: reserved slug rejected, duplicate slug → VALIDATION, `endsAt <= startsAt` → VALIDATION, second `updateEvent` with the first call's `expectedUpdatedAt` → `STALE_WRITE`.
 
@@ -129,7 +129,7 @@ Files: `src/features/events/components/event-switcher.tsx`, `scripts/seed/events
 
 ## Acceptance criteria
 
-Catalog AC (verbatim): **create event → branded public shell reachable at slug + 7 default templates present** (now **8**, since `portal_login` joined the frozen enum — [M02](./M02-shared-contracts.md) §1)**; endsAt≤startsAt rejected; vocab feeds every downstream dropdown; concurrent edit → 409 + friendly message.**
+Catalog AC (reconciled): **create event → branded public shell reachable at slug + 8 default templates present** (7 domain keys + `portal_login`); endsAt≤startsAt rejected; vocab feeds every downstream dropdown; concurrent edit → 409 + friendly message.
 
 Verification:
 - `pnpm vitest run src/features/events` — mutation guards, slug rules, reorder renumbering.
@@ -141,7 +141,7 @@ Verification:
 
 ## Guardrails
 
-- **Resolution #4** — no `withTx` here. Event create is single statements plus `seedDefaultTemplates`; if that helper needs a tx it takes the `db` client type. Adding a 5th `withTx` call site is a review-blocker.
+- **Resolution #4** — no `withTx` here. Event create is single statements plus `seedDefaultTemplates`; if that helper needs a tx it takes the `db` client type. Adding any unnamed runtime `withTx` call site is a review-blocker.
 - **Resolution #12/#13** — this module never writes `contacts` and never mints tokens.
 - **PLAN §3 template ownership** — `email_templates` rows are created **only** by `seedDefaultTemplates`. Grep `INSERT INTO email_templates` must not match this feature.
 - **Invariant greps** — no `process.env` (use `getEnv()`), no `date-fns`/`date-fns-tz` import (use `time.ts`), no `dangerouslySetInnerHTML` (the theme field is plain text; if you ever render event copy as HTML, use `<RichTextView>`), no `export const runtime = 'edge'`.

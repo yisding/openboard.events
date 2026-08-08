@@ -45,7 +45,7 @@ No module is `DONE` as of this snapshot.
 
 | Modules | Evidence on `main` | Missing before `DONE` |
 |---|---|---|
-| M01 | App scaffold, health route, pinned Next/OpenNext, local build path | Green clean-install CI, deploy workflow, Cloudflare URL, WAF, external spikes |
+| M01 | App scaffold, health route, pinned Next/OpenNext, local build path | Green clean-install CI, canonical env/deploy workflow, Cloudflare URL, measured Workers plan gate, application throttles, external spikes |
 | M02 | Partial form/job enums and schemas | Complete frozen contracts, fixtures, signatures, key recipes, cross-feature DTOs |
 | M04 | Partial condition, interval, sanitizer, slug, and UI helpers | Snapshot compiler, time API, server adapters, complete test/grep contract |
 | M05a | Demo admin shell and core primitives | Auth route group, required primitives, DataTable, accessibility/kitchen-sink AC |
@@ -68,7 +68,7 @@ The following modules remain `NOT STARTED` at their substantive boundary despite
 
 | Checkpoint | Status | Evidence required to turn green |
 |---|---|---|
-| CP0 — deployed skeleton and existential spikes | **NOT MET** | Cloudflare URL, real health round-trip, S1–S4/C1–C2 results, WAF, Resend DNS/header probe |
+| CP0 — deployed skeleton and existential spikes | **NOT MET** | Cloudflare URL, real health round-trip, S1–S4/C1–C2 results, measured bundle/CPU plan decision, application auth-throttle proof, Resend DNS/header probe |
 | CP1 — contracts/schema/foundation freeze | **NOT MET** | Valid migrations on all three DBs, real seed, admin auth, all routes, green CI/deploy, frozen complete contracts |
 | Sat thin slice — CFP to Abstracts | **NOT MET** | Deployed fixture-snapshot form posts through the real server transaction into Neon and appears in Abstracts |
 | CP2 — golden spine | **NOT MET** | Real OTP, submit, review, accept/notify, one delivered/logged email, portal task, public schedule/gallery, e2e and load evidence |
@@ -133,3 +133,27 @@ Effective now, pause bonus work and cosmetic expansion until R3 exits:
 - Do not add new seed-only behavior to claim progress on a server AC.
 
 The next implementation action after this documentation change is **R0: make PR #2 current and make the stacked review/CI blockers explicit before merging any demo stack**.
+
+## 7. Environment and configuration truth
+
+[`environments.md`](environments.md) is the canonical provisioning inventory. The
+Workers account may start on Free: an Aug 8 Wrangler dry-run measured the current OpenNext
+artifact at `1122.48 KiB` gzip, below Free's 3 MB limit. Paid becomes required only if the
+production candidate approaches the 2.5 MB warning line or deployed SSR/auth/database CPU
+evidence cannot safely fit Free's 10 ms allowance.
+
+Current checked-in configuration is not provisioned infrastructure and has these R1 gaps:
+
+- worker names are `openboard-web` / `openboard-jobs` instead of `sb-web` / `sb-jobs`;
+- both R2 bindings use `openboard-files` instead of isolated preview/production buckets;
+- the web URL is localhost and the jobs production URL is a placeholder;
+- the web config has no named preview/production environments;
+- the env accessor currently exposes only `CRON_SECRET`;
+- `main` has no GitHub Actions workflow; PR #5 proposes validation-only CI and still does
+  not migrate or deploy.
+
+The jobs worker must receive only `APP_BASE_URL` and its environment's `CRON_SECRET`. All
+database, session, R2-presign, Resend, ICS, and Airtable configuration belongs to `sb-web`.
+Production must leave `TEST_AUTH` unset and `EMAIL_FALLBACK_UI=0`; preview-only fallback
+surfaces never count as production OTP evidence. A custom-domain WAF rule is optional
+defense-in-depth and is not supplied by Workers Paid or applicable to a workers.dev hostname.

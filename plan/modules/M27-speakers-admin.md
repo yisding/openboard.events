@@ -102,7 +102,7 @@ Routes: `/events/[eventId]/speakers`, `/events/[eventId]/speakers/[contactId]`. 
 9. **Tests.** `src/features/portal/admin/server/queries.test.ts` (PGlite): filter combinations return the same rows as the underlying views; cross-event isolation; email-collision error; confirmation override changes `published_speakers_v` membership.
    **Done when:** `pnpm vitest run src/features/portal/admin` is green.
 
-10. **Tuesday swap.** Replace the fixture comms import with `import { listLog } from '@/features/comms'` once [M34](./M34-comms-outbox-dispatcher.md)/[M37](./M37-comms-admin-ui.md) land, and link each row to the comms-log detail view (the rendered-body page — the judge-mode fallback surface).
+10. **Tuesday swap.** Replace the fixture comms import with `import { listLog } from '@/features/comms'` once [M34](./M34-comms-outbox-dispatcher.md)/[M37](./M37-comms-admin-ui.md) land, and link each row to the comms-log audit detail. Production `portal_login` bodies remain redacted; preview diagnostics do not count as email delivery.
    **Done when:** a real seeded `submission_accepted` row appears in the speaker's timeline with a working link to its rendered body.
 
 ## Acceptance criteria

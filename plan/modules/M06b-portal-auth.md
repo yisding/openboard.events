@@ -9,13 +9,13 @@
 | **Paths owned** | `src/features/auth/server/portal.ts`, `src/features/auth/server/tokens.ts`, `src/features/auth/components/{otp-form,magic-link-form,impersonation-banner}.tsx`, `src/app/(portal)/[eventSlug]/login/page.tsx`, `src/app/(portal)/[eventSlug]/verify/page.tsx`, `src/app/api/internal/auth/portal/**/route.ts`, and appended exports in `src/features/auth/index.ts` + the `/portal/:path*` matcher in `src/middleware.ts` (both files created by [M06a](./M06a-admin-auth.md) — append only, one commit each) |
 
 ## Objective
-A speaker types their email on the portal login page, receives a 6-digit OTP (or a magic link), confirms it with a **POST**, and gets a per-(contact, event) session cookie. The same code path is what the CFP wizard's Account step calls, so **CFP identity IS the portal login**. Tokens are hashed, expiring, attempt-limited and issuance-throttled; the comms dispatcher mints portal links through `issuePortalToken` at send time so nothing stale ages in the outbox. Admins can open the portal as any speaker with an attributed, bannered session. With `EMAIL_FALLBACK_UI=1` the verify page surfaces the code inline, which is the whole email-outage contingency.
+A speaker types their email on the portal login page, receives a 6-digit OTP (or a magic link), confirms it with a **POST**, and gets a per-(contact, event) session cookie. The same code path is what the CFP wizard's Account step calls, so **CFP identity IS the portal login**. Tokens are hashed, expiring, attempt-limited and issuance-throttled; ordinary comms links are minted through `issuePortalToken` at dispatch time. `portal_login` is the necessary exception: the request creates its OTP/link, encrypts the delivery payload for the outbox, and the dispatcher clears it after rendering. Admins can open the portal as any speaker with an attributed, bannered session. `EMAIL_FALLBACK_UI=1` is local/preview diagnostics only; production fails closed with the flag off.
 
 ## Dependencies
 - **Hard (blocks start):** [M03](./M03-db-schema-migrations.md) (`contacts`, `portal_tokens` **with the ★ `attempts` column**, `portal_sessions`), [M04](./M04-shared-libs.md) (`getEnv`, `AppError`, `defineHandler`, `enqueueEmail`), [M06a](./M06a-admin-auth.md) (the auth barrel, `src/middleware.ts`, `getAdminSession()` for impersonation).
 - **Soft (start against stub/fixture):**
   - **`getOrCreateContact(tx, eventId, email)`** (resolution #13) is owned by `features/portal/server/contacts.ts`, which **[M21](./M21-portal-shell.md) ships as its Step 0 in its first hour** precisely because this module needs it Sat PM. Build against [M02](./M02-shared-contracts.md)'s throwing stub. **Contingency only if WS-D has not pushed it by 14:00 Sat:** create the file containing exactly those two functions and nothing else, announce the temporary grant in `DECISIONS.md`, and hand it back to WS-D the same day. Never write `INSERT INTO contacts` anywhere else (grep #7).
-  - Email delivery: everything works under `EMAIL_MODE=log` — the OTP lands as a rendered `communication_logs` row. The dispatcher ([M34](./M34-comms-outbox-dispatcher.md)) is not required for this module's ACs.
+  - [M34](./M34-comms-outbox-dispatcher.md) is a soft integration dependency: request/throttle/token tests assert the queued encrypted row without it, while the full `EMAIL_MODE=log` rendered-message round-trip is green only after M34 dispatches that row. Build against its Phase-0 dispatcher stub; do not bypass the outbox to make the module pass alone.
 
 ## Provides (interfaces others consume)
 ```ts
@@ -25,10 +25,12 @@ export type PortalSession = { contactId: ContactId; eventId: EventId; email: str
                               impersonatedByUserId: UserId | null };
 export async function ensurePortalSession(contactId: ContactId, eventId: EventId): Promise<void>;
 export async function issuePortalToken(dbOrTx: DbOrTx, args: {                 // resolution #12
-  contactId: ContactId; eventId: EventId; purpose: TokenPurpose; ttl: Duration;
-}): Promise<{ raw: string; expiresAt: Date }>;
+  contactId: ContactId; eventId: EventId; purpose: TokenPurpose; ttl: Duration; withOtp?: boolean;
+}): Promise<{ tokenId: TokenId; raw: string; otp?: string; expiresAt: Date }>;
 // The first parameter is DbOrTx (M02 §11), NOT TxDb: this helper performs a single INSERT, and the
-// comms dispatcher calls it on the neon-http `db` handle deliberately, so no 5th withTx path is opened
+// Ordinary comms dispatch calls it on the neon-http `db` handle (single INSERT). Portal login calls it
+// inside requestPortalLogin's audited transaction so contact/token/outbox commit atomically.
+// `otp` is returned only for portal-login issuance; token_hash/otp_hash are all that persist.
 // (resolution #4). Inside an existing transaction, callers pass their `tx` — same signature, same code.
 
 // Non-consuming verifier — the ONLY way another feature checks a token. Hashes, checks
@@ -53,11 +55,11 @@ Append the block above to `src/features/auth/index.ts` with `notImplemented()` b
 ```ts
 issuePortalToken(tx, {contactId, eventId, purpose, ttl})
 // raw = 32 bytes from crypto.getRandomValues → base64url  (magic_link / ics_download / impersonation)
-// otp  = 6 digits, generated alongside for purpose 'magic_link'
-// stored: token_hash = sha256(raw) via Web Crypto; expires_at = now + ttl; attempts = 0
-// returns { raw, expiresAt } — the RAW value is never stored and never logged
+// otp  = 6 digits, generated only when the caller requests portal-login delivery
+// stored: token_hash = sha256(raw), otp_hash = sha256(otp) when present, expires_at, attempts = 0
+// returns { tokenId, raw, otp?, expiresAt } — raw values are never stored or logged in plaintext
 ```
-TTLs: `magic_link` 15 min (OTP), 60 min (link); `ics_download` 365 d (**`consumed_at` stays NULL forever** — calendar clients re-fetch); `impersonation` 5 min, single use; **dispatcher-minted `magic_link` embedded in an email body: 30 d** — the link must outlive the inbox, and [M34](./M34-comms-outbox-dispatcher.md) mints it fresh at send time with exactly this TTL.
+TTLs: request-time `portal_login` challenge = 15 min for both the OTP and magic link (they share one `portal_tokens.expires_at`); `ics_download` 365 d (**`consumed_at` stays NULL forever** — calendar clients re-fetch); `impersonation` 5 min, single use; **dispatcher-minted ordinary `magic_link` embedded in a domain email body: 30 d** — the link must outlive the inbox, and [M34](./M34-comms-outbox-dispatcher.md) mints it fresh at send time with exactly this TTL.
 `consumeToken(rawOrCode, {eventId, purpose})`:
 1. hash → look up by `token_hash` (and by `(contact,purpose)` + code for the OTP form);
 2. reject if `expires_at < now()` or `consumed_at IS NOT NULL`;
@@ -66,10 +68,10 @@ TTLs: `magic_link` 15 min (OTP), 60 min (link); `ics_download` 365 d (**`consume
 - **Done when:** PGlite test — 5 wrong codes then the right one → rejected; right code first → session; expired token → rejected; `ics_download` token stays unconsumed after two fetches.
 
 ### 3. `POST /api/internal/auth/portal/request` — issuance, throttled
-Input `{eventSlug, email}` → resolve event → **`getOrCreateContact(tx, eventId, email.toLowerCase().trim())`** → `issuePortalToken` → **`enqueueEmail(tx, {templateKey:'portal_login', contactId, idempotencyKey: idem.otp(eventId, contactId, tokenId), refs:{}})`** in the **same transaction**.
+`requestPortalLogin(eventSlug, email)` is one of resolution #4's eight audited `withTx` functions. Inside it: resolve event → **`getOrCreateContact(tx, eventId, email.toLowerCase().trim())`** → `issuePortalToken(tx, {purpose:'magic_link', withOtp:true})` → AES-GCM encrypt `{otp, magicLink}` under a key derived from `SESSION_SECRET` with a fresh nonce → **`enqueueEmail(tx, {eventId, templateKey:'portal_login', contactId, idempotencyKey: idem.portalLogin(eventId, contactId, tokenId), secretPayloadCiphertext})`**. The ciphertext is the only raw-token-bearing value at rest; M34 decrypts it just-in-time and clears it after render/send.
 **The template key is `portal_login`** — the 8th key in the frozen `TEMPLATE_KEYS` enum ([M02](./M02-shared-contracts.md) §1, [M03](./M03-db-schema-migrations.md) ★10, default copy in [M34](./M34-comms-outbox-dispatcher.md)'s `DEFAULT_TEMPLATES`, rendered in [M37](./M37-comms-admin-ui.md)'s rail). There is **no** `magic_link` template key; `communication_logs.template_key` is that pgEnum, so writing one would fail the insert and take the OTP path down. `portal_login` is the **one documented exception to resolution #12**: its token is minted here at enqueue time because the token *is* the payload being delivered — note that next to the call.
 - **Throttle: 3 issuances per 10 minutes per (event, email)** — counted from `portal_tokens.created_at`; over the limit returns `RATE_LIMITED` with a friendly "check your inbox, or try again in a few minutes" (never leak whether the email exists).
-- WAF rate rules already cover this route and the verify route at the edge ([M01](./M01-scaffold-ci-deploy.md), configured Friday).
+- These application controls are mandatory on workers.dev. If a custom domain is attached, an available Cloudflare path-based rate rule may add defense-in-depth, but it is neither assumed nor a substitute for this throttle.
 - Always responds "if that address is on file, we've sent a code" — no user enumeration.
 - **Done when:** four rapid requests produce three token rows and one `RATE_LIMITED`, and `EMAIL_MODE=log` leaves exactly three `communication_logs` rows.
 
@@ -78,9 +80,9 @@ The magic link lands on a **page** at `/portal/[eventSlug]/verify?token=…` who
 The same page hosts the 6-digit OTP form (the primary path — no cross-device problem mid-CFP-wizard). On success: create `portal_sessions` (token_hash of a fresh 32-byte session token, `expires_at = now + 30d`), set cookie `ob_portal` (`httpOnly`, `Secure`, `SameSite=Lax`, path `/`), redirect to `?next=` or `/portal/[eventSlug]`.
 - **Done when:** `curl -i "https://<preview>/portal/<slug>/verify?token=X"` returns 200 HTML and **does not** set `consumed_at`; the subsequent POST does.
 
-### 5. `EMAIL_FALLBACK_UI=1` — judge mode (~20 lines, the email-outage contingency)
-When the flag is set, the request response includes the OTP and the magic-link URL, and the verify page renders them inline in a bordered "Development / fallback mode" panel. This is the pre-decided fallback if the Resend domain is unverified at the Sun-noon decision point (risk #7). `docs/demo-script.md` additionally documents "grab the rendered link from the admin Comms Log screen" ([M37](./M37-comms-admin-ui.md) stores rendered bodies).
-- **Done when:** with the flag on, a fresh browser completes login without any email; with it off, the code appears nowhere in the response body (assert with grep in a test).
+### 5. `EMAIL_FALLBACK_UI=1` — local/preview diagnostics (~20 lines)
+When the flag is set outside production, the request response includes the OTP and magic-link URL and the verify page renders them in a bordered "Development / fallback mode" panel. This unblocks local/preview testing while Resend is unavailable; it is not acceptable evidence for the judge path. Production configuration fixes the flag to `0`, the post-deploy smoke asserts no secret appears, and the admin comms log redacts `portal_login` credentials after a real send.
+- **Done when:** with the flag on in preview, a fresh browser completes login without email; with it off, the code appears nowhere in the response body; production smoke fails if the flag is enabled.
 
 ### 6. `requirePortal` + `portalAuth` — IDOR-proof by construction
 ```ts
@@ -120,7 +122,7 @@ pnpm exec playwright test e2e/portal-tasks.spec.ts       # (M10) portal login pa
 - **POST-confirm only.** A GET that consumes the token is the "my magic link was already used" bug that will absolutely happen with a judge's corporate inbox.
 - **OTP first, link second.** The CFP wizard's Account step is mid-flow on one device; a magic link that opens a new tab loses the wizard state. The OTP is the tested path; the link is the convenience.
 - **No user enumeration:** identical response and timing whether or not the contact exists. Errors are generic.
-- **Never log or store the raw token.** `token_hash` only; the raw value exists in the response/email and in memory.
+- **Never log or store the raw token in plaintext.** `portal_tokens` stores hashes only. The `portal_login` outbox exception stores the short-lived delivery payload only as AES-GCM ciphertext, clears it on a terminal dispatch path, and redacts the production rendered body.
 - **Cookie scope:** the portal cookie is per-(contact, event). A speaker with contacts in two events has two sessions — per-event identity, no global speaker (data-model §3.3).
 - **Timezone edge case:** expiries are `timestamptz` compared against `now()` in SQL, never against a client clock. The "expires in 15 minutes" copy is rendered with `formatInZone`.
 - **Concurrent-edit edge case:** two tabs submitting the same OTP → one session, one `consumed_at`; the loser gets a friendly "already used — you're signed in" rather than an error.

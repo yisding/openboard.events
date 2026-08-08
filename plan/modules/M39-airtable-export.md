@@ -9,13 +9,13 @@
 | **Paths owned** | `src/features/airtable/index.ts`, `src/features/airtable/server/client.ts`, `src/features/airtable/server/sync.ts`, `src/features/airtable/server/sources.ts`, `src/features/airtable/components/**`, `src/features/airtable/sync.test.ts`, `src/app/(admin)/events/[eventId]/settings/integrations/page.tsx`, `src/app/api/internal/airtable/**`, `docs/airtable-base.md` |
 
 ## Objective
-A one-way, idempotent, rate-limited push mirrors five tables (Speakers, Submissions, Sessions, Task Status, Comms Log) from Postgres views into a provisioned Airtable base, keyed on a `PG ID` merge field. It runs only on the jobs path (manual admin button + optional `%10` cron), resumes from a watermark taken from each view's `greatest(updated_at)` column, skips unchanged rows by content hash, and never blocks a user request. The admin Settings → Integrations page shows last run, per-table stats, and errors.
+A one-way, idempotent, rate-limited push mirrors five tables (Speakers, Submissions, Sessions, Task Status, Comms Log) from Postgres views into a provisioned Airtable base, keyed on a `PG ID` merge field. It runs inside `sb-web` through the job route (manual admin button + optional `%10` trigger from `sb-jobs`), resumes from a watermark taken from each view's `greatest(updated_at)` column, skips unchanged rows by content hash, and never blocks a user request. The admin Settings → Integrations page shows last run, per-table stats, and errors.
 
 ## Dependencies
 - **Hard (blocks start):**
   - [M03](./M03-db-schema-migrations.md) — `airtable_sync_state` (`UNIQUE(table_name, record_pk)`), `airtable_sync_runs`, and **every exported view carrying `greatest(a.updated_at, b.updated_at, …) AS updated_at`** (the ★ delta in PLAN §3 — without it, a speaker bio edit that only touches a joined table is silently skipped). Verify the column exists on `accepted_speakers_v`-backed sources before writing sync code.
   - [M08](./M08-jobs-worker.md) — `POST /api/jobs/airtable` (%10) to wire into.
-  - **Step 1's provisioning must be complete** (Saturday) with `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID` in both env sets and the hand-run `performUpsert` verified.
+  - **Step 1's provisioning must be complete** (Saturday) with `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID` on the preview/production web environments only, `AIRTABLE_CRON=0` by default, and the hand-run `performUpsert` verified. The jobs worker receives none of these values.
 - **Soft (start against stub/fixture):**
   - Source data: [M09](./M09-seed-demo-script.md)'s seed is sufficient for every table (12 speakers, ~25 submissions, ~15 sessions, 3 tasks, pre-populated comms log). No dependency on any other workstream's UI.
   - [M34](./M34-comms-outbox-dispatcher.md)'s `listLog` powers the Comms Log table; until it lands, read `communication_logs` directly inside `sources.ts` and swap to `listLog` when convenient (same feature-barrel rule: `airtable` reads other features only through their exported contracts).

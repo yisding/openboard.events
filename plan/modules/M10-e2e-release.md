@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | IN PROGRESS — PR #5 contains **STACK-DEMO** release docs, CI, smoke, and license scaffolding, but is **REVIEW-BLOCKED**; Playwright, load test, deployment, spend proof, and release AC are absent. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect, in the integrator role after Saturday) |
-| **Scheduled** | Skeleton at CP1 (Sat) → **golden-path spec green + 50-concurrent load test at CP2 (Sun night)** → all 6 specs green at CP4 (Tue night) → repo public + submission Wed |
+| **Scheduled** | Skeleton at CP1 (plan-Sat) → **golden-path spec green + 50-concurrent load test at CP2 (plan-Sun night)** → all 6 specs green at CP4 (Wed Aug 12, 2 PM PT) → repo public + submission that evening |
 | **Size** | M |
 | **Paths owned** | `e2e/**` (6 specs + fixtures + `e2e/helpers/*`), `playwright.config.ts`, `scripts/post-deploy-smoke.sh`, `scripts/load-test.ts`, `README.md`, `LICENSE`, `docs/spend/**`, `docs/submission-checklist.md`. **NOT owned: `docs/api.md` — [M40](./M40-public-api.md) is its sole owner** (both modules land Tuesday, in different workstreams; PLAN §6 makes disjoint file ownership the anti-merge-hell device) |
 
@@ -18,7 +18,7 @@ The judge's path is proven by machine, not by memory: six Playwright smokes run 
 
 ## Provides (interfaces others consume)
 - `pnpm e2e` (all specs) / `pnpm e2e --grep <name>` — every workstream runs its own spec before merging.
-- `e2e/helpers/`: `loginAsAdmin(page, email)` (via `/api/test/login`), `loginAsSpeaker(page, email)` (via `EMAIL_FALLBACK_UI=1` or a seeded token), `seedReset()`, `expectNoConsoleErrors(page)`.
+- `e2e/helpers/`: `loginAsAdmin(page, email)` (via `/api/test/login`), `loginAsSpeaker(page, email)` (requests the normal portal challenge and reads preview-only `EMAIL_FALLBACK_UI=1` diagnostics), `seedReset()`, `expectNoConsoleErrors(page)`. No seeded bearer token exists.
 - `bash scripts/post-deploy-smoke.sh <baseUrl>` — called by [M01](./M01-scaffold-ci-deploy.md)'s deploy job **and** runnable from a laptop.
 - `README.md` — the open-source deliverable. It **links** `docs/api.md`, which is owned and written by [M40](./M40-public-api.md); this module never edits that file.
 - `docs/spend/` — the daily token/cost evidence the brief's $500 reimbursement "will ask for proof" of.
@@ -83,7 +83,7 @@ Exit non-zero on the first failure; print the failing URL and the response heade
 
 ### 9. `scripts/load-test.ts` — the CP2 load test (owns risk #2's verification)
 ~10 lines with autocannon or k6: **50 concurrent POSTs to the deployed preview's submit endpoint** with distinct emails against a form whose limit permits them. Record p50/p95/p99 and the error count in `DECISIONS.md`.
-What it proves: the Neon WebSocket `Pool` per-request lifecycle survives burst submits (the deadline-minute scenario) and the `FOR UPDATE` event-row lock in `createSubmission` does not deadlock. **A failure here triggers the pre-decided fallback** — rewrite the four `withTx` paths as single-statement guarded CTEs — and the trigger date is Sunday night, not Wednesday.
+What it proves: the Neon WebSocket `Pool` per-request lifecycle survives burst submits (the deadline-minute scenario) and the `FOR UPDATE` event-row lock in `createSubmission` does not deadlock. **A failure here triggers the pre-decided fallback** — rewrite the eight audited `withTx` paths as single-statement guarded CTEs — and the trigger date is Sunday night, not Wednesday.
 - **Done when:** p95 is recorded and every response is either 200 or a **typed** `LIMIT_REACHED`/`FORM_CLOSED` (never a 500).
 
 ### 10. README + API docs + LICENSE

@@ -194,7 +194,7 @@ Airtable export targets: Abstracts (flattened with speaker names, track, status,
 7. **CSV only** (skip XLSX); "Download files bundle" only if file uploads land in scope, else omit.
 8. **Import Sessions**: skip, or accept a rigid CSV template with a strict column order.
 9. **Reviewer experience as a filtered route** (`/review`) reusing the same table components with score-entry drawer — not a separate app. Single score (1–5) + comment is enough; multi-criteria only if trivial with the schema already supporting it.
-10. **AI-assisted review**: implement, if at all, as one server action "Generate AI review" writing a Score row from a synthetic "AI Reviewer" with the model's rationale as the comment — no pipelines, no auto-runs.
+10. **AI-assisted review**: implement, if at all, as one authenticated "Generate AI review" route writing a Review row from a synthetic "AI Reviewer" with the model's rationale as the comment — no pipelines, no auto-runs.
 11. **Detail view = right-hand drawer** (shadcn Sheet) matching screenshots, with Details/Participants tabs; no separate full page.
 12. **Withdrawn**: a speaker-portal button + status; no re-instate flow (organizer can manually flip status if needed).
 13. **Notified**: single timestamp + one templated email per decision; no per-channel tracking. Calendar invites belong to the communications module post-acceptance, not here.

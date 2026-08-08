@@ -15,7 +15,7 @@ One idempotent 15-minute scan replaces all event-driven cross-feature coupling f
 - **Hard (blocks start):**
   - [M34](./M34-comms-outbox-dispatcher.md) — the dispatcher drains what this enqueues; `seedDefaultTemplates` created the `reminder_rules` rows (−7, −1, +1) and the `task_assigned`/`task_reminder` templates.
   - [M03](./M03-db-schema-migrations.md) — `task_assignments_v` **with the resolution-#14 fan-out rule baked into the view SQL**, `reminder_rules`, `portal_tasks` (incl. `created_at`, `is_active`, `due_at`), `submissions.decided_at`, `communication_logs.idempotency_key UNIQUE` + `status='skipped'` — migrated on sb-dev and sb-test.
-  - [M04](./M04-shared-libs.md) — `enqueueEmail(tx, {templateKey, contactId, idempotencyKey, refs})`.
+  - [M04](./M04-shared-libs.md) — `enqueueEmail(tx, {eventId, templateKey, contactId, idempotencyKey, refs})`.
   - [M08](./M08-jobs-worker.md) — `POST /api/jobs/reminders` (%15) to wire into.
 - **Soft (start against stub/fixture):**
   - Real tasks and completions arrive with [M23](./M23-tasks-admin.md)/[M25](./M25-task-runtime.md) (Mon). Build entirely against [M09](./M09-seed-demo-script.md)'s **3 seeded tasks (one deliberately overdue)** and the seeded accepted submissions — they exist Sat AM and are the exact fixture the CP3 check uses. No swap step needed; real rows flow through the same view.
@@ -127,7 +127,7 @@ Verification:
 - **Send-time re-check still happens in the dispatcher** ([M34](./M34-comms-outbox-dispatcher.md) step 3): a task completed between scan and send lands as `skipped`. Scan-time filtering is the first net, not the only one.
 - **Unsubscribed contacts** are handled at dispatch (reminder-class only), not here — one rule, one place.
 - Edge cases: `due_at IS NULL` → the task never participates in the ladder (assert this; a NULL due date must not throw or fire immediately); a disabled `reminder_rule` disappears from the ladder with no cleanup; an admin reopening a completion does **not** re-nag (keys already used stay used — documented, accepted); DST — offsets use `make_interval(days => n)` on `timestamptz`, which is calendar-day arithmetic in the DB's UTC frame; the human-facing due date is rendered via `time.ts`'s `endOfDayInTz`/`formatInZone` upstream in [M23](./M23-tasks-admin.md).
-- **Budget the scan** (500 / 1000 rows) so a huge event cannot blow the 30 s CPU limit; the next tick resumes.
+- **Budget the scan** (500 / 1000 rows) and measure it on the deployed plan. While on Workers Free, each job request must remain inside the 10 ms CPU allowance; if representative bounded batches cannot, reduce the batch or trip resolution #22's Paid-upgrade gate. The next tick resumes either way.
 
 ## If blocked
 - Blocked on [M34](./M34-comms-outbox-dispatcher.md): the entire pass-2 SELECT (step 3) is pure SQL against [M03](./M03-db-schema-migrations.md)'s views and can be developed and unit-tested in PGlite with hand-inserted `communication_logs` rows.

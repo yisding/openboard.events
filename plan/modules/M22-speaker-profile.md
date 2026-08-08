@@ -59,7 +59,7 @@ export async function updateProfile(eventId: EventId, contactId: string, patch: 
 
 4. **`updateProfile(eventId, contactId, patch)`.**
    - `sanitize(patch.bioHtml)` (M04's shared sanitizer, the narrow allowlist — not the wide resource-pages one) before persisting.
-   - Calls `updateContactFields(tx, eventId, contactId, {...only the keys present in patch})` — single-statement guarded update, no `withTx` needed (this is not one of the 4 audited transactional functions).
+   - Calls `updateContactFields(db, eventId, contactId, {...only the keys present in patch})` — single-statement guarded update, no `withTx` needed (this is not one of the 8 audited transactional functions).
    - Returns the refreshed DTO.
    - **Done when:** PGlite test: patching only `{bioHtml}` leaves every other column untouched even when another concurrent write (simulated) changed `company` — proves field-scoped discipline (resolution #13 + edge case #5 "form write-back races").
 

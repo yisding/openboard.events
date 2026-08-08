@@ -13,21 +13,21 @@ Non-negotiable stack (already decided): Next.js App Router · shadcn/ui + Tailwi
 | Concern | Decision |
 |---|---|
 | Repo shape | **Single Next.js app** (no monorepo). Boundaries enforced by ESLint, not package graph. |
-| ORM / DB driver | **Drizzle ORM** over **`@neondatabase/serverless`** WebSocket `Pool` (per-request), pooled Neon connection string. Transactions required for submit/limit/notify paths. |
+| ORM / DB driver | **Drizzle ORM** with `neon-http` by default; per-request **`@neondatabase/serverless` WebSocket `Pool`** only in the eight audited `withTx()` functions named in `PLAN.md`. |
 | Admin auth | **better-auth** (email+password, Drizzle adapter, Postgres sessions). Lucia is deprecated as a library; better-auth has a first-class Drizzle adapter and runs on Workers. |
 | Speaker auth | **Custom magic-link tokens** (hashed, single-use, POST-confirm) → `portal_session` cookie scoped to (contact, event). NOT better-auth — speakers are not accounts, they're per-event contacts. |
 | API style | **Route handlers only** — no Server Actions anywhere. One mutation mechanism, curl-testable, plays perfectly with TanStack Query. |
-| Validation | **zod v3** schemas in `src/shared/contracts` — single source of truth for DB DTOs, API bodies, form runtime, and public API. |
+| Validation | **zod v4** schemas in `src/shared/contracts` — single source of truth for DB DTOs, API bodies, form runtime, and public API. |
 | Rich text | **TipTap** editor (client-only), stores HTML, sanitized server-side on save via one shared `sanitize()` (the `xss` package — Workers-safe, no DOM). One editor component reused everywhere. |
 | Drag & drop | **dnd-kit** (`@dnd-kit/core` + `@dnd-kit/sortable`) for agenda grid AND all list reordering. |
 | Tables | TanStack Table v8 wrapped in one shared `<DataTable>`. |
-| Email | **Resend** (fetch-based SDK, Workers-safe), env-gated (`EMAIL_MODE=log|send`). |
+| Email | **Resend HTTP API** through one plain-fetch adapter, env-gated (`EMAIL_MODE=log|send`). |
 | ICS | Hand-rolled ~150-line builder, **UTC `Z` times** (no VTIMEZONE hand-rolling), stable UID + SEQUENCE, METHOD:REQUEST/CANCEL. |
 | Charts | None. Stat tiles, CSS bars, one small SVG donut helper. (Speed bonus, zero bundle cost.) |
 | File uploads | Direct-to-R2 via **presigned PUT** (aws4fetch against R2's S3 API); never proxy bytes through the Worker. |
-| Scheduling | Cloudflare **Cron Trigger on a tiny separate worker** that POSTs `/api/cron/tick` with a secret. Idempotent scan design (no enqueue-time state). |
-| Cross-feature side effects | **`domain_events` outbox table** written transactionally by features; comms consumes it. No direct "send email" calls from feature code. |
-| Dates | `timestamptz` everywhere; event IANA timezone on Event; `date-fns` + `date-fns-tz` helpers in `shared/lib/tz.ts`. |
+| Scheduling | Cloudflare **Cron Trigger on a tiny separate worker** that POSTs `/api/jobs/{outbox|reminders|airtable|cleanup}` with `CRON_SECRET`. Idempotent scan design. |
+| Cross-feature side effects | **`communication_logs` transactional outbox** written through `enqueueEmail()`; the web comms dispatcher consumes it. No direct provider calls from domain features. |
+| Dates | `timestamptz` everywhere; event IANA timezone on Event; `date-fns` + `date-fns-tz` helpers only in `shared/lib/time.ts`. |
 | IDs | `crypto.randomUUID()` PKs; per-event integer sequence for `SESS-n` codes. |
 
 ---
@@ -47,9 +47,9 @@ openboard/
 ├── open-next.config.ts           # @opennextjs/cloudflare adapter config (R2 incremental cache)
 ├── wrangler.jsonc                # main worker: bindings (R2, secrets), routes
 ├── workers/
-│   └── cron/                     # tiny scheduled worker: fetch POST /api/cron/tick (CRON_SECRET)
+│   └── jobs/                     # tiny scheduled worker: POST /api/jobs/* (CRON_SECRET)
 │       ├── index.ts
-│       └── wrangler.jsonc        # crons: ["*/15 * * * *"]
+│       └── wrangler.jsonc        # one cron: ["* * * * *"], minute-modulo dispatch
 ├── drizzle.config.ts
 ├── eslint.config.mjs             # eslint-plugin-boundaries: feature isolation rules
 ├── scripts/
@@ -59,34 +59,32 @@ openboard/
 └── src/
     ├── middleware.ts             # security headers, admin-session gate for /events/*, portal gate
     ├── db/
-    │   ├── client.ts             # getDb(): per-request Drizzle over Neon Pool
+    │   ├── client.ts             # neon-http db + confined per-request withTx Pool
     │   ├── schema/               # ONE file per feature; all re-exported by schema/index.ts
     │   │   ├── index.ts
-    │   │   ├── auth.ts           # better-auth tables + api_keys
-    │   │   ├── events.ts         # events, tracks, rooms, session_formats
-    │   │   ├── forms.ts          # submission_forms, form_sections, form_fields, routing_rules
-    │   │   ├── submissions.ts    # submissions, submission_answers, submission_speakers,
-    │   │   │                     #   contacts, tags, files, evaluation_plans, reviews
-    │   │   ├── portal.ts         # portal_tasks, task_completions, portal_forms(+sections/fields),
-    │   │   │                     #   form_responses, file_requests, file_uploads, portal_tokens/sessions
+    │   │   ├── auth.ts           # better-auth tables (or fallback admin_sessions)
+    │   │   ├── core.ts           # users, events, members, files, tracks/rooms/formats/tags
+    │   │   ├── contacts.ts       # contacts, portal_tokens/sessions, api_keys
+    │   │   ├── forms.ts          # forms, sections, fields, versions, routing_rules
+    │   │   ├── submissions.ts    # submissions, participants, answers, tags
+    │   │   ├── evaluation.ts     # plans, criteria, assignments, reviews
+    │   │   ├── portal.ts         # tasks/completions, responses, requests/uploads, resources
     │   │   ├── agenda.ts         # sessions, session_speakers
-    │   │   ├── comms.ts          # email_templates, reminder_rules, communication_log,
-    │   │   │                     #   calendar_invites, domain_events (outbox)
+    │   │   ├── comms.ts          # templates, reminders, communication_logs outbox, invites
     │   │   ├── embeds.ts         # embeds
-    │   │   └── airtable.ts       # airtable_sync_state
-    │   ├── views.sql             # dashboard read-model views (dashboard_* — see §8)
-    │   └── migrations/           # drizzle-kit output; schema frozen at CP1, changes via architect only
+    │   │   └── airtable.ts       # airtable_sync_state + airtable_sync_runs
+    │   └── views.ts              # typed rows for the eight SQL read-model views
     ├── shared/
-    │   ├── contracts/            # ★ THE inter-agent contract surface. zod v3. No imports from features.
+    │   ├── contracts/            # ★ THE inter-agent contract surface. zod v4. No imports from features.
     │   │   ├── index.ts
     │   │   ├── enums.ts          # SubmissionStatus, SessionStatus, TaskStatus, TemplateKey, …
     │   │   ├── event.ts          # EventDTO, TrackDTO, RoomDTO, SessionFormatDTO
-    │   │   ├── form-schema.ts    # FormSchemaDTO, FieldDTO, ConditionRule, RoutingRule, AnswerValue
+    │   │   ├── form-schema.ts    # FormSnapshot, FieldDTO, Condition/Visibility/Route, AnswerValue
     │   │   ├── submission.ts     # SubmissionDTO, SubmissionListRow, transition map
     │   │   ├── speaker.ts        # ContactDTO (profile shape gallery+portal+comms all read)
-    │   │   ├── task.ts           # TaskDTO, TaskAssignmentDTO, OutstandingTasksRow
+    │   │   ├── task.ts           # TaskDTO, lazy assignment DTO, OutstandingTasksRow
     │   │   ├── session.ts        # ScheduledSessionDTO, ConflictDTO, PublishedScheduleDTO
-    │   │   ├── comms.ts          # DomainEvent (discriminated union), TemplateVars, CommLogRow
+    │   │   ├── comms.ts          # TemplateVars, CommLogRow, idempotency recipes
     │   │   └── api.ts            # public API v1 response envelopes, ApiError shape
     │   ├── ui/                   # shadcn-generated components (components.json aliases here)
     │   │   ├── …(button, dialog, sheet, select, tabs, toast, …)
@@ -98,15 +96,15 @@ openboard/
     │   ├── lib/
     │   │   ├── conditions.ts     # ★ evaluateVisibility(rules, answers) — ONE evaluator, client+server
     │   │   ├── sanitize.ts       # ★ sanitize(html) allowlist — the only path to rendering rich text
-    │   │   ├── tz.ts             # formatInTz, dayKeyInTz, isPast, daysToEvent (calendar-day, event tz)
+    │   │   ├── time.ts           # the 6-fn date-fns-tz API; sole wall-clock math owner
     │   │   ├── intervals.ts      # overlaps([start,end) half-open), sweep-line grouping
-    │   │   ├── slug.ts           # slugify + reserved words (submit, api, admin, portal, embed, e, cal)
+    │   │   ├── slug.ts           # slugify + the canonical 11 reserved words
     │   │   ├── api-client.ts     # api(path, outSchema, {method, body}) → zod-parsed, typed ApiError
     │   │   ├── query-keys.ts     # qk(feature, eventId, ...parts) key factory
-    │   │   └── result.ts         # ok/err ActionResult<T> helpers
+    │   │   └── errors.ts         # AppError + closed code-to-HTTP mapping
     │   ├── server/
     │   │   ├── handler.ts        # defineHandler({auth, input, handler}) — the ONE way to write routes
-    │   │   ├── auth.ts           # requireAdmin(eventId), requirePortal(eventSlug), requireApiKey()
+    │   │   ├── enqueue-email.ts  # the only communication_logs enqueue helper
     │   │   ├── r2.ts             # presignPut/presignGet via aws4fetch
     │   │   └── cache.ts          # cacheTags + revalidate wrappers (see NEEDS-VERIFY §10)
     │   └── fixtures/             # typed fixture data matching contracts (consumers build before producers)
@@ -130,7 +128,7 @@ openboard/
         ├── api/internal/<feature>/**/route.ts    # owned by that feature's agent
         ├── api/v1/**/route.ts                    # public API (owned by comms/API agent)
         ├── api/uploads/presign/route.ts
-        ├── api/cron/tick/route.ts
+        ├── api/jobs/{outbox,reminders,airtable,cleanup}/route.ts
         └── cal/[token]/route.ts                  # tokenized ICS download (no auth)
 ```
 
@@ -142,7 +140,7 @@ features/<name>/
 ├── index.client.ts     # public client API: components + hooks other features may embed
 ├── server/
 │   ├── queries.ts      # read fns — EVERY fn takes eventId as FIRST arg (no default)
-│   ├── mutations.ts    # write fns — transactional, zod-validated, return ActionResult
+│   ├── mutations.ts    # write fns — throw typed AppError; only named paths open withTx
 │   └── guards.ts       # feature-specific invariants (state machine, locked fields, …)
 ├── components/         # React components (RSC + client)
 ├── hooks/              # TanStack Query hooks + keys.ts + invalidate helpers
@@ -178,7 +176,7 @@ Admin routes are keyed by `eventId` (uuid); all public/portal surfaces are keyed
 | `/events/[eventId]/speakers/[contactId]` | portal | profile + comms history + "Open portal as" impersonation link |
 | `/events/[eventId]/tasks` | portal | tasks CRUD (kinds manual/form/file), completion matrix |
 | `/events/[eventId]/tasks/forms/[formId]` | portal | portal-form builder (single page, not wizard) |
-| `/events/[eventId]/comms` | comms | 7 templates editor, reminder ladder, communication log table |
+| `/events/[eventId]/comms` | comms | 8-template editor (7 domain + `portal_login`), reminder ladder, communication log table |
 | `/events/[eventId]/embeds` | embeds | snippet + enable toggle + minimal style options, live preview |
 | `/events/[eventId]/settings` | events | tabs: Details+branding · Tracks · Rooms · Formats · API keys · Airtable |
 
@@ -233,7 +231,7 @@ Envelope: `{ data, meta? }` / `{ error: { code, message } }` (shapes in `shared/
 ### 2.6 Utility routes
 
 - `POST /api/uploads/presign` — auth'd (admin or portal); validates kind/mime/size; returns R2 presigned PUT + final object key; DB row written on the subsequent "attach" mutation.
-- `POST /api/cron/tick` — `x-cron-secret` header; runs comms outbox drain + reminder scan + airtable scheduled sync.
+- `POST /api/jobs/{outbox|reminders|airtable|cleanup}` — `x-cron-secret` header; each route delegates to one bounded, idempotent feature function or a guarded no-op stub.
 - `GET /cal/[token]` — tokenized ICS download (calendar clients fetch with no cookies).
 - `/api/internal/<feature>/**` — the app's own client↔server API (admin/portal session auth). Never documented publicly; free to change.
 
@@ -245,7 +243,7 @@ Four rules; violations are review-blockers:
 
 1. **Initial render = Server Components.** Every page RSC calls the owning feature's `server/queries.ts` directly (no HTTP hop) and passes typed DTOs down. Pages that need interactivity hydrate those DTOs as `initialData` into TanStack Query.
 2. **All client reads/refetch = TanStack Query** via `api-client.ts` against `/api/internal/...` GET handlers. Keys from the shared factory: `qk('agenda', eventId, 'sessions', {day})`. Defaults: `staleTime: 15_000`, `refetchOnWindowFocus: true` — this IS our "real-time" dashboard story (plus 30s `refetchInterval` on the dashboard page only).
-3. **All mutations = TanStack `useMutation`** → POST/PATCH/DELETE `/api/internal/...` route handlers built with `defineHandler({auth, input: zodSchema, handler})`. Handlers zod-parse input, check auth + eventId scope, run the feature mutation (transactional), and return `ActionResult<T>`. Every mutation hook calls its feature's exported `invalidateX(queryClient, eventId)` helper. Optimistic updates only where specified (agenda drag, status badge); always with rollback on error. **No Server Actions** — one mechanism, uniform auth/validation, trivially curl-testable, no serial-action queueing, no OpenNext action edge cases.
+3. **All mutations = TanStack `useMutation`** → POST/PATCH/DELETE `/api/internal/...` route handlers built with `defineHandler({auth, input: zodSchema, handler})`. Handlers zod-parse input, check auth + eventId scope, run the feature mutation, and return the canonical data/error envelope. Every mutation hook calls its feature's exported `invalidateX(queryClient, eventId)` helper. Optimistic updates only where specified (agenda drag, status badge); always with rollback on error. **No Server Actions** — one mechanism, uniform auth/validation, trivially curl-testable, no serial-action queueing, no OpenNext action edge cases.
 4. **Zustand = ephemeral UI state only.** Litmus test: *"If the server could ever need this value to be correct, it is not Zustand state."* Allowed: CFP wizard step + in-progress answers before submit (persisted to localStorage keyed by formId, cleared on submit), agenda drag ghost/active view/day, table filter+column prefs (localStorage), builder panel open/selected-field. Forbidden: anything fetched from the server, anything another user could change, derived server data. Zustand stores never contain a fetch; TanStack Query caches never feed Zustand.
 
 Concurrency convention: every mutable row carries `updated_at`; edit mutations send `expectedUpdatedAt` and return **409** on mismatch (`defineHandler` supports it natively); UI shows "changed since you loaded — refresh". Agenda `moveSession` uses an integer `version` compare-and-set.
@@ -256,7 +254,7 @@ Event scoping convention: **every** query/mutation fn signature starts `(eventId
 
 ## 4. Database & shared contracts
 
-- **Drizzle + Neon**: `getDb()` creates a Drizzle instance over `new Pool({ connectionString })` from `@neondatabase/serverless` per request (Workers-safe). Use the **pooled** Neon connection string (pgbouncer) for burst submits near deadlines. The HTTP driver is not used because it cannot run transactions, and we require transactions for: submit (deadline check + per-user limit count + insert, all in one tx), notify (guarded `UPDATE … WHERE notified_at IS NULL` + outbox insert), task completion (+response/upload row), promotion to session. NEEDS-VERIFY: Pool-per-request overhead on Workers; fallback is `drizzle-orm/neon-http` for reads + Pool only in mutation paths.
+- **Drizzle + Neon**: `db` uses `drizzle-orm/neon-http` for every read and single-statement write. `withTx()` creates and closes a `@neondatabase/serverless` WebSocket `Pool` only for the eight audited runtime functions named in PLAN resolution #4. Use the pooled Neon runtime URL; keep `DATABASE_URL_DIRECT` off Workers. NEEDS-VERIFY: execute a transaction through the deployed OpenNext artifact before any feature relies on it; the fallback rewrites those eight paths as guarded CTEs on `neon-http`.
 - **Schema ownership**: one schema file per feature, all written by the architect agent during Phase 0 (the entity model is already fully specified by the six analyses). After CP1 the schema is **frozen**; changes go through the architect only (single-writer on `db/schema/**` + `db/migrations/**` kills the worst merge-conflict class).
 - **Canonical enums live in `shared/contracts/enums.ts`** and are imported by the Drizzle schema (pgEnum) — one definition. The big one: `SubmissionStatus = draft | pending | accept_queue | accepted | decline_queue | declined | withdrawn` with the legal-transition map and `canTransition(from, to)` exported beside it; consumed by submissions (state machine), forms (intake), portal (display mapping), agenda (promotion filter), embeds/airtable (accepted-only filters), comms (triggers).
 - **Contracts-first**: `shared/contracts` compiles standalone (`scripts/check-contracts.ts`); DTOs are zod schemas with inferred types. Where cheap, `drizzle-zod` derives the base and contracts refine. Fixtures in `shared/fixtures` are zod-parsed at test time so fixture drift fails CI.
@@ -271,13 +269,13 @@ These signatures are written as throwing stubs in Phase 0 so consumers compile o
 
 - **events** — `getEvent(eventId)`, `getEventBySlug(slug)`, `listTracks(eventId)`, `listRooms(eventId)`, `listFormats(eventId)`; client: `<EventSwitcher>`, `<TrackChip>`.
 - **forms** — `getPublicForm(eventSlug, formId)` (form schema + open/closed + limit state), `listForms(eventId)`; client: `<FormFieldRenderer>` (shared by CFP wizard AND portal forms — portal forms simply pass no conditions).
-- **submissions** — `createFromCfp(eventId, input)` (called by forms' submit handler; runs routing, returns SESS code), `listForContact(eventId, contactId)`, `transitionStatus(eventId, ids[], to, expected)`, `notifyQueues(eventId)`, `getAcceptedForScheduling(eventId)`; emits outbox events `submission.received|accepted|declined`.
-- **portal** — `getPublishedSpeakers(eventId)` (gallery contract: name/title/company/headshot/sanitized bio/sessions), `getSpeakerProfile(eventId, contactId)`, `getOutstandingTasksView(eventId)` (dashboard CORE), `ensurePortalSession(contactId, eventId)`; emits `task.assigned`, `task.completed`.
-- **agenda** — `getPublishedSchedule(eventSlug)` (the only path embeds/API may use — draft filtering lives here), `detectConflicts(sessions): Conflict[]` (pure, unit-tested first), `moveSession(eventId, {id, version, startsAt, endsAt, roomId})`, `promoteSubmission(eventId, submissionId)`; emits `session.scheduled|rescheduled|unscheduled`.
-- **comms** — `recordDomainEvent(tx, event: DomainEvent)` (the outbox writer other features call inside their transactions), `renderTemplate(key, vars)` (strict: unknown/null var = validation error), `listLog(eventId, filters)`.
+- **submissions** — `createSubmission`, `upsertDraft`, `updateSubmissionFromCfp`, `transitionStatus`, `notifyQueues`, `getAcceptedForScheduling`; all submission inserts stay in this feature.
+- **portal** — `getSpeakerProfile`, `getOutstandingTasksView`, `ensurePortalSession`, and the three task-completion functions; contact writes use the feature's scoped helpers.
+- **agenda** — `getPublishedSchedule(eventSlug)`, `detectConflicts(sessions): Conflict[]`, `moveSession`, `promoteSubmission`; schedule mail is enqueued through the shared helper.
+- **comms** — `dispatchOutbox`, `renderTemplate`, `validateTemplateBody`, `seedDefaultTemplates`, `listLog`; domain features depend only on shared `enqueueEmail` plus contract key builders.
 - **embeds/dashboard/airtable** — consumers only; export their page components.
 
-**The outbox pattern (why):** triggers must fire on *domain transitions* regardless of which UI caused them, must never double-send, and must not couple six features to Resend. Features insert a `domain_events` row in the same transaction as the state change. The comms consumer (cron tick + best-effort inline kick after commit) claims events, renders templates, writes `communication_log` with unique idempotency key (`eventId:templateKey:entityId:revision`) **before** sending, treats unique-violation as success, then sends via Resend. Reminders don't enqueue at all — the cron scan finds `(reminder_rule × open assignment)` pairs not yet in the log, re-checking task status at send time. ICS: `calendar_invites` keeps stable UID + monotonic SEQUENCE per (contact, session); reschedule bumps SEQUENCE, unschedule sends METHOD:CANCEL.
+**The outbox pattern (why):** features insert a `communication_logs` row through `enqueueEmail` in the same transaction as a domain change when atomicity matters. `UNIQUE(idempotency_key)` makes insertion the double-send firewall. The web dispatcher claims queued rows, rebuilds context from ids, re-checks current truth, renders, sends through the sole Resend adapter, and marks the row terminal/retryable. Reminders are discovered by the `%15` live scan rather than pre-scheduled. ICS uses stable UID + monotonic SEQUENCE per `(contact, session)`; reschedule bumps SEQUENCE and unschedule sends METHOD:CANCEL.
 
 ---
 
@@ -298,7 +296,7 @@ These signatures are written as throwing stubs in Phase 0 so consumers compile o
 - vs **FullCalendar (resource timeline)**: would gift us the grid, but resource-timeline is a paid ("premium") plugin, theming to shadcn is painful, and it fights React state. Not acceptable for an OSS deliverable.
 - dnd-kit fits exactly: headless (we own the grid markup = easy shadcn styling), pointer+keyboard+touch sensors, `snapToGrid`-style modifiers for 15-min increments, sortable preset for the list reorders, small bundle, no DOM assumptions that break under RSC (all DnD components are `"use client"`).
 
-Agenda grid design: CSS grid, rows = 15-min slots computed in event tz (`shared/lib/tz.ts` builds the day's slot list — DST-safe), columns = rooms. A session card is a draggable positioned by `grid-row: start / end`; drop target = (room column × slot); resize = two thin draggable edge handles adjusting start/end with min-duration clamp. On drop: optimistic move → `moveSession` (version CAS) → on 409 rollback + toast + refetch. `detectConflicts` runs client-side on the optimistic state for instant red outlines AND server-side on write (authoritative, feeds the Conflicts tab badge). Half-open `[start, end)` semantics from `shared/lib/intervals.ts`.
+Agenda grid design: CSS grid, rows = 15-min slots computed in event tz (`shared/lib/time.ts` builds the day's slot list — DST-safe), columns = rooms. A session card is a draggable positioned by `grid-row: start / end`; drop target = (room column × slot); resize = two thin draggable edge handles adjusting start/end with min-duration clamp. On drop: optimistic move → `moveSession` (version CAS) → on 409 rollback + toast + refetch. `detectConflicts` runs client-side on the optimistic state for instant red outlines AND server-side on write (authoritative, feeds the Conflicts tab badge). Half-open `[start, end)` semantics from `shared/lib/intervals.ts`.
 
 ---
 
@@ -313,7 +311,7 @@ Agenda grid design: CSS grid, rows = 15-min slots computed in event tz (`shared/
 | **A2 Submissions** | submissions | (admin) submissions/evaluation/review | submissions.ts |
 | **A3 Portal** | portal | (portal)*, (admin) speakers/tasks | portal.ts |
 | **A4 Agenda+Embeds** | agenda, embeds | (admin) agenda/embeds, (public) e/*, (embed)* | agenda.ts, embeds.ts |
-| **A5 Comms+Dashboard+API** | comms, dashboard, airtable | (admin) comms/dashboard, api/v1, api/cron, cal, workers/cron | comms.ts, airtable.ts, views.sql |
+| **A5 Comms+Dashboard+API** | comms, dashboard, airtable | (admin) comms/dashboard, api/v1, api/jobs, cal, workers/jobs | comms.ts, airtable.ts, views.sql |
 
 Six workstreams; if only five agents run, A5 splits last (dashboard is read-only and slips gracefully). Every cross-agent dependency crosses a contract that exists as a stub from hour ~6.
 
@@ -326,24 +324,24 @@ Six workstreams; if only five agents run, A5 splits last (dashboard is read-only
    - **CP1 — Sat noon**: schema migrated on Neon, seed data loads, admin login works, every route renders (stub pages fine), deploy pipeline green.
    - **CP2 — Sun night**: **golden path** e2e on preview: create event → build form (conditions + routing) → public CFP submit → abstract appears pre-tagged → accept → outbox email logged → magic link → portal shows task. This is the brief's spine; everything after is additive.
    - **CP3 — Mon night**: agenda DnD + conflicts + promotion; schedule/gallery public pages + embed iframe verified inside a scratch host page; comms triggers + reminder cron + ICS imported successfully in **Gmail and Outlook** (real test); dashboard Speaker Tracking live.
-   - **CP4 — Tue night**: public API + keys, Airtable export idempotent re-run, perf pass (edge cache headers, bundle check), demo seed matching the walkthrough video, Playwright smoke green, README + API docs.
-   - **Wed**: freeze, bug bash on judge flows, submission by 10 PM PT with buffer.
+   - **CP4 — plan-Tue / Wed Aug 12 by 2 PM**: release proof first; public API and Airtable remain deferred until the minimum loop is green.
+   - **plan-Wed / Wed Aug 12 after 2 PM**: freeze, bug bash on judge flows, submit by 8 PM PT with a 2-hour emergency buffer.
 5. **Definition of done per module**: zod-validated handlers; empty states; event-tz rendering; sanitized rich text; invalidation helpers wired; seed data exercises it; one Playwright smoke touching it.
 
 ---
 
 ## 8. Dashboard read model
 
-`db/views.sql` (applied in a migration) defines the ONE counting rule (Sessionboard's own screenshots contradict themselves — ours must not): `dashboard_submission_counts` (by status/form/track; drafts counted, labeled), `dashboard_outstanding_tasks` (contact, open_count, overdue_count — over task_completions with lazy assignment semantics: assignments = tasks × accepted targets, completion rows only on completion), `dashboard_missing_assets` (accepted speakers with empty bio OR no headshot; whitespace = empty), `dashboard_confirmation_mix`. The dashboard page fetches **one** aggregated endpoint (`/api/internal/dashboard/[eventId]/overview`) that runs grouped CTEs — no widget-per-query waterfall (speed bonus), and the public API `/stats` reads the same views (no drift).
+`drizzle/0001_views_triggers.sql` defines the eight canonical read views, including the one counting rule: `submission_status_counts_v`, `submission_ratings_v`, `accepted_speakers_v`, `task_assignments_v`, `speaker_outstanding_v`, `missing_assets_v`, `published_sessions_v`, and `published_speakers_v`. Drafts remain visible as their own status count while the top-level Submissions KPI excludes them. The dashboard fetches **one** aggregated endpoint (`/api/internal/dashboard/[eventId]/overview`) — no widget-per-query waterfall — and public `/stats` reuses the same view-backed definitions.
 
 ---
 
 ## 9. Cloudflare/OpenNext specifics
 
-- `@opennextjs/cloudflare` with `nodejs_compat` flag; R2 binding `UPLOADS`; secrets: `DATABASE_URL`, `RESEND_API_KEY`, `CRON_SECRET`, `AUTH_SECRET`, `AIRTABLE_TOKEN`. Two environments: `preview` + `production` (judges get production; agents demo on preview).
+- `@opennextjs/cloudflare` with `nodejs_compat`; R2 bindings `FILES` and `NEXT_INC_CACHE_R2_BUCKET`. [`../environments.md`](../environments.md) is authoritative for variables and secrets: notably `SESSION_SECRET` (not `AUTH_SECRET`) and `AIRTABLE_API_KEY` (not `AIRTABLE_TOKEN`). Preview and production have isolated workers, DBs, buckets, and secrets.
 - Uploads: presigned PUT to R2 via `aws4fetch` (Workers request-body limits make proxying fragile); orphaned objects tolerated for the hackathon (attach-on-mutation means DB is never wrong).
 - Caching strategy (speed bonus vs correctness): public schedule/gallery/embed + JSON API: `Cache-Control: public, s-maxage=60, stale-while-revalidate=300` — auto-update within a minute satisfies "auto-updating" with zero invalidation machinery. CFP page: `s-maxage=30` BUT open/closed + deadline banner computed server-side per request against `closesAt` (the cached shell may be 30s stale; the submit handler is always authoritative). Admin/portal: no edge caching.
-- Cron: `workers/cron` scheduled worker (`*/15 * * * *`) POSTs `/api/cron/tick`. Keeps the OpenNext worker untouched and the tick path testable with curl.
+- Cron: `workers/jobs` scheduled worker (`* * * * *`) uses minute modulo and POSTs the matching `/api/jobs/*` routes. It receives only `APP_BASE_URL` and `CRON_SECRET`; all job logic and service credentials stay on the web worker.
 
 ---
 
@@ -351,7 +349,7 @@ Six workstreams; if only five agents run, A5 splits last (dashboard is read-only
 
 1. **better-auth on OpenNext/Workers** with Drizzle+Neon — verify session cookie flow on the deployed preview in Phase 0 (it's the walking skeleton's job). Fallback: hand-rolled sessions table + scrypt via WebCrypto (we already build exactly this for the portal).
 2. **`revalidateTag`/ISR behavior under `@opennextjs/cloudflare`** — we deliberately do NOT depend on it (s-maxage strategy above); verify only if we want instant embed updates. 
-3. **Neon Pool-per-request on Workers under burst** (deadline-minute submits) — load-test with 50 concurrent submits at CP2; fallback: neon-http driver for reads, Pool only in transactions, or Hyperdrive.
+3. **Neon Pool-per-request on Workers under burst** (deadline-minute submits) — load-test with 50 concurrent submits at CP2; fallback: rewrite the eight audited runtime paths as guarded CTEs on `neon-http`.
 4. **ICS acceptance in Gmail + Outlook** (METHOD:REQUEST attachment, UTC Z times, ORGANIZER on our verified Resend domain; SEQUENCE bump on reschedule; CANCEL) — real-inbox test at CP3. Fallback: "Add to calendar" download link only (still satisfies "iCal").
 5. **Resend domain verification** — start DNS verification Fri night (propagation latency); until verified, `EMAIL_MODE=log` and the comms log UI proves sends.
 6. **`xss` package under Workers** — smoke-test in Phase 0; fallback: tiny hand-rolled allowlist sanitizer over `HTMLRewriter` or regex-free tokenizer (we control the editor, so input HTML is near-well-formed; still sanitize).

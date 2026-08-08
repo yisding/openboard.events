@@ -180,7 +180,7 @@ Numbered functional requirements for a good-enough clone. [CORE] = in the brief'
 ## Data entities
 
 - **Event** — id, name, slug, start/end dates, timezone, event-level submission cap (`event_max`). Parent of everything.
-- **SubmissionForm** — id, event_id, internal_name, external_title, page_heading, welcome_message_html, show_welcome (bool), kind (`abstracts` | `sessions`), collect_participants (bool), status (`draft`|`open`|`closed`), close_at (timestamptz, nullable), submission_limit (int, nullable), allow_multiple_drafts (bool), success_message_html, auto_redirect_to_portal (bool), public_slug/uuid, created_at/updated_at. Has many sections, routing rules, notification settings.
+- **SubmissionForm** — id, event_id, internal_name, external_title, page_heading, welcome_message_html, show_welcome (bool), kind (`abstracts` | `sessions`), collect_participants (bool), status (`draft`|`open`|`closed`), close_at (timestamptz, nullable), submission_limit (int, nullable), success_message_html, auto_redirect_to_portal (bool), public_slug/uuid, created_at/updated_at. Has many sections, routing rules, notification settings. The multiple-drafts toggle is omitted; one server draft per contact/form is the fixed implementation rule.
 - **FormSection** — id, form_id, key (`abstract` | `participant`), title, page_heading, description_html, sort_order. Has many fields. (Fixed two sections is enough; a generic sections table future-proofs multi-section forms.)
 - **FormField** — id, section_id, label, key (stable machine name for answers/merge tags), type (`text`|`wysiwyg`|`dropdown`|`multiselect`|`radio`|`checkbox`|`email`|`phone`|`number`|`date`|`url`|`file`), required (bool), locked (bool), max_chars (int, nullable), help_text, sort_order, options (jsonb: [{id, label, value, sort}] for choice types), config (jsonb for type extras).
 - **FieldVisibilityRule** — id, target_field_id (or target_section_id), match (`all`|`any`), conditions (jsonb: [{source_field_id, operator, value}]), enabled. Alternative: store as `conditions jsonb` column on FormField — simpler, fine for the clone.
@@ -218,7 +218,7 @@ Relationships: Event 1—N SubmissionForm 1—N FormSection 1—N FormField; For
 1. Opens public URL (no auth) → Welcome page: title, heading, message, Start.
 2. Abstract step ("Submission"): fills Title, Description (rich text, live 5,000-char counter), Format/Tags/Track/Level dropdowns; conditionally-shown fields appear as answers change; combined counters update if cross-field rules exist.
 3. Participant step ("Participant"): fills own contact info (First/Last/Email locked-required, Phone, Bio); "Add participant" for co-speaker with role picker, within role min/max.
-4. Can "Save draft" and leave; resumes later via link/portal; drafts count toward limit when "Set Submission Limit" on.
+4. Can "Save draft" and leave; resumes later via the portal; drafts are counted separately in admin but do **not** consume the submission limit.
 5. Submit → validation across all visible fields → Success page with custom message → confirmation email with portal link → auto-redirect to speaker portal after 10 s (or Continue button).
 6. Until close date: may return to edit the submission (triggers admin "updated" alert) or submit another session (subject to limits) via the success-page "click here" link.
 

@@ -401,7 +401,7 @@ its filters at render time (no snapshotting).
    with site chrome; bare embed layout). One implementation satisfies "post to our website"
    both as a link and as an embed, and doubles as the demo URL for judges.
 10. **Public JSON API for free**: the same server queries backing the public pages get
-    exposed at `/api/v1/events/[slug]/sessions|speakers` (read-only, published data only) —
+    exposed at `/api/v1/events/[slug]/schedule|speakers` (read-only, published data only) —
     claims the API bonus with ~zero extra logic.
 11. **"Powered by" footer**: replace with a small OSS project credit or omit.
 12. **Timezone**: single timezone per event (no per-viewer conversion toggle on the public
@@ -414,8 +414,8 @@ its filters at render time (no snapshotting).
 
 - `features/agenda`: owns Room, Track, Session, SessionSpeaker tables + conflict engine
   (pure function: `detectConflicts(sessions: ScheduledSession[]) → Conflict[]`, unit-tested
-  first — it is the most bug-prone pure logic in the area). Exposes typed server actions/
-  route handlers: session CRUD + `moveSession({id, version, startsAt, endsAt, roomId})`.
+  first — it is the most bug-prone pure logic in the area). Exposes typed repository
+  functions behind route handlers: session CRUD + `moveSession({id, version, startsAt, endsAt, roomId})`.
 - `features/public-site` (or `features/embeds`): read-only consumer; imports only a typed
   `getPublishedSchedule(eventSlug)` / `getPublishedSpeakers(eventSlug)` query contract, never
   raw tables. Owns Embed config rows, embed routes, snippet generation, framing headers.
