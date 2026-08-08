@@ -1,11 +1,11 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/shared/lib/cn";
 
-export function Button({ variant = "primary", size = "md", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
-  return <button className={cn("button", `button-${variant}`, size === "sm" && "button-sm", size === "lg" && "button-lg", className)} {...props} />;
+export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
+  return <button type={type} className={cn("button", `button-${variant}`, size === "sm" && "button-sm", size === "lg" && "button-lg", className)} {...props} />;
 }
 
 export function StatusBadge({ value }: { value: string }) {
@@ -25,14 +25,28 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
   return <header className="page-header"><div>{eyebrow && <div className="page-eyebrow">{eyebrow}</div>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
 }
 
+// Native <dialog> provides focus trapping, Escape-to-close, and focus restore.
+function ModalDialog({ onClose, title, className, children }: { onClose: () => void; title: string; className: string; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return <dialog ref={ref} className="modal-shell" aria-label={title} onCancel={(event) => { event.preventDefault(); onClose(); }} onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section className={className}>{children}</section>
+  </dialog>;
+}
+
 export function Modal({ open, onClose, title, description, children, footer, wide = false }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   if (!open) return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className={cn("modal", wide && "modal-wide")} role="dialog" aria-modal="true" aria-label={title}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</section></div>;
+  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
 export function Drawer({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: ReactNode; title: string }) {
   if (!open) return null;
-  return <div className="drawer-layer"><button className="drawer-backdrop" aria-label="Close" onClick={onClose} /><aside className="drawer"><div className="drawer-title"><h2>{title}</h2><button className="icon-button" onClick={onClose}><X size={19} /></button></div>{children}</aside></div>;
+  return <div className="drawer-layer"><button type="button" className="drawer-backdrop" aria-label="Close" onClick={onClose} /><aside className="drawer"><div className="drawer-title"><h2>{title}</h2><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></div>;
 }
 
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {
@@ -44,5 +58,5 @@ export function Field({ label, hint, required, children }: { label: string; hint
 }
 
 export function Segmented<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {
-  return <div className="segmented">{items.map((item) => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+  return <div className="segmented">{items.map((item) => <button key={item.value} type="button" className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
 }

@@ -18,6 +18,7 @@ export function sanitize(html: string, profile: "default" | "wide" = "default") 
     onTagAttr(tag, name, value) {
       if (name.startsWith("on")) return "";
       if ((name === "href" || name === "src") && !/^(https?:|mailto:|\/)/i.test(value)) return "";
+      if (tag === "a" && name === "rel") return "";
       if (tag === "a" && name === "target") return 'target="_blank" rel="noopener noreferrer"';
       return undefined;
     },
