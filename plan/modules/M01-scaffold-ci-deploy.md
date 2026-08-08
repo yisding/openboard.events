@@ -94,7 +94,7 @@ Files: `open-next.config.ts`, `wrangler.jsonc`, `next.config.ts` (headers).
 - **Fallback:** a second worker `sb-web-staging` deployed from `main`; every daily checkpoint is demoed there instead. **All of §7's checkpoints depend on this — decide tonight.**
 
 ### 9. Same-night infrastructure chores (not spikes — must-dos)
-- **Resend domain DNS:** add the sending domain in Resend, publish SPF/DKIM/DMARC records. Propagation is re-checked at CP1 Sat noon (hard gate) and Sat night; the decision point is Sun noon (risk #7).
+- **Resend domain DNS:** add the sending domain in Resend, publish SPF/DKIM/DMARC records. Propagation is re-checked at CP1 Sat noon (hard gate) and Sat night; the decision point is Sun noon (risk #7). **The CP1 check is a probe email to a team Gmail whose `Authentication-Results` header (Show original) reads `spf=pass dkim=pass dmarc=pass`, screenshotted into `DECISIONS.md` — the Resend dashboard flag alone is not the gate** (rev. 3 delta #17).
 - **Cloudflare WAF rate rules** in the dashboard now, not Tuesday: 10 req/min/IP on the CFP submit endpoint, on `/api/internal/auth/*`, **and explicitly on the OTP verify route**. Screenshot the rules into `DECISIONS.md`.
 - **Neon:** create `sb-dev`, `sb-test`, `sb-prod`; disable scale-to-zero on `sb-prod`; store pooled URLs as `DATABASE_URL` and direct URLs as `DATABASE_URL_DIRECT`.
 - **R2:** create bucket `sb-files`; set CORS (`PUT,GET` from `APP_BASE_URL` + `http://localhost:3000`, header `content-type`, max-age 3600) — forgetting this is the #1 "uploads fail only in the browser" trap ([M07](./M07-r2-storage.md) depends on it).
@@ -117,8 +117,9 @@ Exit non-zero on any hit. Each grep excludes exactly one owner path:
 | 10 | `drizzle-kit push` | nowhere |
 | 11 | R2 binding / `aws4fetch` import | `src/shared/server/r2.ts` ([M07](./M07-r2-storage.md)'s module boundary) |
 | 12 | `from '(\.\./)+(store\|wizard\|steps)'` / `next/navigation` / `@/features/(portal\|submissions)` **inside** `src/features/forms/runtime/form-field-renderer.tsx` + `src/features/forms/runtime/field-inputs/` | nowhere — the `<FormFieldRenderer>` boundary grep ([M15](./M15-public-cfp-wizard.md)) |
+| 13 | `\.toLocale(Date\|Time)?String\(` / `getTimezoneOffset\(` / non-UTC accessors `\.(get\|set)(FullYear\|Month\|Date\|Day\|Hours\|Minutes)\(` — scope `src/**` | `src/shared/lib/time.ts` (`getUTC*`/`setUTC*`/`Date.now()` are deliberately not matched; rev. 3 delta #18) |
 
-**Greps 11 and 12 ship tonight, with the rest of the table.** They exist because [M07](./M07-r2-storage.md) and [M15](./M15-public-cfp-wizard.md) both need them and neither lane may edit this file: `scripts/check-invariants.sh` is architect-owned, and any later change to it is an **architect-labeled one-line PR**, never a direct edit from a feature lane (risk #8's hot-file rule).
+**Greps 11–13 ship tonight, with the rest of the table.** Greps 11 and 12 exist because [M07](./M07-r2-storage.md) and [M15](./M15-public-cfp-wizard.md) both need them; grep 13 closes the local-tz raw-`Date`-math hole the date-library grep cannot see (the DST/off-by-one bug class from resolution #9). Neither feature lane may edit this file: `scripts/check-invariants.sh` is architect-owned, and any later change to it is an **architect-labeled one-line PR**, never a direct edit from a feature lane (risk #8's hot-file rule).
 
 - **Done when:** `pnpm invariants` exits 0 on the clean tree and exits 1 after you temporarily add `dangerouslySetInnerHTML` to `page.tsx`.
 
@@ -146,7 +147,7 @@ At CP1 the architect declares frozen, and thereafter changes require an architec
 3. Every feature barrel signature dropped in Phase 0 (the stub list in [M02](./M02-shared-contracts.md)).
 4. The pinned `next` + `@opennextjs/cloudflare` versions.
 5. The invariant-grep table (§10) and the ESLint boundaries config.
-CP1 additionally gates: migrations applied to sb-dev/sb-test/sb-prod, seed loads, admin login works, every route renders a stub page, CI+deploy green, **Resend domain verification checked (hard gate item)**.
+CP1 additionally gates: migrations applied to sb-dev/sb-test/sb-prod, seed loads, admin login works, every route renders a stub page, CI+deploy green, **Resend domain verification checked (hard gate item — the §9 Authentication-Results probe, not the dashboard flag)**.
 
 ## Acceptance criteria
 Catalog AC, verbatim: *hello page live on Cloudflare Fri night; CI red/green demonstrably gates a PR; spike + check results written into `DECISIONS.md`; WAF rules visible in dashboard config.*

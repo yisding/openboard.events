@@ -219,7 +219,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 
 | Lane | Fri evening |
 |---|---|
-| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, **WAF rate rules configured now (incl. the OTP verify route)**, hello page deployed to workers.dev. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
+| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, **WAF rate rules configured now (incl. the OTP verify route)**, hello page deployed to workers.dev. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM/DMARC) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
 | **B1** | Read `PLAN.md` + `analysis/event-config-cfp.md` + `analysis/form-builder.md`; prep M11/M12 against the contracts draft. |
 | **B2** | **M13a** — evaluator + the ~30-case table-driven test file, written against the contracts draft. Needs nothing but M02. |
 | **WS-C** | Read `analysis/abstracts-review.md`; **[M20](modules/M20-csv-export.md)'s `toCsv` + `csv.test.ts`** — pure RFC-4180 serializer + the quoting/newline/injection test table. Zero dependencies (fixtures only); the test file is the spec. |
@@ -282,7 +282,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 
 | Lane | Wed AM | Wed midday → PM |
 |---|---|---|
-| **All 7 agents** | **Full bug bash of judge flows on production** — every agent runs the demo script cold, **fix P0s only**. Includes a complete **OTP round-trip to one fresh Gmail AND one fresh Outlook address typed into the CFP wizard exactly as a judge would**, plus a portal magic-link and a decision-email check on the same inboxes. | Midday: final seed reset · `wrangler rollback` rehearsed · post-deploy smoke green · comms log clean · **reimbursement proof compiled into `docs/spend/`**. PM: repo public (license, README, setup) · submission form filled · walkthrough recording (optional) · **submit by 8 PM PT**. **8–10 PM: emergency only.** |
+| **All 7 agents** | **Full bug bash of judge flows on production** — every agent runs the demo script cold, **fix P0s only**. Includes a complete **OTP round-trip to one fresh Gmail AND one fresh Outlook address typed into the CFP wizard exactly as a judge would**, plus a portal magic-link and a decision-email check on the same inboxes, **and a calendar invite landed on the fresh Gmail's calendar** (schedule that speaker's session — first-contact inboxes are where spam/DMARC treatment differs from the warmed team inboxes used Sat/Sun; rev. 3 delta #17). | Midday: final seed reset · `wrangler rollback` rehearsed · post-deploy smoke green · comms log clean · **reimbursement proof compiled into `docs/spend/`**. PM: repo public (license, README, setup) · submission form filled · walkthrough recording (optional) · **submit by 8 PM PT**. **8–10 PM: emergency only.** |
 
 ---
 
@@ -313,7 +313,7 @@ Gates **M02 / M03 / M04 + M05a + M06a only**. M07 and M05b's prop stubs land **S
 - [ ] Every route renders a stub page
 - [ ] CI + deploy pipeline green
 - [ ] **Contracts FROZEN** — from here, `src/shared/contracts` changes require architect-labeled PRs
-- [ ] **HARD GATE: Resend domain verification checked.** Not propagated → debug/resubmit **immediately**, re-check Sat night, fallback decision Sun noon
+- [ ] **HARD GATE: Resend domain verification checked.** Checked = a probe email to a team Gmail shows `Authentication-Results: spf=pass dkim=pass dmarc=pass` (Show original; screenshot → `DECISIONS.md`) — the dashboard flag alone does not gate (rev. 3 delta #17). Not propagated → debug/resubmit **immediately**, re-check Sat night, fallback decision Sun noon
 - [ ] Idempotency-key recipes frozen in `contracts/`; fan-out rule (res. #14) written into the 0001 view SQL and `contracts/`
 - [ ] **Six Playwright specs exist and run with most steps skipped (0 failures)** — M10's skeleton. A spec that has been running skipped since Saturday goes green in minutes; one that appears the day its feature lands has never been debugged.
 

@@ -94,7 +94,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 **CI invariant greps (PLAN §2 — your PR dies on these)**
 - no `dangerouslySetInnerHTML` outside `RichTextView`
 - no `process.env` outside `env.ts`
-- no date libs outside `time.ts`
+- no date libs **or local-tz `Date` methods** (`toLocaleString` family, `getTimezoneOffset`, non-UTC `get*/set*` accessors) outside `time.ts` (rev. 3 delta #18)
 - no Resend outside the dispatcher
 - no `export const runtime = 'edge'` anywhere
 - no `INSERT INTO submissions` / raw `contacts` writes outside their owning mutation files
