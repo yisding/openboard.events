@@ -8,6 +8,6 @@ export function parseEmbedOptions(searchParams: Record<string, string | string[]
   return {
     theme: first(searchParams.theme) === "dark" ? "dark" : "light",
     header: first(searchParams.header) !== "0",
-    accent: /^#[0-9a-fA-F]{3,8}$/.test(accent) ? accent : DEFAULT_EMBED_OPTIONS.accent,
+    accent: /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(accent) ? accent : DEFAULT_EMBED_OPTIONS.accent,
   };
 }
