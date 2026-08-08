@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { PanelTop } from "lucide-react";
-import { StubPage } from "@/features/shell/stub-page";
+import { EmbedsAdminPage } from "@/features/public/embeds-admin-page";
 
 export const metadata: Metadata = { title: "Embeds" };
-export default function Page() {
-  return <StubPage icon={PanelTop} title="Embeds" description="Embed the schedule and speaker gallery on your own site." milestone="M33" />;
+export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  return <EmbedsAdminPage eventId={eventId} />;
 }

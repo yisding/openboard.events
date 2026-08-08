@@ -13,7 +13,7 @@ const config = [
       "@typescript-eslint/no-non-null-assertion": "warn"
     }
   },
-  { ignores: [".next/**", ".open-next/**", "node_modules/**", "next-env.d.ts"] }
+  { ignores: [".next/**", ".open-next/**", ".claude/**", "node_modules/**", "next-env.d.ts"] }
 ];
 
 export default config;

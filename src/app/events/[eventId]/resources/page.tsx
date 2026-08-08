@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { BookOpen } from "lucide-react";
-import { StubPage } from "@/features/shell/stub-page";
+import { ResourcesAdminPage } from "@/features/portal/resources-admin-page";
 
 export const metadata: Metadata = { title: "Resources" };
-export default function Page() {
-  return <StubPage icon={BookOpen} title="Resources" description="Publish handbooks and guidelines to the speaker portal." milestone="M26" />;
+export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  return <ResourcesAdminPage eventId={eventId} />;
 }

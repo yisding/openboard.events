@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { FileText } from "lucide-react";
-import { StubPage } from "@/features/shell/stub-page";
+import { FormsPage } from "@/features/forms/forms-page";
 
 export const metadata: Metadata = { title: "Forms" };
-export default function Page() {
-  return <StubPage icon={FileText} title="Forms" description="Build and version the CFP and portal forms speakers fill in." milestone="M12" />;
+export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  return <FormsPage eventId={eventId} />;
 }
