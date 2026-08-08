@@ -92,15 +92,16 @@ Execute gates in order. Later gates may prepare pure tests and fixtures, but no 
 
 ### R1 — Deployed foundation
 
-- Finish M01–M04, M06a/M06b, M07, M09, and the deploy half of M08.
+- Finish M01–M05a, M06a/M06b, M07, M09, the deploy half of M08, and M10's CP1 slice (`playwright.config.ts`, shared helpers, and all six skeleton specs running with zero failures; unlanded feature steps remain explicitly skipped).
 - Apply corrected, event-isolated migrations to disposable Neon first, then `sb-dev`, `sb-test`, and `sb-prod`.
 - Configure Cloudflare web/jobs workers, R2, secrets, auth, Resend domain/header checks, and real database seed/reset.
 - Make clean-install CI and deploy green from `main`.
 
-**Exit:** CP0 and CP1 are green on a deployed preview.
+**Exit:** CP0 and CP1 are green on a deployed preview, including the admin shell and the runnable six-spec Playwright skeleton.
 
 ### R2 — Server-backed golden spine
 
+- Finish M05b before M12's rich-text integration; its prop-stub slice may land first, but the complete rich primitives remain part of this gate.
 - Finish the shared form snapshot/evaluator contract, then M11–M18 and M34.
 - Replace fixed OTP/localStorage submission and decision logging with auth, Neon transactions, deadline/limit enforcement, outbox enqueue, dispatcher delivery, and event-scoped reads.
 - Prove the thin slice first; then accept/notify with exactly one email and portal link.
@@ -109,15 +110,15 @@ Execute gates in order. Later gates may prepare pure tests and fixtures, but no 
 
 ### R3 — Judged portal, program, and tracking loop
 
-- Finish the minimum slices of M21/M22/M23/M25, M28/M29/M32/M33, M35/M36, and M38.
-- Prove real R2 headshot/slides upload, portal completion, manual schedule placement with conflict detection, published schedule/gallery/embed, ICS token authorization/lifecycle, reminders, and dashboard count change.
+- Finish the minimum slices of M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36, and M38.
+- Prove reviewer assignment and persisted scoring plus real R2 headshot/slides upload, portal completion, manual schedule placement with conflict detection, published schedule/gallery/embed, ICS token authorization/lifecycle, reminders, and dashboard count change.
 - M30 drag-and-drop, M31 alternate views, and M37 polish remain subordinate to the minimum loop; manual scheduling is the accepted cut-line fallback.
 
 **Exit:** the complete minimum judging bar in PLAN §9 works from a fresh browser on the deployed URL.
 
 ### R4 — Release proof
 
-- Finish M10: six Playwright specs, 50-concurrent submit load test, post-deploy smoke, rollback rehearsal, public-repo docs, `docs/spend/`, and submission checklist.
+- Complete M10 after its R1 skeleton: make all six Playwright specs green, run the 50-concurrent submit load test, and finish post-deploy smoke, rollback rehearsal, public-repo docs, `docs/spend/`, and the submission checklist.
 - Run the judge script cold, including fresh Gmail and Outlook OTP/email/invite probes.
 - Fix P0s only after feature freeze; submit by 8:00 PM PT.
 

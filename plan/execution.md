@@ -20,10 +20,10 @@ Run this recovery queue before resuming the original wave placements:
 | Gate | Parallel work allowed | Exit condition |
 |---|---|---|
 | **R0 Stack safety** | Planning reconciliation; PR rebases; CI, migration, authorization, event-isolation, token, and ICS P1 fixes | Stack truth is current; clean-install CI green; no current P1 hidden in a draft |
-| **R1 Deployed foundation** | M01–M04, M06a/M06b, M07, M09, deploy half of M08; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, seed, secrets, R2, and external spike evidence |
-| **R2 Server spine** | M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
-| **R3 Judged loop** | Minimum M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar works cold on the deployed URL |
-| **R4 Release proof** | M10 and P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
+| **R1 Deployed foundation** | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
+| **R2 Server spine** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
+| **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |
+| **R4 Release proof** | Complete M10 after its R1 skeleton and perform P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
 
 **Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 and M40 are paused; M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
 
