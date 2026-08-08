@@ -1,0 +1,1 @@
+import{initialDemoState}from"@/shared/demo/seed";import{authorize,data}from"../../../_lib";export async function GET(request:Request){if(!authorize(request))return Response.json({error:{code:"UNAUTHORIZED",message:"A valid API key is required"}},{status:401});return data(initialDemoState.submissions,{count:initialDemoState.submissions.length})}

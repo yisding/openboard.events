@@ -1,0 +1,1 @@
+import{initialDemoState}from"@/shared/demo/seed";import{data}from"../../_lib";export async function GET(_request:Request,{params}:{params:Promise<{slug:string}>}){const{slug}=await params;const event=initialDemoState.events.find((item)=>item.slug===slug);return event?data(event):Response.json({error:{code:"NOT_FOUND",message:"Event not found"}},{status:404})}

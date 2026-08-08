@@ -7,14 +7,16 @@
 
 ## Spike results (S1–S4, C1–C2)
 
-- Local production and OpenNext builds: pending credentials and dependency install.
-- Deployed Neon transaction, sanitizer, admin auth, Resend idempotency, and preview URL checks: pending environment credentials.
+- Local Next.js production build: passed on 2026-08-08 with 42 routes.
+- OpenNext Cloudflare build: passed on 2026-08-08; `.open-next/worker.js` was generated successfully.
+- Unit checks cover condition evaluation, half-open interval overlap, agenda conflicts, sanitization, and RFC 5545 calendar generation (21 passing tests).
+- Deployed Neon transactions, Auth.js, R2, Resend delivery/idempotency, and preview URL checks remain pending environment credentials.
 
 ## Deferred spikes (Sat AM)
 
 - [ ] Revalidate-60 behavior on a deployed public page
 - [ ] Browser presigned R2 upload with CORS
-- [ ] PGlite applies both migrations
+- [ ] Apply both PostgreSQL migrations to a disposable Neon branch
 - [ ] Embed `frame-ancestors *` survives the adapter
 
 ## Adopted fallbacks
