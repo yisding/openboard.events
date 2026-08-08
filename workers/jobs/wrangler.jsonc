@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "openboard-jobs",
+  "main": "index.ts",
+  "compatibility_date": "2026-08-01",
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": { "APP_BASE_URL": "https://openboard-web.workers.dev" },
+  "observability": { "enabled": true }
+}
