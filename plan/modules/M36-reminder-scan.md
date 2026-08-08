@@ -38,7 +38,7 @@ export async function sendReminderNow(eventId: EventId, taskId: TaskId, contactI
 ## Step-by-step implementation
 
 1. **Contract-first slice.** Append the three signatures to the barrel with `scanReminders` returning `{scanned:0}` and `nudgeOutbox` already real (it is 5 lines: `waitUntil(dispatchOutbox(10).catch(e => log.warn(…)))`). Tell WS-B/C/E in the channel that `nudgeOutbox` is importable now.
-   **Done when:** `pnpm tsc --noEmit` green and [M08](./M08-jobs-worker.md)'s `/api/jobs/reminders` route imports `scanReminders` instead of the stub.
+   **Done when:** `pnpm tsc --noEmit` green with the three exports importable. The deployed `/api/jobs/reminders` route **still imports [M08](./M08-jobs-worker.md)'s stub** — the swap to `scanReminders` is step 6's job, gated on the AC suite (delta #20), so no partially-implemented pass can ever ride a cron tick.
 2. **Pass 1 — `task_assigned`, insert-or-ignore.** In `server/reminders.ts`, select the candidates in one statement:
    ```sql
    SELECT a.event_id, a.task_id, a.contact_id, a.submission_id
@@ -95,7 +95,7 @@ export async function sendReminderNow(eventId: EventId, taskId: TaskId, contactI
    **Done when:** the PGlite AC test below passes.
 5. **`sendReminderNow`.** Enqueue a `task_reminder` for one (task, contact, submission) with a **distinct** key so the per-rung dedupe cannot swallow a deliberate manual nudge. **Use `idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket)` from `@/shared/contracts`** — the recipe is already in [M02](./M02-shared-contracts.md) §8 (frozen at CP1, so there is no additive-PR race on Sunday) and expands to `{eventId}:task_reminder:{taskId}:{contactId}:{submissionId|-}:manual:{minuteBucket}` with `minuteBucket = Math.floor(Date.now()/60000)`. The `:manual:` segment is what keeps a deliberate nudge from colliding with a scanned rung; the minute bucket makes double-clicks idempotent. **No ad-hoc string concatenation** — this module's own guardrail says so. Returns `{enqueued:false}` if the assignment is completed or absent.
    **Done when:** clicking twice within a minute produces one row; clicking again the next minute produces a second.
-6. **Wire the job + the nudge.** `/api/jobs/reminders` → `scanReminders()`. Confirm on the deployed preview that the %15 tick logs `{"job":"reminders","stats":{…}}`. Add the one-line `nudgeOutbox` usage comment to the barrel.
+6. **Wire the job + the nudge.** **Gate (rev. 3 delta #20): do not swap the deployed route off [M08](./M08-jobs-worker.md)'s stub until `reminders.test.ts` — the AC suite below — is green.** A stub returning `{noop:1}` on every cron tick is harmless; a half-implemented ladder emails real people. Then: `/api/jobs/reminders` → `scanReminders()`. Confirm on the deployed preview that the %15 tick logs `{"job":"reminders","stats":{…}}`. Add the one-line `nudgeOutbox` usage comment to the barrel.
    **Then verify the three nudge call sites exist, and open the PRs yourself if they do not** (`ctx.waitUntil` is named in PLAN §2, so an unwired nudge is a missing feature, not a nice-to-have):
    | consumer | file | line to add |
    |---|---|---|
@@ -118,6 +118,7 @@ Verification:
 
 ## Guardrails
 - **Burst-safe is the point.** Naïvely enqueuing every elapsed rung sends 3 emails to a judge the moment the seed loads. The "latest eligible rung only + retire the rest" rule is binding (PLAN §4/M36).
+- **Cron wiring is gated on the AC suite** (delta #20): the deployed `/api/jobs/reminders` keeps [M08](./M08-jobs-worker.md)'s stub until the PGlite AC tests pass. Then, on a **reset preview seed** (`EMAIL_MODE=log`), the first wired tick must produce **exactly one queued row and two `skipped` rows** for the seeded overdue task (the CP3 fixture — due −2d, all three rungs elapsed) and a second tick must add **zero rows** — an explicit pass/fail check against row counts, not a log-shape glance — before prod relies on the route.
 - **Skipped rows are permanent retirement, not a soft state.** They occupy the rung's unique key forever, which is exactly what prevents a later scan from firing it.
 - **Suppression by materialization** uses `greatest(task.created_at, accepted_at)` — a task created today with a due date next week must never fire its −7d rung, and a speaker accepted today must not receive back-dated nags.
 - **The fan-out rule (resolution #14) is consumed from `task_assignments_v`, never re-derived here.** Submission-targeted tasks assign to the primary contact only, once per accepted submission; contact-targeted tasks assign to members of `accepted_speakers_v`. If a count here disagrees with [M38](./M38-dashboard.md)'s dashboard or [M21](./M21-portal-shell.md)'s portal panel, the view is the truth and the divergence is a bug in the consumer.

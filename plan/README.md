@@ -94,7 +94,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 **CI invariant greps (PLAN §2 — your PR dies on these)**
 - no `dangerouslySetInnerHTML` outside `RichTextView`
 - no `process.env` outside `env.ts`
-- no date libs outside `time.ts`
+- no date libs **or local-tz `Date` methods** (`toLocaleString` family, `toDateString`/`toTimeString`, `getTimezoneOffset`, non-UTC `get*/set*` accessors, multi-arg `new Date(y, m, …)`) outside `time.ts` — scoped to `src/**` (rev. 3 delta #18)
 - no Resend outside the dispatcher
 - no `export const runtime = 'edge'` anywhere
 - no `INSERT INTO submissions` / raw `contacts` writes outside their owning mutation files
@@ -105,7 +105,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 
 ## 5. Module index (44)
 
-Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN §6/§7 (see `execution.md` for the half-day wave table). Hard deps are the solid edges of PLAN §5; *italic* deps are dashed — you start against a Phase-0 stub or fixture and swap in the real artifact when it lands.
+Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN §6/§7 (see `execution.md` for the half-day wave table). **Slot day names are logical plan-days — Aug 8 2026 is a Saturday: plan-Fri = Sat 8/8, plan-Sat = Sun 8/9, plan-Sun = Mon 8/10, plan-Mon = Tue 8/11, plan-Tue = Wed 8/12 until 2 PM (CP4), plan-Wed = Wed 8/12 afternoon (PLAN §7, delta #21).** Hard deps are the solid edges of PLAN §5; *italic* deps are dashed — you start against a Phase-0 stub or fixture and swap in the real artifact when it lands.
 
 | ID | Module | Work order | WS | Agent | Slot | Size | Hard deps (*dashed = start-anyway*) |
 |---|---|---|---|---|---|---|---|

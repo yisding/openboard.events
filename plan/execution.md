@@ -1,6 +1,6 @@
 # openboard — parallel execution schedule
 
-**7 agents · 44 modules · Fri Aug 8 evening → Wed Aug 12, 10 PM PT.** This file is the transcription of `PLAN.md` §5 (dependency graph), §6 (workstreams + integration points), §7 (timeline) and §9 (cut lines) into a form an agent can execute from. `PLAN.md` remains authoritative; nothing here overrides it.
+**7 agents · 44 modules · Sat Aug 8 evening → Wed Aug 12, 10 PM PT.** **Weekday labels in this file and in every module doc are the plan's logical day names — Aug 8 2026 is a Saturday; see PLAN §7 / delta #21 for the mapping (plan-"Tue" ends Wed 2 PM = CP4; plan-"Wed" is Wed afternoon).** This file is the transcription of `PLAN.md` §5 (dependency graph), §6 (workstreams + integration points), §7 (timeline) and §9 (cut lines) into a form an agent can execute from. `PLAN.md` remains authoritative; nothing here overrides it.
 
 **How to read this**
 - **Solid edge `A --> B`** = B's *completion* needs A's completion.
@@ -215,11 +215,11 @@ graph TD
 
 Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-D** · **WS-E** · **WS-F**.
 
-### Fri Aug 8 (evening) — Phase 0
+### Plan-day "Fri" = Sat Aug 8 (evening) — Phase 0
 
 | Lane | Fri evening |
 |---|---|
-| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, **WAF rate rules configured now (incl. the OTP verify route)**, hello page deployed to workers.dev. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
+| **Architect** | **M01** — scaffold, pinned Next+OpenNext versions, CI with all invariant greps, **WAF rate rules configured now (incl. the OTP verify route)**, hello page deployed to workers.dev. **Existential spikes S1–S4 + checks C1–C2 only**: S1 OpenNext deploy (+ R2 ISR cache vs Cache-API fallback), S2 `withTx`/Neon WS Pool **on deployed Workers**, S3 `xss` pkg on Workers, S4 better-auth full sign-in round-trip **on the deployed artifact**; C1 Resend `Idempotency-Key` honored (curl, 10 min), C2 `wrangler versions` preview URLs on the OpenNext artifact. **Fallbacks adopted the same hour on any failure.** Resend domain DNS (SPF/DKIM/DMARC) submitted. **M02 contracts draft** (every Phase-0 signature stub, fan-out rule, key recipes, `FormFieldRendererProps`, the golden FormSnapshot fixture). **M03 schema draft** incl. §3 ★ deltas. **M04 slice**: `compileFormSnapshot` draft + tests. |
 | **B1** | Read `PLAN.md` + `analysis/event-config-cfp.md` + `analysis/form-builder.md`; prep M11/M12 against the contracts draft. |
 | **B2** | **M13a** — evaluator + the ~30-case table-driven test file, written against the contracts draft. Needs nothing but M02. |
 | **WS-C** | Read `analysis/abstracts-review.md`; **[M20](modules/M20-csv-export.md)'s `toCsv` + `csv.test.ts`** — pure RFC-4180 serializer + the quoting/newline/injection test table. Zero dependencies (fixtures only); the test file is the spec. |
@@ -228,7 +228,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 | **WS-F** | Read `analysis/dashboard-comms.md`; **[M35](modules/M35-ics-calendar-invites.md) Step 1** — the pure RFC 5545 builder + `__fixtures__/{request,cancel,feed}.ics` + the folding/escaping tests. Needs only the M02 draft, and M35's own If-blocked calls these "the highest-value tests in the module". Then prep M08/M34. |
 | **All** | A designated agent **watches the already-published Friday walkthrough video before CP0** and diffs it against the six analyses → `DECISIONS.md`. **Discord-watch rotation starts; question queue posted** (conditional-logic UI, routing UI, drafts semantics). |
 
-### Sat Aug 9 — foundation freeze + fan-out
+### Plan-day "Sat" = Sun Aug 9 — foundation freeze + fan-out
 
 | Lane | Sat AM | Sat PM |
 |---|---|---|
@@ -241,7 +241,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 | **WS-F** | **M08** jobs worker · **M34** start | **M34** continues · **canned METHOD:REQUEST ICS curl'd to a real Gmail + a real Outlook inbox** (screenshot → `DECISIONS.md`) · **Airtable base + 5 tables + fields provisioned, one hand-run `performUpsert fieldsToMergeOn:['PG ID']` verified** |
 | **All** | | Watch swyx's Saturday walkthrough video → diff against assumptions; **adjust copy/fields, not architecture**. Discord clarifications → `DECISIONS.md`. |
 
-### Sun Aug 10 — the golden path
+### Plan-day "Sun" = Mon Aug 10 — the golden path
 
 | Lane | Sun AM | Sun PM |
 |---|---|---|
@@ -254,7 +254,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 | **WS-F** | ° **M35** ICS + calendar invites | ° **M36** burst-safe scan · **full seeded ICS lifecycle to the real inboxes: REQUEST → reschedule SEQUENCE bump → CANCEL** (one full day before CP3) |
 | **All** | Sunday-morning clarification video + Discord → final requirement adjustments **before Sunday-night freeze of requirements**. | |
 
-### Mon Aug 11 — full feature surface
+### Plan-day "Mon" = Tue Aug 11 — full feature surface
 
 | Lane | Mon AM | Mon PM |
 |---|---|---|
@@ -266,7 +266,7 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 | **WS-E** | **M30 DnD** · **M31 Conflicts tab** · **M33 embeds framed in a scratch host page** (day-level in §7) | ↳ same, cont. |
 | **WS-F** | **M38 dashboard both tabs** · reminder + `task_assigned` scan live on cron | **M40 start** |
 
-### Tue Aug 12 — bonuses, hardening, perf
+### Plan-day "Tue" = Wed Aug 12, until 2 PM — bonuses, hardening, perf (CP4 = Wed 2 PM; delta #21)
 
 | Lane | Tue AM | Tue PM |
 |---|---|---|
@@ -278,11 +278,11 @@ Seven lanes: **Architect** (WS-A) · **B1** + **B2** (WS-B) · **WS-C** · **WS-
 | **WS-E** | **M31 Week / Track / Room views** | ° hardening |
 | **WS-F** | **M39 Airtable** — first 15 min: re-verify `performUpsert` merge on the provisioned base, *then* sync code + double-run idempotency runbook | ° **M40 finish** (public API + docs) · **M37 comms admin** (sanitize-on-save + rendered-body log detail) |
 
-### Wed Aug 12 (deadline day — submit by 8 PM PT)
+### Plan-day "Wed" = Wed Aug 12, 2–10 PM (deadline day — submit by 8 PM PT; compressed per delta #21)
 
 | Lane | Wed AM | Wed midday → PM |
 |---|---|---|
-| **All 7 agents** | **Full bug bash of judge flows on production** — every agent runs the demo script cold, **fix P0s only**. Includes a complete **OTP round-trip to one fresh Gmail AND one fresh Outlook address typed into the CFP wizard exactly as a judge would**, plus a portal magic-link and a decision-email check on the same inboxes. | Midday: final seed reset · `wrangler rollback` rehearsed · post-deploy smoke green · comms log clean · **reimbursement proof compiled into `docs/spend/`**. PM: repo public (license, README, setup) · submission form filled · walkthrough recording (optional) · **submit by 8 PM PT**. **8–10 PM: emergency only.** |
+| **All 7 agents** | **Full bug bash of judge flows on production** — every agent runs the demo script cold, **fix P0s only**. Includes a complete **OTP round-trip to one fresh Gmail AND one fresh Outlook address typed into the CFP wizard exactly as a judge would**, plus a portal magic-link and a decision-email check on the same inboxes, **and a calendar invite landed on the fresh Gmail's calendar** (schedule that speaker's session — first-contact inboxes are where spam/DMARC treatment differs from the warmed team inboxes used Sat/Sun; rev. 3 delta #17). | Midday: final seed reset · `wrangler rollback` rehearsed · post-deploy smoke green · comms log clean · **reimbursement proof compiled into `docs/spend/`**. PM: repo public (license, README, setup) · submission form filled · walkthrough recording (optional) · **submit by 8 PM PT**. **8–10 PM: emergency only.** |
 
 ---
 
@@ -313,7 +313,7 @@ Gates **M02 / M03 / M04 + M05a + M06a only**. M07 and M05b's prop stubs land **S
 - [ ] Every route renders a stub page
 - [ ] CI + deploy pipeline green
 - [ ] **Contracts FROZEN** — from here, `src/shared/contracts` changes require architect-labeled PRs
-- [ ] **HARD GATE: Resend domain verification checked.** Not propagated → debug/resubmit **immediately**, re-check Sat night, fallback decision Sun noon
+- [ ] **HARD GATE: Resend domain verification checked.** Checked = a probe email **sent through Resend from the production `EMAIL_FROM`** to a team Gmail shows `Authentication-Results: spf=pass dkim=pass dmarc=pass` **with aligned identities** (`header.from` and DKIM `header.d`/`header.i` on the `EMAIL_FROM` domain; Show original; screenshot → `DECISIONS.md`) — the dashboard flag alone does not gate, and a generic pass from another sender proves nothing (rev. 3 delta #17). Not propagated → debug/resubmit **immediately**, re-check Sat night, fallback decision Sun noon
 - [ ] Idempotency-key recipes frozen in `contracts/`; fan-out rule (res. #14) written into the 0001 view SQL and `contracts/`
 - [ ] **Six Playwright specs exist and run with most steps skipped (0 failures)** — M10's skeleton. A spec that has been running skipped since Saturday goes green in minutes; one that appears the day its feature lands has never been debugged.
 

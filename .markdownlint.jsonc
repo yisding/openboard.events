@@ -1,0 +1,6 @@
+{
+  // MD029: PLAN.md's rev. 3 hardening deltas are deliberately numbered 16–21,
+  // continuing the binding-resolutions list — modules cite them as "delta #16" etc.
+  // The visible numbers are load-bearing; do not renumber.
+  "MD029": false
+}
