@@ -48,6 +48,10 @@ export default function HomePage() {
       <section id="features" className="landing-strip">
         <div className="container logo-strip"><span>One workspace for</span><b>CFP & Reviews</b><b>Speaker Success</b><b>Agenda Planning</b><b>Communications</b></div>
       </section>
+
+      <section id="story" className="landing-strip">
+        <div className="container logo-strip"><span>Why Openboard</span><b>One source of truth</b><b>No dropped speakers</b><b>Hours back every week</b><b>A calm event day</b></div>
+      </section>
     </main>
   );
 }

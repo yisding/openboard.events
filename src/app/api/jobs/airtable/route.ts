@@ -1,1 +1,6 @@
-import{defineJobRoute}from"../_lib";export const dynamic="force-dynamic";export const POST=defineJobRoute("airtable",async()=>({upserted:0,unchanged:0}));
+import { defineJobRoute, stubAirtable } from "../_lib";
+
+export const dynamic = "force-dynamic";
+
+// swap: import { runAirtableSync } from '@/features/airtable'
+export const { POST } = defineJobRoute("airtable", stubAirtable);

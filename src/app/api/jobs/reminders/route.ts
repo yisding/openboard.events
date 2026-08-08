@@ -1,1 +1,6 @@
-import{defineJobRoute}from"../_lib";export const dynamic="force-dynamic";export const POST=defineJobRoute("reminders",async()=>({scanned:0,queued:0,retired:0}));
+import { defineJobRoute, stubReminders } from "../_lib";
+
+export const dynamic = "force-dynamic";
+
+// swap: import { scanReminders } from '@/features/comms'
+export const { POST } = defineJobRoute("reminders", stubReminders);
