@@ -1,4 +1,4 @@
-import type { DemoState, ReviewRecord, SpeakerRecord, SubmissionRecord } from "./types";
+import type { DemoState, PlanRecord, ReviewRecord, SpeakerRecord, SubmissionRecord } from "./types";
 
 export const DEMO_EVENT_ID = "evt_ai_engineer_2026";
 export const DEMO_EVENT_SLUG = "ai-engineer";
@@ -85,6 +85,10 @@ const submissions: SubmissionRecord[] = submissionSeed.map(([id, code, speakerId
   };
 });
 
+const plans: PlanRecord[] = [
+  { id: "plan_round_1", eventId: DEMO_EVENT_ID, name: "Round 1 · Technical review", scale: "1–5", trackScope: "All tracks", status: "open" },
+];
+
 export const initialDemoState: DemoState = {
   events: [{ id: DEMO_EVENT_ID, slug: DEMO_EVENT_SLUG, name: "AI Engineer World’s Fair 2026", shortName: "AI Engineer", timezone: "America/Los_Angeles", city: "San Francisco, CA", venue: "Fort Mason Center", startsAt: "2026-09-15T16:00:00.000Z", endsAt: "2026-09-17T01:00:00.000Z", accent: "#6958d7", logoText: "AI.engineer", status: "live" }],
   forms: [{
@@ -133,7 +137,7 @@ export const initialDemoState: DemoState = {
     { taskId: "task_av", speakerId: "spk_nadia", completedAt: "2026-07-25T12:00:00.000Z" },
   ],
   communications: [
-    { id: "com_1", eventId: DEMO_EVENT_ID, recipient: "nadia@vectorlab.ai", subject: "You’re speaking at AI Engineer World’s Fair!", template: "Decision — accepted", status: "sent", sentAt: "2026-08-07T18:32:00.000Z", preview: "Great news, Nadia—your session has been accepted…" },
+    { id: "decision_sub_101_spk_nadia", eventId: DEMO_EVENT_ID, recipient: "nadia@vectorlab.ai", subject: "You’re speaking at AI Engineer World’s Fair!", template: "Decision — accepted", status: "sent", sentAt: "2026-08-07T18:32:00.000Z", preview: "Great news, Nadia—your session has been accepted…" },
     { id: "com_2", eventId: DEMO_EVENT_ID, recipient: "alex@latent.space", subject: "Your AI Engineer speaker checklist", template: "Task assigned", status: "sent", sentAt: "2026-08-07T18:32:00.000Z", preview: "There are a few things we need before the event…" },
     { id: "com_3", eventId: DEMO_EVENT_ID, recipient: "mina@redwood.ai", subject: "We received your proposal", template: "Submission received", status: "sent", sentAt: "2026-08-06T10:14:00.000Z", preview: "Thanks for submitting Memory Is the New Context Window…" },
     { id: "com_4", eventId: DEMO_EVENT_ID, recipient: "marcus@northstar.dev", subject: "Reminder: complete your speaker profile", template: "Task reminder", status: "queued", sentAt: "2026-08-08T16:00:00.000Z", preview: "Your speaker profile is due soon…" },
@@ -144,4 +148,5 @@ export const initialDemoState: DemoState = {
     { id: "res_2", eventId: DEMO_EVENT_ID, title: "Presentation guidelines", slug: "presentation-guidelines", summary: "Slides, aspect ratio, demos, and accessibility guidance.", body: "<h2>Presentation guidelines</h2><p>Design for a 16:9 screen, use at least 28pt type, and keep live demos focused. Upload a PDF backup with your final deck.</p>", published: true },
     { id: "res_3", eventId: DEMO_EVENT_ID, title: "Venue & travel", slug: "venue-and-travel", summary: "Fort Mason directions, hotel suggestions, and local transportation.", body: "<h2>Fort Mason Center</h2><p>The venue is on the northern waterfront. Rideshare drop-off is available at Gate 2.</p>", published: true },
   ],
+  plans,
 };
