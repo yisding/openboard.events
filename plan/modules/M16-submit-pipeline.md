@@ -24,7 +24,7 @@ The server side of the public CFP: a **pure** 5-step pipeline (parse → visibil
 - **[M18](./M18-submission-mutations-notify.md)** `createSubmission(eventId, CreateSubmissionInput)`, `upsertDraft(eventId, contactId, formId, formVersion)`, `nextSubmissionCode(tx, eventId)` — Phase-0 throwing stubs Saturday morning; **WS-C lands the real `createSubmission`/`nextSubmissionCode` slice Sat PM** specifically to power the Sat-night thin-slice. **Swap step:** none — the import is already `from '@/features/submissions'`; the stub simply starts working. Never re-declare these signatures locally.
 - **[M12](./M12-form-builder-core.md)** `getPinnedSnapshot`, `getCurrentSnapshot`, `getActiveRoutingRules` — Saturday these return the golden fixture / seeded rows from M12's Step-1 contract slice. **Swap step:** none.
 - **[M14](./M14-form-settings-notifications.md)** `formOpenState` — advisory pre-check only; the authoritative gate is `is_form_open()` inside `createSubmission`.
-- **[M06b](./M06b-portal-auth.md)** `requirePortal(eventSlug)` — until Sat PM, the existing `TEST_AUTH=1` isolated-preview path may supply a fixture contactId.
+- **[M06b](./M06b-portal-auth.md)** `requirePortal(eventSlug)` — until Sat PM, the existing `TEST_AUTH=1` isolated-preview path may supply the **locked fixture contactId only** (never an arbitrary or caller-supplied id), and only on non-production deployments — production never sets `TEST_AUTH` (the post-deploy smoke asserts it absent, [M04](./M04-shared-libs.md) §2). The `x-dev-contact-id` header variant in "If blocked" is likewise `TEST_AUTH`-guarded and is deleted before CP2.
 
 ## Provides (interfaces others consume)
 

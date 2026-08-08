@@ -48,8 +48,10 @@ Add the file-header comment: *"This is the ONLY `dangerouslySetInnerHTML` in the
 - **Done when:** typing formatted content, saving, reloading, and re-editing preserves formatting exactly (round-trip test in the kitchen sink), and a pasted `<script>` is gone from the emitted value.
 
 ### 4. CI bundle-size gate (this is the module that turns it on)
-Add to [M01](./M01-scaffold-ci-deploy.md)'s CI a step asserting the **client** bundle for a route importing the editor stays under budget, and record the measured TipTap + OpenNext gzip delta in `DECISIONS.md`. While on Workers Free, 2.5 MB gzip is the warning line beneath the 3 MB limit; if resolution #22 records a Paid upgrade, the warning becomes 8 MiB beneath 10 MB. If the editor pushes past budget, drop extensions (blockquote/code first) — the fallback is a plain `<textarea>` with the same props, and every consumer keeps compiling.
-- **Done when:** CI prints the before/after client-bundle numbers and is green.
+Add to [M01](./M01-scaffold-ci-deploy.md)'s CI a step measuring **two independent budgets** — they are different artifacts and must never share thresholds:
+   - **Browser client bundle** (what this module owns): the `next build` first-load JS for a route importing the editor stays under **300 KB gzip** (warn at 250 KB). Record the measured TipTap delta in `DECISIONS.md`. If the editor pushes past budget, drop extensions (blockquote/code first) — the fallback is a plain `<textarea>` with the same props, and every consumer keeps compiling.
+   - **Compressed OpenNext worker artifact** (M01's existing Wrangler dry-run gate, unchanged by this module): while on Workers Free, warn at 2.5 MB gzip beneath the 3 MB limit; if resolution #22 records a Paid upgrade, warn at 8 MiB beneath 10 MB. The client-side editor chunk never enters the server graph (`ssr: false`), so it should not move this number — the measurement proves that.
+- **Done when:** CI prints both before/after numbers (client first-load JS and worker gzip) against their respective limits and is green.
 
 ### 5. `<DateTimePicker>` — event timezone, labeled, clearable
 - Renders and parses **in the event timezone**, always showing the zone label ("October 12th, 2026 at 9:00 AM **PDT**") — the real product's Event Details screen shows exactly this, including the **×** clear button.

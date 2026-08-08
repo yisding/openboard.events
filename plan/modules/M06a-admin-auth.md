@@ -64,7 +64,7 @@ Role ordering: `owner ⊇ organizer ⊇ reviewer`. `requireAdmin(eventId, 'revie
 
 | | Admin ([M06a](./M06a-admin-auth.md)) | Portal ([M06b](./M06b-portal-auth.md)) |
 |---|---|---|
-| Cookie | `ob_admin` | `ob_portal` |
+| Cookie | `ob_admin` | `ob_portal_{eventId}` (event-keyed name — two events, two cookies) |
 | Scope | user (cross-event) | **per (contact, event)** |
 | Lifetime | 7 days | 30 days |
 | Flags | httpOnly, Secure, SameSite=Lax, path `/` | same |
