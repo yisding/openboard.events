@@ -7,7 +7,14 @@ import { usePortal } from "./portal-context";
 import { Avatar, Button, Field, ProgressBar } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
+// Keyed by speaker id so the draft state re-initializes when the portal
+// session identity changes (e.g. impersonation resolving after first render).
 export function PortalProfile() {
+  const { speaker } = usePortal();
+  return <ProfileForm key={speaker.id} />;
+}
+
+function ProfileForm() {
   const { dispatch } = useDemo();
   const { speaker } = usePortal();
   const { toast } = useToast();

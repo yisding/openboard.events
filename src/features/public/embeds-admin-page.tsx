@@ -6,14 +6,16 @@ import { useDemo } from "@/shared/demo/demo-provider";
 import { Button, PageHeader, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
+// Scoped per event so one event's appearance never leaks into another's.
 export const EMBED_SETTINGS_KEY = "openboard-embed-settings";
+const settingsKey = (eventId: string) => `${EMBED_SETTINGS_KEY}:${eventId}`;
 
 type EmbedSettings = { theme: "light" | "dark"; header: boolean; enabled: boolean; accent: string };
 const DEFAULTS: EmbedSettings = { theme: "light", header: true, enabled: true, accent: "#6958D7" };
 
 export function EmbedsAdminPage({eventId}:{eventId:string}){const{state}=useDemo();const{toast}=useToast();const[settings,setSettings]=useState<EmbedSettings>(DEFAULTS);const[origin,setOrigin]=useState("");const event=state.events.find((item)=>item.id===eventId);const slug=event?.slug??"ai-engineer";
-useEffect(()=>{setOrigin(window.location.origin);try{const saved=window.localStorage.getItem(EMBED_SETTINGS_KEY);if(saved)setSettings({...DEFAULTS,...JSON.parse(saved) as Partial<EmbedSettings>})}catch{/* keep defaults */}},[]);
-function saveSettings(){window.localStorage.setItem(EMBED_SETTINGS_KEY,JSON.stringify(settings));toast("Embed settings saved — snippets updated")}
+useEffect(()=>{setOrigin(window.location.origin);try{const saved=window.localStorage.getItem(settingsKey(eventId));if(saved)setSettings({...DEFAULTS,...JSON.parse(saved) as Partial<EmbedSettings>})}catch{/* keep defaults */}},[eventId]);
+function saveSettings(){window.localStorage.setItem(settingsKey(eventId),JSON.stringify(settings));toast("Embed settings saved — snippets updated")}
 const query=`theme=${settings.theme}&header=${settings.header?1:0}&accent=${encodeURIComponent(settings.accent)}`;
 const iframeSnippet=(type:string)=>`<iframe src="${origin}/embed/${slug}/${type}?${query}" width="100%" height="760" style="border:0" loading="lazy" title="${slug} ${type}"></iframe>`;
 const scriptSnippet=(type:string)=>`<script src="${origin}/embed.js" data-event="${slug}" data-type="${type}" data-params="${query}" async></script>`;

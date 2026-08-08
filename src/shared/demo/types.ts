@@ -37,7 +37,7 @@ export type TaskRecord = {
   id: string; eventId: string; title: string; description: string; mode: "manual" | "form" | "file_request";
   target: "contact" | "submission"; dueAt: string; assigned: number; completed: number; required: boolean;
 };
-export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string; payload?: Record<string, string> };
+export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string; payload?: Record<string, string>; submissionId?: string };
 
 export type CommunicationRecord = {
   id: string; eventId: string; recipient: string; subject: string; template: string; status: "queued" | "sent" | "failed";
