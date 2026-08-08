@@ -37,7 +37,7 @@ export type TaskRecord = {
   id: string; eventId: string; title: string; description: string; mode: "manual" | "form" | "file_request";
   target: "contact" | "submission"; dueAt: string; assigned: number; completed: number; required: boolean;
 };
-export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string };
+export type TaskCompletion = { taskId: string; speakerId: string; completedAt: string; fileName?: string; payload?: Record<string, string> };
 
 export type CommunicationRecord = {
   id: string; eventId: string; recipient: string; subject: string; template: string; status: "queued" | "sent" | "failed";
@@ -45,11 +45,13 @@ export type CommunicationRecord = {
 };
 
 export type ReviewRecord = { id: string; submissionId: string; reviewer: string; score: number; note: string; createdAt: string };
+export type PlanRecord = { id: string; eventId: string; name: string; scale: string; trackScope: string; status: "open" | "closed" };
 export type ResourceRecord = { id: string; eventId: string; title: string; slug: string; summary: string; body: string; published: boolean };
 
 export type DemoState = {
   events: EventRecord[]; forms: FormRecord[]; speakers: SpeakerRecord[]; submissions: SubmissionRecord[]; sessions: SessionRecord[];
   tasks: TaskRecord[]; completions: TaskCompletion[]; communications: CommunicationRecord[]; reviews: ReviewRecord[]; resources: ResourceRecord[];
+  plans: PlanRecord[];
 };
 
 export type DemoAction =
@@ -63,6 +65,8 @@ export type DemoAction =
   | { type: "ADD_SUBMISSION"; submission: SubmissionRecord }
   | { type: "UPDATE_SUBMISSION"; submissionId: string; patch: Partial<SubmissionRecord> }
   | { type: "ADD_REVIEW"; review: ReviewRecord }
+  | { type: "UPSERT_REVIEW"; review: ReviewRecord }
+  | { type: "ADD_PLAN"; plan: PlanRecord }
   | { type: "ADD_SPEAKER"; speaker: SpeakerRecord }
   | { type: "UPDATE_SPEAKER"; speakerId: string; patch: Partial<SpeakerRecord> }
   | { type: "ADD_TASK"; task: TaskRecord }

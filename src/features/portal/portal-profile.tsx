@@ -3,26 +3,27 @@
 import { Camera, CheckCircle2, Linkedin, LinkIcon, MapPin, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
-import { DEMO_SPEAKER_ID } from "@/shared/demo/seed";
+import { usePortal } from "./portal-context";
 import { Avatar, Button, Field, ProgressBar } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 export function PortalProfile() {
-  const { state, dispatch } = useDemo();
+  const { dispatch } = useDemo();
+  const { speaker } = usePortal();
   const { toast } = useToast();
-  const speaker = state.speakers.find((item) => item.id === DEMO_SPEAKER_ID) ?? state.speakers[0];
-  const [bio, setBio] = useState(speaker?.bio ?? "");
-  const [company, setCompany] = useState(speaker?.company ?? "");
-  const [title, setTitle] = useState(speaker?.title ?? "");
-  const [location, setLocation] = useState(speaker?.location ?? "");
-  if (!speaker) return null;
+  const [bio, setBio] = useState(speaker.bio);
+  const [company, setCompany] = useState(speaker.company);
+  const [title, setTitle] = useState(speaker.title);
+  const [location, setLocation] = useState(speaker.location);
+  const [website, setWebsite] = useState(speaker.website);
+  const [linkedin, setLinkedin] = useState(speaker.linkedin);
   const speakerId = speaker.id;
   function save() {
-    dispatch({ type: "UPDATE_SPEAKER", speakerId, patch: { bio, company, title, location, profileCompletion: 100 } });
+    dispatch({ type: "UPDATE_SPEAKER", speakerId, patch: { bio, company, title, location, website, linkedin, profileCompletion: 100 } });
     toast("Profile saved and public gallery updated");
   }
   return <div className="portal-container portal-page">
     <header className="portal-page-header"><span className="public-eyebrow">YOUR PUBLIC PROFILE</span><h1>Speaker profile</h1><p>This information appears on the public speaker gallery.</p></header>
-    <div className="profile-edit-layout"><main><section className="portal-panel profile-photo-section"><div className="profile-photo"><Avatar initials={speaker.avatar} color={speaker.avatarColor} size="xl" /><button><Camera size={16} /></button></div><div><h2>Profile photo</h2><p>A square image works best. JPG or PNG, up to 5 MB.</p><Button variant="secondary" size="sm">Upload new photo</Button></div></section><section className="portal-panel profile-form"><h2>About you</h2><div className="form-grid"><Field label="First name"><input value={speaker.firstName} readOnly /></Field><Field label="Last name"><input value={speaker.lastName} readOnly /></Field><Field label="Company"><input value={company} onChange={(event) => setCompany(event.target.value)} /></Field><Field label="Job title"><input value={title} onChange={(event) => setTitle(event.target.value)} /></Field></div><Field label="Biography" hint={`${bio.length} / 5,000 characters`}><textarea value={bio} maxLength={5000} onChange={(event) => setBio(event.target.value)} /></Field><h2>Links & location</h2><div className="form-stack"><Field label="Location"><div className="input-icon"><MapPin size={16} /><input value={location} onChange={(event) => setLocation(event.target.value)} /></div></Field><Field label="Website"><div className="input-icon"><LinkIcon size={16} /><input defaultValue={speaker.website} /></div></Field><Field label="LinkedIn"><div className="input-icon"><Linkedin size={16} /><input defaultValue={speaker.linkedin} /></div></Field></div><footer><Button onClick={save}>Save profile</Button></footer></section></main><aside><section className="portal-panel profile-readiness"><span className="metric-icon green"><CheckCircle2 size={20} /></span><h3>Your profile is ready</h3><p>Complete profiles help attendees discover your work before the event.</p><div><span>Completion</span><b>100%</b></div><ProgressBar value={100} tone="green" /></section><section className="portal-panel public-preview"><span>PUBLIC PREVIEW</span><Avatar initials={speaker.avatar} color={speaker.avatarColor} size="xl" /><h3>{speaker.firstName} {speaker.lastName}</h3><p>{title} · {company}</p><small>{bio.slice(0, 140)}…</small><button><UserRound size={14} /> View gallery profile</button></section></aside></div>
+    <div className="profile-edit-layout"><main><section className="portal-panel profile-photo-section"><div className="profile-photo"><Avatar initials={speaker.avatar} color={speaker.avatarColor} size="xl" /><button type="button" aria-label="Change photo"><Camera size={16} /></button></div><div><h2>Profile photo</h2><p>A square image works best. JPG or PNG, up to 5 MB.</p><Button variant="secondary" size="sm">Upload new photo</Button></div></section><section className="portal-panel profile-form"><h2>About you</h2><div className="form-grid"><Field label="First name"><input value={speaker.firstName} readOnly /></Field><Field label="Last name"><input value={speaker.lastName} readOnly /></Field><Field label="Company"><input value={company} onChange={(event) => setCompany(event.target.value)} /></Field><Field label="Job title"><input value={title} onChange={(event) => setTitle(event.target.value)} /></Field></div><Field label="Biography" hint={`${bio.length} / 5,000 characters`}><textarea value={bio} maxLength={5000} onChange={(event) => setBio(event.target.value)} /></Field><h2>Links & location</h2><div className="form-stack"><Field label="Location"><div className="input-icon"><MapPin size={16} /><input value={location} onChange={(event) => setLocation(event.target.value)} /></div></Field><Field label="Website"><div className="input-icon"><LinkIcon size={16} /><input value={website} onChange={(event) => setWebsite(event.target.value)} /></div></Field><Field label="LinkedIn"><div className="input-icon"><Linkedin size={16} /><input value={linkedin} onChange={(event) => setLinkedin(event.target.value)} /></div></Field></div><footer><Button onClick={save}>Save profile</Button></footer></section></main><aside><section className="portal-panel profile-readiness"><span className="metric-icon green"><CheckCircle2 size={20} /></span><h3>Your profile is ready</h3><p>Complete profiles help attendees discover your work before the event.</p><div><span>Completion</span><b>{speaker.profileCompletion}%</b></div><ProgressBar value={speaker.profileCompletion} tone="green" /></section><section className="portal-panel public-preview"><span>PUBLIC PREVIEW</span><Avatar initials={speaker.avatar} color={speaker.avatarColor} size="xl" /><h3>{speaker.firstName} {speaker.lastName}</h3><p>{title} · {company}</p><small>{bio.slice(0, 140)}…</small><button type="button"><UserRound size={14} /> View gallery profile</button></section></aside></div>
   </div>;
 }

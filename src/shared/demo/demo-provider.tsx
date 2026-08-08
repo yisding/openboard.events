@@ -6,6 +6,8 @@ import type { DemoAction, DemoState, SpeakerRecord } from "./types";
 
 const STORAGE_KEY = "openboard-demo-state-v3";
 
+// Collections added after the first release (e.g. plans) are defaulted from the
+// seed on hydration rather than required, so older saved snapshots stay valid.
 const DEMO_COLLECTIONS = ["events", "forms", "speakers", "submissions", "sessions", "tasks", "completions", "communications", "reviews", "resources"] as const;
 
 function isDemoSnapshot(value: unknown): value is DemoState {
@@ -29,6 +31,15 @@ function reducer(state: DemoState, action: DemoAction): DemoState {
       const scores = [...state.reviews.filter((review) => review.submissionId === submission.id).map((review) => review.score), action.review.score];
       return { ...submission, score: scores.reduce((sum, score) => sum + score, 0) / scores.length, reviewCount: scores.length };
     }) };
+    case "UPSERT_REVIEW": {
+      const reviews = [...state.reviews.filter((review) => !(review.submissionId === action.review.submissionId && review.reviewer === action.review.reviewer)), action.review];
+      return { ...state, reviews, submissions: state.submissions.map((submission) => {
+        if (submission.id !== action.review.submissionId) return submission;
+        const scores = reviews.filter((review) => review.submissionId === submission.id).map((review) => review.score);
+        return { ...submission, score: scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null, reviewCount: scores.length };
+      }) };
+    }
+    case "ADD_PLAN": return { ...state, plans: [...state.plans, action.plan] };
     case "ADD_SPEAKER": return { ...state, speakers: [...state.speakers, action.speaker] };
     case "UPDATE_SPEAKER": return { ...state, speakers: state.speakers.map((item) => item.id === action.speakerId ? { ...item, ...action.patch } : item) };
     case "ADD_TASK": return { ...state, tasks: [...state.tasks, action.task] };
@@ -64,7 +75,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       try {
         const parsed: unknown = JSON.parse(saved);
         if (!isDemoSnapshot(parsed)) throw new Error("invalid snapshot");
-        dispatch({ type: "HYDRATE", state: parsed });
+        dispatch({ type: "HYDRATE", state: { ...structuredClone(initialDemoState), ...parsed } });
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       }
