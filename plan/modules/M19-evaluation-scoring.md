@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 has a **STACK-DEMO** evaluation queue, plan modal, full answers, and scoring; database plans/assignments/upserts, reviewer authz, aggregates, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sun PM → Mon** (start after M18 completes; done Mon per PLAN §7. Subject to the **Sun-noon swarm check** — see *If blocked*.) The AI-review button is a post-CP4 COULD (Tue+) and cut-line #1. |
 | **Size** | L (~day) |

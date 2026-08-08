@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** typed browser fixtures exist; the Neon seed orchestrator, wipe/reset flow, per-feature seeds, and judge-script AC do not. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect owns the **orchestrator + helpers + demo script**; each per-feature seed module is owned by that feature's workstream) |
 | **Scheduled** | Sat AM (orchestrator + core content, part of CP1) → Sun (v2: feature modules composed) → Tue (v3: matched to the walkthrough videos) |
 | **Size** | M (orchestrator + core; feature modules land with their workstreams) |

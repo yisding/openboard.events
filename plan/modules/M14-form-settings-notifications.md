@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 includes partial **STACK-DEMO** settings behavior; server open/close enforcement, draft/edit guards, confirmation outbox control, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14"). B2 consumes the results only through [M12](./M12-form-builder-core.md)'s `getPublicForm` DTO — B2 never imports a file from this module. |
 | **Scheduled** | **Sun PM** (after M12 + M13b). Its close-date guard is on the CP2 spine (deadline enforcement) and is the door [M41](./M41-speaker-edit-until-close.md) walks through on Tuesday. |
 | **Size** | M (≈half day) |

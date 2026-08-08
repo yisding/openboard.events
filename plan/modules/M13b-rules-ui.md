@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 contains a **STACK-DEMO** conditional editor; complete visibility/routing UI, frozen evaluator integration, persistence, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14"). Consumes B2's [M13a](./M13a-condition-evaluator.md) as a black box; B1 never edits `src/shared/lib/conditions.ts`. |
 | **Scheduled** | **Sun PM**, immediately after [M12](./M12-form-builder-core.md) finishes in the Sun AM slot — M13b hard-depends on M12's field-editor drawer as a mount point, so it cannot share M12's half-day. Matches `execution.md`'s wave table and the README index. It is on the CP2 spine ("build form with conditional field + routing rule"). |
 | **Size** | S–M (~3–4 h) |

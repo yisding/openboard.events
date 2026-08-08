@@ -11,6 +11,26 @@
 
 ---
 
+## 0. Rev. 4 rebaseline overlay — Sat Aug 8, after PR #3 merge
+
+The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rebaseline, CP0/CP1/the thin slice/CP2 are not met, no module is `DONE`, and the implementation stack through PR #5 is primarily a local browser demo.
+
+Run this recovery queue before resuming the original wave placements:
+
+| Gate | Parallel work allowed | Exit condition |
+|---|---|---|
+| **R0 Stack safety** | Planning reconciliation; PR rebases; CI, migration, authorization, event-isolation, token, and ICS P1 fixes | Stack truth is current; clean-install CI green; no current P1 hidden in a draft |
+| **R1 Deployed foundation** | M01–M04, M06a/M06b, M07, M09, deploy half of M08; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, seed, secrets, R2, and external spike evidence |
+| **R2 Server spine** | M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
+| **R3 Judged loop** | Minimum M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar works cold on the deployed URL |
+| **R4 Release proof** | M10 and P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
+
+**Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 and M40 are paused; M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
+
+Checkpoint boxes later in this file are historical targets. Their live state is the table in `status.md`; only update a box after the named deployed evidence exists.
+
+---
+
 ## 1. Dependency graph (PLAN §5, reproduced)
 
 ```mermaid

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 has a localStorage-backed **STACK-DEMO** builder; snapshot persistence/compiler integration, server queries, structural locking, and full AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14"). **B2 never edits a file listed below**; the two agents meet only at `src/features/forms/index.ts` (created here in Step 1, then frozen) and at the golden `FormSnapshot` fixture. |
 | **Scheduled** | **Sat PM: Step 1 only** — the forms barrel + `getPublicForm`/`getPinnedSnapshot`/`getCurrentSnapshot` contract slice (~1 h). That slice is what unblocks B2, and B1's Sat PM is otherwise [M11](./M11-events-feature.md)'s UI half (the Sat-night demo bar item). **Sun AM: builder core + finish.** Sat-night demo bar: "forms list + builder skeleton". CP2 (Sun night) needs a judge-built form with 1 conditional field + 1 routing rule. |
 | **Size** | L (≈1 day) |

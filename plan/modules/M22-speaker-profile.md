@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains a localStorage **STACK-DEMO** profile; authorized server writes, field-scoped contacts, real R2 headshot upload, and deployed AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal`). |
 | **Scheduled** | Sun, alongside M25's manual+file modes, per WS-D's order (`M22 + M25 manual/file modes (Sun)`). |
 | **Size** | M |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains fixture-backed **STACK-DEMO** admin/portal pages; database CRUD, authorized render, rev. 3 wide-sanitizer spec, embed policy, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review — **executing agent differs from the feature folder**: WS-C owns `features/portal/resources/**` by declared temporary file-ownership on Monday (PLAN §4/§6). WS-D owns the rest of `features/portal`. |
 | **Scheduled** | **Mon** (CP3 demo bar: "resources page with iframe embed"). |
 | **Size** | S (~2h) |

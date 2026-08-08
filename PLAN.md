@@ -1,4 +1,4 @@
-# Sessionboard Clone — Complete Build Plan (rev. 3, post-adversarial-review + judged-path hardening)
+# Sessionboard Clone — Complete Build Plan (rev. 4, implementation rebaseline)
 
 **Codename:** openboard · **Deadline:** Wed Aug 12, 10:00 PM PT (real calendar: **Sat Aug 8 → Wed Aug 12** — delta #21) · **Team model:** 1 architect/integrator + 6 parallel AI-agent-assisted workstream agents — WS-B (the critical path) runs **two** agents, B1 (builder) and B2 (public runtime), from Sat AM.
 **Source docs (detail by reference):** `plan/analysis/*.md` (6 feature analyses), `plan/design/data-model.md` (full DDL), `plan/design/app-architecture.md`, `plan/design/platform-integrations.md`, `plan/design/quality-strategy.md`.
@@ -29,6 +29,21 @@
 19. **The wide sanitizer profile is a spec, not vibes:** `<iframe>` allowed only with `https:` `src` on the named host allowlist (YouTube/nocookie, Vimeo, Loom, Google Docs — extended centrally in `sanitize.ts`, never at a call site), fixed attribute list `src|width|height|allow|allowfullscreen|frameborder|title` (so `srcdoc` is stripped by construction), with tests for `http:`-src, non-allowlisted-https-src and `srcdoc` probes. The wide **tag** set additionally carries `img`/`hr`/table-family (M26's long-form-document set), which `default` deliberately does not. Resolves the M04 §5 (`^https?:`, no host list, no img/hr/table) vs M26 step 2 drift in M26's favour.
 20. **Reminder cron gated on its AC suite:** the deployed `/api/jobs/reminders` keeps M08's stub until M36's PGlite AC tests are green — a half-wired ladder that emails real people is worse than a late one (M36).
 21. **Calendar correction — the draft scheduled six days into five:** Aug 8 2026 is a **Saturday**, and the draft's "Tue" and "Wed" both resolve to Wed Aug 12 (execution.md even dated them both Aug 12), putting the draft's CP4 "Tue midnight" *after* the Wed 10 PM submission deadline. Binding fix: weekday labels everywhere remain **logical plan-day names**, mapped plan-Fri = **Sat Aug 8** (Phase 0 tonight), plan-Sat = **Sun Aug 9** (CP1), plan-Sun = **Mon Aug 10** (CP2), plan-Mon = **Tue Aug 11** (CP3), plan-Tue = **Wed Aug 12 until 2 PM** (**CP4 = Wed 2 PM**), plan-Wed = **Wed Aug 12, 2–10 PM** (bug bash → submit by 8 PM; 8–10 PM emergency buffer). "Wed AM" phrases elsewhere mean the start of that compressed block. Consequence, stated honestly: the buffer day is gone — a checkpoint slip the draft would have absorbed on Wednesday now triggers its §9 cut line the same day it occurs.
+
+---
+
+## Implementation rebaseline — Sat Aug 8, after PR #3 merge
+
+PR #3's hardening deltas above remain binding. Rev. 4 changes execution accounting, not product contracts: the audit of `main` plus the stacked PRs #2/#4/#5 found a broad local browser demo but no completed module, deployed preview, server-backed golden path, or release proof.
+
+[`plan/status.md`](plan/status.md) is the current evidence ledger and recovery overlay. It records the exact PR/module state, checkpoint truth, and gates R0–R4. Until that ledger says CP1 is green:
+
+- fixture/localStorage behavior is described as a **local browser demo**, not end-to-end completion;
+- a module becomes `DONE` only after merge, its complete AC, and every named deployed/external check;
+- bonus work and new UI surface pause behind foundation, security, server-spine, and deployment gates;
+- the original dependency graph and work orders remain authoritative, while `plan/status.md` determines the next runnable recovery gate.
+
+The immediate sequence is: **R0 stack safety → R1 deployed foundation → R2 server-backed CFP/review/notify spine → R3 portal/program/tracking loop → R4 release proof**. The minimum winning bar in §9 is unchanged.
 
 ---
 

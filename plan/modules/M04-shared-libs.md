@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** condition/interval/sanitizer helpers exist; snapshot compiler, time API, server adapters, and full AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8 evening (`compileFormSnapshot` draft + tests slice) → **Sat AM complete**; gates CP1 |
 | **Size** | M |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** form/job contracts exist on `main`; the full frozen contract, fixture, DTO, signature, and key-recipe AC remains open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8 evening (draft circulated at CP0) → complete and **FROZEN at CP1, Sat noon** |
 | **Size** | M |

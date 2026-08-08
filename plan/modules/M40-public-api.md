@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #5 contains fixture-backed API scaffolding that is **REVIEW-BLOCKED** on private caching, global-key/event scoping, and public DTO leakage; bonus completion is paused behind R3. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — routes `app/api/v1/**`, plus the two declared files inside `features/dashboard` for stats/key reuse. |
 | **Scheduled** | **May start Mon PM** ([M32](./M32-public-schedule-gallery.md) landed Sunday, [M38](./M38-dashboard.md) lands Monday); **finishes Tuesday** (CP4). |
 | **Size** | M (≈half-day) |

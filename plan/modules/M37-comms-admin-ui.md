@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #5 contains a fixture/localStorage **STACK-DEMO** communications UI; server queries/mutations, real templates/logs/reminders, editor-state fix, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms` (admin half). |
 | **Scheduled** | **Tuesday** (moved off Monday — it gates nothing at CP3; [M27](./M27-speakers-admin.md) consumes fixture comms rows on Monday). |
 | **Size** | M (≈half-day) |

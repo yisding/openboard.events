@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 demonstrates client-side lifecycle/notification behavior only; the single-owner transactional mutations, guarded transitions, outbox writes, auto-confirm, and race AC are a **SERVER-GAP**. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat PM** — the `nextSubmissionCode` + `createSubmission` slice (powers the Sat-night thin-slice integration). **Sun** — complete (`notifyDecisions` w/ `notify_revision` + auto-confirm + submitter-only recipient, `updateSubmissionFromCfp`, `upsertDraft`, withdraw, `getAcceptedForScheduling`). |
 | **Size** | L (~day; grew by absorbing the mutations — WS-C has the slack) |

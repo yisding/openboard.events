@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains a fixture-backed **STACK-DEMO** portal shell/home/submissions surface; portal auth/session, contact helpers, server queries, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal`, folder-owner per PLAN.md §6). This is the first `features/portal`-lane module; the same agent spent Saturday on M07 + M05b (cross-folder grants) before starting here. |
 | **Scheduled** | Sat PM – Sun, per WS-D's order (`M07 + M05b (Sat) → M21 (Sat PM–Sun)`). Starts once M06b's portal session (`requirePortal`, Sat PM) and M05a's core UI primitives (Sat AM) are available. |
 | **Size** | M |

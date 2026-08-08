@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** scaffold/build on `main`; PR #5 CI is **REVIEW-BLOCKED** and no Cloudflare deploy or external spike AC has been demonstrated. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8, evening (Phase 0) — first module of the build; CP0 gate at Fri midnight |
 | **Size** | L |

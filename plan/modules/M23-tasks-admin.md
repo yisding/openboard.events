@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains fixture-backed **STACK-DEMO** task administration; database CRUD, assignment-view counting law, form/file integration, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "admin tasks" sub-area; distinct from WS-C's Monday-declared `features/portal/{resources,admin}/**` grant for M26/M27 — this module owns `features/portal/tasks-admin/**`, not `features/portal/admin/**`). |
 | **Scheduled** | Monday, alongside M24 and M25's form-mode, per WS-D's order (`M23 + M24 + M25 form-mode (Mon)`). |
 | **Size** | M |

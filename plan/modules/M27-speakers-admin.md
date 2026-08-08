@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains a fixture-backed **STACK-DEMO** speaker admin/impersonation surface; server queries/writes, real impersonation auth, comm-log integration, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review — **executing agent differs from the feature folder**: WS-C owns `features/portal/admin/**` by declared temporary file-ownership on Monday (PLAN §4/§6). WS-D owns the rest of `features/portal`. |
 | **Scheduled** | **Mon** (CP3: dashboard deep-links land the same night; comms history uses fixture rows until [M37](./M37-comms-admin-ui.md) lands Tue). |
 | **Size** | M (~half-day) |

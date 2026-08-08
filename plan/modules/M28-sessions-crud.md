@@ -1,7 +1,7 @@
 # M28 — Sessions CRUD, list view, tray, promotion
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains localStorage **STACK-DEMO** session create/edit/place/publish behavior; database CRUD, accepted promotion, authorization, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | **Sat AM** (Step 1 contract slice + queries, in parallel with finishing M29) → **Sat PM** (mutations, `moveSession`, promote) → **Sun AM** finish. Matches PLAN §6 ("M29 pure Sat AM → M28 Sat–Sun AM"), `execution.md`'s wave table and the README index — Step 1's barrel + five placeholder views are what unblock M30/M31 and give M21 its `getMySessions` shape, so they must not wait for the afternoon. |
 | **Size** | M |
