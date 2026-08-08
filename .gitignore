@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+.next/
+.open-next/
+.wrangler/
+.dev.vars
+.env*
+!.dev.vars.example
+playwright-report/
+test-results/
+*.tsbuildinfo
+.DS_Store

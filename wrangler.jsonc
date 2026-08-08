@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openboard-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "observability": { "enabled": true },
+  "vars": {
+    "APP_BASE_URL": "http://localhost:3000",
+    "EMAIL_MODE": "log"
+  },
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "openboard-files" },
+    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "openboard-files" }
+  ]
+}
