@@ -21,6 +21,7 @@ function reducer(state: DemoState, action: DemoAction): DemoState {
       const scores = [...state.reviews.filter((review) => review.submissionId === submission.id).map((review) => review.score), action.review.score];
       return { ...submission, score: scores.reduce((sum, score) => sum + score, 0) / scores.length, reviewCount: scores.length };
     }) };
+    case "ADD_SPEAKER": return { ...state, speakers: [...state.speakers, action.speaker] };
     case "UPDATE_SPEAKER": return { ...state, speakers: state.speakers.map((item) => item.id === action.speakerId ? { ...item, ...action.patch } : item) };
     case "ADD_TASK": return { ...state, tasks: [...state.tasks, action.task] };
     case "COMPLETE_TASK": return { ...state, completions: [...state.completions.filter((item) => !(item.taskId === action.completion.taskId && item.speakerId === action.completion.speakerId)), action.completion] };

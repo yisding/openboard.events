@@ -13,7 +13,7 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#6958d7", size = "md" }: { initials: string; color?: string; size?: "sm" | "md" | "lg" | "xl" }) {
+export function Avatar({ initials, color = "#6958d7", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
   return <span className={`person-avatar person-avatar-${size}`} style={{ background: color }}>{initials}</span>;
 }
 

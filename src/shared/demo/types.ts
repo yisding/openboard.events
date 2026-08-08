@@ -7,7 +7,7 @@ export type EventRecord = {
 
 export type FormFieldRecord = {
   id: string; key: string; label: string; type: FieldType; required: boolean; locked: boolean; helpText: string;
-  placeholder: string; maxChars: number | null; options: string[]; visibility?: { fieldId: string; operator: "eq" | "neq" | "answered" | "empty"; value?: string };
+  placeholder: string; maxChars: number | null; options: string[]; visibility?: { fieldId: string; operator: "eq" | "neq" | "answered" | "empty"; value?: string } | null;
 };
 export type FormSectionRecord = { id: string; title: string; description: string; fields: FormFieldRecord[] };
 export type FormRecord = {
@@ -62,6 +62,7 @@ export type DemoAction =
   | { type: "ADD_SUBMISSION"; submission: SubmissionRecord }
   | { type: "UPDATE_SUBMISSION"; submissionId: string; patch: Partial<SubmissionRecord> }
   | { type: "ADD_REVIEW"; review: ReviewRecord }
+  | { type: "ADD_SPEAKER"; speaker: SpeakerRecord }
   | { type: "UPDATE_SPEAKER"; speakerId: string; patch: Partial<SpeakerRecord> }
   | { type: "ADD_TASK"; task: TaskRecord }
   | { type: "COMPLETE_TASK"; completion: TaskCompletion }
