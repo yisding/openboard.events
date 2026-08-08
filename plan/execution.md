@@ -11,15 +11,15 @@
 
 ---
 
-## 0. Rev. 4 rebaseline overlay — Sat Aug 8, after PR #3 merge
+## 0. Rev. 4 rebaseline overlay — Sat Aug 8, after PRs #1–#5 merged
 
-The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rebaseline, CP0/CP1/the thin slice/CP2 are not met, no module is `DONE`, and the implementation stack through PR #5 is primarily a local browser demo.
+The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rebaseline, CP0/CP1/the thin slice/CP2 are not met, no module is `DONE`, and the implementation merged through PR #5 is primarily a local browser demo.
 
 Run this recovery queue before resuming the original wave placements:
 
 | Gate | Parallel work allowed | Exit condition |
 |---|---|---|
-| **R0 Stack safety** | Planning reconciliation; PR rebases; CI, migration, authorization, event-isolation, token, and ICS P1 fixes | Stack truth is current; clean-install CI green; no current P1 hidden in a draft |
+| **R0 Stack safety** | Planning/configuration reconciliation; canonical environments; CI/deploy, migration runner, fail-closed authorization, and review hardening | Stack truth is current; clean-install CI green; configuration PR ready; no current P1 hidden in a draft |
 | **R1 Deployed foundation** | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
 | **R2 Server spine** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
 | **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |

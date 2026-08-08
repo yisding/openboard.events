@@ -29,8 +29,11 @@ check_forbidden() {
 
 check_forbidden "dangerouslySetInnerHTML" src --glob '*.tsx' --glob '!src/shared/ui/app/rich-text-view.tsx'
 check_forbidden "runtime\\s*=\\s*['\"]edge" src
+check_forbidden "process\\.env\\." src --glob '!src/shared/lib/env.ts' --glob '!src/app/page.tsx'
 check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/time.ts'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
+check_forbidden "OPENBOARD_API_KEY" src docs/api.md .dev.vars.example
+check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
 
 if [[ "$fail" -ne 0 ]]; then
   echo "Invariant check failed"

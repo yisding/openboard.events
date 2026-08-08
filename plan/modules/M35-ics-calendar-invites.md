@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #5 contains a partial ICS/feed **STACK-DEMO**, but is **REVIEW-BLOCKED** on malformed feed blocks, unverified tokens, missing stable calendar identity, and absent real-inbox lifecycle AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — a partial ICS/feed **STACK-DEMO** is merged; database-backed tokens, stable production identity, and real-inbox lifecycle AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms`, plus the public `/cal` routes. |
 | **Scheduled** | **Sat PM: the canned real-inbox render check (step 2 — no app code required). Sun: the module proper + the full seeded lifecycle test (step 8).** Mon CP3 re-verifies only the end-to-end flow from a real scheduling action. |
 | **Size** | M (≈half-day) |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** scaffold/build on `main`; PR #5 CI is **REVIEW-BLOCKED** and no Cloudflare deploy or external spike AC has been demonstrated. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** scaffold/build plus configuration-ready CI/deploy work; no Cloudflare deploy or external spike AC has been demonstrated. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8, evening (Phase 0) — first module of the build; CP0 gate at Fri midnight |
 | **Size** | L |
@@ -26,8 +26,8 @@ A pinned Next.js App Router app builds through `@opennextjs/cloudflare` and is l
   - `pnpm build` → `next build`
   - `pnpm build:worker` → `opennextjs-cloudflare build`
   - `pnpm preview` → `opennextjs-cloudflare build && wrangler dev` (the workerd smoke — run before any deploy touching server code)
-  - `pnpm deploy:web` → `opennextjs-cloudflare build && wrangler deploy`
-  - `pnpm deploy:jobs` → `wrangler deploy --config workers/jobs/wrangler.jsonc` (target lands with [M08](./M08-jobs-worker.md))
+  - `pnpm deploy:web:{preview,production}` → validate the exact `APP_BASE_URL`, build OpenNext for that named environment, and deploy it
+  - `pnpm deploy:jobs:{preview,production}` → validate the same URL and deploy the matching named jobs environment (target lands with [M08](./M08-jobs-worker.md))
   - `pnpm db:generate` / `pnpm db:migrate` (consumed by [M03](./M03-db-schema-migrations.md)), `pnpm seed` ([M09](./M09-seed-demo-script.md)), `pnpm e2e` ([M10](./M10-e2e-release.md))
 - **Path alias** `@/*` → `src/*` (tsconfig + vitest + eslint resolver). Every module imports through it.
 - **ESLint boundaries element types** (consumed as law by all workstreams): `shared-contracts`, `shared-lib`, `shared-server`, `shared-ui`, `db`, `feature`, `app`, `scripts`.
@@ -55,7 +55,7 @@ Files: `package.json`, `tsconfig.json`, `next.config.ts`, `eslint.config.mjs`, `
 ### 2. Cloudflare configs
 Files: `open-next.config.ts`, `wrangler.jsonc`, `next.config.ts` (headers).
 
-- `wrangler.jsonc` for **sb-web**: safe local defaults plus named `preview` / `production` environments. Preview deploys as `sb-web-preview` with both R2 bindings on `sb-files-preview`; production deploys as `sb-web` with both bindings on `sb-files`. Each named environment has its exact deployed `APP_BASE_URL`, never localhost or a guessed workers.dev hostname. Shared shape: `main: ".open-next/worker.js"`, pinned compatibility date, `nodejs_compat`, `ASSETS`, and observability.
+- `wrangler.jsonc` for **sb-web**: safe local defaults plus named `preview` / `production` environments. Preview deploys as `sb-web-preview` with both R2 bindings on `sb-files-preview`; production deploys as `sb-web` with both bindings on `sb-files`. The guarded deploy script requires and injects each exact `APP_BASE_URL`; neither named environment stores localhost or a guessed workers.dev hostname. Shared shape: `main: ".open-next/worker.js"`, pinned compatibility date, `nodejs_compat`, `ASSETS`, and observability.
 - `open-next.config.ts`: R2 incremental cache override + in-memory revalidation queue. **Time-based `revalidate` only — no `revalidateTag`, no `revalidatePath`, so no D1 tag cache and no Durable Object queue.**
 - `next.config.ts`: `images: {unoptimized: true}` (no image backend on Workers), `initOpenNextCloudflareForDev()` so bindings work under `next dev`, and `headers()`:
   - `/embed/:path*` → `Content-Security-Policy: frame-ancestors *`, **no** `X-Frame-Options`.
@@ -168,7 +168,7 @@ grep -c '^## ' DECISIONS.md      # ≥ 8 sections present
 - **Never set `export const runtime = 'edge'`.** OpenNext runs the Node runtime on Workers; the edge runtime is the Vercel path. Grep #5 exists because this failure mode looks like a random 500 at deploy time.
 - **Pin, never bump** (risk #1). If a transitive dep breaks the OpenNext build, pin the transitive dep — do not move Next or the adapter.
 - `opennextjs-cloudflare build` is a **required** CI gate, not a nice-to-have: it is what catches Workers-incompatible imports that `next build` happily accepts.
-- Bundle/plan gate: the Aug 8 baseline is 1122.48 KiB gzip. While on Free, warn at 2.5 MB beneath the 3 MB deployment limit and probe CPU-heavy routes against the 10 ms allowance. Upgrade before judging if either limit is unsafe; only then use the 8 MiB warning beneath Paid's 10 MB limit. Server-side banned deps: `moment`/`moment-timezone`, the `airtable` npm SDK, `xlsx`, `ical-generator`, `lodash`, `isomorphic-dompurify`, `sharp`.
+- Bundle/plan gate: the Aug 8 reconciled baseline is 1204.60 KiB gzip. While on Free, warn at 2.5 MB beneath the 3 MB deployment limit and probe CPU-heavy routes against the 10 ms allowance. Upgrade before judging if either limit is unsafe; only then use the 8 MiB warning beneath Paid's 10 MB limit. Server-side banned deps: `moment`/`moment-timezone`, the `airtable` npm SDK, `xlsx`, `ical-generator`, `lodash`, `isomorphic-dompurify`, `sharp`.
 - Any spike failure adopts its **named** fallback within one hour. No re-litigation, no "let's try one more thing at 2 AM" (risk #1's trigger-to-abandon).
 - Do not scaffold `src/features/**` or `src/shared/contracts/**` here — those are [M02](./M02-shared-contracts.md)'s and the feature agents'. M01 creating placeholder feature files causes exactly the merge conflicts the boundaries config exists to prevent.
 

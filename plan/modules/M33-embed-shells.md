@@ -1,7 +1,7 @@
 # M33 — Embed shells + snippet + admin
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #4 contains **STACK-DEMO** embed shells/configurator; deployed `frame-ancestors`, resize messaging, published-data isolation, cross-origin framing, and AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — merged **STACK-DEMO** embed shells/configurator lack deployed `frame-ancestors`, resize messaging, published-data isolation, cross-origin framing, and AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Monday |
 | **Size** | M |

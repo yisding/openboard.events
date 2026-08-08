@@ -39,9 +39,16 @@
 
 - All 23 review threads (Codex + CodeRabbit) were fixed in `5ed137c`, replied to, and resolved.
 - `conditionSchema` tightened before the CP1 freeze: `eq`/`neq`/`in`/`not_in` require `value`; `answered`/`empty` are presence-only.
-- Jobs worker `APP_BASE_URL`: default (local) is `http://localhost:3000`; the `production` wrangler env targets `https://openboard-web.workers.dev` and `pnpm deploy:jobs` deploys with `--env production`. Re-assert this URL here after any preview-URL change (M08 guardrail).
-- `CRON_SECRET` is not yet set anywhere; job routes fail closed (401) while it is unset. Set it on **both** workers (`wrangler secret put CRON_SECRET` in `workers/jobs/` and the repo root) when credentials arrive.
+- Jobs worker `APP_BASE_URL`: default (local) is `http://localhost:3000`; preview and production deploys require the exact matching web origin through `scripts/deploy-cloudflare.sh`. No guessed `workers.dev` hostname is committed. Re-assert the Wrangler-emitted URL here after provisioning or any URL change (M08 guardrail).
+- `CRON_SECRET` is not yet set anywhere; job routes fail closed (401) while it is unset. Set it on both matching workers with an explicit `--env preview` or `--env production` (and `--config workers/jobs/wrangler.jsonc` for jobs) when credentials arrive.
 - The demo store hydrates a validated whole-state snapshot (`HYDRATE`); seeded review records are the source of truth for submission score/reviewCount aggregates.
+
+## Infrastructure configuration reconciliation (2026-08-08)
+
+- Canonical Worker/R2 names and isolated preview/production bindings are encoded in Wrangler. Runtime variables are validated fail-closed; production cannot enable test auth, fallback delivery UI, or an email allowlist.
+- GitHub Actions owns ordered deployment (direct Neon migration → web → jobs → smoke). Cloudflare Git integration stays disabled.
+- The unsafe environment-wide API key was removed. Private API routes remain unavailable until M40 provides hashed, event-scoped database keys.
+- These are code/configuration decisions only. External Cloudflare, Neon, R2, and Resend resources and deployed evidence remain pending.
 
 ## CP1 freeze record
 

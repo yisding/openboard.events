@@ -1,7 +1,7 @@
 # M31 — Week/Track/Room/Conflicts views
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #4 contains fixture-backed **STACK-DEMO** Week/Track/Room/Conflicts views; server data, required interactions, accessibility, and AC remain open and are paused behind the minimum loop. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — merged fixture-backed **STACK-DEMO** Week/Track/Room/Conflicts views lack server data, required interactions, accessibility, and AC and remain paused behind the minimum loop. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Split: Conflicts tab lands Monday (same day as ./M30-day-grid-dnd.md); Week/Track/Room land Tuesday AM |
 | **Size** | M |

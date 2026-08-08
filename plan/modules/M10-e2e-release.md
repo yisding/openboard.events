@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #5 contains **STACK-DEMO** release docs, CI, smoke, and license scaffolding, but is **REVIEW-BLOCKED**; Playwright, load test, deployment, spend proof, and release AC are absent. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** release docs, validation CI, smoke, and license scaffolding exist; Playwright, load test, real deployment, spend proof, and release AC are absent. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect, in the integrator role after Saturday) |
 | **Scheduled** | Skeleton at CP1 (plan-Sat) → **golden-path spec green + 50-concurrent load test at CP2 (plan-Sun night)** → all 6 specs green at CP4 (Wed Aug 12, 2 PM PT) → repo public + submission that evening |
 | **Size** | M |

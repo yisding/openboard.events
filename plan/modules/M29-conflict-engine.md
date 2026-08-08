@@ -1,7 +1,7 @@
 # M29 — Conflict engine
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #4 contains an unmerged pure conflict-engine slice and tests; reconcile it with frozen contracts and complete the property/acceptance suite before review. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — a pure conflict-engine slice and tests are merged; reconcile it with frozen contracts and complete the property/acceptance suite. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Fri night (against the contracts draft) → done Sat AM |
 | **Size** | S |

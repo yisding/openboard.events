@@ -44,7 +44,7 @@ credentials.
 
 Workers Free currently allows a 3 MB compressed Worker and 10 ms of CPU per request;
 Workers Paid allows a 10 MB compressed Worker and a much larger CPU allowance. The current
-scaffold's `wrangler deploy --dry-run` output is `1122.48 KiB` gzip, so payment is not a
+reconciled candidate's `wrangler deploy --dry-run` output is `1204.60 KiB` gzip, so payment is not a
 current deployment requirement.
 
 Policy:

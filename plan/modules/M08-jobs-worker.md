@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** steps 1–3 from PR #1 plus a noncanonical production placeholder: guarded no-op routes, job contracts, dispatcher worker, and deploy command exist. Remaining: canonical preview/production config, exact web URLs, deployed worker→web proof, per-environment secrets on both workers, tail evidence, and AC-gated stub swaps. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** guarded no-op routes, job contracts, dispatcher, canonical preview/production config, and exact-URL deploy commands exist. Remaining: deployed worker→web proof, per-environment secrets on both workers, tail evidence, and AC-gated stub swaps. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API). **Executor differs from the catalog's WS-A origin** — M08 was moved from the architect to WS-F (PLAN §4 note and §6 WS-F order). Zero app imports in `workers/jobs/`. |
 | **Scheduled** | **Sat AM** — the first thing WS-F builds, before M34 (PLAN §6 WS-F order, §7 Sat AM). |
 | **Size** | S (≈2h) |
@@ -64,7 +64,7 @@ A second deployed Cloudflare Worker (`sb-jobs`) runs one `* * * * *` cron and, b
    };
    ```
    **Done when:** `wrangler dev --test-scheduled` in `workers/jobs/` + `curl 'localhost:8787/__scheduled?cron=*+*+*+*+*'` prints one `{"job":"outbox","status":200,…}` log line.
-4. **`workers/jobs/wrangler.jsonc`.** Safe local defaults plus named `preview` and `production` environments. Preview deploys as `sb-jobs-preview` targeting the exact `sb-web-preview` URL; production deploys as `sb-jobs` targeting the exact `sb-web` URL. Shared shape: `main: "index.ts"`, the same pinned compatibility date as web, `nodejs_compat`, one `* * * * *` cron, and observability. The only fields are `APP_BASE_URL` and `CRON_SECRET`; never add DB, R2, Resend, Airtable, or session configuration. Set `CRON_SECRET` on both matching workers: the same value inside preview, a different same-on-both value inside production. Record only that each pair is set.
+4. **`workers/jobs/wrangler.jsonc`.** Safe local defaults plus named `preview` and `production` environments. Preview deploys as `sb-jobs-preview`; production deploys as `sb-jobs`. `scripts/deploy-cloudflare.sh` requires and injects the exact matching web URL so no guessed hostname is committed. Shared shape: `main: "index.ts"`, the same pinned compatibility date as web, `nodejs_compat`, one `* * * * *` cron, and observability. The only runtime configuration values are `APP_BASE_URL` and `CRON_SECRET`; never add DB, R2, Resend, Airtable, or session configuration. Set `CRON_SECRET` on both matching workers: the same value inside preview, a different same-on-both value inside production. Record only that each pair is set.
    **Done when:** `pnpm deploy:jobs` succeeds and `wrangler tail sb-jobs` shows a log line each minute.
 5. **Deployed end-to-end check + doc.** Deploy web before the matching jobs worker. Watch `wrangler tail sb-jobs-preview` for 2 minutes: exactly one `outbox` line per minute, one extra `reminders` line at the next multiple of 15. Curl the deployed route directly with and without the preview secret. Write `workers/jobs/README.md`: the environment/name/URL table, modulo table, curl commands (secret redacted), and the "a missed tick self-heals on the next one — every job is an idempotent DB scan" note.
    **Done when:** both curls behave (200 / 401) against the **deployed** URL and the tail output is pasted into `DECISIONS.md`.

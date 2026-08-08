@@ -1,7 +1,7 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** Sat Aug 8, 2026, immediately after PR #3 merged to `main` and the stacked implementation through PR #5 was audited.
-- **Baseline:** `main` at `d67a902` (PR #1 foundation + PR #3 judged-path hardening).
+- **Snapshot:** Sat Aug 8, 2026, after PRs #1–#5 merged and the infrastructure configuration was reconciled on top of the PR #6 planning branch.
+- **Baseline:** `main` at `37c55fc`; PR #6 remains the open planning rebaseline.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 
 This document is the current execution overlay for `PLAN.md` and `execution.md`. It records evidence and priority; it does not change frozen contracts, invariants, dependencies, or the minimum judging bar.
@@ -18,7 +18,7 @@ A module is `DONE` only when all four statements are true:
 Use these evidence labels in status notes:
 
 - **MERGED-PARTIAL** — useful implementation is on `main`, but the module AC is not green.
-- **STACK-DEMO** — useful code exists only in PR #2, #4, or #5 and operates on the typed browser demo adapter or seed fixtures.
+- **STACK-DEMO** — merged code operates on the typed browser demo adapter or seed fixtures rather than the required server path.
 - **SERVER-GAP** — the judged server/database/integration path does not exist yet.
 - **REVIEW-BLOCKED** — a current review or CI failure must be fixed before merge.
 
@@ -30,12 +30,9 @@ The rev. 4 audit is a one-time exception to the normal "one active module per ag
 
 | Ref | State | What it proves | What it does not prove |
 |---|---|---|---|
-| `main` / PR #1 + PR #3 | Merged | Next/OpenNext scaffold, typed demo adapter, partial contracts and pure libs, admin shell, jobs trigger skeleton, judged-path requirements hardening | CI/deploy pipeline, external resources, auth, database-backed flows, or any complete module |
-| PR #2 — CFP/review | Open | Broad CFP, form-builder, abstracts, CSV, and evaluation **STACK-DEMO** surfaces; local lint/types/tests/build | M11–M20 server AC, real OTP, transactional submission limits, Neon persistence, or outbox delivery |
-| PR #4 — portal/agenda | Draft on PR #2 | Broad portal, tasks, resources, speakers, agenda, conflict, public, and embed **STACK-DEMO** surfaces | Auth, R2, server task completion, database scheduling, published-view isolation, or deployed embeds |
-| PR #5 — comms/release | Draft on PR #4; CI red | Communications/settings UI, fixture APIs/calendar routes, migration/CI/docs/release scaffolding, local Next and OpenNext builds | Merge safety, valid/applied migrations, scoped APIs, verified tokens, real jobs/email/calendar delivery, deployment, or release proof |
-
-PR #5 currently has 12 unresolved review threads. Ten are current: nine P1 findings and one P2. The P1 set includes CI install failure, private-response caching, cross-event integrity, invalid PostgreSQL constraints, API event scoping/data leakage, calendar identity, malformed ICS, and missing calendar-token authorization. Two additional P1 threads are outdated by the latest commit but still unresolved.
+| `main` / PRs #1–#5 | Merged | Next/OpenNext scaffold, broad typed browser demo, partial contracts/pure libs, jobs skeleton, SQL migration drafts, validation CI, release docs, and review hardening | Provisioned infrastructure, applied migrations, real auth/server adapters, external delivery, or any complete module |
+| PR #6 — planning rebaseline | Open | Current evidence rules, recovery ordering, environment inventory, and corrected module work orders | Runtime implementation or external proof |
+| Infrastructure reconciliation branch | In review | Canonical Wrangler environments, fail-closed env validation, migration/deploy automation, Neon health probe, and provisioning runbook | Any Cloudflare/Neon/Resend mutation or deployed acceptance evidence |
 
 ## 3. Module status by evidence
 
@@ -54,13 +51,13 @@ No module is `DONE` as of this snapshot.
 | M13a | Basic operator evaluator and 14 tests | Visibility pass, hidden-answer stripping, routing, fixture case, 40+ contract tests |
 | M38 | Fixture-backed dashboard surface | Aggregated server endpoint, task-count law, polling, database-backed judged update |
 
-### Unmerged demo-stack implementation
+### Merged demo-stack implementation
 
-These modules have useful UI or pure-function slices in PR #2/#4/#5 and are `IN PROGRESS`, but their server/integration AC remains open:
+These modules have useful UI or pure-function slices merged through PRs #2/#4/#5 and are `IN PROGRESS`, but their server/integration AC remains open:
 
-- PR #2: M11–M15, M17–M20.
-- PR #4: M21–M23, M25–M29, M31–M33, M41.
-- PR #5: M03, M10, M35, M37, M40, plus additional M11 UI.
+- PR #2 lineage: M11–M15, M17–M20.
+- PR #4 lineage: M21–M23, M25–M29, M31–M33, M41.
+- PR #5 lineage: M03, M10, M35, M37, M40, plus additional M11 UI.
 
 The following modules remain `NOT STARTED` at their substantive boundary despite nearby stubs or demo controls: M05b, M06a, M06b, M07, M16, M24, M30, M34, M36, and M39.
 
@@ -84,8 +81,8 @@ Execute gates in order. Later gates may prepare pure tests and fixtures, but no 
 ### R0 — Rebaseline and protect the stack
 
 - Land this status overlay and reconcile affected module headers.
-- Rebase PR #2 on current `main`; preserve PR #4 → #5 stacking until their bases are safe.
-- Fix PR #5's clean-install CI failure and all current P1 findings before it can leave draft.
+- Keep PR #6 current with `main` and land the infrastructure reconciliation without rewriting its history.
+- Keep private fixture APIs fail-closed until database-backed event-scoped authorization exists.
 - Keep unsafe fixture APIs and unverified calendar routes unavailable, or explicitly demo-only, until authorization and scoping exist.
 
 **Exit:** the PR stack and module ledger tell the same truth; no known P1 is disguised as release polish.
@@ -133,25 +130,23 @@ Effective now, pause bonus work and cosmetic expansion until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-The next implementation action after this documentation change is **R0: make PR #2 current and make the stacked review/CI blockers explicit before merging any demo stack**.
+The next implementation action after the configuration reconciliation merges is **R1 provisioning**: create the isolated Cloudflare/R2 and Neon resources, install protected secrets, deploy preview in order, and capture CP0 evidence before feature work resumes.
 
 ## 7. Environment and configuration truth
 
 [`environments.md`](environments.md) is the canonical provisioning inventory. The
 Workers account may start on Free: an Aug 8 Wrangler dry-run measured the current OpenNext
-artifact at `1122.48 KiB` gzip, below Free's 3 MB limit. Paid becomes required only if the
+artifact at `1204.60 KiB` gzip, below Free's 3 MB limit. Paid becomes required only if the
 production candidate approaches the 2.5 MB warning line or deployed SSR/auth/database CPU
 evidence cannot safely fit Free's 10 ms allowance.
 
-Current checked-in configuration is not provisioned infrastructure and has these R1 gaps:
+Checked-in configuration is now code-ready: canonical Worker names, isolated R2 bindings,
+named environments, runtime validation, generated binding checks, and ordered migration/web/
+jobs/smoke automation agree. Exact URLs are mandatory deploy inputs, not guessed config.
 
-- worker names are `openboard-web` / `openboard-jobs` instead of `sb-web` / `sb-jobs`;
-- both R2 bindings use `openboard-files` instead of isolated preview/production buckets;
-- the web URL is localhost and the jobs production URL is a placeholder;
-- the web config has no named preview/production environments;
-- the env accessor currently exposes only `CRON_SECRET`;
-- `main` has no GitHub Actions workflow; PR #5 proposes validation-only CI and still does
-  not migrate or deploy.
+It is still not provisioned infrastructure. The Cloudflare/R2 resources, Neon branches,
+Worker secrets, GitHub protected-environment values, Resend configuration, and deployed
+acceptance evidence are all pending; see [`../docs/provisioning.md`](../docs/provisioning.md).
 
 The jobs worker must receive only `APP_BASE_URL` and its environment's `CRON_SECRET`. All
 database, session, R2-presign, Resend, ICS, and Airtable configuration belongs to `sb-web`.
