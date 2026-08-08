@@ -1,5 +1,7 @@
 import { initialDemoState } from "@/shared/demo/seed";
-import { data, notFoundResponse, resolveEvent } from "../../../_lib";
+import { corsPreflight, data, notFoundResponse, resolveEvent } from "../../../_lib";
+
+export function OPTIONS() { return corsPreflight(); }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

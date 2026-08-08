@@ -1,4 +1,6 @@
-import { authorize, notFoundResponse, privateData, resolveEvent } from "../../../_lib";
+import { corsPreflight, authorize, notFoundResponse, privateData, resolveEvent } from "../../../_lib";
+
+export function OPTIONS() { return corsPreflight(); }
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   if (!authorize(request)) return Response.json({ error: { code: "UNAUTHORIZED", message: "A valid API key is required" } }, { status: 401 });

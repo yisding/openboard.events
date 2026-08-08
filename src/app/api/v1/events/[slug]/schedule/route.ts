@@ -1,5 +1,7 @@
 import { initialDemoState } from "@/shared/demo/seed";
-import { data, notFoundResponse, resolveEvent } from "../../../_lib";
+import { corsPreflight, data, notFoundResponse, resolveEvent } from "../../../_lib";
+
+export function OPTIONS() { return corsPreflight(); }
 
 // Speakers are mapped to the explicit public DTO — no email, confirmation
 // state, or profile-completion internals on the public schedule.

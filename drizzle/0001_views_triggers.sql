@@ -1,9 +1,12 @@
 CREATE OR REPLACE FUNCTION guard_submission_transition() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.status = NEW.status THEN RETURN NEW; END IF;
-  IF (OLD.status,NEW.status) NOT IN (('draft','pending'),('pending','accept_queue'),('pending','decline_queue'),('accept_queue','accepted'),('accept_queue','pending'),('decline_queue','declined'),('decline_queue','pending'),('accepted','withdrawn'),('declined','pending')) THEN
+  IF (OLD.status,NEW.status) NOT IN (('draft','pending'),('pending','accept_queue'),('pending','decline_queue'),('accept_queue','accepted'),('accept_queue','pending'),('decline_queue','declined'),('decline_queue','pending'),('accepted','pending'),('accepted','withdrawn'),('declined','pending')) THEN
     RAISE EXCEPTION 'invalid submission transition: % -> %',OLD.status,NEW.status;
   END IF;
+  -- Reversing a finalized decision bumps notify_revision atomically so a
+  -- fresh decision can notify again without reusing the old idempotency key.
+  IF OLD.status IN ('accepted','declined') AND NEW.status='pending' THEN NEW.notify_revision=OLD.notify_revision+1; END IF;
   NEW.row_version=OLD.row_version+1; NEW.updated_at=now(); RETURN NEW;
 END $$;
 CREATE TRIGGER submissions_transition_guard BEFORE UPDATE OF status ON submissions FOR EACH ROW EXECUTE FUNCTION guard_submission_transition();

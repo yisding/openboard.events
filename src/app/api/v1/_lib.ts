@@ -2,9 +2,14 @@ import { initialDemoState } from "@/shared/demo/seed";
 import { getEnv } from "@/shared/lib/env";
 
 // Public DTO responses are shared-cacheable; keyed responses must never enter
-// a shared cache, so they ship private, no-store.
+// a shared cache (private, no-store) but still need CORS headers so browser
+// integrations holding a key can call them cross-origin.
 export const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
-export const privateHeaders = { "cache-control": "private, no-store" };
+export const privateHeaders = { "access-control-allow-origin": "*", "cache-control": "private, no-store" };
+
+export function corsPreflight() {
+  return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "86400" } });
+}
 
 export function data<T>(value: T, meta?: Record<string, unknown>) {
   return Response.json({ data: value, ...(meta ? { meta } : {}) }, { headers: publicHeaders });
