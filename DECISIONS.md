@@ -21,8 +21,8 @@
 
 - [ ] Revalidate-60 behavior on a deployed public page
 - [ ] Browser presigned R2 upload with CORS
-- [x] Apply both PostgreSQL migrations to PGlite (75-test suite on 2026-08-08; 30+ tables, 8 views, and all 9 M03 invariants pass)
-- [ ] Apply both PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
+- [x] Apply all three PostgreSQL migrations to PGlite (integration suite on 2026-08-08; 30+ tables, 8 views, and all M03 invariants pass)
+- [ ] Apply all three PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
 - [ ] Embed `frame-ancestors *` survives the adapter
 
 ## Adopted fallbacks

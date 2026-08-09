@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv } from "./env";
+import { isCredentialFreeLocalDemo, parseEnv } from "./env";
 
 const deployed = {
   APP_BASE_URL: "https://example.com",
@@ -13,7 +13,10 @@ const deployed = {
 
 describe("parseEnv", () => {
   it("accepts credential-free local demo defaults", () => {
-    expect(parseEnv({}).APP_ENV).toBe("local");
+    const env = parseEnv({});
+    expect(env.APP_ENV).toBe("local");
+    expect(isCredentialFreeLocalDemo(env, "development")).toBe(true);
+    expect(isCredentialFreeLocalDemo(env, "production")).toBe(false);
   });
 
   it("accepts the isolated preview contract", () => {

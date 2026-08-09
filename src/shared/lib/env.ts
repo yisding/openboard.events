@@ -103,3 +103,10 @@ function runtimeBindings(): Record<string, unknown> {
 export function getEnv(): RuntimeEnv {
   return parseEnv(runtimeBindings());
 }
+
+export function isCredentialFreeLocalDemo(
+  env: Pick<RuntimeEnv, "APP_ENV" | "DATABASE_URL" | "SESSION_SECRET"> = getEnv(),
+  nodeEnv = process.env.NODE_ENV,
+): boolean {
+  return nodeEnv === "development" && env.APP_ENV === "local" && !env.DATABASE_URL && !env.SESSION_SECRET;
+}
