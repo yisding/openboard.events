@@ -393,7 +393,10 @@ and hand-rolled VTIMEZONE is a famous swamp.
   in the same audited transaction where atomicity matters, then its route may nudge the
   dispatcher with `ctx.waitUntil`. The every-minute cron remains the crash-safe sweeper.
 - **Reminders = idempotent scan, no enqueue-time schedule.** The separate `sb-jobs` Worker
-  owns one every-minute Cron Trigger and POSTs the secret-guarded web route at `%15`.
+  owns one `* * * * *` Cron Trigger and dispatches the secret-guarded web routes by
+  worker-side minute modulo — the exact shared contract (M08's worker code is authoritative):
+  `outbox` every minute, `reminders` when `minute % 15 === 0`, `airtable` when
+  `minute % 10 === 5` (never collides with the reminder tick), `cleanup` daily 09:00 UTC.
   `scanReminders` emits `task_assigned` rows and only the latest eligible reminder rung,
   marking older elapsed rungs `skipped` and suppressing rungs before assignment
   materialization. Completed/moved/declined assignments fall out at send-time re-check.

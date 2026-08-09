@@ -24,7 +24,7 @@ This document is the **single source of truth for the database**. Migration `000
 | State machines | Enum + plpgsql `BEFORE UPDATE` trigger (submissions) + guarded `UPDATE ... WHERE status = $expected` in repositories |
 | Soft delete | Only where history depends on it: `form_fields.deleted_at`. Everything else hard-delete or status-based. No generic audit log |
 | Comms | Transactional outbox = `communication_logs` rows with `UNIQUE idempotency_key`, `status='queued'`; Cloudflare Cron drains |
-| Airtable | One-way, idempotent upsert keyed by `airtable_sync_state(table_name, record_pk)`, content-hash change detection, 10-rec batches, ≤4 rps, authenticated manual button + optional 10-minute modulo trigger; never in the request path |
+| Airtable | One-way, idempotent upsert keyed by `airtable_sync_state(event_id, table_name, record_pk)`, content-hash change detection, 10-rec batches, ≤4 rps, authenticated manual button + optional 10-minute modulo trigger; never in the request path |
 | Migrations | drizzle-kit SQL migrations, generated **only on main by the schema owner**; big-bang migration 0000 lands before parallel work; `drizzle-kit push` banned |
 
 ---
@@ -64,12 +64,13 @@ Context: OpenNext on Cloudflare **Workers** (no TCP sockets, bundle-size and col
 import { neon, Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleWs } from "drizzle-orm/neon-serverless";
+import { getEnv } from "@/shared/lib/env";   // lazy validated access — process.env is banned outside env.ts (M01 grep #2)
 import * as schema from "./schema";
 
-export const db = drizzle(neon(process.env.DATABASE_URL!), { schema });
+export const db = drizzle(neon(getEnv().DATABASE_URL), { schema });
 
 export async function withTx<T>(fn: (tx: TxDb) => Promise<T>): Promise<T> {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  const pool = new Pool({ connectionString: getEnv().DATABASE_URL });
   try {
     const dbWs = drizzleWs(pool, { schema });
     return await dbWs.transaction(fn);
@@ -457,6 +458,11 @@ CREATE INDEX ON submissions (event_id, form_id);
 CREATE INDEX ON submissions (event_id, track_id);
 CREATE INDEX ON submissions (event_id, submitter_contact_id);
 CREATE INDEX ON submissions (event_id, submitted_at DESC NULLS LAST);
+-- One server draft per (contact, form): the DB-level guarantee behind upsertDraft's create-or-return
+-- (M16's dependency note cites this index; concurrent Account-step requests race safely onto one row).
+CREATE UNIQUE INDEX submissions_one_draft_per_contact_form_uq
+  ON submissions (event_id, form_id, submitter_contact_id)
+  WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL;
 
 CREATE TABLE submission_participants (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -747,7 +753,7 @@ Canonical public pages (`/e/[slug]/schedule`, `/e/[slug]/speakers`) read only th
 ### 3.10 Communications
 
 ```sql
-CREATE TABLE email_templates (                -- seeded 7 rows per event on event create
+CREATE TABLE email_templates (                -- seeded 8 rows per event on event create (one per template_key value, incl. portal_login)
   id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id  uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   key       template_key NOT NULL,
@@ -839,7 +845,7 @@ CREATE TABLE airtable_sync_state (
   airtable_record_id text NOT NULL,
   content_hash       text NOT NULL,
   last_synced_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (table_name, record_pk)
+  UNIQUE (event_id, table_name, record_pk)   -- event-scoped: identical record keys from two events must not collide; every lookup/upsert includes event_id
 );
 
 CREATE TABLE airtable_sync_runs (

@@ -9,7 +9,7 @@
 | **Paths owned** | `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `next.config.ts`, `open-next.config.ts`, `wrangler.jsonc`, `drizzle.config.ts`, `eslint.config.mjs`, `.prettierrc`, `vitest.config.ts`, `postcss.config.mjs`, `components.json`, `.gitignore`, `.dev.vars.example`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/check-invariants.sh`, `src/app/layout.tsx`, `src/app/globals.css`, `src/app/page.tsx`, `src/app/api/health/route.ts`, `DECISIONS.md` |
 
 ## Objective
-A pinned Next.js App Router app builds through `@opennextjs/cloudflare` and is live on a `workers.dev` URL with a hello page and a `/api/health` route that does a real Neon round-trip. `pnpm check` runs typecheck → lint+boundaries → invariant greps → vitest → `next build` → `opennextjs-cloudflare build`, and the same steps gate every PR in GitHub Actions. The four existential spikes (S1–S4) and two 10-minute checks (C1–C2) are executed with their results and adopted fallbacks written into `DECISIONS.md`; the Workers Free bundle/CPU gate is measured and Resend domain DNS is submitted. Application-layer auth throttles are mandatory; a zone-level WAF rule is optional defense-in-depth when a custom domain is actually attached. Demo bar for tonight: **a URL on Cloudflare loads.**
+A pinned Next.js App Router app builds through `@opennextjs/cloudflare` and is live on a `workers.dev` URL with a hello page and a `/api/health` route that does a real Neon round-trip. `pnpm check` runs typecheck → lint+boundaries → invariant greps → vitest → `opennextjs-cloudflare build` (which runs `next build` internally, so one step covers both build gates), and the same six gates — plus the CI-only bundle measurement and Playwright suite — gate every PR in GitHub Actions. The four existential spikes (S1–S4) and two 10-minute checks (C1–C2) are executed with their results and adopted fallbacks written into `DECISIONS.md`; the Workers Free bundle/CPU gate is measured and Resend domain DNS is submitted. Application-layer auth throttles are mandatory; a zone-level WAF rule is optional defense-in-depth when a custom domain is actually attached. Demo bar for tonight: **a URL on Cloudflare loads.**
 
 ## Dependencies
 - **Hard (blocks start):** none. This is the root of the graph.
@@ -26,14 +26,14 @@ A pinned Next.js App Router app builds through `@opennextjs/cloudflare` and is l
   - `pnpm build` → `next build`
   - `pnpm build:worker` → `opennextjs-cloudflare build`
   - `pnpm preview` → `opennextjs-cloudflare build && wrangler dev` (the workerd smoke — run before any deploy touching server code)
-  - `pnpm deploy:web:{preview,production}` → validate the exact `APP_BASE_URL`, build OpenNext for that named environment, and deploy it
-  - `pnpm deploy:jobs:{preview,production}` → validate the same URL and deploy the matching named jobs environment (target lands with [M08](./M08-jobs-worker.md))
+  - `pnpm deploy:web` aliases production; `pnpm deploy:web:{preview,production}` validates the exact `APP_BASE_URL`, builds OpenNext, and always deploys the named environment explicitly (a bare deploy would target safe local defaults)
+  - `pnpm deploy:jobs` aliases production; `pnpm deploy:jobs:{preview,production}` validates the same URL and always deploys the matching named jobs environment explicitly (target lands with [M08](./M08-jobs-worker.md))
   - `pnpm db:generate` / `pnpm db:migrate` (consumed by [M03](./M03-db-schema-migrations.md)), `pnpm seed` ([M09](./M09-seed-demo-script.md)), `pnpm e2e` ([M10](./M10-e2e-release.md))
 - **Path alias** `@/*` → `src/*` (tsconfig + vitest + eslint resolver). Every module imports through it.
 - **ESLint boundaries element types** (consumed as law by all workstreams): `shared-contracts`, `shared-lib`, `shared-server`, `shared-ui`, `db`, `feature`, `app`, `scripts`.
 - **`DECISIONS.md`** — the single append-only log of spike outcomes, Discord clarifications, and video diffs. Every workstream appends; the architect owns conflicts.
 - **Live URL**: `https://sb-web.<account>.workers.dev` — the deployed preview every checkpoint is demoed on.
-- **CI contract**: a PR is mergeable only when the 6 gates below are green. Consumed by every module's "Done when".
+- **CI contract**: a PR is mergeable only when CI is green — the six `pnpm check` gates (`opennextjs-cloudflare build` runs `next build` internally, so `build:worker` covers both build gates) **plus two CI-only gates**: the Wrangler dry-run gzip measurement and Playwright against `sb-test`. Consumed by every module's "Done when".
 
 ## Step-by-step implementation
 
@@ -108,7 +108,7 @@ Exit non-zero on any hit. Each grep excludes exactly one owner path:
 | 1 | `dangerouslySetInnerHTML` | `src/shared/ui/app/rich-text-view.tsx` |
 | 2 | `process.env.` | `src/shared/lib/env.ts`, **`src/app/page.tsx`** (the `NEXT_PUBLIC_BUILD_SHA` read from §1), `next.config.ts`, `drizzle.config.ts`, `scripts/**`, `e2e/**` |
 | 3 | `from ['"]date-fns` / `date-fns-tz` | `src/shared/lib/time.ts` |
-| 4 | `from ['"]resend` / `api.resend.com` | `src/features/comms/server/**` |
+| 4 | `from ['"]resend` — **nowhere** (the SDK is banned repo-wide, matching §1's ESLint `no-restricted-imports` rule); `api.resend.com` — `src/features/comms/server/**` only (the one plain-fetch adapter) | see pattern column |
 | 5 | `runtime = ['"]edge` | nowhere (repo-wide ban) |
 | 6 | `insert(submissions)` / `INSERT INTO submissions` | `src/features/submissions/server/mutations.ts` |
 | 7 | `insert(contacts)` / `update(contacts)` | `src/features/portal/server/contacts.ts`, **`scripts/seed/contacts.ts`** ([M09](./M09-seed-demo-script.md)'s declared seed exception) |
@@ -125,7 +125,7 @@ Exit non-zero on any hit. Each grep excludes exactly one owner path:
 
 ### 11. `.github/workflows/ci.yml` (PR gate) and `deploy.yml` (main)
 CI job order (target < 8 min): install (pnpm cache) → `wrangler types` → **typecheck** ∥ **lint** → **invariants** → **vitest** (unit + PGlite) → **`next build` then `opennextjs-cloudflare build`** → Wrangler dry-run gzip measurement (warn at 2.5 MB while on Free; after a recorded Paid upgrade, warn at 8 MiB) → **Playwright** against Neon `sb-test`.
-Deploy job (on `main`, after CI): `drizzle-kit migrate` with `DATABASE_URL_DIRECT` → `pnpm deploy:web` → `pnpm deploy:jobs` → `bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"`. Web deploys first so a new jobs worker never targets missing routes on the previous web artifact.
+Deploy job (on `main`, after CI): `drizzle-kit migrate` with `DATABASE_URL_DIRECT` → `pnpm deploy:web` → `pnpm deploy:jobs` → `bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"`. Both scripts pass `--env production` explicitly (§ Provides); preview deploys use the `:preview` variants so web and jobs always select matching named environments. Web deploys first so a new jobs worker never targets missing routes on the previous web artifact.
 CI/repository secret: `NEON_TEST_URL`. Protected production deployment environment: `CLOUDFLARE_API_TOKEN`, `DATABASE_URL_DIRECT`, and `CLOUDFLARE_ACCOUNT_ID` (the account id may be a protected variable). Runtime secrets remain in Cloudflare and are not duplicated into GitHub without a deploy-time need.
 **Every deploy command must also run from a laptop** (Actions-outage fallback) — practise `pnpm deploy:web` locally once tonight and note it in `DECISIONS.md`.
 - **Done when:** a throwaway PR that adds `const x: any = 1` goes **red**, and removing it goes **green**, with the CI run URL pasted into `DECISIONS.md`.
@@ -156,7 +156,7 @@ Verification commands:
 ```bash
 curl -sS "$APP_BASE_URL/" | grep -q "openboard"
 curl -sS "$APP_BASE_URL/api/health" | jq -e '.ok == true'
-pnpm check                       # all six gates locally
+pnpm check                       # the six local gates (CI additionally runs the bundle measurement + Playwright)
 pnpm invariants                  # exits 0
 gh pr checks <throwaway-pr>      # shows red before fix, green after
 grep -c '^## ' DECISIONS.md      # ≥ 8 sections present

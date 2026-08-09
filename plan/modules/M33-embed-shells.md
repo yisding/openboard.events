@@ -1,7 +1,7 @@
 # M33 — Embed shells + snippet + admin
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged **STACK-DEMO** embed shells/configurator lack deployed `frame-ancestors`, resize messaging, published-data isolation, cross-origin framing, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — merged **STACK-DEMO** embed shells/configurator lack deployed `frame-ancestors`, resize messaging, published-data isolation, cross-origin framing, and AC. **Remaining M33 work is gated on the hard dependency below: it does not resume until [M32](./M32-public-schedule-gallery.md)'s published-view queries, leakage tests, and deployed AC are green — an embed must never be treated as ready before its source data is leak-proof.** See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Monday |
 | **Size** | M |

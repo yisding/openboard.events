@@ -22,7 +22,7 @@ The authenticated speaker portal shell: nav, Home dashboard (My Submissions / My
 ```ts
 // src/features/portal/server/contacts.ts, re-exported from src/features/portal/index.ts — SHIP FIRST (Step 0)
 export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId>;   // res. #13
-export async function updateContactFields(tx: TxDb, eventId: EventId, contactId: ContactId,
+export async function updateContactFields(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId,
                                           partial: Partial<ContactWritableFields>): Promise<void>;          // res. #13
 
 // src/features/portal/index.ts
@@ -41,7 +41,7 @@ export async function requirePortalContext(eventSlug: string): Promise<{ event: 
 
 ## Step-by-step implementation
 
-0. **Contact-write helpers — ship in the first hour; they gate M06b Sat PM and M18 Sat PM.** Create `src/features/portal/server/contacts.ts` with **exactly** `getOrCreateContact(tx, eventId, email)` and `updateContactFields(tx, eventId, contactId, partial)` (resolution #13, signatures copied character-for-character from [M02](./M02-shared-contracts.md) §11) and re-export both from the barrel. `getOrCreateContact` is an `INSERT … ON CONFLICT (event_id, email) DO UPDATE SET updated_at = now() RETURNING id` on the lower-trimmed email; `updateContactFields` builds its `SET` clause from **only the keys present in `partial`** — never a whole-row update, because a stale form-task write-back must not clobber a fresher profile save. This is a ~40-line file and it is on the critical path for six modules across four lanes. **Done when:** `import { getOrCreateContact } from '@/features/portal'` typechecks from `features/auth` and `features/submissions`, and a PGlite test proves a second call with the same email returns the same `contactId` and touches no other column.
+0. **Contact-write helpers — ship in the first hour; they gate M06b Sat PM and M18 Sat PM.** Create `src/features/portal/server/contacts.ts` with **exactly** `getOrCreateContact(tx, eventId, email)` and `updateContactFields(dbOrTx: DbOrTx, eventId, contactId, partial)` (resolution #13, signatures copied character-for-character from [M02](./M02-shared-contracts.md) §11; `DbOrTx` lets M22/M27's single-statement saves pass the `neon-http` handle while transactional writers pass `tx`) and re-export both from the barrel. `getOrCreateContact` is an `INSERT … ON CONFLICT (event_id, email) DO UPDATE SET updated_at = now() RETURNING id` on the lower-trimmed email; `updateContactFields` builds its `SET` clause from **only the keys present in `partial`** — never a whole-row update, because a stale form-task write-back must not clobber a fresher profile save. This is a ~40-line file and it is on the critical path for six modules across four lanes. **Done when:** `import { getOrCreateContact } from '@/features/portal'` typechecks from `features/auth` and `features/submissions`, and a PGlite test proves a second call with the same email returns the same `contactId` and touches no other column.
 
 1. **Contract-first slice.** Write `src/features/portal/index.ts` exporting the signatures above as typed stubs returning fixture data (one fixture submission, one fixture contact) so `M22`–`M25`, `M41` (all built by the same agent later, but also so any early cross-check compiles) have a real barrel from hour one. **Done when:** `pnpm typecheck` passes importing every export from a scratch file.
 

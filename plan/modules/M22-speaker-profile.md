@@ -59,7 +59,7 @@ export async function updateProfile(eventId: EventId, contactId: string, patch: 
 
 4. **`updateProfile(eventId, contactId, patch)`.**
    - `sanitize(patch.bioHtml)` (M04's shared sanitizer, the narrow allowlist — not the wide resource-pages one) before persisting.
-   - Calls `updateContactFields(db, eventId, contactId, {...only the keys present in patch})` — single-statement guarded update, no `withTx` needed (this is not one of the 8 audited transactional functions).
+   - Calls `updateContactFields(db, eventId, contactId, {...only the keys present in patch})` — single-statement guarded update, no `withTx` needed (this is not one of the 8 audited transactional functions). Passing the `neon-http` `db` handle is sanctioned by the helper's `DbOrTx` first parameter ([M02](./M02-shared-contracts.md) §11 / resolution #13) — transactional callers like M16/M18 pass their `tx` through the same signature.
    - Returns the refreshed DTO.
    - **Done when:** PGlite test: patching only `{bioHtml}` leaves every other column untouched even when another concurrent write (simulated) changed `company` — proves field-scoped discipline (resolution #13 + edge case #5 "form write-back races").
 

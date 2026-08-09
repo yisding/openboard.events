@@ -91,7 +91,7 @@ Conventions applied to **every** event-scoped table (data-model §2): `id uuid P
 - `form_responses` — **`UNIQUE NULLS NOT DISTINCT (form_id, contact_id, submission_id)`** (resubmit = overwrite), `answers jsonb`, `form_version` pinned.
 - `communication_logs` ★9 — **`idempotency_key` UNIQUE** (insert-first = the double-send firewall), `status` queued|sent|failed|**skipped**, `attempts`/`next_attempt_at`/`locked_until` (the `FOR UPDATE SKIP LOCKED` claim), `subject_rendered`/`body_rendered_html`, `secret_payload_ciphertext` (nullable; encrypted `portal_login` only, cleared after dispatch), `provider_message_id`, `ics_uid`, entity refs, partial index `(event_id, status) WHERE status='queued'` and `(event_id, contact_id, created_at DESC)`.
 - `calendar_invites` — `UNIQUE (contact_id, session_id)`, `ics_uid` UNIQUE and **stable**, `sequence` monotonic, `last_method` request|cancel, and `organizer_email` stamped on first send and never overwritten.
-- `airtable_sync_state` — `UNIQUE (table_name, record_pk)` → `airtable_record_id`, `content_hash`.
+- `airtable_sync_state` — `UNIQUE (event_id, table_name, record_pk)` → `airtable_record_id`, `content_hash` (event-scoped so identical record keys from two events cannot collide; every lookup/upsert includes `event_id`).
 
 - **Done when:** `pnpm db:generate` emits `0000_init.sql` and a diff-read against data-model.md §3 shows no missing column, no missing UNIQUE, and no plain FK where a composite is specified.
 
@@ -103,7 +103,7 @@ exists as the migration audit checklist. Each item is load-bearing for a named m
 |---|---|---|
 | ★1 | `submissions.notify_revision int NOT NULL DEFAULT 0` | part of the decision idempotency key; makes re-notify after organizer undo possible → [M18](./M18-submission-mutations-notify.md), [M34](./M34-comms-outbox-dispatcher.md) |
 | ★2 | `portal_tokens.attempts int NOT NULL DEFAULT 0` + nullable `otp_hash` | OTP brute-force guard and hash-only OTP lookup: 5 failed verifies → token consumed → [M06b](./M06b-portal-auth.md) |
-| ★3 | `CREATE UNIQUE INDEX submissions_one_draft_uq ON submissions (form_id, submitter_contact_id) WHERE status = 'draft'` | **one server draft per (contact, form)** → [M15](./M15-public-cfp-wizard.md), [M16](./M16-submit-pipeline.md), [M18](./M18-submission-mutations-notify.md) |
+| ★3 | `CREATE UNIQUE INDEX submissions_one_draft_per_contact_form_uq ON submissions (event_id, form_id, submitter_contact_id) WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL` (name + shape identical to the data-model DDL; `event_id` leads per the every-unique-index-includes-event_id convention) | **one server draft per (contact, form)** → [M15](./M15-public-cfp-wizard.md), [M16](./M16-submit-pipeline.md), [M18](./M18-submission-mutations-notify.md) |
 | ★4 | Every Airtable-exported view exposes `greatest(a.updated_at, b.updated_at, …) AS updated_at` | [M39](./M39-airtable-export.md)'s watermark must never skip rows whose freshness comes from a joined table |
 | ★5 | `task_assignments_v` bakes in the resolution-#14 fan-out rule, with the rule text as a SQL comment | [M23](./M23-tasks-admin.md), [M25](./M25-task-runtime.md), [M36](./M36-reminder-scan.md), [M38](./M38-dashboard.md) consume it and never re-derive |
 | ★6 | Trigger clears `notified_at` and bumps `notify_revision` when a row **leaves** `accepted`/`declined` | organizer-undo → re-notify produces a distinct idempotency key → [M18](./M18-submission-mutations-notify.md) |

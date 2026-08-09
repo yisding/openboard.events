@@ -161,7 +161,7 @@ Numbered functional requirements for a good-enough clone. [CORE] = in the brief'
 
 **Form settings**
 20. [CORE — "kinda impt"] Close Date (date + time, timezone-aware) that closes the form for new AND updated submissions after the instant passes; drives reminder emails for unfinished drafts (email module's concern, but the builder stores the date).
-21. [NICE] Submission capacity: per-form submission limit toggle + number; event-level default cap ("Event max: 3") applied when no form-level limit; "allow multiple draft submissions" toggle.
+21. [NICE] Submission capacity: per-form submission limit toggle + number; event-level default cap ("Event max: 3") applied when no form-level limit. (The real product's "allow multiple draft submissions" toggle is deliberately out of scope — the clone fixes one server draft per contact/form; see the SubmissionForm entity and simplification 9.)
 22. [CORE — "make sure this works"] Success page: customizable rich-text success message rendered on the public confirmation page, plus "Auto-redirect to speaker portal" toggle (10-s delay; when off show a "Continue to portal" button).
 23. [NICE] Cross-field character limits: named rule = set of text fields + combined max; live combined counter on the public form; applied per-participant for participant fields.
 
@@ -206,7 +206,7 @@ Relationships: Event 1—N SubmissionForm 1—N FormSection 1—N FormField; For
 3. Step 2 Welcome Screen: set internal name, external title, page heading; toggle + author welcome message. Next.
 4. Step 3 Abstract Information: edit section title/heading/instructions; review seeded fields (Title locked, Description, Format, Tags, Track, Level); "+ Add Field" → pick type → label, options (for dropdowns), max chars, required; drag to reorder; open a field's `...` → add conditional visibility rule (e.g. show "Workshop duration" only when Format = "Workshop"). Next.
 5. Step 4 Participant Information: edit section copy; enable roles + min/max; review seeded contact fields; add custom fields (e.g. "Company", "Twitter/X URL"). Next.
-6. (Payments — skipped in clone.) Step 5 Form Settings: set Close Date (event timezone); optionally submission limit + multiple-drafts toggle; author success-page message; leave auto-redirect on. Next.
+6. (Payments — skipped in clone.) Step 5 Form Settings: set Close Date (event timezone); optionally submission limit; author success-page message; leave auto-redirect on. Next. (No multiple-drafts toggle — one server draft per contact/form is fixed.)
 7. Step 6 Notifications: keep Submission Confirmation ON, customize its template; pick admin recipients for new/updated alerts. Save.
 8. Configure routing: rules panel (builder step or form-level tab): "Track = Infra → Category: Infrastructure", "Format = Workshop → Category: Workshops". Reorder; save.
 9. "View Form" to preview the public flow; "Copy Link"; share URL. Form shows as Open in the list.
