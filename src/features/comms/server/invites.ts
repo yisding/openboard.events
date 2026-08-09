@@ -76,7 +76,12 @@ export async function prepareInviteIn(
     .limit(1);
   if (!record) return null;
 
-  const [existing] = await dbOrTx.select({ lastMethod: calendarInvites.lastMethod })
+  const [existing] = await dbOrTx.select({
+    lastMethod: calendarInvites.lastMethod,
+    sequence: calendarInvites.sequence,
+    icsUid: calendarInvites.icsUid,
+    organizerEmail: calendarInvites.organizerEmail,
+  })
     .from(calendarInvites)
     .where(and(
       eq(calendarInvites.eventId, row.eventId),
@@ -85,30 +90,35 @@ export async function prepareInviteIn(
     ))
     .limit(1);
   const scheduled = record.status === "published" && Boolean(record.startsAt && record.endsAt && record.speakerContactId);
-  const method = scheduled ? "REQUEST" : existing?.lastMethod === "request" ? "CANCEL" : null;
+  const method = scheduled ? "REQUEST" : existing ? "CANCEL" : null;
   if (!method) return null;
 
   const currentOrganizer = senderAddress(env);
   const uid = icsUid(row.sessionId, row.contactId, senderDomain(currentOrganizer));
-  const [state] = await dbOrTx.insert(calendarInvites).values({
-    eventId: row.eventId,
-    contactId: row.contactId,
-    sessionId: row.sessionId,
-    icsUid: uid,
-    sequence: record.scheduleRevision,
-    lastMethod: method.toLowerCase() as "request" | "cancel",
-    organizerEmail: currentOrganizer,
-    lastSentAt: sql`now()`,
-  }).onConflictDoUpdate({
-    target: [calendarInvites.contactId, calendarInvites.sessionId],
-    set: {
-      sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)
-        + CASE WHEN excluded.last_method = 'cancel' AND ${calendarInvites.sequence} >= excluded.sequence THEN 1 ELSE 0 END`,
-      lastMethod: sql`excluded.last_method`,
+  let state: { sequence: number; icsUid: string; organizerEmail: string } | undefined;
+  if (method === "CANCEL" && existing?.lastMethod === "cancel") {
+    state = existing;
+  } else {
+    [state] = await dbOrTx.insert(calendarInvites).values({
+      eventId: row.eventId,
+      contactId: row.contactId,
+      sessionId: row.sessionId,
+      icsUid: uid,
+      sequence: record.scheduleRevision,
+      lastMethod: method.toLowerCase() as "request" | "cancel",
+      organizerEmail: currentOrganizer,
       lastSentAt: sql`now()`,
-      updatedAt: sql`now()`,
-    },
-  }).returning();
+    }).onConflictDoUpdate({
+      target: [calendarInvites.contactId, calendarInvites.sessionId],
+      set: {
+        sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)
+          + CASE WHEN excluded.last_method = 'cancel' AND ${calendarInvites.sequence} >= excluded.sequence THEN 1 ELSE 0 END`,
+        lastMethod: sql`excluded.last_method`,
+        lastSentAt: sql`now()`,
+        updatedAt: sql`now()`,
+      },
+    }).returning();
+  }
   if (!state) return null;
   if (state.organizerEmail !== currentOrganizer) {
     log({

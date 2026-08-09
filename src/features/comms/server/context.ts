@@ -226,7 +226,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
           eq(calendarInvites.contactId, row.contactId),
           eq(calendarInvites.sessionId, row.sessionId),
         )).limit(1);
-      if (existingInvite?.lastMethod !== "request") throw new SkipEmail("session is no longer published and scheduled");
+      if (!existingInvite) throw new SkipEmail("session is no longer published and scheduled");
       templateOverride = {
         subject: "Schedule removed: {{session.title}}",
         bodyHtml: "<p><strong>{{session.title}}</strong> is no longer on the published schedule.</p>{{calendar.buttons_html}}",
