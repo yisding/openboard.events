@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, count, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, count, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
 import { getOrCreateContact } from "@/features/portal";
@@ -110,24 +110,22 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   fallback: boolean;
 }): Promise<PortalLoginRequestResult> {
   const email = args.email.trim().toLowerCase();
-  const [existing] = await tx.select({ id: contacts.id }).from(contacts)
-    .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, email)))
-    .limit(1);
-  if (existing) {
-    const since = new Date(Date.now() - 10 * 60 * 1_000);
-    const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
-      eq(portalTokens.eventId, args.eventId),
-      eq(portalTokens.contactId, existing.id),
-      eq(portalTokens.purpose, "magic_link"),
-      isNotNull(portalTokens.otpHash),
-      gt(portalTokens.createdAt, since),
-    ));
-    if ((recent?.n ?? 0) >= 3) {
-      throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
-    }
-  }
-
   const contactId = await getOrCreateContact(tx, args.eventId, email);
+  // requestPortalLogin wraps this function in one transaction. Serializing on
+  // the event-scoped contact makes the following count-and-issue atomic for a
+  // recipient even when several login requests arrive together.
+  await tx.execute(sql`SELECT id FROM contacts WHERE id=${contactId} AND event_id=${args.eventId} FOR UPDATE`);
+  const since = new Date(Date.now() - 10 * 60 * 1_000);
+  const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
+    eq(portalTokens.eventId, args.eventId),
+    eq(portalTokens.contactId, contactId),
+    eq(portalTokens.purpose, "magic_link"),
+    isNotNull(portalTokens.otpHash),
+    gt(portalTokens.createdAt, since),
+  ));
+  if ((recent?.n ?? 0) >= 3) {
+    throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
+  }
   await tx.update(portalTokens).set({ consumedAt: new Date() }).where(and(
     eq(portalTokens.eventId, args.eventId),
     eq(portalTokens.contactId, contactId),
