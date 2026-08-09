@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged code demonstrates client-side lifecycle/notification behavior only; the single-owner transactional mutations, guarded transitions, outbox writes, auto-confirm, and race AC are a **SERVER-GAP**. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **the Saturday slice is merged** (#34): `nextSubmissionCode`, `createSubmission`, `upsertDraft`, `formatCode`, `assertTransition` and `toPortalStatus`, with eleven PGlite cases. This is what the Sat-night thin slice needs from WS-C. Remaining: `transitionStatus`, `notifyQueues`, `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling` and the three route handlers. |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat PM** — the `nextSubmissionCode` + `createSubmission` slice (powers the Sat-night thin-slice integration). **Sun** — complete (`notifyDecisions` w/ `notify_revision` + auto-confirm + submitter-only recipient, `updateSubmissionFromCfp`, `upsertDraft`, withdraw, `getAcceptedForScheduling`). |
 | **Size** | L (~day; grew by absorbing the mutations — WS-C has the slack) |
