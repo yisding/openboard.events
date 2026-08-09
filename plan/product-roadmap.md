@@ -81,6 +81,49 @@ speaker never set); white-labeling; the §9 cut-line features that are buyer tab
 Airtable export, embed configurator polish, week/track/room views, dashboard extras, AI review —
 below the line until P1/P2 close.
 
+## Tooling and library adoptions
+
+The current dependency list is deliberately lean and most hand-rolled choices (ICS builder,
+sanitizer profiles, `aws4fetch`, raw `fetch` to Resend, `env.ts` validation) are better than
+their library alternatives — they stay. What we adopt, by phase:
+
+**Adopt during P1–P3:**
+
+- **`@sentry/cloudflare`** — error tracking with grouping/alerting/releases; the
+  `AppError`/logger seam makes it a near one-file add. Check `pnpm worker:size` after adding.
+- **`@cloudflare/vitest-pool-workers`** — run the auth (Web Crypto), R2 signing, and dispatcher
+  suites inside workerd instead of Node, closing the "proven on PGlite, unproven on Workers"
+  runtime gap.
+- **`@testing-library/react` + `happy-dom`** — the vitest environment is `node` and there are
+  zero component tests today; P1 is almost entirely UI wiring, exactly where regressions will
+  land.
+- **Cloudflare native rate-limiting bindings / WAF rules** (not an npm dependency) for the
+  public submit path and `/api/v1`. CSRF likewise stays a small origin check in `defineHandler`
+  rather than a library.
+- **Cloudflare Queues** for email dispatch: keep the outbox table and idempotency unchanged, let
+  the cron scan and a queue consumer send with concurrency — removes the ~50 emails/minute
+  sequential ceiling. Requires the paid Workers plan, which the product needs anyway.
+
+**Adopt when the phase lands:**
+
+- **`stripe`** (fetch HTTP client) — M49 only; nothing to do before the org layer exists.
+- **Charts** — when the Workers-Free bundle rule relaxes, prefer something small (Observable
+  Plot or uPlot) over heavyweight chart libraries.
+- **`next-intl`** — only if selling into non-English markets becomes real.
+
+**Future possibilities (noted, not adopted):**
+
+- **Hyperdrive** — if P2's load test shows the per-transaction WebSocket `Pool` handshake cost
+  matters, Hyperdrive pooling is the fix; not before the data says so.
+- **Atlas** — schema-diff tooling that models the composite FKs/views/triggers drizzle-kit
+  cannot, addressing the hand-authored-SQL drift risk recorded in `DECISIONS.md` ("Migration
+  authorship"). Revisit when migration volume grows.
+
+**Deliberately not adopting:** react-email (templates are DB-stored and organizer-editable — a
+JSX email framework doesn't fit), the AWS SDK, Prisma, NextAuth (Better Auth decided), axios /
+lodash / moment-class utilities. TanStack Table and Query are already present — the abstracts
+pagination gap is wiring, not a missing library.
+
 ---
 
 ## The product auth decision (M42 detail)
