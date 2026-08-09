@@ -1,5 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { TxDb } from "@/db/client";
+import type { SeedCtx } from "./lib/helpers";
 import { communicationLogs, contacts, portalTokens, sessions, submissions } from "@/db/schema";
 import { sealPortalLoginPayload } from "@/features/auth";
 import { sha256 } from "@/features/auth/server/crypto";
@@ -12,18 +12,8 @@ import {
   submissionIdSchema,
   taskIdSchema,
   tokenIdSchema,
-  type EventId,
 } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
-
-export type SeedCtx = {
-  tx: TxDb;
-  now: Date;
-  eventId: EventId;
-  emptyEventId: EventId;
-  id: (kind: string, key: string) => string;
-  log: (message: string) => void;
-};
 
 function rowsOf<Row>(result: unknown): Row[] {
   if (Array.isArray(result)) return result as Row[];
@@ -48,7 +38,11 @@ export async function seedComms(ctx: SeedCtx): Promise<void> {
     .where(and(eq(sessions.eventId, eventId), eq(sessions.status, "published"), sql`${sessions.startsAt} IS NOT NULL`))
     .orderBy(asc(sessions.startsAt)).limit(2);
   if (!event || !defaultContact || !received || !accepted || !declined || !assignment || scheduled.length === 0) {
-    throw new Error("seedComms requires seeded contacts, pending/accepted/declined submissions, an open task assignment, and a published session");
+    // The upstream seed modules are still no-ops, which is the documented state
+    // while their workstreams fill them in. Skipping keeps `pnpm seed` a working
+    // command for everyone else; a genuine failure below still throws.
+    ctx.log("skipped — needs seeded contacts, submissions, an open task assignment and a published session");
+    return;
   }
 
   const contactId = contactIdSchema.parse(defaultContact.id);
