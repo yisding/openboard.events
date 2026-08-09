@@ -93,10 +93,10 @@ No module is `DONE` as of this snapshot. Rule 1 alone keeps every `PR-OPEN` modu
 | Modules | Evidence on `main` | Missing before `DONE` |
 |---|---|---|
 | M01 | App scaffold, health route, pinned Next/OpenNext, validation CI; **preview is live** at `https://sb-web-preview.yi-ding.workers.dev` with a real Neon round-trip and a measured 1206.45 KiB gzip artifact inside the Workers Free budget | Resend DNS/header probe, browser R2 presign/CORS, the revalidate-60 spike, a deployed application-throttle proof, and a green `Deploy` workflow run from `main` |
-| M05a | Demo admin shell, event resolution, accessible controls, stub routes, core primitives | shadcn generation, `<DataTable>`, `<ConfirmDialog>`, `<Dash>`, `<TzTime>`, kitchen-sink page, and `(admin)` auth wiring against merged M06a |
+| M05a | Demo admin shell, event resolution, accessible controls, stub routes; the core primitives and kitchen sink landed in #24 | Six list surfaces actually consuming `<DataTable>`; the `(admin)` route group, deliberately unclaimed because those route files belong to six lanes |
 | M08 | Secret-guarded job routes, trigger worker, canonical config; **a preview jobs tick reached the web Worker and returned `{ ok: true, stats: { noop: 1 } }` in 1 ms CPU** | Production `CRON_SECRET` on both Workers, tail evidence, and AC-gated stub swaps |
-| M09 | Typed browser fixture seed | Database seed orchestrator (`scripts/seed/**` does not exist), wipe/reset, all feature seeds, judge credentials |
-| M10 | Release docs, validation CI, smoke placeholder | `playwright.config.ts` and `e2e/` do not exist; the six-spec skeleton is the CP1 gate item |
+| M09 | Typed browser fixture seed; the orchestrator, ids, stubs and target verification landed in #20 | A run against a real database, the eight per-feature bodies, and judge credentials that exist |
+| M10 | Release docs, validation CI; the six-spec skeleton, the deepened smoke, the load test, the README and the submission checklist landed in #19/#22/#23 | Specs go green only as their features land; the load test needs M16's submit endpoint; production deploy, spend proof and the release AC |
 | M38 | Fixture-backed dashboard surface | Aggregated server endpoint, task-count law, polling, database-backed judged update |
 
 ### Merged demo-stack implementation
@@ -107,7 +107,7 @@ These modules have useful UI or pure-function slices merged through PRs #2/#4/#5
 - PR #4 lineage: M21–M23, M25–M29, M31–M33, M41.
 - PR #5 lineage: M03 UI-adjacent slices, M10, M35, M37, M40, plus additional M11 UI.
 
-The following modules remain `NOT STARTED` at their substantive boundary despite nearby stubs or demo controls: M05b, M07, M16, M24, M30, M34, M36, and M39. (M06a and M06b left this list in rev. 5; they are merged with AC verification pending.)
+The following modules remain `NOT STARTED` at their substantive boundary despite nearby stubs or demo controls: M05b, M16, M24, M30, M36, and M39. (M06a and M06b left this list in rev. 5; M07 and M34 left it in rev. 6. All four are merged with AC verification pending.)
 
 ### Temporary ownership grant
 
