@@ -158,9 +158,14 @@ Until CP1 is green, daily demo claims must say **local browser demo**, never **e
 green. What moved: the cache-header fix is now merged (#26/#44) but unproven on a deploy; the
 Sat-thin-slice code path (fixture form → server transaction → Neon → Abstracts) is now fully
 merged (#35, #37, #38, #43, #49) and needs only a deploy plus the contacts/submissions seed
-bodies to attempt; CP2's remaining code gaps are exactly `notifyDecisions` (does not exist) and
-the four stub seeds. Email delivery remains the largest single risk — preview sending is enabled
-(#50) but no delivery has ever been demonstrated.
+bodies to attempt. CP2's remaining code gaps are broader than the thin slice's: the
+accept/decline status mutations and `notifyDecisions` (do not exist anywhere), the
+evaluation/review server (M19 — the evaluation page is demo-store only, no review mutations),
+the portal task-completion runtime (M25 — `completeTaskViaResponse`/`completeTaskViaUpload` do
+not exist; the portal tasks page dispatches demo state), database-backed public
+schedule/gallery reads (M32 — both pages still render `DemoProvider`), and the four stub seed
+bodies. Email delivery remains the largest single risk — preview sending is enabled (#50) but no
+delivery has ever been demonstrated.
 
 ## 5. Recovery gates
 
@@ -175,9 +180,11 @@ Landed via PRs #6–#8: the status overlay and reconciled module headers, the in
 **The code half is done.** Every R1 item that was an implementation now sits on `main`. What is
 left cannot be finished by writing more of it:
 
-1. **Deploy the preview from current `main`.** The deployed revision predates the portal-auth
-   merge — `/api/internal/auth/portal/request` returns a Next 404 page there — so every claim
-   about auth, uploads or comms on that URL is a claim about code that is not deployed.
+1. **Deploy the preview from current `main`.** When last probed (rev. 5), the deployed revision
+   predated the portal-auth merge — `/api/internal/auth/portal/request` returned a Next 404 page
+   there. Whether the preview has been redeployed since is **unverified at rev. 7**: re-run
+   `scripts/post-deploy-smoke.sh` before making any claim about auth, uploads or comms on that
+   URL.
 2. **Run the seed against `sb-dev` and `sb-test`.** `pnpm seed` exists and refuses an
    unclassified or mismatched target; nobody has pointed it at a database yet. Mark each database
    once with `ALTER DATABASE … SET app.environment` while doing it.
@@ -256,8 +263,9 @@ feature lanes are unblocked for the first time.
   in esbuild before it read an environment variable, so the "password-backed organizer and
   reviewer accounts" step of the provisioning checklist has never been executed anywhere. PR #21
   fixed it; the checklist item stays unchecked until it has actually been run.
-- The deployed preview is behind `main`. `/api/internal/auth/portal/request` returns a Next 404
-  page there, so the portal-auth merge is not on the deployed artifact.
+- At rev. 5, the deployed preview was behind `main`: `/api/internal/auth/portal/request`
+  returned a Next 404 page, so the portal-auth merge was not on the deployed artifact at that
+  time. The current deployed revision is unverified — see the rev. 7 corrections below.
 
 **Still pending (31 unchecked items in the provisioning checklist):**
 
@@ -277,8 +285,10 @@ The jobs worker must receive only `APP_BASE_URL` and its environment's `CRON_SEC
   revision** — re-run `scripts/post-deploy-smoke.sh` and re-record before making any claim.
 - Security note promoted from the readiness audit: `TEST_AUTH: "1"` is set on the publicly
   reachable preview (`wrangler.jsonc`), where `/api/test/login` mints an admin session for any
-  known email with no password. Acceptable for the judged demo window only; it must come off the
-  moment the preview holds non-fixture data, and before any customer-facing use.
+  known email with no password. This is a **release gate, not a data-dependent cleanup**: the
+  route is an authentication bypass regardless of what data sits behind it. `TEST_AUTH` must be
+  disabled — or the preview network-restricted — before any customer-facing or non-demo
+  deployment; the judged-demo window is the only sanctioned exception.
 
 ## 8. Product overlay (rev. 7)
 

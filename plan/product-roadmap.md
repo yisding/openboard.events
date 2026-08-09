@@ -30,8 +30,8 @@ dependency order:
    upload UI onto the already-complete R2 routes (M07's missing consumer).
 5. Evaluation/scoring server (M19), comms admin over the real `listLog` (M37 minimum).
 6. Public schedule/speakers/embeds onto the `published_*` views (M32/M33) — replacing the
-   `useDemo()` client components, which is also the real fix for the failing cache-header smoke
-   assertion.
+   `useDemo()` client components. (The failing cache-header smoke assertion is a separate item:
+   its fix is already merged in PRs #26/#44 and needs only a redeploy plus header evidence.)
 7. Flip each module's gate in `e2e/helpers/landed.ts` as it lands; the specs are already written.
 
 ## Phase P2 — external proof
@@ -44,8 +44,10 @@ dependency order:
 
 ## Phase P3 — trust and compliance (cheap, do alongside P1/P2)
 
-- Remove `TEST_AUTH` from the preview once it holds non-fixture data; delete the committed demo
-  credentials and fixed OTP from `docs/demo-script.md` before any customer sees the repo.
+- Disable `TEST_AUTH` on the preview, or network-restrict the preview — a **release gate before
+  any customer-facing or non-demo deployment**, not a data-dependent cleanup (the route mints an
+  admin session for any known email regardless of what data is behind it); delete the committed
+  demo credentials and fixed OTP from `docs/demo-script.md` before any customer sees the repo.
 - Security headers (CSP, HSTS, referrer policy), origin checks or CSRF tokens on state-changing
   routes, rate limits on the public submit path and `/api/v1`.
 - Resend bounce/complaint webhook + a suppression status in `COMM_STATUSES`; `List-Unsubscribe`
@@ -71,9 +73,9 @@ Strictly ordered; do not start a later module before its predecessor's schema la
 | M49 | Billing | Plans/entitlements/metering hung off `organizations`. **Blocked on M43 by construction** — there is nowhere to attach a plan today. | M43, M44 |
 
 Also promoted from the analysis-docs backlog (specced, never modularized, high buyer value):
-organizer view + CSV export of portal-form responses; speaker confirm CTA (replacing resolution
-#15's auto-confirm — publication, invites, and task fan-out currently hang off a status the
-speaker never set); white-labeling; the §9 cut-line features that are buyer table stakes
+organizer view + CSV export of portal-form responses; speaker confirm CTA (replacing
+resolution 15's auto-confirm — publication, invites, and task fan-out currently hang off a
+status the speaker never set); white-labeling; the §9 cut-line features that are buyer table stakes
 (edit-until-close, server-side drafts, drag-and-drop scheduling, reminder ladder, keyed API).
 
 ## Explicitly still deferred
@@ -156,3 +158,16 @@ decision, not a compatibility verdict.
    happens behind the auth barrel exactly as `DECISIONS.md` planned for.
 5. Portal speaker auth (OTP/magic link) is custom, tested, and working — it does not move in
    M42.
+
+**M42 acceptance criteria:**
+
+1. Legacy `users.password_hash` PBKDF2 credentials are detected and verified through Better
+   Auth's custom password-hashing hooks, and rehashed to the new scheme on first successful
+   sign-in — no forced resets, no orphaned accounts.
+2. Existing `users` and `event_members` rows are preserved, and `requireAdmin(eventId, role?)`
+   returns identical authorization decisions before and after the swap, including role ranking
+   and the per-path role derivation.
+3. Admin sessions move to a revocable server-side store that is fully isolated from
+   `portal_sessions` and the portal token tables; portal auth behavior is unchanged.
+4. Sign-out and admin-driven revocation invalidate sessions server-side, demonstrated on the
+   deployed preview (a revoked session cannot reach an admin route).

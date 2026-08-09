@@ -107,6 +107,10 @@
   `cookieCache` with `secondaryStorage` (known open bug treats expired cache as logout);
   `requireAdmin(eventId, role?)` stays the frozen implementation-neutral contract; portal
   speaker OTP/magic-link auth does not move.
+- M42's acceptance criteria — legacy-hash detection with rehash-on-login, unchanged
+  `requireAdmin` authorization semantics, an isolated revocable admin session store, and a
+  deployed revocation proof — are recorded in `plan/product-roadmap.md` ("The product auth
+  decision").
 
 ## Migration authorship
 

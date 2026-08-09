@@ -4,7 +4,7 @@
 
 This folder is the execution surface for the build. It contains one **work order per module** plus the schedule that says who runs what, when.
 
-> **Current rebaseline (rev. 5, Sun Aug 9):** R0 has exited and **R1 is the active gate**. PRs #6–#9 are merged and the preview Cloudflare/Neon/R2 estate is provisioned, but the database, admin-auth, and portal-auth foundation exists only on the open #10 → #11 → #12 stack, so there are still no `DONE` modules and no server-backed golden path. Read [`status.md`](status.md) before claiming work — §2a lists the review findings currently blocking that stack. The original wave table remains the dependency choreography.
+> **Current rebaseline (rev. 7, Sun Aug 9 evening):** R0 has exited and **R1 remains the active gate**. The #10 → #12 foundation stack and PRs #15–#52 are all merged — auth, the submit pipeline, abstracts reads, portal home/submissions, dashboard, ICS/calendar routes, and four of eight seed bodies are on `main` — but under the evidence rules no module is `DONE` and there is still no deployed, server-backed golden path. Read [`status.md`](status.md) before claiming work (§2b lists the post-rev-6 delta); the product overlay beyond the judged bar is [`product-roadmap.md`](product-roadmap.md). The original wave table remains the dependency choreography.
 
 ## Authority order (read this before you argue with anything)
 

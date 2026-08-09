@@ -63,8 +63,10 @@ home/submissions/detail.
 communications admin, speakers/tasks/resources admin, embeds admin, portal
 profile/tasks/resources — and, notably, **the public schedule and speaker pages themselves**
 (`src/features/public/public-schedule.tsx` is `"use client"` + `useDemo()`, so the deployed
-public page renders localStorage, which is also why the `s-maxage=60` smoke assertion fails
-against a page that can't meaningfully be cached).
+public page renders localStorage). The failing `s-maxage=60` smoke assertion is a separate,
+narrower issue: the cache fix (`revalidate = 60` + `generateStaticParams`) is already merged in
+PRs #26/#44 and needs only a redeploy plus header evidence — it does not depend on the
+public-page database rewrite.
 
 **Missing outright (not demo, not server — absent):**
 
