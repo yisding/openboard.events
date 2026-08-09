@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { evaluateVisibility } from "@/shared/lib/conditions";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
-import type { AnswerValue, FieldId } from "@/shared/contracts";
+import { fileIdSchema, type AnswerValue, type FieldId, type FormSnapshot } from "@/shared/contracts";
+import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
+import { FormFieldRenderer, toRichTextAnswer } from "./components/form-field-renderer";
 
 /**
  * The renderer itself is a React tree, and component tests are outside the test
@@ -40,5 +44,49 @@ describe("what the renderer shows", () => {
     const keys = GOLDEN_SNAPSHOT.sections.map((section) => section.key);
     expect(keys).toContain("abstract");
     expect(keys).toContain("participant");
+  });
+});
+
+describe("form field controls", () => {
+  const fileSnapshot = (): FormSnapshot => {
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT) as FormSnapshot;
+    snapshot.sections = snapshot.sections.slice(0, 1).map((section) => ({
+      ...section,
+      descriptionHtml: "",
+      fields: section.fields.filter((candidate) => candidate.key === "supporting"),
+    }));
+    return snapshot;
+  };
+
+  it("renders a real upload control for an editable file field", () => {
+    const html = renderToStaticMarkup(createElement(
+      FormUploadProvider,
+      { eventId: "00000000-0000-4000-8000-000000000009" },
+      createElement(FormFieldRenderer, {
+        snapshot: fileSnapshot(),
+        answers: {},
+        onChange: () => undefined,
+        mode: "edit",
+      }),
+    ));
+    expect(html).toContain('type="file"');
+    expect(html).toContain("Choose a file");
+  });
+
+  it("uses the authorized download flow for a private file answer", () => {
+    const supporting = field("supporting");
+    const html = renderToStaticMarkup(createElement(FormFieldRenderer, {
+      snapshot: fileSnapshot(),
+      answers: { [supporting.id]: { t: "file", v: fileIdSchema.parse("00000000-0000-4000-8000-000000000099") } } as Record<FieldId, AnswerValue>,
+      onChange: () => undefined,
+      mode: "review",
+    }));
+    expect(html).toContain("Uploaded file");
+    expect(html).not.toContain("/f/");
+  });
+
+  it("does not retain empty rich-text markup as an answer", () => {
+    expect(toRichTextAnswer("<p><br></p>")).toBeUndefined();
+    expect(toRichTextAnswer("<p>Hello</p>")).toEqual({ t: "s", v: "<p>Hello</p>" });
   });
 });

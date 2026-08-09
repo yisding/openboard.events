@@ -1,9 +1,10 @@
 "use client";
 
 import { Upload, X } from "lucide-react";
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import type { FileKind } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
+import { PrivateFileLink } from "./private-file-link";
 
 /**
  * Presigned PUT straight to R2. Bytes never pass through the Worker: the server
@@ -197,7 +198,7 @@ export function FileUpload({
         <div className="file-upload__done">
           {/* Immutable by construction: a replacement always mints a new fileId,
               which is what makes this URL cacheable forever. */}
-          <a href={`/f/${shownFileId}`} target="_blank" rel="noreferrer">{uploaded?.meta.filename ?? "Current file"}</a>
+          <PrivateFileLink fileId={shownFileId}>{uploaded?.meta.filename ?? "Current file"}</PrivateFileLink>
           <button type="button" className="button button-secondary button-sm" onClick={() => { setPhase("idle"); inputRef.current?.click(); }}>
             Replace
           </button>
