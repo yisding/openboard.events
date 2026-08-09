@@ -1,4 +1,8 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { events } from "@/db/schema";
 import { initialDemoState } from "@/shared/demo/seed";
+import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 // Public DTO responses are shared-cacheable; private responses must never enter
 // a shared cache and retain CORS headers for the future scoped-key integration.
@@ -23,4 +27,22 @@ export function notFoundResponse() {
 }
 export function resolveEvent(slug: string) {
   return initialDemoState.events.find((item) => item.slug === slug);
+}
+
+/**
+ * The public API answers about a real event unless there is no database at all.
+ * Falling back to the fixture whenever a lookup misses would let the API claim
+ * an event exists that a judge cannot find anywhere else.
+ */
+export async function resolvePublicEvent(slug: string): Promise<{ id: string; slug: string; name: string; timezone: string } | null> {
+  if (isCredentialFreeLocalDemo()) {
+    const demo = resolveEvent(slug);
+    return demo ? { id: demo.id, slug: demo.slug, name: demo.name, timezone: demo.timezone } : null;
+  }
+  const [row] = await db
+    .select({ id: events.id, slug: events.slug, name: events.name, timezone: events.timezone })
+    .from(events)
+    .where(eq(events.slug, slug))
+    .limit(1);
+  return row ?? null;
 }
