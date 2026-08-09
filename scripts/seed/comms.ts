@@ -12,7 +12,6 @@ import {
   submissionIdSchema,
   taskIdSchema,
   tokenIdSchema,
-  type EventId,
 } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 
