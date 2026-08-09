@@ -29,18 +29,60 @@ export function resolveEvent(slug: string) {
   return initialDemoState.events.find((item) => item.slug === slug);
 }
 
+export type PublicEvent = {
+  id: string;
+  slug: string;
+  name: string;
+  websiteUrl: string | null;
+  timezone: string;
+  location: string | null;
+  startsAt: Date | string;
+  endsAt: Date | string;
+};
+
+export function publicEventDto(event: PublicEvent) {
+  return {
+    id: event.id,
+    slug: event.slug,
+    name: event.name,
+    websiteUrl: event.websiteUrl,
+    timezone: event.timezone,
+    location: event.location,
+    startsAt: new Date(event.startsAt).toISOString(),
+    endsAt: new Date(event.endsAt).toISOString(),
+  };
+}
+
 /**
  * The public API answers about a real event unless there is no database at all.
  * Falling back to the fixture whenever a lookup misses would let the API claim
  * an event exists that a judge cannot find anywhere else.
  */
-export async function resolvePublicEvent(slug: string): Promise<{ id: string; slug: string; name: string; timezone: string } | null> {
+export async function resolvePublicEvent(slug: string): Promise<PublicEvent | null> {
   if (isCredentialFreeLocalDemo()) {
     const demo = resolveEvent(slug);
-    return demo ? { id: demo.id, slug: demo.slug, name: demo.name, timezone: demo.timezone } : null;
+    return demo ? {
+      id: demo.id,
+      slug: demo.slug,
+      name: demo.name,
+      websiteUrl: null,
+      timezone: demo.timezone,
+      location: demo.venue || demo.city || null,
+      startsAt: demo.startsAt,
+      endsAt: demo.endsAt,
+    } : null;
   }
   const [row] = await db
-    .select({ id: events.id, slug: events.slug, name: events.name, timezone: events.timezone })
+    .select({
+      id: events.id,
+      slug: events.slug,
+      name: events.name,
+      websiteUrl: events.websiteUrl,
+      timezone: events.timezone,
+      location: events.location,
+      startsAt: events.startsAt,
+      endsAt: events.endsAt,
+    })
     .from(events)
     .where(eq(events.slug, slug))
     .limit(1);

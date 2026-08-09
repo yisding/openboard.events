@@ -27,13 +27,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     const sessions = initialDemoState.sessions
       .filter((item) => item.eventId === event.id && item.status === "published" && item.startsAt)
       .map((session) => ({
-        ...session,
+        id: session.id,
+        title: session.title,
+        descriptionHtml: session.description,
+        startsAt: session.startsAt,
+        endsAt: session.endsAt,
+        track: session.track || null,
+        trackColor: null,
+        room: session.room || null,
+        format: null,
         speakers: session.speakerIds
-          .map((id) => initialDemoState.speakers.find((speaker) => speaker.id === id))
-          .filter((speaker) => speaker !== undefined)
-          .map((speaker) => ({ id: speaker.id, firstName: speaker.firstName, lastName: speaker.lastName, company: speaker.company, title: speaker.title })),
+          .flatMap((id) => {
+            const speaker = initialDemoState.speakers.find((item) => item.id === id);
+            return speaker?.confirmation === "confirmed"
+              ? [{ id: speaker.id, firstName: speaker.firstName, lastName: speaker.lastName, company: speaker.company, title: speaker.title }]
+              : [];
+          }),
       }));
-    return data(sessions, { count: sessions.length });
+    return data(sessions, { count: sessions.length, event: { slug: event.slug, name: event.name, timezone: event.timezone } });
   }
 
   const rows = await db.execute<{
@@ -45,11 +56,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
            v.track_name, v.track_color, v.room_name, v.format_name,
            COALESCE((
              SELECT json_agg(json_build_object(
-               'id', c.id, 'firstName', c.first_name, 'lastName', c.last_name,
-               'company', c.company, 'title', c.job_title
+               'id', p.contact_id, 'firstName', p.first_name, 'lastName', p.last_name,
+               'company', p.company, 'title', p.job_title
              ) ORDER BY ss.sort_order)
              FROM session_speakers ss
-             JOIN contacts c ON c.id = ss.contact_id AND c.event_id = ss.event_id
+             JOIN published_speakers_v p ON p.contact_id = ss.contact_id AND p.event_id = ss.event_id
              WHERE ss.session_id = v.id AND ss.event_id = v.event_id
            ), '[]'::json) AS speakers
     FROM published_sessions_v v
