@@ -15,6 +15,9 @@ const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
 const closedForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000003");
 const speaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000004");
 const missingContact = contactIdSchema.parse("e0000000-0000-4000-8000-000000000005");
+const titleField = "e0000000-0000-4000-8000-000000000006";
+const bioField = "e0000000-0000-4000-8000-000000000007";
+const section = "e0000000-0000-4000-8000-000000000008";
 
 let pglite: PGlite;
 function createTestDb(client: PGlite) {
@@ -80,6 +83,16 @@ describe("createSubmission", () => {
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Test','Speaker')",
       [speaker, eventId],
     );
+    await pglite.query(
+      "INSERT INTO form_sections(id,event_id,form_id,key) VALUES($1,$2,$3,'main')",
+      [section, eventId, openForm],
+    );
+    for (const [id, key] of [[titleField, "title"], [bioField, "bio"]] as const) {
+      await pglite.query(
+        "INSERT INTO form_fields(id,event_id,form_id,section_id,key,label,field_type) VALUES($1,$2,$3,$4,$5,$5,'text')",
+        [id, eventId, openForm, section, key],
+      );
+    }
   }, 60_000);
 
   afterAll(async () => {
@@ -279,5 +292,54 @@ describe("createSubmission", () => {
 
     const rows = await pglite.query<{ form_version: number }>("SELECT form_version FROM submissions WHERE id=$1", [first.submissionId]);
     expect(rows.rows[0]?.form_version).toBe(2);
+  });
+
+  // Answers are written in one multi-row statement inside the event-row lock,
+  // so these cover what batching changed rather than what it kept.
+  describe("answer writing", () => {
+    async function answersFor(submissionId: string) {
+      const rows = await pglite.query<{ field_id: string; participant_id: string | null; value: unknown }>(
+        "SELECT field_id, participant_id, value FROM submission_answers WHERE submission_id=$1 ORDER BY field_id",
+        [submissionId],
+      );
+      return rows.rows;
+    }
+
+    it("writes every answer, participant-scoped ones included", async () => {
+      await pglite.query("DELETE FROM submissions");
+      const result = await createSubmission(eventId, cfpInput({
+        answers: cleanAnswersSchema.parse([
+          { fieldId: titleField, participantId: null, value: { t: "s", v: "Batched" } },
+          { fieldId: bioField, participantId: null, value: { t: "s", v: "A bio" } },
+          // Same field, once for the submission and once for the speaker:
+          // distinct rows, and why the conflict target includes participant_id.
+          { fieldId: bioField, participantId: speaker, value: { t: "s", v: "Their bio" } },
+        ]),
+      }));
+
+      const rows = await answersFor(result.submissionId);
+      expect(rows).toHaveLength(3);
+      expect(rows.filter((row) => row.participant_id !== null)).toHaveLength(1);
+    });
+
+    it("cannot be handed the duplicate a single INSERT could not apply twice", () => {
+      // The batched write has no duplicate handling because it cannot receive
+      // one: UNIQUE NULLS NOT DISTINCT makes these two collide, and the branded
+      // contract refuses the pair long before the database would.
+      expect(cleanAnswersSchema.safeParse([
+        { fieldId: titleField, participantId: null, value: { t: "s", v: "First" } },
+        { fieldId: titleField, participantId: null, value: { t: "s", v: "Second" } },
+      ]).success).toBe(false);
+    });
+
+    it("rejects an answer pinned to a participant who is not on the submission", async () => {
+      await pglite.query("DELETE FROM submissions");
+      const error = await createSubmission(eventId, cfpInput({
+        answers: cleanAnswersSchema.parse([
+          { fieldId: titleField, participantId: missingContact, value: { t: "s", v: "Nobody" } },
+        ]),
+      })).catch((thrown: unknown) => thrown);
+      expect(isAppError(error) && error.code).toBe("VALIDATION");
+    });
   });
 });
