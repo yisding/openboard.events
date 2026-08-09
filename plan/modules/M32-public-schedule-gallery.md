@@ -1,7 +1,7 @@
 # M32 — Public schedule + speaker gallery
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged fixture-backed **STACK-DEMO** public schedule/gallery pages lack published-view queries, event isolation, R2, caching/revalidation, leakage tests, and deployed AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — claimed by Codex for the PR #26 review recovery: keep the cached public schedule server-rendered by moving the URL-search read into the route and passing an initial filter into the client view. The merged fixture-backed **STACK-DEMO** public schedule/gallery pages still lack published-view queries, event isolation, R2, leakage tests, and deployed AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | **Sat PM (contract-first shell) → Sunday (real published-view queries, mobile, caching).** This is a Size-L module and a MUST with **no fallback** (§9 has no cut line for it), so it does not get a single half-day: Step 1 — the public shell, the fixture DTOs and both `/e/[slug]/{schedule,speakers}` routes returning 200 — depends on nothing but M03 and a fixture event, and shipping it Saturday also unblocks ./M33-embed-shells.md and WS-F's M40 against a stable shape a full day earlier. Do not let it queue behind ./M30-day-grid-dnd.md; its only hard deps (M03, M28, M07) are all done by Saturday night. |
 | **Size** | L |
