@@ -110,24 +110,24 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   fallback: boolean;
 }): Promise<PortalLoginRequestResult> {
   const email = args.email.trim().toLowerCase();
-  const [existing] = await tx.select({ id: contacts.id }).from(contacts)
+  const contactId = await getOrCreateContact(tx, args.eventId, email);
+  const [lockedContact] = await tx.select({ id: contacts.id }).from(contacts)
     .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, email)))
-    .limit(1);
-  if (existing) {
-    const since = new Date(Date.now() - 10 * 60 * 1_000);
-    const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
-      eq(portalTokens.eventId, args.eventId),
-      eq(portalTokens.contactId, existing.id),
-      eq(portalTokens.purpose, "magic_link"),
-      isNotNull(portalTokens.otpHash),
-      gt(portalTokens.createdAt, since),
-    ));
-    if ((recent?.n ?? 0) >= 3) {
-      throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
-    }
+    .limit(1)
+    .for("update");
+  if (!lockedContact) throw new AppError("INTERNAL", "Portal contact lock was not acquired");
+  const since = new Date(Date.now() - 10 * 60 * 1_000);
+  const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
+    eq(portalTokens.eventId, args.eventId),
+    eq(portalTokens.contactId, contactId),
+    eq(portalTokens.purpose, "magic_link"),
+    isNotNull(portalTokens.otpHash),
+    gt(portalTokens.createdAt, since),
+  ));
+  if ((recent?.n ?? 0) >= 3) {
+    throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
   }
 
-  const contactId = await getOrCreateContact(tx, args.eventId, email);
   await tx.update(portalTokens).set({ consumedAt: new Date() }).where(and(
     eq(portalTokens.eventId, args.eventId),
     eq(portalTokens.contactId, contactId),

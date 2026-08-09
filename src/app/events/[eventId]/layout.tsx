@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AdminShell } from "@/features/shell/admin-shell";
 import { requireAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import type { EventId } from "@/shared/contracts";
+import { eventIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 export default async function EventLayout({ children, params }: { children: React.ReactNode; params: Promise<{ eventId: string }> }) {
-  const { eventId } = await params;
+  const parsedEventId = eventIdSchema.safeParse((await params).eventId);
+  if (!parsedEventId.success) notFound();
+  const eventId = parsedEventId.data;
   try {
-    await requireAdmin(eventId as EventId);
+    await requireAdmin(eventId);
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {

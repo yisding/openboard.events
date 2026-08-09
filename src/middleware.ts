@@ -11,7 +11,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(login);
   }
   const portalMatch = /^\/portal\/([^/]+)(?:\/|$)/u.exec(pathname);
-  const isPortalAuthPage = pathname.endsWith("/login") || pathname.endsWith("/verify");
+  const portalBase = portalMatch ? `/portal/${portalMatch[1]}` : null;
+  const isPortalAuthPage = portalBase !== null && (pathname === `${portalBase}/login` || pathname === `${portalBase}/verify`);
   const hasPortalCookie = request.cookies.getAll().some((cookie) => cookie.name.startsWith(PORTAL_COOKIE_PREFIX));
   if (portalMatch && !isPortalAuthPage && !hasPortalCookie) {
     const login = new URL(`/portal/${portalMatch[1]}/login`, request.url);

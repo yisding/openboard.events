@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AppError } from "@/shared/lib/errors";
 import { eventIdSchema } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "./handler";
 
 const publicGuard = async () => null;

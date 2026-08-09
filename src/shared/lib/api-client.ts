@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiErrorSchema } from "@/shared/contracts";
+import { apiDataSchema, apiErrorSchema } from "@/shared/contracts";
 import { AppError } from "./errors";
 
 export async function api<T>(path: string, output: z.ZodType<T>, init: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -13,5 +13,5 @@ export async function api<T>(path: string, output: z.ZodType<T>, init: { method?
     if (parsed.success) throw new AppError(parsed.data.error.code, parsed.data.error.message, parsed.data.error.data);
     throw new AppError("INTERNAL", `Unexpected API response (${response.status})`);
   }
-  return output.parse(payload);
+  return apiDataSchema(output).parse(payload).data;
 }
