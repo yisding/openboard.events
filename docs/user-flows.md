@@ -41,11 +41,12 @@ submissions is a single uninterrupted pass.
 what email will go out → Notify → see confirmation that exactly one email per speaker was sent
 and logged.
 
-**Current state:** **server done, UI missing** *(updated after PR #57)*. Bulk `transitionStatus`
+**Current state:** **landing in real time.** #57 merged the server half (bulk `transitionStatus`
 with expected-from guards, `notifyQueues` with `notified_at` idempotency and `notify_revision`
-re-notify, auto-confirm, submitter-only recipient, and a `waitUntil` outbox drain are all merged
-behind organizer-auth routes. But there is **zero UI**: no drawer, no row action, no bulk
-Accept, no Notify button. The flow is missing its UI end, not end-to-end.
+re-notify, auto-confirm, submitter-only recipient, `waitUntil` outbox drain), and #61 merged the
+**decision bar** — bulk queue/decide actions and a working Notify button on the abstracts table.
+Remaining: the pre-send email preview, "notified ✓" state on rows, the detail drawer to decide
+from (O1), and a deployed accept→notify→email round-trip.
 
 **Friction to fix:** build it drawer-first (decide where you read), with bulk actions from the
 table; make the notify step show the rendered email before sending; surface "notified ✓" state
@@ -274,9 +275,9 @@ has a shareable URL, and add-to-calendar works from the page in one tap. What re
 
 ## Priority read
 
-Ordered by (frequency × current breakage): **O1 + O2 together** — after PR #57 they are the
-same work: the drawer and bulk actions *are* the missing UI for the merged decide/notify
-routes → **S2 portal runtimes + upload** (retention,
+Ordered by (frequency × current breakage): **O1's drawer** — with #57's server half and #61's
+decision bar merged, the detail drawer is the last missing piece of the triage-and-decide
+loop → **S2 portal runtimes + upload** (retention,
 half-built) → **P1 public pages on real data** (highest volume, wrong data source) → **R1
 reviewer conveyor** (window-critical, absent) → **O4 event/form creation** (first-run, blocks
 new customers) → **O3 chase loop doors** → **O5 scheduling** → **O6 comms visibility** →

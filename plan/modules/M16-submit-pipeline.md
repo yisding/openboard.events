@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **the pipeline and both routes are merged** (#35, #36): `runSubmitPipeline`, `deriveMappedFields`, `isStructurallyCompatible`, `POST /api/internal/forms/[formId]/submit` and `/draft`, with seven PGlite cases running the whole path. **The deployed proof landed at status rev. 7** (a real submission posted through the deployed route into Neon with routing applied), with M15's real wizard calling these routes. Remaining: AC sign-off. |
+| **Status** | IN PROGRESS — claimed by Codex for PR #35 review recovery: validate untrusted answers against their authored field types (including email/URL shape) and treat `mapsTo` drift as structurally incompatible. **The pipeline and both routes are merged** (#35, #36): `runSubmitPipeline`, `deriveMappedFields`, `isStructurallyCompatible`, `POST /api/internal/forms/[formId]/submit` and `/draft`, with the public wizard calling the server path — and **a deployed submit was proven at status rev. 7** (a real submission through the deployed route into Neon with routing applied). Remaining: the review-recovery hardening and AC sign-off. |
 | **Workstream / executing agent** | WS-B · **agent B2 (public runtime)**. Matches the catalog (PLAN §4 WS-B; §6 "B2: M13a → M15 skeleton + M16 pipeline (Sat) → M16 complete + M15 end-to-end (Sun)"). B1 never edits these files; this module never edits `components/builder/**` or `server/builder-*`. |
 | **Scheduled** | **Sat PM** — the pure pipeline + the submit route against WS-C's Phase-0 `createSubmission` stub (this is half of the **Sat-night thin-slice integration**). **Sun AM** — complete: version pinning, `FORM_VERSION_STALE`, draft promotion, routing stamp. |
 | **Size** | M (≈half day) |

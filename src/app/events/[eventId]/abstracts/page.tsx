@@ -44,18 +44,24 @@ export default async function Page({
 
   // Rows and counts come from the same filters, which is what keeps the tab
   // numbers honest about the table under them.
-  const [list, counts] = await Promise.all([
+  const [list, counts, unfiltered] = await Promise.all([
     listSubmissions(eventId, filters),
     getStatusCounts(eventId, { search: filters.search, trackId: filters.trackId, tagId: filters.tagId, pageSize: filters.pageSize, sort: filters.sort }),
+    // Notify finalizes both queues for the whole event, so the number on its
+    // button has to be the whole event's — a search must not make it look like
+    // fewer speakers are about to be emailed than actually are.
+    getStatusCounts(eventId, { search: "", trackId: null, tagId: null, pageSize: filters.pageSize, sort: filters.sort }),
   ]);
 
   return (
     <AbstractsView
+      eventId={eventId}
       rows={list.rows}
       counts={counts}
       status={filters.status}
       search={filters.search}
       total={counts.all}
+      queued={unfiltered.accept_queue + unfiltered.decline_queue}
       timezone={event?.timezone ?? "America/Los_Angeles"}
     />
   );

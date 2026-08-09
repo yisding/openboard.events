@@ -1,3 +1,4 @@
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { forms, formFields, formSections, formVersions, routingRules } from "@/db/schema";
 import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import type { FormAuthoringRows } from "@/shared/contracts";
@@ -32,6 +33,7 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
       { ...base, id: field("description"), sectionId: abstract, key: "description", label: "Description", fieldType: "richtext", required: true, maxChars: 5000, mapsTo: "submission.description_html", sortOrder: 1 },
       {
         ...base, id: field("track"), sectionId: abstract, key: "track", label: "Track", fieldType: "dropdown", required: true, sortOrder: 2,
+        mapsTo: "submission.track_id",
         options: [
           { id: "agents", label: "AI Agents", trackId: ctx.id("track", "agents") as never },
           { id: "platforms", label: "Platforms", trackId: ctx.id("track", "platforms") as never },
@@ -41,6 +43,7 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
       },
       {
         ...base, id: field("format"), sectionId: abstract, key: "format", label: "Format", fieldType: "dropdown", required: true, sortOrder: 3,
+        mapsTo: "submission.format_id",
         options: [
           { id: "talk", label: "Talk", formatId: ctx.id("format", "talk") as never },
           { id: "workshop", label: "Workshop", formatId: ctx.id("format", "workshop") as never },
@@ -96,24 +99,76 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
       welcomeHtml: "<p>We are looking for practical talks from people who have shipped something.</p>",
     }).onConflictDoUpdate({
       target: forms.id,
-      set: { externalTitle: config.title, closesAt: config.closesAt, submissionLimit: config.limit, currentVersion: 1, updatedAt: new Date() },
+      set: {
+        context: "cfp",
+        internalName: config.title,
+        externalTitle: config.title,
+        status: "open",
+        closesAt: config.closesAt,
+        submissionLimit: config.limit,
+        currentVersion: 1,
+        showWelcome: true,
+        welcomeHtml: "<p>We are looking for practical talks from people who have shipped something.</p>",
+        updatedAt: new Date(),
+      },
     });
 
     for (const section of rows.sections) {
       await tx.insert(formSections).values({
         id: section.id, eventId, formId: rows.form.id, key: section.key, title: section.title,
         pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml, sortOrder: section.sortOrder,
-      }).onConflictDoUpdate({ target: formSections.id, set: { title: section.title, updatedAt: new Date() } });
+      }).onConflictDoUpdate({
+        target: formSections.id,
+        set: {
+          key: section.key,
+          title: section.title,
+          pageHeading: section.pageHeading,
+          descriptionHtml: section.descriptionHtml,
+          sortOrder: section.sortOrder,
+          updatedAt: new Date(),
+        },
+      });
     }
     for (const authored of rows.fields) {
+      // An organizer can replace a soft-deleted seeded field with a new row that
+      // reuses its key. Restore the deterministic row without violating the
+      // partial unique index, while preserving the replacement as soft-deleted
+      // history instead of destroying it.
+      if (!authored.deletedAt) {
+        const reconciledAt = new Date();
+        await tx.update(formFields)
+          .set({ deletedAt: reconciledAt, updatedAt: reconciledAt })
+          .where(and(
+            eq(formFields.formId, rows.form.id),
+            eq(formFields.key, authored.key),
+            isNull(formFields.deletedAt),
+            ne(formFields.id, authored.id),
+          ));
+      }
       await tx.insert(formFields).values({
         id: authored.id, eventId, formId: rows.form.id, sectionId: authored.sectionId, key: authored.key,
         label: authored.label, fieldType: authored.fieldType, required: authored.required, locked: authored.locked,
         maxChars: authored.maxChars, helpText: authored.helpText, options: authored.options,
         visibility: authored.visibility, mapsTo: authored.mapsTo, sortOrder: authored.sortOrder,
+        deletedAt: authored.deletedAt ? new Date(authored.deletedAt) : null,
       }).onConflictDoUpdate({
         target: formFields.id,
-        set: { label: authored.label, options: authored.options, visibility: authored.visibility, updatedAt: new Date() },
+        set: {
+          sectionId: authored.sectionId,
+          key: authored.key,
+          label: authored.label,
+          fieldType: authored.fieldType,
+          required: authored.required,
+          locked: authored.locked,
+          maxChars: authored.maxChars,
+          helpText: authored.helpText,
+          options: authored.options,
+          visibility: authored.visibility,
+          mapsTo: authored.mapsTo,
+          sortOrder: authored.sortOrder,
+          deletedAt: authored.deletedAt ? new Date(authored.deletedAt) : null,
+          updatedAt: new Date(),
+        },
       });
     }
 
@@ -139,7 +194,18 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
     setTrackId: ctx.id("track", "agents"),
     addTagIds: [ctx.id("tag", "tooling")],
     enabled: true,
-  }).onConflictDoUpdate({ target: routingRules.id, set: { enabled: true, updatedAt: new Date() } });
+  }).onConflictDoUpdate({
+    target: routingRules.id,
+    set: {
+      sortOrder: 0,
+      match: "all",
+      conditions: [{ sourceFieldId: formatField?.id, op: "eq", value: "workshop" }],
+      setTrackId: ctx.id("track", "agents"),
+      addTagIds: [ctx.id("tag", "tooling")],
+      enabled: true,
+      updatedAt: new Date(),
+    },
+  });
 
   ctx.log("seeded 2 forms (one open, one closed), 1 routing rule, snapshots compiled");
   // The admin forms list is not yet database-backed, so this line is the

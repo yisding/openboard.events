@@ -1,5 +1,7 @@
+import { z } from "zod";
 import {
   LIMITS,
+  answerValueSchema,
   cleanAnswersSchema,
   plainTextLength,
   type AnswerValue,
@@ -22,7 +24,7 @@ import { sanitize } from "@/shared/lib/sanitize";
  * alternative traps someone behind a validation error for a question the form
  * stopped asking them.
  */
-export type RawAnswers = Readonly<Record<string, AnswerValue | undefined>>;
+export type RawAnswers = Readonly<Record<string, unknown>>;
 
 export type PipelineResult =
   | { ok: true; clean: CleanAnswers; discarded: string[] }
@@ -35,6 +37,7 @@ function allFields(snapshot: FormSnapshot): FormField[] {
 function isEmpty(field: FormField, value: AnswerValue | undefined): boolean {
   if (value === undefined) return true;
   if (value.t === "s") return field.type === "richtext" ? plainTextLength(value.v) === 0 : value.v.trim().length === 0;
+  if (value.t === "opt") return value.v === "";
   if (value.t === "opts") return value.v.length === 0;
   return false;
 }
@@ -55,6 +58,30 @@ function invalidOption(field: FormField, value: AnswerValue): string | null {
   return null;
 }
 
+function invalidForField(field: FormField, value: AnswerValue): string | null {
+  const expected = (() => {
+    switch (field.type) {
+      case "text":
+      case "textarea":
+      case "richtext":
+      case "email":
+      case "phone":
+      case "url": return "s";
+      case "dropdown":
+      case "radio": return "opt";
+      case "multiselect":
+      case "checkbox": return "opts";
+      case "number": return "n";
+      case "date": return "d";
+      case "file": return "file";
+    }
+  })();
+  if (value.t !== expected) return "Use the expected answer type";
+  if (field.type === "email" && value.t === "s" && !z.email().safeParse(value.v).success) return "Enter a valid email address";
+  if (field.type === "url" && value.t === "s" && !z.url().safeParse(value.v).success) return "Enter a valid URL";
+  return invalidOption(field, value);
+}
+
 export function runSubmitPipeline(
   snapshot: FormSnapshot,
   raw: RawAnswers,
@@ -65,23 +92,43 @@ export function runSubmitPipeline(
   // 1-3. Parse what the snapshot knows about, decide visibility from those same
   // answers, and drop everything hidden or unknown. A stale answer from a
   // branch the speaker backed out of never reaches the database.
+  const fields = new Map(allFields(snapshot).map((field) => [field.id as string, field]));
   const parsed: Record<string, AnswerValue> = {};
-  const fieldErrors: Record<string, string> = {};
+  const parseErrors: Record<string, string> = {};
+  const unknown: string[] = [];
   for (const [fieldId, value] of Object.entries(raw)) {
-    if (value !== undefined) parsed[fieldId] = value;
+    const field = fields.get(fieldId);
+    if (!field) {
+      unknown.push(fieldId);
+      continue;
+    }
+    if (value === undefined) continue;
+    const answer = answerValueSchema.safeParse(value);
+    if (!answer.success) {
+      parseErrors[fieldId] = "Use the expected answer type";
+      continue;
+    }
+    parsed[fieldId] = answer.data;
   }
   const visible = evaluateVisibility(snapshot, parsed as Answers);
-  const { clean, discarded } = stripHiddenAnswers(snapshot, parsed as Answers, visible);
+  const { clean, discarded: hidden } = stripHiddenAnswers(snapshot, parsed as Answers, visible);
+  const discarded = [...unknown, ...hidden, ...Object.keys(parseErrors).filter((fieldId) => !visible.has(fieldId as FormField["id"]))];
 
   // 4. Validate only what survived.
+  const fieldErrors: Record<string, string> = {};
   for (const field of allFields(snapshot)) {
     if (!visible.has(field.id)) continue;
+    const parseMessage = parseErrors[field.id];
+    if (parseMessage) {
+      fieldErrors[field.id] = parseMessage;
+      continue;
+    }
     const value = clean[field.id];
     if (isEmpty(field, value)) {
       if (opts.requireRequired && field.required) fieldErrors[field.id] = `${field.label} is required`;
       continue;
     }
-    const message = tooLong(field, value as AnswerValue) ?? invalidOption(field, value as AnswerValue);
+    const message = invalidForField(field, value as AnswerValue) ?? tooLong(field, value as AnswerValue);
     if (message) fieldErrors[field.id] = message;
   }
   if (Object.keys(fieldErrors).length > 0) return { ok: false, code: "VALIDATION", fieldErrors };

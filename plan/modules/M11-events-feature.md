@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — settings/forms UI exists in the PR #2/#5 **STACK-DEMO**; event CRUD, vocabulary persistence, auth, default-template integration, and server AC remain a **SERVER-GAP**. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — claimed by Codex for the PR #41 seed follow-up: refresh the relative start/end dates for the deterministic empty event on non-wipe reruns. Settings/forms UI exists in the PR #2/#5 **STACK-DEMO**; event CRUD, vocabulary persistence, auth, default-template integration, and server AC remain a **SERVER-GAP**. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14") — no executor deviation. B2 never edits any file in this module. |
 | **Scheduled** | **Sat AM** (server half, against M03 schema alone — dashed edges on M05a/M06a/M07) → **Sat PM** (UI half). On the Sat-night demo bar: "create/edit an event with branding". |
 | **Size** | L (≈1 day) |

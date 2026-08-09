@@ -52,6 +52,8 @@ export type DataTableProps<Row> = {
   pageSize?: number;
   /** Stable row identity; defaults to `row.id` when present. */
   getRowId?: (row: Row, index: number) => string;
+  /** Change this to clear the selection — the table owns that state, not the caller. */
+  selectionEpoch?: number;
 };
 
 /**
@@ -108,6 +110,7 @@ export function DataTable<Row>({
   onRowClick,
   pageSize = 25,
   getRowId,
+  selectionEpoch,
 }: DataTableProps<Row>) {
   const [sorting, setSorting] = useState<Array<{ id: string; desc: boolean }>>([]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
@@ -157,6 +160,10 @@ export function DataTable<Row>({
     getPaginationRowModel: getPaginationRowModel(),
     getRowId: getRowId ?? defaultRowId,
   });
+
+  useEffect(() => {
+    if (selectionEpoch !== undefined) setRowSelection({});
+  }, [selectionEpoch]);
 
   const pageCount = table.getPageCount();
   // A row leaving the filter must not strand the pager on a page that no longer

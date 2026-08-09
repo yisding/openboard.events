@@ -82,7 +82,7 @@ intervening 28 PRs (~8,600 lines across 119 files) landed, so module claims can 
 | #26, #44 | M32/M01 | Public-cache-header fixes — **proven deployed at rev. 7** (`s-maxage`, `x-nextjs-cache: HIT`) |
 | #27, #28 | M05b | Rich UI primitives and the rich-text editor |
 | #29–#31, #33 | M21 | Portal server queries/guards, submissions view, portal home — server-backed |
-| #32, #41, #46 | M09 | Seed bodies for portal, events, and forms. **4 of 8 bodies are real** (events, forms, comms, portal); contacts, submissions, agenda, evaluation remain 13-line stubs |
+| #32, #41, #46 | M09 | Seed bodies for portal, events, and forms (contacts followed in #65, below — **5 of 8 real**); submissions, agenda, evaluation remain 13-line stubs |
 | #34, #57 | M18 | #34: `createSubmission`, `upsertDraft`, `nextSubmissionCode`. **#57: `transitionStatus` + `notifyQueues` with the transition/notify routes and 11 PGlite cases** (double-notify idempotency, undo→re-notify, auto-confirm, submitter-only recipient, `waitUntil` outbox drain). Remaining: `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, the withdraw route — and any UI consumer |
 | #35 | M16 | The real server submit pipeline: transactional, snapshot-pinned, `FORM_VERSION_STALE`, routing, SESS codes — **proven deployed at rev. 7** |
 | #36, #39 | M12 | Snapshot accessors and the public-form server layer (forms remain unauthorable from the UI — the builder still writes only to the demo store) |
@@ -94,6 +94,14 @@ intervening 28 PRs (~8,600 lines across 119 files) landed, so module claims can 
 | #50 | M34/M01 | Preview flipped to `EMAIL_MODE=send` behind a one-address allowlist — and rev. 7 then **demonstrated delivery** through it |
 | #53–#56 | fixes/plan | `EMAIL_FROM`/env-error follow-ups (#53/#54), the rev. 7 ledger rebaseline (#55), and the product-readiness/roadmap/auth-decision docs (#56) |
 | #57 | M18 | See the M18 row above — the decision/notify server half |
+| #61 | M17 | **The decision bar**: bulk queue/decide actions and a working **Notify** button on the abstracts table calling #57's routes, plus a submission-detail API route. The detail drawer itself is still open |
+| #62, #64, #66 | fixes | Submit-pipeline review follow-ups and seed hardening (reused field keys, empty event dates) |
+| #65 | M09 | **The contacts seed** (92 lines) with real uploaded headshots — **5 of 8 seed bodies are now real**; submissions, agenda, evaluation remain stubs. This also unblocks the browser R2 probe and clears the last smoke skip |
+
+**Treadmill warning:** lanes are merging PRs faster than any ledger revision can chase (four
+module-relevant merges landed while rev. 8 was being written). Before citing a "missing" claim
+from this document, verify it against `main` — and prefer citing the module work-order headers,
+which lane owners update at claim time.
 
 Bookkeeping note: `e2e/helpers/landed.ts` has **all 17 modules at `landed: false`**, and — a
 rev. 8 correction to the earlier framing — that is currently *right*, not stale bookkeeping:
@@ -189,7 +197,8 @@ in. What remains of R1 is bookkeeping rather than blocking work:
 2. A green `Deploy` workflow run — every run so far has been `skipped`, so deployment
    is still a laptop operation rather than a pipeline one.
 3. ~~The CP1 freeze declaration in `DECISIONS.md`.~~ **Done at rev. 8** — declared in effect.
-4. A browser R2 upload against the preview, which needs `contacts.ts` to seed a headshot.
+4. A browser R2 upload against the preview — unblocked at #65 (the contacts seed uploads real
+   headshots); the probe just needs running.
 
 **Exit:** the four items above.
 
@@ -227,12 +236,14 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-The next actions are the judged loop's remaining halves, in this order (**M18's Sunday half
-landed in #57** — `transitionStatus` and `notifyQueues` are merged with their routes, so the
-queue advances): **M17's drawer and bulk actions first**, so an organizer can actually call the
-merged decide/notify routes from the table; **`contacts.ts`** so speakers and headshots exist, which
-also clears the last smoke skip and enables the browser R2 probe; then **M12's builder UI**, the last
-place a judge is asked to create something rather than read it.
+The next actions are the judged loop's remaining halves, in this order (**#57 landed the
+decide/notify server half, #61 its decision bar + Notify UI, and #65 the contacts seed**, so
+the queue advances again): **M17's detail drawer** (the last missing piece of the triage loop —
+bulk actions exist, reading a submission does not); **a deployed accept→notify→email
+round-trip** to turn CP2's spine green; **the submissions seed body**, so a fresh database has
+abstracts to triage (the contacts seed in #65 already cleared the headshot smoke skip and
+unblocked the browser R2 probe); then **M12's builder UI**, the last place a judge is asked to
+create something rather than read it.
 
 ## 7. Environment and configuration truth
 

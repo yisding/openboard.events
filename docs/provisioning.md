@@ -162,6 +162,7 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   pnpm exec wrangler secret put CRON_SECRET --env preview
   pnpm exec wrangler secret put R2_ACCESS_KEY_ID --env preview
   pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --env preview
+  pnpm exec wrangler secret put RESEND_API_KEY --env preview
   ```
 
 - [x] Redeploy the preview web Worker after its secrets exist:

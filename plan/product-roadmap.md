@@ -19,11 +19,10 @@ debt serves both bars at once.
 The server layer largely exists and is tested; most remaining work is wiring surfaces to it, in
 dependency order:
 
-1. **Decision loop UI first**: M17's drawer and bulk actions onto the merged `transitionStatus`
-   / `notifyQueues` routes (#57 landed the server half) — the core organizer action, now one UI
-   away.
-2. The four stub seed bodies (contacts, submissions, agenda, evaluation) so a fresh database is
-   demonstrably non-empty.
+1. **Finish the decision loop**: #57 landed the server half and #61 the decision bar; what
+   remains is M17's detail drawer and a deployed accept→notify→email round-trip.
+2. The three stub seed bodies (submissions, agenda, evaluation — contacts landed in #65) so a
+   fresh database is demonstrably non-empty.
 3. Form-builder DB writes and event creation (M11/M12 completion) — today forms exist only via
    seed and the "New event" button is disabled.
 4. Agenda/sessions server (M28 + `moveSession`), portal task runtime (M25) and profile writes,

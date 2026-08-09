@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN REVIEW — all six primitives, the rich kitchen sink and the client-bundle gate are merged (#27, #28). Remaining for `DONE`: `<FileUpload>`'s AC needs a **browser** upload against the deployed preview, which is also M07's outstanding CORS proof. |
+| **Status** | IN PROGRESS — claimed by Codex for PR #27/#28 review recovery: convert presign/finalize network failures into `<FileUpload>`'s retryable error state and make the configured rich-text placeholder render. All six primitives, the rich kitchen sink and the client-bundle gate are otherwise merged (#27, #28). Remaining for `DONE`: `<FileUpload>`'s AC needs a **browser** upload against the deployed preview, which is also M07's outstanding CORS proof. |
 | **Workstream / executing agent** | **WS-D agent (Speaker Portal)** — its first consumer. Catalogued under WS-A but executed on WS-D as a declared temporary cross-folder ownership grant on `src/shared/ui/app` (rich half) |
 | **Scheduled** | **Sat AM: Step 1 contract-first slice (the six prop types) pushed the hour [M05a](./M05a-admin-shell-ui.md) lands** — it is what unblocks [M12](./M12-form-builder-core.md) (B1), [M22](./M22-speaker-profile.md), [M23](./M23-tasks-admin.md), [M26](./M26-resource-pages.md) (WS-C) and [M37](./M37-comms-admin-ui.md) (WS-F), the widest UI blocker in the build. **Sat PM: internals**, with `<FileUpload>` wired once [M07](./M07-r2-storage.md)'s presign is live. Does **not** gate CP1 |
 | **Size** | M |

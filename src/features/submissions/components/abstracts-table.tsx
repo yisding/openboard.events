@@ -33,6 +33,9 @@ export function AbstractsTable({
   timezone,
   total,
   onFilter,
+  onSelectionChange,
+  onRowClick,
+  selectionEpoch,
 }: {
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
@@ -41,6 +44,9 @@ export function AbstractsTable({
   timezone: string;
   total: number;
   onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
+  onSelectionChange?: (rows: SubmissionListRow[]) => void;
+  onRowClick?: (row: SubmissionListRow) => void;
+  selectionEpoch?: number;
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
 
@@ -121,8 +127,12 @@ export function AbstractsTable({
       <DataTable
         columns={columns}
         data={rows}
+        enableSelection
+        {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
         columnVisibilityKey="abstracts"
         getRowId={(row) => row.submissionId}
+        {...(onSelectionChange ? { onSelectionChange } : {})}
+        {...(onRowClick ? { onRowClick } : {})}
         toolbar={
           <form
             className="table-search"

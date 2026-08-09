@@ -19,16 +19,16 @@ The dependency graph and original wave table below remain valid choreography, bu
 deployed from current `main`. CP0 is **green except the browser R2 probe and the deployed
 auth-throttle proof**; the **Saturday thin slice is GREEN** on the deployed server path,
 including a delivered Gmail confirmation from the verified sending domain (status §2a). **R1 is
-essentially exited** (four bookkeeping items: `sb-prod`, a green `Deploy` run, the freeze
-declaration, the browser R2 probe) and **R2 is the active gate**. Still no module is `DONE`
-under the evidence rules.
+essentially exited** (three bookkeeping items: `sb-prod` + production secrets, a green `Deploy`
+run, the browser R2 probe — the CP1 freeze declaration is recorded in `DECISIONS.md`) and
+**R2 is the active gate**. Still no module is `DONE` under the evidence rules.
 
 Run this recovery queue before resuming the original wave placements:
 
 | Gate | Parallel work allowed | Exit condition |
 |---|---|---|
 | **R0 Stack safety** — **exited** | Planning/configuration reconciliation; canonical environments; CI/deploy, migration runner, fail-closed authorization, and review hardening | Stack truth is current; clean-install CI green; configuration PR ready; no current P1 hidden in a draft |
-| **R1 Deployed foundation** — **essentially exited** (see status §5 for the four remaining bookkeeping items) | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
+| **R1 Deployed foundation** — **essentially exited** (see status §5 for the three remaining bookkeeping items) | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
 | **R2 Server spine** — **active** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
 | **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |
 | **R4 Release proof** | Complete M10 after its R1 skeleton and perform P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
