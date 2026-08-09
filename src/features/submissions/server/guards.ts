@@ -1,6 +1,11 @@
 import { SUBMISSION_TRANSITIONS, canTransition, type SubmissionStatus } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 
+/** Every rendering of a submission code, everywhere. */
+export function formatCode(code: number): string {
+  return `SESS-${code}`;
+}
+
 /**
  * The seven-state lifecycle, enforced in one place. The transition table is
  * frozen in contracts and the database trigger enforces the same edges, so a

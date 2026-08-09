@@ -3,7 +3,7 @@
 import { Inbox } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { formatCode } from "@/features/submissions";
+import { formatCode } from "@/features/submissions/index.client";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
