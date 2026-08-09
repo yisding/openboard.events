@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN REVIEW (step 1 only) — **the CP1 six-spec skeleton is on PR #19** by the agent that holds M07, which is `IN REVIEW`; it is R1 step 6 and depends on nothing merged. Steps 2–12 remain unclaimed. **MERGED-PARTIAL** release docs, validation CI, smoke, and license scaffolding exist, and the smoke script passed against the deployed preview. Absent: the load test, production deployment, spend proof, and the release AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — reclaimed by Codex for the PR #70/#75 operational review follow-ups: defer retryable smoke failures until retries are exhausted, correct the load-test serialization/Hyperdrive conclusions, and synchronize release trackers. **MERGED-PARTIAL** release docs, validation CI, smoke, license scaffolding, and the 50-concurrent preview load test exist (50/50 `200`, p95 27703 ms). Remaining after this recovery: real Playwright step bodies, production deployment, spend proof, and the release AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect, in the integrator role after Saturday) |
 | **Scheduled** | Skeleton at CP1 (plan-Sat) → **golden-path spec green + 50-concurrent load test at CP2 (plan-Sun night)** → all 6 specs green at CP4 (Wed Aug 12, 2 PM PT) → repo public + submission that evening |
 | **Size** | M |
