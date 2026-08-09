@@ -84,6 +84,52 @@ describe("portal seed", () => {
     expect(counts.rows[0]).toEqual({ tasks: 3, requests: 1, pages: 2 });
   });
 
+  it("skips rather than crashing when the event has not been seeded yet", async () => {
+    // events.ts is still a no-op in the orchestrator, so a fresh run reaches this
+    // module with no event row. Failing a foreign key here would take the whole
+    // seed down for a module that has not run.
+    const empty = new PGlite();
+    await empty.exec(migration0);
+    await empty.exec(migration1);
+    const messages: string[] = [];
+    await seedPortal({
+      ...ctx,
+      tx: drizzle(empty, { schema }) as unknown as TxDb,
+      log: (message: string) => messages.push(message),
+    });
+    expect(messages[0]).toContain("the event does not exist yet");
+    await empty.close();
+  }, 60_000);
+
+  it("promotes the travel task to a form task once a portal form exists", async () => {
+    const formId = "d0000000-0000-4000-8000-000000000001";
+    // A portal form must declare who it targets — the schema enforces it.
+    await pglite.query(
+      "INSERT INTO forms(id,event_id,context,internal_name,target_type) VALUES($1,$2,'portal','Travel details','contact')",
+      [formId, SEEDED_EVENT_ID],
+    );
+    await seedPortal(ctx);
+    const rows = await pglite.query<{ completion_mode: string; form_id: string | null }>(
+      "SELECT completion_mode, form_id FROM portal_tasks WHERE id = $1",
+      [seedId("task", "travel-form")],
+    );
+    expect(rows.rows[0]?.completion_mode).toBe("form");
+    expect(rows.rows[0]?.form_id).toBe(formId);
+  });
+
+  it("records a completion once contacts exist, and none before", async () => {
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM task_completions")).rows[0]?.count).toBe(0);
+    const contactId = "d0000000-0000-4000-8000-000000000002";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Test','Speaker')",
+      [contactId, SEEDED_EVENT_ID],
+    );
+    await seedPortal(ctx);
+    const rows = await pglite.query<{ contact_id: string; completed_via: string }>("SELECT contact_id, completed_via FROM task_completions");
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toEqual({ contact_id: contactId, completed_via: "manual" });
+  });
+
   it("leaves the empty event empty", async () => {
     const rows = await pglite.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM portal_tasks WHERE event_id = $1",

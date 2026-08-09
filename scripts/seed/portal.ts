@@ -1,4 +1,5 @@
-import { fileRequests, portalTasks, resourcePages } from "@/db/schema";
+import { and, asc, eq } from "drizzle-orm";
+import { contacts, events, fileRequests, forms, portalTasks, resourcePages, taskCompletions } from "@/db/schema";
 import { eventLocal, type SeedCtx } from "./lib/helpers";
 
 /**
@@ -9,12 +10,29 @@ import { eventLocal, type SeedCtx } from "./lib/helpers";
  * due row on its very first tick; the file request one of them completes
  * against; and two resource pages that are also the sanitizer's standing probes.
  *
- * Everything here is event-scoped. Completions and uploads need contacts, which
- * `contacts.ts` owns — this module deliberately seeds nothing that would have to
- * guess at a contact id.
+ * It never invents an id it does not own: the event, a portal form and the
+ * contacts all belong to other modules, so each is looked up and each absence
+ * degrades to something still useful rather than to a crash.
  */
 export async function seedPortal(ctx: SeedCtx): Promise<void> {
   const { tx, eventId } = ctx;
+
+  // events.ts owns the event row. Without it every insert here fails its foreign
+  // key, which would take the whole run down for a module that has not run yet.
+  const [event] = await tx.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) {
+    ctx.log("skipped — the event does not exist yet (events.ts)");
+    return;
+  }
+
+  // forms.ts owns portal forms. Until one exists the travel task cannot be a
+  // form task, because form_id is a real foreign key, not a label.
+  const [portalForm] = await tx
+    .select({ id: forms.id })
+    .from(forms)
+    .where(and(eq(forms.eventId, eventId), eq(forms.context, "portal")))
+    .orderBy(asc(forms.createdAt))
+    .limit(1);
 
   const slidesRequestId = ctx.id("file_request", "slides");
   await tx.insert(fileRequests).values({
@@ -40,6 +58,7 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       dueAt: eventLocal(ctx.now, -2, "17:00"),
       sortOrder: 0,
       fileRequestId: null,
+      formId: null,
     },
     {
       key: "upload-slides",
@@ -49,17 +68,19 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       dueAt: eventLocal(ctx.now, 30, "17:00"),
       sortOrder: 1,
       fileRequestId: slidesRequestId,
+      formId: null,
     },
     {
       key: "travel-form",
       name: "Tell us about your travel",
       descriptionHtml: "<p>Arrival day, dietary needs, and whether you want a hotel room held.</p>",
-      // The form itself belongs to forms.ts; the task points at it once that
-      // module fills in, and stays a plain assignment until then.
-      completionMode: "manual" as const,
+      // A form task the moment forms.ts provides a portal form; a plain
+      // assignment until then, because form_id is a foreign key.
+      completionMode: portalForm ? ("form" as const) : ("manual" as const),
       dueAt: eventLocal(ctx.now, 45, "17:00"),
       sortOrder: 2,
       fileRequestId: null,
+      formId: portalForm?.id ?? null,
     },
   ];
 
@@ -74,9 +95,17 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       dueAt: task.dueAt,
       sortOrder: task.sortOrder,
       ...(task.fileRequestId ? { fileRequestId: task.fileRequestId } : {}),
+      ...(task.formId ? { formId: task.formId } : {}),
     }).onConflictDoUpdate({
       target: portalTasks.id,
-      set: { name: task.name, descriptionHtml: task.descriptionHtml, dueAt: task.dueAt, updatedAt: new Date() },
+      set: {
+        name: task.name,
+        descriptionHtml: task.descriptionHtml,
+        dueAt: task.dueAt,
+        completionMode: task.completionMode,
+        formId: task.formId,
+        updatedAt: new Date(),
+      },
     });
   }
 
@@ -121,5 +150,27 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
     });
   }
 
-  ctx.log(`seeded ${tasks.length} tasks, 1 file request, ${pages.length} resource pages`);
+  // Mixed completions need contacts, which contacts.ts owns. Once they exist the
+  // demo needs one task visibly done — an all-outstanding list reads as a portal
+  // nobody has ever used.
+  const speakers = await tx
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.eventId, eventId))
+    .orderBy(asc(contacts.createdAt))
+    .limit(1);
+  const firstSpeaker = speakers[0];
+  if (firstSpeaker) {
+    await tx.insert(taskCompletions).values({
+      id: ctx.id("completion", "confirm-details"),
+      eventId,
+      taskId: ctx.id("task", "confirm-details"),
+      contactId: firstSpeaker.id,
+      completedVia: "manual",
+    }).onConflictDoNothing({ target: taskCompletions.id });
+  }
+
+  ctx.log(`seeded ${tasks.length} tasks, 1 file request, ${pages.length} resource pages`
+    + `${portalForm ? "" : " (travel task is manual until forms.ts lands)"}`
+    + `${firstSpeaker ? ", 1 completion" : " (no completions — contacts.ts has not run)"}`);
 }
