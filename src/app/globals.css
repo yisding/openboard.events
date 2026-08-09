@@ -531,3 +531,8 @@ input::placeholder, textarea::placeholder { color: #aba8b5; }
 .portal-participants em{font-style:normal;color:var(--purple);font-size:8px}
 .portal-note{color:var(--muted);font-size:9px}
 .portal-submission__vocab{display:flex;gap:6px;flex-wrap:wrap}
+.portal-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:26px}
+.portal-home-section{margin-bottom:24px}
+.portal-home-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.portal-home-list li{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:10px}
+.portal-home-list li time{margin-left:auto;color:var(--muted);font-size:9px}
