@@ -15,6 +15,15 @@ import { Drawer, StatusBadge } from "@/shared/ui/ui-kit";
  * answered it — labels are read from the version they saw, not from the form as
  * it looks today.
  */
+/** The answers belonging to one participant, or the submission-level ones. */
+function answersFor(detail: SubmissionDetailDTO, participantId: string | null) {
+  return Object.fromEntries(
+    detail.answerPanel.answers
+      .filter((answer) => answer.participantId === participantId)
+      .map((answer) => [answer.fieldId, answer.value]),
+  );
+}
+
 export function SubmissionDrawer({
   eventId,
   submissionId,
@@ -84,19 +93,7 @@ export function SubmissionDrawer({
             <section>
               <h3>Answers</h3>
               {detail.answerPanel.snapshot ? (
-                <>
-                  <p className="pinned-note">Rendered against form version {detail.answerPanel.formVersion}, as the speaker saw it.</p>
-                  <FormFieldRenderer
-                    snapshot={detail.answerPanel.snapshot}
-                    answers={Object.fromEntries(
-                      detail.answerPanel.answers
-                        .filter((answer) => answer.participantId === null)
-                        .map((answer) => [answer.fieldId, answer.value]),
-                    )}
-                    onChange={() => undefined}
-                    mode="review"
-                  />
-                </>
+                <AnswerPanel detail={detail} snapshot={detail.answerPanel.snapshot} />
               ) : (
                 <p className="portal-note">This submission was created without a form, so there are no questions to show.</p>
               )}
@@ -105,5 +102,25 @@ export function SubmissionDrawer({
         </div>
       )}
     </Drawer>
+  );
+}
+
+function AnswerPanel({ detail, snapshot }: { detail: SubmissionDetailDTO; snapshot: NonNullable<SubmissionDetailDTO["answerPanel"]["snapshot"]> }) {
+  return (
+    <>
+      <p className="pinned-note">Rendered against form version {detail.answerPanel.formVersion}, as the speaker saw it.</p>
+      <FormFieldRenderer snapshot={snapshot} answers={answersFor(detail, null)} onChange={() => undefined} mode="review" />
+      {/* Participant questions are stored per speaker, so a form that asks each
+          of them for a bio has one set of answers per person. Rendering only the
+          unscoped ones drops every one of them. */}
+      {detail.answerPanel.participants
+        .filter((participant) => detail.answerPanel.answers.some((answer) => answer.participantId === participant.id))
+        .map((participant) => (
+          <div key={participant.id} className="drawer-participant-answers">
+            <h4>{participant.name}</h4>
+            <FormFieldRenderer snapshot={snapshot} answers={answersFor(detail, participant.id)} onChange={() => undefined} mode="review" />
+          </div>
+        ))}
+    </>
   );
 }

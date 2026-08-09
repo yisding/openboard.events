@@ -35,6 +35,7 @@ export function AbstractsTable({
   onFilter,
   onSelectionChange,
   onRowClick,
+  selectionEpoch,
 }: {
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
@@ -45,6 +46,7 @@ export function AbstractsTable({
   onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
   onSelectionChange?: (rows: SubmissionListRow[]) => void;
   onRowClick?: (row: SubmissionListRow) => void;
+  selectionEpoch?: number;
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
 
@@ -126,6 +128,7 @@ export function AbstractsTable({
         columns={columns}
         data={rows}
         enableSelection
+        {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
         columnVisibilityKey="abstracts"
         getRowId={(row) => row.submissionId}
         {...(onSelectionChange ? { onSelectionChange } : {})}

@@ -601,3 +601,5 @@ input::placeholder, textarea::placeholder { color: #aba8b5; }
 .field strong{display:block;color:#b23b3b;font-size:9px;margin-top:4px;font-weight:600}
 .choice-list{display:grid;gap:6px}
 .choice{display:flex;align-items:center;gap:7px;font-size:10px}
+.drawer-participant-answers{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.drawer-participant-answers h4{margin:0 0 8px;font-size:10px}

@@ -30,26 +30,36 @@ export function DecisionBar({
   async function move(to: SubmissionStatus) {
     setBusy(true);
     try {
-      const response = await fetch(`/api/internal/submissions/${eventId}/transition`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ids: selected.map((row) => row.submissionId),
-          to,
-          // What the screen showed. Anything that moved since comes back stale
-          // rather than being overwritten by a decision made against old data.
-          expectedFrom: ["pending", "accept_queue", "decline_queue"],
-        }),
-      });
-      const payload = await response.json().catch(() => null) as { data?: { changed: string[]; stale: string[] }; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "That did not go through");
-        return;
+      // One call per observed status, not one blanket list. Sending every status
+      // as `expectedFrom` would match a row another organizer had already moved
+      // and overwrite their decision — which is the exact thing the stale set
+      // exists to prevent.
+      const byObserved = new Map<SubmissionStatus, string[]>();
+      for (const row of selected) {
+        if (row.status === to) continue;
+        byObserved.set(row.status, [...(byObserved.get(row.status) ?? []), row.submissionId]);
       }
-      const { changed, stale } = payload.data;
-      toast(stale.length === 0
-        ? `${changed.length} moved`
-        : `${changed.length} moved · ${stale.length} unchanged, someone else had already moved them`);
+
+      let moved = 0;
+      let unchanged = selected.filter((row) => row.status === to).length;
+      for (const [observed, ids] of byObserved) {
+        const response = await fetch(`/api/internal/submissions/${eventId}/transition`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ids, to, expectedFrom: observed }),
+        });
+        const payload = await response.json().catch(() => null) as { data?: { changed: string[]; stale: string[] }; error?: { message?: string } } | null;
+        if (!response.ok || !payload?.data) {
+          toast(payload?.error?.message ?? "That did not go through");
+          return;
+        }
+        moved += payload.data.changed.length;
+        unchanged += payload.data.stale.length;
+      }
+
+      toast(unchanged === 0
+        ? `${moved} moved`
+        : `${moved} moved · ${unchanged} unchanged, someone else had already moved them`);
       onDone();
       router.refresh();
     } finally {

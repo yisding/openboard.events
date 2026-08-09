@@ -21,6 +21,7 @@ export function AbstractsView({
   search,
   timezone,
   total,
+  queued,
 }: {
   eventId: string;
   rows: SubmissionListRow[];
@@ -29,11 +30,21 @@ export function AbstractsView({
   search: string;
   timezone: string;
   total: number;
+  /** Event-wide, because Notify is event-wide. */
+  queued: number;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   const [selected, setSelected] = useState<SubmissionListRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Bumped to clear the table's own checkbox state; `selected` is only a mirror
+  // of it, so resetting the mirror alone leaves the boxes ticked.
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
+
+  const clearSelection = useCallback(() => {
+    setSelected([]);
+    setSelectionEpoch((epoch) => epoch + 1);
+  }, []);
 
   const onFilter = useCallback((next: { status?: SubmissionStatus | "all"; search?: string }) => {
     const query = new URLSearchParams(params.toString());
@@ -57,8 +68,8 @@ export function AbstractsView({
       <DecisionBar
         eventId={eventId}
         selected={selected}
-        pendingNotify={counts.accept_queue + counts.decline_queue}
-        onDone={() => setSelected([])}
+        pendingNotify={queued}
+        onDone={clearSelection}
       />
       <AbstractsTable
         rows={rows}
@@ -68,6 +79,7 @@ export function AbstractsView({
         timezone={timezone}
         total={total}
         onFilter={onFilter}
+        selectionEpoch={selectionEpoch}
         onSelectionChange={setSelected}
         onRowClick={(row) => setOpenId(row.submissionId)}
       />
