@@ -1,28 +1,44 @@
-import { DEMO_CAL_TOKENS, initialDemoState } from "@/shared/demo/seed";
-import { buildInvite } from "@/features/comms/ics";
+import { db, type DbOrTx } from "@/db/client";
+import { verifyPortalToken } from "@/features/auth";
+import { buildCalendarDownloadIn, type CalendarTokenIdentity } from "@/features/comms/server/invites";
+import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request, { params }: { params: Promise<{ token: string; sessionId: string }> }) {
-  const { token, sessionId } = await params;
-  const speakerId = DEMO_CAL_TOKENS[token];
-  const speaker = speakerId ? initialDemoState.speakers.find((item) => item.id === speakerId) : undefined;
-  if (!speaker) return Response.json({ error: { code: "NOT_FOUND", message: "Unknown calendar token" } }, { status: 404 });
-  // The session must belong to the token's contact — any other id 404s.
-  const session = initialDemoState.sessions.find((item) => item.id === sessionId && item.eventId === speaker.eventId && item.speakerIds.includes(speaker.id) && item.startsAt && item.endsAt);
-  if (!session || !session.startsAt || !session.endsAt) return Response.json({ error: { code: "NOT_FOUND", message: "Session not found" } }, { status: 404 });
-  const body = buildInvite({
-    uid: `${session.id}@openboard`,
-    sequence: 1,
-    method: null,
-    startsAt: new Date(session.startsAt),
-    endsAt: new Date(session.endsAt),
-    dtstamp: new Date(session.startsAt),
-    summary: session.title,
-    description: session.description,
-    location: session.room,
-    url: new URL(`/e/ai-engineer/schedule?session=${session.id}`, request.url).toString(),
-    organizer: { name: "AI Engineer", email: "speakers@ai.engineer" },
+type VerifyCalendarToken = (
+  raw: string,
+  options: { purpose: "ics_download" },
+) => Promise<CalendarTokenIdentity | null>;
+
+type DownloadDependencies = { dbOrTx?: DbOrTx; env?: RuntimeEnv; verify?: VerifyCalendarToken };
+
+export async function calendarDownloadResponse(
+  token: string,
+  sessionId: string,
+  dependencies: DownloadDependencies = {},
+): Promise<Response> {
+  const identity = await (dependencies.verify ?? verifyPortalToken)(token, { purpose: "ics_download" });
+  if (!identity) return Response.json({ error: { code: "NOT_FOUND", message: "Calendar not found" } }, { status: 404 });
+  const body = await buildCalendarDownloadIn(
+    dependencies.dbOrTx ?? db,
+    identity,
+    sessionId,
+    dependencies.env ?? getEnv(),
+  );
+  if (!body) return Response.json({ error: { code: "NOT_FOUND", message: "Calendar not found" } }, { status: 404 });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": "attachment; filename=\"invite.ics\"",
+      "Cache-Control": "private, max-age=300",
+    },
   });
-  return new Response(body, { headers: { "content-type": "text/calendar; charset=utf-8", "content-disposition": `attachment; filename="${session.id}.ics"`, "cache-control": "private, no-store" } });
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ token: string; sessionId: string }> },
+) {
+  const { token, sessionId } = await params;
+  return calendarDownloadResponse(token, sessionId);
 }
