@@ -116,15 +116,20 @@ export function deriveMappedFields(snapshot: FormSnapshot, clean: CleanAnswers):
   const contact: Record<string, string> = {};
 
   for (const answer of clean) {
-    const target = byId.get(answer.fieldId)?.mapsTo;
-    if (!target) continue;
-    const text = answer.value.t === "s" ? answer.value.v : answer.value.t === "opt" ? answer.value.v : null;
+    const field = byId.get(answer.fieldId);
+    const target = field?.mapsTo;
+    if (!field || !target) continue;
+    const text = answer.value.t === "s" || answer.value.t === "opt" ? answer.value.v : null;
     if (text === null) continue;
+    // A dropdown answer is an *option* id. The vocabulary id it stands for lives
+    // on the option, which is the only place authoring recorded it — passing the
+    // option id straight into track_id writes a broken foreign key.
+    const chosen = answer.value.t === "opt" ? field.options.find((option) => option.id === answer.value.v) : undefined;
     switch (target) {
       case "submission.title": submission.title = text.slice(0, LIMITS.TITLE); break;
       case "submission.description_html": submission.descriptionHtml = text; break;
-      case "submission.track_id": submission.trackId = text; break;
-      case "submission.format_id": submission.formatId = text; break;
+      case "submission.track_id": submission.trackId = chosen?.trackId ?? null; break;
+      case "submission.format_id": submission.formatId = chosen?.formatId ?? null; break;
       case "submission.level": submission.level = text; break;
       case "contact.first_name": contact.firstName = text; break;
       case "contact.last_name": contact.lastName = text; break;
