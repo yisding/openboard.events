@@ -70,15 +70,34 @@ describe("portal submission queries", () => {
     const rows = await listMySubmissionsIn(db, eventA, speaker);
     expect(rows.map((row) => row.submissionId)).toEqual([shared]);
     expect(rows[0]?.isPrimary).toBe(false);
-    expect(rows[0]?.status).toBe("accepted");
+    expect(rows[0]?.status).toBe("Accepted");
     expect(await countMySubmissionsIn(db, eventA, speaker)).toBe(1);
   });
 
-  it("returns statuses raw, leaving the queue collapse to the one portal mapping", async () => {
-    await pglite.query("UPDATE submissions SET status='accept_queue' WHERE id=$1", [shared]);
-    const rows = await listMySubmissionsIn(db, eventA, speaker);
-    expect(rows[0]?.status).toBe("accept_queue");
+  it("never lets a queue state reach the speaker", async () => {
+    // The leak this closes: a speaker reading accept_queue in a response knows
+    // their decision days before the organizer sends it.
+    for (const queued of ["accept_queue", "decline_queue"] as const) {
+      await pglite.query("UPDATE submissions SET status=$1 WHERE id=$2", [queued, shared]);
+      expect((await listMySubmissionsIn(db, eventA, speaker))[0]?.status).toBe("Pending");
+      expect((await getMySubmissionIn(db, eventA, speaker, shared))?.status).toBe("Pending");
+    }
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [shared]);
+  });
+
+  it("orders submitted proposals ahead of drafts, whatever was edited last", async () => {
+    const draft = "c0000000-0000-4000-8000-000000000023";
+    await pglite.query(
+      "INSERT INTO submissions(id,event_id,code,status,source,title,updated_at) VALUES($1,$2,404,'draft','cfp','A draft edited just now', now())",
+      [draft, eventA],
+    );
+    await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)", [eventA, draft, speaker]);
+    await pglite.query("UPDATE submissions SET submitted_at = now() - interval '3 days', updated_at = now() - interval '3 days' WHERE id=$1", [shared]);
+
+    const rows = await listMySubmissionsIn(db, eventA, speaker);
+    expect(rows.map((row) => row.submissionId)).toEqual([shared, draft]);
+
+    await pglite.query("DELETE FROM submissions WHERE id=$1", [draft]);
   });
 
   it("reads a submission the speaker is on, with its co-speakers primary-first", async () => {

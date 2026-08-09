@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts, submissionParticipants, submissions } from "@/db/schema";
-import type { ContactId, EventId, SubmissionStatus } from "@/shared/contracts";
+import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type SubmissionStatus } from "@/shared/contracts";
 
 /**
  * The speaker's own view of their submissions.
@@ -10,15 +10,21 @@ import type { ContactId, EventId, SubmissionStatus } from "@/shared/contracts";
  * `submission_participants`, so a speaker sees a submission only because they are
  * on it — not because they guessed its id. That join *is* the authorization.
  *
- * Statuses come back raw. The portal renders them through M18's `toPortalStatus`,
- * which collapses the two queue states into "Pending"; re-mapping them here would
- * be a second owner of the seven-state enum.
+ * Statuses are collapsed **before they leave the server**. `accept_queue` and
+ * `decline_queue` are internal review state: a speaker who reads them in a
+ * response learns their likely decision days before the organizer sends it, and
+ * hiding them only in the UI leaves them in the JSON. The collapse uses
+ * `PORTAL_STATUS_LABEL` from the frozen contracts — the one table that owns this
+ * mapping — rather than a second copy written here.
  */
+/** What a speaker is allowed to see: never a queue state. */
+export type PortalStatus = (typeof PORTAL_STATUS_LABEL)[SubmissionStatus];
+
 export type PortalSubmissionRow = {
   submissionId: string;
   code: number;
   title: string;
-  status: SubmissionStatus;
+  status: PortalStatus;
   isPrimary: boolean;
   formId: string | null;
   submittedAt: string | null;
@@ -36,6 +42,10 @@ export type PortalSubmissionDetail = PortalSubmissionRow & {
   descriptionHtml: string | null;
   participants: PortalParticipant[];
 };
+
+function portalStatus(status: SubmissionStatus): PortalStatus {
+  return PORTAL_STATUS_LABEL[status];
+}
 
 function displayName(first: string, last: string, email: string): string {
   const name = `${first} ${last}`.trim();
@@ -63,13 +73,15 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
       ),
     )
     .where(and(eq(submissions.eventId, eventId), eq(submissionParticipants.contactId, contactId)))
-    .orderBy(desc(submissions.updatedAt));
+    // Submitted first and newest first; drafts have no submitted_at and belong at
+    // the end, not ahead of real submissions because they were touched recently.
+    .orderBy(sql`${submissions.submittedAt} DESC NULLS LAST`, desc(submissions.updatedAt));
 
   return rows.map((row) => ({
     submissionId: row.submissionId,
     code: row.code,
     title: row.title,
-    status: row.status,
+    status: portalStatus(row.status),
     isPrimary: row.isPrimary,
     formId: row.formId,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
@@ -135,7 +147,7 @@ export async function getMySubmissionIn(
     submissionId: row.submissionId,
     code: row.code,
     title: row.title,
-    status: row.status,
+    status: portalStatus(row.status),
     isPrimary: row.isPrimary,
     formId: row.formId,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
