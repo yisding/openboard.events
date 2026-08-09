@@ -10,6 +10,7 @@ import {
   decideFileAccess,
   fileExtension,
   isPublicKind,
+  publicFileHeaders,
   rejectionForSize,
   resolvePolicy,
   sanitizeFilename,
@@ -200,6 +201,23 @@ describe("content sniffing", () => {
 
   it("does not gate mimes it has no signature for", () => {
     expect(sniffMatchesMime("application/pdf", text)).toBe(true);
+  });
+});
+
+describe("public file headers", () => {
+  it("serves the stored mime with the immutable cache and nosniff headers", () => {
+    const headers = publicFileHeaders({ mime: "image/png", kind: "headshot", sizeBytes: 2048 });
+    // The same three assertions M10's post-deploy smoke curls for.
+    expect(headers.get("content-type")).toBe("image/png");
+    expect(headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(headers.get("x-content-type-options")).toBe("nosniff");
+    expect(headers.get("content-length")).toBe("2048");
+    expect(headers.get("content-disposition")).toBeNull();
+  });
+
+  it("forces a download for any non-image that ever becomes public", () => {
+    expect(publicFileHeaders({ mime: "application/pdf", kind: "attachment" }).get("content-disposition"))
+      .toBe("attachment");
   });
 });
 

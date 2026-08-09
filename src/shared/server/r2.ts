@@ -421,6 +421,84 @@ async function inspectPublished(
   return null;
 }
 
+export type FileDescriptor = {
+  fileId: FileId;
+  eventId: EventId;
+  kind: FileKind;
+  mime: string;
+  filename: string;
+  sizeBytes: number;
+  uploadedByUserId: string | null;
+  uploadedByContactId: string | null;
+  /** False while the row still points at its staging key, i.e. before finalize. */
+  published: boolean;
+};
+
+/** Row-level lookup for the routes, which must authorize against the file's own event. */
+export async function describeFile(fileId: string): Promise<FileDescriptor | null> {
+  const id = fileIdSchema.parse(fileId);
+  const [asset] = await db
+    .select({
+      eventId: fileAssets.eventId,
+      kind: fileAssets.kind,
+      mime: fileAssets.mime,
+      filename: fileAssets.filename,
+      sizeBytes: fileAssets.sizeBytes,
+      r2Key: fileAssets.r2Key,
+      uploadedByUserId: fileAssets.uploadedByUserId,
+      uploadedByContactId: fileAssets.uploadedByContactId,
+    })
+    .from(fileAssets)
+    .where(eq(fileAssets.id, id))
+    .limit(1);
+  if (!asset) return null;
+  const eventId = asset.eventId as EventId;
+  return {
+    fileId: id,
+    eventId,
+    kind: asset.kind,
+    mime: asset.mime,
+    filename: asset.filename,
+    sizeBytes: asset.sizeBytes,
+    uploadedByUserId: asset.uploadedByUserId,
+    uploadedByContactId: asset.uploadedByContactId,
+    published: asset.r2Key === buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename }),
+  };
+}
+
+/**
+ * Headers for `/f/{fileId}`. Content-Type is always the value stored on the row —
+ * never R2 object metadata, which an uploader controls. Contents are immutable
+ * because replacing a file mints a new fileId, so the year-long cache is safe.
+ */
+export function publicFileHeaders(file: { mime: string; kind: FileKind; sizeBytes?: number }): Headers {
+  const headers = new Headers({
+    "content-type": file.mime,
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+  });
+  // No public kind is non-image today; the branch keeps a future one safe by default.
+  if (!IMAGE_MIMES.includes(file.mime.toLowerCase() as (typeof IMAGE_MIMES)[number])) {
+    headers.set("content-disposition", "attachment");
+  }
+  if (typeof file.sizeBytes === "number" && file.sizeBytes > 0) headers.set("content-length", String(file.sizeBytes));
+  return headers;
+}
+
+/**
+ * Streams a public file straight off the binding. Returns null for anything the
+ * route must 404: unknown id, unfinalized row, private kind (those serve only
+ * through getDownloadUrl's presigned GET), or a missing object.
+ */
+export async function readPublicFile(fileId: string): Promise<{ body: ReadableStream; headers: Headers } | null> {
+  const file = await describeFile(fileId);
+  if (!file || !file.published || !isPublicKind(file.kind)) return null;
+  const key = buildObjectKey({ eventId: file.eventId, kind: file.kind, fileId: file.fileId, filename: file.filename });
+  const object = await filesBucket().get(key);
+  if (!object?.body) return null;
+  return { body: object.body, headers: publicFileHeaders({ mime: file.mime, kind: file.kind, sizeBytes: object.size }) };
+}
+
 /**
  * Always scoped by (eventId, fileId, requester) together — a contact id from one
  * event must never unlock a file in another.
