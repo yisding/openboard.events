@@ -283,7 +283,7 @@ CREATE TABLE file_requests (
 );
 CREATE TABLE portal_tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  name text NOT NULL, description_html text, target_type task_target NOT NULL DEFAULT 'contact', completion_mode task_mode NOT NULL DEFAULT 'manual',
+  name text NOT NULL, description_html text NOT NULL DEFAULT '', target_type task_target NOT NULL DEFAULT 'contact', completion_mode task_mode NOT NULL DEFAULT 'manual',
   form_id uuid, file_request_id uuid, due_at timestamptz, is_active boolean NOT NULL DEFAULT true, sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE (id,event_id),
   FOREIGN KEY (form_id,event_id) REFERENCES forms(id,event_id) ON DELETE RESTRICT,
