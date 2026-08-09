@@ -1,99 +1,282 @@
 # Provisioning Cloudflare and Neon
 
-The repository is configuration-ready, but nothing in this document has been provisioned or deployed yet. Keep Cloudflare's Git integration disabled: the protected GitHub Actions deployment runs migrations, web, jobs, and smoke checks in that required order.
+This is the operator checklist for taking the repository from configuration-ready to a
+deployed preview and production environment. Check an item only after the external action
+or named proof is complete. Cloudflare Git integration stays disabled: the protected
+GitHub Actions workflow owns the required migration → web → jobs → smoke order.
 
-## 1. Accounts and environments
+## 0. Land the deployment configuration
 
-Create two protected GitHub environments named `preview` and `production`. Require a reviewer for production. Create these external resources:
+- [x] Merge PR 6 into `main`.
+- [ ] Merge PR 7, the infrastructure reconciliation PR, into `main`.
+- [ ] Pull the resulting `main` branch and confirm the worktree is clean.
+- [ ] Run the credential-free validation in the same order as CI:
 
-| Provider | Preview | Production | Local/development |
+  ```bash
+  pnpm install --frozen-lockfile
+  pnpm check
+  pnpm cf-typegen:check
+  pnpm worker:size
+  ```
+
+`pnpm check` must run before `pnpm cf-typegen:check` because the generated Cloudflare types
+include the OpenNext worker built by `pnpm check`.
+
+## 1. Record the environment map
+
+- [x] Read the account's real `workers.dev` subdomain from the Cloudflare dashboard:
+  `yi-ding.workers.dev`.
+- [x] Record the exact preview origin as `https://sb-web-preview.yi-ding.workers.dev`.
+- [x] Record the exact production origin as `https://sb-web.yi-ding.workers.dev`.
+- [ ] Keep each origin as HTTPS only, with no path and no trailing slash.
+
+| Resource | Preview | Production | Local/development |
 |---|---|---|---|
 | Cloudflare web Worker | `sb-web-preview` | `sb-web` | `sb-web-local` |
 | Cloudflare jobs Worker | `sb-jobs-preview` | `sb-jobs` | `sb-jobs-local` |
 | R2 bucket | `sb-files-preview` | `sb-files` | Wrangler-local storage; optional `sb-files-dev` |
 | Neon database/branch | `sb-test` | `sb-prod` | `sb-dev` |
 
-Workers Free is the intended starting plan. `pnpm worker:size` fails at the 3 MiB compressed limit and warns at 2.5 MiB. Upgrade only if that warning fires or deployed SSR/database probes exceed the Free CPU allowance.
+Workers Free is the intended starting plan. `pnpm worker:size` fails at the 3 MiB compressed
+limit and warns at 2.5 MiB. Upgrade only if that warning fires or deployed SSR/database
+probes exceed the Free CPU allowance. Enabling R2 billing, if Cloudflare requests it before
+issuing R2 credentials, is separate from upgrading the Workers plan.
 
-## 2. Neon
+## 2. Generate and store values safely
 
-For each Neon environment, save both connection strings:
+- [ ] Generate an independent preview `SESSION_SECRET` of at least 32 random characters.
+- [ ] Generate an independent production `SESSION_SECRET` of at least 32 random characters.
+- [ ] Generate an independent preview `CRON_SECRET` of at least 32 random characters.
+- [ ] Generate an independent production `CRON_SECRET` of at least 32 random characters.
+- [ ] Store the values in a password manager; do not commit them or paste them into issue or
+  PR comments.
 
-- pooled connection string → the web Worker's `DATABASE_URL` secret;
-- direct connection string → the matching GitHub environment's `DATABASE_URL_DIRECT` secret.
-
-Never put `DATABASE_URL_DIRECT` on a Worker. Apply the two committed migrations to a disposable Neon branch first. The deployment workflow then runs `pnpm db:migrate` before changing either Worker.
-
-## 3. R2
-
-Create `sb-files-preview` and `sb-files`. Create separate bucket-scoped read/write S3 credentials for each environment. Configure bucket CORS for `PUT` and `GET` from only that environment's exact web origin, allow the `content-type` header, and use a 3600-second max age. Do not reuse production credentials in preview.
-
-The `FILES` and `NEXT_INC_CACHE_R2_BUCKET` bindings are already mapped to the matching bucket in `wrangler.jsonc`. `R2_BUCKET_NAME` is also validated at runtime so a cross-environment bucket mix-up fails closed.
-
-## 4. Worker secrets
-
-Generate independent random values for preview and production. Within one environment, `CRON_SECRET` must be identical on web and jobs.
-
-Set these on each web Worker from the repository root with `wrangler secret put NAME --env preview` or `--env production`:
-
-| Secret | Preview | Production |
-|---|---:|---:|
-| `DATABASE_URL` (pooled) | required | required |
-| `SESSION_SECRET` (32+ random characters) | required | required |
-| `CRON_SECRET` (32+ random characters) | required | required |
-| `R2_ACCESS_KEY_ID` | required | required |
-| `R2_SECRET_ACCESS_KEY` | required | required |
-| `RESEND_API_KEY` | only when testing sends | required |
-| `AIRTABLE_API_KEY` | only if the bonus integration is enabled | only if enabled |
-
-Set only `CRON_SECRET` on each jobs Worker, using `wrangler secret put CRON_SECRET --config workers/jobs/wrangler.jsonc --env preview` (or `production`). Do not copy database, session, R2, Resend, or Airtable credentials to jobs.
-
-Production deliberately has no `TEST_AUTH`, uses `EMAIL_FALLBACK_UI=0`, and has no `EMAIL_ALLOWLIST`. Preview defaults to logged email and may use an allowlist for temporary real-send tests.
-
-## 5. GitHub deployment environments
-
-Add these secrets to both protected GitHub environments:
-
-- `CLOUDFLARE_API_TOKEN` — least-privilege token that can deploy Workers and bind R2 in this account;
-- `CLOUDFLARE_ACCOUNT_ID`;
-- `DATABASE_URL_DIRECT` — the matching Neon direct URL.
-
-Add these environment variables:
-
-- `APP_BASE_URL` — the exact Wrangler-emitted HTTPS origin, with no path or trailing slash;
-- `R2_ACCOUNT_ID` — the Cloudflare account containing the matching bucket;
-- `EMAIL_FROM` — required in production and must use the verified Resend domain;
-- `EMAIL_ALLOWLIST` — preview only, and only when `EMAIL_MODE=send` is deliberately enabled.
-
-Read the account's actual `workers.dev` subdomain from the Workers dashboard; do not guess it. Combine it with the canonical Worker name, use that origin for the first manual web deploy, and confirm the emitted URL before saving it in GitHub or deploying jobs.
-
-After preview and production have both been proven manually, add the repository variable `PRODUCTION_DEPLOY_ENABLED=1`. Until then, successful `main` CI intentionally skips automatic production deployment; protected manual deployments remain available.
-
-## 6. First deployment
-
-From a credentialed shell, validate the repository first:
+One suitable generator is:
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm cf-typegen:check
-pnpm check
-pnpm worker:size
+openssl rand -base64 48
 ```
 
-Then deploy one environment in order:
+Within one environment, the web and jobs Workers must use the same `CRON_SECRET`. Preview
+and production must use different values.
+
+## 3. Provision Neon
+
+- [ ] Create one Neon project and create `sb-dev`, `sb-test`, and `sb-prod` as isolated
+  databases/branches, or use separate projects if stronger isolation is preferred.
+- [ ] For each environment, save its pooled URL. Its hostname contains `-pooler`; this becomes
+  the web Worker's `DATABASE_URL` secret.
+- [ ] For each environment, save its direct URL. This becomes local or GitHub
+  `DATABASE_URL_DIRECT` and is used only for migrations.
+- [ ] Create a disposable Neon branch and apply the committed migrations there first.
+- [ ] Apply the migrations to `sb-dev`.
+- [ ] Apply the migrations to `sb-test` before the first preview deployment.
+- [ ] Leave `sb-prod` migration to the guarded production deployment step.
+- [ ] Confirm no destructive test or reset command points at `sb-prod`.
+
+Run a migration by exporting the matching direct URL in a credentialed shell:
 
 ```bash
-export APP_BASE_URL=https://exact-web-origin.example
-export R2_ACCOUNT_ID=your-cloudflare-account-id
-export EMAIL_FROM=events@your-verified-domain.example # production only
+export DATABASE_URL_DIRECT='postgresql://...direct-neon-host...'
 pnpm db:migrate
-pnpm deploy:web:preview       # or deploy:web:production
-pnpm deploy:jobs:preview      # or deploy:jobs:production
-bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"
 ```
 
-The normal path after setup is `.github/workflows/deploy.yml`: once `PRODUCTION_DEPLOY_ENABLED=1`, successful CI on `main` deploys production, while manual runs can target preview or production. Web always deploys before jobs.
+Never put `DATABASE_URL_DIRECT` on a Worker. Never use a pooled URL for migrations.
 
-## 7. Still required after provisioning
+## 4. Provision Cloudflare and R2
 
-A successful deploy is not the full hackathon infrastructure proof. Record the real Neon health response, R2 ISR and browser upload/CORS probes, jobs tail output, Workers CPU observations, and Resend SPF/DKIM/DMARC plus Gmail/Outlook delivery evidence in `DECISIONS.md`.
+- [ ] Confirm the Cloudflare account ID and save it as `R2_ACCOUNT_ID` for runtime use.
+- [ ] Create the `sb-files-preview` bucket.
+- [ ] Create the `sb-files` bucket.
+- [ ] Optionally create `sb-files-dev` for real local presign/CORS testing; normal local work
+  can use Wrangler-local R2.
+- [ ] Create separate Object Read & Write S3 credentials scoped to `sb-files-preview`.
+- [ ] Create separate Object Read & Write S3 credentials scoped to `sb-files`.
+- [ ] Save each access-key ID and secret access key when Cloudflare displays them. Never
+  reuse production credentials in preview.
+- [ ] Configure preview bucket CORS with only the exact preview origin.
+- [ ] Configure production bucket CORS with only the exact production origin.
+
+Use this policy for each bucket, replacing the origin with the matching exact web origin:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://sb-web-preview.yi-ding.workers.dev"],
+    "AllowedMethods": ["GET", "PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+The `FILES` and `NEXT_INC_CACHE_R2_BUCKET` bindings are already mapped to the matching
+bucket in `wrangler.jsonc`. `R2_BUCKET_NAME` is validated at runtime so a cross-environment
+bucket mix-up fails closed.
+
+## 5. Create the Cloudflare deployment token
+
+- [ ] Create a least-privilege Cloudflare API token that can deploy Workers and use the
+  required R2 bindings in this account.
+- [ ] Save the token as `CLOUDFLARE_API_TOKEN`; do not use the global API key.
+- [ ] Save the account ID as `CLOUDFLARE_ACCOUNT_ID`.
+- [ ] Confirm Cloudflare's repository/Git integration is disabled.
+
+## 6. Bootstrap preview
+
+Finish sections 0–5 and migrate `sb-test` before starting this section.
+
+- [ ] Export the exact preview values in the credentialed shell:
+
+  ```bash
+  export APP_BASE_URL='https://sb-web-preview.yi-ding.workers.dev'
+  export R2_ACCOUNT_ID='your-cloudflare-account-id'
+  ```
+
+- [ ] Bootstrap the web Worker. A temporary unhealthy response is expected until its secrets
+  exist:
+
+  ```bash
+  pnpm deploy:web:preview
+  ```
+
+- [ ] Set these secrets on `sb-web-preview`:
+
+  | Secret | Value |
+  |---|---|
+  | `DATABASE_URL` | `sb-test` pooled Neon URL |
+  | `SESSION_SECRET` | preview session secret |
+  | `CRON_SECRET` | preview cron secret |
+  | `R2_ACCESS_KEY_ID` | preview bucket credential |
+  | `R2_SECRET_ACCESS_KEY` | preview bucket credential |
+  | `RESEND_API_KEY` | omit while preview remains in log mode |
+
+  ```bash
+  pnpm exec wrangler secret put DATABASE_URL --env preview
+  pnpm exec wrangler secret put SESSION_SECRET --env preview
+  pnpm exec wrangler secret put CRON_SECRET --env preview
+  pnpm exec wrangler secret put R2_ACCESS_KEY_ID --env preview
+  pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --env preview
+  ```
+
+- [ ] Redeploy the preview web Worker after its secrets exist:
+
+  ```bash
+  pnpm deploy:web:preview
+  ```
+
+- [ ] For the first jobs deployment, create a local `.env.jobs-preview` file containing only
+  the matching preview cron secret. `.env*` is ignored by Git:
+
+  ```dotenv
+  CRON_SECRET=replace-with-the-preview-cron-secret
+  ```
+
+- [ ] Create `sb-jobs-preview` with its secret already attached so the cron never starts
+  unauthenticated:
+
+  ```bash
+  pnpm exec wrangler deploy \
+    --config workers/jobs/wrangler.jsonc \
+    --env preview \
+    --var "APP_BASE_URL:$APP_BASE_URL" \
+    --secrets-file .env.jobs-preview
+  ```
+
+- [ ] Confirm `sb-jobs-preview` has only `APP_BASE_URL` and `CRON_SECRET`; do not copy database,
+  session, R2, Resend, or Airtable credentials to it.
+- [ ] Run the preview smoke check:
+
+  ```bash
+  bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"
+  ```
+
+- [ ] Inspect Workers logs and record a successful scheduled jobs tick.
+- [ ] Remove the local `.env.jobs-preview` after the secret is safely stored elsewhere.
+
+Subsequent jobs deployments can use `pnpm deploy:jobs:preview`; Wrangler preserves the
+existing Worker secret.
+
+## 7. Configure protected GitHub environments
+
+- [ ] Create GitHub environments named exactly `preview` and `production`.
+- [ ] Require a reviewer for `production`.
+- [ ] Restrict `production` deployments to `main`.
+- [ ] Add these secrets to both environments:
+
+  | GitHub environment secret | Preview value | Production value |
+  |---|---|---|
+  | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
+  | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
+  | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
+
+- [ ] Add these environment variables:
+
+  | GitHub environment variable | Preview | Production |
+  |---|---|---|
+  | `APP_BASE_URL` | exact preview origin | exact production origin |
+  | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
+  | `EMAIL_FROM` | omit while email is logged | verified production sender |
+  | `EMAIL_ALLOWLIST` | only for deliberate real-send tests | unset |
+
+- [ ] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset.
+- [ ] Manually run the `Deploy` workflow for `preview` and verify migration → web → jobs →
+  smoke succeeds.
+- [ ] Confirm an automatic deployment for a superseded `main` SHA reports that it was
+  skipped before checkout, migration, or deployment. Do not remove this freshness gate or
+  change deployment concurrency to cancel an in-progress migration/deploy.
+
+Validation CI is credential-free. Runtime application secrets live in Cloudflare; GitHub
+stores only the credentials and direct database URL needed by the deployment workflow.
+
+## 8. Provision Resend before production
+
+- [ ] Verify a dedicated sending subdomain in Resend.
+- [ ] Publish and verify SPF, DKIM, and DMARC.
+- [ ] Choose a real `EMAIL_FROM` mailbox or alias on that domain.
+- [ ] Create the production `RESEND_API_KEY`.
+- [ ] Prove OTP and calendar REQUEST/reschedule/CANCEL delivery in fresh Gmail and Outlook
+  inboxes.
+- [ ] Record aligned `spf=pass`, `dkim=pass`, and `dmarc=pass` evidence in `DECISIONS.md`.
+
+## 9. Deploy production manually
+
+- [ ] Confirm `sb-prod`, `sb-files`, production CORS, Resend, and GitHub production protection
+  are ready.
+- [ ] Bootstrap `sb-web`, then set its runtime secrets exactly as for preview, using the
+  production values plus `RESEND_API_KEY`.
+- [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, no `TEST_AUTH`, and no
+  `EMAIL_ALLOWLIST`.
+- [ ] Create `sb-jobs` with the production `CRON_SECRET` attached on its first deploy, using
+  the same `--secrets-file` pattern as preview with `--env production`.
+- [ ] Manually run the `Deploy` workflow for `production` and approve its protected
+  environment gate.
+- [ ] Confirm migration → web → jobs → smoke succeeds.
+- [ ] Confirm the real production health response and jobs cron logs.
+- [ ] Only after both preview and production are proven, add the repository variable
+  `PRODUCTION_DEPLOY_ENABLED=1` to enable successful `main` CI runs to deploy production.
+
+Production web secrets are:
+
+| Secret | Required |
+|---|---:|
+| `DATABASE_URL` (pooled `sb-prod` URL) | yes |
+| `SESSION_SECRET` | yes |
+| `CRON_SECRET` | yes |
+| `R2_ACCESS_KEY_ID` | yes |
+| `R2_SECRET_ACCESS_KEY` | yes |
+| `RESEND_API_KEY` | yes |
+| `AIRTABLE_API_KEY` | only if the deferred M39 integration is enabled |
+
+## 10. Record deployment proof
+
+A successful deploy is not the full hackathon infrastructure proof.
+
+- [ ] Record the real Neon health response in `DECISIONS.md`.
+- [ ] Record R2 ISR behavior.
+- [ ] Record a browser presigned upload/CORS probe, including `ETag` visibility.
+- [ ] Record jobs tail output showing authenticated scheduled calls.
+- [ ] Record Workers compressed size and deployed CPU/resource-limit observations.
+- [ ] Record the Resend DNS and Gmail/Outlook delivery evidence.
+- [ ] Record the final preview and production URLs without recording any secret values.

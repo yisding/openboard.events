@@ -34,19 +34,46 @@ jobs:
       EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
       NEXT_PUBLIC_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      - name: Suppress stale automatic deployments
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_run" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$DEPLOY_SHA" == "$current_sha" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::Skipping stale deployment for $DEPLOY_SHA; main is $current_sha"
+          echo "current=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.freshness.outputs.current == 'true'
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
+        if: steps.freshness.outputs.current == 'true'
         with: { version: 11.8.0 }
       - uses: actions/setup-node@v4
+        if: steps.freshness.outputs.current == 'true'
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+        if: steps.freshness.outputs.current == 'true'
       - name: Apply migrations with the direct Neon URL
+        if: steps.freshness.outputs.current == 'true'
         run: pnpm db:migrate
       - name: Deploy web before jobs
+        if: steps.freshness.outputs.current == 'true'
         run: pnpm deploy:web:${{ inputs.environment || 'production' }}
       - name: Deploy jobs against the matching web URL
+        if: steps.freshness.outputs.current == 'true'
         run: pnpm deploy:jobs:${{ inputs.environment || 'production' }}
       - name: Smoke test the deployed web worker
+        if: steps.freshness.outputs.current == 'true'
         run: bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"
