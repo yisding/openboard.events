@@ -36,11 +36,15 @@ dependency order:
 
 ## Phase P2 — external proof
 
-- **Email end-to-end, first and urgently**: verified sending subdomain, SPF/DKIM/DMARC, one
-  delivered Gmail and Outlook OTP + decision email, evidence recorded in `DECISIONS.md`. Longest
-  external lead time; everything customer-visible depends on it.
-- Deployed admin sign-in round-trip; browser R2 presign/PUT/CORS; a green `Deploy` workflow run;
-  the 50-concurrent load test; the remaining provisioning checklist.
+Ledger rev. 7 already proved the deployed thin slice: real OTP, deployed submit with routing,
+admin sign-in, edge-cached public schedule, and **Gmail delivery from the verified
+`mail.openboard.events` subdomain** (SPF/DKIM aligned). What remains:
+
+- The rest of the email track: Outlook probe, calendar-invite delivery, DMARC confirmation, a
+  production sending key — and, product-side, bounce/complaint handling (P3/M46).
+- Browser R2 presign/PUT/CORS round-trip (needs a seeded headshot → `contacts.ts`); a green
+  `Deploy` workflow run (deploys are still a laptop operation); the 50-concurrent load test; the
+  production half of the provisioning checklist.
 
 ## Phase P3 — trust and compliance (cheap, do alongside P1/P2)
 

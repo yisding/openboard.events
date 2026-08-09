@@ -4,7 +4,7 @@
 
 This folder is the execution surface for the build. It contains one **work order per module** plus the schedule that says who runs what, when.
 
-> **Current rebaseline (rev. 7, Sun Aug 9 evening):** R0 has exited and **R1 remains the active gate**. The #10 → #12 foundation stack and PRs #15–#52 are all merged — auth, the submit pipeline, abstracts reads, portal home/submissions, dashboard, ICS/calendar routes, and four of eight seed bodies are on `main` — but under the evidence rules no module is `DONE` and there is still no deployed, server-backed golden path. Read [`status.md`](status.md) before claiming work (§2b lists the post-rev-6 delta); the product overlay beyond the judged bar is [`product-roadmap.md`](product-roadmap.md). The original wave table remains the dependency choreography.
+> **Current rebaseline (rev. 8, Sun Aug 9 late evening):** R0 has exited and **R1 is essentially exited** — the preview is deployed from current `main`, both non-production databases are migrated and seeded, an admin signed in on the deployed preview, and **the Saturday thin slice is green end-to-end, including a delivered Gmail confirmation from the verified sending domain** (status §2a). Under the evidence rules no module is `DONE` yet; the next actions are M18's decision half, M17's drawer, and `contacts.ts` (status §6). Read [`status.md`](status.md) before claiming work (§2c lists the #25–#52 per-module ledger); the product overlay beyond the judged bar is [`product-roadmap.md`](product-roadmap.md). The original wave table remains the dependency choreography.
 
 ## Authority order (read this before you argue with anything)
 

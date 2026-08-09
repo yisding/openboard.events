@@ -7,6 +7,13 @@ const optionalString = z.preprocess(
   z.string().optional(),
 );
 
+/** Extract the RFC 5322 mailbox while preserving the original From header. */
+export function emailFromAddress(value: string): string | null {
+  const match = /^\s*(?:.*<\s*([^<>\s]+)\s*>|([^<>\s]+))\s*$/.exec(value);
+  const address = match?.[1] ?? match?.[2];
+  return address && z.email().safeParse(address).success ? address : null;
+}
+
 /**
  * A From header is a display name and an address — "AI.Engineer Sandbox
  * <hello@mail.openboard.events>" — and that is what makes a decision email look
@@ -16,11 +23,7 @@ const optionalString = z.preprocess(
 const optionalEmailFrom = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().refine(
-    (value) => {
-      const match = /^\s*(?:.*<\s*([^<>\s]+)\s*>|([^<>\s]+))\s*$/.exec(value);
-      const address = match?.[1] ?? match?.[2];
-      return address !== undefined && z.email().safeParse(address).success;
-    },
+    (value) => emailFromAddress(value) !== null,
     { message: "must be an address, optionally with a display name" },
   ).optional(),
 );

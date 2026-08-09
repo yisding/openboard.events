@@ -1,8 +1,9 @@
 # Product readiness: gaps between the current build and a sellable product
 
-**Date:** Aug 9, 2026 · **Baseline:** `main` after PR #52 · **Goal reframed:** the plan optimizes
-for a judged hackathon demo; this document assesses the same work against a different bar — a
-product a conference organizer would pay for.
+**Date:** Aug 9, 2026 · **Baseline:** `main` after PR #55 (ledger rev. 7 — the deployed
+thin-slice proof) · **Goal reframed:** the plan optimizes for a judged hackathon demo; this
+document assesses the same work against a different bar — a product a conference organizer would
+pay for.
 
 The one-line verdict: **there are two products in this repo.** The engine layer — schema, auth,
 submit pipeline, outbox dispatcher, R2 storage — is genuinely production-shaped and better than
@@ -63,10 +64,9 @@ home/submissions/detail.
 communications admin, speakers/tasks/resources admin, embeds admin, portal
 profile/tasks/resources — and, notably, **the public schedule and speaker pages themselves**
 (`src/features/public/public-schedule.tsx` is `"use client"` + `useDemo()`, so the deployed
-public page renders localStorage). The failing `s-maxage=60` smoke assertion is a separate,
-narrower issue: the cache fix (`revalidate = 60` + `generateStaticParams`) is already merged in
-PRs #26/#44 and needs only a redeploy plus header evidence — it does not depend on the
-public-page database rewrite.
+public page renders localStorage). The cache-header issue is separate and now closed: the fix
+merged in PRs #26/#44 and ledger rev. 7 records the deployed proof (`s-maxage`,
+`x-nextjs-cache: HIT`) — it never depended on the public-page database rewrite.
 
 **Missing outright (not demo, not server — absent):**
 
@@ -84,24 +84,25 @@ public-page database rewrite.
 
 This tier is the long pole and it is pure execution — the server layer beneath most of these
 surfaces already exists and is tested. The plan already knows this; `plan/status.md` calls it
-STACK-DEMO / SERVER-GAP. What the ledger understates is progress: it was last revised at PR #24
-and `main` is at PR #52 (~8,600 lines later — submit pipeline, abstracts, portal, CFP wizard,
-ICS, dashboard all landed since). **First action: re-audit and update the ledger, because the
-team is steering on stale instruments.**
+STACK-DEMO / SERVER-GAP, and ledger rev. 7/8 now carries the per-module PR record for #25–#52
+and the deployed thin-slice evidence, so the instruments are current again.
 
 ## 3. Gap tier 2 — unproven externals
 
 Per the repo's own evidence rules, code that hasn't been demonstrated against the real service
-doesn't count. Still unproven:
+doesn't count. Ledger rev. 7 retired the biggest items on this list: the deployed thin slice is
+green (real OTP, deployed submit with routing into Neon), an admin was bootstrapped and signed
+in on the preview, and — the one that mattered most — **email was actually delivered** to a real
+Gmail inbox from the verified `mail.openboard.events` subdomain with SPF and DKIM aligned.
 
-- **Email deliverability — the single biggest product risk.** Resend integration is written and
-  wired, but nothing has ever been delivered: no verified sending domain, no SPF/DKIM/DMARC, no
-  Gmail/Outlook evidence. A speaker-communications product with unproven deliverability is
-  unsellable. `plan/status.md` §7 says this itself.
-- A deployed admin sign-in (bootstrap only became runnable in PR #21), a browser R2
-  presign/PUT/CORS round-trip, the interactive-transaction load test, a green `Deploy` workflow
-  run (all runs so far skipped; preview was deployed by hand), and the 31 unchecked provisioning
-  items including all production secrets.
+Still unproven:
+
+- The rest of the email track: an Outlook probe, calendar-invite delivery, DMARC policy
+  confirmation, a production API key, and any bounce/complaint handling.
+- A browser R2 presign/PUT/CORS round-trip (blocked on a seeded headshot → `contacts.ts`), the
+  50-concurrent load test, a green `Deploy` workflow run (all runs so far skipped; deploys are
+  still a laptop operation), and the production half of the provisioning checklist — secrets,
+  `sb-prod` migration, production health/cron.
 
 ## 4. Gap tier 3 — commercial scope the plan never contained
 
@@ -155,16 +156,17 @@ a deliberate product decision now:
    agenda/sessions server → portal tasks/profile + upload UI → comms admin over the real log →
    public pages onto `published_*` views (which also fixes the failing cache assertion). Flip
    each module's e2e gate as it lands.
-2. **Prove email end-to-end this week**: domain, SPF/DKIM/DMARC, one delivered Gmail/Outlook
-   OTP and decision email. Everything downstream (portal login, notify, invites, reminders)
-   depends on it, and it has the longest external lead time.
+2. **Finish the email track**: Gmail delivery from the verified subdomain is proven (ledger
+   rev. 7); still open are the Outlook probe, calendar-invite delivery, DMARC confirmation, a
+   production sending key, and a bounce/complaint webhook. Deliverability groundwork has the
+   longest external lead time, so keep it moving in parallel with the wiring.
 3. **Close the trust gaps cheaply and now**: remove `TEST_AUTH` from preview, add security
    headers and submit-path rate limits, wire a Resend bounce webhook, extend unsubscribe
    handling fleet-wide, add Sentry (the `AppError`/logger seam makes this ~one file).
 4. **Then the commercial layer, in order**: org tenancy → signup/reset/invites → self-serve
    event creation → billing. Do not start billing before tenancy.
-5. **Update `plan/status.md`** and keep the evidence discipline — it is the best process asset
-   here; it just needs to reflect PRs #25–#52.
+5. **Keep the ledger's evidence discipline** — it is the best process asset here. Rev. 7/8 now
+   reflect PRs #25–#52 and the deployed proof; keep every future claim cited the same way.
 
 What *not* to spend effort on yet: Airtable export, embed configurator polish, week/track/room
 views, dashboard extras, AI review — all still correctly below the line until the loop above is
