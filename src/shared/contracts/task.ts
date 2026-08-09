@@ -13,6 +13,13 @@ export const taskDtoSchema = z.object({
   dueAt: z.iso.datetime().nullable(),
   isActive: z.boolean(),
   createdAt: z.iso.datetime(),
+}).superRefine((task, context) => {
+  const valid = task.completionMode === "manual"
+    ? task.formId === null && task.fileRequestId === null
+    : task.completionMode === "form"
+      ? task.formId !== null && task.fileRequestId === null
+      : task.formId === null && task.fileRequestId !== null;
+  if (!valid) context.addIssue({ code: "custom", path: ["completionMode"], message: "completion mode and resource do not match" });
 });
 export type TaskDTO = z.infer<typeof taskDtoSchema>;
 
@@ -25,6 +32,11 @@ export const taskAssignmentDtoSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
   completedVia: completionViaSchema.nullable(),
   overdue: z.boolean(),
+}).superRefine((assignment, context) => {
+  const hasCompletion = assignment.completedAt !== null && assignment.completedVia !== null;
+  if (assignment.completed !== hasCompletion) {
+    context.addIssue({ code: "custom", path: ["completed"], message: "completion metadata must match completed state" });
+  }
 });
 export type TaskAssignmentDTO = z.infer<typeof taskAssignmentDtoSchema>;
 

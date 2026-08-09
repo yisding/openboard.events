@@ -52,7 +52,7 @@ export const answerPanelDataSchema = z.object({
   answers: z.array(z.object({ fieldId: z.string(), participantId: z.string().nullable(), value: answerValueSchema })),
   participants: z.array(z.object({
     id: z.string(),
-    contactId: z.string(),
+    contactId: contactIdSchema,
     name: z.string(),
     role: participantRoleSchema,
     isPrimary: z.boolean(),
