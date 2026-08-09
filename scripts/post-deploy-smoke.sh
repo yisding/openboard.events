@@ -130,13 +130,25 @@ if expect_status "$base_url/api/health" 200 "health responds"; then
     && pass "/api/health"
 fi
 
-# 2. The public schedule is cached at the edge. The assertion is that s-maxage
-#    exists, not that it reads 60: OpenNext counts the value down as the cached
-#    entry ages, so a page rendered 58 seconds ago honestly answers s-maxage=2.
-#    Pinning the literal makes this check pass or fail on when it happened to run.
-if expect_status "$base_url/e/$event_slug/schedule" 200 "public schedule renders"; then
-  expect_header "cache-control" "s-maxage=" "public schedule is edge-cached" \
-    && pass "/e/$event_slug/schedule"
+# 2. The public schedule is cached at the edge. Two things this deliberately does
+#    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
+#    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and
+#    the header's presence on the first request. A cold entry — right after a
+#    deploy, or after a revalidation — is served STALE with no Cache-Control at
+#    all until the cache settles, which is a legitimate transient rather than a
+#    broken contract. So it is retried, and only a page that never becomes
+#    cacheable fails.
+schedule_ok=0
+for attempt in 1 2 3 4 5; do
+  if expect_status "$base_url/e/$event_slug/schedule" 200 "public schedule renders"; then
+    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then schedule_ok=1; break; fi
+  fi
+  sleep 2
+done
+if (( schedule_ok )); then
+  pass "/e/$event_slug/schedule"
+else
+  fail "$base_url/e/$event_slug/schedule" "public schedule is edge-cached (no s-maxage after 5 attempts)"
 fi
 
 # 3. The embed variant must be framable: CSP allows any ancestor and the legacy
