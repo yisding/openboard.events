@@ -1,0 +1,129 @@
+import { and, eq } from "drizzle-orm";
+import { db, type DbOrTx } from "@/db/client";
+import { events, forms } from "@/db/schema";
+import { type FormId, type FormSnapshot } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
+import { getCurrentSnapshotIn } from "./snapshots";
+
+/**
+ * Everything the public CFP page needs, in one read: the event's branding, the
+ * form's copy, the snapshot to render, and whether it is open.
+ *
+ * Openness is computed here rather than left to the client, and it comes back
+ * with a *reason*. "Closed" and "not open yet" are different pages to a speaker —
+ * one is an apology, the other is a date to come back on — and a boolean cannot
+ * tell them apart.
+ */
+export type PublicFormOpenState = {
+  open: boolean;
+  reason: "ok" | "not_open_yet" | "closed_by_date" | "closed_by_admin";
+};
+
+export type PublicForm = {
+  event: { name: string; slug: string; timezone: string; logoUrl: string | null; backgroundUrl: string | null };
+  form: {
+    id: FormId;
+    externalTitle: string;
+    pageHeading: string;
+    showWelcome: boolean;
+    welcomeHtml: string | null;
+    collectParticipants: boolean;
+    participantRoles: unknown;
+    successHtml: string | null;
+    autoRedirectToPortal: boolean;
+    closesAt: string | null;
+    effectiveLimit: number;
+  };
+  snapshot: FormSnapshot;
+  openState: PublicFormOpenState;
+};
+
+export function decideOpenState(
+  form: { status: string; opensAt: Date | null; closesAt: Date | null },
+  now: Date,
+): PublicFormOpenState {
+  // An admin closing a form outranks its dates: they may have closed it early,
+  // and telling a speaker to "come back on the 12th" would be a lie.
+  if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
+  if (form.opensAt && now < form.opensAt) return { open: false, reason: "not_open_yet" };
+  if (form.closesAt && now > form.closesAt) return { open: false, reason: "closed_by_date" };
+  return { open: true, reason: "ok" };
+}
+
+export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId: FormId): Promise<PublicForm> {
+  const [event] = await dbOrTx
+    .select({
+      id: events.id,
+      name: events.name,
+      slug: events.slug,
+      timezone: events.timezone,
+      logoFileId: events.logoFileId,
+      backgroundFileId: events.backgroundFileId,
+      submissionCapPerUser: events.submissionCapPerUser,
+    })
+    .from(events)
+    .where(eq(events.slug, eventSlug))
+    .limit(1);
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+
+  // Scoped by the event we just resolved, so a form id from another event does
+  // not render under this event's branding.
+  const [form] = await dbOrTx
+    .select({
+      id: forms.id,
+      context: forms.context,
+      status: forms.status,
+      externalTitle: forms.externalTitle,
+      pageHeading: forms.pageHeading,
+      showWelcome: forms.showWelcome,
+      welcomeHtml: forms.welcomeHtml,
+      collectParticipants: forms.collectParticipants,
+      participantRoles: forms.participantRoles,
+      successHtml: forms.successHtml,
+      autoRedirectToPortal: forms.autoRedirectToPortal,
+      opensAt: forms.opensAt,
+      closesAt: forms.closesAt,
+      submissionLimit: forms.submissionLimit,
+    })
+    .from(forms)
+    .where(and(eq(forms.id, formId), eq(forms.eventId, event.id)))
+    .limit(1);
+  if (!form) throw new AppError("NOT_FOUND", "Form not found");
+  // A portal form is not a public CFP; serving one here would expose an
+  // authenticated surface to anyone with the link.
+  if (form.context !== "cfp") throw new AppError("NOT_FOUND", "Form not found");
+
+  const snapshot = await getCurrentSnapshotIn(dbOrTx, event.id as Parameters<typeof getCurrentSnapshotIn>[1], formId);
+
+  return {
+    event: {
+      name: event.name,
+      slug: event.slug,
+      timezone: event.timezone,
+      // Files are immutable, so these URLs are safe to cache for as long as the
+      // page is.
+      logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
+      backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
+    },
+    form: {
+      id: form.id as FormId,
+      externalTitle: form.externalTitle,
+      pageHeading: form.pageHeading,
+      showWelcome: form.showWelcome,
+      welcomeHtml: form.welcomeHtml,
+      collectParticipants: form.collectParticipants,
+      participantRoles: form.participantRoles,
+      successHtml: form.successHtml,
+      autoRedirectToPortal: form.autoRedirectToPortal,
+      closesAt: form.closesAt ? form.closesAt.toISOString() : null,
+      // The form's own limit wins; the event cap is the default it falls back to.
+      effectiveLimit: form.submissionLimit ?? event.submissionCapPerUser,
+    },
+    snapshot,
+    openState: decideOpenState(form, new Date()),
+  };
+}
+
+export function getPublicForm(eventSlug: string, formId: FormId): Promise<PublicForm> {
+  return getPublicFormIn(db, eventSlug, formId);
+}
