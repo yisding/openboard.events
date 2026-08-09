@@ -82,6 +82,17 @@ describe("runSubmitPipeline", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("treats markup with no text as a missing rich-text answer", () => {
+    const result = runSubmitPipeline(
+      GOLDEN_SNAPSHOT,
+      { ...completeAnswers(), [DESCRIPTION.id]: text("<p><br></p>") },
+      { requireRequired: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[DESCRIPTION.id]).toContain("required");
+  });
+
   it("does not require required fields on a draft save", () => {
     const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { [TITLE.id]: text("Just the title so far") }, { requireRequired: false });
     expect(result.ok).toBe(true);

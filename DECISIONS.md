@@ -92,6 +92,26 @@
 
 - Contracts, migration schema, feature barrels, version pair, and invariant rules freeze after the foundation PR is accepted.
 
+## Product auth direction (2026-08-09)
+
+- The build's goal is reframed from the judged demo alone to a sellable product
+  (`plan/product-roadmap.md`, `docs/product-readiness.md`).
+- **Admin/organizer auth will move to Better Auth with Google enabled as a social provider**
+  (module M42). Google-only sign-in was rejected as insufficient for a product (locks out
+  non-Google organizers; still needs reset/verification/revocation), and Better Auth's Drizzle
+  adapter, organization/admin plugins, and maintained Cloudflare Workers/OpenNext integration
+  path line up with the tenancy and user-management roadmap.
+- Guardrails: the jose/PBKDF2 fallback remains the shipping auth until a deployed Better Auth
+  round-trip is proven on the preview (S4 redone) within the Worker bundle budget; existing
+  PBKDF2 hashes migrate via custom password-hashing hooks, no forced resets; do not combine
+  `cookieCache` with `secondaryStorage` (known open bug treats expired cache as logout);
+  `requireAdmin(eventId, role?)` stays the frozen implementation-neutral contract; portal
+  speaker OTP/magic-link auth does not move.
+- M42's acceptance criteria — legacy-hash detection with rehash-on-login, unchanged
+  `requireAdmin` authorization semantics, an isolated revocable admin session store, and a
+  deployed revocation proof — are recorded in `plan/product-roadmap.md` ("The product auth
+  decision").
+
 ## Migration authorship
 
 - The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.

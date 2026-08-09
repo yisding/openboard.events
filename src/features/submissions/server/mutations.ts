@@ -1,9 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
-import { forms, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
+  answerValueSchema,
   idem,
+  type AnswerValue,
   type CleanAnswers,
   type ContactId,
   type CreateSubmissionInput,
@@ -103,9 +105,10 @@ function assertOnePrimary(participants: CreateSubmissionInput["participants"]): 
   }
 }
 
-async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: string, input: CreateSubmissionInput): Promise<void> {
+async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: string, input: CreateSubmissionInput): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
   for (const participant of input.participants) {
-    await tx.insert(submissionParticipants).values({
+    const [row] = await tx.insert(submissionParticipants).values({
       eventId,
       submissionId,
       contactId: participant.contactId,
@@ -115,15 +118,31 @@ async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: strin
     }).onConflictDoUpdate({
       target: [submissionParticipants.submissionId, submissionParticipants.contactId],
       set: { role: participant.role, isPrimary: participant.isPrimary, sortOrder: participant.sortOrder },
-    });
+    }).returning({ id: submissionParticipants.id, contactId: submissionParticipants.contactId });
+    if (!row) throw new AppError("INTERNAL", "Could not store a submission participant");
+    ids.set(row.contactId, row.id);
   }
+  return ids;
 }
 
-async function writeAnswers(tx: TxDb, eventId: EventId, submissionId: string, answers: CleanAnswers): Promise<void> {
+async function replaceAnswers(
+  tx: TxDb,
+  eventId: EventId,
+  submissionId: string,
+  answers: CleanAnswers,
+  participantIds: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
+  // Draft saves and final submit are snapshots, not patches. Removing rows first
+  // also discards an answer to a question that has since become hidden.
+  await tx.delete(submissionAnswers).where(eq(submissionAnswers.submissionId, submissionId));
   for (const answer of answers) {
+    const participantId = answer.participantId ? participantIds.get(answer.participantId) : null;
+    if (answer.participantId && !participantId) {
+      throw new AppError("VALIDATION", "An answer belongs to an unknown participant");
+    }
     await tx.execute(sql`
       INSERT INTO submission_answers (event_id, submission_id, field_id, participant_id, value)
-      VALUES (${eventId}, ${submissionId}, ${answer.fieldId}, ${answer.participantId ?? null}, ${JSON.stringify(answer.value)}::jsonb)
+      VALUES (${eventId}, ${submissionId}, ${answer.fieldId}, ${participantId}, ${JSON.stringify(answer.value)}::jsonb)
       ON CONFLICT (submission_id, field_id, participant_id)
       DO UPDATE SET value = EXCLUDED.value, updated_at = now()
     `);
@@ -160,121 +179,122 @@ function submissionColumns(input: CreateSubmissionInput) {
   };
 }
 
-export async function createSubmission(eventId: EventId, input: CreateSubmissionInput): Promise<CreateSubmissionResult> {
+export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: CreateSubmissionInput): Promise<CreateSubmissionResult> {
   assertOnePrimary(input.participants);
   const status: SubmissionStatus = input.initialStatus ?? "pending";
 
-  return withTx(async (tx) => {
-    // Serializes submits per event, which is what closes the two-tab race on the
-    // limit check and on the code sequence.
-    const [event] = await tx.execute<{ id: string; submission_cap_per_user: number }>(sql`
-      SELECT id, submission_cap_per_user FROM events WHERE id = ${eventId} FOR UPDATE
-    `).then((result) => result.rows ?? []);
-    if (!event) throw new AppError("NOT_FOUND", "Event not found");
+  // Serializes submits per event, which is what closes the two-tab race on the
+  // limit check and on the code sequence.
+  const [event] = await tx.execute<{ id: string; submission_cap_per_user: number }>(sql`
+    SELECT id, submission_cap_per_user FROM events WHERE id = ${eventId} FOR UPDATE
+  `).then((result) => result.rows ?? []);
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
 
-    let form: FormRow | null = null;
-    if (input.formId) {
-      form = await loadForm(tx, eventId, input.formId);
-      if (input.enforce?.deadline !== false) await assertFormOpen(tx, input.formId);
-      if (input.enforce?.limit !== false && input.submitterContactId) {
-        await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, Number(event.submission_cap_per_user));
-      }
+  // Idempotency precedes mutable deadline and limit gates. A response can be
+  // lost after commit; retrying that exact draft must return the committed row,
+  // even if the form closed or the first submit consumed the final slot.
+  if (input.draftSubmissionId) {
+    const alreadySubmitted = (await tx.execute<{ id: string; code: number; status: SubmissionStatus }>(sql`
+      SELECT id, code, status FROM submissions
+      WHERE id = ${input.draftSubmissionId} AND event_id = ${eventId} AND status <> 'draft'
+      FOR UPDATE
+    `)).rows?.[0];
+    if (alreadySubmitted) {
+      return {
+        submissionId: alreadySubmitted.id as SubmissionId,
+        code: Number(alreadySubmitted.code),
+        status: alreadySubmitted.status,
+        promotedFromDraft: true,
+      };
     }
+  }
 
-    const columns = submissionColumns(input);
-
-    // A retried or double-clicked submit arrives after the first one already
-    // promoted the draft, so there is no draft left to find. Without this the
-    // second request allocates a fresh code and the speaker ends up with two
-    // proposals. M16 passes the draft id it holds precisely for this.
-    if (input.draftSubmissionId) {
-      const alreadySubmitted = (await tx.execute<{ id: string; code: number; status: SubmissionStatus }>(sql`
-        SELECT id, code, status FROM submissions
-        WHERE id = ${input.draftSubmissionId} AND event_id = ${eventId} AND status <> 'draft'
-        FOR UPDATE
-      `)).rows?.[0];
-      if (alreadySubmitted) {
-        return {
-          submissionId: alreadySubmitted.id as SubmissionId,
-          code: Number(alreadySubmitted.code),
-          status: alreadySubmitted.status,
-          promotedFromDraft: true,
-        };
-      }
+  let form: FormRow | null = null;
+  if (input.formId) {
+    form = await loadForm(tx, eventId, input.formId);
+    if (input.enforce?.deadline !== false) await assertFormOpen(tx, input.formId);
+    if (input.enforce?.limit !== false && input.submitterContactId) {
+      await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, Number(event.submission_cap_per_user));
     }
+  }
 
-    // Draft promotion keeps the code the speaker has already been shown. A new
-    // one here would renumber their submission between the wizard and the
-    // confirmation email.
-    //
-    // Only a CFP submit promotes: an organizer adding an abstract by hand must
-    // not silently overwrite the draft a speaker is still working on.
-    let promotedFromDraft = false;
-    let submissionId: string;
-    let code: number;
-    const draft = input.source === "cfp" && input.formId && input.submitterContactId
-      ? (await tx.execute<{ id: string; code: number }>(sql`
-        SELECT id, code FROM submissions
-        WHERE event_id = ${eventId} AND form_id = ${input.formId}
-          AND submitter_contact_id = ${input.submitterContactId} AND status = 'draft'
-        FOR UPDATE
-      `)).rows?.[0]
-      : undefined;
+  const columns = submissionColumns(input);
 
-    if (draft) {
-      promotedFromDraft = true;
-      submissionId = draft.id;
-      code = Number(draft.code);
-      await tx.update(submissions).set({
-        ...columns,
-        status,
-        formVersion: input.formVersion,
-        source: input.source,
-        kind: input.kind,
-        // A promotion that stays a draft has not been submitted, so it must not
-        // carry a submitted_at that every downstream sort trusts.
-        ...(status === "draft" ? {} : { submittedAt: new Date() }),
-        rowVersion: sql`${submissions.rowVersion} + 1`,
-        updatedAt: new Date(),
-      }).where(eq(submissions.id, submissionId));
-    } else {
-      code = await nextSubmissionCode(tx, eventId);
-      const [inserted] = await tx.insert(submissions).values({
-        eventId,
-        formId: input.formId,
-        formVersion: input.formVersion,
-        code,
-        kind: input.kind,
-        status,
-        source: input.source,
-        submitterContactId: input.submitterContactId,
-        ...(status === "draft" ? {} : { submittedAt: new Date() }),
-        ...columns,
-      }).returning({ id: submissions.id });
-      if (!inserted) throw new AppError("INTERNAL", "Could not create the submission");
-      submissionId = inserted.id;
-    }
+  // Draft promotion keeps the code the speaker has already been shown. A new
+  // one here would renumber their submission between the wizard and the
+  // confirmation email.
+  //
+  // Only a CFP submit promotes: an organizer adding an abstract by hand must
+  // not silently overwrite the draft a speaker is still working on.
+  let promotedFromDraft = false;
+  let submissionId: string;
+  let code: number;
+  const draft = input.source === "cfp" && input.formId && input.submitterContactId
+    ? (await tx.execute<{ id: string; code: number }>(sql`
+      SELECT id, code FROM submissions
+      WHERE event_id = ${eventId} AND form_id = ${input.formId}
+        AND submitter_contact_id = ${input.submitterContactId} AND status = 'draft'
+      FOR UPDATE
+    `)).rows?.[0]
+    : undefined;
 
-    await writeParticipants(tx, eventId, submissionId, input);
-    await writeAnswers(tx, eventId, submissionId, input.answers);
-    await writeTags(tx, eventId, submissionId, input);
+  if (draft) {
+    promotedFromDraft = true;
+    submissionId = draft.id;
+    code = Number(draft.code);
+    await tx.update(submissions).set({
+      ...columns,
+      status,
+      formVersion: input.formVersion,
+      source: input.source,
+      kind: input.kind,
+      // A promotion that stays a draft has not been submitted, so it must not
+      // carry a submitted_at that every downstream sort trusts.
+      ...(status === "draft" ? {} : { submittedAt: new Date() }),
+      rowVersion: sql`${submissions.rowVersion} + 1`,
+      updatedAt: new Date(),
+    }).where(eq(submissions.id, submissionId));
+  } else {
+    code = await nextSubmissionCode(tx, eventId);
+    const [inserted] = await tx.insert(submissions).values({
+      eventId,
+      formId: input.formId,
+      formVersion: input.formVersion,
+      code,
+      kind: input.kind,
+      status,
+      source: input.source,
+      submitterContactId: input.submitterContactId,
+      ...(status === "draft" ? {} : { submittedAt: new Date() }),
+      ...columns,
+    }).returning({ id: submissions.id });
+    if (!inserted) throw new AppError("INTERNAL", "Could not create the submission");
+    submissionId = inserted.id;
+  }
 
-    // The per-form toggle decides for CFP submits, because M16 never passes the
-    // flag — which is why turning it off in form settings really does mean zero
-    // rows here.
-    const sendConfirmation = input.sendConfirmation ?? form?.sendConfirmation ?? true;
-    if (sendConfirmation && status !== "draft" && input.submitterContactId) {
-      await enqueueEmail(tx, {
-        eventId,
-        templateKey: "submission_received",
-        contactId: input.submitterContactId,
-        idempotencyKey: idem.received(eventId, submissionId as SubmissionId),
-        refs: { submissionId: submissionId as SubmissionId },
-      });
-    }
+  const participantIds = await writeParticipants(tx, eventId, submissionId, input);
+  await replaceAnswers(tx, eventId, submissionId, input.answers, participantIds);
+  await writeTags(tx, eventId, submissionId, input);
 
-    return { submissionId: submissionId as SubmissionId, code, status, promotedFromDraft };
-  });
+  // The per-form toggle decides for CFP submits, because M16 never passes the
+  // flag — which is why turning it off in form settings really does mean zero
+  // rows here.
+  const sendConfirmation = input.sendConfirmation ?? form?.sendConfirmation ?? true;
+  if (sendConfirmation && status !== "draft" && input.submitterContactId) {
+    await enqueueEmail(tx, {
+      eventId,
+      templateKey: "submission_received",
+      contactId: input.submitterContactId,
+      idempotencyKey: idem.received(eventId, submissionId as SubmissionId),
+      refs: { submissionId: submissionId as SubmissionId },
+    });
+  }
+
+  return { submissionId: submissionId as SubmissionId, code, status, promotedFromDraft };
+}
+
+export function createSubmission(eventId: EventId, input: CreateSubmissionInput): Promise<CreateSubmissionResult> {
+  return withTx((tx) => createSubmissionIn(tx, eventId, input));
 }
 
 /**
@@ -287,7 +307,7 @@ export async function upsertDraft(
   contactId: ContactId,
   formId: FormId,
   formVersion: number,
-): Promise<{ submissionId: SubmissionId; code: number }> {
+): Promise<{ submissionId: SubmissionId; code: number; answers: Record<string, AnswerValue> }> {
   return withTx(async (tx) => {
     // The form_id foreign key proves the form exists, not that it belongs to
     // this event — without this a caller could start a draft against another
@@ -304,7 +324,14 @@ export async function upsertDraft(
       await tx.update(submissions)
         .set({ formVersion, updatedAt: new Date() })
         .where(eq(submissions.id, existing.id));
-      return { submissionId: existing.id as SubmissionId, code: Number(existing.code) };
+      const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
+        .from(submissionAnswers)
+        .where(and(eq(submissionAnswers.submissionId, existing.id), isNull(submissionAnswers.participantId)));
+      return {
+        submissionId: existing.id as SubmissionId,
+        code: Number(existing.code),
+        answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
+      };
     }
 
     // FOR UPDATE cannot lock a row that does not exist, so two first-time calls
@@ -332,7 +359,31 @@ export async function upsertDraft(
 
     // The losing racer's allocated code is simply unused; a gap in the sequence
     // costs nothing, a duplicate submission costs a speaker their proposal.
-    return { submissionId: inserted.id as SubmissionId, code: inserted.code };
+    return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {} };
+  });
+}
+
+/** Replace an authenticated speaker's incomplete draft answers. */
+export async function saveDraftAnswers(
+  eventId: EventId,
+  contactId: ContactId,
+  formId: FormId,
+  formVersion: number,
+  answers: CleanAnswers,
+): Promise<{ submissionId: SubmissionId }> {
+  return withTx(async (tx) => {
+    const draft = (await tx.execute<{ id: string }>(sql`
+      SELECT id FROM submissions
+      WHERE event_id = ${eventId} AND form_id = ${formId}
+        AND submitter_contact_id = ${contactId} AND status = 'draft'
+      FOR UPDATE
+    `)).rows?.[0];
+    if (!draft) throw new AppError("NOT_FOUND", "Draft not found");
+    await replaceAnswers(tx, eventId, draft.id, answers);
+    await tx.update(submissions)
+      .set({ formVersion, updatedAt: new Date() })
+      .where(eq(submissions.id, draft.id));
+    return { submissionId: draft.id as SubmissionId };
   });
 }
 

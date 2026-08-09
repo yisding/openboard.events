@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PublicForm } from "@/features/forms";
 import { FormFieldRenderer } from "./form-field-renderer";
-import type { AnswerValue, FieldId } from "@/shared/contracts";
+import type { AnswerValue, ContactId, FieldId, FormSnapshot } from "@/shared/contracts";
+import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { Button } from "@/shared/ui/ui-kit";
 
 /**
@@ -18,8 +19,16 @@ type Step = "account" | "submission" | "speaker" | "review" | "done";
 
 type Answers = Record<string, AnswerValue | undefined>;
 
-async function post(path: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string> }> {
-  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
+export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
+
+async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    return { ok: false, data: {}, message: "Could not reach the server", retryable: true };
+  }
   const payload = await response.json().catch(() => null) as {
     data?: Record<string, unknown>;
     error?: { message?: string; data?: { fieldErrors?: Record<string, string> }; fieldErrors?: Record<string, string> };
@@ -31,9 +40,39 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; data: R
       message: payload?.error?.message ?? "Something went wrong",
       ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
       ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
+      retryable: response.status === 408 || response.status === 429 || response.status >= 500,
     };
   }
   return { ok: true, data: payload.data, message: "" };
+}
+
+export async function saveWithRetry(
+  save: () => Promise<RequestResult>,
+  onState: (state: AutosaveState) => void,
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)),
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    onState(attempt === 0 ? "saving" : "retrying");
+    const result = await save();
+    if (result.ok) {
+      onState("saved");
+      return true;
+    }
+    if (!result.retryable || attempt === 2) break;
+    await wait(250 * (2 ** attempt));
+  }
+  onState("failed");
+  return false;
+}
+
+/** Queue full-answer snapshots so a slow older PATCH cannot overwrite a newer one. */
+export function serializeAutosaves<T>(save: (snapshot: T) => Promise<boolean>): (snapshot: T) => Promise<boolean> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (snapshot) => {
+    const pending = tail.then(() => save(snapshot));
+    tail = pending.catch(() => false);
+    return pending;
+  };
 }
 
 export function CfpSteps({ data }: { data: PublicForm }) {
@@ -41,41 +80,79 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [step, setStep] = useState<Step>("account");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [codeRequested, setCodeRequested] = useState(false);
   const [fallbackOtp, setFallbackOtp] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
+  const [contactId, setContactId] = useState<ContactId | null>(null);
+  const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
+  const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
+  autosave.current ??= serializeAutosaves((snapshotAnswers) => saveWithRetry(
+    () => request(`/api/internal/forms/${form.id}/draft`, {
+      eventId: event.id,
+      formId: form.id,
+      formVersion: snapshot.version,
+      answers: snapshotAnswers,
+    }, "PATCH"),
+    setSaveState,
+  ));
 
-  const onChange = (fieldId: FieldId, value: AnswerValue | undefined) =>
+  const onChange = (fieldId: FieldId, value: AnswerValue | undefined) => {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!draftId) return;
+    setSaveState("saving");
+    const timer = window.setTimeout(() => {
+      void autosave.current?.({ ...answers });
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [answers, draftId]);
 
   async function requestCode() {
     setBusy(true);
     setNotice("");
-    const sent = await post("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
+    const sent = await request("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
     setBusy(false);
     if (!sent.ok) { setNotice(sent.message); return; }
     // The preview surfaces the issued code inline; production never does, which
     // is why this is read from the response rather than assumed.
     const fallback = sent.data.fallback as { otp?: string } | undefined;
     setFallbackOtp(fallback?.otp ?? null);
+    setCodeRequested(true);
     setNotice(String(sent.data.message ?? "We sent you a code"));
   }
 
   async function verifyAndStart() {
     setBusy(true);
     setNotice("");
-    const verified = await post("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
+    const verified = await request("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
     if (!verified.ok) { setBusy(false); setNotice(verified.message); return; }
+    const verifiedContactId = String(verified.data.contactId) as ContactId;
 
     // The draft exists from this moment, pinned to the version being rendered.
-    const draft = await post(`/api/internal/forms/${form.id}/draft`, { eventId: event.id, formId: form.id, formVersion: snapshot.version });
+    const draft = await request(`/api/internal/forms/${form.id}/draft`, { eventId: event.id, formId: form.id, formVersion: snapshot.version });
     setBusy(false);
     if (!draft.ok) { setNotice(draft.message); return; }
     setDraftId(String(draft.data.submissionId));
+    setContactId(verifiedContactId);
+    const restored = (draft.data.answers ?? {}) as Answers;
+    const emailField = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "email");
+    setAnswers((current) => ({
+      ...restored,
+      ...current,
+      ...(emailField ? { [emailField.id]: { t: "s", v: email.trim().toLowerCase() } as const } : {}),
+    }));
     setStep("submission");
   }
 
@@ -83,21 +160,29 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setBusy(true);
     setErrors({});
     setNotice("");
-    const sent = await post(`/api/internal/forms/${form.id}/submit`, {
+    const participantIds = new Set(snapshot.sections
+      .filter((section) => section.key === "participant")
+      .flatMap((section) => section.fields.map((field) => field.id)));
+    const participantAnswers = Object.fromEntries(Object.entries(answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId)));
+    const sent = await request(`/api/internal/forms/${form.id}/submit`, {
       eventId: event.id,
       formId: form.id,
       formVersion: snapshot.version,
       draftSubmissionId: draftId,
       answers,
+      ...(contactId ? {
+        participants: [{ contactId, role: "speaker", isPrimary: true, sortOrder: 0, answers: participantAnswers }],
+      } : {}),
     });
     setBusy(false);
     if (!sent.ok) {
       // Field errors belong next to their fields; anything else is a message.
-      if (sent.fieldErrors) { setErrors(sent.fieldErrors); setStep("submission"); }
+      if (sent.fieldErrors) { setErrors(sent.fieldErrors); setStep(stepForErrors(snapshot, sent.fieldErrors)); }
       setNotice(sent.fieldErrors ? "Some answers need attention" : sent.message);
       return;
     }
     setResult({ code: Number(sent.data.code) });
+    setDraftId(null);
     setStep("done");
   }
 
@@ -112,6 +197,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   return (
+    <FormUploadProvider eventId={event.id}>
     <section className="cfp-step">
       <ol className="cfp-progress">
         {(["account", "submission", "speaker", "review"] as const).map((name) => (
@@ -125,7 +211,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
             <span>Email address</span>
             <input type="email" value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
           </label>
-          {fallbackOtp === null ? (
+          {!codeRequested ? (
             <Button onClick={requestCode} disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
           ) : (
             <>
@@ -134,7 +220,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 <input inputMode="numeric" value={code} onChange={(change) => setCode(change.target.value)} />
               </label>
               {/* Development diagnostics only — production does not return this. */}
-              <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>
+              {fallbackOtp && <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>}
               <Button onClick={verifyAndStart} disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Continue"}</Button>
             </>
           )}
@@ -173,6 +259,27 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       )}
 
       {notice && <p className="cfp-notice" role="status">{notice}</p>}
+      {draftId && (
+        <div className="autosave" aria-live="polite">
+          {saveState === "saving" && "Saving…"}
+          {saveState === "retrying" && "Save interrupted — retrying…"}
+          {saveState === "saved" && "Saved"}
+          {saveState === "failed" && (
+            <>
+              <span>Changes are not saved.</span>{" "}
+              <button type="button" onClick={() => void autosave.current?.({ ...answers })}>Retry now</button>
+            </>
+          )}
+        </div>
+      )}
     </section>
+    </FormUploadProvider>
   );
+}
+
+export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
+  const participantFields = new Set(snapshot.sections
+    .filter((section) => section.key === "participant")
+    .flatMap((section) => section.fields.map((field) => field.id)));
+  return Object.keys(fieldErrors).some((fieldId) => participantFields.has(fieldId as FieldId)) ? "speaker" : "submission";
 }

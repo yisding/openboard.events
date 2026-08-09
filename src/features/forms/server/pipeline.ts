@@ -32,9 +32,9 @@ function allFields(snapshot: FormSnapshot): FormField[] {
   return snapshot.sections.flatMap((section) => section.fields);
 }
 
-function isEmpty(value: AnswerValue | undefined): boolean {
+function isEmpty(field: FormField, value: AnswerValue | undefined): boolean {
   if (value === undefined) return true;
-  if (value.t === "s") return value.v.trim().length === 0;
+  if (value.t === "s") return field.type === "richtext" ? plainTextLength(value.v) === 0 : value.v.trim().length === 0;
   if (value.t === "opts") return value.v.length === 0;
   return false;
 }
@@ -77,7 +77,7 @@ export function runSubmitPipeline(
   for (const field of allFields(snapshot)) {
     if (!visible.has(field.id)) continue;
     const value = clean[field.id];
-    if (isEmpty(value)) {
+    if (isEmpty(field, value)) {
       if (opts.requireRequired && field.required) fieldErrors[field.id] = `${field.label} is required`;
       continue;
     }
