@@ -3,18 +3,26 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { AdminShell } from "@/features/shell/admin-shell";
 import { requireAdmin, requiredRoleForEventPath, type AdminSession } from "@/features/auth";
+import { resolveLocalDashboardEventId } from "@/features/dashboard/lib/dashboard-tab";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { eventIdSchema } from "@/shared/contracts";
+import { eventIdSchema, type EventId } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export default async function EventLayout({ children, params }: { children: React.ReactNode; params: Promise<{ eventId: string }> }) {
-  const parsedEventId = eventIdSchema.safeParse((await params).eventId);
-  if (!parsedEventId.success) notFound();
-  const eventId = parsedEventId.data;
+  const requestedEventId = (await params).eventId;
+  const localDemo = isCredentialFreeLocalDemo();
+  const parsedEventId = eventIdSchema.safeParse(requestedEventId);
+  const resolvedEventId = localDemo
+    ? resolveLocalDashboardEventId(requestedEventId)
+    : parsedEventId.success ? parsedEventId.data : null;
+  if (!resolvedEventId) notFound();
+  // The only non-UUID value accepted here is the credential-free local demo.
+  // It never reaches an authenticated database boundary below.
+  const eventId = resolvedEventId as EventId;
   const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"));
   let session: AdminSession | null = null;
-  if (!isCredentialFreeLocalDemo()) {
+  if (!localDemo) {
     try {
       session = await requireAdmin(eventId, requiredRoleForEventPath(eventId, requestPath));
     } catch (error) {

@@ -13,10 +13,12 @@ import { useToast } from "@/shared/ui/toast";
 export function SpeakersPage({
   eventId,
   initialContactId = null,
+  initialSpeaker = null,
   missing = null,
 }: {
   eventId: string;
   initialContactId?: string | null;
+  initialSpeaker?: SpeakerRecord | null;
   missing?: SpeakerMissingFilter | null;
 }) {
   const { state, dispatch } = useDemo();
@@ -26,7 +28,12 @@ export function SpeakersPage({
   const [confirmation, setConfirmation] = useState("all");
   const [openId, setOpenId] = useState<string | null>(initialContactId);
   const event = state.events.find((item) => item.id === eventId);
-  const eventSpeakers = useMemo(() => state.speakers.filter((speaker) => speaker.eventId === eventId), [state.speakers, eventId]);
+  const eventSpeakers = useMemo(() => {
+    const records = state.speakers.filter((speaker) => speaker.eventId === eventId);
+    return initialSpeaker && !records.some((speaker) => speaker.id === initialSpeaker.id)
+      ? [...records, initialSpeaker]
+      : records;
+  }, [state.speakers, eventId, initialSpeaker]);
   const speakers = useMemo(() => eventSpeakers.filter((speaker) => matchesMissingAsset(speaker, missing) && (confirmation === "all" || speaker.confirmation === confirmation) && `${speakerName(speaker)} ${speaker.company} ${speaker.email}`.toLowerCase().includes(search.toLowerCase())), [confirmation, search, eventSpeakers, missing]);
   const active = eventSpeakers.find((item) => item.id === openId) ?? null;
   const outstanding = (speakerId: string) => state.tasks.filter((task) => task.eventId === eventId && !state.completions.some((done) => done.taskId === task.id && done.speakerId === speakerId)).length;
