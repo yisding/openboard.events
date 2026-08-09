@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **the server half is merged** (#29, #30): the barrel, `requirePortalContext`, `listMySubmissions`/`getMySubmission`/`countMySubmissions`, the two internal routes, and seven PGlite isolation cases. Step 0's contact helpers are back under this module's ownership. Remaining: swapping the shell, Home widgets and submissions view off `useDemo()` onto these queries, `scripts/seed/portal.ts`, and the My Sessions widget against M28's dashed `getMySessions`. |
+| **Status** | IN REVIEW — **every M21 surface now reads the database** (#29–#33): the barrel, `requirePortalContext`, the submission queries and task summary, the list/detail views, the Home widgets, and `scripts/seed/portal.ts`. Remaining for `DONE`: deployed evidence, and the My Sessions widget, which stays a stated placeholder until M28's `getMySessions` lands. |
 | **Workstream / executing agent** | WS-D agent (`features/portal`, folder-owner per PLAN.md §6). This is the first `features/portal`-lane module; the same agent spent Saturday on M07 + M05b (cross-folder grants) before starting here. |
 | **Scheduled** | Sat PM – Sun, per WS-D's order (`M07 + M05b (Sat) → M21 (Sat PM–Sun)`). Starts once M06b's portal session (`requirePortal`, Sat PM) and M05a's core UI primitives (Sat AM) are available. |
 | **Size** | M |
