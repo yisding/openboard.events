@@ -1,17 +1,64 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "openboard-web",
+  "name": "sb-web-local",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "observability": { "enabled": true },
   "vars": {
-    "APP_BASE_URL": "http://localhost:3000",
-    "EMAIL_MODE": "log"
+    "APP_ENV": "local",
+    "EMAIL_MODE": "log",
+    "EMAIL_FALLBACK_UI": "1",
+    "AIRTABLE_CRON": "0",
+    "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
+    "R2_BUCKET_NAME": "sb-files-dev"
   },
   "r2_buckets": [
-    { "binding": "FILES", "bucket_name": "openboard-files" },
-    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "openboard-files" }
-  ]
+    { "binding": "FILES", "bucket_name": "sb-files-dev" },
+    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-dev" }
+  ],
+  "services": [
+    { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-local" }
+  ],
+  "env": {
+    "preview": {
+      "name": "sb-web-preview",
+      "vars": {
+        "APP_ENV": "preview",
+        "EMAIL_MODE": "log",
+        "EMAIL_FALLBACK_UI": "1",
+        "AIRTABLE_CRON": "0",
+        "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
+        "R2_BUCKET_NAME": "sb-files-preview",
+        "TEST_AUTH": "1"
+      },
+      "r2_buckets": [
+        { "binding": "FILES", "bucket_name": "sb-files-preview" },
+        { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-preview" }
+      ],
+      "services": [
+        { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-preview" }
+      ]
+    },
+    "production": {
+      "name": "sb-web",
+      "vars": {
+        "APP_ENV": "production",
+        "EMAIL_MODE": "send",
+        "EMAIL_FALLBACK_UI": "0",
+        "AIRTABLE_CRON": "0",
+        "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
+        "R2_BUCKET_NAME": "sb-files"
+      },
+      "r2_buckets": [
+        { "binding": "FILES", "bucket_name": "sb-files" },
+        { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files" }
+      ],
+      "services": [
+        { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web" }
+      ]
+    }
+  }
 }

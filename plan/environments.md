@@ -39,8 +39,8 @@ preview-only fallbacks are evidence aids, not substitutes for production authent
 
 Local database work uses `sb-dev`; destructive experiments may use disposable Neon
 branches. The checked-in Wrangler base configuration represents safe local defaults, and
-named `preview` / `production` environments must contain real deployed URLs rather than
-placeholder `workers.dev` hostnames.
+named `preview` / `production` environments receive the exact deployed URL from the guarded
+deploy script rather than storing a placeholder `workers.dev` hostname.
 
 ## 4. Runtime inventory
 
@@ -48,6 +48,7 @@ placeholder `workers.dev` hostnames.
 
 | Name | Kind | Required where | Purpose |
 |---|---|---|---|
+| `APP_ENV` | variable | preview and production | Exactly `preview` or `production` when deployed; omitted local input defaults to `local` |
 | `DATABASE_URL` | secret | all | Pooled Neon runtime URL |
 | `SESSION_SECRET` | secret | all | Session, OTP, and portal-token signing key |
 | `RESEND_API_KEY` | secret | production; preview only for send tests | Resend API credential |
@@ -84,22 +85,24 @@ Do not copy `DATABASE_URL`, Resend, R2, Airtable, or session credentials to `sb-
 | Name | Storage | Purpose |
 |---|---|---|
 | `DATABASE_URL_DIRECT` | local `.dev.vars` or protected GitHub deployment environment | Direct Neon URL for Drizzle migrations; never a Worker runtime secret |
-| `NEON_TEST_URL` | GitHub Actions repository secret | Direct/appropriate URL used to reset and migrate `sb-test` for CI |
+| `NEON_TEST_URL` | protected GitHub `preview` environment secret | Direct/appropriate URL used to reset and migrate `sb-test` for protected preview E2E; never available to credential-free CI |
 | `CLOUDFLARE_API_TOKEN` | protected GitHub deployment environment | Least-privilege Workers/R2 deployment token |
 | `CLOUDFLARE_ACCOUNT_ID` | protected GitHub deployment variable or secret | Account targeted by Wrangler |
-| `E2E_BASE_URL` | GitHub variable | Deployed preview exercised by Playwright |
-| `NEXT_PUBLIC_BUILD_SHA` | CI build variable | Public commit identifier embedded in the walking skeleton/health UI |
+| `E2E_BASE_URL` | protected GitHub `preview` environment variable | Deployed preview exercised by Playwright |
+| `NEXT_PUBLIC_BUILD_SHA` | CI build/deploy variable | Public commit identifier embedded in the build and health response |
 
-`main` currently has no GitHub Actions workflow. PR #5 proposes validation-only CI and
-consumes none of these deployment secrets. Add them only when a deploy job lands; prefer a
-protected GitHub `production` environment for production migration/deploy credentials.
+Validation CI is credential-free and uses only repository/event metadata such as the build
+SHA. Protected preview E2E and deployment workflows read credentials only from the matching
+GitHub `preview` / `production` environment; require a reviewer for production.
+Automatic production deploys remain gated by repository variable
+`PRODUCTION_DEPLOY_ENABLED=1` until manual provisioning proof is complete.
 
 ## 5. Service setup
 
 ### Cloudflare Workers
 
 Start on Workers Free. As measured on Aug 8, the current OpenNext artifact is
-`1122.48 KiB` gzip, below Free's 3 MB compressed-worker limit. Free also covers this
+`1204.60 KiB` gzip, below Free's 3 MB compressed-worker limit. Free also covers this
 project's two workers and one cron trigger.
 
 Re-run `wrangler deploy --dry-run` on every production candidate. Upgrade the account to
@@ -144,18 +147,19 @@ Workers Paid is a separate Workers subscription; a paid zone plan is not require
   `schema.bases:write` only for a provisioning script.
 - Keep the token and base ID on `sb-web` only. Do not provision them until M39 is unpaused.
 
-## 6. Current scaffold drift to fix in R1
+## 6. Configuration-ready, not provisioned
 
-As of the PR #3 baseline, checked-in runtime configuration does not yet match this contract:
+The checked-in configuration now matches this contract:
 
-- worker names are `openboard-web` / `openboard-jobs`, not the canonical names above;
-- both R2 bindings and `.dev.vars.example` name `openboard-files`, not the separated buckets;
-- web `APP_BASE_URL` is localhost and the jobs production URL is a placeholder;
-- the web worker has no named preview/production environments;
-- `.dev.vars.example` omits the optional `AIRTABLE_CRON=0` flag, while the typed env accessor
-  exposes only `CRON_SECRET` despite the larger committed example;
-- `main` has no CI/deployment workflow; PR #5's proposed workflow validates but does not
-  install runtime secrets or deploy either worker.
+- Wrangler uses canonical local/preview/production Worker names and isolated R2 buckets;
+- deploys require the exact matching HTTPS web origin instead of a guessed hostname;
+- the web config has complete named environments and a self-service binding for the
+  in-memory OpenNext revalidation queue;
+- `.dev.vars.example` and the typed runtime validator cover the committed inventory and
+  enforce stricter production rules;
+- validation CI checks generated bindings and Worker size, while the protected deploy
+  workflow orders Neon migration → web → jobs → smoke.
 
-These are explicit M01/M04/M07/M08 implementation gaps. This planning PR records them; it
-does not disguise them by treating the current scaffold as provisioned infrastructure.
+No external resource is implied by those files. Cloudflare Workers/R2, Neon branches,
+Worker secrets, protected GitHub environments, Resend DNS, and all deployed acceptance
+evidence remain outstanding. Follow [`../docs/provisioning.md`](../docs/provisioning.md).

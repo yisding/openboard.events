@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — migration drafts exist only in PR #5 and are **REVIEW-BLOCKED** on invalid PostgreSQL constraints and missing event-isolation FKs; nothing has been applied to Neon. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** SQL migrations and a tracked Drizzle migration journal/runner exist; nothing has been applied to Neon and the nine integration AC still require proof. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect — **sole schema owner** for the whole build) |
 | **Scheduled** | Fri Aug 8 evening (DDL transcription draft) → **Sat AM: applied to sb-dev + sb-test + sb-prod before any feature work** → FROZEN at CP1 Sat noon, additive-only thereafter |
 | **Size** | L |

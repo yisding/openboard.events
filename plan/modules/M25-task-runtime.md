@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #4 contains a localStorage **STACK-DEMO** task runtime and file picker; authenticated transaction, R2 finalize, form renderer, idempotency, and dashboard-count AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — the merged localStorage **STACK-DEMO** task runtime/file picker lacks authenticated transactions, R2 finalize, form rendering, idempotency, and dashboard-count AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "tasks runtime" sub-area). |
 | **Scheduled** | Sunday (manual + file modes, alongside M22) → Monday (form mode, alongside M23/M24), per WS-D's order. **Mon-noon micro-checkpoint (hard integration point, PLAN.md §6):** a portal form task must render WS-B's real `FormSnapshot` end-to-end through the real `<FormFieldRenderer>` import. A miss triggers **cut-line #13** the same day (seeded portal forms only, builder UI cut — see M24), not deferred to Tuesday. |
 | **Size** | L |

@@ -1,17 +1,22 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "openboard-jobs",
+  "name": "sb-jobs-local",
   "main": "index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
   "triggers": { "crons": ["* * * * *"] },
-  // Default (local dev) targets the local app; deploys must use --env production.
-  "vars": { "APP_BASE_URL": "http://localhost:3000" },
+  // Local/package and deploy scripts provide APP_BASE_URL; never commit a guessed workers.dev hostname.
   "observability": { "enabled": true },
   "env": {
-    "production": {
+    "preview": {
+      "name": "sb-jobs-preview",
       "triggers": { "crons": ["* * * * *"] },
-      "vars": { "APP_BASE_URL": "https://openboard-web.workers.dev" },
+      "observability": { "enabled": true }
+    },
+    "production": {
+      "name": "sb-jobs",
+      "triggers": { "crons": ["* * * * *"] },
       "observability": { "enabled": true }
     }
   }

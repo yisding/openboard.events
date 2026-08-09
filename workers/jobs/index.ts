@@ -18,7 +18,7 @@ const worker = {
     if (scheduled.getUTCHours() === 9 && minute === 0) jobs.push("cleanup");
     ctx.waitUntil(Promise.all(jobs.map((job) => post(env, job))));
   },
-  async fetch() { return new Response("openboard-jobs", { status: 200 }); },
+  async fetch() { return new Response("sb-jobs", { status: 200 }); },
 };
 
 export default worker;

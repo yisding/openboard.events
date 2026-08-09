@@ -8,6 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      NEXT_PUBLIC_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -17,8 +19,7 @@ jobs:
       # check-invariants.sh fails closed when ripgrep is missing.
       - run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm invariants
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm check
+      # Wrangler resolves the self-service binding against the generated OpenNext entrypoint.
+      - run: pnpm cf-typegen:check
+      - run: pnpm worker:size

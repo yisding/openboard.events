@@ -44,8 +44,10 @@ credentials.
 
 Workers Free currently allows a 3 MB compressed Worker and 10 ms of CPU per request;
 Workers Paid allows a 10 MB compressed Worker and a much larger CPU allowance. The current
-scaffold's `wrangler deploy --dry-run` output is `1122.48 KiB` gzip, so payment is not a
-current deployment requirement.
+reconciled candidate's `wrangler deploy --dry-run` output is `1204.60 KiB` gzip, so the
+bundle is below the Workers Free size limit. No infrastructure is provisioned yet, and the
+Free-plan decision remains provisional until deployed SSR, authentication, and database
+probes demonstrate that they fit the 10 ms CPU allowance.
 
 Policy:
 
@@ -86,7 +88,7 @@ Canonical production web shape:
     { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files" }
   ],
   "observability": { "enabled": true },
-  "vars": { "APP_BASE_URL": "https://<actual-web-host>", "EMAIL_MODE": "send" }
+  "vars": { "APP_BASE_URL": "https://sb-web.yi-ding.workers.dev", "EMAIL_MODE": "send" }
 }
 ```
 
@@ -99,13 +101,14 @@ Canonical production jobs shape:
   "compatibility_flags": ["nodejs_compat"],
   "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true },
-  "vars": { "APP_BASE_URL": "https://<actual-web-host>" }
+  "vars": { "APP_BASE_URL": "https://sb-web.yi-ding.workers.dev" }
 }
 ```
 
-Preview uses `sb-web-preview`, `sb-jobs-preview`, and `sb-files-preview`. Exact deployed URLs
-must be copied from Wrangler output; a guessed `<account>.workers.dev` hostname is not valid
-configuration. See `environments.md` for the complete inventory and placement.
+Preview uses `sb-web-preview`, `sb-jobs-preview`, and `sb-files-preview`, with the confirmed
+origin `https://sb-web-preview.yi-ding.workers.dev`. The production origin is
+`https://sb-web.yi-ding.workers.dev`. Both values must still be confirmed against Wrangler
+output on first deploy. See `environments.md` for the complete inventory and placement.
 
 ### 2.4 Caching and framing
 
@@ -133,16 +136,20 @@ post-deploy smoke. Deploying web before jobs prevents a new cron route from targ
 web artifact. Migrations remain additive/backward-compatible while either old worker version
 may still receive traffic.
 
-CI validation order is clean install → generated Wrangler types → typecheck/lint/invariants
-→ unit/PGlite tests → Next build → OpenNext build + gzip measurement → Playwright against
-the isolated preview and `sb-test`. Production deploy credentials live in a protected GitHub
-environment, not ordinary workflow variables.
+Credential-free CI runs clean install → typecheck/lint/invariants → unit/PGlite tests →
+Next build → OpenNext build → generated Wrangler-type freshness (after the generated
+Worker entrypoint exists) → gzip measurement. Playwright against the deployed preview and
+`sb-test` is a separate protected preview validation: it reads `E2E_BASE_URL` from a preview
+environment variable and `NEON_TEST_URL` from a preview environment secret. Production
+deploy credentials live in the protected production environment, not ordinary workflow
+variables.
 
 ## 4. Neon and database access
 
 - `DATABASE_URL` is the pooled runtime endpoint used by `sb-web`.
 - `DATABASE_URL_DIRECT` is local/CI migration-only and is never installed on a Worker.
-- `NEON_TEST_URL` belongs to GitHub Actions and targets only `sb-test`.
+- `NEON_TEST_URL` belongs only to the protected GitHub `preview` environment and targets
+  only `sb-test`.
 - `neon-http` handles reads and single-statement writes.
 - WebSocket `Pool` transactions are confined to the audited `withTx()` paths named in
   `PLAN.md`; a pool is created and closed per request.

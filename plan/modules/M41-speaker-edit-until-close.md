@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #4 contains client-only **STACK-DEMO** submission editing; portal ownership, server pipeline reuse, close/status guards, version handling, and AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — merged client-only **STACK-DEMO** submission editing lacks portal ownership, server pipeline reuse, close/status guards, version handling, and AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "submissions edit" sub-area). |
 | **Scheduled** | Tuesday AM. **Named cut-line entry (PLAN.md §9 #5):** if Tuesday is tight, this module is the first thing dropped — portal submission detail stays read-only, and the demo script notes the deviation from Sessionboard's "closes new AND updated submissions" claim rather than shipping it broken. |
 | **Size** | M |
