@@ -10,9 +10,9 @@ describe("seeded headshot uploads", () => {
     expect(resolveSeedHeadshotTarget({ APP_ENV: appEnv })).toEqual({ bucket, remote });
   });
 
-  it("honors a local bucket override but rejects cross-environment deployed buckets", () => {
-    expect(resolveSeedHeadshotTarget({ APP_ENV: "local", R2_BUCKET_NAME: "custom-dev" }))
-      .toEqual({ bucket: "custom-dev", remote: false });
+  it("rejects bucket names that do not match the environment's FILES binding", () => {
+    expect(() => resolveSeedHeadshotTarget({ APP_ENV: "local", R2_BUCKET_NAME: "custom-dev" }))
+      .toThrow("sb-files-dev");
     expect(() => resolveSeedHeadshotTarget({ APP_ENV: "preview", R2_BUCKET_NAME: "sb-files" }))
       .toThrow("sb-files-preview");
   });

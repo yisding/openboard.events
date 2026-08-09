@@ -76,18 +76,15 @@ export type SeedHeadshotTarget = { bucket: string; remote: boolean };
 
 export function resolveSeedHeadshotTarget(env: Readonly<Record<string, string | undefined>>): SeedHeadshotTarget {
   const configured = env.R2_BUCKET_NAME?.trim();
-  switch (env.APP_ENV) {
-    case "local": return { bucket: configured || "sb-files-dev", remote: false };
-    case "preview": {
-      if (configured && configured !== "sb-files-preview") throw new Error("preview headshots must use sb-files-preview");
-      return { bucket: "sb-files-preview", remote: true };
-    }
-    case "production": {
-      if (configured && configured !== "sb-files") throw new Error("production headshots must use sb-files");
-      return { bucket: "sb-files", remote: true };
-    }
-    default: throw new Error("cannot choose a headshot bucket without APP_ENV=local, preview, or production");
+  const expected = env.APP_ENV === "local" ? "sb-files-dev"
+    : env.APP_ENV === "preview" ? "sb-files-preview"
+      : env.APP_ENV === "production" ? "sb-files"
+        : null;
+  if (!expected) throw new Error("cannot choose a headshot bucket without APP_ENV=local, preview, or production");
+  if (configured && configured !== expected) {
+    throw new Error(`${env.APP_ENV} headshots must use ${expected}, matching the FILES binding`);
   }
+  return { bucket: expected, remote: env.APP_ENV !== "local" };
 }
 
 export function wranglerPutArgs(target: SeedHeadshotTarget, objectKey: string, file: string): string[] {
