@@ -5,6 +5,7 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { Donut } from "@/shared/ui/app/donut";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { StatTile } from "@/shared/ui/app/stat-tile";
+import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { PageHeader } from "@/shared/ui/ui-kit";
 
@@ -19,6 +20,7 @@ export function RichPrimitives() {
   const [deadline, setDeadline] = useState<string | null>("2026-10-12T16:00:00.000Z");
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<string | null>(null);
+  const [bio, setBio] = useState("<p>Paste a <script>alert(1)</script> here and watch it not survive.</p>");
 
   return (
     <main className="page">
@@ -32,6 +34,21 @@ export function RichPrimitives() {
         <h2 className="section-title">RichTextView — the only sanitizing render site</h2>
         <p>The probe below contains an <code>onerror</code> handler and a <code>&lt;script&gt;</code>; neither survives.</p>
         <RichTextView html={HOSTILE_HTML} />
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <h2 className="section-title">RichTextEditor — the toolbar is the allowlist</h2>
+        <p>
+          Every control here survives a save. Formatting the sanitizer would strip is not offered,
+          and the counter uses the same <code>plainTextLength</code> the server rejects with.
+        </p>
+        <div style={{ maxWidth: 620 }}>
+          <RichTextEditor value={bio} onChange={setBio} maxChars={5000} placeholder="Write a speaker bio…" />
+        </div>
+        <details style={{ marginTop: 10 }}>
+          <summary className="section-title">Emitted HTML</summary>
+          <pre style={{ whiteSpace: "pre-wrap", fontSize: 10 }}>{bio}</pre>
+        </details>
       </section>
 
       <section style={{ marginBottom: 28 }}>
