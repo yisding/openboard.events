@@ -1,22 +1,28 @@
 import { z } from "zod";
 import { commStatusSchema, templateKeySchema } from "./enums";
-import { commLogIdSchema, contactIdSchema, eventIdSchema } from "./ids";
+import { commLogIdSchema, contactIdSchema, sessionIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
 
 export const commLogRowSchema = z.object({
   id: commLogIdSchema,
-  eventId: eventIdSchema,
   contactId: contactIdSchema.nullable(),
+  recipientEmail: z.email(),
+  recipientName: z.string(),
   templateKey: templateKeySchema,
-  recipient: z.email(),
-  subject: z.string().nullable(),
   status: commStatusSchema,
-  attempts: z.int().nonnegative(),
-  sentAt: z.iso.datetime().nullable(),
+  subjectRendered: z.string().nullable(),
+  providerMessageId: z.string().nullable(),
+  error: z.string().nullable(),
+  icsUid: z.string().nullable(),
+  submissionId: submissionIdSchema.nullable(),
+  sessionId: sessionIdSchema.nullable(),
+  taskId: taskIdSchema.nullable(),
   createdAt: z.iso.datetime(),
+  sentAt: z.iso.datetime().nullable(),
 });
 export const commLogDetailSchema = commLogRowSchema.extend({
-  renderedHtml: z.string().nullable(),
-  error: z.string().nullable(),
+  bodyRenderedHtml: z.string().nullable(),
+  idempotencyKey: z.string(),
+  attempts: z.int().nonnegative(),
 });
 export type CommLogRow = z.infer<typeof commLogRowSchema>;
 export type CommLogDetail = z.infer<typeof commLogDetailSchema>;

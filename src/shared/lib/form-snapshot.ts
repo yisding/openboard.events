@@ -60,11 +60,13 @@ export function compileFormSnapshot(rows: FormAuthoringRows): FormSnapshot {
     }
   }
 
-  for (const target of LOCKED_TARGETS) {
-    const field = fields.find((candidate) => candidate.mapsTo === target);
-    if (!field) throw new AppError("VALIDATION", `missing locked field ${target}`);
-    const expected = REQUIRED_LOCKED_FIELDS[target];
-    if (!field.locked || !field.required || field.fieldType !== expected.type) invalid(field.id, `${target} must remain locked, required, and ${expected.type}`);
+  if (rows.form.context === "cfp") {
+    for (const target of LOCKED_TARGETS) {
+      const field = fields.find((candidate) => candidate.mapsTo === target);
+      if (!field) throw new AppError("VALIDATION", `missing locked field ${target}`);
+      const expected = REQUIRED_LOCKED_FIELDS[target];
+      if (!field.locked || !field.required || field.fieldType !== expected.type) invalid(field.id, `${target} must remain locked, required, and ${expected.type}`);
+    }
   }
 
   return {

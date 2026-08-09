@@ -19,4 +19,11 @@ describe("compileFormSnapshot", () => {
     expect(() => compileFormSnapshot(rows)).toThrowError(new RegExp(offendingId));
     expect(() => compileFormSnapshot(rows)).toThrowError(AppError);
   });
+
+  it("does not require CFP identity fields on portal forms", () => {
+    const rows = structuredClone(GOLDEN_AUTHORING_ROWS);
+    rows.form.context = "portal";
+    rows.fields = rows.fields.filter((field) => field.key === "notes");
+    expect(compileFormSnapshot(rows).sections.flatMap((section) => section.fields)).toHaveLength(1);
+  });
 });
