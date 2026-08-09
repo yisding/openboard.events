@@ -38,12 +38,15 @@ export function PortalHomeWidgets({
 
       <div className="portal-stat-row">
         <StatTile label="My submissions" value={submissions.length} href={`${portalRoot}/submissions`} />
+        {/* Deliberately not a link yet: this count is the view's, but
+            /tasks still renders fixture tasks until M25's runtime lands, and
+            sending a speaker from a real number to different data is worse than
+            not linking. The href returns with that module. */}
         <StatTile
           label="Tasks to do"
           value={tasks.open}
           tone={tasks.overdue > 0 ? "danger" : "default"}
           hint={tasks.overdue > 0 ? `${tasks.overdue} overdue` : tasks.done > 0 ? `${tasks.done} done` : undefined}
-          href={`${portalRoot}/tasks`}
         />
         <StatTile label="My profile" value="Edit" hint="Bio, headshot and links" href={`${portalRoot}/profile`} />
       </div>
