@@ -171,8 +171,14 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   ```
 
 - [x] For the first jobs deployment, create a mode-0600 transient secrets file containing
-  only the matching preview cron secret. A repository-local `.env.jobs-preview` is ignored
-  by Git; the recorded bootstrap instead used a temporary file outside the repository:
+  only the matching preview cron secret. Keep it outside the repository and retain the
+  resolved path for both deployment and cleanup:
+
+  ```bash
+  export JOBS_SECRETS_DIR="$(mktemp -d "${HOME}/Code/sb-deploy-secrets.XXXXXX")"
+  export JOBS_SECRETS_FILE="$JOBS_SECRETS_DIR/jobs-preview.env"
+  umask 077
+  ```
 
   ```dotenv
   CRON_SECRET=replace-with-the-preview-cron-secret
@@ -186,7 +192,7 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
     --config workers/jobs/wrangler.jsonc \
     --env preview \
     --var "APP_BASE_URL:$APP_BASE_URL" \
-    --secrets-file .env.jobs-preview
+    --secrets-file "$JOBS_SECRETS_FILE"
   ```
 
 - [x] Confirm `sb-jobs-preview` has only `APP_BASE_URL` and `CRON_SECRET`; do not copy database,
@@ -198,7 +204,14 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   ```
 
 - [x] Inspect Workers logs and record a successful scheduled jobs tick.
-- [x] Remove the local `.env.jobs-preview` after the secret is safely stored elsewhere.
+- [x] Remove the exact external file and its now-empty directory after the secret is safely
+  stored elsewhere:
+
+  ```bash
+  shred -u "$JOBS_SECRETS_FILE"
+  rmdir "$JOBS_SECRETS_DIR"
+  unset JOBS_SECRETS_FILE JOBS_SECRETS_DIR
+  ```
 
 Subsequent jobs deployments can use `pnpm deploy:jobs:preview`; Wrangler preserves the
 existing Worker secret. The jobs Worker uses `global_fetch_strictly_public` because its
