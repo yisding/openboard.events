@@ -76,6 +76,9 @@ describe("getPublicForm", () => {
     expect(result.event.logoUrl).toBe(`/f/${logoFileId}`);
     expect(result.event.backgroundUrl).toBeNull();
     expect(result.form.externalTitle).toBe("Speak at AI Engineer");
+    // The not-open-yet page needs a date to name, so the payload carries both.
+    expect(result.form.closesAt).not.toBeNull();
+    expect(result.form).toHaveProperty("opensAt");
     expect(result.snapshot.version).toBe(1);
     expect(result.openState).toEqual({ open: true, reason: "ok" });
   });
@@ -130,15 +133,17 @@ describe("decideOpenState", () => {
     expect(decideOpenState({ status: "open", opensAt: past, closesAt: future }, now)).toEqual({ open: true, reason: "ok" });
   });
 
+  it("treats the closing instant as closed, exactly like is_form_open", () => {
+    // A page that says open while the write says FORM_CLOSED is worse than
+    // either answer on its own.
+    expect(decideOpenState({ status: "open", opensAt: null, closesAt: now }, now).reason).toBe("closed_by_date");
+    expect(decideOpenState({ status: "open", opensAt: now, closesAt: null }, now).reason).toBe("ok");
+  });
+
   it("distinguishes not-open-yet from closed, because they are different pages", () => {
     // One is a date to come back on; the other is an apology.
     expect(decideOpenState({ status: "open", opensAt: future, closesAt: null }, now).reason).toBe("not_open_yet");
     expect(decideOpenState({ status: "open", opensAt: null, closesAt: past }, now).reason).toBe("closed_by_date");
-  });
-
-  it("is closed at the exact closing instant", () => {
-    expect(decideOpenState({ status: "open", opensAt: null, closesAt: now }, now))
-      .toEqual({ open: false, reason: "closed_by_date" });
   });
 
   it("lets an admin close a form early, whatever its dates say", () => {

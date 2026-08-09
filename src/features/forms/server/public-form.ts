@@ -31,6 +31,7 @@ export type PublicForm = {
     participantRoles: unknown;
     successHtml: string | null;
     autoRedirectToPortal: boolean;
+    /** Present so a not-open-yet page can name the date rather than say "soon". */
     opensAt: string | null;
     closesAt: string | null;
     effectiveLimit: number;
@@ -39,6 +40,12 @@ export type PublicForm = {
   openState: PublicFormOpenState;
 };
 
+/**
+ * Mirrors `is_form_open`, which is the authority: `opens_at <= now` and
+ * `closes_at > now`. The closing instant is closed, so a submit landing exactly
+ * on the deadline is refused by the page and by the server transaction alike —
+ * a page that says open while the write says FORM_CLOSED is worse than either.
+ */
 export function decideOpenState(
   form: { status: string; opensAt: Date | null; closesAt: Date | null },
   now: Date,
