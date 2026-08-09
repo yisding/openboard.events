@@ -49,6 +49,8 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
   // "days to event" is a real number on the dashboard.
   const startsAt = eventLocal(ctx.now, 65, "09:00");
   const endsAt = eventLocal(ctx.now, 67, "17:00");
+  const emptyStartsAt = eventLocal(ctx.now, 120, "09:00");
+  const emptyEndsAt = eventLocal(ctx.now, 121, "17:00");
 
   await tx.insert(events).values({
     id: ctx.eventId,
@@ -70,9 +72,12 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     name: "Empty Conf",
     slug: "empty-conf",
     timezone: EVENT_TIMEZONE,
-    startsAt: eventLocal(ctx.now, 120, "09:00"),
-    endsAt: eventLocal(ctx.now, 121, "17:00"),
-  }).onConflictDoUpdate({ target: events.id, set: { name: "Empty Conf", updatedAt: new Date() } });
+    startsAt: emptyStartsAt,
+    endsAt: emptyEndsAt,
+  }).onConflictDoUpdate({
+    target: events.id,
+    set: { name: "Empty Conf", startsAt: emptyStartsAt, endsAt: emptyEndsAt, updatedAt: new Date() },
+  });
 
   for (const [index, track] of TRACKS.entries()) {
     await tx.insert(tracks).values({
