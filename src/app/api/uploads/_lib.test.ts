@@ -23,6 +23,8 @@ describe("upload authorization", () => {
   it("keeps event branding to organizers", () => {
     for (const kind of ["logo", "background"] as const) {
       expect(() => assertMayUpload(kind, admin())).not.toThrow();
+      expect(() => assertMayUpload(kind, admin("owner"))).not.toThrow();
+      expect(denial(() => assertMayUpload(kind, admin("reviewer")))).toContain("FORBIDDEN");
       expect(denial(() => assertMayUpload(kind, speaker()))).toContain("FORBIDDEN");
     }
   });

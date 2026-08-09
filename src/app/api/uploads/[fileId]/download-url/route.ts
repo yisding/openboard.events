@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { fileIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { asRequester, jsonRoute, requireUploader } from "../../_lib";
 import { describeFile, getDownloadUrl } from "@/shared/server/r2";
@@ -10,7 +11,10 @@ const DOWNLOAD_URL_SECONDS = 60 * 60;
 /** Private kinds never serve through /f/{fileId}; this mints the short-lived GET. */
 export async function GET(request: NextRequest, route: { params: Promise<{ fileId: string }> }): Promise<Response> {
   return jsonRoute(request, async () => {
-    const { fileId } = await route.params;
+    const rawFileId = (await route.params).fileId;
+    const parsedFileId = fileIdSchema.safeParse(rawFileId);
+    if (!parsedFileId.success) throw new AppError("VALIDATION", "Invalid file id");
+    const fileId = parsedFileId.data;
     const file = await describeFile(fileId);
     if (!file) throw new AppError("NOT_FOUND", "File not found");
     const uploader = await requireUploader(request, file.eventId);
