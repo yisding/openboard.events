@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 /**
  * M10 step 9 — the CP2 load test, and the verification half of risk #2.
  *
- *   pnpm exec tsx scripts/load-test.ts https://<preview> --form <formId> --slug <eventSlug>
+ *   pnpm exec tsx scripts/load-test.ts https://<preview> --form <formId> --form-version <n> \
+ *     --slug <eventSlug> --payload <valid-submit.json>
  *
  * Fires N concurrent submits at the deployed preview, each from its own portal
  * session with its own email. What it proves is not throughput: it is that the
@@ -17,25 +18,29 @@ import { readFileSync } from "node:fs";
  * its trigger date is Sunday night, not Wednesday.
  */
 
-type Args = { baseUrl: string; formId: string; slug: string; concurrency: number; payloadFile?: string };
+type Args = { baseUrl: string; formId: string; formVersion: number; slug: string; concurrency: number; payloadFile: string };
 
 function parseArgs(argv: string[]): Args {
   const [baseUrl, ...rest] = argv;
-  if (!baseUrl) throw new Error("usage: tsx scripts/load-test.ts <baseUrl> --form <formId> --slug <eventSlug> [--concurrency 50] [--payload file.json]");
+  if (!baseUrl) throw new Error("usage: tsx scripts/load-test.ts <baseUrl> --form <formId> --form-version <n> --slug <eventSlug> --payload <valid-submit.json> [--concurrency 50]");
   const flag = (name: string): string | undefined => {
     const index = rest.indexOf(`--${name}`);
     return index >= 0 ? rest[index + 1] : undefined;
   };
   const formId = flag("form");
+  const formVersion = Number(flag("form-version"));
   const slug = flag("slug");
   if (!formId || !slug) throw new Error("--form <formId> and --slug <eventSlug> are required");
+  if (!Number.isInteger(formVersion) || formVersion <= 0) throw new Error("--form-version must be a positive integer");
   const payloadFile = flag("payload");
+  if (!payloadFile) throw new Error("--payload <valid-submit.json> is required; there is no universally valid empty submission");
   return {
     baseUrl: baseUrl.replace(/\/$/, ""),
     formId,
+    formVersion,
     slug,
     concurrency: Number(flag("concurrency") ?? 50),
-    ...(payloadFile ? { payloadFile } : {}),
+    payloadFile,
   };
 }
 
@@ -83,7 +88,11 @@ async function mintSession(args: Args, email: string): Promise<string> {
 
 /** The draft row the wizard creates at the Account step, pinned to a version. */
 async function openDraft(args: Args, cookie: string): Promise<{ submissionId: string; formVersion: number }> {
-  const created = await postJson(`${args.baseUrl}/api/internal/forms/${args.formId}/draft`, {}, cookie);
+  const created = await postJson(
+    `${args.baseUrl}/api/internal/forms/${args.formId}/draft`,
+    { formVersion: args.formVersion },
+    cookie,
+  );
   const data = created.json.data as { submissionId?: string; formVersion?: number } | undefined;
   if (!data?.submissionId || typeof data.formVersion !== "number") {
     throw new Error(`draft failed (status ${created.status}): ${JSON.stringify(created.json).slice(0, 200)}`);
@@ -99,7 +108,17 @@ function percentile(sorted: number[], fraction: number): number {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const payload = args.payloadFile ? JSON.parse(readFileSync(args.payloadFile, "utf8")) as Json : { answers: {}, participants: [] };
+  const parsedPayload: unknown = JSON.parse(readFileSync(args.payloadFile, "utf8"));
+  if (typeof parsedPayload !== "object" || parsedPayload === null || Array.isArray(parsedPayload)) {
+    throw new Error("submit payload must be a JSON object");
+  }
+  const payload = parsedPayload as Json;
+  if (typeof payload.answers !== "object" || payload.answers === null || Array.isArray(payload.answers)) {
+    throw new Error("submit payload must contain an answers object");
+  }
+  if (!Array.isArray(payload.participantAnswers)) {
+    throw new Error("submit payload must contain a participantAnswers array");
+  }
   const runId = Date.now().toString(36);
   const emails = Array.from({ length: args.concurrency }, (_, index) => `load+${runId}-${index}@openboard.dev`);
 
@@ -113,7 +132,9 @@ async function main(): Promise<void> {
       console.error(`  ${email}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (sessions.length === 0) throw new Error("no sessions were minted; nothing to load test");
+  if (sessions.length !== emails.length) {
+    throw new Error(`prepared only ${sessions.length}/${emails.length} sessions; refusing to run a reduced-concurrency test`);
+  }
   console.log(`minted ${sessions.length}/${emails.length}`);
 
   // The burst itself: every submit leaves at the same moment, which is the whole
@@ -145,12 +166,13 @@ async function main(): Promise<void> {
   console.log("outcomes:");
   for (const [outcome, count] of [...byOutcome].sort()) console.log(`  ${outcome.padEnd(28)} ${count}`);
 
-  // A typed rejection is a pass: the limit and the closed form are real answers.
-  // A 5xx is not, and neither is an error the client cannot act on.
-  const untyped = results.filter((result) => result.status >= 500 || (result.status !== 200 && !result.code));
+  // Only the outcomes named by the contention contract are passes. Validation,
+  // auth and lookup errors mean the fixture never exercised createSubmission.
+  const allowedCodes = new Set(["LIMIT_REACHED", "FORM_CLOSED", "FORM_VERSION_STALE"]);
+  const unexpected = results.filter((result) => result.status !== 200 && (!result.code || !allowedCodes.has(result.code)));
   console.log("");
-  if (untyped.length > 0) {
-    console.log(`FAILED — ${untyped.length} response(s) were 5xx or untyped; record this and consider the CTE fallback`);
+  if (unexpected.length > 0) {
+    console.log(`FAILED — ${unexpected.length} response(s) fell outside 200/LIMIT_REACHED/FORM_CLOSED/FORM_VERSION_STALE`);
     process.exitCode = 1;
     return;
   }

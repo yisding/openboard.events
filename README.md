@@ -66,7 +66,8 @@ pnpm e2e                # Playwright; set E2E_BASE_URL to a deployed preview to 
 pnpm worker:size        # the compressed Workers Free budget check
 pnpm cf-typegen:check   # generated bindings match wrangler.jsonc
 bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
-pnpm exec tsx scripts/load-test.ts <baseUrl> --form <formId> --slug <eventSlug>
+pnpm exec tsx scripts/load-test.ts <baseUrl> --form <formId> --form-version <n> \
+  --slug <eventSlug> --payload <valid-submit.json>
 ```
 
 ## Deploying
