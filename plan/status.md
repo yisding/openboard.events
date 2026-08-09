@@ -1,7 +1,7 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 5 — Sun Aug 9, 2026, after PRs #6–#9 merged and the preview Cloudflare/Neon/R2 estate was provisioned. The foundation stack #10 → #11 → #12 is open and in review.
-- **Baseline:** `main` at `36f34a0` (merge of PR #9). Nothing has merged since.
+- **Snapshot:** rev. 6 — Sun Aug 9, 2026, after the foundation stack #10 → #11 → #12 merged. Nine PRs are open and green; **none of them can land from the agent side**, so the R1 queue is now merge-bound rather than work-bound.
+- **Baseline:** `main` after the merge of PR #12, plus status-only claim commits.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 
 This document is the current execution overlay for `PLAN.md` and `execution.md`. It records evidence and priority; it does not change frozen contracts, invariants, dependencies, or the minimum judging bar.
@@ -34,25 +34,34 @@ The rev. 4 audit remains a one-time exception to the normal "one active module p
 | PR #7 — infrastructure reconciliation | Merged | Canonical Wrangler environments, fail-closed env validation, migration/deploy automation, Neon health probe, provisioning runbook | Any deployed acceptance evidence at merge time |
 | PR #8 — jobs Worker routing | Merged | Preview jobs routing fix (`global_fetch_strictly_public`) and provisioning proof | Production jobs secrets or guarded stub swaps |
 | PR #9 — contracts and pure foundation | Merged | Complete contract surface (branded ids, enums, DTOs, transitions, error envelopes, idempotency recipes, fan-out law), golden form-snapshot fixture, `compileFormSnapshot`, the 6-function timezone API, both sanitizer profiles, and the full condition/visibility/routing evaluator; 64 tests | Any database, auth, or deployed path; AC sign-off and the CP1 freeze declaration are still outstanding |
-| PR #10 — database and server foundation | **Open, in review** | Full event-isolated schema, views, transition trigger, typed Drizzle modules, lazy HTTP/transaction clients, `defineHandler`, `enqueueEmail`, and 75 PGlite integration tests incl. all 49 submission transitions | Not merged. The SQL is proven on PGlite and on a disposable Neon branch, not through the deploy migration path; open review findings remain |
-| PR #11 — admin auth | **Open, in review** | jose HS256 session cookies, Web Crypto PBKDF2 verification, `requireAdmin(eventId, role?)`, admin/API-key/cron/public guards, middleware redirects, sign-in throttle, `pnpm admin:bootstrap` | Not merged. No deployed S4 round-trip; two open P1s (below) |
-| PR #12 — portal auth | **Open, in review** | Single-use hashed magic-link/OTP tokens with attempt limits, AES-GCM delivery payloads, durable portal sessions, impersonation, cookie middleware, throttle serialized under a contact row lock | Not merged. No delivered email, no deployed proof; one open P1 (below) |
+| PR #10 — database and server foundation | **Merged** | Full event-isolated schema, views, transition trigger, typed Drizzle modules, lazy HTTP/transaction clients, `defineHandler`, `enqueueEmail`, and 75 PGlite integration tests incl. all 49 submission transitions | The SQL is proven on PGlite, on a disposable Neon branch, `sb-dev` and `sb-test` — not on `sb-prod` and not through a green `Deploy` workflow run |
+| PR #11 — admin auth | **Merged** | jose HS256 session cookies, Web Crypto PBKDF2 verification, `requireAdmin(eventId, role?)`, admin/API-key/cron/public guards, middleware redirects, sign-in throttle, `pnpm admin:bootstrap` | No deployed S4 round-trip. `pnpm admin:bootstrap` **could not run at all** until PR #21 — top-level `await` under tsx's CJS output killed it before it read an env var, so no admin has ever been bootstrapped |
+| PR #12 — portal auth | **Merged** | Single-use hashed magic-link/OTP tokens with attempt limits, AES-GCM delivery payloads, durable portal sessions, impersonation, cookie middleware, throttle serialized under a contact row lock | No delivered email and no deployed proof. The deployed preview still predates this merge: `/api/internal/auth/portal/request` returns a Next 404 page there, observed by `scripts/load-test.ts` |
 
-The stack must land in order (#10 → #11 → #12); each merge retargets the next.
+The stack landed in order, and the P1s rev. 5 recorded against it were answered inside those merges. What replaces that queue is the table below.
 
-### 2a. Open review queue on the stack
+### 2a. Open PR queue — this is the current blocker
 
-Owner-authored P0/P1 findings on all three PRs were fixed and answered. A later automated round is unanswered and is the current blocking work:
+Nine PRs are open, green on CI, and unmergeable from the agent side. Until they land, four
+recovery modules cannot be claimed at all, because a solid edge into a `PR-OPEN` module blocks a
+claim exactly as `NOT STARTED` would.
 
-| PR | Sev | Finding |
-|---|---|---|
-| #11 | P1 | `admin_login_attempts` was added by editing `drizzle/0000_init.sql`, which is already applied to `sb-dev` and `sb-test`. `pnpm db:migrate` will not create the table, so every deployed sign-in fails. Needs a new journaled migration — this also tests the additive-only rule the schema freeze depends on. |
-| #11 | P1 | `requireAdmin` is called with no required role in the event layout, so a `reviewer` member reaches organizer surfaces (Forms, Agenda, Comms, Embeds, Settings). Contradicts M06a's AC. |
-| #11 | P2 | With the global `TEST_AUTH` bypass correctly removed, the documented credential-free `pnpm dev` demo is no longer navigable. |
-| #12 | P1 | The portal layout validates the session then discards it; `PortalProvider` still resolves the speaker from fixture/localStorage, so authenticated users see the wrong identity and impersonation never activates the banner. |
-| #12 | P2 | A concurrently consumed OTP returns `UNAUTHORIZED` to the losing tab even though the session was established. |
-| #12 | P2 | Issued magic links drop the validated internal `next` path, so the emailed flow always lands on the portal root. |
-| #10 | Major/minor | Ten open findings, chiefly view semantics in `0001_views_triggers.sql` (`is_form_open` NULL for an unknown form, `submission_ratings_v` counting unsubmitted and AI reviews, `published_speakers_v`/`published_sessions_v` disagreeing on the published predicate, no task assignment when a submission has no primary participant) plus `uuid[]` columns that bypass event-scoped isolation. The view findings matter because PLAN §4 makes the eight views the only read path for dashboard/embeds/public API. |
+| PR | Module | What it lands | Merge order |
+|---|---|---|---|
+| #15 | M07 | `shared/server/r2.ts`: kind policy, staging→published key scheme, presign/finalize/download, orphan sweep | 1 |
+| #17 | M07 | The four upload routes; based on #15, retarget to `main` when it lands | 2, after #15 |
+| #16 | M34 | Communications outbox dispatcher (another lane) | independent |
+| #18 | M01 | Invariant grep #11 — no direct R2 access outside the storage module | independent |
+| #19 | M10 step 1 | `playwright.config.ts`, helpers, six specs; 22 tests, 0 failures | independent |
+| #20 | M09 steps 1–2 | Seed orchestrator, `seedId`, the eight per-lane stub modules | independent |
+| #21 | M06a | Makes `pnpm admin:bootstrap` runnable at all | **land early — it gates a deployed sign-in** |
+| #22 | M10 step 8 | Post-deploy smoke deepened to its seven documented assertions | after the cache header, or the deploy job goes red |
+| #23 | M10 steps 9/10/12 | Load test, honest-status README, submission checklist | after #19 and #20, which its README references |
+| #24 | M05a | `<DataTable>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, `<ConfirmDialog>`, kitchen sink | independent |
+
+**#22 is the one with a consequence.** `.github/workflows/deploy.yml` already calls the smoke
+script, so merging it turns the deploy job red until the public schedule is served with
+`s-maxage=60`. That is the honest state of the artifact, not a script defect — see §4.
 
 ## 3. Module status by evidence
 
@@ -66,14 +75,24 @@ No module is `DONE` as of this snapshot. Rule 1 alone keeps every `PR-OPEN` modu
 | M04 (pure half) | PR #9: `compileFormSnapshot`, `time.ts` 6-function API with DST coverage, both sanitizer profiles, slug/interval helpers | AC sign-off; the server half (`handler.ts`, `enqueue-email.ts`) is `PR-OPEN` in #10 |
 | M13a | PR #9: complete operator, visibility-traversal, hidden-answer-stripping and routing pipeline against the golden fixture | AC sign-off, including the 40+ test contract count |
 
-### Open on the foundation stack (`PR-OPEN`)
+### Merged, AC verification pending — the foundation stack
+
+| Modules | Evidence on `main` | Missing before `DONE` |
+|---|---|---|
+| M03 | PR #10 — schema, views, transition trigger, Drizzle modules, clients; migrations applied to a disposable Neon branch, then `sb-dev` and `sb-test` | `sb-prod`; the open view-semantics findings; a green `Deploy` workflow run that migrates through the journal |
+| M04 (server half) | PR #10 — `defineHandler`, `enqueueEmail`, query/log/assert helpers, API client | AC sign-off |
+| M06a | PR #11 — sessions, guards, middleware, throttle, bootstrap | A deployed auth round-trip, which needs PR #21 first: bootstrap could not run |
+| M06b | PR #12 — OTP/magic link, tokens, sessions, impersonation | One delivered or logged `portal_login` email through M34; a preview deployed from a revision that actually contains these routes |
+
+### Open on unmerged branches (`PR-OPEN`)
 
 | Modules | Branch evidence | Blocking |
 |---|---|---|
-| M03 | PR #10 — schema, views, transition trigger, Drizzle modules, clients; migrations applied to a disposable Neon branch, then `sb-dev` and `sb-test` | Merge; `sb-prod`; the open view-semantics findings; a journaled additive migration path (see #11 P1) |
-| M04 (server half) | PR #10 — `defineHandler`, `enqueueEmail`, query/log/assert helpers, API client | Merge and AC sign-off |
-| M06a | PR #11 — sessions, guards, middleware, throttle, bootstrap | Merge; the login-attempts migration; reviewer role enforcement; a deployed auth round-trip |
-| M06b | PR #12 — OTP/magic link, tokens, sessions, impersonation | Merge; binding the shell to the authenticated contact; one delivered or logged `portal_login` email through M34 |
+| M07 | PRs #15 + #17 — storage module and the four routes | Merge; the browser CORS proof; production S3 credentials; an R2 lifecycle rule on the `staging/` prefix |
+| M34 | PR #16 — dispatcher, templates, renderer, Resend integration | Merge; real delivery evidence |
+| M05a (primitives) | PR #24 — `<DataTable>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, `<ConfirmDialog>`, kitchen sink | Merge; the `(admin)` route group remains unclaimed by design |
+| M09 (orchestrator) | PR #20 — `SeedCtx`, `seedId`, the eight stub modules, `index.ts` | Merge; a run against a real database; the eight per-lane seed bodies |
+| M10 (steps 1, 8–10, 12) | PRs #19, #22, #23 — spec skeleton, deepened smoke, load test, README, checklist | Merge; the specs go green only as their features land |
 
 ### Merged partial implementation
 
@@ -104,8 +123,8 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 
 | Checkpoint | Status | Evidence required to turn green |
 |---|---|---|
-| CP0 — deployed skeleton and existential spikes | **PARTIAL** | Green: preview Cloudflare URL, real `/api/health` Neon `18.4` round-trip in 155 ms, measured bundle (1206.45 KiB deployed; 1317.99 KiB with auth) under the Free 3 MiB budget with 24 ms startup and no CPU error, jobs tick round-trip. Missing: Resend DNS/header probe, browser R2 presign/CORS, revalidate-60, embed `frame-ancestors`, and a deployed application auth-throttle proof |
-| CP1 — contracts/schema/foundation freeze | **NOT MET** | Green: contracts merged; migrations applied to `sb-dev` and `sb-test`. Missing: the #10–#12 merges, `sb-prod`, real seed, all routes, a green `Deploy` workflow run, the runnable six-spec Playwright skeleton, and the freeze declaration |
+| CP0 — deployed skeleton and existential spikes | **PARTIAL** | Green: preview Cloudflare URL, real `/api/health` Neon `18.4` round-trip in 155 ms, measured bundle (1416.09 KiB with the R2 routes and the shared primitives) under the Free 3 MiB budget, jobs tick round-trip, and **embed `frame-ancestors` now proven by curl** — `/embed/<slug>/schedule` sends `frame-ancestors *` and no `X-Frame-Options`. Missing: Resend DNS/header probe, browser R2 presign/CORS, a deployed auth-throttle proof, and **revalidate-60, which is now a measured failure rather than an unknown**: `/e/<slug>/schedule` is served `private, no-cache, no-store, max-age=0, must-revalidate` |
+| CP1 — contracts/schema/foundation freeze | **NOT MET** | Green: contracts merged; the #10–#12 stack merged; migrations applied to `sb-dev` and `sb-test`. Missing: `sb-prod`, a real seed run, admin login demonstrated on the preview, a green `Deploy` workflow run, the six-spec skeleton **merged** (it exists and runs on PR #19), and the freeze declaration |
 | Sat thin slice — CFP to Abstracts | **NOT MET** | Deployed fixture-snapshot form posts through the real server transaction into Neon and appears in Abstracts |
 | CP2 — golden spine | **NOT MET** | Real OTP, submit, review, accept/notify, one delivered/logged email, portal task, public schedule/gallery, e2e and load evidence |
 | CP3 — full judged feature surface | **NOT ATTEMPTED** | Deployed portal upload/task, scheduling/conflict, embed, ICS lifecycle, reminder scan, tracking dashboard |
@@ -123,15 +142,23 @@ Landed via PRs #6–#8: the status overlay and reconciled module headers, the in
 
 ### R1 — Deployed foundation — **ACTIVE**
 
+**The gate is no longer work-bound. It is merge-bound**: every numbered item below except 7 and 8
+exists as a green PR in §2a that nobody has landed.
+
 Ordered remaining work:
 
-1. Clear the §2a review queue, starting with #11's login-attempts migration — it is the one finding that silently breaks a deployed sign-in.
-2. Merge #10 → #11 → #12 in order, retargeting each as its base lands.
+1. Land §2a in its stated order, starting with **#21** — until it merges no admin can be
+   bootstrapped, so a deployed sign-in cannot be demonstrated at all.
+2. Redeploy the preview. The currently deployed revision predates the portal-auth merge, so every
+   claim about auth on that URL is a claim about code that is not there.
 3. Keep `drizzle/` additive-only now that `0000_init.sql` is journaled and applied. Every new migration — starting with #11's `admin_login_attempts` fix — runs on the disposable branch first, then `sb-dev` **and** `sb-test`, before `sb-prod` goes through the guarded production deployment step. `pnpm db:migrate` applies pending journal entries to whichever database `DATABASE_URL` points at, and the deploy workflow only ever migrates the environment it is deploying (preview → `sb-test`, production → `sb-prod`), so **`sb-dev` is nobody's job unless someone runs it**. A stale `sb-dev` silently breaks the auth and seed work that develops against it.
-4. Finish M05a's remaining primitives and wire the `(admin)` route group to merged auth.
-5. Land M07 (R2 presign/finalize/`/f/[fileId]`) against the already-created buckets, and M09's database seed orchestrator with judge credentials.
-6. Land M10's CP1 slice: `playwright.config.ts`, shared helpers, and all six skeleton specs running with zero failures; unlanded feature steps remain explicitly skipped.
-7. Finish the deploy half of M08 and make the GitHub `Deploy` workflow itself green for preview — every run so far has been `skipped`.
+4. M05a's remaining primitives are on **#24**. The `(admin)` route-group move stays deliberately
+   unclaimed: those route files belong to six lanes and moving them is a merge collision.
+5. M07 is on **#15 + #17**; M09's orchestrator is on **#20**. The eight per-feature seed bodies
+   remain with their own workstreams and are the real remaining seed work.
+6. M10's CP1 slice is on **#19** — six specs, 22 tests, zero failures, every unlanded step skipped
+   behind one table that flips as modules merge.
+7. Finish the deploy half of M08 and make the GitHub `Deploy` workflow itself green for preview — every run so far has been `skipped`. Note that **#22 makes the smoke step fail honestly** until the public schedule is served with `s-maxage=60`.
 8. Complete the remaining provisioning in §7.
 
 **Exit:** CP0 and CP1 are green on a deployed preview, including the admin shell and the runnable six-spec Playwright skeleton.
@@ -170,7 +197,10 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-The next implementation action is **step 1 of R1**: clear the open stack findings and land #10–#12. Three of the four foundation modules the rest of the build depends on exist only on unmerged branches, so every hour the stack stays open blocks R2 for five lanes.
+The next action is **not an implementation action**. It is landing §2a: nine green PRs, in the
+stated order, starting with #21. Four recovery modules cannot even be *claimed* until M07 and the
+primitives are on `main`, so additional agent work now produces more unmerged branches rather than
+more progress.
 
 ## 7. Environment and configuration truth
 
@@ -183,6 +213,15 @@ The next implementation action is **step 1 of R1**: clear the open stack finding
 - Preview web and jobs Workers deployed at `https://sb-web-preview.yi-ding.workers.dev`; the repository smoke script passed its health, public schedule, and public API probes. `global_fetch_strictly_public` resolved the Worker-to-Worker error 1042.
 - GitHub `preview` and `production` environments restricted to `main`, production gated on `yisding` approval, `PRODUCTION_DEPLOY_ENABLED` unset.
 - Exact preview and production origins recorded; no hostname is guessed in committed config.
+
+**Corrections since rev. 5:**
+
+- `pnpm admin:bootstrap` was never runnable. Top-level `await` under tsx's CJS output aborted it
+  in esbuild before it read an environment variable, so the "password-backed organizer and
+  reviewer accounts" step of the provisioning checklist has never been executed anywhere. PR #21
+  fixes it; the checklist item stays unchecked until it has actually been run.
+- The deployed preview is behind `main`. `/api/internal/auth/portal/request` returns a Next 404
+  page there, so the portal-auth merge is not on the deployed artifact.
 
 **Still pending (31 unchecked items in the provisioning checklist):**
 
