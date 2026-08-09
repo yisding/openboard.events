@@ -379,7 +379,7 @@ On the deployed preview, in one run:
 - [ ] Speaker portal shows the submission Accepted + a task
 - [ ] **Public schedule + gallery pages live**
 - [ ] Golden-path Playwright green
-- [ ] **50-concurrent submit load test run against the preview (M10), p95 recorded**
+- [x] **50-concurrent submit load test run against the preview (M10), p95 recorded** — 50/50 `200 ok`, p95 27703 ms, zero duplicate codes; answer batching (#73) landed first as the roadmap required. Numbers and the per-event throughput ceiling in `DECISIONS.md`
 - [ ] **Sun noon decision point (email):** domain verified → prod flips to `EMAIL_MODE=send`, allowlist unset, `EMAIL_FALLBACK_UI=0`. Not verified → production email/auth stays red; preview log/fallback tooling remains diagnostics-only and the team swarms deliverability
 - [ ] **Sun noon swarm check:** golden path red → WS-C pauses M19 and takes wizard/pipeline tasks from B2's queue
 
