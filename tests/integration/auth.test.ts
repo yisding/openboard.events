@@ -5,13 +5,14 @@ import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { authenticateAdmin, authorizeAdmin, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "@/features/auth";
+import { authenticateAdmin, authorizeAdmin, hashPassword, requiredRoleForEventPath, signAdminToken, verifyAdminToken, verifyPassword } from "@/features/auth";
 import { authenticateApiKey } from "@/features/auth/server/guards";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { sha256 } from "@/features/auth/server/crypto";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+const migration2 = readFileSync(new URL("../../drizzle/0002_admin_auth.sql", import.meta.url), "utf8");
 const eventA = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
 const organizerId = userIdSchema.parse("a0000000-0000-4000-8000-000000000003");
@@ -26,6 +27,7 @@ describe("admin authentication", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migration2);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'A','auth-a','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'B','auth-b','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventA, eventB]);
     await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'organizer@example.com','Organizer'),($2,'reviewer@example.com','Reviewer')", [organizerId, reviewerId]);
     await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$3,'organizer'),($2,$3,'reviewer'),($2,$4,'owner')", [organizerId, reviewerId, eventA, eventB]);
@@ -41,6 +43,13 @@ describe("admin authentication", () => {
     await expect(authorizeAdmin(tx, reviewer, eventA, "organizer")).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(authorizeAdmin(tx, organizer, eventB)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(authorizeAdmin(tx, reviewer, eventB, "owner")).resolves.toMatchObject({ role: "owner" });
+  });
+
+  it("reserves reviewer access for the review queue", () => {
+    expect(requiredRoleForEventPath(eventA, `/events/${eventA}/review`)).toBe("reviewer");
+    expect(requiredRoleForEventPath(eventA, `/events/${eventA}/review/next?plan=1`)).toBe("reviewer");
+    expect(requiredRoleForEventPath(eventA, `/events/${eventA}/evaluation`)).toBe("organizer");
+    expect(requiredRoleForEventPath(eventA, `/events/${eventA}/settings`)).toBe("organizer");
   });
 
   it("hashes passwords with PBKDF2 and rejects the wrong password", async () => {
