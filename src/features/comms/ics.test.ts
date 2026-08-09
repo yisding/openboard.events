@@ -58,7 +58,7 @@ describe("ICS builder", () => {
   it("matches the REQUEST golden fixture exactly", () => {
     const result = buildInvite(requestEvent);
     expect(result).toBe(fixture("request.ics"));
-    expect(unfoldedLines(result)).toContain(`ATTENDEE;CN=Nadia\\, Speaker;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${fixtureRecipient}`);
+    expect(unfoldedLines(result)).toContain(`ATTENDEE;CN="Nadia, Speaker";PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${fixtureRecipient}`);
     expectRfcLines(result);
   });
 
@@ -111,6 +111,17 @@ describe("ICS builder", () => {
     const result = buildInvite({ ...requestEvent, summary });
     expect(unfoldedLines(result)).toContain(`SUMMARY:🧠${"a".repeat(64)}\\;lkj\\, "x"\\n<img onerror=alert(1)>`);
     expectRfcLines(result);
+  });
+
+  it("quotes CN parameters and caret-encodes unsafe quoted-string characters", () => {
+    const result = buildInvite({
+      ...requestEvent,
+      organizer: { ...requestEvent.organizer, name: 'AI: Engineer; "Events"' },
+      attendee: { name: "Nadia^Speaker\nLead", email: fixtureRecipient },
+    });
+    const lines = unfoldedLines(result);
+    expect(lines).toContain("ORGANIZER;CN=\"AI: Engineer; ^'Events^'\":mailto:speakers@events.example.com");
+    expect(lines).toContain(`ATTENDEE;CN="Nadia^^Speaker^nLead";PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${fixtureRecipient}`);
   });
 
   it("rejects REQUEST and CANCEL invites without an attendee", () => {

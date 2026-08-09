@@ -14,7 +14,7 @@ DESCRIPTION:Line one\nLine two\; important\, really
 LOCATION:Main Stage\, Fort Mason
 URL:https://events.example.com/e/ai-engineer/schedule?session=session-1
 STATUS:CONFIRMED
-ORGANIZER;CN=AI Engineer\; Events:mailto:speakers@events.example.com
+ORGANIZER;CN="AI Engineer; Events":mailto:speakers@events.example.com
 LAST-MODIFIED:20260809T123456Z
 END:VEVENT
 BEGIN:VEVENT
@@ -28,7 +28,7 @@ DESCRIPTION:Line one\nLine two\; important\, really
 LOCATION:Main Stage\, Fort Mason
 URL:https://events.example.com/e/ai-engineer/schedule?session=session-1
 STATUS:CONFIRMED
-ORGANIZER;CN=AI Engineer\; Events:mailto:speakers@events.example.com
+ORGANIZER;CN="AI Engineer; Events":mailto:speakers@events.example.com
 LAST-MODIFIED:20260809T123456Z
 END:VEVENT
 END:VCALENDAR

@@ -28,6 +28,14 @@ function escapeText(value: string): string {
     .replaceAll("\n", "\\n");
 }
 
+function quoteParameter(value: string): string {
+  const encoded = value
+    .replaceAll("^", "^^")
+    .replace(/\r\n|\r|\n/g, "^n")
+    .replaceAll('"', "^'");
+  return `"${encoded}"`;
+}
+
 function utc(value: Date): string {
   return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
@@ -68,12 +76,12 @@ function eventLines(event: IcsEvent): string[] {
     `LOCATION:${escapeText(event.location)}`,
     `URL:${event.url}`,
     `STATUS:${event.cancelled || event.method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`,
-    `ORGANIZER;CN=${escapeText(event.organizer.name)}:mailto:${event.organizer.email}`,
+    `ORGANIZER;CN=${quoteParameter(event.organizer.name)}:mailto:${event.organizer.email}`,
   ];
 
   if (event.attendee) {
     lines.push(
-      `ATTENDEE;CN=${escapeText(event.attendee.name)};PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${event.attendee.email}`,
+      `ATTENDEE;CN=${quoteParameter(event.attendee.name)};PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${event.attendee.email}`,
     );
   }
 
