@@ -135,18 +135,32 @@ async function replaceAnswers(
   // Draft saves and final submit are snapshots, not patches. Removing rows first
   // also discards an answer to a question that has since become hidden.
   await tx.delete(submissionAnswers).where(eq(submissionAnswers.submissionId, submissionId));
-  for (const answer of answers) {
+
+  // One statement, not one per answer. This runs inside the transaction holding
+  // the event row's FOR UPDATE lock, over a per-transaction WebSocket pool, so
+  // every extra round trip here is time no other submit on this event can use.
+  // A single INSERT cannot touch one conflict target twice, which the old
+  // row-at-a-time loop tolerated. Nothing here has to collapse duplicates:
+  // CleanAnswers is branded, and its schema already rejects a repeated
+  // field/participant pair before a caller can reach this function.
+  if (answers.length === 0) return;
+
+  const values = answers.map((answer) => {
     const participantId = answer.participantId ? participantIds.get(answer.participantId) : null;
     if (answer.participantId && !participantId) {
       throw new AppError("VALIDATION", "An answer belongs to an unknown participant");
     }
-    await tx.execute(sql`
-      INSERT INTO submission_answers (event_id, submission_id, field_id, participant_id, value)
-      VALUES (${eventId}, ${submissionId}, ${answer.fieldId}, ${participantId}, ${JSON.stringify(answer.value)}::jsonb)
-      ON CONFLICT (submission_id, field_id, participant_id)
-      DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-    `);
-  }
+    return sql`(
+      ${eventId}, ${submissionId}, ${answer.fieldId},
+      ${participantId ?? null}::uuid, ${JSON.stringify(answer.value)}::jsonb
+    )`;
+  });
+  await tx.execute(sql`
+    INSERT INTO submission_answers (event_id, submission_id, field_id, participant_id, value)
+    VALUES ${sql.join(values, sql`, `)}
+    ON CONFLICT (submission_id, field_id, participant_id)
+    DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `);
 }
 
 /**
