@@ -8,6 +8,7 @@ import { seedEvents } from "./events";
 import { seedForms } from "./forms";
 import { seedPortal } from "./portal";
 import { seedSubmissions } from "./submissions";
+import { resolveSeedHeadshotTarget, uploadSeedHeadshots } from "./upload-headshots";
 import { seedId } from "./lib/ids";
 import { SEEDED_EMPTY_EVENT_ID, SEEDED_EVENT_ID, type SeedCtx, type SeedModule } from "./lib/helpers";
 import { assertDatabaseAllowsSeed, assertSafeSeedTarget } from "./lib/safety";
@@ -93,6 +94,11 @@ async function main(): Promise<void> {
     // changed nothing, and it checks the database's own identity rather than the
     // operator's claim about it.
     await assertDatabaseAllowsSeed(() => databaseIdentity(tx), process.env);
+    // R2 cannot participate in this transaction, but doing the deterministic
+    // uploads after database identity verification and before any DB write
+    // guarantees committed file rows never point at objects this run skipped.
+    // A later DB failure leaves only harmless overwrite-safe objects.
+    uploadSeedHeadshots(resolveSeedHeadshotTarget(process.env));
     if (wipe) {
       const truncated = await wipeAll(tx);
       console.log(`wiped ${truncated} tables`);

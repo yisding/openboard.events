@@ -17,6 +17,14 @@ APP_ENV=local pnpm seed --wipe     # TRUNCATE every public table first, then res
 guessed from Neon's opaque hostname. A production run additionally requires
 `SEED_ALLOW_PROD=1` — that flag exists for the Wednesday final reset and nothing else.
 
+The same command uploads every seeded headshot before committing its
+`file_assets` rows. `APP_ENV=local` writes to local Wrangler R2 (default bucket
+`sb-files-dev`); preview and production write remotely to `sb-files-preview`
+and `sb-files` respectively. Every target rejects a mismatched `R2_BUCKET_NAME`
+because uploads must land in the bucket bound as `FILES` in `wrangler.jsonc`.
+Remote runs therefore require the normal authenticated Wrangler/Cloudflare
+setup; an upload failure fails the seed instead of leaving public `/f/{id}` links broken.
+
 ## How it is split
 
 `index.ts` is the orchestrator and owns the transaction, the wipe, the ordering,
