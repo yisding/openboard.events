@@ -173,7 +173,7 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 | CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **revalidate-60 proven** (`s-maxage`, `x-nextjs-cache: HIT`); **Resend DNS/header probe delivered**. Missing: a browser R2 presign/CORS upload, and a deployed application auth-throttle proof |
 | CP1 — contracts/schema/foundation freeze | **NEARLY GREEN** | Contracts merged; the stack merged; migrations applied to `sb-dev` and `sb-test` **from the repo's own SQL**; seed loads; **admin login works on the deployed preview**; the six-spec Playwright skeleton runs; **the freeze declaration is now recorded in `DECISIONS.md`** (rev. 8). Missing: `sb-prod` and a green `Deploy` workflow run |
 | **Sat thin slice — CFP to Abstracts** | **GREEN on the server path** | A deployed submit stored a submission with routing applied and delivered its confirmation email. The Abstracts *table* reads the database; its drawer and bulk actions do not yet |
-| CP2 — golden spine | **PARTIAL** | Green: real OTP, submit, one **delivered** email, public schedule and gallery; accept/notify **server half merged** (#57: `transitionStatus`, `notifyQueues`, both routes, 11 PGlite cases). Missing: the review server (M19), decision **UI** (M17 drawer/bulk actions) plus a deployed accept→notify→email round-trip, a portal task completion, the golden-path Playwright spec, and the 50-concurrent load run |
+| CP2 — golden spine | **PARTIAL** | Green: real OTP, submit, one **delivered** email, public schedule and gallery; accept/notify **server half merged** (#57: `transitionStatus`, `notifyQueues`, both routes, 11 PGlite cases). Missing: the review server (M19), decision **UI** (M17 drawer/bulk actions) plus a deployed accept→notify→email round-trip, a portal task completion and the golden-path Playwright spec. The **50-concurrent load run is done** (#73): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md` |
 | CP3 — full judged feature surface | **NOT ATTEMPTED** | Deployed portal upload/task, scheduling/conflict, embed, ICS lifecycle, reminder scan, tracking dashboard |
 | CP4 — feature freeze/release proof | **NOT ATTEMPTED** | Six e2e specs, load/perf record, post-deploy smoke on production, security review, docs/spend and submission checklist |
 
@@ -221,7 +221,7 @@ in. What remains of R1 is bookkeeping rather than blocking work:
 
 ### R4 — Release proof
 
-- Complete M10 after its R1 skeleton: make all six Playwright specs green, run the 50-concurrent submit load test, and finish post-deploy smoke, rollback rehearsal, public-repo docs, `docs/spend/`, and the submission checklist.
+- Complete M10 after its R1 skeleton: make all six Playwright specs green (the 50-concurrent load test is run and recorded), and finish post-deploy smoke, rollback rehearsal, public-repo docs, `docs/spend/`, and the submission checklist.
 - Run the judge script cold, including fresh Gmail and Outlook OTP/email/invite probes.
 - Fix P0s only after feature freeze; submit by 8:00 PM PT.
 

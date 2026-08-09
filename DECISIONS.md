@@ -120,3 +120,44 @@
 
 - The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.
 - Migration generation is deliberately disabled until a complete Drizzle metadata baseline can reproduce those constraints without weakening them. The TypeScript schema remains available for query typing; schema changes are authored and reviewed directly in SQL meanwhile.
+
+## Submit load test, 50 concurrent (2026-08-09)
+
+Run against the deployed preview (`sb-web-preview`, build `2794dd4`, `sb-test` branch) with 50
+distinct emails, each holding a real OTP portal session and its own draft, all firing at the
+seeded open CFP form.
+
+**Result: 50/50 `200 ok`. No 500s, no typed rejections. p50 14346 ms · p95 27703 ms · p99 29044 ms.**
+
+The invariant the event-row lock exists for held: **zero duplicate codes across 81 submissions,
+codes 1–81 contiguous with max = count.** The script asserts only HTTP status, so this was
+checked in the database directly and belongs in the record next to the latency.
+
+### What the numbers mean
+
+Wall clock is a flat multiple of the burst size, so submits against one event are effectively
+fully serialized:
+
+| concurrency | wall clock | per submit |
+|---|---|---|
+| 1 | 593 ms | 593 ms |
+| 10 | 5753 ms | 575 ms |
+| 50 | 29060 ms | 581 ms |
+
+Per-submit cost is unchanged by contention (~580 ms), which is the signature of a queue, not of
+saturation. One event sustains **~1.7 submits/sec**, and p95 grows linearly with burst size. That
+is a correctness-preserving design — `nextSubmissionCode` takes `FOR UPDATE` on the event row so
+codes cannot collide — and it is fine for a CFP deadline at human scale, but it is a per-event
+ceiling worth knowing before anyone markets a launch-day rush.
+
+Answer batching (PR #73) landed **before** the recorded run, as the roadmap required. It cut
+p95 from 32713 ms to 27703 ms (−15%) and per-submit cost from ~660 ms to ~580 ms. It did not
+change the shape of the curve, because the remaining cost is per-transaction, not per-answer.
+
+### Consequence for the Hyperdrive question
+
+`plan/product-roadmap.md` deferred Hyperdrive to "if P2's load test shows the per-transaction
+WebSocket `Pool` handshake cost". It does: ~580 ms is spent per transaction regardless of load,
+and an uncontended end-to-end submit is 593 ms, so nearly the whole request is the transaction.
+Shortening it is now the only lever that raises per-event throughput — the lock hold time is the
+throughput, one-for-one. Not actioned here; recorded so the decision has its evidence.
