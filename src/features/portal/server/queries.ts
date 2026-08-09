@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { contacts, submissionParticipants, submissions } from "@/db/schema";
+import { contacts, sessionFormats, submissionParticipants, submissions, tracks } from "@/db/schema";
 import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type SubmissionStatus } from "@/shared/contracts";
 
 /**
@@ -37,6 +37,10 @@ export type PortalSubmissionRow = {
   status: PortalStatus;
   isPrimary: boolean;
   formId: string | null;
+  /** The organizer's vocabulary, resolved here so a card never shows a raw id. */
+  trackName: string | null;
+  formatName: string | null;
+  trackColor: string | null;
   submittedAt: string | null;
   updatedAt: string;
 };
@@ -71,6 +75,9 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
       status: submissions.status,
       isPrimary: submissionParticipants.isPrimary,
       formId: submissions.formId,
+      trackName: tracks.name,
+      trackColor: tracks.color,
+      formatName: sessionFormats.name,
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
     })
@@ -82,6 +89,8 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
         eq(submissionParticipants.eventId, submissions.eventId),
       ),
     )
+    .leftJoin(tracks, eq(tracks.id, submissions.trackId))
+    .leftJoin(sessionFormats, eq(sessionFormats.id, submissions.formatId))
     .where(and(eq(submissions.eventId, eventId), eq(submissionParticipants.contactId, contactId)))
     // Submitted first and newest first; drafts have no submitted_at and belong at
     // the end, not ahead of real submissions because they were touched recently.
@@ -94,6 +103,9 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
     status: portalStatus(row.status),
     isPrimary: row.isPrimary,
     formId: row.formId,
+    trackName: row.trackName,
+    trackColor: row.trackColor,
+    formatName: row.formatName,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
   }));
@@ -118,6 +130,9 @@ export async function getMySubmissionIn(
       status: submissions.status,
       isPrimary: submissionParticipants.isPrimary,
       formId: submissions.formId,
+      trackName: tracks.name,
+      trackColor: tracks.color,
+      formatName: sessionFormats.name,
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
       descriptionHtml: submissions.descriptionHtml,
@@ -130,6 +145,8 @@ export async function getMySubmissionIn(
         eq(submissionParticipants.eventId, submissions.eventId),
       ),
     )
+    .leftJoin(tracks, eq(tracks.id, submissions.trackId))
+    .leftJoin(sessionFormats, eq(sessionFormats.id, submissions.formatId))
     .where(and(
       eq(submissions.eventId, eventId),
       eq(submissions.id, submissionId),
@@ -160,6 +177,9 @@ export async function getMySubmissionIn(
     status: portalStatus(row.status),
     isPrimary: row.isPrimary,
     formId: row.formId,
+    trackName: row.trackName,
+    trackColor: row.trackColor,
+    formatName: row.formatName,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     descriptionHtml: row.descriptionHtml,

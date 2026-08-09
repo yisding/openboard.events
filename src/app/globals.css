@@ -530,3 +530,4 @@ input::placeholder, textarea::placeholder { color: #aba8b5; }
 .portal-participants span{color:var(--muted);font-size:9px}
 .portal-participants em{font-style:normal;color:var(--purple);font-size:8px}
 .portal-note{color:var(--muted);font-size:9px}
+.portal-submission__vocab{display:flex;gap:6px;flex-wrap:wrap}

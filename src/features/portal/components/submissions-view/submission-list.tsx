@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FileText } from "lucide-react";
 import type { PortalSubmissionRow } from "@/features/portal";
+import { ColorChip } from "@/shared/ui/app/color-chip";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 
@@ -40,6 +41,10 @@ export function SubmissionList({
           <h2>
             <Link href={`/portal/${encodeURIComponent(eventSlug)}/submissions/${row.submissionId}`}>{row.title}</Link>
           </h2>
+          <div className="portal-submission__vocab">
+            {row.trackName && <ColorChip label={row.trackName} color={row.trackColor} />}
+            {row.formatName && <span className="track-chip">{row.formatName}</span>}
+          </div>
           <footer>
             {row.submittedAt
               ? <span>Submitted <TzTime instant={row.submittedAt} tz={timezone} style="date" /></span>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { PortalSubmissionDetail } from "@/features/portal";
+import { ColorChip } from "@/shared/ui/app/color-chip";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { StatusBadge } from "@/shared/ui/ui-kit";
@@ -28,6 +29,10 @@ export function SubmissionDetail({
         <span className="submission-code">SESS-{submission.code}</span>
         <StatusBadge value={submission.status} />
         <h1>{submission.title}</h1>
+        <div className="portal-submission__vocab">
+          {submission.trackName && <ColorChip label={submission.trackName} color={submission.trackColor} />}
+          {submission.formatName && <span className="track-chip">{submission.formatName}</span>}
+        </div>
         <p>
           {submission.submittedAt
             ? <>Submitted <TzTime instant={submission.submittedAt} tz={timezone} style="long" /></>
