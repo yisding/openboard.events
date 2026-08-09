@@ -20,7 +20,11 @@ export type PublicFormOpenState = {
 };
 
 export type PublicForm = {
-  event: { name: string; slug: string; timezone: string; logoUrl: string | null; backgroundUrl: string | null };
+  // The id is here because the submit and draft endpoints are event-scoped and
+  // the wizard has to name the event it is submitting to. It is not a secret —
+  // it is in every admin URL — but it is also not guessable, so it travels with
+  // the payload rather than being derived client-side from the slug.
+  event: { id: string; name: string; slug: string; timezone: string; logoUrl: string | null; backgroundUrl: string | null };
   form: {
     id: FormId;
     externalTitle: string;
@@ -105,6 +109,7 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
 
   return {
     event: {
+      id: event.id,
       name: event.name,
       slug: event.slug,
       timezone: event.timezone,

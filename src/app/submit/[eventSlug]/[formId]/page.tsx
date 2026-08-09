@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPublicForm } from "@/features/forms";
+import { CfpSteps } from "@/features/forms/components/cfp-steps";
 import { PublicFormGate } from "@/features/forms/components/public-form-gate";
 import { CfpWizard } from "@/features/forms/cfp-wizard";
 import { formIdSchema } from "@/shared/contracts";
@@ -28,7 +29,9 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
 
   return (
     <main className="cfp-container">
-      <PublicFormGate data={data} />
+      <PublicFormGate data={data}>
+        <CfpSteps data={data} />
+      </PublicFormGate>
     </main>
   );
 }

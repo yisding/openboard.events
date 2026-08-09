@@ -12,7 +12,7 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
  * apology and the other is a date to come back on, and a speaker who arrives
  * early should leave knowing when to return rather than thinking they missed it.
  */
-export function PublicFormGate({ data }: { data: PublicForm }) {
+export function PublicFormGate({ data, children }: { data: PublicForm; children?: React.ReactNode }) {
   const { event, form, openState } = data;
 
   if (!openState.open) {
@@ -42,6 +42,7 @@ export function PublicFormGate({ data }: { data: PublicForm }) {
   }
 
   return (
+    <>
     <header className="cfp-welcome">
       {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
           an unsized image on the first public page a judge opens is a layout
@@ -64,5 +65,7 @@ export function PublicFormGate({ data }: { data: PublicForm }) {
         </div>
       </dl>
     </header>
+    {children}
+    </>
   );
 }
