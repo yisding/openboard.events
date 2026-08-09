@@ -32,6 +32,8 @@ The app targets Next.js 15 on Cloudflare Workers through OpenNext. Copy `.dev.va
 
 The initial experience runs without external credentials. Before connecting external services, follow [`docs/provisioning.md`](docs/provisioning.md). See `DECISIONS.md` for unresolved infrastructure checks and `PLAN.md` for the full implementation contract.
 
+After migrating and creating the first event, use [`docs/admin-bootstrap.md`](docs/admin-bootstrap.md) to provision password-backed organizer and reviewer accounts.
+
 ## Demo and integration references
 
 - `docs/demo-script.md` walks through the complete seeded organizer and speaker journey.

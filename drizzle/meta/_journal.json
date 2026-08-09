@@ -15,6 +15,13 @@
       "when": 1786226370001,
       "tag": "0001_views_triggers",
       "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786248000000,
+      "tag": "0002_admin_auth",
+      "breakpoints": false
     }
   ]
 }

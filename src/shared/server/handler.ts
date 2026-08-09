@@ -4,8 +4,10 @@ import { apiErrorSchema, eventIdSchema, type EventId } from "@/shared/contracts"
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 
-export type AuthSession = { actorId: string; role: string } | null;
-export type AuthGuard = (request: NextRequest, eventId: EventId | null) => Promise<AuthSession>;
+export type RouteParams = Record<string, string | string[] | undefined>;
+export type AuthSession = { actorId: string; role: string; eventId?: EventId } | null;
+export type AuthGuard = (request: NextRequest, eventId: EventId | null, params: RouteParams) => Promise<AuthSession>;
+export type HandlerGuard = AuthGuard;
 
 type HandlerContext<Input> = {
   eventId: EventId | null;
@@ -46,15 +48,16 @@ export function defineHandler<Input, Output>(options: {
   input: z.ZodType<Input>;
   handler: (context: HandlerContext<Input>) => Promise<Output>;
 }) {
-  return async (request: NextRequest, route?: { params?: Promise<Record<string, string | string[] | undefined>> }) => {
+  return async (request: NextRequest, route?: { params?: Promise<RouteParams> }) => {
     const startedAt = Date.now();
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     let eventId: EventId | null = null;
     try {
-      const params = await route?.params;
+      const params = await route?.params ?? {};
       const rawEventId = params?.eventId;
       if (typeof rawEventId === "string") eventId = eventIdSchema.parse(rawEventId);
-      const session = await options.auth(request, eventId);
+      const session = await options.auth(request, eventId, params);
+      eventId ??= session?.eventId ?? null;
       const rawInput: unknown = request.method === "GET"
         ? queryInput(request.nextUrl.searchParams)
         : await bodyInput(request);

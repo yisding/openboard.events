@@ -14,18 +14,21 @@
 - The deployed preview URL and Neon health query are proven below. Deployed interactive
   transactions, Auth.js, browser R2 presigning/CORS, and Resend delivery/idempotency remain
   pending their feature-specific probes.
+- S4 has no credential-backed deployed verdict in this environment, so M06a adopts the pre-decided Web Crypto PBKDF2 + jose HS256 cookie fallback. The public `requireAdmin(eventId, role?)` contract remains implementation-neutral.
+- The auth-enabled OpenNext artifact measured 1,317.99 KiB compressed in Wrangler's production dry run on 2026-08-08, within the configured Workers Free bundle budget.
 
 ## Deferred spikes (Sat AM)
 
 - [ ] Revalidate-60 behavior on a deployed public page
 - [ ] Browser presigned R2 upload with CORS
-- [x] Apply both PostgreSQL migrations to PGlite (75-test suite on 2026-08-08; 30+ tables, 8 views, and all 9 M03 invariants pass)
-- [ ] Apply both PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
+- [x] Apply all three PostgreSQL migrations to PGlite (integration suite on 2026-08-08; 30+ tables, 8 views, and all M03 invariants pass)
+- [ ] Apply all three PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
 - [ ] Embed `frame-ancestors *` survives the adapter
 
 ## Adopted fallbacks
 
 - The local demo uses a typed, persisted browser store when external services are absent. Production adapters remain isolated behind server interfaces.
+- Admin authentication uses the Workers-safe jose/Web Crypto fallback until a deployed better-auth round-trip can be proven; downstream features remain isolated behind the frozen auth barrel.
 
 ## Discord clarifications
 
