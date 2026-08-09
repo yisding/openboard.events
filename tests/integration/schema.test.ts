@@ -151,10 +151,13 @@ describe("database invariants", () => {
     expect(result.rows).toEqual([{ contact_id: primary }]);
   });
 
-  it("keeps task descriptions non-null when callers omit them", async () => {
+  it("keeps task descriptions compatible with the non-null API contract", async () => {
     const eventId = "71000000-0000-4000-8000-000000000001";
-    await insertEvent(eventId, "task-default-event");
-    const result = await db.query<{ description_html: string }>("INSERT INTO portal_tasks(event_id,name) VALUES($1,'Default description') RETURNING description_html", [eventId]);
+    await insertEvent(eventId, "task-description-default");
+    const result = await db.query<{ description_html: string }>(
+      "INSERT INTO portal_tasks(event_id,name) VALUES($1,'Profile') RETURNING description_html",
+      [eventId],
+    );
     expect(result.rows[0]?.description_html).toBe("");
   });
 
