@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **the database reads are merged** (#37): `listSubmissions`, `getStatusCounts`, `getSubmissionDetail`, with tabs and rows sharing one WHERE clause and the drawer returning the pinned snapshot. Eleven PGlite cases. Remaining: `updateSubmissionFields`, the three route handlers, `scripts/seed/contacts.ts`/`submissions.ts`, and moving the table components off `useDemo()`. |
+| **Status** | IN PROGRESS — reclaimed by Codex for the PR #38 review follow-ups: server-aware pagination and sorting, all status tabs, the unfiltered empty-state total, and URL-to-search-draft synchronization. **The database reads are merged** (#37): `listSubmissions`, `getStatusCounts`, `getSubmissionDetail`, with tabs and rows sharing one WHERE clause and the drawer returning the pinned snapshot. Eleven PGlite cases. Remaining after this recovery: `updateSubmissionFields`, the three route handlers, `scripts/seed/contacts.ts`/`submissions.ts`, and moving the table components off `useDemo()`. |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat AM → Sat PM** (starts the moment CP1 lands: schema + seed + M05a). Sat-night demo bar: "abstracts table shows seeded data with working tabs". |
 | **Size** | L (~day) |
