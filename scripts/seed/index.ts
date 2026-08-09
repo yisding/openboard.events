@@ -131,6 +131,14 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  // Print the cause as well: a driver error's message is often empty while
+  // everything useful hangs off `cause`, and a seed that fails silently is a
+  // seed nobody can fix.
+  if (error instanceof Error) {
+    console.error(error.message || error.name);
+    if (error.cause) console.error("cause:", error.cause);
+  } else {
+    console.error(error);
+  }
   process.exitCode = 1;
 });

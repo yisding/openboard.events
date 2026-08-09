@@ -24,8 +24,14 @@ function rowsOf<Row>(result: unknown): Row[] {
 export async function seedComms(ctx: SeedCtx): Promise<void> {
   const { tx } = ctx;
   const eventId = eventIdSchema.parse(ctx.eventId);
-  await seedDefaultTemplates(tx, eventId);
+  // events.ts owns the event row, and every insert below has a foreign key to
+  // it. Without this the whole seed run dies on the template insert.
   const [event] = await tx.select({ slug: sql<string>`slug` }).from(sql`events`).where(sql`id=${eventId}`).limit(1);
+  if (!event) {
+    ctx.log("skipped — the event does not exist yet (events.ts)");
+    return;
+  }
+  await seedDefaultTemplates(tx, eventId);
   const [defaultContact] = await tx.select({ id: contacts.id }).from(contacts).where(eq(contacts.eventId, eventId)).orderBy(asc(contacts.createdAt)).limit(1);
   const [unsubscribed] = await tx.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.eventId, eventId), sql`${contacts.unsubscribedAt} IS NOT NULL`)).limit(1);
   const [received] = await tx.select({ id: submissions.id }).from(submissions).where(and(eq(submissions.eventId, eventId), eq(submissions.status, "pending"))).orderBy(asc(submissions.createdAt)).limit(1);
