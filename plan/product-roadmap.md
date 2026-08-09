@@ -114,7 +114,8 @@ ordered here by tail length × trickiness:
 4. **The 50-concurrent load test — completed Aug 9.** The deployed endpoint returned 50/50
    `200` with p95 27703 ms and exposed a linear per-event serialization ceiling at the final-submit
    event-row lock. It did not isolate the WebSocket `Pool` handshake; measure that directly or
-   run a controlled pooling A/B before choosing Hyperdrive or a CTE rewrite.
+   run a controlled pooling A/B before choosing Hyperdrive. Evaluate a CTE rewrite separately
+   with query or transaction profiling if lock-held work remains the bottleneck.
 5. **A green `Deploy` workflow run** (process tail). Every deploy so far is a laptop operation,
    and rev. 7's own findings (a rewritten migration silently not applying) are exactly the
    failure class a pipeline catches. One green run makes every subsequent deploy cheaper and

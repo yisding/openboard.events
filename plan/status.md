@@ -170,7 +170,7 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 
 | Checkpoint | Status | Evidence |
 |---|---|---|
-| CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe, auth-throttle proof, and DMARC header evidence** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **revalidate-60 proven** (`s-maxage`, `x-nextjs-cache: HIT`); delivered Gmail mail proves aligned SPF/DKIM. Missing: a browser R2 presign/CORS upload, a deployed application auth-throttle proof, and `dmarc=pass` in `Authentication-Results` |
+| CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe, auth-throttle proof, and DMARC header evidence** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **edge cacheability proven** (`s-maxage`, `x-nextjs-cache: HIT`); delivered Gmail mail proves aligned SPF/DKIM. Missing: a browser R2 presign/CORS upload, a deployed application auth-throttle proof, and `dmarc=pass` in `Authentication-Results` |
 | CP1 — contracts/schema/foundation freeze | **NEARLY GREEN** | Contracts merged; the stack merged; migrations applied to `sb-dev` and `sb-test` **from the repo's own SQL**; seed loads; **admin login works on the deployed preview**; the six-spec Playwright skeleton runs; **the freeze declaration is now recorded in `DECISIONS.md`** (rev. 8). Missing: `sb-prod` and a green `Deploy` workflow run |
 | **Sat thin slice — CFP to Abstracts** | **GREEN on the server path** | A deployed submit stored a submission with routing applied and delivered its confirmation email. The Abstracts *table* reads the database; its drawer and bulk actions do not yet |
 | CP2 — golden spine | **PARTIAL** | Green: real OTP, submit, one **delivered** email, public schedule and gallery; accept/notify **server half merged** (#57: `transitionStatus`, `notifyQueues`, both routes, 11 PGlite cases). Missing: the review server (M19), decision **UI** (M17 drawer/bulk actions) plus a deployed accept→notify→email round-trip, a portal task completion and the golden-path Playwright spec. The **50-concurrent load run is done** (#73): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md` |
@@ -193,17 +193,18 @@ Its three original recovery items are done: the preview is deployed from current
 databases are migrated and seeded, and an admin has been bootstrapped and used to sign
 in. R1 remains open for the following release and external-proof work:
 
+The CP1 freeze declaration is already complete at rev. 8 and is not an open R1 item.
+
 1. `sb-prod` migration and production secrets, gated on the production deploy decision.
 2. A green `Deploy` workflow run — every run so far has been `skipped`, so deployment
    is still a laptop operation rather than a pipeline one.
-3. ~~The CP1 freeze declaration in `DECISIONS.md`.~~ **Done at rev. 8** — declared in effect.
-4. A browser R2 upload against the preview — unblocked at #65 (the contacts seed uploads real
+3. A browser R2 upload against the preview — unblocked at #65 (the contacts seed uploads real
    headshots); the probe just needs running.
-5. A deployed application-layer auth-throttle probe; unit coverage is not external evidence.
-6. A delivered-message `Authentication-Results` record with `dmarc=pass`; SPF/DKIM alone do not
+4. A deployed application-layer auth-throttle probe; unit coverage is not external evidence.
+5. A delivered-message `Authentication-Results` record with `dmarc=pass`; SPF/DKIM alone do not
    satisfy the email header gate.
 
-**Exit:** the six items above.
+**Exit:** the five items above.
 
 ### R2 — Server-backed golden spine
 
