@@ -144,6 +144,153 @@ What this explicitly does **not** change: the judged-bar critical path. Items 1�
 individually small starts (a spike, an ADR, a test run, a cron) that fit around the P1 wiring
 work without displacing it.
 
+## Architecture & code-quality review recommendations (stacked on the rev. 8 evaluation)
+
+A full-codebase review (schema/tooling, `src/shared`, `src/features`, `src/app` + API) confirms
+the plan's own self-assessment — the server halves are rigorous, the demo adapter is the
+dominant liability — but surfaced findings the corpus does not yet track. Every item below was
+verified against the code on this branch; file references are current. Where a finding
+strengthens an existing lane item, it says so instead of opening a new one.
+
+### Fix now — small diffs, before any customer-facing deploy
+
+These join P3's release-gate list; none is larger than an afternoon.
+
+1. **Impersonation has no role check.** `createImpersonationLink`
+   (`src/features/auth/server/portal.ts:268`) calls `requireAdmin(eventId)` with no role
+   argument, so a **reviewer** can mint a 5-minute portal token for **any contact** and read
+   their portal and submissions. This is **two release-gate fixes, not one**: (a) require
+   `organizer` in `createImpersonationLink`; and (b) enforce the intended reviewer policy in
+   the file-access code itself — private-file downloads take a separate path
+   (`requireUploader` in `api/uploads/_lib.ts` tries admin auth first, and `decideFileAccess`
+   in `shared/server/r2.ts` returns true for every admin role), so fixing impersonation alone
+   leaves reviewers with full private-file access.
+2. **Page and API authorization disagree about reviewers.** `requiredRoleForEventPath`
+   (`src/features/auth/server/admin.ts:28-32`) demands `organizer` for everything except
+   `/events/{id}/review` — a page that does not exist — so reviewers get "Access denied" on
+   every admin page (including Abstracts, whose own comment says "any member may read"), while
+   the internal APIs (`api/internal/submissions/[eventId]/route.ts`) check membership with no
+   role at all. Decide the reviewer surface once and align both layers; add a test that pins
+   page-vs-API parity per role.
+3. **Preview databases store live login credentials.** The dispatcher redacts magic-link/OTP
+   values from persisted `body_rendered_html` only when `APP_ENV === "production"`
+   (`src/features/comms/server/dispatcher.ts:58`). A preview with `EMAIL_MODE=send` both sends
+   real email and stores unredacted 30-day single-use login links — one leaked row is an
+   account takeover. Key redaction on `EMAIL_MODE === "send"` (or redact unconditionally); this
+   belongs next to the existing `TEST_AUTH` preview release gate in P3.
+4. **Per-address abuse on portal login.** `requestPortalLoginIn`
+   (`src/features/auth/server/portal.ts:156`) calls `getOrCreateContact` before any gate, and
+   the 3-per-10-min throttle is per **contact** — one IP can create unlimited contacts and fire
+   an email per address. Add a cap keyed **solely on the trusted client IP** — the admin
+   lockout's table/upsert mechanics and header extraction are reusable, but its key is
+   `sha256(email + ip)`, which hands an email-cycling attacker a fresh bucket per address —
+   ahead of the Cloudflare-native rate-limit adoption below.
+5. **Unexpected 500s are unobservable.** `defineHandler` (`src/shared/server/handler.ts:70-84`)
+   maps unknown errors to `INTERNAL` without ever logging message or stack — every production
+   500 is a blind spot today. Log before mapping; this is the concrete reason the Sentry
+   adoption item should not wait for "P1–P3 sometime".
+6. **Verified small bugs**, each with a one-line fix:
+   - `shared/ui/app/data-table.tsx:78` — `nullsLast` compares everything as strings with
+     `{numeric: true}`, so `"4.5"` sorts before `"4.25"`; the Rating column mis-orders
+     fractional averages (the very case the helper's comment cites).
+   - `shared/ui/app/file-upload.tsx` — presign/finalize fetches are uncaught and fired with
+     `void`; a network error is an unhandled rejection and the UI sticks on "Verifying…"
+     forever. Wrap and surface an error phase.
+   - `workers/jobs/index.ts:16-17` — the comment claims reminders and airtable "never share a
+     tick", but %15 and %10-offset-5 collide at :15 and :45. Fix the modulus or the comment,
+     and add an `AbortSignal` timeout to the dispatcher fetch while there (a hung origin
+     currently holds the invocation until the platform kills it).
+   - `src/app/submit/[eventSlug]/[formId]/done/page.tsx:5` — a missing query param fabricates
+     confirmation code `"SESS-NEW"`; render "code unavailable" instead of a fake code.
+
+### Sequencing amendment to P1: public pages should not be last
+
+P1 item 6 wires public schedule/speakers/embeds onto the `published_*` views after everything
+else. But these are the only surfaces where a **real** database currently shows **fixture**
+data to the outside world: `/e/*/schedule`, `/e/*/speakers`, and `/embed/*` render `useDemo()`
+client components with hard-coded Sep 15/16 tabs, so the public page and `/api/v1/.../schedule`
+— two surfaces the code comments insist "cannot disagree" — disagree by construction, and the
+`revalidate = 60` edge-cache story stays decorative until the page renders server data. The
+embed-first positioning in `docs/user-flows.md` makes this the organizer's shop window, not a
+trailing item. Recommendation: treat M32/M33 wiring as parallel-lane eligible (it has no
+dependency on the decision-loop path) rather than sequenced behind items 1–5.
+
+### Contain the demo fork while it drains
+
+The demo adapter is not just unfinished wiring; it has already forked logic the architecture
+forbids forking:
+
+- `src/features/forms/cfp-wizard.tsx:152` contains a second, private `evaluateVisibility`,
+  violating the "exactly one condition evaluator" invariant the CI greps exist to protect.
+- `src/features/agenda/conflicts.ts:1` types its "real" logic against `@/shared/demo/types`.
+- `shared/demo/types.ts` is a parallel domain model (untagged answer unions, unbranded ids,
+  re-declared statuses) imported by ~30 feature files, so each surface swap is a semantic
+  rewrite — plan surface estimates accordingly.
+
+Cheap containment, same spirit as the schema-drift lane item: an ESLint `no-restricted-imports`
+rule (not a grep — it can allowlist per-directory) that pins the current set of
+`@/shared/demo` importers and fails on any **new** one, so the drain is monotonic. The
+duplicate evaluator is **not** a one-off deletion: `shared/lib/conditions.ts` takes a compiled
+`FormSnapshot` plus tagged `Answers` keyed by field ID, while the demo wizard holds
+`FormFieldRecord.visibility` and untagged values keyed by `field.key`, so a drop-in swap will
+not type-check and a thin adapter would just re-encode the forked semantics. Plan it as the
+wizard's migration to the real `FormFieldRenderer`/snapshot path (or, interim, an explicit
+demo→snapshot conversion with parity tests pinning both evaluators to the same verdicts).
+
+### Consolidation debt — fold into P1 wiring as routes are touched
+
+- **Three API error envelopes coexist**: `defineHandler`'s `{error:{code,message,fieldErrors}}`,
+  v1's bare `{error:{code,message}}` (`api/v1/_lib.ts`), and hand-rolled try/catch in the four
+  portal-auth routes plus `jsonRoute` in uploads (which its own comment admits is a
+  duplicate). Converge on `defineHandler`'s shape as each route is next edited; also fix
+  sign-in returning 401 "Invalid email or password" for malformed JSON (a 400).
+- **`defineHandler` forces `NextRequest`-rebuilding workarounds** — two distinct framework
+  gaps. `api/internal/forms/[formId]/submit/route.ts:60-66` and `draft/route.ts` re-serialize
+  the parsed **body** to smuggle `eventId` into the query string for the auth guard;
+  `api/internal/portal/submissions/[id]/route.ts` is a GET that copies the **route param**
+  `id` into the query string because handler input can't merge route params. Add both:
+  body-derived auth-param resolution, and route-param merging into handler input — then
+  delete all three wrappers.
+- **Token hygiene**: every dispatch **attempt** mints a fresh 30-day magic-link token and
+  365-day ICS token (`comms/server/context.ts:257`, `invites.ts:139`) with no revocation at
+  issue — retries widen the set of live credentials. Mint once per logical notification (or
+  revoke predecessors on re-issue), and fold token/session expiry into the retention lane item.
+  Related fragility while in that file: `context.ts:256-258` builds `vars` by shallow-spread
+  then **mutates the shared nested `portal` object** for the magic link to reach the result —
+  any deep-copy refactor silently breaks every non-login email; make the link an explicit
+  field.
+- **Submit-path batching (load-test prerequisite).** `replaceAnswers`
+  (`submissions/server/mutations.ts`) deletes-then-inserts one answer row per round trip
+  inside the transaction holding the event-row `FOR UPDATE` lock, over a per-transaction
+  WebSocket `Pool` to Neon. Batch it into multi-row statements **before** running lane item
+  4's 50-concurrent load test (which fires only the submit endpoint), so the test measures
+  the intended design rather than a known-fixable serialization. This is the only
+  prerequisite — do not postpone the load test for anything below.
+- **Decision-notification batching (independent).** `notifyQueues` — its own transaction, no
+  event-row lock, not exercised by the load test — enqueues emails and updates contacts one
+  statement per submission; batch it on its own schedule, since a large decision batch holds
+  its updated submissions' row locks for the duration.
+
+### Smaller items, recorded so they don't rot
+
+- Dead code sweep: `ensurePortalSession` (`auth/server/portal.ts:141`), `toPortalStatus`
+  (`submissions/server/guards.ts:29`, zero call sites, re-implements
+  `PORTAL_STATUS_LABEL`), the unused `ADD_REVIEW` reducer arm (`shared/demo/demo-provider.tsx`)
+  whose semantics subtly differ from `UPSERT_REVIEW`, `QUERY_DEFAULTS`
+  (`shared/lib/query-keys.ts`), and `CONDITION_OPERATORS` (`shared/contracts/enums.ts:70-73`).
+- `shared/contracts/limits.ts:10-14` imports the `xss` runtime into the contracts layer (and
+  the import sits below its use); move the check beside `lib/sanitize.ts`.
+- `/api/health` publicly reports the Postgres server version and build SHA; drop the version.
+- Deploy workflow: step-scope `CLOUDFLARE_API_TOKEN`/`DATABASE_URL_DIRECT` instead of job-level
+  env, and pin CI's action tags to SHAs the way `deploy.yml` already does.
+- Schema notes for the next additive migration: `submissions.form_version` has no FK to
+  `form_versions(form_id, version)`; the outbox scan would prefer a
+  `(next_attempt_at) WHERE status='queued'` partial index over the current
+  `(event_id, status)` one; only `submissions` gets trigger-maintained `updated_at` while the
+  freshness views `greatest(...)` over every table's — a forgotten app-side update means stale
+  cache keys with no DB backstop. (All three feed lane item 7's drift-containment work; the TS
+  mirror is already missing `submissions_event_submitted_idx`.)
+
 ## Tooling and library adoptions
 
 The current dependency list is deliberately lean and most hand-rolled choices (ICS builder,
