@@ -108,7 +108,15 @@ async function selectRows(
     LEFT JOIN contacts sc ON sc.id = s.submitter_contact_id AND sc.event_id = s.event_id
     LEFT JOIN tracks t ON t.id = s.track_id
     LEFT JOIN session_formats sf ON sf.id = s.format_id
-    LEFT JOIN submission_ratings_v r ON r.submission_id = s.id AND r.event_id = s.event_id
+    LEFT JOIN LATERAL (
+      -- submission_ratings_v is one row per (submission, plan). Joining it
+      -- directly multiplies a submission that has reviews in two plans, which
+      -- shows the same abstract twice in the table and doubles the tab count.
+      -- One number per submission, which is what the Rating column means.
+      SELECT avg(v.rating) AS rating, COALESCE(sum(v.n_scores), 0)::int AS n_scores
+      FROM submission_ratings_v v
+      WHERE v.submission_id = s.id AND v.event_id = s.event_id
+    ) r ON TRUE
     WHERE ${where}
     ORDER BY ${order}
     LIMIT ${limit} OFFSET ${offset}
@@ -134,14 +142,21 @@ export async function listSubmissionsIn(
   eventId: EventId,
   filters: SubmissionFilters,
 ): Promise<{ rows: SubmissionListRow[]; total: number; page: number; pageSize: number }> {
-  const raw = await selectRows(
-    dbOrTx,
-    whereClause(eventId, filters),
-    ORDER_BY[filters.sort],
-    filters.pageSize,
-    (filters.page - 1) * filters.pageSize,
-  );
-  return { rows: raw.map(toListRow), total: Number(raw[0]?.total ?? 0), page: filters.page, pageSize: filters.pageSize };
+  const where = whereClause(eventId, filters);
+  const raw = await selectRows(dbOrTx, where, ORDER_BY[filters.sort], filters.pageSize, (filters.page - 1) * filters.pageSize);
+
+  // The window count rides on the returned rows, so a page past the end reports
+  // zero — and a table that has just been filtered would show "no results" with
+  // no way back. Ask separately when there is nothing to ride on.
+  let total = Number(raw[0]?.total ?? 0);
+  if (raw.length === 0) {
+    const counted = await dbOrTx.execute<{ total: number }>(sql`
+      SELECT count(*)::int AS total FROM submissions s WHERE ${where}
+    `);
+    total = Number((counted.rows ?? [])[0]?.total ?? 0);
+  }
+
+  return { rows: raw.map(toListRow), total, page: filters.page, pageSize: filters.pageSize };
 }
 
 

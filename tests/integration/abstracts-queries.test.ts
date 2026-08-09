@@ -162,6 +162,37 @@ describe("abstracts queries", () => {
     expect(second.total).toBe(3);
   });
 
+  it("keeps one row per submission when it has ratings in two plans", async () => {
+    // submission_ratings_v is per (submission, plan); a naive join shows the
+    // same abstract twice and doubles the tab count.
+    const reviewer = "a1000000-0000-4000-8000-000000000040";
+    await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'reviewer@example.com','Reviewer')", [reviewer]);
+    for (const [index, planId] of [
+      "a1000000-0000-4000-8000-000000000050",
+      "a1000000-0000-4000-8000-000000000051",
+    ].entries()) {
+      await pglite.query("INSERT INTO evaluation_plans(id,event_id,name,round) VALUES($1,$2,$3,$4)", [planId, eventId, `Round ${index + 1}`, index + 1]);
+      await pglite.query(
+        "INSERT INTO reviews(event_id,plan_id,submission_id,reviewer_user_id,overall_score,submitted_at) VALUES($1,$2,$3,$4,$5, now())",
+        [eventId, planId, accepted, reviewer, 4 + index],
+      );
+    }
+
+    const result = await listSubmissionsIn(db, eventId, filters({ search: "caching" }));
+    expect(result.rows).toHaveLength(1);
+    expect(result.total).toBe(1);
+    expect(result.rows[0]?.nScores).toBe(2);
+    expect(result.rows[0]?.rating).toBeCloseTo(4.5);
+  });
+
+  it("still reports the total when the page is past the end", async () => {
+    // Otherwise a table that has just been filtered shows "no results" with no
+    // way to page back to them.
+    const result = await listSubmissionsIn(db, eventId, filters({ page: 9, pageSize: 2 }));
+    expect(result.rows).toHaveLength(0);
+    expect(result.total).toBe(3);
+  });
+
   it("sorts newest first by default, with drafts last", async () => {
     const rows = (await listSubmissionsIn(db, eventId, filters())).rows;
     // A draft has no submitted_at and belongs behind everything submitted.
