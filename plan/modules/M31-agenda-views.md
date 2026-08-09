@@ -11,8 +11,8 @@
 Four read-only projections of the exact same session data the Day grid drags: a Conflicts report (the authoritative badge + fix-it list), a Week overview (event days side by side), a Track lane view, and a Room-by-room agenda. No new writes, no new server functions — this module is entirely presentational, closing out the brief's "list, day, week, track, or room" views claim plus the dedicated Conflicts tab. When done: an organizer can flip through all six tabs, see the seeded conflicts listed with working jump-to links, and watch the badge drop to zero after fixing them in Day view.
 
 ## Dependencies
-- **Hard (blocks start):** ./M28-sessions-crud.md — `listSessions`, `AgendaViewProps`, and the four placeholder files this module replaces, all complete (solid dependency, done by Sunday AM — well before this module's Monday start). ./M29-conflict-engine.md — the `Conflict`/`ConflictDTO` shape this module renders (done Saturday).
-- **Soft (start against stub/fixture):** none. By the time this module starts (Monday for Conflicts, Tuesday AM for the rest), M28 and M29 are both real and solid per the dependency graph — there is no fixture-swap step here.
+- **Hard (blocks integration):** ./M28-sessions-crud.md — `listSessions`, `AgendaViewProps`, and the four placeholder files this module replaces, all complete. ./M29-conflict-engine.md — the `Conflict`/`ConflictDTO` shape reconciled with frozen contracts and the full property/acceptance suite green. The merged partial M29 slice does not satisfy this gate.
+- **Soft (start against stub/fixture):** Presentational layout may proceed against a lane-local conflict/session fixture, but server wiring, badge correctness, and acceptance claims remain blocked until both hard dependencies are green.
 
 ## Provides (interfaces others consume)
 ```ts

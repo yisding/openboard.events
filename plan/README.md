@@ -148,7 +148,7 @@ Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN �
 | M26 | Resource / wiki pages | [M26](modules/M26-resource-pages.md) | WS-C | WS-C (declared grant) | Mon | S | M21, M04, M05b |
 | M27 | Speakers admin + impersonation | [M27](modules/M27-speakers-admin.md) | WS-C | WS-C (declared grant) | Mon | M | M05a, M06b, M03; *M34* |
 | M28 | Sessions CRUD, list view, tray, promotion | [M28](modules/M28-sessions-crud.md) | WS-E | WS-E | Sat AM → Sun AM | M | M03, M05a; *M11, M18* |
-| M29 | Conflict engine (pure) | [M29](modules/M29-conflict-engine.md) | WS-E | WS-E | Fri eve → Sat AM done | S | M02 |
+| M29 | Conflict engine (pure) | [M29](modules/M29-conflict-engine.md) | WS-E | WS-E | Original Fri eve → Sat AM; reconciliation + full suite still open | S | M02 |
 | M30 | Day-grid drag & drop | [M30](modules/M30-day-grid-dnd.md) | WS-E | WS-E | Mon | L | M28, M29 |
 | M31 | Week/Track/Room/Conflicts views | [M31](modules/M31-agenda-views.md) | WS-E | WS-E | Mon (Conflicts tab) → Tue AM (W/T/R) | M | M28, M29 |
 | M32 | Public schedule + speaker gallery | [M32](modules/M32-public-schedule-gallery.md) | WS-E | WS-E | Sat PM (shell) → **Sun** (real queries; pulled forward) | L | M03, M28, M07 |

@@ -3,7 +3,7 @@
 |---|---|
 | **Status** | IN PROGRESS — a pure conflict-engine slice and tests are merged; reconcile it with frozen contracts and complete the property/acceptance suite. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
-| **Scheduled** | Fri night (against the contracts draft) → done Sat AM |
+| **Scheduled** | Original target: Fri night → Sat AM. Current gate: reconcile the merged slice with frozen contracts and make the full property/acceptance suite green before conflict-dependent M28/M30/M31 work consumes it. |
 | **Size** | S |
 | **Paths owned** | `src/features/agenda/conflicts.ts`, `src/features/agenda/conflicts.test.ts` |
 

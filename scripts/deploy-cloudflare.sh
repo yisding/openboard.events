@@ -9,6 +9,15 @@ target_env="${2:?usage: deploy-cloudflare.sh web|jobs preview|production}"
 : "${APP_BASE_URL:?APP_BASE_URL must be the exact deployed web origin}"
 [[ "$APP_BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { echo "APP_BASE_URL must be an https origin with no path or trailing slash" >&2; exit 2; }
 
+case "$target_env" in
+  preview) expected_app_base_url="https://sb-web-preview.yi-ding.workers.dev" ;;
+  production) expected_app_base_url="https://sb-web.yi-ding.workers.dev" ;;
+esac
+[[ "$APP_BASE_URL" == "$expected_app_base_url" ]] || {
+  echo "APP_BASE_URL must be $expected_app_base_url for $target_env" >&2
+  exit 2
+}
+
 if [[ "$service" == "jobs" ]]; then
   exec wrangler deploy --config workers/jobs/wrangler.jsonc --env "$target_env" --var "APP_BASE_URL:$APP_BASE_URL"
 fi

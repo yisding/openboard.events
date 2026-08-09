@@ -14,11 +14,8 @@ Open `http://localhost:3000`, then choose **Open demo**. The seeded AI Engineer 
 ## Validation
 
 ```bash
-pnpm typecheck
-pnpm invariants
-pnpm test
-pnpm build
-pnpm build:worker
+pnpm check
+pnpm cf-typegen:check
 pnpm worker:size
 ```
 

@@ -32,8 +32,8 @@ A pinned Next.js App Router app builds through `@opennextjs/cloudflare` and is l
 - **Path alias** `@/*` → `src/*` (tsconfig + vitest + eslint resolver). Every module imports through it.
 - **ESLint boundaries element types** (consumed as law by all workstreams): `shared-contracts`, `shared-lib`, `shared-server`, `shared-ui`, `db`, `feature`, `app`, `scripts`.
 - **`DECISIONS.md`** — the single append-only log of spike outcomes, Discord clarifications, and video diffs. Every workstream appends; the architect owns conflicts.
-- **Live URL**: `https://sb-web.<account>.workers.dev` — the deployed preview every checkpoint is demoed on.
-- **CI contract**: a PR is mergeable only when CI is green — the six `pnpm check` gates (`opennextjs-cloudflare build` runs `next build` internally, so `build:worker` covers both build gates) **plus two CI-only gates**: the Wrangler dry-run gzip measurement and Playwright against `sb-test`. Consumed by every module's "Done when".
+- **Live URLs**: `https://sb-web-preview.yi-ding.workers.dev` for preview and `https://sb-web.yi-ding.workers.dev` for production; confirm both against first-deploy Wrangler output.
+- **CI contract**: a PR is mergeable only when credential-free CI is green — the six `pnpm check` gates (`opennextjs-cloudflare build` runs `next build` internally, so `build:worker` covers both build gates) plus generated Wrangler-type freshness and the dry-run gzip measurement. Playwright against `sb-test` is a separate protected preview validation after deployment. Consumed by every module's "Done when".
 
 ## Step-by-step implementation
 
@@ -60,7 +60,7 @@ Files: `open-next.config.ts`, `wrangler.jsonc`, `next.config.ts` (headers).
 - `next.config.ts`: `images: {unoptimized: true}` (no image backend on Workers), `initOpenNextCloudflareForDev()` so bindings work under `next dev`, and `headers()`:
   - `/embed/:path*` → `Content-Security-Policy: frame-ancestors *`, **no** `X-Frame-Options`.
   - everything else → `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
-- `.dev.vars.example` lists the web/local inventory from [`../environments.md`](../environments.md): `DATABASE_URL`, `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_MODE`, `EMAIL_ALLOWLIST`, `EMAIL_FALLBACK_UI`, `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `AIRTABLE_CRON=0`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `CRON_SECRET`, `APP_BASE_URL`, `TEST_AUTH`. `NEON_TEST_URL` and Cloudflare deployment credentials are CI-only and do not belong in Worker runtime config.
+- `.dev.vars.example` lists the web/local inventory from [`../environments.md`](../environments.md): `DATABASE_URL`, `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_MODE`, `EMAIL_ALLOWLIST`, `EMAIL_FALLBACK_UI`, `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `AIRTABLE_CRON=0`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `CRON_SECRET`, `APP_BASE_URL`, `TEST_AUTH`. `NEON_TEST_URL` is protected-preview-only, and it plus Cloudflare deployment credentials never belong in Worker runtime config.
 - **Done when:** `pnpm build && pnpm build:worker` succeed locally and `.open-next/worker.js` exists.
 
 ### 3. SPIKE S1 — OpenNext deploy + R2 ISR cache (45 min, existential)
@@ -124,9 +124,9 @@ Exit non-zero on any hit. Each grep excludes exactly one owner path:
 - **Done when:** `pnpm invariants` exits 0 on the clean tree and exits 1 after you temporarily add `dangerouslySetInnerHTML` to `page.tsx`.
 
 ### 11. `.github/workflows/ci.yml` (PR gate) and `deploy.yml` (main)
-CI job order (target < 8 min): install (pnpm cache) → **typecheck** ∥ **lint** → **invariants** → **vitest** (unit + PGlite) → **`next build` then `opennextjs-cloudflare build`** → `wrangler types --check` (after `.open-next/worker.js` exists, so the self-service binding is deterministic) → Wrangler dry-run gzip measurement (warn at 2.5 MB while on Free; after a recorded Paid upgrade, warn at 8 MiB) → **Playwright** against Neon `sb-test`.
+Credential-free CI order (target < 8 min): install (pnpm cache) → **typecheck** ∥ **lint** → **invariants** → **vitest** (unit + PGlite) → **`next build` then `opennextjs-cloudflare build`** → `wrangler types --check` (after `.open-next/worker.js` exists, so the self-service binding is deterministic) → Wrangler dry-run gzip measurement (warn at 2.5 MB while on Free; after a recorded Paid upgrade, warn at 8 MiB). Protected preview validation then runs **Playwright** against the deployed preview and Neon `sb-test`, reading `E2E_BASE_URL` and `NEON_TEST_URL` only from the GitHub `preview` environment.
 Deploy job (on `main`, after CI): `drizzle-kit migrate` with `DATABASE_URL_DIRECT` → `pnpm deploy:web` → `pnpm deploy:jobs` → `bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"`. Both scripts pass `--env production` explicitly (§ Provides); preview deploys use the `:preview` variants so web and jobs always select matching named environments. Web deploys first so a new jobs worker never targets missing routes on the previous web artifact.
-CI/repository secret: `NEON_TEST_URL`. Protected production deployment environment: `CLOUDFLARE_API_TOKEN`, `DATABASE_URL_DIRECT`, and `CLOUDFLARE_ACCOUNT_ID` (the account id may be a protected variable). Runtime secrets remain in Cloudflare and are not duplicated into GitHub without a deploy-time need.
+Protected preview validation secret: `NEON_TEST_URL`. Protected deployment environments: `CLOUDFLARE_API_TOKEN`, `DATABASE_URL_DIRECT`, and `CLOUDFLARE_ACCOUNT_ID` (the account id may be a protected variable). Runtime secrets remain in Cloudflare and are not duplicated into GitHub without a deploy-time need.
 **Every deploy command must also run from a laptop** (Actions-outage fallback) — practise `pnpm deploy:web` locally once tonight and note it in `DECISIONS.md`.
 - **Done when:** a throwaway PR that adds `const x: any = 1` goes **red**, and removing it goes **green**, with the CI run URL pasted into `DECISIONS.md`.
 

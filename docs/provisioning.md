@@ -29,6 +29,8 @@ include the OpenNext worker built by `pnpm check`.
 - [x] Record the exact preview origin as `https://sb-web-preview.yi-ding.workers.dev`.
 - [x] Record the exact production origin as `https://sb-web.yi-ding.workers.dev`.
 - [ ] Keep each origin as HTTPS only, with no path and no trailing slash.
+- [x] Encode those exact origins in `scripts/deploy-cloudflare.sh`; a preview/production
+  mismatch now fails before either Worker can be changed.
 
 | Resource | Preview | Production | Local/development |
 |---|---|---|---|
@@ -210,6 +212,7 @@ existing Worker secret.
   | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
+  | `NEON_TEST_URL` | `sb-test` URL used only by protected preview E2E | unset |
 
 - [ ] Add these environment variables:
 
@@ -217,6 +220,7 @@ existing Worker secret.
   |---|---|---|
   | `APP_BASE_URL` | exact preview origin | exact production origin |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
+  | `E2E_BASE_URL` | `https://sb-web-preview.yi-ding.workers.dev` | unset |
   | `EMAIL_FROM` | omit while email is logged | verified production sender |
   | `EMAIL_ALLOWLIST` | only for deliberate real-send tests | unset |
 

@@ -48,7 +48,7 @@ deploy script rather than storing a placeholder `workers.dev` hostname.
 
 | Name | Kind | Required where | Purpose |
 |---|---|---|---|
-| `APP_ENV` | variable | all | Exactly `local`, `preview`, or `production`; drives fail-closed validation |
+| `APP_ENV` | variable | preview and production | Exactly `preview` or `production` when deployed; omitted local input defaults to `local` |
 | `DATABASE_URL` | secret | all | Pooled Neon runtime URL |
 | `SESSION_SECRET` | secret | all | Session, OTP, and portal-token signing key |
 | `RESEND_API_KEY` | secret | production; preview only for send tests | Resend API credential |
@@ -85,14 +85,15 @@ Do not copy `DATABASE_URL`, Resend, R2, Airtable, or session credentials to `sb-
 | Name | Storage | Purpose |
 |---|---|---|
 | `DATABASE_URL_DIRECT` | local `.dev.vars` or protected GitHub deployment environment | Direct Neon URL for Drizzle migrations; never a Worker runtime secret |
-| `NEON_TEST_URL` | GitHub Actions repository secret | Direct/appropriate URL used to reset and migrate `sb-test` for CI |
+| `NEON_TEST_URL` | protected GitHub `preview` environment secret | Direct/appropriate URL used to reset and migrate `sb-test` for protected preview E2E; never available to credential-free CI |
 | `CLOUDFLARE_API_TOKEN` | protected GitHub deployment environment | Least-privilege Workers/R2 deployment token |
 | `CLOUDFLARE_ACCOUNT_ID` | protected GitHub deployment variable or secret | Account targeted by Wrangler |
-| `E2E_BASE_URL` | GitHub variable | Deployed preview exercised by Playwright |
+| `E2E_BASE_URL` | protected GitHub `preview` environment variable | Deployed preview exercised by Playwright |
 | `NEXT_PUBLIC_BUILD_SHA` | CI build/deploy variable | Public commit identifier embedded in the build and health response |
 
-Validation CI is credential-free. The deployment workflow reads these values only from
-protected GitHub `preview` / `production` environments; require a reviewer for production.
+Validation CI is credential-free and uses only repository/event metadata such as the build
+SHA. Protected preview E2E and deployment workflows read credentials only from the matching
+GitHub `preview` / `production` environment; require a reviewer for production.
 Automatic production deploys remain gated by repository variable
 `PRODUCTION_DEPLOY_ENABLED=1` until manual provisioning proof is complete.
 
