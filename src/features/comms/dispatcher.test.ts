@@ -271,6 +271,34 @@ describe("communications outbox dispatcher", () => {
     expect(logUids.rows).toEqual([{ ics_uid: state.rows[0]?.ics_uid }]);
   });
 
+  it("retries a failed CANCEL with the same sequence", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:cancel-retry:request`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: vi.fn(async () => "request-sent") })).resolves.toMatchObject({ sent: 1 });
+
+    await pglite.query("DELETE FROM session_speakers WHERE session_id=$1 AND contact_id=$2", [sessionId, contactId]);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:cancel-retry:cancel`, refs: { sessionId } });
+    const failingSender = vi.fn(async () => { throw new Error("provider unavailable"); });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: failingSender })).resolves.toMatchObject({ retried: 1 });
+    const prepared = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
+    expect(prepared.rows[0]).toEqual({ sequence: 1, last_method: "cancel" });
+
+    await pglite.query("UPDATE communication_logs SET next_attempt_at=now() WHERE idempotency_key=$1", [`${eventId}:cancel-retry:cancel`]);
+    const retriedMessages: EmailMessage[] = [];
+    const retrySender = vi.fn(async (message: EmailMessage) => {
+      retriedMessages.push(message);
+      return "cancel-sent";
+    });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: retrySender })).resolves.toMatchObject({ sent: 1 });
+    const attachment = retriedMessages[0]?.attachments?.[0];
+    const bytes = Uint8Array.from(atob(attachment?.content ?? ""), (character) => character.charCodeAt(0));
+    const calendar = new TextDecoder().decode(bytes).replaceAll("\r\n ", "");
+    expect(calendar).toContain("METHOD:CANCEL\r\n");
+    expect(calendar).toContain("SEQUENCE:1\r\n");
+    const delivered = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
+    expect(delivered.rows[0]).toEqual({ sequence: 1, last_method: "cancel" });
+  });
+
   it("fails closed without sending when ATTENDEE differs from To", async () => {
     await seedDefaultTemplates(tx, eventId);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:invite:mismatch`, refs: { sessionId } });

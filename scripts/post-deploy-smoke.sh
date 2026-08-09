@@ -130,9 +130,12 @@ if expect_status "$base_url/api/health" 200 "health responds"; then
     && pass "/api/health"
 fi
 
-# 2. The public schedule is cached at the edge for a minute.
+# 2. The public schedule is cached at the edge. The assertion is that s-maxage
+#    exists, not that it reads 60: OpenNext counts the value down as the cached
+#    entry ages, so a page rendered 58 seconds ago honestly answers s-maxage=2.
+#    Pinning the literal makes this check pass or fail on when it happened to run.
 if expect_status "$base_url/e/$event_slug/schedule" 200 "public schedule renders"; then
-  expect_header "cache-control" "s-maxage=60" "public schedule is edge-cached" \
+  expect_header "cache-control" "s-maxage=" "public schedule is edge-cached" \
     && pass "/e/$event_slug/schedule"
 fi
 
