@@ -11,19 +11,23 @@
 
 ---
 
-## 0. Rev. 4 rebaseline overlay — Sat Aug 8, after PRs #1–#5 merged
+## 0. Rebaseline overlay — rev. 4 (Sat Aug 8), updated rev. 5 (Sun Aug 9)
 
-The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rebaseline, CP0/CP1/the thin slice/CP2 are not met, no module is `DONE`, and the implementation merged through PR #5 is primarily a local browser demo.
+The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rev. 4 rebaseline, CP0/CP1/the thin slice/CP2 were not met, no module was `DONE`, and the implementation merged through PR #5 was primarily a local browser demo.
+
+**Rev. 5 update:** R0 has exited (PRs #6–#8) and the contract/pure foundation merged (PR #9). CP0 is now **partial** — the preview Worker, Neon health round-trip, bundle measurement, and jobs tick are proven; Resend, R2 browser presign, and the remaining spikes are not. **R1 is the active gate**, and its critical path is the open #10 → #11 → #12 foundation stack. Still no `DONE` module.
 
 Run this recovery queue before resuming the original wave placements:
 
 | Gate | Parallel work allowed | Exit condition |
 |---|---|---|
-| **R0 Stack safety** | Planning/configuration reconciliation; canonical environments; CI/deploy, migration runner, fail-closed authorization, and review hardening | Stack truth is current; clean-install CI green; configuration PR ready; no current P1 hidden in a draft |
-| **R1 Deployed foundation** | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
+| **R0 Stack safety** — **exited** | Planning/configuration reconciliation; canonical environments; CI/deploy, migration runner, fail-closed authorization, and review hardening | Stack truth is current; clean-install CI green; configuration PR ready; no current P1 hidden in a draft |
+| **R1 Deployed foundation** — **active** | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
 | **R2 Server spine** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
 | **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |
 | **R4 Release proof** | Complete M10 after its R1 skeleton and perform P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
+
+**Dependency caution (rev. 5):** M03, M04's server half, M06a, and M06b are `PR-OPEN` — implemented, but on unmerged branches. They are **not** satisfied hard dependencies. Lanes waiting on them build against PR #9's frozen contracts and fixtures until the stack lands; do not branch feature work off `agent/complete-*`.
 
 **Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 and M40 are paused; M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
 

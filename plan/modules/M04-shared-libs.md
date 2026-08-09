@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** condition/interval/sanitizer helpers exist; snapshot compiler, time API, server adapters, and full AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — split evidence. Pure half **MERGED** in PR #9 (`compileFormSnapshot`, the 6-function `time.ts` API with DST coverage, both sanitizer profiles, slug/interval helpers), AC sign-off pending. Server half (`shared/server/handler.ts`, `enqueue-email.ts`, query/log/assert helpers) is **PR-OPEN** in PR #10 and is therefore not a satisfied dependency. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8 evening (`compileFormSnapshot` draft + tests slice) → **Sat AM complete**; gates CP1 |
 | **Size** | M |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** SQL migrations and a tracked Drizzle migration journal/runner exist; nothing has been applied to Neon and the nine integration AC still require proof. See [`../status.md`](../status.md). |
+| **Status** | IN REVIEW — **PR-OPEN** in [PR #10](https://github.com/yisding/symmetrical-happiness/pull/10): full event-isolated schema, eight views, transition trigger, typed Drizzle modules, and lazy HTTP/transaction clients, with 75 PGlite integration tests covering all 49 submission transitions and cross-event isolation. Migrations are applied to a disposable Neon branch, `sb-dev`, and `sb-test`; `sb-prod` waits on the guarded production deploy. Blocking: the open view-semantics findings in [`../status.md`](../status.md) §2a, and — because `0000_init.sql` is now applied — every further schema change must be a new journaled additive migration. |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect — **sole schema owner** for the whole build) |
 | **Scheduled** | Fri Aug 8 evening (DDL transcription draft) → **Sat AM: applied to sb-dev + sb-test + sb-prod before any feature work** → FROZEN at CP1 Sat noon, additive-only thereafter |
 | **Size** | L |

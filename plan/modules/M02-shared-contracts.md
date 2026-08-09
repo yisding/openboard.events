@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** form/job contracts exist on `main`; the full frozen contract, fixture, DTO, signature, and key-recipe AC remains open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED**, AC sign-off pending. PR #9 landed the complete contract surface (branded ids, single-source enums, DTOs, submission transitions, error envelopes, idempotency recipes, the fan-out law, and the golden form-snapshot fixture). Remaining before `DONE`: work-order AC sign-off against the merged tree and the CP1 freeze declaration in `DECISIONS.md`. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8 evening (draft circulated at CP0) → complete and **FROZEN at CP1, Sat noon** |
 | **Size** | M |
