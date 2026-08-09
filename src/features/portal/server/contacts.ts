@@ -20,6 +20,9 @@ export type ContactPatch = Partial<{
   twitterUrl: string | null;
   facebookUrl: string | null;
   websiteUrl: string | null;
+  // Written by M18's auto-confirm on acceptance and by M27's organizer override.
+  // There is no speaker-facing confirm button, so this is only ever set for them.
+  confirmationStatus: "unconfirmed" | "confirmed" | "declined";
 }>;
 
 export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId> {
