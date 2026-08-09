@@ -4,13 +4,14 @@
 judged surface renders non-empty within ten minutes of a fresh deploy.
 
 ```bash
-pnpm seed            # upsert: organic judge-created data survives
-pnpm seed --wipe     # TRUNCATE every public table first, then reseed
+APP_ENV=local pnpm seed            # upsert: organic judge-created data survives
+APP_ENV=local pnpm seed --wipe     # TRUNCATE every public table first, then reseed
 ```
 
-`DATABASE_URL` selects the target. The run refuses to touch production
-(`APP_ENV=production`, or a URL naming `sb-prod`) unless `SEED_ALLOW_PROD=1` is
-set deliberately — that flag exists for the Wednesday final reset and nothing else.
+`DATABASE_URL` selects the target, and `APP_ENV` must explicitly classify it as
+`local`, `preview`, or `production`; an omitted value is rejected rather than
+guessed from Neon's opaque hostname. A production run additionally requires
+`SEED_ALLOW_PROD=1` — that flag exists for the Wednesday final reset and nothing else.
 
 ## How it is split
 

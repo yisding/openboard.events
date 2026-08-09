@@ -35,6 +35,7 @@ export const SEEDED_EMPTY_EVENT_ID = seedId("event", SEED_KEYS.emptyEvent) as Ev
  * for everyone outside that zone.
  */
 export function eventLocal(now: Date, offsetDays: number, localTime: string): Date {
-  const day = new Date(now.getTime() + offsetDays * 24 * 60 * 60 * 1000);
-  return zonedInputToUtc(`${eventDayKey(day, EVENT_TIMEZONE)}T${localTime}`, EVENT_TIMEZONE);
+  const [year, month, day] = eventDayKey(now, EVENT_TIMEZONE).split("-").map(Number);
+  const shifted = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) + offsetDays));
+  return zonedInputToUtc(`${shifted.toISOString().slice(0, 10)}T${localTime}`, EVENT_TIMEZONE);
 }

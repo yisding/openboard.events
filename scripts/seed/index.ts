@@ -10,6 +10,7 @@ import { seedPortal } from "./portal";
 import { seedSubmissions } from "./submissions";
 import { seedId } from "./lib/ids";
 import { SEEDED_EMPTY_EVENT_ID, SEEDED_EVENT_ID, type SeedCtx, type SeedModule } from "./lib/helpers";
+import { assertSafeSeedTarget } from "./lib/safety";
 
 /**
  * `pnpm seed` fills a database with the demo world in one idempotent run.
@@ -36,18 +37,6 @@ const CREDENTIALS = [
 ] as const;
 
 const wipe = process.argv.includes("--wipe");
-
-/**
- * One guard: nothing destructive reaches production by accident. `SEED_ALLOW_PROD=1`
- * is deliberate and is what the Wednesday final seed reset uses.
- */
-function assertNotProduction(): void {
-  if (process.env.SEED_ALLOW_PROD === "1") return;
-  const url = process.env.DATABASE_URL ?? "";
-  if (process.env.APP_ENV === "production" || url.includes("sb-prod")) {
-    throw new Error("refusing to seed production; set SEED_ALLOW_PROD=1 if that is genuinely what you want");
-  }
-}
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -87,7 +76,7 @@ async function rowCounts(tx: TxDb): Promise<Array<{ table: string; rows: number 
 // tsx transforms this to CJS, where top-level await is not available, so the
 // whole run lives in main().
 async function main(): Promise<void> {
-  assertNotProduction();
+  assertSafeSeedTarget(process.env);
 
   const startedAt = Date.now();
   // The one command-line transaction: a partial seed never lands. This is
