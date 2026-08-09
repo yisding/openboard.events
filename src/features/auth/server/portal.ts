@@ -170,7 +170,6 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   if ((recent?.n ?? 0) >= 3) {
     throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
   }
-
   await tx.update(portalTokens).set({ consumedAt: new Date() }).where(and(
     eq(portalTokens.eventId, args.eventId),
     eq(portalTokens.contactId, contactId),

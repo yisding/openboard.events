@@ -1,6 +1,6 @@
-import { defineJobRoute, stubOutbox } from "../_lib";
+import { dispatchOutbox } from "@/features/comms";
+import { defineJobRoute } from "../_lib";
 
 export const dynamic = "force-dynamic";
 
-// swap: import { dispatchOutbox } from '@/features/comms'
-export const { POST } = defineJobRoute("outbox", stubOutbox);
+export const { POST } = defineJobRoute("outbox", () => dispatchOutbox(50));
