@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged fixture-backed **STACK-DEMO** portal shell/home/submissions surface lacks portal auth/session, server queries, and AC. **Step 0 exception:** [M06b](./M06b-portal-auth.md) used its documented contingency to create `features/portal/server/contacts.ts` with exactly `getOrCreateContact`/`updateContactFields` in PR #12; take ownership back when that stack merges, and bind the shell's provider to the authenticated contact instead of fixture/localStorage state. See [`../status.md`](../status.md). |
+| **Status** | IN REVIEW — **every M21 surface now reads the database** (#29–#33): the barrel, `requirePortalContext`, the submission queries and task summary, the list/detail views, the Home widgets, and `scripts/seed/portal.ts`. Remaining for `DONE`: deployed evidence, and the My Sessions widget, which stays a stated placeholder until M28's `getMySessions` lands. |
 | **Workstream / executing agent** | WS-D agent (`features/portal`, folder-owner per PLAN.md §6). This is the first `features/portal`-lane module; the same agent spent Saturday on M07 + M05b (cross-folder grants) before starting here. |
 | **Scheduled** | Sat PM – Sun, per WS-D's order (`M07 + M05b (Sat) → M21 (Sat PM–Sun)`). Starts once M06b's portal session (`requirePortal`, Sat PM) and M05a's core UI primitives (Sat AM) are available. |
 | **Size** | M |

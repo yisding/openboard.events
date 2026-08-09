@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** typed browser fixtures exist; the Neon seed orchestrator, wipe/reset flow, per-feature seeds, and judge-script AC do not. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **steps 1–2 (SeedCtx, `lib/ids.ts`, the eight stub modules and the orchestrator) claimed** by the agent holding M07/M10-step-1, both in review; it is R1 step 5 and its hard deps M03/M04 are merged. Per-feature seed content stays with its own workstream. **MERGED-PARTIAL** typed browser fixtures exist; the wipe/reset flow, per-feature seeds, and judge-script AC do not. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect owns the **orchestrator + helpers + demo script**; each per-feature seed module is owned by that feature's workstream) |
 | **Scheduled** | Sat AM (orchestrator + core content, part of CP1) → Sun (v2: feature modules composed) → Tue (v3: matched to the walkthrough videos) |
 | **Size** | M (orchestrator + core; feature modules land with their workstreams) |

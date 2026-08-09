@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged fixture/localStorage **STACK-DEMO** table, drawer, answers, filters, and bulk controls lack database queries, manual create, authorization, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **the database reads are merged** (#37): `listSubmissions`, `getStatusCounts`, `getSubmissionDetail`, with tabs and rows sharing one WHERE clause and the drawer returning the pinned snapshot. Eleven PGlite cases. Remaining: `updateSubmissionFields`, the three route handlers, `scripts/seed/contacts.ts`/`submissions.ts`, and moving the table components off `useDemo()`. |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat AM → Sat PM** (starts the moment CP1 lands: schema + seed + M05a). Sat-night demo bar: "abstracts table shows seeded data with working tabs". |
 | **Size** | L (~day) |

@@ -20,6 +20,10 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      # Two independent budgets. The browser bundle and the compressed Worker are
+      # different artifacts: the editor is client-only, so it must move the first
+      # number and must not move the second.
+      - run: pnpm bundle:client
       # Wrangler resolves the self-service binding against the generated OpenNext entrypoint.
       - run: pnpm cf-typegen:check
       - run: pnpm worker:size
