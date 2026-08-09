@@ -210,9 +210,10 @@ CREATE UNIQUE INDEX submission_primary_uq ON submission_participants(submission_
 CREATE INDEX submission_participants_event_contact_idx ON submission_participants(event_id,contact_id);
 CREATE TABLE submission_answers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL, submission_id uuid NOT NULL,
-  field_id uuid NOT NULL REFERENCES form_fields(id), participant_id uuid, value jsonb NOT NULL,
+  field_id uuid NOT NULL, participant_id uuid, value jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (submission_id,event_id) REFERENCES submissions(id,event_id) ON DELETE CASCADE,
+  FOREIGN KEY (field_id,event_id) REFERENCES form_fields(id,event_id),
   FOREIGN KEY (participant_id,event_id) REFERENCES submission_participants(id,event_id) ON DELETE CASCADE,
   UNIQUE NULLS NOT DISTINCT (submission_id,field_id,participant_id), UNIQUE (id,event_id)
 );

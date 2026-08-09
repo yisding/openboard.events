@@ -15,6 +15,32 @@ type HandlerContext<Input> = {
   requestId: string;
 };
 
+function queryInput(searchParams: URLSearchParams): Record<string, string | string[]> {
+  const input: Record<string, string | string[]> = {};
+  for (const key of new Set(searchParams.keys())) {
+    const values = searchParams.getAll(key);
+    input[key] = values.length === 1 ? values[0] ?? "" : values;
+  }
+  return input;
+}
+
+async function bodyInput(request: NextRequest): Promise<unknown> {
+  const body = await request.text();
+  if (body.trim().length === 0) return {};
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new AppError("VALIDATION", "Request body must be valid JSON");
+  }
+}
+
+function zodFieldErrors(error: z.ZodError): Record<string, string> {
+  const flattened = z.flattenError(error).fieldErrors as Record<string, string[] | undefined>;
+  return Object.fromEntries(
+    Object.entries(flattened).flatMap(([field, messages]) => messages?.[0] ? [[field, messages[0]]] : []),
+  );
+}
+
 export function defineHandler<Input, Output>(options: {
   auth: AuthGuard;
   input: z.ZodType<Input>;
@@ -30,8 +56,8 @@ export function defineHandler<Input, Output>(options: {
       if (typeof rawEventId === "string") eventId = eventIdSchema.parse(rawEventId);
       const session = await options.auth(request, eventId);
       const rawInput: unknown = request.method === "GET"
-        ? Object.fromEntries(request.nextUrl.searchParams)
-        : await request.json();
+        ? queryInput(request.nextUrl.searchParams)
+        : await bodyInput(request);
       const input = options.input.parse(rawInput);
       const data = await options.handler({ eventId, session, input, req: request, requestId });
       log({ level: "info", msg: "request.complete", requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
@@ -40,9 +66,13 @@ export function defineHandler<Input, Output>(options: {
       const appError = isAppError(error)
         ? error
         : error instanceof z.ZodError
-          ? new AppError("VALIDATION", "Request validation failed", { fieldErrors: z.flattenError(error).fieldErrors })
+          ? new AppError("VALIDATION", "Request validation failed")
           : new AppError("INTERNAL", "Unexpected server error");
-      const envelope = apiErrorSchema.parse({ error: { code: appError.code, message: appError.message, data: appError.details } });
+      const envelope = apiErrorSchema.parse({
+        error: error instanceof z.ZodError
+          ? { code: appError.code, message: appError.message, fieldErrors: zodFieldErrors(error) }
+          : { code: appError.code, message: appError.message, data: appError.details },
+      });
       log({ level: appError.code === "INTERNAL" ? "error" : "warn", msg: "request.failed", code: appError.code, requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
       return NextResponse.json(envelope, { status: toHttp(appError.code) });
     }
