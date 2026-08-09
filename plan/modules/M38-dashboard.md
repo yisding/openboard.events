@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — claimed by Codex after PRs #9–#11 merged the required views, shell, and shared server contracts. **#40 landed the event-scoped aggregate endpoint (zod-validated, over the reporting views) and 30 s polling.** Remaining: the deployed completion-update AC and wiring attention links to real (non-demo) target pages. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — claimed by Codex for the PR #40 review recovery: preserve the seeded local event route and requested tab, route task rows through the implemented speaker list/drawer, and honor missing-asset deep links. **#40 landed the event-scoped aggregate endpoint (zod-validated, over the reporting views) and 30 s polling.** Remaining: the deployed completion-update AC and fully database-backed speaker/task target pages. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `dashboard`. |
 | **Scheduled** | **Monday** (both tabs). Live-updating Speaker Tracking is a CP3 (Mon night) demo item. |
 | **Size** | L (≈1 day) |
