@@ -1,0 +1,57 @@
+import { z } from "zod";
+
+function brandedUuid<const Brand extends string>() {
+  return z.uuid().brand<Brand>();
+}
+
+export const eventIdSchema = brandedUuid<"EventId">();
+export const userIdSchema = brandedUuid<"UserId">();
+export const contactIdSchema = brandedUuid<"ContactId">();
+export const formIdSchema = brandedUuid<"FormId">();
+export const sectionIdSchema = brandedUuid<"SectionId">();
+export const fieldIdSchema = brandedUuid<"FieldId">();
+export const formVersionIdSchema = brandedUuid<"FormVersionId">();
+export const submissionIdSchema = brandedUuid<"SubmissionId">();
+export const participantIdSchema = brandedUuid<"ParticipantId">();
+export const answerIdSchema = brandedUuid<"AnswerId">();
+export const trackIdSchema = brandedUuid<"TrackId">();
+export const roomIdSchema = brandedUuid<"RoomId">();
+export const formatIdSchema = brandedUuid<"FormatId">();
+export const tagIdSchema = brandedUuid<"TagId">();
+export const sessionIdSchema = brandedUuid<"SessionId">();
+export const taskIdSchema = brandedUuid<"TaskId">();
+export const fileRequestIdSchema = brandedUuid<"FileRequestId">();
+export const fileIdSchema = brandedUuid<"FileId">();
+export const planIdSchema = brandedUuid<"PlanId">();
+export const criterionIdSchema = brandedUuid<"CriterionId">();
+export const reviewIdSchema = brandedUuid<"ReviewId">();
+export const embedIdSchema = brandedUuid<"EmbedId">();
+export const commLogIdSchema = brandedUuid<"CommLogId">();
+export const apiKeyIdSchema = brandedUuid<"ApiKeyId">();
+export const tokenIdSchema = brandedUuid<"TokenId">();
+
+export type EventId = z.infer<typeof eventIdSchema>;
+export type UserId = z.infer<typeof userIdSchema>;
+export type ContactId = z.infer<typeof contactIdSchema>;
+export type FormId = z.infer<typeof formIdSchema>;
+export type SectionId = z.infer<typeof sectionIdSchema>;
+export type FieldId = z.infer<typeof fieldIdSchema>;
+export type FormVersionId = z.infer<typeof formVersionIdSchema>;
+export type SubmissionId = z.infer<typeof submissionIdSchema>;
+export type ParticipantId = z.infer<typeof participantIdSchema>;
+export type AnswerId = z.infer<typeof answerIdSchema>;
+export type TrackId = z.infer<typeof trackIdSchema>;
+export type RoomId = z.infer<typeof roomIdSchema>;
+export type FormatId = z.infer<typeof formatIdSchema>;
+export type TagId = z.infer<typeof tagIdSchema>;
+export type SessionId = z.infer<typeof sessionIdSchema>;
+export type TaskId = z.infer<typeof taskIdSchema>;
+export type FileRequestId = z.infer<typeof fileRequestIdSchema>;
+export type FileId = z.infer<typeof fileIdSchema>;
+export type PlanId = z.infer<typeof planIdSchema>;
+export type CriterionId = z.infer<typeof criterionIdSchema>;
+export type ReviewId = z.infer<typeof reviewIdSchema>;
+export type EmbedId = z.infer<typeof embedIdSchema>;
+export type CommLogId = z.infer<typeof commLogIdSchema>;
+export type ApiKeyId = z.infer<typeof apiKeyIdSchema>;
+export type TokenId = z.infer<typeof tokenIdSchema>;

@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock3, FileText, Mail, Sav
 import { useEffect, useMemo, useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
 import { Brand } from "@/shared/ui/brand";
-import type { AnswerValue, Answers } from "@/shared/contracts";
+import type { DemoAnswers as Answers, DemoAnswerValue as AnswerValue } from "@/shared/demo/types";
 import type { FormFieldRecord, SpeakerRecord, SubmissionRecord } from "@/shared/demo/types";
 
 const wizardSteps = ["Welcome", "Account", "Submission", "Participant", "Review"];

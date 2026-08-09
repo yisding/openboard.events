@@ -1,4 +1,7 @@
-import type { Answers, FieldType, SubmissionStatus } from "@/shared/contracts";
+import type { FieldType, SubmissionStatus } from "@/shared/contracts";
+
+export type DemoAnswerValue = string | string[] | boolean | number | null;
+export type DemoAnswers = Record<string, DemoAnswerValue>;
 
 export type EventRecord = {
   id: string; slug: string; name: string; shortName: string; timezone: string; city: string; venue: string;
@@ -25,7 +28,7 @@ export type SpeakerRecord = {
 export type SubmissionRecord = {
   id: string; code: string; eventId: string; formId: string; title: string; type: string; status: SubmissionStatus;
   speakerIds: string[]; track: string; format: string; tags: string[]; submittedAt: string; updatedAt: string;
-  abstract: string; audience: string; takeaways: string; answers: Answers; score: number | null; reviewCount: number;
+  abstract: string; audience: string; takeaways: string; answers: DemoAnswers; score: number | null; reviewCount: number;
 };
 
 export type SessionRecord = {
