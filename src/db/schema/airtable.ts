@@ -8,6 +8,6 @@ export const airtableSyncState = pgTable("airtable_sync_state", {
 }, (table) => [unique().on(table.eventId, table.tableName, table.recordPk), unique().on(table.id, table.eventId)]);
 export const airtableSyncRuns = pgTable("airtable_sync_runs", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  trigger: text("trigger").notNull(), status: text("status").notNull().default("running"), startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  trigger: text("trigger").$type<"manual" | "cron">().notNull(), status: text("status").$type<"running" | "success" | "failed">().notNull().default("running"), startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt: timestamp("finished_at", { withTimezone: true }), stats: jsonb("stats").notNull().default({}), error: text("error"),
 }, (table) => [unique().on(table.id, table.eventId)]);

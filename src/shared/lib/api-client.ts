@@ -7,7 +7,12 @@ export async function api<T>(path: string, output: z.ZodType<T>, init: { method?
     method: init.method ?? (init.body === undefined ? "GET" : "POST"),
     ...(init.body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.body) }),
   });
-  const payload: unknown = await response.json();
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new AppError("INTERNAL", `Unexpected API response (${response.status})`);
+  }
   if (!response.ok) {
     const parsed = apiErrorSchema.safeParse(payload);
     if (parsed.success) throw new AppError(parsed.data.error.code, parsed.data.error.message, parsed.data.error.data);

@@ -15,4 +15,9 @@ describe("api client", () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, { status: 404 })));
     await expect(api("tasks/missing", z.object({ name: z.string() }))).rejects.toMatchObject({ code: "NOT_FOUND", message: "Task not found" });
   });
+
+  it("maps a non-JSON gateway failure to the standard internal error", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("Bad gateway", { status: 502 })));
+    await expect(api("tasks/1", z.object({ name: z.string() }))).rejects.toMatchObject({ code: "INTERNAL", message: "Unexpected API response (502)" });
+  });
 });

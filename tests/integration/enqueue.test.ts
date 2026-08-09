@@ -44,4 +44,13 @@ describe("enqueueEmail", () => {
     await expect(enqueueEmail(tx, { eventId, contactId, templateKey: "portal_login", idempotencyKey: idem.portalLogin(eventId, contactId, tokenId) })).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: "invalid-secret", secretPayloadCiphertext: new Uint8Array([1]) })).rejects.toMatchObject({ code: "VALIDATION" });
   });
+
+  it("queues and retains an encrypted portal-login payload", async () => {
+    const secretPayloadCiphertext = new Uint8Array([1, 2, 3, 4]);
+    const idempotencyKey = idem.portalLogin(eventId, contactId, tokenId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "portal_login", idempotencyKey, secretPayloadCiphertext });
+    const result = await pglite.query<{ status: string; ciphertext: Uint8Array }>("SELECT status,secret_payload_ciphertext AS ciphertext FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey]);
+    expect(result.rows[0]?.status).toBe("queued");
+    expect(Array.from(result.rows[0]?.ciphertext ?? [])).toEqual([1, 2, 3, 4]);
+  });
 });
