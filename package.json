@@ -19,6 +19,7 @@
     "worker:size": "bash scripts/check-worker-size.sh",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "db:migrate": "drizzle-kit migrate",
+    "seed": "tsx scripts/seed/index.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled --var APP_BASE_URL:http://localhost:3000",
     "deploy:web": "pnpm deploy:web:production",
@@ -26,7 +27,8 @@
     "deploy:web:production": "bash scripts/deploy-cloudflare.sh web production",
     "deploy:jobs": "pnpm deploy:jobs:production",
     "deploy:jobs:preview": "bash scripts/deploy-cloudflare.sh jobs preview",
-    "deploy:jobs:production": "bash scripts/deploy-cloudflare.sh jobs production"
+    "deploy:jobs:production": "bash scripts/deploy-cloudflare.sh jobs production",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -35,6 +37,7 @@
     "@neondatabase/serverless": "1.1.0",
     "@tanstack/react-query": "^5.85.5",
     "@tanstack/react-table": "^8.21.3",
+    "aws4fetch": "^1.0.20",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
@@ -52,6 +55,7 @@
     "@electric-sql/pglite": "^0.5.4",
     "@eslint/eslintrc": "^3.3.1",
     "@opennextjs/cloudflare": "1.20.2",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.2.1",
     "@types/pg": "8.15.5",
     "@types/react": "^19.1.9",
