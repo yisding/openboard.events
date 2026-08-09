@@ -131,10 +131,11 @@ ordered here by tail length × trickiness:
    widens the gap. Cheap containment now: a CI step that diffs a PGlite-applied `drizzle/`
    against a schema dump, so drift fails a PR instead of a deploy (Atlas remains the future
    candidate for a real fix).
-8. **e2e activation** (rot compounds). The gates in `e2e/helpers/landed.ts` are flipped for the
-   modules with merged evidence as of rev. 8; from here, run the suite against the preview on
-   every deploy and treat a failing unskipped step as signal, not noise. Specs that stay
-   skipped while their surfaces evolve stop describing the product.
+8. **e2e activation** (rot compounds). The six spec skeletons exist but their step bodies are
+   placeholder stubs, so the gates in `e2e/helpers/landed.ts` rightly stay closed — flipping
+   them over empty steps would falsely certify checkpoints. The activation work is implementing
+   the step bodies for the modules with deployed proof (M15/M16/M17/M21/M34/M40 first), flipping
+   each gate in the same change, then running the suite against the preview on every deploy.
 9. **Retention/GDPR groundwork** (grows with data; M47). Full compliance waits for P4, but
    token/session/rendered-email retention jobs should land before the first real event's data
    accumulates — deleting a year of PII later is a project; a cron that trims from day one is a

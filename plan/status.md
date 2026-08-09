@@ -95,9 +95,12 @@ intervening 28 PRs (~8,600 lines across 119 files) landed, so module claims can 
 | #53–#56 | fixes/plan | `EMAIL_FROM`/env-error follow-ups (#53/#54), the rev. 7 ledger rebaseline (#55), and the product-readiness/roadmap/auth-decision docs (#56) |
 | #57 | M18 | See the M18 row above — the decision/notify server half |
 
-Bookkeeping note: `e2e/helpers/landed.ts` still has **all 17 modules at `landed: false`**, so the
-Playwright suite skips everything even though several gating modules now have deployed proof.
-Flipping those gates as evidence arrives is cheap signal being left on the table.
+Bookkeeping note: `e2e/helpers/landed.ts` has **all 17 modules at `landed: false`**, and — a
+rev. 8 correction to the earlier framing — that is currently *right*, not stale bookkeeping:
+the spec **step bodies are still placeholder `async () => {}` stubs**, so flipping a gate over
+them would report vacuous green on the specs that define checkpoints (cfp-submit is CP2's bar).
+The real gap is M10's remaining work: implement the step bodies for the modules with deployed
+proof (M15/M16/M17/M21/M34/M40 first), then flip their gates in the same change.
 
 ## 3. Module status by evidence
 

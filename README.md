@@ -32,8 +32,9 @@ could be built in parallel, and it is being replaced surface by surface.
 
 - The public schedule/speaker pages render demo-store fixtures client-side rather than the
   database's published views — the caching is proven, the data source is not yet real.
-- The Playwright specs run but most steps skip: `e2e/helpers/landed.ts` gates them per module,
-  and gates are flipped as module evidence lands (see that file for current state).
+- The Playwright specs run but every step skips: `e2e/helpers/landed.ts` gates them per module,
+  and the gates stay closed because the spec step bodies are still placeholders — implementing
+  them (and flipping each gate in the same change) is the remaining M10 work.
 - Airtable export and the keyed half of the public API are deferred by the plan's own cut lines.
 
 ## Setup from a clean clone

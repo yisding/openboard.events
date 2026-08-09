@@ -7,8 +7,10 @@ This script has **two worlds**, and every step below says which it walks:
   seed. Demo credentials: `maya@ai.engineer` / `openboard-demo`. Portal identity: Nadia Rahman.
 - **Deployed preview** — the real database-backed path. OTPs are real emails (the preview sends
   from the verified domain behind an allowlist); `424242` is rejected; form URLs use the real
-  form UUID copied from the forms list (`/submit/<eventSlug>/<form UUID>` — a slug like
-  `technical-talks` 404s); calendar feeds require a real signed token from a portal invite
+  form UUID (`/submit/<eventSlug>/<form UUID>` — a slug like `technical-talks` 404s). The
+  admin forms list is not yet database-backed, so the supported source for that UUID is the
+  seed run's output: `pnpm seed` prints `public CFP path: /submit/<eventSlug>/<uuid>` for the
+  open form. Calendar feeds require a real signed token from a portal invite
   (`/cal/<token>` — `/cal/demo` is not a valid token).
 
 Steps (world noted per step; the deployed column tracks `plan/status.md` and moves as modules
