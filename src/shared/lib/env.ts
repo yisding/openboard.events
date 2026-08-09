@@ -1,14 +1,28 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { z } from "zod";
+import { AppError } from "./errors";
 
 const optionalString = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().optional(),
 );
 
-const optionalEmail = z.preprocess(
+/**
+ * A From header is a display name and an address — "AI.Engineer Sandbox
+ * <hello@mail.openboard.events>" — and that is what makes a decision email look
+ * like it came from the event rather than from a robot. Accept both forms and
+ * validate the address inside.
+ */
+const optionalEmailFrom = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
-  z.email().optional(),
+  z.string().refine(
+    (value) => {
+      const match = /^\s*(?:.*<\s*([^<>\s]+)\s*>|([^<>\s]+))\s*$/.exec(value);
+      const address = match?.[1] ?? match?.[2];
+      return address !== undefined && z.email().safeParse(address).success;
+    },
+    { message: "must be an address, optionally with a display name" },
+  ).optional(),
 );
 
 const envSchema = z.object({
@@ -22,7 +36,7 @@ const envSchema = z.object({
   R2_ACCESS_KEY_ID: optionalString,
   R2_SECRET_ACCESS_KEY: optionalString,
   R2_BUCKET_NAME: optionalString,
-  EMAIL_FROM: optionalEmail,
+  EMAIL_FROM: optionalEmailFrom,
   EMAIL_MODE: z.enum(["log", "send"]).default("log"),
   EMAIL_ALLOWLIST: optionalString,
   EMAIL_FALLBACK_UI: z.enum(["0", "1"]).default("1"),
@@ -100,8 +114,19 @@ function runtimeBindings(): Record<string, unknown> {
   }
 }
 
+/**
+ * A misconfigured environment is a server fault, and it has to say so. Left as a
+ * raw ZodError it is indistinguishable from bad user input to every route that
+ * catches ZodError — which is how a broken EMAIL_FROM ends up telling a speaker
+ * their own email address is invalid.
+ */
 export function getEnv(): RuntimeEnv {
-  return parseEnv(runtimeBindings());
+  const result = envSchema.safeParse(runtimeBindings());
+  if (result.success) return result.data;
+  const problems = result.error.issues
+    .map((issue) => `${issue.path.join(".") || "env"} ${issue.message}`)
+    .join("; ");
+  throw new AppError("INTERNAL", `Server configuration is invalid: ${problems}`);
 }
 
 export function isCredentialFreeLocalDemo(

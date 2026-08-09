@@ -53,3 +53,33 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ AIRTABLE_CRON: "1" })).toThrow(/AIRTABLE/);
   });
 });
+
+describe("EMAIL_FROM", () => {
+  const preview = {
+    APP_ENV: "preview",
+    APP_BASE_URL: "https://sb-web-preview.yi-ding.workers.dev",
+    DATABASE_URL: "postgres://x",
+    SESSION_SECRET: "a".repeat(32),
+    CRON_SECRET: "b".repeat(32),
+    R2_ACCOUNT_ID: "acct",
+    R2_ACCESS_KEY_ID: "key",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET_NAME: "sb-files-preview",
+  };
+
+  it("accepts a display name, which is how a From header should read", () => {
+    // Rejecting this form is what made the deployed preview tell speakers their
+    // own email address was invalid: the env failed to parse and every route
+    // that catches ZodError blamed the request.
+    expect(() => parseEnv({ ...preview, EMAIL_FROM: "AI.Engineer Sandbox <hello@mail.openboard.events>" })).not.toThrow();
+  });
+
+  it("accepts a bare address", () => {
+    expect(() => parseEnv({ ...preview, EMAIL_FROM: "hello@mail.openboard.events" })).not.toThrow();
+  });
+
+  it("still refuses something that is not an address", () => {
+    expect(() => parseEnv({ ...preview, EMAIL_FROM: "AI.Engineer Sandbox" })).toThrow();
+    expect(() => parseEnv({ ...preview, EMAIL_FROM: "Name <not-an-address>" })).toThrow();
+  });
+});
