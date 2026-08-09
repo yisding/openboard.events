@@ -33,6 +33,11 @@ jobs:
       EMAIL_FROM: ${{ vars.EMAIL_FROM }}
       EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
       NEXT_PUBLIC_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DEPLOY_ENV: ${{ inputs.environment || 'production' }}
+      SMOKE_EVENT_SLUG: ${{ vars.SMOKE_EVENT_SLUG || 'ai-engineer-sandbox-event' }}
+      SMOKE_EVENT_ID: ${{ vars.SMOKE_EVENT_ID }}
+      SMOKE_FORM_ID: ${{ vars.SMOKE_FORM_ID }}
+      SMOKE_HEADSHOT_FILE_ID: ${{ vars.SMOKE_HEADSHOT_FILE_ID }}
     steps:
       - name: Suppress stale automatic deployments
         id: freshness
@@ -77,4 +82,9 @@ jobs:
         run: pnpm deploy:jobs:${{ inputs.environment || 'production' }}
       - name: Smoke test the deployed web worker
         if: steps.freshness.outputs.current == 'true'
-        run: bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"
+        run: |
+          smoke_args=(--strict)
+          if [[ "$DEPLOY_ENV" == "production" ]]; then
+            smoke_args+=(--production)
+          fi
+          bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"

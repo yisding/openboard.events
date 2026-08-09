@@ -26,9 +26,10 @@ for arg in "$@"; do
   esac
 done
 
-# Seeded artifacts. The slug still defaults to the fixture-backed public event;
-# it becomes M09's `ai-engineer-sandbox-event` when the events seed lands.
-event_slug="${SMOKE_EVENT_SLUG:-ai-engineer}"
+# Seeded artifacts. Protected deployment environments provide the ids; --strict
+# makes a missing fixture a failed deployment rather than a silent reduction in
+# coverage. The deterministic M09 public-event slug is safe to default here.
+event_slug="${SMOKE_EVENT_SLUG:-ai-engineer-sandbox-event}"
 event_id="${SMOKE_EVENT_ID:-}"
 form_id="${SMOKE_FORM_ID:-}"
 headshot_file_id="${SMOKE_HEADSHOT_FILE_ID:-}"
@@ -39,12 +40,16 @@ headers_file="$(mktemp)"
 body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$body_file"' EXIT
 
-# Fetches once into $headers_file/$body_file and echoes the status code, so no
-# assertion costs a second request.
+# Fetches once into $headers_file/$body_file and stores the status code, so no
+# assertion costs a second request. Calling this function directly preserves
+# last_url; command substitution would run it in a subshell and discard that
+# diagnostic state before a later header/body assertion failed.
 last_url=""
+last_status=""
 fetch() {
   last_url="$1"
-  curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 "$1" 2>/dev/null || echo "000"
+  last_status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 "$1" 2>/dev/null)" \
+    || last_status="000"
 }
 
 fail() {
@@ -75,7 +80,8 @@ header_value() {
 expect_status() {
   local url="$1" expected="$2" what="$3"
   local status
-  status="$(fetch "$url")"
+  fetch "$url"
+  status="$last_status"
   if [[ "$status" != "$expected" ]]; then
     fail "$url" "$what (expected $expected, got $status)"
     return 1
@@ -146,7 +152,8 @@ fi
 
 # 5. The admin gate is live on the deployed artifact, not just in dev.
 if [[ -n "$event_id" ]]; then
-  status="$(fetch "$base_url/events/$event_id/dashboard")"
+  fetch "$base_url/events/$event_id/dashboard"
+  status="$last_status"
   if [[ "$status" == "307" || "$status" == "302" ]]; then
     if expect_header "location" "/login" "the admin gate redirects to sign-in"; then
       pass "/events/<id>/dashboard redirects to /login"
@@ -186,8 +193,8 @@ fi
 #    TEST_AUTH=1 at build time; this is what proves the production build lacks it.
 if (( production )); then
   status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 -X POST \
-    -H 'content-type: application/json' -d '{"email":"smoke@openboard.dev"}' \
-    "$base_url/api/test/login" 2>/dev/null || echo "000")"
+    -H 'content-type: application/json' -d '{"email":"organizer@openboard.dev"}' \
+    "$base_url/api/test/login" 2>/dev/null)" || status="000"
   if [[ "$status" == "404" ]]; then
     pass "/api/test/login is absent in production"
   else
