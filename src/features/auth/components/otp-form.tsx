@@ -17,11 +17,13 @@ export function OtpForm({ eventSlug, email, next }: { eventSlug: string; email: 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ eventSlug, email, code }),
     });
+    const body = await response.json().catch(() => null) as { data?: { alreadySignedIn?: boolean } } | null;
     setPending(false);
     if (!response.ok) {
       setError("That code is invalid or expired");
       return;
     }
+    if (body?.data?.alreadySignedIn) await new Promise((resolve) => setTimeout(resolve, 250));
     window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
   }
 

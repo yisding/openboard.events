@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       ...(input.email ? { email: input.email } : {}),
       impersonate: input.impersonate,
     });
-    return NextResponse.json({ data: { eventId: session.eventId, contactId: session.contactId } });
+    return NextResponse.json({ data: { eventId: session.eventId, contactId: session.contactId, alreadySignedIn: session.alreadySignedIn ?? false } });
   } catch (error) {
     if (isAppError(error)) return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: toHttp(error.code) });
     if (error instanceof z.ZodError) return NextResponse.json({ error: { code: "VALIDATION", message: "Enter a valid code" } }, { status: 400 });

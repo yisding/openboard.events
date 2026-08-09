@@ -21,7 +21,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     const response = await fetch("/api/internal/auth/portal/request", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventSlug, email: value }),
+      body: JSON.stringify({ eventSlug, email: value, ...(next ? { next } : {}) }),
     });
     const body = await response.json().catch(() => null) as { data?: { fallback?: Fallback } } | null;
     setPending(false);

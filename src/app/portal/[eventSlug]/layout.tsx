@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { requirePortal } from "@/features/auth";
+import { requirePortal, type PortalSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { PortalRouteShell } from "@/features/portal/portal-route-shell";
+import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export default async function Layout({ children, params }: { children: React.ReactNode; params: Promise<{ eventSlug: string }> }) {
@@ -10,9 +11,10 @@ export default async function Layout({ children, params }: { children: React.Rea
   const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"), `/portal/${eventSlug}`);
   const pathname = requestPath.split("?", 1)[0];
   const isAuthPage = pathname === `/portal/${eventSlug}/login` || pathname === `/portal/${eventSlug}/verify`;
-  if (!isAuthPage) {
+  let session: PortalSession | null = null;
+  if (!isAuthPage && !isCredentialFreeLocalDemo()) {
     try {
-      await requirePortal(eventSlug);
+      session = await requirePortal(eventSlug);
     } catch (error) {
       if (!isAppError(error)) throw error;
       if (error.code === "UNAUTHORIZED") {
@@ -22,5 +24,5 @@ export default async function Layout({ children, params }: { children: React.Rea
       throw error;
     }
   }
-  return <PortalRouteShell eventSlug={eventSlug}>{children}</PortalRouteShell>;
+  return <PortalRouteShell eventSlug={eventSlug} session={session}>{children}</PortalRouteShell>;
 }
