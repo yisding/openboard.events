@@ -3,10 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
-
-function safeNext(value: string | null): string {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/events";
-}
+import { safeInternalPath } from "../safe-next";
 
 export function LoginForm() {
   const router = useRouter();
@@ -29,7 +26,7 @@ export function LoginForm() {
         setError("Invalid email or password");
         return;
       }
-      router.replace(safeNext(searchParams.get("next")));
+      router.replace(safeInternalPath(searchParams.get("next")));
       router.refresh();
     } catch {
       setError("Sign-in is temporarily unavailable");

@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { apiKeys } from "@/db/schema";
-import type { ApiKeyId } from "@/shared/contracts";
-import type { HandlerGuard } from "@/shared/server/handler";
+import { db, type DbOrTx } from "@/db/client";
+import { apiKeys, events } from "@/db/schema";
+import { eventIdSchema, type ApiKeyId } from "@/shared/contracts";
+import type { HandlerGuard, RouteParams } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { requireAdmin } from "./admin";
@@ -23,17 +23,29 @@ export const cronAuth = (): HandlerGuard => async (request) => {
 
 export const publicAuth = (): HandlerGuard => async () => null;
 
-export const apiKeyAuth = (): HandlerGuard => async (request, eventId) => {
-  if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
+function stringParam(params: RouteParams, key: string): string | null {
+  const value = params[key];
+  return typeof value === "string" ? value : null;
+}
+
+export async function authenticateApiKey(dbOrTx: DbOrTx, request: Parameters<HandlerGuard>[0], eventId: Parameters<HandlerGuard>[1], params: RouteParams) {
   const authorization = request.headers.get("authorization") ?? "";
   const raw = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!raw.startsWith("ob_live_")) throw new AppError("UNAUTHORIZED", "Invalid API key");
   const keyHash = await sha256(raw);
-  const [key] = await db.select({ id: apiKeys.id })
+  const slug = stringParam(params, "slug");
+  if (!eventId && !slug) throw new AppError("UNAUTHORIZED", "Invalid API key");
+  const [key] = await dbOrTx.select({ id: apiKeys.id, eventId: apiKeys.eventId })
     .from(apiKeys)
-    .where(and(eq(apiKeys.eventId, eventId), eq(apiKeys.keyHash, keyHash)))
+    .innerJoin(events, eq(events.id, apiKeys.eventId))
+    .where(and(
+      eq(apiKeys.keyHash, keyHash),
+      eventId ? eq(apiKeys.eventId, eventId) : eq(events.slug, slug ?? ""),
+    ))
     .limit(1);
   if (!key) throw new AppError("UNAUTHORIZED", "Invalid API key");
-  void Promise.resolve(db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id))).catch(() => undefined);
-  return { actorId: key.id as ApiKeyId, role: "api_key" };
-};
+  await dbOrTx.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
+  return { actorId: key.id as ApiKeyId, role: "api_key", eventId: eventIdSchema.parse(key.eventId) };
+}
+
+export const apiKeyAuth = (): HandlerGuard => async (request, eventId, params) => authenticateApiKey(db, request, eventId, params);
