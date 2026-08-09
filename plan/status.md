@@ -1,7 +1,7 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 6 — Sun Aug 9, 2026, after the foundation stack #10 → #11 → #12 merged. Nine PRs are open and green; **none of them can land from the agent side**, so the R1 queue is now merge-bound rather than work-bound.
-- **Baseline:** `main` after the merge of PR #12, plus status-only claim commits.
+- **Snapshot:** rev. 6 — Sun Aug 9, 2026, after the foundation stack #10 → #12 **and** PRs #15–#24 merged. R1's implementation queue is empty: what remains is deployment, external proof, and the feature lanes.
+- **Baseline:** `main` after the merge of PR #20.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 
 This document is the current execution overlay for `PLAN.md` and `execution.md`. It records evidence and priority; it does not change frozen contracts, invariants, dependencies, or the minimum judging bar.
@@ -35,33 +35,27 @@ The rev. 4 audit remains a one-time exception to the normal "one active module p
 | PR #8 — jobs Worker routing | Merged | Preview jobs routing fix (`global_fetch_strictly_public`) and provisioning proof | Production jobs secrets or guarded stub swaps |
 | PR #9 — contracts and pure foundation | Merged | Complete contract surface (branded ids, enums, DTOs, transitions, error envelopes, idempotency recipes, fan-out law), golden form-snapshot fixture, `compileFormSnapshot`, the 6-function timezone API, both sanitizer profiles, and the full condition/visibility/routing evaluator; 64 tests | Any database, auth, or deployed path; AC sign-off and the CP1 freeze declaration are still outstanding |
 | PR #10 — database and server foundation | **Merged** | Full event-isolated schema, views, transition trigger, typed Drizzle modules, lazy HTTP/transaction clients, `defineHandler`, `enqueueEmail`, and 75 PGlite integration tests incl. all 49 submission transitions | The SQL is proven on PGlite, on a disposable Neon branch, `sb-dev` and `sb-test` — not on `sb-prod` and not through a green `Deploy` workflow run |
-| PR #11 — admin auth | **Merged** | jose HS256 session cookies, Web Crypto PBKDF2 verification, `requireAdmin(eventId, role?)`, admin/API-key/cron/public guards, middleware redirects, sign-in throttle, `pnpm admin:bootstrap` | No deployed S4 round-trip. `pnpm admin:bootstrap` **could not run at all** until PR #21 — top-level `await` under tsx's CJS output killed it before it read an env var, so no admin has ever been bootstrapped |
+| PR #11 — admin auth | **Merged** | jose HS256 session cookies, Web Crypto PBKDF2 verification, `requireAdmin(eventId, role?)`, admin/API-key/cron/public guards, middleware redirects, sign-in throttle, `pnpm admin:bootstrap` | No deployed S4 round-trip. `pnpm admin:bootstrap` **could not run at all** until PR #21 — top-level `await` under tsx's CJS output killed it before it read an env var, so no admin has been bootstrapped anywhere yet |
 | PR #12 — portal auth | **Merged** | Single-use hashed magic-link/OTP tokens with attempt limits, AES-GCM delivery payloads, durable portal sessions, impersonation, cookie middleware, throttle serialized under a contact row lock | No delivered email and no deployed proof. The deployed preview still predates this merge: `/api/internal/auth/portal/request` returns a Next 404 page there, observed by `scripts/load-test.ts` |
 
 The stack landed in order, and the P1s rev. 5 recorded against it were answered inside those merges. What replaces that queue is the table below.
 
-### 2a. Open PR queue — this is the current blocker
+### 2a. What landed after the stack
 
-Nine PRs are open, green on CI, and unmergeable from the agent side. Until they land, four
-recovery modules cannot be claimed at all, because a solid edge into a `PR-OPEN` module blocks a
-claim exactly as `NOT STARTED` would.
+| PR | Module | What it lands |
+|---|---|---|
+| #15 + #17 | M07 | `shared/server/r2.ts` and the four upload routes. Presign is signed for a staging key and finalize server-side copies to the published key, so a live presigned PUT can never overwrite validated bytes under an immutable cache header |
+| #16 | M34 | Communications outbox dispatcher, templates, renderer, Resend integration |
+| #18 | M01 | Invariant grep #11 — no direct R2 access outside the storage module |
+| #19 | M10 step 1 | The six-spec Playwright skeleton: 22 tests, 0 failures, one table that flips as modules land |
+| #20 | M09 steps 1–2 | Seed orchestrator, `seedId`, the eight per-lane stub modules, and a seed target verified against the database's own identity rather than against `APP_ENV` alone |
+| #21 | M06a | `pnpm admin:bootstrap` made runnable at all |
+| #22 | M10 step 8 | Post-deploy smoke at its seven documented assertions, now mandatory and `--strict` in the deploy job |
+| #23 | M10 steps 9/10/12 | Load test, honest-status README, submission checklist |
+| #24 | M05a | `<DataTable>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, `<ConfirmDialog>`, kitchen sink |
 
-| PR | Module | What it lands | Merge order |
-|---|---|---|---|
-| #15 | M07 | `shared/server/r2.ts`: kind policy, staging→published key scheme, presign/finalize/download, orphan sweep | 1 |
-| #17 | M07 | The four upload routes; based on #15, retarget to `main` when it lands | 2, after #15 |
-| #16 | M34 | Communications outbox dispatcher (another lane) | independent |
-| #18 | M01 | Invariant grep #11 — no direct R2 access outside the storage module | independent |
-| #19 | M10 step 1 | `playwright.config.ts`, helpers, six specs; 22 tests, 0 failures | independent |
-| #20 | M09 steps 1–2 | Seed orchestrator, `seedId`, the eight per-lane stub modules | independent |
-| #21 | M06a | Makes `pnpm admin:bootstrap` runnable at all | **land early — it gates a deployed sign-in** |
-| #22 | M10 step 8 | Post-deploy smoke deepened to its seven documented assertions | after the cache header, or the deploy job goes red |
-| #23 | M10 steps 9/10/12 | Load test, honest-status README, submission checklist | after #19 and #20, which its README references |
-| #24 | M05a | `<DataTable>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, `<ConfirmDialog>`, kitchen sink | independent |
-
-**#22 is the one with a consequence.** `.github/workflows/deploy.yml` already calls the smoke
-script, so merging it turns the deploy job red until the public schedule is served with
-`s-maxage=60`. That is the honest state of the artifact, not a script defect — see §4.
+**The binding constraint moved.** Every R1 item that was code is now on `main`; what is left is a
+deploy, external evidence, and the eight per-feature seed bodies that belong to their own lanes.
 
 ## 3. Module status by evidence
 
@@ -84,15 +78,15 @@ No module is `DONE` as of this snapshot. Rule 1 alone keeps every `PR-OPEN` modu
 | M06a | PR #11 — sessions, guards, middleware, throttle, bootstrap | A deployed auth round-trip, which needs PR #21 first: bootstrap could not run |
 | M06b | PR #12 — OTP/magic link, tokens, sessions, impersonation | One delivered or logged `portal_login` email through M34; a preview deployed from a revision that actually contains these routes |
 
-### Open on unmerged branches (`PR-OPEN`)
+### Merged since rev. 5, AC verification pending
 
-| Modules | Branch evidence | Blocking |
+| Modules | Evidence on `main` | Missing before `DONE` |
 |---|---|---|
-| M07 | PRs #15 + #17 — storage module and the four routes | Merge; the browser CORS proof; production S3 credentials; an R2 lifecycle rule on the `staging/` prefix |
-| M34 | PR #16 — dispatcher, templates, renderer, Resend integration | Merge; real delivery evidence |
-| M05a (primitives) | PR #24 — `<DataTable>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, `<ConfirmDialog>`, kitchen sink | Merge; the `(admin)` route group remains unclaimed by design |
-| M09 (orchestrator) | PR #20 — `SeedCtx`, `seedId`, the eight stub modules, `index.ts` | Merge; a run against a real database; the eight per-lane seed bodies |
-| M10 (steps 1, 8–10, 12) | PRs #19, #22, #23 — spec skeleton, deepened smoke, load test, README, checklist | Merge; the specs go green only as their features land |
+| M07 | PRs #15 + #17 — policy table, staging→published keys, the four routes, orphan sweep, and CI grep #11 | A **browser** presign/PUT/CORS round-trip on the preview, the `curl -I /f/{id}` header check, production S3 credentials, and an R2 lifecycle rule on the `staging/` prefix |
+| M34 | PR #16 — dispatcher, templates, renderer, Resend integration, comms seed | One delivered or logged email through a deployed dispatch; the whole Resend deliverability track |
+| M05a | PR #24 — the core primitives and the kitchen sink | Six list surfaces actually consuming `<DataTable>`; the `(admin)` route group, deliberately unclaimed |
+| M09 | PR #20 — orchestrator, ids, stubs, target verification | A run against a real database, then the eight per-feature bodies, which belong to their own lanes |
+| M10 | PRs #19, #22, #23 — spec skeleton, deepened smoke, load test, README, checklist | Specs go green only as their features land; the load test needs M16's submit endpoint |
 
 ### Merged partial implementation
 
@@ -124,7 +118,7 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 | Checkpoint | Status | Evidence required to turn green |
 |---|---|---|
 | CP0 — deployed skeleton and existential spikes | **PARTIAL** | Green: preview Cloudflare URL, real `/api/health` Neon `18.4` round-trip in 155 ms, measured bundle (1416.09 KiB with the R2 routes and the shared primitives) under the Free 3 MiB budget, jobs tick round-trip, and **embed `frame-ancestors` now proven by curl** — `/embed/<slug>/schedule` sends `frame-ancestors *` and no `X-Frame-Options`. Missing: Resend DNS/header probe, browser R2 presign/CORS, a deployed auth-throttle proof, and **revalidate-60, which is now a measured failure rather than an unknown**: `/e/<slug>/schedule` is served `private, no-cache, no-store, max-age=0, must-revalidate` |
-| CP1 — contracts/schema/foundation freeze | **NOT MET** | Green: contracts merged; the #10–#12 stack merged; migrations applied to `sb-dev` and `sb-test`. Missing: `sb-prod`, a real seed run, admin login demonstrated on the preview, a green `Deploy` workflow run, the six-spec skeleton **merged** (it exists and runs on PR #19), and the freeze declaration |
+| CP1 — contracts/schema/foundation freeze | **NOT MET** | Green: contracts merged; the #10–#12 stack merged; migrations applied to `sb-dev` and `sb-test`. Missing: `sb-prod`, a real seed run, admin login demonstrated on the preview, a green `Deploy` workflow run, and the freeze declaration. The six-spec skeleton is merged and runs |
 | Sat thin slice — CFP to Abstracts | **NOT MET** | Deployed fixture-snapshot form posts through the real server transaction into Neon and appears in Abstracts |
 | CP2 — golden spine | **NOT MET** | Real OTP, submit, review, accept/notify, one delivered/logged email, portal task, public schedule/gallery, e2e and load evidence |
 | CP3 — full judged feature surface | **NOT ATTEMPTED** | Deployed portal upload/task, scheduling/conflict, embed, ICS lifecycle, reminder scan, tracking dashboard |
@@ -142,26 +136,32 @@ Landed via PRs #6–#8: the status overlay and reconciled module headers, the in
 
 ### R1 — Deployed foundation — **ACTIVE**
 
-**The gate is no longer work-bound. It is merge-bound**: every numbered item below except 7 and 8
-exists as a green PR in §2a that nobody has landed.
+**The code half is done.** Every R1 item that was an implementation now sits on `main`. What is
+left cannot be finished by writing more of it:
 
-Ordered remaining work:
-
-1. Land §2a in its stated order, starting with **#21** — until it merges no admin can be
-   bootstrapped, so a deployed sign-in cannot be demonstrated at all.
-2. Redeploy the preview. The currently deployed revision predates the portal-auth merge, so every
-   claim about auth on that URL is a claim about code that is not there.
-3. Keep `drizzle/` additive-only now that `0000_init.sql` is journaled and applied. Every new migration — starting with #11's `admin_login_attempts` fix — runs on the disposable branch first, then `sb-dev` **and** `sb-test`, before `sb-prod` goes through the guarded production deployment step. `pnpm db:migrate` applies pending journal entries to whichever database `DATABASE_URL` points at, and the deploy workflow only ever migrates the environment it is deploying (preview → `sb-test`, production → `sb-prod`), so **`sb-dev` is nobody's job unless someone runs it**. A stale `sb-dev` silently breaks the auth and seed work that develops against it.
-4. M05a's remaining primitives are on **#24**. The `(admin)` route-group move stays deliberately
-   unclaimed: those route files belong to six lanes and moving them is a merge collision.
-5. M07 is on **#15 + #17**; M09's orchestrator is on **#20**. The eight per-feature seed bodies
-   remain with their own workstreams and are the real remaining seed work.
-6. M10's CP1 slice is on **#19** — six specs, 22 tests, zero failures, every unlanded step skipped
-   behind one table that flips as modules merge.
-7. Finish the deploy half of M08 and make the GitHub `Deploy` workflow itself green for preview — every run so far has been `skipped`. Note that **#22 makes the smoke step fail honestly** until the public schedule is served with `s-maxage=60`.
+1. **Deploy the preview from current `main`.** The deployed revision predates the portal-auth
+   merge — `/api/internal/auth/portal/request` returns a Next 404 page there — so every claim
+   about auth, uploads or comms on that URL is a claim about code that is not deployed.
+2. **Run the seed against `sb-dev` and `sb-test`.** `pnpm seed` exists and refuses an
+   unclassified or mismatched target; nobody has pointed it at a database yet. Mark each database
+   once with `ALTER DATABASE … SET app.environment` while doing it.
+3. **Bootstrap an admin and demonstrate a deployed sign-in.** `pnpm admin:bootstrap` only became
+   runnable in #21, so this has never been done anywhere.
+4. **Fix the public schedule's cache header.** `/e/<slug>/schedule` is served
+   `private, no-cache, no-store`; the deploy job's smoke step is now mandatory and `--strict`, so
+   this blocks a green deploy rather than being a footnote.
+5. **Fill the eight per-feature seed bodies.** Each belongs to its own lane, and four downstream
+   surfaces render against them.
+6. Keep `drizzle/` additive-only. Every new migration runs on the disposable branch first, then
+   `sb-dev` **and** `sb-test`, before `sb-prod` goes through the guarded production step. The
+   deploy workflow only migrates the environment it deploys, so **`sb-dev` is nobody's job unless
+   someone runs it**.
+7. Finish the deploy half of M08 and make the GitHub `Deploy` workflow green for preview — every
+   run so far has been `skipped`.
 8. Complete the remaining provisioning in §7.
 
-**Exit:** CP0 and CP1 are green on a deployed preview, including the admin shell and the runnable six-spec Playwright skeleton.
+**Exit:** CP0 and CP1 are green on a deployed preview, including the admin shell and the runnable
+six-spec Playwright skeleton.
 
 ### R2 — Server-backed golden spine
 
@@ -197,10 +197,10 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-The next action is **not an implementation action**. It is landing §2a: nine green PRs, in the
-stated order, starting with #21. Four recovery modules cannot even be *claimed* until M07 and the
-primitives are on `main`, so additional agent work now produces more unmerged branches rather than
-more progress.
+The next action is **not an implementation action**. It is a deploy plus a seed run: R1's steps 1–3
+are the only reason CP0 and CP1 are still red, and no amount of further code moves them. M07,
+M05a's primitives and M09's orchestrator are merged, so WS-D's queue (M05b → M21 → M22/M25) and the
+feature lanes are unblocked for the first time.
 
 ## 7. Environment and configuration truth
 
@@ -219,7 +219,7 @@ more progress.
 - `pnpm admin:bootstrap` was never runnable. Top-level `await` under tsx's CJS output aborted it
   in esbuild before it read an environment variable, so the "password-backed organizer and
   reviewer accounts" step of the provisioning checklist has never been executed anywhere. PR #21
-  fixes it; the checklist item stays unchecked until it has actually been run.
+  fixed it; the checklist item stays unchecked until it has actually been run.
 - The deployed preview is behind `main`. `/api/internal/auth/portal/request` returns a Next 404
   page there, so the portal-auth merge is not on the deployed artifact.
 
