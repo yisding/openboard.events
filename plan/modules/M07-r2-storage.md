@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — claimed after PRs #10/#11 merged, which satisfied both hard dependencies (`file_assets` and `getEnv()`/`AppError`). See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (catalog note: "owner: WS-D — its biggest consumer; moved from WS-A"). This agent also builds M05b (rich UI primitives, filed under WS-A's module set) the same day — both are declared temporary cross-folder grants outside this agent's normal `features/portal` lane (PLAN.md §6). |
 | **Scheduled** | **Sat AM** — starts the hour M03's `file_assets` table lands on sb-dev (before CP1, **not** at it); presign/finalize wired Sat PM. Does **not** gate CP1. Steps 1–3 (typed signatures, kind-policy table, key scheme + filename sanitization) are unit-testable against a mocked binding and can be pulled forward to **Fri evening**. Runs in parallel with M05b, whose `<FileUpload>` internals are this module's only real consumer. |
 | **Size** | M |
