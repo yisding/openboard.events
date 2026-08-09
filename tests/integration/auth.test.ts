@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { authorizeAdmin, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "@/features/auth";
+import { authenticateAdmin, authorizeAdmin, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "@/features/auth";
+import { authenticateApiKey } from "@/features/auth/server/guards";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
+import { sha256 } from "@/features/auth/server/crypto";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -56,5 +59,26 @@ describe("admin authentication", () => {
     if (!parts[0] || !parts[1] || !signature) throw new Error("expected compact JWT");
     const tampered = `${parts[0]}.${parts[1]}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
     await expect(verifyAdminToken(tampered, secret)).resolves.toBeNull();
+  });
+
+  it("rate-limits unknown admin credentials without storing the email", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(authenticateAdmin("missing@example.com", "incorrect password", "192.0.2.10", tx)).resolves.toBeNull();
+    }
+    await expect(authenticateAdmin("missing@example.com", "incorrect password", "192.0.2.10", tx)).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    const attempts = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM admin_login_attempts");
+    expect(attempts.rows).toHaveLength(1);
+    expect(attempts.rows[0]?.key_hash).not.toContain("missing@example.com");
+  });
+
+  it("authenticates an API key against a slug and awaits last-used persistence", async () => {
+    const raw = "ob_live_test-api-key";
+    const keyId = "a0000000-0000-4000-8000-000000000005";
+    await pglite.query("INSERT INTO api_keys(id,event_id,name,key_hash) VALUES($1,$2,'Test key',$3)", [keyId, eventA, await sha256(raw)]);
+    const request = new NextRequest("https://example.test/api/v1/events/auth-a/stats", { headers: { authorization: `Bearer ${raw}` } });
+    await expect(authenticateApiKey(tx, request, null, { slug: "auth-a" })).resolves.toMatchObject({ actorId: keyId, eventId: eventA });
+    const persisted = await pglite.query<{ last_used_at: Date | null }>("SELECT last_used_at FROM api_keys WHERE id=$1", [keyId]);
+    expect(persisted.rows[0]?.last_used_at).not.toBeNull();
+    await expect(authenticateApiKey(tx, request, null, { slug: "missing" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });

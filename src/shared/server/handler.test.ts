@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { AppError } from "@/shared/lib/errors";
+import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "./handler";
 
 const publicGuard = async () => null;
@@ -52,5 +53,20 @@ describe("defineHandler", () => {
     });
     const response = await route(new NextRequest("https://example.test/resource"));
     expect(await response.json()).toEqual({ error: { code: "CONFLICT", message: "Already exists", data: { id: "duplicate" } } });
+  });
+
+  it("passes route params to auth and adopts its resolved event", async () => {
+    const eventId = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
+    const route = defineHandler({
+      auth: async (_request, unresolvedEventId, params) => {
+        expect(unresolvedEventId).toBeNull();
+        expect(params.slug).toBe("auth-a");
+        return { actorId: "api-key", role: "api_key", eventId };
+      },
+      input: z.object({}),
+      handler: async ({ eventId: resolvedEventId }) => ({ eventId: resolvedEventId }),
+    });
+    const response = await route(new NextRequest("https://example.test/resource"), { params: Promise.resolve({ slug: "auth-a" }) });
+    expect(await response.json()).toEqual({ data: { eventId } });
   });
 });

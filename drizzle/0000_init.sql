@@ -127,6 +127,13 @@ CREATE TABLE admin_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE admin_login_attempts (
+  key_hash text PRIMARY KEY,
+  attempts integer NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  window_started_at timestamptz NOT NULL DEFAULT now(),
+  blocked_until timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE api_keys (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   name text NOT NULL, key_hash text NOT NULL UNIQUE, last_used_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),

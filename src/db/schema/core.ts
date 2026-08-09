@@ -37,6 +37,14 @@ export const eventMembers = pgTable("event_members", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [primaryKey({ columns: [table.userId, table.eventId] })]);
 
+export const adminLoginAttempts = pgTable("admin_login_attempts", {
+  keyHash: text("key_hash").primaryKey(),
+  attempts: integer("attempts").notNull().default(1),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).defaultNow().notNull(),
+  blockedUntil: timestamp("blocked_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const fileAssets = pgTable("file_assets", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
