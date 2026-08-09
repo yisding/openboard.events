@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
+import { DecisionBar } from "./decision-bar";
+import { SubmissionDrawer } from "./submission-drawer";
 
 /**
  * Filters live in the URL, not in component state: an organizer who has narrowed
@@ -12,6 +14,7 @@ import { AbstractsTable } from "./abstracts-table";
  * back button does what it looks like it does.
  */
 export function AbstractsView({
+  eventId,
   rows,
   counts,
   status,
@@ -19,6 +22,7 @@ export function AbstractsView({
   timezone,
   total,
 }: {
+  eventId: string;
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
   status: SubmissionStatus | "all";
@@ -28,6 +32,8 @@ export function AbstractsView({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  const [selected, setSelected] = useState<SubmissionListRow[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const onFilter = useCallback((next: { status?: SubmissionStatus | "all"; search?: string }) => {
     const query = new URLSearchParams(params.toString());
@@ -48,6 +54,12 @@ export function AbstractsView({
         title="Abstracts"
         description="Every proposal for this event, with its status, track and rating."
       />
+      <DecisionBar
+        eventId={eventId}
+        selected={selected}
+        pendingNotify={counts.accept_queue + counts.decline_queue}
+        onDone={() => setSelected([])}
+      />
       <AbstractsTable
         rows={rows}
         counts={counts}
@@ -56,7 +68,17 @@ export function AbstractsView({
         timezone={timezone}
         total={total}
         onFilter={onFilter}
+        onSelectionChange={setSelected}
+        onRowClick={(row) => setOpenId(row.submissionId)}
       />
+      {openId && (
+        <SubmissionDrawer
+          eventId={eventId}
+          submissionId={openId}
+          timezone={timezone}
+          onClose={() => setOpenId(null)}
+        />
+      )}
     </main>
   );
 }

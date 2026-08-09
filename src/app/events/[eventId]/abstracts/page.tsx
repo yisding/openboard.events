@@ -51,6 +51,7 @@ export default async function Page({
 
   return (
     <AbstractsView
+      eventId={eventId}
       rows={list.rows}
       counts={counts}
       status={filters.status}
