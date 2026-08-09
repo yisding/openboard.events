@@ -42,8 +42,8 @@ admin sign-in, edge-cached public schedule, and **Gmail delivery from the verifi
 - The rest of the email track: Outlook probe, calendar-invite delivery, DMARC confirmation, a
   production sending key — and, product-side, bounce/complaint handling (P3/M46).
 - Browser R2 presign/PUT/CORS round-trip (needs a seeded headshot → `contacts.ts`); a green
-  `Deploy` workflow run (deploys are still a laptop operation); the 50-concurrent load test; the
-  production half of the provisioning checklist.
+  `Deploy` workflow run (deploys are still a laptop operation); the production half of the
+  provisioning checklist. The 50-concurrent load test is complete: 50/50 `200`, p95 27703 ms.
 
 ## Phase P3 — trust and compliance (cheap, do alongside P1/P2)
 
@@ -111,10 +111,11 @@ ordered here by tail length × trickiness:
    shape should not: an ADR plus an additive `organizations` table and nullable
    `events.organization_id` lands cheaply *now* under the additive-only migration rule, and
    turns M43 from a schema migration into a backfill.
-4. **The 50-concurrent load test** (existential unknown, now unblocked). The deployed submit
-   endpoint exists, so the test is runnable today. If Neon's per-transaction WebSocket `Pool`
-   misbehaves under load, the documented fallback rewrites the `withTx` paths as CTEs — a
-   rewrite whose cost grows with every new transaction path. An afternoon now bounds the risk.
+4. **The 50-concurrent load test — completed Aug 9.** The deployed endpoint returned 50/50
+   `200` with p95 27703 ms and exposed a linear per-event serialization ceiling at the final-submit
+   event-row lock. It did not isolate the WebSocket `Pool` handshake; measure that directly or
+   run a controlled pooling A/B before choosing Hyperdrive. Evaluate a CTE rewrite separately
+   with query or transaction profiling if lock-held work remains the bottleneck.
 5. **A green `Deploy` workflow run** (process tail). Every deploy so far is a laptop operation,
    and rev. 7's own findings (a rewritten migration silently not applying) are exactly the
    failure class a pipeline catches. One green run makes every subsequent deploy cheaper and
@@ -259,13 +260,11 @@ demo→snapshot conversion with parity tests pinning both evaluators to the same
   then **mutates the shared nested `portal` object** for the magic link to reach the result —
   any deep-copy refactor silently breaks every non-login email; make the link an explicit
   field.
-- **Submit-path batching (load-test prerequisite).** `replaceAnswers`
-  (`submissions/server/mutations.ts`) deletes-then-inserts one answer row per round trip
-  inside the transaction holding the event-row `FOR UPDATE` lock, over a per-transaction
-  WebSocket `Pool` to Neon. Batch it into multi-row statements **before** running lane item
-  4's 50-concurrent load test (which fires only the submit endpoint), so the test measures
-  the intended design rather than a known-fixable serialization. This is the only
-  prerequisite — do not postpone the load test for anything below.
+- **Submit-path batching (completed in #73 before the load test).** `replaceAnswers`
+  (`submissions/server/mutations.ts`) previously inserted one answer row per round trip inside
+  the transaction holding the event-row `FOR UPDATE` lock. PR #73 replaced that loop with a
+  multi-row insert before lane item 4's run, so the recorded test measures the intended design
+  rather than the known-fixable answer serialization.
 - **Decision-notification batching (independent).** `notifyQueues` — its own transaction, no
   event-row lock, not exercised by the load test — enqueues emails and updates contacts one
   statement per submission; batch it on its own schedule, since a large decision batch holds
@@ -323,8 +322,9 @@ their library alternatives — they stay. What we adopt, by phase:
 
 **Future possibilities (noted, not adopted):**
 
-- **Hyperdrive** — if P2's load test shows the per-transaction WebSocket `Pool` handshake cost
-  matters, Hyperdrive pooling is the fix; not before the data says so.
+- **Hyperdrive** — the P2 load test measured the whole transaction and did not isolate the
+  WebSocket `Pool` handshake. Consider pooling only after handshake instrumentation or a
+  controlled A/B shows that cost matters.
 - **Atlas** — schema-diff tooling that models the composite FKs/views/triggers drizzle-kit
   cannot, addressing the hand-authored-SQL drift risk recorded in `DECISIONS.md` ("Migration
   authorship"). Revisit when migration volume grows.

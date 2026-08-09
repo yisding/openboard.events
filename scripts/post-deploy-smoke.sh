@@ -140,13 +140,19 @@ fi
 #    cacheable fails.
 schedule_ok=0
 for attempt in 1 2 3 4 5; do
-  if expect_status "$base_url/e/$event_slug/schedule" 200 "public schedule renders"; then
+  # Retryable probes use fetch directly: expect_status records a permanent
+  # failure, which would make a transient 503 fail the whole run even when a
+  # later attempt succeeds.
+  fetch "$base_url/e/$event_slug/schedule"
+  if [[ "$last_status" == "200" ]]; then
     if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then schedule_ok=1; break; fi
   fi
-  sleep 2
+  if (( attempt < 5 )); then sleep 2; fi
 done
 if (( schedule_ok )); then
   pass "/e/$event_slug/schedule"
+elif [[ "$last_status" != "200" ]]; then
+  fail "$base_url/e/$event_slug/schedule" "public schedule renders (expected 200 after 5 attempts, got $last_status)"
 else
   fail "$base_url/e/$event_slug/schedule" "public schedule is edge-cached (no s-maxage after 5 attempts)"
 fi

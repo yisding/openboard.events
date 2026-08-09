@@ -12,7 +12,7 @@ Anything not merged at this point is cut. Branch protection then narrows to bug 
 seed changes only.
 
 - [ ] All six Playwright specs green against `sb-test`, with no `test.skip` left in `cfp-submit`
-- [ ] 50-concurrent submit load test run, p95 recorded in `DECISIONS.md`
+- [x] 50-concurrent submit load test run — 50/50 `200`, p95 27703 ms, recorded in `DECISIONS.md`
 - [ ] Perf pass: cache headers verified, Worker gzip within budget, Neon scale-to-zero off,
       dashboard served by a single endpoint
 - [ ] Production email re-verified: `EMAIL_MODE=send`, allowlist unset, `EMAIL_FALLBACK_UI=0`,
