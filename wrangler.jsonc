@@ -27,7 +27,12 @@
       "name": "sb-web-preview",
       "vars": {
         "APP_ENV": "preview",
-        "EMAIL_MODE": "log",
+        // Preview sends for real now that mail.openboard.events is verified, but
+        // only to the allowlist: a preview that can mail anybody is one bad
+        // seed away from mailing a stranger.
+        "EMAIL_MODE": "send",
+        "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
+        "EMAIL_ALLOWLIST": "yi.s.ding@gmail.com",
         "EMAIL_FALLBACK_UI": "1",
         "AIRTABLE_CRON": "0",
         "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
