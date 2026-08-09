@@ -58,25 +58,29 @@ function invalidOption(field: FormField, value: AnswerValue): string | null {
   return null;
 }
 
+function expectedAnswerType(field: FormField): AnswerValue["t"] {
+  switch (field.type) {
+    case "text":
+    case "textarea":
+    case "richtext":
+    case "email":
+    case "phone":
+    case "url": return "s";
+    case "dropdown":
+    case "radio": return "opt";
+    case "multiselect":
+    case "checkbox": return "opts";
+    case "number": return "n";
+    case "date": return "d";
+    case "file": return "file";
+  }
+}
+
+function invalidAnswerType(field: FormField, value: AnswerValue): string | null {
+  return value.t === expectedAnswerType(field) ? null : "Use the expected answer type";
+}
+
 function invalidForField(field: FormField, value: AnswerValue): string | null {
-  const expected = (() => {
-    switch (field.type) {
-      case "text":
-      case "textarea":
-      case "richtext":
-      case "email":
-      case "phone":
-      case "url": return "s";
-      case "dropdown":
-      case "radio": return "opt";
-      case "multiselect":
-      case "checkbox": return "opts";
-      case "number": return "n";
-      case "date": return "d";
-      case "file": return "file";
-    }
-  })();
-  if (value.t !== expected) return "Use the expected answer type";
   if (field.type === "email" && value.t === "s" && !z.email().safeParse(value.v).success) return "Enter a valid email address";
   if (field.type === "url" && value.t === "s" && !z.url().safeParse(value.v).success) return "Enter a valid URL";
   return invalidOption(field, value);
@@ -124,6 +128,16 @@ export function runSubmitPipeline(
       continue;
     }
     const value = clean[field.id];
+    // Empty is meaningful only after the discriminator agrees with the field.
+    // Otherwise `{t:"opts",v:[]}` could masquerade as an empty text answer and
+    // bypass validation on optional fields or draft saves.
+    if (value) {
+      const typeMessage = invalidAnswerType(field, value);
+      if (typeMessage) {
+        fieldErrors[field.id] = typeMessage;
+        continue;
+      }
+    }
     if (isEmpty(field, value)) {
       if (opts.requireRequired && field.required) fieldErrors[field.id] = `${field.label} is required`;
       continue;

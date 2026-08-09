@@ -20,6 +20,7 @@ const EMAIL = fieldByKey("email");
 const TOPICS = fieldByKey("topics");
 const SLIDES = fieldByKey("slides");
 const SUPPORTING = fieldByKey("supporting");
+const NOTES = fieldByKey("notes");
 
 const text = (v: string): AnswerValue => ({ t: "s", v });
 const option = (v: string): AnswerValue => ({ t: "opt", v });
@@ -133,6 +134,21 @@ describe("runSubmitPipeline", () => {
     ["file", SUPPORTING.id, text("not-a-file-answer")],
   ])("rejects a valid AnswerValue with the wrong %s field type", (_name, fieldId, value) => {
     const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [fieldId]: value }, { requireRequired: true });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[fieldId]).toContain("expected answer type");
+  });
+
+  it.each([
+    ["an optional text field with an empty option", NOTES.id, option(""), true],
+    ["an optional text field with an empty option list", NOTES.id, { t: "opts", v: [] } satisfies AnswerValue, true],
+    ["a required text field during a draft save", TITLE.id, { t: "opts", v: [] } satisfies AnswerValue, false],
+  ])("rejects the wrong empty discriminator for %s", (_name, fieldId, value, requireRequired) => {
+    const result = runSubmitPipeline(
+      GOLDEN_SNAPSHOT,
+      { ...completeAnswers(), [fieldId]: value },
+      { requireRequired },
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.fieldErrors[fieldId]).toContain("expected answer type");
