@@ -21,12 +21,14 @@ The two workers share exactly two configuration values within an environment:
 | Environment | Purpose | Neon | Web / jobs | R2 | Email | Test bypasses |
 |---|---|---|---|---|---|---|
 | Local development | Feature work and unit/manual checks | `sb-dev` | `next dev` / `wrangler dev` | Wrangler-local R2; use `sb-files-dev` only for the real presign/CORS spike | `EMAIL_MODE=log` | `TEST_AUTH=1`; `EMAIL_FALLBACK_UI=1` allowed |
-| Preview/test | Playwright, integration, and team demos | `sb-test` | `sb-web-preview` / `sb-jobs-preview` | `sb-files-preview` | `EMAIL_MODE=log`; temporary `send` only with a team-owned allowlist | `TEST_AUTH=1` only while the isolated e2e environment needs it; fallback UI allowed |
+| Preview/test | Playwright, integration, and team demos | `sb-test` | `sb-web-preview` / `sb-jobs-preview` | `sb-files-preview` | **Current: `EMAIL_MODE=send` behind a one-address `EMAIL_ALLOWLIST`** (since #50; real delivery proven at status rev. 7) | `TEST_AUTH=1` only while the isolated e2e environment needs it — a release gate before any customer-facing use; fallback UI allowed |
 | Production/judge | Submission URL and external judging | `sb-prod` | `sb-web` / `sb-jobs` | `sb-files` | `EMAIL_MODE=send`, allowlist empty, verified sender domain | `TEST_AUTH` unset; `EMAIL_FALLBACK_UI=0` |
 
 Production must never expose the test-login route, a fixed OTP, or an inline OTP/magic-link
-fallback. If real delivery is not verified, CP1 and the minimum judging path remain red;
-preview-only fallbacks are evidence aids, not substitutes for production authentication.
+fallback. Real delivery is now verified from the preview (`mail.openboard.events`, SPF/DKIM
+aligned, Gmail delivery — status rev. 7); the remaining email track is Outlook, calendar
+invites, DMARC, and a production key. Preview-only fallbacks are evidence aids, not substitutes
+for production authentication.
 
 ## 3. Canonical names
 
@@ -101,9 +103,10 @@ Automatic production deploys remain gated by repository variable
 
 ### Cloudflare Workers
 
-Start on Workers Free. As measured on Aug 8, the current OpenNext artifact is
-`1204.60 KiB` gzip, below Free's 3 MB compressed-worker limit. Free also covers this
-project's two workers and one cron trigger.
+Start on Workers Free. The deployed artifact (version `5e809b64`, status rev. 7) measures
+`1679 KiB` gzip, below Free's 3 MB compressed-worker limit (earlier snapshots measured
+~1205 KiB; the artifact grows as features land). Free also covers this project's two workers
+and one cron trigger.
 
 Re-run `wrangler deploy --dry-run` on every production candidate. Upgrade the account to
 Workers Paid before judge deployment if either condition is true:
@@ -147,7 +150,7 @@ Workers Paid is a separate Workers subscription; a paid zone plan is not require
   `schema.bases:write` only for a provisioning script.
 - Keep the token and base ID on `sb-web` only. Do not provision them until M39 is unpaused.
 
-## 6. Configuration-ready, not provisioned
+## 6. Provisioning state: preview done, production outstanding
 
 The checked-in configuration now matches this contract:
 
@@ -160,6 +163,9 @@ The checked-in configuration now matches this contract:
 - validation CI checks generated bindings and Worker size, while the protected deploy
   workflow orders Neon migration → web → jobs → smoke.
 
-No external resource is implied by those files. Cloudflare Workers/R2, Neon branches,
-Worker secrets, protected GitHub environments, Resend DNS, and all deployed acceptance
-evidence remain outstanding. Follow [`../docs/provisioning.md`](../docs/provisioning.md).
+**Preview is fully provisioned and deployed** (status §2a/§7): preview Workers live, both R2
+buckets created with exact-origin CORS, Neon `sb-dev`/`sb-test` migrated and seeded, preview
+Worker secrets set, protected GitHub environments created, and `mail.openboard.events` verified
+in Resend with SPF/DKIM aligned. **Production remains outstanding**: `sb-prod` migration,
+production secrets (`SESSION_SECRET`, `CRON_SECRET`, Neon URLs, R2 S3 credentials, Resend key),
+and a green `Deploy` workflow run. Follow [`../docs/provisioning.md`](../docs/provisioning.md).

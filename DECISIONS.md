@@ -91,6 +91,10 @@
 ## CP1 freeze record
 
 - Contracts, migration schema, feature barrels, version pair, and invariant rules freeze after the foundation PR is accepted.
+- **Declared in effect (rev. 8 reconciliation):** the trigger condition above was met when PR #10
+  merged. The freeze is in force — contract or schema changes now require an architect-labeled
+  PR per the frozen protocol. (Four `plan/status.md` references treated the declaration as
+  outstanding while this record's trigger had already fired; this line closes that gap.)
 
 ## Product auth direction (2026-08-09)
 

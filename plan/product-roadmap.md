@@ -19,9 +19,9 @@ debt serves both bars at once.
 The server layer largely exists and is tested; most remaining work is wiring surfaces to it, in
 dependency order:
 
-1. **Decision loop first**: the accept/decline/waitlist mutations and `notifyDecisions`
-   (M18 completion) — the core organizer action, currently existing only as comments in
-   `src/db/client.ts`.
+1. **Decision loop UI first**: M17's drawer and bulk actions onto the merged `transitionStatus`
+   / `notifyQueues` routes (#57 landed the server half) — the core organizer action, now one UI
+   away.
 2. The four stub seed bodies (contacts, submissions, agenda, evaluation) so a fresh database is
    demonstrably non-empty.
 3. Form-builder DB writes and event creation (M11/M12 completion) — today forms exist only via
@@ -86,6 +86,63 @@ status the speaker never set); white-labeling; the §9 cut-line features that ar
 
 Airtable export, embed configurator polish, week/track/room views, dashboard extras, AI review —
 below the line until P1/P2 close.
+
+## Sequencing evaluation: front-load the long tails (added at rev. 8)
+
+The gate/phase ordering above is correct for its own logic — decision UI first, then seeds,
+then surfaces — and status §6's queue (M17 drawer → `contacts.ts` → M12 builder) is the right
+critical path for the judged bar. The correction this section makes is different: several items
+currently parked in "later" phases have **long external tails or compounding costs**, and a
+strictly sequential P1→P4 reading would start them too late. They are cheap to *start* and
+expensive to *discover late*, so they should run as a parallel slow-cooker lane beside P1,
+ordered here by tail length × trickiness:
+
+1. **The email deliverability tail** (external, weeks of calendar time; P2/M46). Gmail is
+   proven; Outlook/Microsoft acceptance is notoriously slow and opaque, DMARC propagation takes
+   days, a production sending domain needs reputation warm-up, and the bounce webhook needs
+   real bounces to validate against. Every step is an hour of work followed by days of waiting —
+   the definition of a task to start now and finish whenever.
+2. **The Better Auth deployed spike** (unknown-risk gate for the whole P4 chain). M42–M44 and
+   M49 all assume Better Auth works on workerd inside the bundle budget. A one-day spike — a
+   deployed sign-in round-trip plus `pnpm worker:size` — converts that assumption into evidence
+   while the auth surface is still small. If it fails, the fallback (keep jose, add OAuth
+   directly) re-plans three modules; better to know before they are designed in detail.
+3. **The org-tenancy schema decision** (M43; compounding). Every feature merged on single-event
+   assumptions raises the migration cost. The UI and membership flows can wait, but the schema
+   shape should not: an ADR plus an additive `organizations` table and nullable
+   `events.organization_id` lands cheaply *now* under the additive-only migration rule, and
+   turns M43 from a schema migration into a backfill.
+4. **The 50-concurrent load test** (existential unknown, now unblocked). The deployed submit
+   endpoint exists, so the test is runnable today. If Neon's per-transaction WebSocket `Pool`
+   misbehaves under load, the documented fallback rewrites the `withTx` paths as CTEs — a
+   rewrite whose cost grows with every new transaction path. An afternoon now bounds the risk.
+5. **A green `Deploy` workflow run** (process tail). Every deploy so far is a laptop operation,
+   and rev. 7's own findings (a rewritten migration silently not applying) are exactly the
+   failure class a pipeline catches. One green run makes every subsequent deploy cheaper and
+   safer; until then each deploy re-risks the same mistakes.
+6. **The Workers Paid / Queues decision** (architecture fork; M46/M49 cost model). The
+   sequential outbox caps at ~50 emails/minute; bulk sends and reminder fan-out will breach it.
+   Moving dispatch to Cloudflare Queues changes the jobs architecture and requires the paid
+   plan — decide the plan tier early so the dispatcher's successor can be designed once, not
+   retrofitted.
+7. **Schema-drift debt** (compounding; already bit once). The Drizzle TS schema cannot express
+   the composite FKs/views/triggers, migrations are hand-authored, and rev. 7 found `sb-dev`/
+   `sb-test` silently running an older schema while ~300 tests passed. Each new migration
+   widens the gap. Cheap containment now: a CI step that diffs a PGlite-applied `drizzle/`
+   against a schema dump, so drift fails a PR instead of a deploy (Atlas remains the future
+   candidate for a real fix).
+8. **e2e activation** (rot compounds). The gates in `e2e/helpers/landed.ts` are flipped for the
+   modules with merged evidence as of rev. 8; from here, run the suite against the preview on
+   every deploy and treat a failing unskipped step as signal, not noise. Specs that stay
+   skipped while their surfaces evolve stop describing the product.
+9. **Retention/GDPR groundwork** (grows with data; M47). Full compliance waits for P4, but
+   token/session/rendered-email retention jobs should land before the first real event's data
+   accumulates — deleting a year of PII later is a project; a cron that trims from day one is a
+   file.
+
+What this explicitly does **not** change: the judged-bar critical path. Items 1–9 are
+individually small starts (a spike, an ADR, a test run, a cron) that fit around the P1 wiring
+work without displacing it.
 
 ## Tooling and library adoptions
 

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — claimed by Codex for active recovery after M34 merged. The partial ICS/feed **STACK-DEMO** is merged; active scope is the contract-complete builder, durable invite state, dispatcher attachment wiring, tokenized calendar routes, and local lifecycle evidence. Real-inbox/deployed AC remain external evidence. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — claimed by Codex for active recovery after M34 merged. **#42/#45/#47 landed the contract-complete ICS builder, durable invite state with cancellation replay, dispatcher attachment wiring, and the verified-token `/cal` routes.** Remaining: real-inbox/deployed lifecycle evidence (REQUEST/reschedule/CANCEL in Gmail and Outlook). See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms`, plus the public `/cal` routes. |
 | **Scheduled** | **Sat PM: the canned real-inbox render check (step 2 — no app code required). Sun: the module proper + the full seeded lifecycle test (step 8).** Mon CP3 re-verifies only the end-to-end flow from a real scheduling action. |
 | **Size** | M (≈half-day) |

@@ -41,9 +41,11 @@ submissions is a single uninterrupted pass.
 what email will go out → Notify → see confirmation that exactly one email per speaker was sent
 and logged.
 
-**Current state:** **missing end-to-end.** No status-change mutation or `notifyDecisions`
-exists; the transition guard and outbox are built and waiting. This is the top item in both the
-ledger's next actions and roadmap P1.
+**Current state:** **server done, UI missing** *(updated after PR #57)*. Bulk `transitionStatus`
+with expected-from guards, `notifyQueues` with `notified_at` idempotency and `notify_revision`
+re-notify, auto-confirm, submitter-only recipient, and a `waitUntil` outbox drain are all merged
+behind organizer-auth routes. But there is **zero UI**: no drawer, no row action, no bulk
+Accept, no Notify button. The flow is missing its UI end, not end-to-end.
 
 **Friction to fix:** build it drawer-first (decide where you read), with bulk actions from the
 table; make the notify step show the rendered email before sending; surface "notified ✓" state
@@ -166,8 +168,8 @@ add to calendar.
 
 **Current state:** split. Portal auth, home, submissions list/detail are real. Profile, tasks,
 and resources pages are demo-only; task completion (`completeTaskVia*`) and profile writes have
-no runtime; headshot upload has no UI; the decision email itself can't be sent yet (O2). ICS
-routes are real and waiting.
+no runtime; headshot upload has no UI; the decision email can be sent via the merged notify
+route (#57) but has no UI trigger yet (O2). ICS routes are real and waiting.
 
 **Friction to fix:** the M22/M25 runtimes, upload widget onto the finished R2 routes, and a
 portal home that is a **single ordered checklist** — not a dashboard of widgets — until
@@ -272,8 +274,9 @@ has a shareable URL, and add-to-calendar works from the page in one tap. What re
 
 ## Priority read
 
-Ordered by (frequency × current breakage): **O2 decide/notify** (core action, missing) →
-**O1 drawer** (highest frequency, one click short) → **S2 portal runtimes + upload** (retention,
+Ordered by (frequency × current breakage): **O1 + O2 together** — after PR #57 they are the
+same work: the drawer and bulk actions *are* the missing UI for the merged decide/notify
+routes → **S2 portal runtimes + upload** (retention,
 half-built) → **P1 public pages on real data** (highest volume, wrong data source) → **R1
 reviewer conveyor** (window-critical, absent) → **O4 event/form creation** (first-run, blocks
 new customers) → **O3 chase loop doors** → **O5 scheduling** → **O6 comms visibility** →

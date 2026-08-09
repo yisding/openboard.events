@@ -10,11 +10,11 @@ export const MODULES = {
   M09: { landed: false, what: "seed orchestrator" },
   M11: { landed: false, what: "events + vocab" },
   M12: { landed: false, what: "form builder core" },
-  M15: { landed: false, what: "public CFP wizard" },
-  M16: { landed: false, what: "submit pipeline" },
-  M17: { landed: false, what: "abstracts table" },
-  M18: { landed: false, what: "submission mutations + notify" },
-  M21: { landed: false, what: "portal shell" },
+  M15: { landed: true, what: "public CFP wizard" },
+  M16: { landed: true, what: "submit pipeline" },
+  M17: { landed: true, what: "abstracts table" },
+  M18: { landed: false, what: "submission decide/notify UI (server half merged in #57)" },
+  M21: { landed: true, what: "portal shell" },
   M22: { landed: false, what: "speaker profile" },
   M25: { landed: false, what: "task runtime" },
   M28: { landed: false, what: "sessions CRUD" },
@@ -22,8 +22,8 @@ export const MODULES = {
   M31: { landed: false, what: "agenda views" },
   M32: { landed: false, what: "public schedule + gallery" },
   M33: { landed: false, what: "embed shells" },
-  M34: { landed: false, what: "comms outbox dispatcher" },
-  M40: { landed: false, what: "public API" },
+  M34: { landed: true, what: "comms outbox dispatcher" },
+  M40: { landed: true, what: "public API" },
 } as const;
 
 export type ModuleId = keyof typeof MODULES;

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged polished **STACK-DEMO** wizard uses fixed OTP/localStorage; real auth, server draft/submit, R2, stale-version handling, and deployed mobile AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **the real wizard is merged and proven deployed** (#43/#49, status rev. 7): `CfpSteps` renders the DB snapshot with real OTP auth, server draft, and server submit; the fixed-OTP demo twin remains only behind `isCredentialFreeLocalDemo()`. Remaining: file-upload wiring to the R2 routes, stale-version UX, draft-resume surfacing, co-speaker collection, the success page's placeholder-code fallback, and the deployed mobile AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B2 (public runtime)**. Matches the catalog (PLAN §4 WS-B; §6 "B2: M13a → M15 skeleton + M16 pipeline (Sat) → M16 complete + M15 end-to-end (Sun)"). B2 owns every file below; **B1 never edits them**, and this module never edits a `components/builder/**`, `server/builder-*`, or `(admin)` file. The two agents meet only at the golden `FormSnapshot` fixture and at [M12](./M12-form-builder-core.md)'s `getPublicForm` DTO. |
 | **Scheduled** | **Sat PM** skeleton against the golden fixture → **Sun** end-to-end (Account step + server draft + submit) → **Mon** polish (closed-form / limit / stale-version states, success page). It is the front half of the CP2 golden path. |
 | **Size** | L (≈1 day) |

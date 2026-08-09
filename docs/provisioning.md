@@ -154,7 +154,7 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   | `CRON_SECRET` | preview cron secret |
   | `R2_ACCESS_KEY_ID` | preview bucket credential |
   | `R2_SECRET_ACCESS_KEY` | preview bucket credential |
-  | `RESEND_API_KEY` | omit while preview remains in log mode |
+  | `RESEND_API_KEY` | domain-scoped sending key (preview runs `EMAIL_MODE=send` behind a one-address allowlist since #50) |
 
   ```bash
   pnpm exec wrangler secret put DATABASE_URL --env preview
@@ -213,6 +213,12 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   unset JOBS_SECRETS_FILE JOBS_SECRETS_DIR
   ```
 
+- [x] Seed the non-production databases (`pnpm seed` against `sb-dev` and `sb-test`; both were
+  reset, re-migrated from `drizzle/`, and seeded at status rev. 7).
+- [x] Create the password-backed organizer and reviewer accounts
+  (`pnpm admin:bootstrap`; first run in the project's history at rev. 7, on both branches —
+  credentials held outside the repository).
+
 Subsequent jobs deployments can use `pnpm deploy:jobs:preview`; Wrangler preserves the
 existing Worker secret. The jobs Worker uses `global_fetch_strictly_public` because its
 documented `APP_BASE_URL` is a sibling Worker on the same `workers.dev` zone; without that
@@ -254,13 +260,17 @@ stores only the credentials and direct database URL needed by the deployment wor
 
 ## 8. Provision Resend before production
 
-- [ ] Verify a dedicated sending subdomain in Resend.
-- [ ] Publish and verify SPF, DKIM, and DMARC.
-- [ ] Choose a real `EMAIL_FROM` mailbox or alias on that domain.
-- [ ] Create the production `RESEND_API_KEY`.
-- [ ] Prove OTP and calendar REQUEST/reschedule/CANCEL delivery in fresh Gmail and Outlook
-  inboxes.
-- [ ] Record aligned `spf=pass`, `dkim=pass`, and `dmarc=pass` evidence in `DECISIONS.md`.
+- [x] Verify a dedicated sending subdomain in Resend (`mail.openboard.events`, status rev. 7).
+- [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
+- [ ] Confirm the DMARC policy and record `dmarc=pass` evidence.
+- [x] Choose a real `EMAIL_FROM` mailbox or alias on that domain
+  (`AI.Engineer Sandbox <hello@mail.openboard.events>`).
+- [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
+- [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
+  status rev. 7).
+- [ ] Prove OTP and calendar REQUEST/reschedule/CANCEL delivery in a fresh **Outlook** inbox,
+  and calendar delivery in Gmail.
+- [ ] Record the remaining alignment evidence in `DECISIONS.md`.
 
 ## 9. Deploy production manually
 

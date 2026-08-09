@@ -70,9 +70,11 @@ merged in PRs #26/#44 and ledger rev. 7 records the deployed proof (`s-maxage`,
 
 **Missing outright (not demo, not server — absent):**
 
-- The decision loop: no accept/decline/waitlist mutation, no `notifyDecisions`. The functions
-  are named in comments (`src/db/client.ts:46`) but do not exist. The core organizer action —
-  decide and notify — cannot happen against the database.
+- The decision loop's UI. *(Updated after PR #57:)* `transitionStatus` and `notifyQueues` now
+  exist (`src/features/submissions/server/mutations.ts`) behind organizer-auth routes, with 11
+  PGlite cases covering double-notify idempotency, undo→re-notify, and auto-confirm. What is
+  still missing is any **UI caller** — no drawer, no row action, no bulk Accept, no Notify
+  button — and a deployed accept→notify→email round-trip.
 - Task completion runtime (`completeTaskViaResponse` / `completeTaskViaUpload`), session CRUD
   and `moveSession`, event creation (button disabled), form authoring writes (the builder never
   touches the DB — forms exist only via seed).
@@ -151,11 +153,11 @@ a deliberate product decision now:
 
 ## 6. Where to spend effort
 
-1. **Finish the wiring, in dependency order** (largest block, pure execution): decision
-   mutations + `notifyDecisions` → the four seed bodies → form builder writes + event creation →
-   agenda/sessions server → portal tasks/profile + upload UI → comms admin over the real log →
-   public pages onto `published_*` views (which also fixes the failing cache assertion). Flip
-   each module's e2e gate as it lands.
+1. **Finish the wiring, in dependency order** (largest block, pure execution): decision **UI**
+   (M17 drawer + bulk actions onto #57's merged transition/notify routes) → the four seed
+   bodies → form builder writes + event creation → agenda/sessions server → portal
+   tasks/profile + upload UI → comms admin over the real log → public pages onto `published_*`
+   views. Flip each module's e2e gate as it lands.
 2. **Finish the email track**: Gmail delivery from the verified subdomain is proven (ledger
    rev. 7); still open are the Outlook probe, calendar-invite delivery, DMARC confirmation, a
    production sending key, and a bounce/complaint webhook. Deliverability groundwork has the

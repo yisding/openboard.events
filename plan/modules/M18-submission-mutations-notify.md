@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **the Saturday slice is merged** (#34): `nextSubmissionCode`, `createSubmission`, `upsertDraft`, `formatCode`, `assertTransition` and `toPortalStatus`, with eleven PGlite cases. This is what the Sat-night thin slice needs from WS-C. Remaining: `transitionStatus`, `notifyQueues`, `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling` and the three route handlers. |
+| **Status** | IN PROGRESS — **the Saturday slice is merged** (#34): `nextSubmissionCode`, `createSubmission`, `upsertDraft`, `formatCode`, `assertTransition` and `toPortalStatus`, with eleven PGlite cases. This is what the Sat-night thin slice needs from WS-C. **The Sunday half landed in #57**: `transitionStatus`, `notifyQueues`, and the transition/notify route handlers, with 11 further PGlite cases. Remaining: `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, the withdraw route — and a UI consumer (M17's drawer/bulk actions). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat PM** — the `nextSubmissionCode` + `createSubmission` slice (powers the Sat-night thin-slice integration). **Sun** — complete (`notifyDecisions` w/ `notify_revision` + auto-confirm + submitter-only recipient, `updateSubmissionFromCfp`, `upsertDraft`, withdraw, `getAcceptedForScheduling`). |
 | **Size** | L (~day; grew by absorbing the mutations — WS-C has the slack) |
