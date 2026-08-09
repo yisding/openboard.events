@@ -3,6 +3,10 @@
 `pnpm seed` fills a database with the demo world in one idempotent run, so every
 judged surface renders non-empty within ten minutes of a fresh deploy.
 
+**Today this is infrastructure, not data.** Seven of the eight feature modules
+are still typed no-ops, so a run prints their skipped lines, creates nothing, and
+says so instead of printing credentials that would not work.
+
 ```bash
 APP_ENV=local pnpm seed            # upsert: organic judge-created data survives
 APP_ENV=local pnpm seed --wipe     # TRUNCATE every public table first, then reseed

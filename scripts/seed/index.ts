@@ -10,7 +10,7 @@ import { seedPortal } from "./portal";
 import { seedSubmissions } from "./submissions";
 import { seedId } from "./lib/ids";
 import { SEEDED_EMPTY_EVENT_ID, SEEDED_EVENT_ID, type SeedCtx, type SeedModule } from "./lib/helpers";
-import { assertSafeSeedTarget } from "./lib/safety";
+import { assertDatabaseAllowsSeed, assertSafeSeedTarget } from "./lib/safety";
 
 /**
  * `pnpm seed` fills a database with the demo world in one idempotent run.
@@ -59,6 +59,13 @@ async function wipeAll(tx: TxDb): Promise<number> {
   return names.length;
 }
 
+/** Set once per database at provisioning: ALTER DATABASE … SET app.environment. */
+async function databaseIdentity(tx: TxDb): Promise<string | null> {
+  const result = await tx.execute<{ environment: string | null }>(sql`SELECT current_setting('app.environment', true) AS environment`);
+  const value = result.rows?.[0]?.environment?.trim();
+  return value ? value : null;
+}
+
 async function rowCounts(tx: TxDb): Promise<Array<{ table: string; rows: number }>> {
   const tables = await tx.execute<{ table_name: string }>(sql`
     SELECT table_name FROM information_schema.tables
@@ -82,6 +89,10 @@ async function main(): Promise<void> {
   // The one command-line transaction: a partial seed never lands. This is
   // resolution #4's explicit non-runtime exception; no request or job path copies it.
   const summary = await withTx(async (tx) => {
+    // Inside the transaction and before the wipe: a refusal rolls back having
+    // changed nothing, and it checks the database's own identity rather than the
+    // operator's claim about it.
+    await assertDatabaseAllowsSeed(() => databaseIdentity(tx), process.env);
     if (wipe) {
       const truncated = await wipeAll(tx);
       console.log(`wiped ${truncated} tables`);
@@ -107,8 +118,12 @@ async function main(): Promise<void> {
   for (const row of populated) console.log(`  ${row.table.padEnd(28)} ${row.rows}`);
 
   console.log("");
-  console.log("credentials:");
-  for (const [role, who, how] of CREDENTIALS) console.log(`  ${role.padEnd(18)} ${who.padEnd(32)} ${how}`);
+  if (populated.length === 0) {
+    console.log("credentials: none — no seed module has created an account yet, so nothing can sign in");
+  } else {
+    console.log("credentials:");
+    for (const [role, who, how] of CREDENTIALS) console.log(`  ${role.padEnd(18)} ${who.padEnd(32)} ${how}`);
+  }
   console.log("");
   console.log(`event id       ${SEEDED_EVENT_ID}`);
   console.log(`empty event id ${SEEDED_EMPTY_EVENT_ID}`);
