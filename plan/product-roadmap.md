@@ -159,9 +159,12 @@ These join P3's release-gate list; none is larger than an afternoon.
 1. **Impersonation has no role check.** `createImpersonationLink`
    (`src/features/auth/server/portal.ts:268`) calls `requireAdmin(eventId)` with no role
    argument, so a **reviewer** can mint a 5-minute portal token for **any contact** and read
-   their submissions and private files (`decideFileAccess` in `shared/server/r2.ts` grants every
-   admin role full private-file access). Require `organizer`, and record the intended reviewer
-   file-access policy while touching it.
+   their portal and submissions. This is **two release-gate fixes, not one**: (a) require
+   `organizer` in `createImpersonationLink`; and (b) enforce the intended reviewer policy in
+   the file-access code itself — private-file downloads take a separate path
+   (`requireUploader` in `api/uploads/_lib.ts` tries admin auth first, and `decideFileAccess`
+   in `shared/server/r2.ts` returns true for every admin role), so fixing impersonation alone
+   leaves reviewers with full private-file access.
 2. **Page and API authorization disagree about reviewers.** `requiredRoleForEventPath`
    (`src/features/auth/server/admin.ts:28-32`) demands `organizer` for everything except
    `/events/{id}/review` — a page that does not exist — so reviewers get "Access denied" on
@@ -226,8 +229,13 @@ forbids forking:
 
 Cheap containment, same spirit as the schema-drift lane item: an ESLint `no-restricted-imports`
 rule (not a grep — it can allowlist per-directory) that pins the current set of
-`@/shared/demo` importers and fails on any **new** one, so the drain is monotonic; and a
-one-off deletion of the duplicate evaluator in favor of `shared/lib/conditions.ts`.
+`@/shared/demo` importers and fails on any **new** one, so the drain is monotonic. The
+duplicate evaluator is **not** a one-off deletion: `shared/lib/conditions.ts` takes a compiled
+`FormSnapshot` plus tagged `Answers` keyed by field ID, while the demo wizard holds
+`FormFieldRecord.visibility` and untagged values keyed by `field.key`, so a drop-in swap will
+not type-check and a thin adapter would just re-encode the forked semantics. Plan it as the
+wizard's migration to the real `FormFieldRenderer`/snapshot path (or, interim, an explicit
+demo→snapshot conversion with parity tests pinning both evaluators to the same verdicts).
 
 ### Consolidation debt — fold into P1 wiring as routes are touched
 
@@ -236,11 +244,13 @@ one-off deletion of the duplicate evaluator in favor of `shared/lib/conditions.t
   portal-auth routes plus `jsonRoute` in uploads (which its own comment admits is a
   duplicate). Converge on `defineHandler`'s shape as each route is next edited; also fix
   sign-in returning 401 "Invalid email or password" for malformed JSON (a 400).
-- **`defineHandler` can't read params from the body**, so three routes rebuild a `NextRequest`
-  with `eventId` smuggled into the query string
-  (`api/internal/forms/[formId]/submit/route.ts:60-66`, `draft/route.ts`,
-  `api/internal/portal/submissions/[id]/route.ts`). Add body-derived auth-param support to the
-  framework and delete the three copies of the workaround.
+- **`defineHandler` forces `NextRequest`-rebuilding workarounds** — two distinct framework
+  gaps. `api/internal/forms/[formId]/submit/route.ts:60-66` and `draft/route.ts` re-serialize
+  the parsed **body** to smuggle `eventId` into the query string for the auth guard;
+  `api/internal/portal/submissions/[id]/route.ts` is a GET that copies the **route param**
+  `id` into the query string because handler input can't merge route params. Add both:
+  body-derived auth-param resolution, and route-param merging into handler input — then
+  delete all three wrappers.
 - **Token hygiene**: every dispatch **attempt** mints a fresh 30-day magic-link token and
   365-day ICS token (`comms/server/context.ts:257`, `invites.ts:139`) with no revocation at
   issue — retries widen the set of live credentials. Mint once per logical notification (or
@@ -249,16 +259,17 @@ one-off deletion of the duplicate evaluator in favor of `shared/lib/conditions.t
   then **mutates the shared nested `portal` object** for the magic link to reach the result —
   any deep-copy refactor silently breaks every non-login email; make the link an explicit
   field.
-- **The deadline-hour hot path fights its own lock.** `replaceAnswers`
+- **Submit-path batching (load-test prerequisite).** `replaceAnswers`
   (`submissions/server/mutations.ts`) deletes-then-inserts one answer row per round trip
   inside the transaction holding the event-row `FOR UPDATE` lock, over a per-transaction
   WebSocket `Pool` to Neon. Batch it into multi-row statements **before** running lane item
   4's 50-concurrent load test (which fires only the submit endpoint), so the test measures
-  the intended design rather than a known-fixable serialization. Separately — not under the
-  event lock and not exercised by that test — `notifyQueues` enqueues emails and updates
-  contacts one statement per submission in its own transaction; batch it too, on its own
-  schedule, since a large decision batch holds its updated submissions' row locks for the
-  duration.
+  the intended design rather than a known-fixable serialization. This is the only
+  prerequisite — do not postpone the load test for anything below.
+- **Decision-notification batching (independent).** `notifyQueues` — its own transaction, no
+  event-row lock, not exercised by the load test — enqueues emails and updates contacts one
+  statement per submission; batch it on its own schedule, since a large decision batch holds
+  its updated submissions' row locks for the duration.
 
 ### Smaller items, recorded so they don't rot
 
