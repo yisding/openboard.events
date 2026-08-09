@@ -24,7 +24,7 @@ export type AnswerValue = z.infer<typeof answerValueSchema>;
 export type Answers = Readonly<Partial<Record<FieldId, AnswerValue>>>;
 
 // There is no `contains` op. Multi-select "contains option X" is expressed as
-// `in` over option ids. The rule-editor UI copy says "is any of" for `in`.
+// `in` over option ids. Semantics are specified by src/shared/lib/conditions.test.ts.
 export const conditionSchema = z.object({
   sourceFieldId: fieldIdSchema,
   op: z.enum(CONDITION_OPS),
