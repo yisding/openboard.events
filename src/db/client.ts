@@ -43,7 +43,8 @@ export type DbOrTx = typeof db | TxDb;
 
 /**
  * Runtime transactions are confined to requestPortalLogin, createSubmission,
- * upsertDraft, updateSubmissionFromCfp, notifyDecisions,
+ * upsertDraft, updateSubmissionFromCfp, notifyQueues (PLAN's
+ * "notifyDecisions" — its withTx body),
  * completeTaskViaResponse, completeTaskViaUpload, and moveSession.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */

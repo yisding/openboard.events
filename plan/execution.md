@@ -11,25 +11,35 @@
 
 ---
 
-## 0. Rebaseline overlay — rev. 4 (Sat Aug 8), updated rev. 5 (Sun Aug 9)
+## 0. Rebaseline overlay — rev. 4 (Sat Aug 8), updated rev. 8 (Sun Aug 9 late evening)
 
 The dependency graph and original wave table below remain valid choreography, but they are not a claim that their scheduled work happened. [`status.md`](status.md) is the live evidence ledger. At the rev. 4 rebaseline, CP0/CP1/the thin slice/CP2 were not met, no module was `DONE`, and the implementation merged through PR #5 was primarily a local browser demo.
 
-**Rev. 5 update:** R0 has exited (PRs #6–#8) and the contract/pure foundation merged (PR #9). CP0 is now **partial** — the preview Worker, Neon health round-trip, bundle measurement, and jobs tick are proven; Resend, R2 browser presign, and the remaining spikes are not. **R1 is the active gate**, and its critical path is the open #10 → #11 → #12 foundation stack. Still no `DONE` module.
+**Rev. 8 update:** the foundation stack (#10–#12) and PRs #15–#57 are merged, and the preview is
+deployed from current `main`. CP0 is **green except the browser R2 probe and the deployed
+auth-throttle proof**; the **Saturday thin slice is GREEN** on the deployed server path,
+including a delivered Gmail confirmation from the verified sending domain (status §2a). **R1 is
+essentially exited** (three bookkeeping items: `sb-prod` + production secrets, a green `Deploy`
+run, the browser R2 probe — the CP1 freeze declaration is recorded in `DECISIONS.md`) and
+**R2 is the active gate**. Still no module is `DONE` under the evidence rules.
 
 Run this recovery queue before resuming the original wave placements:
 
 | Gate | Parallel work allowed | Exit condition |
 |---|---|---|
 | **R0 Stack safety** — **exited** | Planning/configuration reconciliation; canonical environments; CI/deploy, migration runner, fail-closed authorization, and review hardening | Stack truth is current; clean-install CI green; configuration PR ready; no current P1 hidden in a draft |
-| **R1 Deployed foundation** — **active** | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
-| **R2 Server spine** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
+| **R1 Deployed foundation** — **essentially exited** (see status §5 for the three remaining bookkeeping items) | M01–M05a, M06a/M06b, M07, M09, deploy half of M08, and M10's runnable six-spec CP1 skeleton; pure tests/fixtures elsewhere | CP0 + CP1 green on Cloudflare/Neon with real auth, admin shell, seed, secrets, R2, zero-failure Playwright skeleton, and external spike evidence |
+| **R2 Server spine** — **active** | M05b before M12 rich-text integration, then M11–M18 + M34; consumers may build only against frozen contracts/fixtures | Real deployed CFP → Neon Abstracts → accept/notify → one email/portal-link path green |
 | **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |
 | **R4 Release proof** | Complete M10 after its R1 skeleton and perform P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
 
-**Dependency caution (rev. 5):** M03, M04's server half, M06a, and M06b are `PR-OPEN` — implemented, but on unmerged branches. They are **not** satisfied hard dependencies, and a solid edge into one still blocks the downstream claim. A dashed edge behaves as it always has: start against the stub or fixture. Otherwise the wait is filled with pure preparatory work that claims no module — tests and fixtures against PR #9's merged contracts (stable, but pending the CP1 freeze declaration). Do not branch feature work off `agent/complete-*`.
+**Dependency note (rev. 8, replacing the rev. 5 caution):** the foundation stack is merged —
+solid edges into M03, M04, M06a, and M06b are **satisfied** hard dependencies. M16's pipeline,
+M18's server half (`transitionStatus`, `notifyQueues`, #57), M34's dispatcher, and M21's portal
+server are likewise merged and buildable-against. The old warning not to branch off open
+`agent/*` stacks still applies to any future stacked work.
 
-**Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 and M40 are paused; M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
+**Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 is paused and M40's *keyed* half is deferred (its three unkeyed public read endpoints are deployed); M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
 
 Checkpoint boxes later in this file are historical targets. Their live state is the table in `status.md`; only update a box after the named deployed evidence exists.
 

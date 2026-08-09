@@ -208,4 +208,7 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
   });
 
   ctx.log("seeded 2 forms (one open, one closed), 1 routing rule, snapshots compiled");
+  // The admin forms list is not yet database-backed, so this line is the
+  // supported way to obtain the deployed public CFP URL for the open form.
+  ctx.log(`public CFP path: /submit/<eventSlug>/${formA.form.id} (open form)`);
 }

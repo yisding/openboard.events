@@ -70,16 +70,18 @@ merged in PRs #26/#44 and ledger rev. 7 records the deployed proof (`s-maxage`,
 
 **Missing outright (not demo, not server — absent):**
 
-- The decision loop: no accept/decline/waitlist mutation, no `notifyDecisions`. The functions
-  are named in comments (`src/db/client.ts:46`) but do not exist. The core organizer action —
-  decide and notify — cannot happen against the database.
+- The decision loop's remaining UI. *(Updated after PRs #57/#61:)* `transitionStatus` and
+  `notifyQueues` exist behind organizer-auth routes with 11 PGlite cases, and #61 landed the
+  abstracts decision bar (bulk queue/decide + a working Notify button). Still missing: the
+  detail drawer, "notified ✓" row state, and a deployed accept→notify→email round-trip.
 - Task completion runtime (`completeTaskViaResponse` / `completeTaskViaUpload`), session CRUD
   and `moveSession`, event creation (button disabled), form authoring writes (the builder never
   touches the DB — forms exist only via seed).
 - No UI calls the R2 upload routes; the presign/finalize machinery is complete and untested by
   any real user path.
-- 4 of 8 seed bodies are stubs (contacts, submissions, agenda, evaluation), so a freshly seeded
-  DB shows an empty abstracts table, empty dashboard, empty public API.
+- 3 of 8 seed bodies are stubs (submissions, agenda, evaluation — contacts landed in #65 with
+  real headshots), so a freshly seeded DB still shows an empty abstracts table and public
+  schedule.
 - All 22 Playwright e2e tests skip: every module in `e2e/helpers/landed.ts` is `landed: false`.
 
 This tier is the long pole and it is pure execution — the server layer beneath most of these
@@ -151,11 +153,11 @@ a deliberate product decision now:
 
 ## 6. Where to spend effort
 
-1. **Finish the wiring, in dependency order** (largest block, pure execution): decision
-   mutations + `notifyDecisions` → the four seed bodies → form builder writes + event creation →
-   agenda/sessions server → portal tasks/profile + upload UI → comms admin over the real log →
-   public pages onto `published_*` views (which also fixes the failing cache assertion). Flip
-   each module's e2e gate as it lands.
+1. **Finish the wiring, in dependency order** (largest block, pure execution): decision **UI**
+   (M17 drawer + bulk actions onto #57's merged transition/notify routes) → the four seed
+   bodies → form builder writes + event creation → agenda/sessions server → portal
+   tasks/profile + upload UI → comms admin over the real log → public pages onto `published_*`
+   views. Flip each module's e2e gate as it lands.
 2. **Finish the email track**: Gmail delivery from the verified subdomain is proven (ledger
    rev. 7); still open are the Outlook probe, calendar-invite delivery, DMARC confirmation, a
    production sending key, and a bounce/complaint webhook. Deliverability groundwork has the

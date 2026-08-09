@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN REVIEW — **PR-OPEN** in [PR #16](https://github.com/yisding/symmetrical-happiness/pull/16): dispatcher, authoritative templates, renderer, context rebuilding, retry/claim pipeline, Resend adapter, job wiring, and seed are locally green. Blocking `DONE`: direct Neon verification (`DATABASE_URL_DIRECT` absent) and real Resend/domain delivery evidence. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **merged** ([PR #16](https://github.com/yisding/symmetrical-happiness/pull/16); a satisfied hard dependency for downstream claims): dispatcher, authoritative templates, renderer, context rebuilding, retry/claim pipeline, Resend adapter, job wiring, and seed. **Gmail delivery through a deployed dispatch proven at status rev. 7.** Remaining before `DONE`: the Outlook probe, calendar-invite delivery, DMARC confirmation, and a production sending key. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms`. |
 | **Scheduled** | **Sat AM start (right after [M08](./M08-jobs-worker.md)), finished Sat PM.** The Sat-PM WS-F checklist items ([M35](./M35-ics-calendar-invites.md)'s canned ICS curl, [M39](./M39-airtable-export.md)'s Airtable provisioning) run interleaved. |
 | **Size** | L (≈1 day) |

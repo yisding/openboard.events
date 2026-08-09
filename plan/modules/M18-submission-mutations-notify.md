@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — claimed by Codex for the remaining PR #34 recovery: enforce legal transitions during draft promotion and harden the PGlite transaction/test-isolation coverage. The submission creation, lifecycle transition, notification, update and withdraw paths are merged (#34, #57, #61). Remaining for full module evidence: deployed lifecycle and notification probes. |
+| **Status** | IN PROGRESS — claimed by Codex for the remaining PR #34 recovery: enforce legal transitions during draft promotion and harden the PGlite transaction/test-isolation coverage. Creation (#34) and the transition/notify server half with both routes (#57) are merged, and M17's decision bar + Notify UI now consumes them (#61). Remaining: `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, the withdraw route (none exist in `src/` yet — #61 was the decide *UI*, not these), and deployed lifecycle/notification probes. |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat PM** — the `nextSubmissionCode` + `createSubmission` slice (powers the Sat-night thin-slice integration). **Sun** — complete (`notifyDecisions` w/ `notify_revision` + auto-confirm + submitter-only recipient, `updateSubmissionFromCfp`, `upsertDraft`, withdraw, `getAcceptedForScheduling`). |
 | **Size** | L (~day; grew by absorbing the mutations — WS-C has the slack) |

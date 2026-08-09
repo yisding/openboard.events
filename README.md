@@ -15,21 +15,26 @@ The repository is mid-build against [`PLAN.md`](PLAN.md), and this section is de
 first thing you read. `plan/status.md` is the live evidence ledger; a claim below appears only if
 something was actually demonstrated.
 
-**Proven on the deployed preview:** the Worker itself, `/api/health` with a real Neon round-trip,
-the public schedule and public API probes, and a jobs cron tick reaching the web Worker. The
-deployed bundle measures within the Workers Free budget.
+**Proven on the deployed preview** (ledger rev. 7): the Worker itself, `/api/health` with a real
+Neon round-trip, a deployed admin sign-in, a real portal OTP session, a deployed CFP submission
+stored in Neon with routing applied, **email delivered to a real Gmail inbox** from the verified
+`mail.openboard.events` sending domain (SPF/DKIM aligned), the public schedule served edge-cached
+(`s-maxage`, `x-nextjs-cache: HIT`), embed `frame-ancestors`, the public API probes, and a jobs
+cron tick. The deployed bundle measures within the Workers Free budget.
 
-**Not yet proven anywhere:** email delivery through Resend (nothing about deliverability is
-demonstrated), a deployed authentication round-trip, and a deployed submission through the server
-pipeline. Large parts of the admin and portal UI currently render from a typed browser demo
-adapter rather than from the database — that adapter exists so the surfaces could be built in
-parallel, and it is being replaced surface by surface.
+**Not yet proven anywhere:** an Outlook delivery probe, calendar-invite delivery, DMARC
+confirmation, bounce handling, a browser R2 presign/CORS upload, the 50-concurrent load test, and
+a green `Deploy` workflow run. Large parts of the admin and portal UI currently render from a
+typed browser demo adapter rather than from the database — that adapter exists so the surfaces
+could be built in parallel, and it is being replaced surface by surface.
 
 **Known gaps with evidence:**
 
-- `/e/<slug>/schedule` is served uncached (`private, no-cache, no-store`) rather than with
-  `s-maxage=60`. `scripts/post-deploy-smoke.sh` asserts the intended header and currently fails on it.
-- The six Playwright specs exist and run, with every step still skipped pending its feature.
+- The public schedule/speaker pages render demo-store fixtures client-side rather than the
+  database's published views — the caching is proven, the data source is not yet real.
+- The Playwright specs run but every step skips: `e2e/helpers/landed.ts` gates them per module,
+  and the gates stay closed because the spec step bodies are still placeholders — implementing
+  them (and flipping each gate in the same change) is the remaining M10 work.
 - Airtable export and the keyed half of the public API are deferred by the plan's own cut lines.
 
 ## Setup from a clean clone
