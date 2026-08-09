@@ -19,7 +19,8 @@
 
 - [ ] Revalidate-60 behavior on a deployed public page
 - [ ] Browser presigned R2 upload with CORS
-- [x] Apply both PostgreSQL migrations to a disposable Neon branch
+- [x] Apply both PostgreSQL migrations to PGlite (75-test suite on 2026-08-08; 30+ tables, 8 views, and all 9 M03 invariants pass)
+- [ ] Apply both PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
 - [ ] Embed `frame-ancestors *` survives the adapter
 
 ## Adopted fallbacks
@@ -36,9 +37,9 @@
 
 ## Infra facts (Neon/R2/Resend/Airtable/WAF ids)
 
-- Credentials are not present in the repository. The `sb` Neon project has isolated
-  `sb-dev`, `sb-test`, and `sb-prod` branches; the committed migrations were proven on an
-  expiring disposable branch and then applied to `sb-dev` and `sb-test` on 2026-08-08.
+- Credentials are not present in the repository. The `sb` Neon project is recorded with isolated
+  `sb-dev`, `sb-test`, and `sb-prod` branches, but direct migration verification remains blocked
+  here until `DATABASE_URL_DIRECT` is configured and the disposable-branch check succeeds.
 - Cloudflare has `sb-files-preview` and `sb-files` R2 buckets in WNAM with exact-origin CORS.
   The preview and production web origins are respectively
   `https://sb-web-preview.yi-ding.workers.dev` and
@@ -86,3 +87,8 @@
 ## CP1 freeze record
 
 - Contracts, migration schema, feature barrels, version pair, and invariant rules freeze after the foundation PR is accepted.
+
+## Migration authorship
+
+- The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.
+- Migration generation is deliberately disabled until a complete Drizzle metadata baseline can reproduce those constraints without weakening them. The TypeScript schema remains available for query typing; schema changes are authored and reviewed directly in SQL meanwhile.

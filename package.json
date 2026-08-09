@@ -47,6 +47,7 @@
     "zod": "^4.0.17"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@eslint/eslintrc": "^3.3.1",
     "@opennextjs/cloudflare": "1.20.2",
     "@types/node": "^24.2.1",
