@@ -100,9 +100,28 @@ describe("portal submission queries", () => {
     await pglite.query("DELETE FROM submissions WHERE id=$1", [draft]);
   });
 
+  it("resolves the organizer's vocabulary rather than raw ids", async () => {
+    const track = "c0000000-0000-4000-8000-000000000030";
+    const format = "c0000000-0000-4000-8000-000000000031";
+    await pglite.query("INSERT INTO tracks(id,event_id,name,color) VALUES($1,$2,'Agents','#6958d7')", [track, eventA]);
+    await pglite.query("INSERT INTO session_formats(id,event_id,name) VALUES($1,$2,'Workshop')", [format, eventA]);
+    await pglite.query("UPDATE submissions SET track_id=$1, format_id=$2 WHERE id=$3", [track, format, shared]);
+
+    const [row] = await listMySubmissionsIn(db, eventA, speaker);
+    expect(row?.trackName).toBe("Agents");
+    expect(row?.trackColor).toBe("#6958d7");
+    expect(row?.formatName).toBe("Workshop");
+
+    // An unrouted submission has no track, and a null must not become "null".
+    await pglite.query("UPDATE submissions SET track_id=NULL, format_id=NULL WHERE id=$1", [shared]);
+    expect((await listMySubmissionsIn(db, eventA, speaker))[0]?.trackName).toBeNull();
+    await pglite.query("UPDATE submissions SET track_id=$1, format_id=$2 WHERE id=$3", [track, format, shared]);
+  });
+
   it("reads a submission the speaker is on, with its co-speakers primary-first", async () => {
     const detail = await getMySubmissionIn(db, eventA, speaker, shared);
     expect(detail?.title).toBe("Shared talk");
+    expect(detail?.trackName).toBe("Agents");
     expect(detail?.participants.map((participant) => participant.email)).toEqual(["co@example.com", "speaker@example.com"]);
     expect(detail?.participants[0]?.isPrimary).toBe(true);
   });
