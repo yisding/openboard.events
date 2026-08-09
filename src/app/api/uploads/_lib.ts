@@ -46,7 +46,10 @@ export async function requireUploader(request: NextRequest, eventId: EventId): P
 
 /** Event branding belongs to the organizers; everything else a speaker owns too. */
 export function assertMayUpload(kind: FileKind, uploader: Uploader): void {
-  if ((kind === "logo" || kind === "background") && uploader.kind !== "admin") {
+  if (
+    (kind === "logo" || kind === "background")
+    && (uploader.kind !== "admin" || uploader.role === "reviewer")
+  ) {
     throw new AppError("FORBIDDEN", "Only organizers can upload event branding");
   }
 }
