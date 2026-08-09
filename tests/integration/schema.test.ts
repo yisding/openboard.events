@@ -80,6 +80,26 @@ describe("database invariants", () => {
     await expect(db.query("INSERT INTO submissions(event_id,code,status,source,track_id) VALUES($1,1,'draft','manual',$2)", [eventA, trackB])).rejects.toMatchObject({ code: "23503" });
   });
 
+  it("rejects cross-event identifiers inside routing and evaluation arrays", async () => {
+    const eventA = "43000000-0000-4000-8000-000000000001";
+    const eventB = "43000000-0000-4000-8000-000000000002";
+    const trackB = "43000000-0000-4000-8000-000000000003";
+    const tagB = "43000000-0000-4000-8000-000000000004";
+    const formA = "43000000-0000-4000-8000-000000000005";
+    const planA = "43000000-0000-4000-8000-000000000006";
+    const userId = "43000000-0000-4000-8000-000000000007";
+    await insertEvent(eventA, "array-event-a");
+    await insertEvent(eventB, "array-event-b");
+    await db.query("INSERT INTO tracks(id,event_id,name) VALUES($1,$2,'Other track')", [trackB, eventB]);
+    await db.query("INSERT INTO tags(id,event_id,name) VALUES($1,$2,'Other tag')", [tagB, eventB]);
+    await db.query("INSERT INTO forms(id,event_id,context,internal_name) VALUES($1,$2,'cfp','Array form')", [formA, eventA]);
+    await db.query("INSERT INTO users(id,email) VALUES($1,'array-reviewer@example.com')", [userId]);
+    await expect(db.query("INSERT INTO evaluation_plans(event_id,name,track_ids) VALUES($1,'Invalid plan',ARRAY[$2]::uuid[])", [eventA, trackB])).rejects.toMatchObject({ code: "23503" });
+    await db.query("INSERT INTO evaluation_plans(id,event_id,name) VALUES($1,$2,'Valid plan')", [planA, eventA]);
+    await expect(db.query("INSERT INTO reviewer_assignments(event_id,plan_id,user_id,track_ids) VALUES($1,$2,$3,ARRAY[$4]::uuid[])", [eventA, planA, userId, trackB])).rejects.toMatchObject({ code: "23503" });
+    await expect(db.query("INSERT INTO routing_rules(event_id,form_id,conditions,add_tag_ids) VALUES($1,$2,'[]',ARRAY[$3]::uuid[])", [eventA, formA, tagB])).rejects.toMatchObject({ code: "23503" });
+  });
+
   it("rejects an answer that points at a field from another event", async () => {
     const eventA = "41000000-0000-4000-8000-000000000001";
     const eventB = "41000000-0000-4000-8000-000000000002";
@@ -151,10 +171,66 @@ describe("database invariants", () => {
     expect(result.rows).toEqual([{ contact_id: primary }]);
   });
 
-  it("keeps task descriptions non-null when callers omit them", async () => {
+  it("falls back to the first sorted participant when no primary is marked", async () => {
+    const eventId = "72000000-0000-4000-8000-000000000001";
+    const first = "72000000-0000-4000-8000-000000000002";
+    const second = "72000000-0000-4000-8000-000000000003";
+    const submissionId = "72000000-0000-4000-8000-000000000004";
+    const taskId = "72000000-0000-4000-8000-000000000005";
+    await insertEvent(eventId, "fanout-fallback-event");
+    await insertContact(first, eventId, "fallback-first@example.com");
+    await insertContact(second, eventId, "fallback-second@example.com");
+    await db.query("INSERT INTO submissions(id,event_id,code,status,source) VALUES($1,$2,1,'accepted','manual')", [submissionId, eventId]);
+    await db.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,sort_order) VALUES($1,$2,$3,2),($1,$2,$4,1)", [eventId, submissionId, first, second]);
+    await db.query("INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode) VALUES($1,$2,'Slides','submission','manual')", [taskId, eventId]);
+    const result = await db.query<{ contact_id: string }>("SELECT contact_id FROM task_assignments_v WHERE task_id=$1", [taskId]);
+    expect(result.rows).toEqual([{ contact_id: second }]);
+  });
+
+  it("requires completion evidence to match the completion method", async () => {
+    const eventId = "73000000-0000-4000-8000-000000000001";
+    const contactId = "73000000-0000-4000-8000-000000000002";
+    const taskId = "73000000-0000-4000-8000-000000000003";
+    await insertEvent(eventId, "completion-evidence-event");
+    await insertContact(contactId, eventId, "completion@example.com");
+    await db.query("INSERT INTO portal_tasks(id,event_id,name) VALUES($1,$2,'Profile')", [taskId, eventId]);
+    await expect(db.query("INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'form_response')", [eventId, taskId, contactId])).rejects.toMatchObject({ code: "23514" });
+    await expect(db.query("INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')", [eventId, taskId, contactId])).resolves.toBeDefined();
+  });
+
+  it("bumps submission version metadata for non-status edits", async () => {
+    const eventId = "74000000-0000-4000-8000-000000000001";
+    const submissionId = "74000000-0000-4000-8000-000000000002";
+    await insertEvent(eventId, "submission-edit-version");
+    await db.query("INSERT INTO submissions(id,event_id,code,status,title) VALUES($1,$2,1,'pending','Before')", [submissionId, eventId]);
+    const result = await db.query<{ title: string; row_version: number }>("UPDATE submissions SET title='After' WHERE id=$1 RETURNING title,row_version", [submissionId]);
+    expect(result.rows[0]).toEqual({ title: "After", row_version: 2 });
+  });
+
+  it("aggregates only submitted human review scores", async () => {
+    const eventId = "75000000-0000-4000-8000-000000000001";
+    const submissionId = "75000000-0000-4000-8000-000000000002";
+    const planId = "75000000-0000-4000-8000-000000000003";
+    const human = "75000000-0000-4000-8000-000000000004";
+    const draftReviewer = "75000000-0000-4000-8000-000000000005";
+    const aiReviewer = "75000000-0000-4000-8000-000000000006";
+    await insertEvent(eventId, "ratings-population-event");
+    await db.query("INSERT INTO submissions(id,event_id,code,status) VALUES($1,$2,1,'pending')", [submissionId, eventId]);
+    await db.query("INSERT INTO evaluation_plans(id,event_id,name) VALUES($1,$2,'Round 1')", [planId, eventId]);
+    await db.query("INSERT INTO users(id,email) VALUES($1,'human@example.com'),($2,'draft-reviewer@example.com'),($3,'ai-reviewer@example.com')", [human, draftReviewer, aiReviewer]);
+    await db.query("INSERT INTO reviews(event_id,plan_id,submission_id,reviewer_user_id,overall_score,submitted_at) VALUES($1,$2,$3,$4,5,now()),($1,$2,$3,$5,1,NULL),($1,$2,$3,$6,1,now())", [eventId, planId, submissionId, human, draftReviewer, aiReviewer]);
+    await db.query("UPDATE reviews SET is_ai=true WHERE reviewer_user_id=$1", [aiReviewer]);
+    const result = await db.query<{ rating: number; n_scores: number }>("SELECT rating,n_scores FROM submission_ratings_v WHERE submission_id=$1", [submissionId]);
+    expect(result.rows[0]).toEqual({ rating: 5, n_scores: 1 });
+  });
+
+  it("keeps task descriptions compatible with the non-null API contract", async () => {
     const eventId = "71000000-0000-4000-8000-000000000001";
-    await insertEvent(eventId, "task-default-event");
-    const result = await db.query<{ description_html: string }>("INSERT INTO portal_tasks(event_id,name) VALUES($1,'Default description') RETURNING description_html", [eventId]);
+    await insertEvent(eventId, "task-description-default");
+    const result = await db.query<{ description_html: string }>(
+      "INSERT INTO portal_tasks(event_id,name) VALUES($1,'Profile') RETURNING description_html",
+      [eventId],
+    );
     expect(result.rows[0]?.description_html).toBe("");
   });
 
@@ -168,11 +244,20 @@ describe("database invariants", () => {
     await db.query("INSERT INTO forms(id,event_id,context,internal_name,status,closes_at) VALUES($1,$2,'cfp','Closed','open',now()-interval '1 second')", [formId, eventId]);
     const open = await db.query<{ open: boolean }>("SELECT is_form_open($1) AS open", [formId]);
     expect(open.rows[0]?.open).toBe(false);
+    const missing = await db.query<{ open: boolean }>("SELECT is_form_open('80000000-0000-4000-8000-000000000099') AS open");
+    expect(missing.rows[0]?.open).toBe(false);
     await db.query("INSERT INTO sessions(id,event_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,'Draft','draft','2026-09-15T16:00:00Z','2026-09-15T16:30:00Z','draft')", [sessionId, eventId]);
     await db.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3)", [eventId, sessionId, contactId]);
     const sessions = await db.query("SELECT * FROM published_sessions_v WHERE event_id=$1", [eventId]);
     const speakers = await db.query("SELECT * FROM published_speakers_v WHERE event_id=$1", [eventId]);
     expect(sessions.rows).toHaveLength(0);
     expect(speakers.rows).toHaveLength(0);
+    const confirmedContact = "80000000-0000-4000-8000-000000000005";
+    const unscheduledSession = "80000000-0000-4000-8000-000000000006";
+    await insertContact(confirmedContact, eventId, "confirmed@example.com", "confirmed");
+    await db.query("INSERT INTO sessions(id,event_id,title,slug,status) VALUES($1,$2,'Unscheduled','unscheduled','published')", [unscheduledSession, eventId]);
+    await db.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3)", [eventId, unscheduledSession, confirmedContact]);
+    const hiddenUnscheduledSpeaker = await db.query("SELECT * FROM published_speakers_v WHERE contact_id=$1", [confirmedContact]);
+    expect(hiddenUnscheduledSpeaker.rows).toHaveLength(0);
   });
 });

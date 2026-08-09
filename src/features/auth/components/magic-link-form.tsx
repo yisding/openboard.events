@@ -16,11 +16,13 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ eventSlug, token, impersonate }),
     });
+    const body = await response.json().catch(() => null) as { data?: { alreadySignedIn?: boolean } } | null;
     setPending(false);
     if (!response.ok) {
       setError("That link is invalid or expired");
       return;
     }
+    if (body?.data?.alreadySignedIn) await new Promise((resolve) => setTimeout(resolve, 250));
     window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
   }
 

@@ -25,6 +25,12 @@ export function roleSatisfies(actual: MemberRole, required: MemberRole): boolean
   return roleRank[actual] >= roleRank[required];
 }
 
+export function requiredRoleForEventPath(eventId: EventId, requestPath: string): MemberRole {
+  const reviewBase = `/events/${eventId}/review`;
+  const pathname = requestPath.split("?", 1)[0] ?? "";
+  return pathname === reviewBase || pathname.startsWith(`${reviewBase}/`) ? "reviewer" : "organizer";
+}
+
 export async function getAdminIdentity(): Promise<AdminIdentity | null> {
   const token = (await cookies()).get(ADMIN_COOKIE)?.value;
   if (!token || !getEnv().SESSION_SECRET) return null;

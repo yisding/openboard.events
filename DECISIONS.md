@@ -9,8 +9,11 @@
 
 - Local Next.js production build: passed on 2026-08-08 with 42 routes.
 - OpenNext Cloudflare build: passed on 2026-08-08; `.open-next/worker.js` was generated successfully.
-- Unit checks cover condition evaluation, half-open interval overlap, agenda conflicts, sanitization, and RFC 5545 calendar generation (21 passing tests).
-- Deployed Neon transactions, Auth.js, R2, Resend delivery/idempotency, and preview URL checks remain pending environment credentials.
+- Unit checks cover condition evaluation, half-open interval overlap, agenda conflicts,
+  sanitization, environment validation, and RFC 5545 calendar generation (35 passing tests).
+- The deployed preview URL and Neon health query are proven below. Deployed interactive
+  transactions, Auth.js, browser R2 presigning/CORS, and Resend delivery/idempotency remain
+  pending their feature-specific probes.
 - S4 has no credential-backed deployed verdict in this environment, so M06a adopts the pre-decided Web Crypto PBKDF2 + jose HS256 cookie fallback. The public `requireAdmin(eventId, role?)` contract remains implementation-neutral.
 - The auth-enabled OpenNext artifact measured 1,317.99 KiB compressed in Wrangler's production dry run on 2026-08-08, within the configured Workers Free bundle budget.
 
@@ -18,8 +21,8 @@
 
 - [ ] Revalidate-60 behavior on a deployed public page
 - [ ] Browser presigned R2 upload with CORS
-- [x] Apply both PostgreSQL migrations to PGlite (75-test suite on 2026-08-08; 30+ tables, 8 views, and all 9 M03 invariants pass)
-- [ ] Apply both PostgreSQL migrations to a disposable Neon branch (blocked locally: `DATABASE_URL_DIRECT` is not configured)
+- [x] Apply all three PostgreSQL migrations to PGlite (integration suite on 2026-08-08; 30+ tables, 8 views, and all M03 invariants pass)
+- [ ] Apply all three PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
 - [ ] Embed `frame-ancestors *` survives the adapter
 
 ## Adopted fallbacks
@@ -38,14 +41,22 @@
 
 ## Infra facts (Neon/R2/Resend/Airtable/WAF ids)
 
-- Credentials are not present in the repository and no external resources have been mutated.
+- Credentials are not present in the repository. The `sb` Neon project is recorded with isolated
+  `sb-dev`, `sb-test`, and `sb-prod` branches, but direct migration verification remains blocked
+  here until `DATABASE_URL_DIRECT` is configured and the disposable-branch check succeeds.
+- Cloudflare has `sb-files-preview` and `sb-files` R2 buckets in WNAM with exact-origin CORS.
+  The preview and production web origins are respectively
+  `https://sb-web-preview.yi-ding.workers.dev` and
+  `https://sb-web.yi-ding.workers.dev`; production is not deployed yet.
 
 ## PR #1 review checkpoint (2026-08-08)
 
 - All 23 review threads (Codex + CodeRabbit) were fixed in `5ed137c`, replied to, and resolved.
 - `conditionSchema` tightened before the CP1 freeze: `eq`/`neq`/`in`/`not_in` require `value`; `answered`/`empty` are presence-only.
 - Jobs worker `APP_BASE_URL`: default (local) is `http://localhost:3000`; preview and production deploys require the exact matching web origin through `scripts/deploy-cloudflare.sh`. No guessed `workers.dev` hostname is committed. Re-assert the Wrangler-emitted URL here after provisioning or any URL change (M08 guardrail).
-- `CRON_SECRET` is not yet set anywhere; job routes fail closed (401) while it is unset. Set it on both matching workers with an explicit `--env preview` or `--env production` (and `--config workers/jobs/wrangler.jsonc` for jobs) when credentials arrive.
+- Preview uses one generated `CRON_SECRET` on both `sb-web-preview` and `sb-jobs-preview`.
+  Production remains unset and its job routes therefore continue to fail closed until the
+  guarded production bootstrap.
 - The demo store hydrates a validated whole-state snapshot (`HYDRATE`); seeded review records are the source of truth for submission score/reviewCount aggregates.
 
 ## Infrastructure configuration reconciliation (2026-08-08)
@@ -53,7 +64,29 @@
 - Canonical Worker/R2 names and isolated preview/production bindings are encoded in Wrangler. Runtime variables are validated fail-closed; production cannot enable test auth, fallback delivery UI, or an email allowlist.
 - GitHub Actions owns ordered deployment (direct Neon migration → web → jobs → smoke). Cloudflare Git integration stays disabled.
 - The unsafe environment-wide API key was removed. Private API routes remain unavailable until M40 provides hashed, event-scoped database keys.
-- These are code/configuration decisions only. External Cloudflare, Neon, R2, and Resend resources and deployed evidence remain pending.
+- Neon, preview Workers, and R2 are now provisioned as recorded below. Resend and production
+  deployment evidence remain pending.
+
+## Preview infrastructure proof (2026-08-08)
+
+- `sb-web-preview` deployed at `https://sb-web-preview.yi-ding.workers.dev`; the repository
+  smoke script passed its health, public schedule, and public API probes.
+- `/api/health` returned `ok: true`, build SHA `0977873`, environment `preview`, and a
+  successful Neon PostgreSQL `18.4` query in 155 ms.
+- The deployed OpenNext Worker was 1206.45 KiB gzip with 24 ms startup time, within the
+  Workers Free 3 MiB compressed-size budget. No CPU or resource-limit error occurred.
+- OpenNext successfully populated five entries in the preview R2 incremental cache. The
+  revalidate-60 and browser presigned upload/CORS probes remain pending.
+- The first jobs tick exposed Cloudflare error 1042 because `sb-jobs-preview` fetched a
+  sibling Worker on the same `workers.dev` zone. Adding the
+  `global_fetch_strictly_public` compatibility flag preserved the intentional public
+  `APP_BASE_URL` design. The next scheduled tick completed with Worker outcome `ok`; its
+  authenticated `outbox` request returned HTTP 200 and `{ ok: true, stats: { noop: 1 } }`
+  with 1 ms CPU time.
+- GitHub environments `preview` and `production` are restricted to `main`; production
+  requires `yisding` approval. `PRODUCTION_DEPLOY_ENABLED` remains unset. The Cloudflare
+  deployment token is temporarily repository-scoped and must move to both protected
+  environments before production.
 
 ## CP1 freeze record
 

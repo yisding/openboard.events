@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { consumeToken, issuePortalToken, requestPortalLoginIn } from "@/features/auth";
+import { findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
+import { sha256 } from "@/features/auth/server/crypto";
 import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/server/secret-payload";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
@@ -43,6 +45,15 @@ describe("portal authentication", () => {
     expect(stored.rows[0]?.otp_hash).not.toBe(issued.otp);
     await expect(consumeToken(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, eventId: eventA });
     await expect(consumeToken(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toBeNull();
+  });
+
+  it("recognizes a concurrently consumed OTP when its portal session already exists", async () => {
+    const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "magic_link", ttl: "PT15M", withOtp: true });
+    if (!issued.otp) throw new Error("expected OTP");
+    await expect(consumeToken(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, eventId: eventA });
+    await tx.insert(schema.portalSessions).values({ eventId: eventA, contactId: contactA, tokenHash: await sha256("concurrent-session"), expiresAt: new Date(Date.now() + 60_000) });
+    await expect(findConcurrentPortalSignInIn(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, email: "speaker@example.com" });
+    await expect(findConcurrentPortalSignInIn(tx, { contactId: contactA, code: "000000" }, { eventId: eventA, purpose: "magic_link" })).resolves.toBeNull();
   });
 
   it("invalidates a challenge after five wrong OTP attempts", async () => {
@@ -85,6 +96,19 @@ describe("portal authentication", () => {
     await expect(requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false })).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const rows = await pglite.query<{ n: number; encrypted: number }>("SELECT count(*)::int AS n,count(secret_payload_ciphertext)::int AS encrypted FROM communication_logs l JOIN contacts c ON c.id=l.contact_id WHERE c.email=$1", [email]);
     expect(rows.rows[0]).toEqual({ n: 3, encrypted: 3 });
+  });
+
+  it("carries a validated return path into the encrypted magic link", async () => {
+    const result = await requestPortalLoginIn(tx, {
+      eventId: eventA,
+      eventSlug: "portal-a",
+      email: "return-path@example.com",
+      appBaseUrl: "https://preview.example.com",
+      sessionSecret: secret,
+      fallback: true,
+      next: "/portal/portal-a/tasks?filter=late",
+    });
+    expect(new URL(result.fallback?.magicLink ?? "").searchParams.get("next")).toBe("/portal/portal-a/tasks?filter=late");
   });
 
   it("serializes concurrent login issuance at three requests per recipient", async () => {
