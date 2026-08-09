@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains a fixture-backed **STACK-DEMO** speaker admin/impersonation surface; server queries/writes, real impersonation auth, comm-log integration, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review — **executing agent differs from the feature folder**: WS-C owns `features/portal/admin/**` by declared temporary file-ownership on Monday (PLAN §4/§6). WS-D owns the rest of `features/portal`. |
 | **Scheduled** | **Mon** (CP3: dashboard deep-links land the same night; comms history uses fixture rows until [M37](./M37-comms-admin-ui.md) lands Tue). |
 | **Size** | M (~half-day) |
@@ -87,7 +87,7 @@ Routes: `/events/[eventId]/speakers`, `/events/[eventId]/speakers/[contactId]`. 
    - **Tasks & Comms** — open/overdue/completed task rows from `task_assignments_v`; comms history from `listLog(eventId, { contactId })` rendered as a timeline (template key, subject, status badge, `<TzTime>` sent_at, provider id). **Fixture rows until M34 lands.**
    **Done when:** the seeded speaker with 2 accepted sessions shows both submissions, their task rows, and (fixture or real) comms entries.
 
-5. **`updateSpeakerEmail`.** Normalizes to `lower(btrim(email))`, validates with the contracts email schema, writes **only** via `updateContactFields(tx, eventId, contactId, { email })` (resolution #13). A collision with another contact in the same event maps the unique violation to a friendly field error: "Another speaker in this event already uses that address."
+5. **`updateSpeakerEmail`.** Normalizes to `lower(btrim(email))`, validates with the contracts email schema, writes **only** via `updateContactFields(db, eventId, contactId, { email })` (resolution #13; the helper's first parameter is `DbOrTx` — this is a single-statement guarded save on the `neon-http` handle, not one of the 8 audited `withTx` functions). A collision with another contact in the same event maps the unique violation to a friendly field error: "Another speaker in this event already uses that address."
    **Done when:** a PGlite test asserts the friendly error on collision and that no other column is touched by the update.
 
 6. **`setConfirmationStatus`.** Also via `updateContactFields` (`{ confirmationStatus }`). Invalidate the speakers list, the dashboard overview key, and — because `published_speakers_v` filters on `confirmation_status='confirmed'` — note in the UI that setting `declined` removes the speaker from the public gallery.
@@ -102,8 +102,8 @@ Routes: `/events/[eventId]/speakers`, `/events/[eventId]/speakers/[contactId]`. 
 9. **Tests.** `src/features/portal/admin/server/queries.test.ts` (PGlite): filter combinations return the same rows as the underlying views; cross-event isolation; email-collision error; confirmation override changes `published_speakers_v` membership.
    **Done when:** `pnpm vitest run src/features/portal/admin` is green.
 
-10. **Tuesday swap.** Replace the fixture comms import with `import { listLog } from '@/features/comms'` once [M34](./M34-comms-outbox-dispatcher.md)/[M37](./M37-comms-admin-ui.md) land, and link each row to the comms-log detail view (the rendered-body page — the judge-mode fallback surface).
-   **Done when:** a real seeded `submission_accepted` row appears in the speaker's timeline with a working link to its rendered body.
+10. **Tuesday swap.** Replace the fixture comms import with `import { listLog } from '@/features/comms'` once [M34](./M34-comms-outbox-dispatcher.md)/[M37](./M37-comms-admin-ui.md) land, and link each row to the comms-log audit detail. Production `portal_login` bodies remain redacted; preview diagnostics do not count as email delivery.
+   **Done when:** a real seeded `submission_accepted` row appears in the speaker's timeline with a working link to its comms-log audit detail ([M37](./M37-comms-admin-ui.md)'s sheet — which is where the rendered body lives, subject to the production redaction rules).
 
 ## Acceptance criteria
 
@@ -116,7 +116,7 @@ Verification:
 
 ## Guardrails
 
-- **Resolution #13 — contacts writes.** Every write here goes through `updateContactFields(tx, eventId, contactId, partial)`, **field-scoped, never whole-row**. A raw `UPDATE contacts` is a CI-grep failure and would clobber a concurrent portal profile save (analysis trap 5).
+- **Resolution #13 — contacts writes.** Every write here goes through `updateContactFields(dbOrTx, eventId, contactId, partial)`, **field-scoped, never whole-row**. A raw `UPDATE contacts` is a CI-grep failure and would clobber a concurrent portal profile save (analysis trap 5).
 - **Resolution #15 — auto-confirm is the default.** This module is the *manual counterpart*; do not add a second automatic confirmation rule anywhere.
 - **Queue states never leak:** the submissions card uses `toPortalStatus` from the submissions barrel — one mapping, imported, never reimplemented.
 - **R4 scoping + IDOR:** `(eventId, contactId)` on every fn; a contact id from another event returns 404 (`notFound()`), never another event's row.

@@ -4,12 +4,16 @@
 
 This folder is the execution surface for the build. It contains one **work order per module** plus the schedule that says who runs what, when.
 
+> **Current rebaseline:** PR #3 is merged, but the audit through stacked PR #5 found no `DONE` modules and no deployed/server-backed golden path. Read [`status.md`](status.md) before claiming work. Its R0–R4 gates are the active queue; the original wave table remains the dependency choreography.
+
 ## Authority order (read this before you argue with anything)
 
-1. **[`../PLAN.md`](../PLAN.md) is LAW.** Its 15 front-matter conflict resolutions, its §2 invariant list, its §4 module catalog, its §5 dependency graph, its §6/§7 schedule, and its §9 cut lines override every other document, including this one and including your module work order. Where PLAN.md spells out a signature or a rule, copy it **exactly**; never invent a conflicting one.
-2. **[`execution.md`](execution.md)** — the parallel schedule: dependency graph, wave table, checkpoints, stub-first cold starts, cut lines. Read it once Friday, then re-read your lane's row every half-day.
-3. **`modules/<id>-*.md`** — your work order. Self-contained by construction: an agent should be able to implement a module from its work order + `PLAN.md` + the two or three design docs it names, without reading the other 43 work orders.
-4. **`design/*.md`, `analysis/*.md`** — reference detail (DDL, layout, platform specifics, per-screen UI facts). Consult on demand; they are *sources*, not decisions. Where a design doc contradicts PLAN.md, PLAN.md wins (that is what the 15 resolutions are for).
+1. **[`../PLAN.md`](../PLAN.md) is LAW.** Its 22 front-matter conflict resolutions, its §2 invariant list, its §4 module catalog, its §5 dependency graph, its §6/§7 schedule, and its §9 cut lines override every other document, including this one and including your module work order. Where PLAN.md spells out a signature or a rule, copy it **exactly**; never invent a conflicting one.
+2. **[`status.md`](status.md)** — the current evidence ledger and recovery overlay. It selects the next recovery gate without changing scope, contracts, or dependency edges. Read it at the start of every work session and after any merge.
+3. **[`environments.md`](environments.md)** — the canonical environment, binding, and secret placement. It is authoritative only for provisioning and cannot change product scope.
+4. **[`execution.md`](execution.md)** — the parallel schedule: dependency graph, wave table, checkpoints, stub-first cold starts, cut lines. Its rebaseline overlay plus `status.md` determine what may run now; the original wave table shows intended parallel choreography once gates reopen.
+5. **`modules/<id>-*.md`** — your work order. Self-contained by construction: an agent should be able to implement a module from its work order + `PLAN.md` + the two or three design docs it names, without reading the other 43 work orders.
+6. **`design/*.md`, `analysis/*.md`** — reference detail (DDL, layout, platform specifics, per-screen UI facts). Consult on demand; they are *sources*, not decisions. Where a design doc contradicts PLAN.md, PLAN.md wins.
 
 ---
 
@@ -35,12 +39,12 @@ Seven agents work in parallel from Saturday morning. Six lanes, seven agents —
 
 ## 2. Claiming a module — the Status protocol
 
-Every work order in `modules/` opens with a status table. **That cell is the single source of truth for who is on what.** The index in §5 below is static reference — do not maintain status there.
+Every work order in `modules/` opens with a status table. **That cell is the single source of truth for who is on what; `status.md` is the cross-module evidence summary.** The index in §5 below is static reference — do not maintain status there.
 
 1. Pick the **top unclaimed module in your lane's queue whose hard deps are DONE** (dashed/stub deps do **not** block a start — see §4 of `execution.md`).
 2. Edit that work order's Status cell: `NOT STARTED` → `IN PROGRESS`, and put your agent name in the Owner cell. Commit that one-line edit **first**, before you write any code. A status edit is never bundled into a feature PR.
 3. Open the PR when the module's AC are green. Set Status → `IN REVIEW`.
-4. Architect (or the designated reviewer) merges → Status → `DONE`. Only a merged-to-`main` module with its AC demonstrated counts as DONE for dependency purposes.
+4. Architect (or the designated reviewer) merges → Status → `DONE`. Only a merged-to-`main` module with its complete AC demonstrated counts as DONE for dependency purposes. If an AC names a deployed preview or an external service, that evidence is mandatory; fixture/localStorage behavior and localhost builds do not count.
 
 ```
 NOT STARTED  ->  IN PROGRESS  ->  IN REVIEW  ->  DONE
@@ -49,6 +53,10 @@ NOT STARTED  ->  IN PROGRESS  ->  IN REVIEW  ->  DONE
 If you must abandon a module mid-flight (swarm call, cut line fired), set it back to `NOT STARTED` with a one-line note in the work order's Notes section saying exactly what exists on which branch.
 
 **One module at a time per agent.** Pick up the next only when the current one is `IN REVIEW` or `DONE`.
+
+After the rev. 4 rebaseline, a status may carry one evidence label from `status.md` (`MERGED-PARTIAL`, `STACK-DEMO`, `SERVER-GAP`, `REVIEW-BLOCKED`). The label explains partial progress; it never weakens the four-state protocol.
+
+The rebaseline's 34 `IN PROGRESS` headers are a one-time audit of partial code already spread across the PR stack, not 34 active assignments. New work still obeys one active module per agent; the chosen recovery module should name its current owner/evidence while untouched partial modules retain their audit note.
 
 ---
 
@@ -71,9 +79,9 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 
 **Single-owner write rules**
 - Submissions (res. #8): exactly one file in the repo contains `INSERT INTO submissions` — M18's mutations file. It exports `createSubmission(eventId, CreateSubmissionInput)`, `updateSubmissionFromCfp(eventId, contactId, submissionId, CleanAnswers)`, `upsertDraft(eventId, contactId, formId, formVersion)`, `nextSubmissionCode(tx, eventId)`.
-- Contacts (res. #13): `getOrCreateContact(tx, eventId, email)` and `updateContactFields(tx, eventId, contactId, partial)` — field-scoped, never whole-row. They live in `src/features/portal/server/contacts.ts`, **owned by M21 (its Step 0, shipped Sat AM)** and imported from the `@/features/portal` barrel by all six writers. Direct `INSERT`/`UPDATE` on `contacts` anywhere else is a review blocker (the only other allowlisted path is `scripts/seed/contacts.ts`).
-- Email rows: `enqueueEmail(tx, {templateKey, contactId, idempotencyKey, refs})` — the only way to write `communication_logs`. Default templates: `seedDefaultTemplates(dbOrTx, eventId)` (M34) is the only producer of `email_templates` rows (**8 keys** — the 7 domain templates plus `portal_login` for M06b's OTP/magic-link mail).
-- Portal tokens (res. #12): `issuePortalToken(dbOrTx, {contactId, eventId, purpose, ttl}) → {raw, expiresAt}` and the non-consuming `verifyPortalToken(raw, {purpose})`, both owned by auth. Tokens are **minted at send time by the comms dispatcher** — never at enqueue time; the single documented exception is `portal_login`, whose token *is* the payload.
+- Contacts (res. #13): `getOrCreateContact(tx, eventId, email)` and `updateContactFields(dbOrTx, eventId, contactId, partial)` — field-scoped, never whole-row; `updateContactFields` takes `DbOrTx` so single-statement saves (M22 profile, M27 email correction) run on `neon-http` without a ninth `withTx` path. They live in `src/features/portal/server/contacts.ts`, **owned by M21 (its Step 0, shipped Sat AM)** and imported from the `@/features/portal` barrel by all six writers. Direct `INSERT`/`UPDATE` on `contacts` anywhere else is a review blocker (the only other allowlisted path is `scripts/seed/contacts.ts`).
+- Email rows: `enqueueEmail(tx, {eventId, templateKey, contactId, idempotencyKey, refs, secretPayloadCiphertext?})` — the only way to write `communication_logs`; the secret field is legal only for encrypted `portal_login` delivery. Default templates: `seedDefaultTemplates(dbOrTx, eventId)` (M34) is the only producer of `email_templates` rows (**8 keys** — the 7 domain templates plus `portal_login` for M06b's OTP/magic-link mail).
+- Portal tokens (res. #12): `issuePortalToken(dbOrTx, {contactId, eventId, purpose, ttl, withOtp?}) → {tokenId, raw, otp?, expiresAt}` and the non-consuming `verifyPortalToken(raw, {purpose})`, both owned by auth. Ordinary links are minted at dispatch. The `portal_login` exception uses `withOtp:true` at request time and `tokenId` in its idempotency key, but its raw OTP/link crosses the outbox only as AES-GCM ciphertext that is cleared after dispatch; production log bodies redact it.
 - Comms read-back: `listLog(eventId, filters): CommLogRow[]`.
 - Renderer boundary: `FormFieldRendererProps` = `{snapshot, answers, onChange, mode: 'edit'|'review'|'readonly', sectionKeys?, participantId?, errors?}` — zero CFP-wizard imports. **There is no `'fill'` mode.**
 
@@ -99,7 +107,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 - no `export const runtime = 'edge'` anywhere
 - no `INSERT INTO submissions` / raw `contacts` writes outside their owning mutation files
 
-**Drivers:** `neon-http` for all reads and single-statement writes. WebSocket `Pool` `withTx()` is confined to exactly **four** audited functions: `createSubmission`, `notifyDecisions`, `completeTask*`, `moveSession`. Adding a fifth is an architect decision, not yours.
+**Drivers:** `neon-http` for all reads and single-statement writes. WebSocket `Pool` `withTx()` is confined to exactly **eight** audited runtime functions: `requestPortalLogin`, `createSubmission`, `upsertDraft`, `updateSubmissionFromCfp`, `notifyDecisions`, `completeTaskViaResponse`, `completeTaskViaUpload`, and `moveSession`. Adding a ninth deployed path is an architect decision; M09's one command-line seed transaction is the explicit non-runtime exception.
 
 ---
 
@@ -164,6 +172,7 @@ Counts: WS-A 10 · WS-B 7 · WS-C 6 · WS-D 7 · WS-E 6 · WS-F 8 = **44**.
 - [`../PLAN.md`](../PLAN.md) — scope (§1), architecture (§2), data model (§3), module catalog (§4), dependency graph (§5), workstreams (§6), timeline (§7), risks (§8), cut lines (§9)
 
 **Design (the how)**
+- [`environments.md`](environments.md) — local/preview/production matrix, canonical resource names, bindings, secrets, and current scaffold drift
 - [`design/data-model.md`](design/data-model.md) — full DDL (§3–§6 lands verbatim as `0000_init.sql` + `0001_views_triggers.sql`, plus PLAN §3's ★ deltas)
 - [`design/app-architecture.md`](design/app-architecture.md) — repo layout, route map, feature boundaries, data flow
 - [`design/platform-integrations.md`](design/platform-integrations.md) — OpenNext/Workers, R2, Resend, ICS, Airtable specifics

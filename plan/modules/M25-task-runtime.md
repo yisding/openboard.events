@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #4 contains a localStorage **STACK-DEMO** task runtime and file picker; authenticated transaction, R2 finalize, form renderer, idempotency, and dashboard-count AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "tasks runtime" sub-area). |
 | **Scheduled** | Sunday (manual + file modes, alongside M22) → Monday (form mode, alongside M23/M24), per WS-D's order. **Mon-noon micro-checkpoint (hard integration point, PLAN.md §6):** a portal form task must render WS-B's real `FormSnapshot` end-to-end through the real `<FormFieldRenderer>` import. A miss triggers **cut-line #13** the same day (seeded portal forms only, builder UI cut — see M24), not deferred to Tuesday. |
 | **Size** | L |
@@ -106,7 +106,7 @@ Consumers:
 
 5. **`completeTaskManual(eventId, contactId, taskId, submissionId)`.**
    - Single-statement guarded insert: `INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via) VALUES (..., 'manual') ON CONFLICT DO NOTHING`.
-   - Not one of the 4 audited `withTx` functions (nothing else to write atomically with it) — the `db` default (neon-http) is correct here.
+   - Not one of the 8 audited `withTx` functions (nothing else to write atomically with it) — the `db` default (neon-http) is correct here.
    - **Done when:** PGlite test — calling this twice (simulating a double-click) results in exactly one `task_completions` row, no error thrown on the second call.
 
 6. **Task detail page — file mode** (`completion_mode='file_request'` branch).
@@ -115,7 +115,7 @@ Consumers:
    - Lists this contact's existing uploads for this request, most recent first — **keep all uploads, show latest** (analysis simplification #12); no delete, "replace" = upload a new one.
    - **Done when:** uploading a file end-to-end on the deployed preview (390px viewport) succeeds and the task flips to Completed.
 
-7. **`completeTaskViaUpload(eventId, contactId, taskId, submissionId, fileAssetId)`** — in `withTx` (one of the 4 audited transactional functions, data-model.md §1.1):
+7. **`completeTaskViaUpload(eventId, contactId, taskId, submissionId, fileAssetId)`** — in `withTx` (one of the 8 audited transactional functions, data-model.md §1.1):
    - Insert `file_uploads (file_request_id, contact_id, submission_id, file_asset_id)`.
    - Insert `task_completions (..., completed_via='file_upload', file_upload_id=...)` `ON CONFLICT DO NOTHING`.
    - Same transaction; the completion insert happens **after** the upload row commits within the tx — a task must never show Completed with no file behind it (analysis edge case #14).
@@ -129,7 +129,7 @@ Consumers:
    - **Done when (Sunday):** the fixture-backed form renders and submits against the golden snapshot.
    - **Done when (Monday, the micro-checkpoint):** a real seeded portal form (M09/M24) renders end-to-end through the real `<FormFieldRenderer>` and a submit round-trips.
 
-9. **`completeTaskViaResponse(eventId, contactId, taskId, submissionId, answers)`** — in `withTx` (the 3rd audited transactional function):
+9. **`completeTaskViaResponse(eventId, contactId, taskId, submissionId, answers)`** — in `withTx` (one of the 8 audited transactional functions):
    - (a) **Re-fetch the form's snapshot server-side and re-run validation against it** — never trust that the client-rendered snapshot is still current. The organizer may have edited the portal form between page load and submit; an unknown/removed field id in the posted payload must be dropped-and-logged, not 500'd (analysis edge case #7). Call **`runSubmitPipeline(snapshot, answers, {participantId: null, requireRequired: true})`** from `@/features/forms` ([M16](./M16-submit-pipeline.md)'s exported **pure** pipeline): it performs parse → visibility → strip → validate in one call and returns `CleanAnswers`. **There is no `validateRequired` in `@/shared/lib/conditions`** — that file exports exactly `evaluateCondition`, `evaluateRule`, `evaluateVisibility`, `stripHiddenAnswers`, `applyRouting`, `isAnswered`, `cleanAnswersToRecord`; required-field validation lives inside the pipeline, and M16 explicitly keeps the signature portal-friendly. Portal snapshots carry no visibility rules, so the visibility pass is a no-op, but calling the same shared pipeline costs nothing and keeps one code path (R12).
    - (b) Upsert `form_responses` (`ON CONFLICT (form_id, contact_id, submission_id) DO UPDATE SET answers=..., form_version=..., updated_at=now()` — resubmit overwrites, no versioned history, per simplification #6).
    - (c) **Field-scoped write-back**, split by target: for every answered field with `maps_to` starting `contact.` → build one partial patch object and call **`updateContactFields(tx, eventId, contactId, patch)` from the `@/features/portal` barrel** — the helper lives in `src/features/portal/server/contacts.ts`, owned by [./M21-portal-shell.md](./M21-portal-shell.md) Step 0 (not M06b, which is only another caller) (resolution #13 — never a whole-row update; this is the correct place to route through that helper even inside this module's own `withTx`, since the underlying UPDATE still must be field-scoped). For every answered field with `maps_to` starting `submission.` → this module's own guarded, field-scoped `UPDATE submissions SET <only the present columns> WHERE id=$1 AND event_id=$2` — this is **not** a new `INSERT INTO submissions` and not a status transition, so it does not violate resolution #8's single-INSERT-owner rule; it is the same class of narrow typed-column update M17's admin edit already performs independently.
@@ -158,7 +158,7 @@ Copied verbatim from the catalog (PLAN.md §4, M25), plus verification commands:
 
 - **`FormFieldRendererProps` is a hard boundary — zero CFP-wizard imports, ever.** This module must never import anything from `@/features/forms/components/wizard/**` or similar; only the barrel's `<FormFieldRenderer>` export. Grep your own diff before marking step 8/9 done.
 - **The Mon-noon micro-checkpoint is a scheduling gate, not optional polish** (PLAN.md §6, cut-line #13). If the real snapshot doesn't render by Monday noon, stop building more form-mode UI and report it the same day. The fallback (2 seeded portal forms, builder UI cut) is M24's concern, not this module's — this module's runtime code does not change either way, only which forms exist to render.
-- **Three of the four audited `withTx` functions live in this module**: `completeTaskViaResponse`, `completeTaskViaUpload`, plus manual mode's single-statement insert, which deliberately does *not* use `withTx`. Do not open a transaction anywhere else in this module — the driver-strategy resolution (#4) confines WebSocket `Pool` usage to exactly these named functions repo-wide.
+- **Two of the eight audited `withTx` functions live in this module**: `completeTaskViaResponse` and `completeTaskViaUpload`; manual mode's single-statement insert deliberately does *not* use `withTx`. Do not open a transaction anywhere else in this module — resolution #4 confines WebSocket `Pool` usage to exactly the eight named functions repo-wide.
 - **Field-scoped write-back, both directions** (resolution #13 + analysis trap #5): contact fields go through `updateContactFields`; submission fields are a narrow, explicitly-column-listed `UPDATE`, never `set(record)`/whole-row. A stale form submit must never clobber a fresher Profile-page edit (M22) or a fresher admin Abstracts edit (M17) — field-scoping is what makes last-write-wins acceptable here.
 - **Auto-complete ordering** (analysis trap #14): the completion row is inserted only after the response/upload row's insert succeeds, in the same transaction — never mark complete first "optimistically."
 - **Answers stored by field_id, not label** (analysis trap #8) — this module never keys anything by a field's label string; deleted/soft-deleted fields' historical answers stay readable in the org-side viewer.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the foundation PR (#1, review fixes in `5ed137c`) shipped a demo-mode admin shell: sidebar with the full nav tree, topbar, event resolution from the `[eventId]` route param (unknown ids → branded 404), accessible names on all icon-only controls, and 404-less stub pages for every nav destination plus `/e/[slug]/schedule` and `/submit/[slug]/[formSlug]`. A native-`<dialog>` Modal, Drawer, EmptyState, PageHeader, StatusBadge, and toast primitives live in `src/shared/ui/`. Remaining: shadcn generation, `<DataTable>`, `<ConfirmDialog>`, `<Dash>`, `<TzTime>`, kitchen-sink page, and the `(admin)` route-group/auth wiring. |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** in PR #1 (`5ed137c`): demo admin shell, event resolution, accessible controls, stub routes, and core primitives. Remaining: shadcn generation, `<DataTable>`, `<ConfirmDialog>`, `<Dash>`, `<TzTime>`, kitchen-sink page, and `(admin)` auth wiring. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Sat AM — gates CP1 (Sat noon) |
 | **Size** | M |

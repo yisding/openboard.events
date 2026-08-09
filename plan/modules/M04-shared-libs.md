@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** condition/interval/sanitizer helpers exist; snapshot compiler, time API, server adapters, and full AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8 evening (`compileFormSnapshot` draft + tests slice) → **Sat AM complete**; gates CP1 |
 | **Size** | M |
@@ -35,7 +35,7 @@ addDuration(utc: Date, isoDuration: string): Date
 - **`slugify(s)` + `RESERVED_SLUGS`** — consumed by [M11](./M11-events-feature.md), [M28](./M28-sessions-crud.md).
 - **`AppError`, `isAppError`, `toHttp(code)`** in `errors.ts` (codes imported from [M02](./M02-shared-contracts.md)).
 - **`defineHandler({auth, input, handler})`** in `shared/server/handler.ts` — the ONE way to write a route handler. Consumed by every `app/api/**/route.ts`.
-- **`enqueueEmail(tx, {eventId, templateKey, contactId, idempotencyKey, refs})`** — consumed by [M16](./M16-submit-pipeline.md), [M18](./M18-submission-mutations-notify.md), [M28](./M28-sessions-crud.md), [M36](./M36-reminder-scan.md), [M09](./M09-seed-demo-script.md).
+- **`enqueueEmail(tx, {eventId, templateKey, contactId, idempotencyKey, refs, secretPayloadCiphertext?})`** — consumed by [M16](./M16-submit-pipeline.md), [M18](./M18-submission-mutations-notify.md), [M28](./M28-sessions-crud.md), [M36](./M36-reminder-scan.md), [M09](./M09-seed-demo-script.md), and [M06b](./M06b-portal-auth.md). The secret payload is rejected unless `templateKey === 'portal_login'`.
 - **`getEnv()`** in `env.ts` — the only reader of environment/bindings in the repo (grep #2).
 - **`api()` + `qk()`** in `api-client.ts` / `query-keys.ts` — consumed by every TanStack Query hook.
 
@@ -46,8 +46,8 @@ Create all twelve files with the exact exported signatures above and `throw new 
 - **Done when:** `pnpm typecheck` is green and a scratch file can `import { formatInZone, defineHandler, enqueueEmail } from '@/shared/...'`.
 
 ### 2. `env.ts`
-One zod schema over the full variable inventory (platform-integrations §2.2): `DATABASE_URL`, `SESSION_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_MODE` (`log|send`), `EMAIL_ALLOWLIST` (optional CSV), `EMAIL_FALLBACK_UI` (`0|1`), `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `R2_*`, `CRON_SECRET`, `APP_BASE_URL`, `TEST_AUTH`. Reads `getCloudflareContext().env` on Workers, falls back to `process.env` under vitest/scripts — **this file is the sole allowed `process.env` site**. Parse lazily and memoize; never at module import time (bindings are not ambient).
-- **Done when:** an unset `DATABASE_URL` throws a message naming the variable, and `grep -rn "process.env" src --include=*.ts | grep -v shared/lib/env.ts` is empty.
+One zod schema over the `sb-web` runtime inventory in [`../environments.md`](../environments.md): `DATABASE_URL`, `SESSION_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_MODE` (`log|send`), `EMAIL_ALLOWLIST` (optional CSV), `EMAIL_FALLBACK_UI` (`0|1`), `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `AIRTABLE_CRON` (`0|1`, default `0`), `R2_*`, `CRON_SECRET`, `APP_BASE_URL`, `TEST_AUTH`, plus the `FILES`/cache bindings where typed. `DATABASE_URL_DIRECT`, `NEON_TEST_URL`, and Cloudflare deployment credentials are script/CI-only and are not Worker-runtime fields. `workers/jobs/index.ts` has its own two-field `Env` interface (`APP_BASE_URL`, `CRON_SECRET`) and must not import this application accessor. Reads `getCloudflareContext().env` on Workers and falls back to `process.env` only under tests/scripts — **this file is the sole allowed `process.env` site in `src/**`, with exactly two documented exceptions** (mirrored in [M01](./M01-scaffold-ci-deploy.md)'s grep #2 allowlist): (a) `src/app/page.tsx` reads `process.env.NEXT_PUBLIC_BUILD_SHA`, because `NEXT_PUBLIC_*` values are inlined at build time and cannot pass through a runtime accessor; (b) `src/app/api/health/route.ts` reads `getCloudflareContext().env.DATABASE_URL` directly (not `process.env`), deliberately bypassing `getEnv()` so the health probe reports DB reachability even when an unrelated variable fails the zod schema — every other binding read goes through `getEnv()`. Parse lazily and memoize; never at module import time.
+- **Done when:** an unset `DATABASE_URL` throws a message naming the variable; the production post-deploy smoke proves `TEST_AUTH` absent, `EMAIL_FALLBACK_UI=0`, and `EMAIL_MODE=send`; and `grep -rn "process.env" src --include=*.ts --include=*.tsx | grep -v -e shared/lib/env.ts -e app/page.tsx` is empty.
 
 ### 3. `time.ts` — the 6 functions + the DST table
 Implement with `date-fns` + `date-fns-tz` (resolution #9). This file is the only place either may be imported (grep #3, ESLint `no-restricted-imports`).
@@ -120,11 +120,12 @@ export async function enqueueEmail(tx: TxDb, args: {
   eventId: EventId; templateKey: TemplateKey; contactId: ContactId;
   idempotencyKey: string;                      // built ONLY by @/shared/contracts idem.*
   refs?: { submissionId?: SubmissionId; sessionId?: SessionId; taskId?: TaskId };
+  secretPayloadCiphertext?: Uint8Array;         // REQUIRED when templateKey === 'portal_login', rejected otherwise; AES-GCM envelope
 }): Promise<void>
 ```
-*(PLAN M04 writes this as `enqueueEmail(tx, {templateKey, contactId, idempotencyKey, refs})`; `eventId` is a required member because `communication_logs.event_id` is NOT NULL — that is the only addition.)*
-Body: one `INSERT … VALUES (…, status='queued') ON CONFLICT (idempotency_key) DO NOTHING`. Inserted **in the same transaction as the domain write** — no committed-but-never-queued, no queued-but-rolled-back. Never sends; never imports Resend (grep #4).
-- **Done when:** PGlite test — calling it twice with the same key leaves exactly one `queued` row and does not throw.
+`eventId` is required because `communication_logs.event_id` is NOT NULL and every outbox key is event-scoped.
+Body: validate the ciphertext/key pairing both ways — reject `secretPayloadCiphertext` for every key except `portal_login`, **and reject a `portal_login` enqueue without it** (production forbids inline fallback delivery, so a `portal_login` row without its encrypted OTP/link payload is undeliverable by construction) — then one `INSERT … VALUES (…, status='queued') ON CONFLICT (idempotency_key) DO NOTHING`. Inserted **in the same transaction as the domain write** — no committed-but-never-queued, no queued-but-rolled-back. Never sends; never imports Resend (grep #4).
+- **Done when:** PGlite test — calling it twice with the same key leaves exactly one `queued` row and does not throw; a non-`portal_login` key with ciphertext **and** a `portal_login` key without ciphertext both throw `VALIDATION`.
 
 ### 10. `api-client.ts` + `query-keys.ts`
 - `api(path, outSchema, {method, body})` → fetch `/api/internal/...`, zod-parse the response, throw a typed `AppError` on the error envelope.
@@ -146,7 +147,7 @@ pnpm invariants                                      # greps #2, #3, #4 clean
 - **Sanitizer runs on write, `<RichTextView>` sanitizes again on render** (belt + braces, resolution #2). The seeded `<img src=x onerror=alert(1)>` probe rides every judged surface; if it ever fires, R9 broke.
 - **Deadlines are enforced in SQL against the DB clock**, never in JS and never against the client clock. `time.ts` renders deadlines; it does not decide them.
 - **`enqueueEmail` is the only writer of `communication_logs` outside the comms feature** (grep #8). Domain code never imports Resend, never mints tokens, never sends.
-- **`withTx` stays confined to the four audited functions** (resolution #4). `defineHandler` must not open transactions.
+- **`withTx` stays confined to the eight audited functions** (resolution #4). `defineHandler` must not open transactions.
 - Half-open intervals with **strict** inequalities — judges will schedule back-to-back sessions, and a naive `<=` flags every one of them.
 - Empty-state edge case: `formatInZone(null)` must not be reachable — DTOs carry `| null` and callers use [M05a](./M05a-admin-shell-ui.md)'s `<Dash>`/`<TzTime>` which handle null before calling.
 

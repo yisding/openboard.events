@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 has a fixture/localStorage **STACK-DEMO** table, drawer, answers, filters, and bulk controls; database queries, manual create, authorization, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat AM → Sat PM** (starts the moment CP1 lands: schema + seed + M05a). Sat-night demo bar: "abstracts table shows seeded data with working tabs". |
 | **Size** | L (~day) |

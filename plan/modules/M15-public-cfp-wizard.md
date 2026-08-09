@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 contains a polished **STACK-DEMO** wizard using fixed OTP and localStorage; real auth, server draft/submit, R2, stale-version handling, and deployed mobile AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B2 (public runtime)**. Matches the catalog (PLAN §4 WS-B; §6 "B2: M13a → M15 skeleton + M16 pipeline (Sat) → M16 complete + M15 end-to-end (Sun)"). B2 owns every file below; **B1 never edits them**, and this module never edits a `components/builder/**`, `server/builder-*`, or `(admin)` file. The two agents meet only at the golden `FormSnapshot` fixture and at [M12](./M12-form-builder-core.md)'s `getPublicForm` DTO. |
 | **Scheduled** | **Sat PM** skeleton against the golden fixture → **Sun** end-to-end (Account step + server draft + submit) → **Mon** polish (closed-form / limit / stale-version states, success page). It is the front half of the CP2 golden path. |
 | **Size** | L (≈1 day) |
@@ -22,7 +22,7 @@ A branded, mobile-first 5-step public form at `/submit/[eventSlug]/[formId]` —
 
 **Soft (start against stub/fixture)**
 - **[M12](./M12-form-builder-core.md)** `getPublicForm(eventSlug, formId)` — Saturday it returns the golden fixture from M12's Step-1 contract slice; the page never knows the difference. **Swap step:** none in this module — the DTO shape is the contract. Verify Sunday that a builder-authored form renders.
-- **[M06b](./M06b-portal-auth.md)** OTP issuance/verify + `ensurePortalSession` — until Sat PM, the Account step runs in `DEV_SKIP_OTP` mode: enter email → server creates/loads the contact and sets the session without a code. **Swap step:** replace the single `requestCode`/`verifyCode` pair in `steps/account.tsx` with the real endpoints; the step's state machine is unchanged.
+- **[M06b](./M06b-portal-auth.md)** OTP issuance/verify + `ensurePortalSession` — until Sat PM, the Account step may use the existing local/isolated-preview `TEST_AUTH=1` path: enter email → server creates/loads the **locked fixture contact only** (never a caller-chosen id) and sets the session without a code; the flag is meaningful only on non-production deployments (the production smoke proves `TEST_AUTH` unset). **Swap step:** replace the single `requestCode`/`verifyCode` pair in `steps/account.tsx` with the real endpoints; the step's state machine is unchanged (Step 5 documents both transitions). Do not add a second auth-bypass variable.
 - **[M16](./M16-submit-pipeline.md)** submit + draft routes (same agent, same day) — the wizard posts to them; while they 501, the Review step logs the payload and shows the success page.
 - **[M07](./M07-r2-storage.md)** `<FileUpload>` — `file` fields render a disabled "Uploads coming Saturday PM" box until it lands. **Swap step:** one import in `field-inputs/file.tsx`.
 - **[M14](./M14-form-settings-notifications.md)** — supplies `openState`, `effectiveLimit`, `successHtml`, `autoRedirectToPortal` **through `getPublicForm`**; never imported directly.
@@ -99,8 +99,9 @@ Primary button "Get Started" → step ②.
 ### Step 5 — Step ②: Account (OTP) + server draft creation
 Files: `runtime/steps/account.tsx`, `runtime/use-draft.ts`.
 State machine: `email → codeSent → verified`.
-1. Email input (trimmed + lowercased before send — trap #9/#8). Submit → `POST /api/internal/auth/portal/otp/request {eventSlug, email}` (M06b; throttled 3/10 min per email). Show "We sent a 6-digit code to {email}" + Resend (cooldown 30 s) + "Use a different email".
-2. Six-digit code input → `POST /api/internal/auth/portal/otp/verify` (**POST-confirm**, never a GET — email scanners must not consume tokens). 5 failed attempts invalidate the token; surface "That code is no longer valid — request a new one." When `EMAIL_FALLBACK_UI=1`, M06b's response surfaces the code inline; render it in a dev banner (judge-mode fallback).
+1. Email input (trimmed + lowercased before send — trap #9/#8). Submit → `POST /api/internal/auth/portal/request {eventSlug, email}` (M06b's canonical route — there is no `/otp/` path segment; throttled 3/10 min per email). Show "We sent a 6-digit code to {email}" + Resend (cooldown 30 s) + "Use a different email".
+2. Six-digit code input → `POST /api/internal/auth/portal/verify` (M06b's canonical route; **POST-confirm**, never a GET — email scanners must not consume tokens). 5 failed attempts invalidate the token; surface "That code is no longer valid — request a new one." When `EMAIL_FALLBACK_UI=1` on the isolated team preview, M06b's response surfaces the code inline in a development diagnostics banner — that flag is **never** set on production or any judge-facing deployment (the production post-deploy smoke asserts `EMAIL_FALLBACK_UI=0` and fails closed; [M04](./M04-shared-libs.md) §2), so those environments must receive the real email.
+   **The `TEST_AUTH=1` branch is a separate, second transition** (the pre-M06b path from the dependency note, kept for the isolated preview only): with the flag set, sub-steps 1–2 are skipped entirely — enter email → the server creates/loads the **locked fixture contact** and sets the session with no code issued or entered — and the machine goes straight to sub-step 3's draft creation. Outside the flag, the full request/verify pair above is the only path. Both transitions are covered: the wizard integration test runs the no-code flow under `TEST_AUTH=1` and the OTP flow without it. Never introduce a second bypass variable.
 3. On success the portal session cookie is set (`ensurePortalSession`, which creates the contact via `getOrCreateContact` — resolution #13; this module **never** writes `contacts`). Immediately call `POST /api/internal/forms/[formId]/draft` ([M16](./M16-submit-pipeline.md)) which calls WS-C's **`upsertDraft(eventId, contactId, formId, formVersion)`** with the `formVersion` this client rendered. Store the returned `{submissionId, code, formVersion, primaryParticipantId}` in the store. **The server draft row exists from this moment**, pinned to the rendered version, and its SESS-n code is already allocated.
 4. Returning visitor with a live session: skip straight to ③ with a "Signed in as {email} — not you? Sign out" line. If `LIMIT_REACHED` comes back from the draft call, render the friendly panel: "You've reached this form's limit of N submissions" + a list of their existing submissions with SESS codes + a link to the portal.
 5. On mount, merge any localStorage answers into the freshly created draft (one debounced save) so pre-Account typing is never lost.
@@ -179,7 +180,7 @@ Verification:
 
 ## If blocked
 
-- Blocked on M06b (OTP): run the Account step in `DEV_SKIP_OTP` mode and build Steps 6–10 — everything downstream of identity is unaffected. Flag it in `DECISIONS.md` so risk #4's fallback stays visible.
+- Blocked on M06b (OTP): run the Account step only in the isolated `TEST_AUTH=1` preview and build Steps 6–10 — everything downstream of identity is unaffected. Flag it in `DECISIONS.md`; production leaves `TEST_AUTH` unset.
 - Blocked on M16's routes (same agent — don't be): build the renderer, the shell, the closed page and the stepper; those are two-thirds of the module and need no server.
 - Blocked on M07 (uploads): `file` fields render disabled; the golden path's form A does not require a file answer.
 - Blocked on M12 (real snapshots): stay on the golden fixture — that is the entire point of the B1/B2 split. Do **not** wait for the builder.

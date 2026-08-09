@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 contains a **STACK-DEMO** conditional editor; complete visibility/routing UI, frozen evaluator integration, persistence, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14"). Consumes B2's [M13a](./M13a-condition-evaluator.md) as a black box; B1 never edits `src/shared/lib/conditions.ts`. |
 | **Scheduled** | **Sun PM**, immediately after [M12](./M12-form-builder-core.md) finishes in the Sun AM slot — M13b hard-depends on M12's field-editor drawer as a mount point, so it cannot share M12's half-day. Matches `execution.md`'s wave table and the README index. It is on the CP2 spine ("build form with conditional field + routing rule"). |
 | **Size** | S–M (~3–4 h) |
@@ -18,7 +18,7 @@ Inside the builder, an organizer can (a) give any field a one-level visibility r
 
 **Hard (blocks start)**
 - **[M12](./M12-form-builder-core.md)** — field CRUD + the field-editor drawer live, `getFormForBuilder` returning ordered sections/fields, and `saveFormStep` recompiling the snapshot on every save. Without the drawer there is nowhere to mount the visibility editor.
-- **[M13a](./M13a-condition-evaluator.md)** — `evaluateVisibility`, `evaluateRule`, `applyRouting` green (landed Friday night).
+- **[M13a](./M13a-condition-evaluator.md)** — `evaluateVisibility`, `evaluateRule`, `applyRouting` green. **Reality check (see `../status.md`): M13a is MERGED-PARTIAL — operator evaluation and 14 tests landed, but visibility traversal, hidden-answer stripping, `applyRouting`, and the golden-fixture suite are still open.** Those remaining M13a slices must be completed (or this module starts strictly against the completed operator core and treats the rest as a stub swap it cannot demo through) before M13b's routing UI can claim its AC.
 - **[M03](./M03-db-schema-migrations.md)** — `routing_rules` table on sb-dev with `(form_id, event_id)` composite FK, `set_track_id` FK to `tracks(id,event_id)`, `add_tag_ids uuid[]`, `match`, `sort_order`, `enabled`.
 - **[M11](./M11-events-feature.md)** — `listTracks(eventId)` and `listTags(eventId)` for the rule action pickers.
 

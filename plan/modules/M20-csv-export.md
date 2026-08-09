@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #2 includes a **STACK-DEMO** CSV path and injection guard; the dedicated serializer contract/test matrix and database-backed export AC require reconciliation. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Tue** (moved to Tue in PLAN §4/§7; nothing gates on it). |
 | **Size** | S (~2h) |

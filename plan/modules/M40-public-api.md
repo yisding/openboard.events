@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #5 contains fixture-backed API scaffolding that is **REVIEW-BLOCKED** on private caching, global-key/event scoping, and public DTO leakage; bonus completion is paused behind R3. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — routes `app/api/v1/**`, plus the two declared files inside `features/dashboard` for stats/key reuse. |
 | **Scheduled** | **May start Mon PM** ([M32](./M32-public-schedule-gallery.md) landed Sunday, [M38](./M38-dashboard.md) lands Monday); **finishes Tuesday** (CP4). |
 | **Size** | M (≈half-day) |
@@ -77,7 +77,7 @@ export async function revokeApiKey(eventId: EventId, id: string): Promise<void>;
    **Done when:** all four return 200 with a valid key, 401 with none/bad, and `jq` on `/submissions` shows no `draft` rows even with `?status=` omitted.
 6. **API-keys mini-page.** `settings/api-keys/page.tsx` (its own route file — no contention with [M11](./M11-events-feature.md)'s settings hub) rendering `<ApiKeysPanel>`: list (label, `…last4`, created, last used), **Create key** dialog (label → shows the plaintext once with a copy button and a "you will not see this again" warning), **Revoke** with `<ConfirmDialog>`. All through `/api/internal/…` handlers built with `defineHandler` + `requireAdmin`.
    **Done when:** creating a key and pasting it into the `/stats` curl works on the deployed preview; revoking it makes the same curl 401.
-7. **`docs/api.md`.** One table of endpoints + a paste-and-run curl block per endpoint against the **deployed** URL and the seeded slug, the envelope shapes, the error codes, the CORS/cache policy, and one sentence on rate limiting (Cloudflare WAF rules were configured Friday by [M01](./M01-scaffold-ci-deploy.md) — no code here).
+7. **`docs/api.md`.** One table of endpoints + a paste-and-run curl block per endpoint against the **deployed** URL and the seeded slug, the envelope shapes, the error codes, the CORS/cache policy, and an honest rate-limiting note: authorization and event scoping are application guarantees; any custom-domain WAF rule from [M01](./M01-scaffold-ci-deploy.md) is optional defense-in-depth and does not apply to workers.dev.
    **Done when:** every command in the doc is copy-pasted and run once against production, and each returns 200 (or 401 for the deliberate bad-key example).
 8. **CP4 verification pass.** Run the full curl set against production; confirm cache headers with `curl -sI` on the three public endpoints; confirm an embed-origin `fetch()` from a scratch HTML page on another origin succeeds (CORS proven, not assumed).
    **Done when:** the transcript is in the CP4 notes.
@@ -91,7 +91,7 @@ Verification:
 - `curl -s -H "Authorization: Bearer $KEY" "$APP_BASE_URL/api/v1/events/$SLUG/submissions" | jq '[.data[] | select(.status=="draft")] | length'` → `0`.
 - `curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer nope' …/stats` → `401`; body matches `{"error":{"code":"UNAUTHORIZED",…}}`.
 - `curl -sI …/api/v1/events/$SLUG | grep -i 'cache-control\|access-control-allow-origin'` → both present.
-- Playwright: `public-embeds.spec` ([M10](./M10-e2e-release.md)) already asserts `/api/v1/events/{slug}/sessions`-class responses are published-only — keep that assertion pointed at `/schedule`.
+- Playwright: `public-embeds.spec` ([M10](./M10-e2e-release.md)) asserts the `/api/v1/events/{slug}/schedule` response is published-only.
 
 ## Guardrails
 - **The three public endpoints are thin wrappers over [M32](./M32-public-schedule-gallery.md)'s contracts** — that is the entire draft-leak defence (`published_sessions_v` / `published_speakers_v`, which also enforce resolution #15's confirmed-only filter). Writing a new query here, "just for the API", is a review-blocker.

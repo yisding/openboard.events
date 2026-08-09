@@ -11,7 +11,7 @@ This document is the **single source of truth for the database**. Migration `000
 | Decision | Choice |
 |---|---|
 | ORM | **Drizzle ORM** (not Prisma) |
-| Drivers | `drizzle-orm/neon-http` default; `drizzle-orm/neon-serverless` (WebSocket `Pool`) for the 4 transactional write paths |
+| Drivers | `drizzle-orm/neon-http` default; `drizzle-orm/neon-serverless` (WebSocket `Pool`) for the 8 audited transactional functions |
 | IDs | `uuid` via `gen_random_uuid()` everywhere; human code `SESS-n` = per-event integer counter |
 | Time | Everything `timestamptz` (UTC); `events.timezone` is an IANA name; rendering in event tz is an app concern |
 | Enums | Native `pg` enums for lifecycle/contract enums (frozen day 0); plain `text` for soft vocab (level, language, event_type) |
@@ -24,7 +24,7 @@ This document is the **single source of truth for the database**. Migration `000
 | State machines | Enum + plpgsql `BEFORE UPDATE` trigger (submissions) + guarded `UPDATE ... WHERE status = $expected` in repositories |
 | Soft delete | Only where history depends on it: `form_fields.deleted_at`. Everything else hard-delete or status-based. No generic audit log |
 | Comms | Transactional outbox = `communication_logs` rows with `UNIQUE idempotency_key`, `status='queued'`; Cloudflare Cron drains |
-| Airtable | One-way, idempotent upsert keyed by `airtable_sync_state(table_name, record_pk)`, content-hash change detection, 10-rec batches, ≤4 rps, manual button + optional 15-min cron; never in the request path |
+| Airtable | One-way, idempotent upsert keyed by `airtable_sync_state(event_id, table_name, record_pk)`, content-hash change detection, 10-rec batches, ≤4 rps, authenticated manual button + optional 10-minute modulo trigger; never in the request path |
 | Migrations | drizzle-kit SQL migrations, generated **only on main by the schema owner**; big-bang migration 0000 lands before parallel work; `drizzle-kit push` banned |
 
 ---
@@ -49,23 +49,28 @@ Context: OpenNext on Cloudflare **Workers** (no TCP sockets, bundle-size and col
 
 - **Default export `db`** — `drizzle-orm/neon-http`. All reads, all single-statement writes (which we design to be single statements: CTE inserts, guarded updates, `ON CONFLICT` upserts).
 - **`withTx(fn)`** — creates a `@neondatabase/serverless` `Pool` per request, runs `drizzle-orm/neon-serverless` transaction, `pool.end()` in `finally` (`ctx.waitUntil`-safe). Used **only** by these named repository functions:
-  1. `createSubmission` (deadline + per-user-limit check + counter + answers + outbox insert),
-  2. `notifyDecisions` (bulk queue→final flip + outbox inserts),
-  3. `completeTaskViaResponse` / `completeTaskViaUpload` (response/upload insert + completion insert + optional write-back),
-  4. `moveSession` (optimistic-version CAS + `schedule_revision` bump + outbox insert).
-- No other module may open a transaction. This keeps burst submits near the deadline safe on pooled HTTP and confines the WebSocket path to four audited functions.
+  1. `requestPortalLogin` (invalidate prior challenges + issue a fresh token/OTP + enqueue the login email),
+  2. `createSubmission` (deadline + per-user-limit check + counter + answers + outbox insert),
+  3. `upsertDraft` (allocate a per-event code + create-or-return the draft + primary participant),
+  4. `updateSubmissionFromCfp` (guard ownership/deadline/status + replace answers + field-scoped write-back),
+  5. `notifyDecisions` (bulk queue→final flip + outbox inserts),
+  6. `completeTaskViaResponse` (response insert + completion insert + optional write-back),
+  7. `completeTaskViaUpload` (upload insert + completion insert + optional write-back),
+  8. `moveSession` (optimistic-version CAS + `schedule_revision` bump + outbox insert).
+- No other deployed function may open a transaction. This keeps burst submits, draft allocation, CFP edits, and OTP issuance safe while confining the runtime WebSocket path to the eight audited functions in PLAN resolution #4. M09's command-line seed orchestrator is the explicit non-runtime exception and uses one transaction for an all-or-nothing reset.
 
 ```ts
 // src/db/client.ts (owned by data-layer module)
 import { neon, Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleWs } from "drizzle-orm/neon-serverless";
+import { getEnv } from "@/shared/lib/env";   // lazy validated access — process.env is banned outside env.ts (M01 grep #2)
 import * as schema from "./schema";
 
-export const db = drizzle(neon(process.env.DATABASE_URL!), { schema });
+export const db = drizzle(neon(getEnv().DATABASE_URL), { schema });
 
 export async function withTx<T>(fn: (tx: TxDb) => Promise<T>): Promise<T> {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  const pool = new Pool({ connectionString: getEnv().DATABASE_URL });
   try {
     const dbWs = drizzleWs(pool, { schema });
     return await dbWs.transaction(fn);
@@ -129,7 +134,7 @@ CREATE TYPE completion_via     AS ENUM ('manual','form_response','file_upload','
 CREATE TYPE session_status     AS ENUM ('draft','published');
 CREATE TYPE plan_status        AS ENUM ('open','closed');
 CREATE TYPE embed_content_type AS ENUM ('agenda','session_list','schedule_itinerary','speaker_list','speaker_gallery');
-CREATE TYPE template_key       AS ENUM ('submission_received','submission_accepted','submission_declined','task_assigned','task_reminder','schedule_assigned','schedule_changed');
+CREATE TYPE template_key       AS ENUM ('submission_received','submission_accepted','submission_declined','task_assigned','task_reminder','schedule_assigned','schedule_changed','portal_login');
 CREATE TYPE comm_status        AS ENUM ('queued','sent','failed','skipped');
 CREATE TYPE ics_method         AS ENUM ('request','cancel');
 CREATE TYPE token_purpose      AS ENUM ('magic_link','ics_download','impersonation');
@@ -281,7 +286,9 @@ CREATE TABLE portal_tokens (                  -- magic links, ICS download token
   contact_id  uuid NOT NULL,
   purpose     token_purpose NOT NULL,
   token_hash  text NOT NULL UNIQUE,           -- sha256 of the raw token; raw never stored
+  otp_hash    text,                           -- portal_login only; scoped lookup also checks event/contact
   expires_at  timestamptz NOT NULL,
+  attempts    int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   consumed_at timestamptz,                    -- magic_link: consumed on POST confirm (never GET);
                                               -- ics_download: NULL forever (multi-fetch by calendar clients)
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -320,19 +327,15 @@ CREATE TABLE forms (
   opens_at           timestamptz,
   closes_at          timestamptz,             -- closes NEW and UPDATED submissions; server-enforced
   submission_limit   int,                     -- NULL → events.submission_cap_per_user
-  allow_multiple_drafts boolean NOT NULL DEFAULT false,
   show_welcome       boolean NOT NULL DEFAULT true,
   welcome_html       text,
   success_html       text,
   auto_redirect_to_portal boolean NOT NULL DEFAULT true,
   participant_roles  jsonb NOT NULL DEFAULT '[{"role":"speaker","enabled":true,"min":1,"max":null}]',
-  cross_field_limits jsonb,                   -- [NICE] [{name, fieldIds:[], maxTotalChars, perParticipant}]
   -- notifications
   send_confirmation  boolean NOT NULL DEFAULT true,
   confirmation_subject text,                  -- NULL → event template 'submission_received'
   confirmation_body_html text,
-  admin_alert_new_user_ids     jsonb NOT NULL DEFAULT '[]',
-  admin_alert_updated_user_ids jsonb NOT NULL DEFAULT '[]',
   -- portal-only
   target_type        task_target,             -- required when context='portal'
   current_version    int NOT NULL DEFAULT 0,  -- 0 = never published
@@ -437,6 +440,7 @@ CREATE TABLE submissions (
   submitted_at timestamptz,
   decided_at   timestamptz,
   notified_at  timestamptz,                   -- idempotency guard for decision emails
+  notify_revision int NOT NULL DEFAULT 0,      -- bumped whenever a final decision is undone
   withdrawn_at timestamptz,
   row_version  int NOT NULL DEFAULT 1,
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -454,6 +458,11 @@ CREATE INDEX ON submissions (event_id, form_id);
 CREATE INDEX ON submissions (event_id, track_id);
 CREATE INDEX ON submissions (event_id, submitter_contact_id);
 CREATE INDEX ON submissions (event_id, submitted_at DESC NULLS LAST);
+-- One server draft per (contact, form): the DB-level guarantee behind upsertDraft's create-or-return
+-- (M16's dependency note cites this index; concurrent Account-step requests race safely onto one row).
+CREATE UNIQUE INDEX submissions_one_draft_per_contact_form_uq
+  ON submissions (event_id, form_id, submitter_contact_id)
+  WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL;
 
 CREATE TABLE submission_participants (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -499,13 +508,14 @@ CREATE TABLE submission_tags (
 ```sql
 -- inside one transaction (websocket driver):
 SELECT * FROM events WHERE id = $eventId FOR UPDATE;          -- serializes per-event submits
--- check closes_at > now() on the form row; count non-withdrawn submissions
--- (drafts included per Sessionboard: "Includes saved drafts and submitted sessions")
+-- check closes_at > now() on the form row; count submitted rows only
+-- (status NOT IN ('draft','withdrawn'); drafts never consume the limit)
 -- by (submitter_contact_id, form_id) vs COALESCE(form.submission_limit, event.submission_cap_per_user)
+-- lock and promote the caller's existing draft while keeping its code; otherwise:
 UPDATE events SET submission_seq = submission_seq + 1 WHERE id = $eventId RETURNING submission_seq;
 INSERT INTO submissions (..., code) VALUES (..., seq);
 INSERT INTO submission_answers ...;
-INSERT INTO communication_logs (status='queued', idempotency_key = 'received:'||submission_id, ...);
+INSERT INTO communication_logs (status='queued', idempotency_key = event_id::text||':received:'||submission_id::text, ...);
 ```
 The event-row lock closes the two-tab double-submit race completely; contention is per-event and acceptable.
 
@@ -743,7 +753,7 @@ Canonical public pages (`/e/[slug]/schedule`, `/e/[slug]/speakers`) read only th
 ### 3.10 Communications
 
 ```sql
-CREATE TABLE email_templates (                -- seeded 7 rows per event on event create
+CREATE TABLE email_templates (                -- seeded 8 rows per event on event create (one per template_key value, incl. portal_login)
   id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id  uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   key       template_key NOT NULL,
@@ -770,9 +780,14 @@ CREATE TABLE communication_logs (             -- transactional OUTBOX + audit tr
   idempotency_key text NOT NULL UNIQUE,       -- THE double-send guard; insert-first, unique-violation = already handled
   status          comm_status NOT NULL DEFAULT 'queued',
   subject_rendered text,
+  body_rendered_html text,
+  secret_payload_ciphertext bytea,            -- portal_login only; AES-GCM, cleared after dispatch
   error           text,
   provider_message_id text,
   ics_uid         text,
+  attempts        int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  locked_until    timestamptz,
   submission_id   uuid,
   session_id      uuid,
   task_id         uuid,
@@ -794,6 +809,7 @@ CREATE TABLE calendar_invites (               -- ICS state per speaker × sessio
   ics_uid     text NOT NULL UNIQUE,           -- stable: 'sb-{sessionId}-{contactId}@{sendingDomain}'
   sequence    int NOT NULL DEFAULT 0,         -- bumped every REQUEST after the first; monotonic
   last_method ics_method NOT NULL DEFAULT 'request',
+  organizer_email text NOT NULL,              -- stamped on first send; byte-stable for this UID
   last_sent_at timestamptz,
   FOREIGN KEY (contact_id, event_id) REFERENCES contacts(id, event_id) ON DELETE CASCADE,
   FOREIGN KEY (session_id, event_id) REFERENCES sessions(id, event_id) ON DELETE CASCADE,
@@ -801,13 +817,22 @@ CREATE TABLE calendar_invites (               -- ICS state per speaker × sessio
 );
 ```
 
-Idempotency-key recipe (deterministic, collision-free by construction):
-- `received:{submissionId}` · `decision:{submissionId}:{status}:{notifiedEpoch}` — use `decision:{submissionId}` (one decision email ever; re-decision after undo appends `:{decided_at epoch}`)
-- `task_assigned:{taskId}:{contactId}:{submissionId|-}`
-- `task_reminder:{taskId}:{contactId}:{submissionId|-}:{offset_days}` — one reminder per rung, ever; cron re-checks openness at send time
-- `sched:{sessionId}:{contactId}:{schedule_revision}` — reschedule = new revision = new key; retries of the same revision dedupe
+Idempotency-key recipe (deterministic, event-scoped, collision-free by construction):
+- `{eventId}:received:{submissionId}`
+- `{eventId}:decision:{submissionId}:{notify_revision}`
+- `{eventId}:task_assigned:{taskId}:{contactId}:{submissionId|-}`
+- `{eventId}:task_reminder:{taskId}:{contactId}:{submissionId|-}:{offset_days}`
+- `{eventId}:task_reminder:{taskId}:{contactId}:{submissionId|-}:manual:{minuteBucket}`
+- `{eventId}:sched:{sessionId}:{contactId}:{schedule_revision}`
+- `{eventId}:portal_login:{contactId}:{tokenId}`
 
-Send pipeline: domain writes insert `queued` rows transactionally (outbox) → Cloudflare **Cron Trigger every 5 min** (plus best-effort `ctx.waitUntil` drain right after the write for snappy demos) selects `queued` rows, renders template (HTML-escaped vars; null var → status `failed` with loud error, never "Hi {{first_name}}"), sends via **Resend**, updates `sent`/`failed`. `EMAIL_MODE=log|send` env gate so seeds never email real people. Reminder cron: every 15 min, `task_assignments_v` (open) × `reminder_rules` where the rung's instant has passed → insert-or-ignore queued rows; openness re-checked because the view is live.
+Send pipeline: domain writes insert `queued` rows transactionally (outbox) → the separate
+`sb-jobs` worker POSTs `/api/jobs/outbox` on `sb-web` every minute → the web comms dispatcher
+claims bounded rows, rebuilds truth from entity ids, renders escaped templates, sends through
+Resend, and updates `sent`/`failed`/`skipped`. A best-effort `ctx.waitUntil` nudge may reduce
+latency but never supplies correctness. `EMAIL_MODE=log|send` prevents real sends in local/
+preview. `/api/jobs/reminders` runs every 15 minutes by minute modulo; it scans the live
+assignment view, chooses only the latest eligible rung, and rechecks openness at dispatch.
 
 ### 3.11 Airtable sync state
 
@@ -820,7 +845,7 @@ CREATE TABLE airtable_sync_state (
   airtable_record_id text NOT NULL,
   content_hash       text NOT NULL,
   last_synced_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (table_name, record_pk)
+  UNIQUE (event_id, table_name, record_pk)   -- event-scoped: identical record keys from two events must not collide; every lookup/upsert includes event_id
 );
 
 CREATE TABLE airtable_sync_runs (
@@ -843,7 +868,7 @@ CREATE TABLE airtable_sync_runs (
 
 States: `draft → pending → {accept_queue | decline_queue | accepted | declined} → withdrawn`, matching Sessionboard's 8 tabs (All = everything; the other 7 are the enum).
 
-Allowed transitions (also encoded as `SUBMISSION_TRANSITIONS` map in `src/shared/contracts/lifecycle.ts` — single source for UI, server actions, and the trigger below):
+Allowed transitions (also encoded as `SUBMISSION_TRANSITIONS` map in `src/shared/contracts/transitions.ts` — single source for UI, route-handler mutations, and the trigger below):
 
 | From \ To | pending | accept_queue | decline_queue | accepted | declined | withdrawn |
 |---|---|---|---|---|---|---|
@@ -855,7 +880,7 @@ Allowed transitions (also encoded as `SUBMISSION_TRANSITIONS` map in `src/shared
 | declined | ✅ undo | ✅ | ✅ | ✅ reversal | — | — |
 | withdrawn | ✅ admin restore | — | — | — | — | — |
 
-Admin inline editor moves freely among the 5 decision states (matches the popover screenshot). Speaker-side rules (enforced in portal server actions, not the trigger): speakers may only `draft→pending` and `*→withdrawn`; queue states render as **Pending** in the portal (never leaked).
+Admin inline editor moves freely among the 5 decision states (matches the popover screenshot). Speaker-side rules (enforced in portal route-handler mutations, not the trigger): speakers may only `draft→pending` and `*→withdrawn`; queue states render as **Pending** in the portal (never leaked).
 
 DB enforcement — belt-and-suspenders against parallel agents writing raw updates:
 
@@ -1069,7 +1094,7 @@ Position: Postgres is the source of truth; Airtable is a read-only mirror for bo
 | `Task Status` | `task_assignments_v` | Task, Speaker, Submission Code, Due, Status (Open/Completed/Overdue), Completed At | `taskId:contactId:{subId|-}` |
 | `Comms Log` (optional) | `communication_logs` | Recipient, Template, Status, Sent At | log id |
 
-**Trigger**: admin "Sync to Airtable" button (`POST` → insert `airtable_sync_runs` row → run in `ctx.waitUntil`) + optional Cloudflare Cron every 15 min behind `AIRTABLE_CRON=1`. Single-flight: refuse to start if a `running` row younger than 10 min exists.
+**Trigger**: admin "Sync to Airtable" button (`POST` → insert `airtable_sync_runs` row → run in `ctx.waitUntil`) + the shared jobs worker's `%10 === 5` route trigger when `AIRTABLE_CRON=1`. Single-flight: refuse to start if a `running` row younger than 10 min exists. Airtable configuration remains on `sb-web`; `sb-jobs` only sends the authenticated HTTP tick.
 
 **Algorithm** (per table, in `features/airtable-export`):
 1. Query source rows (views above — status filtering for free: session-like tables export accepted/published only, by construction).
@@ -1109,16 +1134,16 @@ The failure mode to prevent: N agents generating drizzle migrations concurrently
 2. **Schema owner**: one designated role (the integrator/human). Drizzle schema lives in `src/db/schema/{core,forms,submissions,evaluation,agenda,portal,comms,airtable}.ts` — one file per module so PRs rarely collide. Feature agents may *propose* a change by editing their module's schema file in a PR, but **only the schema owner runs `drizzle-kit generate`, only on main, serially**. Agent-generated files under `drizzle/` are rejected in review.
 3. **Additive-only after day 0**: new nullable columns, new tables, new indexes OK; renames/drops/type-changes forbidden (ship a new column instead). Enum changes: `ADD VALUE` only, schema owner only.
 4. `drizzle-kit push` is banned (silent drift); the only paths are `pnpm db:generate` (owner) and `pnpm db:migrate` (everyone/CI, runs `drizzle-orm/migrator` against `DATABASE_URL`).
-5. **Neon branches per agent**: each agent's dev environment gets a Neon branch (instant copy-on-write) seeded via `pnpm db:seed` (deterministic demo data: 1 event "AI.Engineer Sandbox", 4 tracks, 3 rooms, 5 formats, 2 CFP forms, ~10 submissions across statuses, 5 contacts, 3 tasks, 7 templates). CI applies migrations + seed to a fresh branch on every PR — a broken migration fails fast, on nobody's shared DB.
+5. **Neon environments:** use `sb-dev`, `sb-test`, and `sb-prod`. Agents share `sb-dev`; Playwright/CI reset only `sb-test`; production is never a test target. Disposable branches are allowed for destructive migration experiments, not required per-agent ceremony. The deterministic seed contains 8 templates (7 domain keys + `portal_login`).
 6. **Contracts freeze**: `src/shared/contracts/` (enums, lifecycle maps, FormSnapshot/Condition zod, DTOs derived via `drizzle-zod`, `limits.ts`, `form-logic.ts` evaluator) is written by the schema owner on day 0 and versioned with the schema; feature agents import, never edit.
 
 ---
 
 ## 10. NEEDS-VERIFY checklist (all day-0, all cheap)
 
-1. **`withTx` smoke test**: `@neondatabase/serverless` `Pool` + interactive transaction inside an OpenNext-on-Cloudflare route handler and inside a Cron-triggered worker. Expected to work; verify before anything builds on the four transactional paths.
+1. **`withTx` smoke test**: `@neondatabase/serverless` `Pool` + interactive transaction inside a deployed OpenNext-on-Cloudflare route handler, including one invocation reached through an `sb-jobs` POST. The jobs worker itself never receives a DB URL. Verify before anything builds on the eight audited functions.
 2. **Neon PG version ≥ 15** for `UNIQUE NULLS NOT DISTINCT` and column-list `ON DELETE SET NULL (col)`; and that current **drizzle-kit** emits both (`nullsNotDistinct()` is supported; the FK column-list form may need the custom-migration escape hatch — fine, it's in 0001 anyway).
-3. **ICS library on Workers**: verify `ical-generator` (or fall back to a hand-rolled VEVENT template — schema already stores UID/SEQUENCE so the writer is swappable); test invite import in Gmail *and* Outlook, including SEQUENCE bump and METHOD:CANCEL.
-4. **HTML sanitizer on Workers**: confirm `js-xss` bundles/runs; wire into `src/shared/sanitize.ts` day 0 since every `*_html` column depends on the invariant.
+3. **ICS lifecycle on Workers**: use the binding hand-rolled UTC-`Z` builder decision; test import in Gmail *and* Outlook, including recipient-matching ATTENDEE, byte-stable ORGANIZER, SEQUENCE bump, and METHOD:CANCEL.
+4. **HTML sanitizer on Workers**: confirm the `xss` package bundles/runs; wire into `src/shared/lib/sanitize.ts` day 0 since every `*_html` column depends on the invariant.
 5. **OpenNext caching**: ISR/tag revalidation behavior on the Cloudflare adapter for the public CFP/schedule/gallery pages; fallback `Cache-Control: s-maxage=60` + version-keyed snapshot fetch. Affects read path only — no schema impact either way.
 6. **Resend domain verification** before judging; `EMAIL_MODE=log` default everywhere except prod.

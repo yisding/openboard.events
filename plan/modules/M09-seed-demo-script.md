@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** typed browser fixtures exist; the Neon seed orchestrator, wipe/reset flow, per-feature seeds, and judge-script AC do not. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect owns the **orchestrator + helpers + demo script**; each per-feature seed module is owned by that feature's workstream) |
 | **Scheduled** | Sat AM (orchestrator + core content, part of CP1) → Sun (v2: feature modules composed) → Tue (v3: matched to the walkthrough videos) |
 | **Size** | M (orchestrator + core; feature modules land with their workstreams) |
 | **Paths owned** | **Architect:** `scripts/seed/index.ts`, `scripts/seed/lib/ids.ts`, `scripts/seed/lib/helpers.ts`, `scripts/seed/README.md`, `docs/demo-script.md`. **One-time create then transferred:** `scripts/seed/{events,forms,contacts,submissions,evaluation,portal,agenda,comms}.ts` as typed no-op stubs |
 
 ## Objective
-`pnpm seed` fills a database with a complete, slightly hostile, relative-dated demo world in one idempotent run, so every judged surface renders non-empty within ten minutes of a fresh deploy. `docs/demo-script.md` maps each of the brief's 9 primary features to a URL, a seeded artifact and a 60-second line, and prints the admin login, the **reviewer** login, and a speaker magic link. Seed is split into per-feature modules so it is never a merge hotspot.
+`pnpm seed` fills a database with a complete, slightly hostile, relative-dated demo world in one idempotent run, so every judged surface renders non-empty within ten minutes of a fresh deploy. `docs/demo-script.md` maps each of the brief's 9 primary features to a URL, a seeded artifact and a 60-second line, and prints the admin login, the **reviewer** login, and a team-owned speaker email for the normal OTP flow. Seed is split into per-feature modules so it is never a merge hotspot.
 
 ## Dependencies
 - **Hard (blocks start):** [M03](./M03-db-schema-migrations.md) (schema applied to sb-dev), [M04](./M04-shared-libs.md) (**`compileFormSnapshot`** — seed snapshots are never hand-written; plus `sanitize`, `time.ts` for relative dates).
@@ -54,7 +54,7 @@ Create the eight per-feature files exporting the signature above with a `log('sk
 ### 2. `scripts/seed/index.ts` — the orchestrator
 - Parse `--wipe` (TRUNCATE all tables `RESTART IDENTITY CASCADE` before seeding; without it, upsert).
 - Refuse to run against a URL containing the prod project id unless `SEED_ALLOW_PROD=1` (one guard, one line — the Wed "final seed reset" uses it deliberately).
-- Open **one** `withTx` for the whole run so a partial seed never lands.
+- Open **one** `withTx` for the whole command-line run so a partial seed never lands. This is resolution #4's explicit non-runtime exception; no deployed request or job path may copy it.
 - **Insertion order is documented law** (each step depends on ids created by the previous):
   1. `seedEvents` — events, tracks, rooms, formats, tags, users, event_members
   2. `seedContacts` — contacts (+ headshot `file_assets`)
@@ -98,13 +98,15 @@ Every insert is `ON CONFLICT (id) DO UPDATE SET …` on the deterministic `seedI
 ```
 ADMIN     https://<host>/login   organizer@openboard.dev  / <password>
 REVIEWER  https://<host>/login   reviewer@openboard.dev   / <password>   ← needed for feature #4
-SPEAKER   magic link: https://<host>/portal/ai-engineer-sandbox-event/verify?token=…
-FALLBACK  if email is down: admin → Comms → log row → "View rendered body" contains the link
+SPEAKER   https://<host>/portal/ai-engineer-sandbox-event/login   speaker@<team-owned-domain>
+PREVIEW   if email is disabled: use EMAIL_FALLBACK_UI=1 diagnostics on sb-web-preview only
 ```
-The speaker link is minted via `issuePortalToken` ([M06b](./M06b-portal-auth.md)) with a long TTL at seed time — the one legitimate non-dispatcher mint, documented as such.
+The seed never mints or commits a bearer token. The speaker uses M06b's normal 15-minute
+portal-login challenge; production sends it to the team-owned inbox, while the isolated
+preview may expose it only through the explicitly enabled fallback diagnostics.
 
 ### 7. `docs/demo-script.md`
-One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, the comms-log fallback instructions, and any honest deviations (e.g. if cut-line #5 fired, "portal submission detail is read-only — deliberate, see README").
+One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, preview-only email-diagnostics instructions, and any honest deviations (e.g. if cut-line #5 fired, "portal submission detail is read-only — deliberate, see README").
 This file doubles as the Wed bug-bash checklist and as the judges' unassisted path.
 - **Done when:** someone who did not build the feature walks all nine rows on the deployed preview using only this file, in under 15 minutes, without asking a question — including logging in as the **reviewer** and scoring one abstract.
 

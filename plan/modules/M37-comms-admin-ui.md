@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — PR #5 contains a fixture/localStorage **STACK-DEMO** communications UI; server queries/mutations, real templates/logs/reminders, editor-state fix, and AC remain open. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms` (admin half). |
 | **Scheduled** | **Tuesday** (moved off Monday — it gates nothing at CP3; [M27](./M27-speakers-admin.md) consumes fixture comms rows on Monday). |
 | **Size** | M (≈half-day) |
 | **Paths owned** | `src/features/comms/components/**`, `src/features/comms/hooks/**`, `src/features/comms/index.client.ts`, `src/features/comms/server/admin-mutations.ts`, `src/app/(admin)/events/[eventId]/comms/page.tsx`, `src/app/api/internal/comms/**`. Appends **only** its named export lines to `src/features/comms/index.ts` (owned by [M34](./M34-comms-outbox-dispatcher.md)). |
 
 ## Objective
-`/events/[eventId]/comms` gives the organizer three tabs: **Templates** (the 8 fixed keys, subject + rich-text body with a variable picker and save-time validation), **Reminders** (the 3 ladder offsets), and **Log** (a filterable communication log with a detail view that shows the *rendered* body — the judge-mode fallback surface, plus proof that a spam-foldered email was "sent, provider id X"). A per-speaker "send reminder now" action closes the organizer loop from the dashboard.
+`/events/[eventId]/comms` gives the organizer three tabs: **Templates** (the 8 fixed keys, subject + rich-text body with a variable picker and save-time validation), **Reminders** (the 3 ladder offsets), and **Log** (a filterable audit log with rendered ordinary messages and provider status; production `portal_login` credentials are redacted). A per-speaker "send reminder now" action closes the organizer loop from the dashboard. Preview-only fallback diagnostics never become a production auth bypass.
 
 ## Dependencies
 - **Hard (blocks start):**
@@ -50,21 +50,21 @@ export async function getLogDetail(eventId: EventId, logId: string): Promise<Com
    **Done when:** disabling the −7 rung and re-running `curl -XPOST …/api/jobs/reminders` produces no −7 rows; the copy is present (judges read it).
 5. **Log tab.** `<DataTable>` over `listLog(eventId, filters)`: columns **Recipient** (contact name + email), **Template** (humanized key), **Status** (`<StatusBadge>`: queued grey / sent green / failed red / skipped amber), **Provider ID** (`<Dash>`), **Created**, **Sent** (`<TzTime>` in event tz with label). Filters: template key, status, free-text recipient. Newest first, page size 50. `<EmptyState title="No emails yet" hint="Emails appear here the moment a form is submitted or a decision is sent.">` for the empty second event.
    **Done when:** the seeded log renders with all four statuses and filtering by `status=skipped` shows the retired reminder rungs from [M36](./M36-reminder-scan.md).
-6. **Log detail (the judge-mode fallback surface).** Row click → sheet showing `subject_rendered`, the **rendered body** via `<RichTextView>` (the repo's only `dangerouslySetInnerHTML` site), the idempotency key, attempts, last error, `ics_uid` when present, and a **Copy link** button that extracts the first `href` from the body (the magic link). Document this in `docs/demo-script.md`: *"If email is unavailable, open Comms → Log → the row → Copy link."*
-   **Done when:** opening a seeded `submission_accepted` row shows a clickable portal magic link that actually logs a speaker in on the deployed preview.
+6. **Log detail (audit + preview diagnostics).** Row click → sheet showing `subject_rendered`, the rendered ordinary body via `<RichTextView>` (the repo's only `dangerouslySetInnerHTML` site), the idempotency key, attempts, last error, and `ics_uid` when present. For `portal_login`, production shows `[credential redacted]` and no Copy-link action. **Production bodies of every other key are also token-free** — [M34](./M34-comms-outbox-dispatcher.md) §5 redacts magic-link/ICS token query params at storage time, so the production detail sheet renders the body with `?token=[redacted]` links; production delivery is verified token-free (status `sent` + real `provider_message_id`), never by copying a credential out of the log. Preview log mode may show/copy the live credential only when `EMAIL_FALLBACK_UI=1`, clearly labeled development diagnostics; `docs/demo-script.md` must not present that as judge-path evidence.
+   **Done when:** after dispatching a seeded `submission_accepted` row in preview log mode, its rendered detail shows a clickable portal magic link that actually logs a speaker in on the deployed preview.
 7. **Send reminder now.** A per-row action on the log's per-speaker view and on [M27](./M27-speakers-admin.md)'s speaker detail: a small dialog listing that speaker's open assignments (from `task_assignments_v` via [M36](./M36-reminder-scan.md)) → `POST /api/internal/comms/[eventId]/send-reminder` → `sendReminderNow(...)` → toast + `nudgeOutbox`. `<ConfirmDialog>` before sending.
    **Done when:** clicking it twice in one minute produces one new log row; the email arrives (or is logged) within ~15 s thanks to the nudge.
 8. **Polish pass.** Keyboard-reachable tabs, loading skeletons, error boundaries that hide a tab's panel rather than crashing the page, and one `docs/demo-script.md` paragraph mapping brief feature #3 to this URL.
    **Done when:** the page survives a deliberately broken `listLog` (temporarily throw) without a white screen.
 
 ## Acceptance criteria
-**Catalog AC (verbatim):** editing a template with an unknown var shows the offending token; a template containing `<script>` is sanitized on save; log proves every send during the demo; spam-foldered mail is provably "sent, provider id X"; the rendered-body detail shows a usable magic link.
+**Catalog AC (verbatim):** editing a template with an unknown var shows the offending token; a template containing `<script>` is sanitized on save; log proves every send during the demo; spam-foldered mail is provably "sent, provider id X"; the rendered-body detail shows a usable magic link. *(Reconciliation: the "usable magic link" clause is satisfied in preview log mode only — production bodies store redacted tokens per [M34](./M34-comms-outbox-dispatcher.md) §5, and production delivery evidence is the token-free status + provider id.)*
 
 Verification:
 - `pnpm vitest run src/features/comms/render.test.ts` (the `validateTemplateBody` cases this UI surfaces).
 - `curl -X PATCH "$APP_BASE_URL/api/internal/comms/$EVENT/templates" -d '{"key":"task_reminder","subject":"x {{nope.var}}","bodyHtml":"<p>y</p>","enabled":true,"expectedUpdatedAt":"…"}'` → 400 with `unknownTokens:["nope.var"]`.
 - `psql -c "select body_html from email_templates where key='submission_accepted'"` after saving a `<script>` payload → no `<script>`.
-- Manual: Comms → Log → open the newest `submission_accepted` row → paste the copied link into a private window → the portal loads as that speaker.
+- Manual (**preview log mode** — production bodies store redacted tokens, [M34](./M34-comms-outbox-dispatcher.md) §5): Comms → Log → open the newest `submission_accepted` row → paste the copied link into a private window → the portal loads as that speaker. On production, the equivalent check is token-free: the row shows `sent` with a real `provider_message_id` and the body renders with `?token=[redacted]`.
 - Playwright: `abstracts-decide.spec` ([M10](./M10-e2e-release.md)) already asserts exactly one comms-log row per notified submission; this page is where a human eyeballs it at CP4.
 
 ## Guardrails
@@ -73,10 +73,10 @@ Verification:
 - **`<RichTextView>` is the only `dangerouslySetInnerHTML` site in the repo** — CI greps for uniqueness. The log detail renders `body_rendered_html` through it, never inline.
 - **Template rows are owned by `seedDefaultTemplates`** — this UI **updates** rows, it never inserts or deletes them, and it never creates a template for a key the enum does not contain.
 - **Optimistic concurrency (R11)** on template saves: two organizers with the page open must get a 409, not silent last-write-wins.
-- **No sending from the web app.** The "send reminder now" button *enqueues* and nudges; the dispatcher is still the only Resend caller (CI grep).
+- **No inline sending from UI/domain routes.** The "send reminder now" button *enqueues* and nudges; the dispatcher inside `sb-web` is the only Resend caller (CI grep). `sb-jobs` only triggers its route.
 - **Event scoping**: every query/mutation signature starts with `eventId`; `defineHandler` supplies it from the route.
-- Edge cases: brand-new event → 7 templates exist (seeded at create) but zero log rows → empty state, no NaN; a `failed` row shows its error text truncated with a tooltip; a `skipped` row shows *why* (from `error`, e.g. `superseded rung (offset -7)` or `not in EMAIL_ALLOWLIST`) — judges ask; a log row whose contact was deleted cascades away, so the table must tolerate a missing join (`<Dash>`); very long rendered bodies scroll inside the sheet, never widen the page.
-- **Cut-line awareness:** if Tuesday is tight, the Log tab + detail is the part that must ship (it is the fallback surface and the trust proof); the template editor can degrade to read-only display of the seeded defaults, and the reminder-ladder editor to a static description of the three offsets.
+- Edge cases: brand-new event → **8** templates exist (7 domain keys + `portal_login`) but zero log rows → empty state, no NaN; production `portal_login` detail shows a redacted credential body; a `failed` row shows its error text truncated with a tooltip; a `skipped` row shows *why* (from `error`, e.g. `superseded rung (offset -7)` or `not in EMAIL_ALLOWLIST`) — judges ask; a log row whose contact was deleted cascades away, so the table must tolerate a missing join (`<Dash>`); very long rendered bodies scroll inside the sheet, never widen the page.
+- **Cut-line awareness:** if Tuesday is tight, the Log tab + detail is the part that must ship (it is the audit/trust surface; preview-only fallback diagnostics are secondary); the template editor can degrade to read-only display of the seeded defaults, and the reminder-ladder editor to a static description of the three offsets.
 
 ## If blocked
 - Blocked on [M05b](./M05b-rich-ui-primitives.md)'s editor: ship the textarea variant — the value contract is identical.

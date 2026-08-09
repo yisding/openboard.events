@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — steps 1–4 landed with the foundation PR (#1, review fixes in `5ed137c`): `defineJobRoute` + `JobResult` envelope with constant-time secret compare in `src/app/api/jobs/_lib.ts`, four secret-guarded no-op stub routes, `JobName`/`JobStats` in `src/shared/contracts/jobs.ts`, and the dispatcher worker (scheduledTime-derived minute/hour, cleanup daily 09:00 UTC, airtable at `%10 === 5`, per-dispatch `ok`/status logging). `wrangler.jsonc` has a localhost default plus a `production` env; `deploy:jobs` targets `--env production`. Remaining: steps 5–6 (deployed end-to-end check + tail transcript) pending Cloudflare credentials, and the stub→feature swaps as M34/M36/M39/M07 land. |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL** steps 1–3 from PR #1 plus a noncanonical production placeholder: guarded no-op routes, job contracts, dispatcher worker, and deploy command exist. Remaining: canonical preview/production config, exact web URLs, deployed worker→web proof, per-environment secrets on both workers, tail evidence, and AC-gated stub swaps. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API). **Executor differs from the catalog's WS-A origin** — M08 was moved from the architect to WS-F (PLAN §4 note and §6 WS-F order). Zero app imports in `workers/jobs/`. |
 | **Scheduled** | **Sat AM** — the first thing WS-F builds, before M34 (PLAN §6 WS-F order, §7 Sat AM). |
 | **Size** | S (≈2h) |
@@ -23,7 +23,7 @@ A second deployed Cloudflare Worker (`sb-jobs`) runs one `* * * * *` cron and, b
   - `getEnv()` from [M04](./M04-shared-libs.md) may not yet expose `CRON_SECRET`. Until it does, read it through `getEnv()` anyway and open an **architect-labeled additive PR** adding `CRON_SECRET: z.string().min(16)` to `env.ts`. Never read `process.env` in `src/**` (CI grep).
 
 ## Provides (interfaces others consume)
-- `POST /api/jobs/outbox` · `POST /api/jobs/reminders` · `POST /api/jobs/airtable` · `POST /api/jobs/cleanup` — all guarded by header `x-cron-secret: <CRON_SECRET>`; 401 otherwise. Consumed by the `sb-jobs` cron, by the admin "Sync to Airtable" button ([M39](./M39-airtable-export.md)), and by manual curl in every WS-F demo.
+- `POST /api/jobs/outbox` · `POST /api/jobs/reminders` · `POST /api/jobs/airtable` · `POST /api/jobs/cleanup` — all guarded by header `x-cron-secret: <CRON_SECRET>`; 401 otherwise. Consumed only by the `sb-jobs` cron and trusted manual curl in WS-F demos. The admin "Sync to Airtable" button uses M39's authenticated internal admin route, which calls `runAirtableSync` directly; browser code never receives `CRON_SECRET`.
 - Response envelope. **`JobName` and `JobStats` live in `src/shared/contracts/jobs.ts`** ([M02](./M02-shared-contracts.md)'s Provides table has a `jobs.ts` row) — **not** here: [M34](./M34-comms-outbox-dispatcher.md)'s `dispatchOutbox`, [M36](./M36-reminder-scan.md)'s `scanReminders` and [M39](./M39-airtable-export.md)'s `runAirtableSync` all return `JobStats`, and `src/features/**` importing from `src/app/**` inverts the dependency direction `eslint-plugin-boundaries` enforces as a **CI failure** (PLAN §2: `app/` is the thin leaf). This module owns only `JobResult` and `defineJobRoute` in `_lib.ts`:
   ```ts
   // src/shared/contracts/jobs.ts  (M02)
@@ -36,7 +36,7 @@ A second deployed Cloudflare Worker (`sb-jobs`) runs one `* * * * *` cron and, b
   export function defineJobRoute(job: JobName, run: () => Promise<JobStats>): { POST: (req: Request) => Promise<Response> };
   ```
   `defineJobRoute` is the only place the secret is compared and the only place a job's exception is turned into `{ok:false,error}` + HTTP 500. Consumed by all four route files.
-- Deployed worker `sb-jobs` (`pnpm deploy:jobs`). Consumed by [M34](./M34-comms-outbox-dispatcher.md) (every-minute drain), [M36](./M36-reminder-scan.md) (%15), [M39](./M39-airtable-export.md) (%10).
+- Deployed worker `sb-jobs` (`pnpm deploy:jobs`). Consumed by [M34](./M34-comms-outbox-dispatcher.md) (every-minute drain), [M36](./M36-reminder-scan.md) (`minute % 15 === 0`), [M39](./M39-airtable-export.md) (`minute % 10 === 5`).
 
 ## Step-by-step implementation
 
@@ -64,9 +64,9 @@ A second deployed Cloudflare Worker (`sb-jobs`) runs one `* * * * *` cron and, b
    };
    ```
    **Done when:** `wrangler dev --test-scheduled` in `workers/jobs/` + `curl 'localhost:8787/__scheduled?cron=*+*+*+*+*'` prints one `{"job":"outbox","status":200,…}` log line.
-4. **`workers/jobs/wrangler.jsonc`.** `name: "sb-jobs"`, `main: "index.ts"`, `compatibility_date` **identical to the sb-web value M01 pinned**, `compatibility_flags: ["nodejs_compat"]`, `triggers: { crons: ["* * * * *"] }`, `observability: { enabled: true }`, `vars: { APP_BASE_URL: "<the deployed sb-web workers.dev URL>" }`. Set the secret on **both** workers: `wrangler secret put CRON_SECRET` in `workers/jobs/` and in the repo root for sb-web (same value; record in `DECISIONS.md` that it is set on both, not the value).
+4. **`workers/jobs/wrangler.jsonc`.** Safe local defaults plus named `preview` and `production` environments. Preview deploys as `sb-jobs-preview` targeting the exact `sb-web-preview` URL; production deploys as `sb-jobs` targeting the exact `sb-web` URL. Shared shape: `main: "index.ts"`, the same pinned compatibility date as web, `nodejs_compat`, one `* * * * *` cron, and observability. The only fields are `APP_BASE_URL` and `CRON_SECRET`; never add DB, R2, Resend, Airtable, or session configuration. Set `CRON_SECRET` on both matching workers: the same value inside preview, a different same-on-both value inside production. Record only that each pair is set.
    **Done when:** `pnpm deploy:jobs` succeeds and `wrangler tail sb-jobs` shows a log line each minute.
-5. **Deployed end-to-end check + doc.** Deploy both workers. Watch `wrangler tail sb-jobs` for 2 minutes: exactly one `outbox` line per minute, one extra `reminders` line at the next multiple of 15. Curl the deployed route directly with and without the secret. Write `workers/jobs/README.md`: the modulo table, the curl commands (secret redacted), and the "a missed tick self-heals on the next one — every job is an idempotent DB scan" note.
+5. **Deployed end-to-end check + doc.** Deploy web before the matching jobs worker. Watch `wrangler tail sb-jobs-preview` starting **just before a minute divisible by 15** (e.g. begin at :13 or :28 — check the clock first; a tail started mid-interval would wait up to 15 minutes for the reminders line): across the boundary plus the next minute, exactly one `outbox` line per minute, plus one `reminders` line at the `% 15 === 0` boundary. Curl the deployed route directly with and without the preview secret. Write `workers/jobs/README.md`: the environment/name/URL table, modulo table, curl commands (secret redacted), and the "a missed tick self-heals on the next one — every job is an idempotent DB scan" note.
    **Done when:** both curls behave (200 / 401) against the **deployed** URL and the tail output is pasted into `DECISIONS.md`.
 6. **Hand-off notes for the swap.** In each route file leave a one-line comment naming the real import that replaces the stub (`// swap: import { dispatchOutbox } from '@/features/comms'`). Do the outbox swap yourself the moment [M34](./M34-comms-outbox-dispatcher.md)'s `dispatchOutbox` exists (same agent, same day).
    **Done when:** `grep -rn "// swap:" src/app/api/jobs` lists four lines.
@@ -88,7 +88,7 @@ Verification:
 - Every job must be **idempotent and bounded** — a missed or doubled tick must be harmless. Do not add retry logic in the worker: the next tick is the retry (platform-integrations §5.4).
 - `%10 === 5` for airtable is deliberate so airtable and reminders never share a tick (CPU budget). Do not "simplify" to `%10 === 0`.
 - `ctx.waitUntil` in the worker is required — a `scheduled` handler that returns before its fetches settle silently drops them.
-- Edge case: `APP_BASE_URL` pointing at a stale preview URL is the classic "cron runs but nothing happens" trap — assert the value in `DECISIONS.md` after every URL change.
+- Edge case: `APP_BASE_URL` pointing at localhost, a guessed workers.dev hostname, or a stale version URL is the classic "cron runs but nothing happens" trap — assert the exact Wrangler-emitted URL in `DECISIONS.md` after every URL change.
 
 ## If blocked
 If Cloudflare will not accept a second worker or the deploy token is scoped wrong, do not idle: (a) build steps 1–2 (routes + envelope) and prove them with local curl — they are the entire contract [M34](./M34-comms-outbox-dispatcher.md)/[M36](./M36-reminder-scan.md)/[M39](./M39-airtable-export.md) consume, and a temporary external cron (`curl` from any machine, or `wrangler versions upload` preview + manual trigger) covers the demo; (b) start [M34](./M34-comms-outbox-dispatcher.md) step 1 (the barrel + `seedDefaultTemplates` stub) — it is the fan-out gate for [M11](./M11-events-feature.md); (c) do the Sat WS-F checklist items that need no code: the canned ICS render check ([M35](./M35-ics-calendar-invites.md) step 2) and the Airtable base provisioning ([M39](./M39-airtable-export.md) step 1).
