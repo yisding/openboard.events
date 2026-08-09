@@ -6,6 +6,7 @@ import { log } from "@/shared/lib/log";
 
 export type AuthSession = { actorId: string; role: string } | null;
 export type AuthGuard = (request: NextRequest, eventId: EventId | null) => Promise<AuthSession>;
+export type HandlerGuard = AuthGuard;
 
 type HandlerContext<Input> = {
   eventId: EventId | null;

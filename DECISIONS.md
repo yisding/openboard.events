@@ -11,6 +11,8 @@
 - OpenNext Cloudflare build: passed on 2026-08-08; `.open-next/worker.js` was generated successfully.
 - Unit checks cover condition evaluation, half-open interval overlap, agenda conflicts, sanitization, and RFC 5545 calendar generation (21 passing tests).
 - Deployed Neon transactions, Auth.js, R2, Resend delivery/idempotency, and preview URL checks remain pending environment credentials.
+- S4 has no credential-backed deployed verdict in this environment, so M06a adopts the pre-decided Web Crypto PBKDF2 + jose HS256 cookie fallback. The public `requireAdmin(eventId, role?)` contract remains implementation-neutral.
+- The auth-enabled OpenNext artifact measured 1,317.99 KiB compressed in Wrangler's production dry run on 2026-08-08, within the configured Workers Free bundle budget.
 
 ## Deferred spikes (Sat AM)
 
@@ -23,6 +25,7 @@
 ## Adopted fallbacks
 
 - The local demo uses a typed, persisted browser store when external services are absent. Production adapters remain isolated behind server interfaces.
+- Admin authentication uses the Workers-safe jose/Web Crypto fallback until a deployed better-auth round-trip can be proven; downstream features remain isolated behind the frozen auth barrel.
 
 ## Discord clarifications
 
