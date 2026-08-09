@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **the pure pipeline is merged** (#35): `runSubmitPipeline`, `deriveMappedFields`, `isStructurallyCompatible`, 22 cases against the golden fixture. Remaining: the submit and draft route handlers, which need M12's `getPinnedSnapshot`/`getCurrentSnapshot` to load a snapshot by version. |
 | **Workstream / executing agent** | WS-B · **agent B2 (public runtime)**. Matches the catalog (PLAN §4 WS-B; §6 "B2: M13a → M15 skeleton + M16 pipeline (Sat) → M16 complete + M15 end-to-end (Sun)"). B1 never edits these files; this module never edits `components/builder/**` or `server/builder-*`. |
 | **Scheduled** | **Sat PM** — the pure pipeline + the submit route against WS-C's Phase-0 `createSubmission` stub (this is half of the **Sat-night thin-slice integration**). **Sun AM** — complete: version pinning, `FORM_VERSION_STALE`, draft promotion, routing stamp. |
 | **Size** | M (≈half day) |
