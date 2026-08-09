@@ -32,6 +32,10 @@ check_forbidden "runtime\\s*=\\s*['\"]edge" src
 check_forbidden "process\\.env\\." src --glob '!src/shared/lib/env.ts' --glob '!src/app/page.tsx'
 check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/time.ts'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
+# Grep #11: no direct R2 access outside the storage module. A hand-rolled presign
+# elsewhere would bypass the kind policy, the key scheme and the finalize check.
+check_forbidden "from ['\"]aws4fetch" src --glob '!src/shared/server/r2.ts'
+check_forbidden "env\\.FILES" src --glob '!src/shared/server/r2.ts'
 check_forbidden "OPENBOARD_API_KEY" src docs/api.md .dev.vars.example
 check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
 
