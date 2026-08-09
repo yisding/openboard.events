@@ -21,6 +21,7 @@ const secret = "portal-auth-test-secret-that-is-at-least-32-bytes";
 describe("portal authentication", () => {
   let pglite: PGlite;
   let tx: TxDb;
+  let testDb: ReturnType<typeof drizzle>;
 
   beforeAll(async () => {
     pglite = new PGlite();
@@ -28,7 +29,8 @@ describe("portal authentication", () => {
     await pglite.exec(migration1);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Portal A','portal-a','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Portal B','portal-b','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventA, eventB]);
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [contactA, eventA]);
-    tx = drizzle(pglite, { schema }) as unknown as TxDb;
+    testDb = drizzle(pglite, { schema });
+    tx = testDb as unknown as TxDb;
   }, 30_000);
 
   afterAll(async () => pglite.close());
@@ -83,6 +85,25 @@ describe("portal authentication", () => {
     await expect(requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false })).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const rows = await pglite.query<{ n: number; encrypted: number }>("SELECT count(*)::int AS n,count(secret_payload_ciphertext)::int AS encrypted FROM communication_logs l JOIN contacts c ON c.id=l.contact_id WHERE c.email=$1", [email]);
     expect(rows.rows[0]).toEqual({ n: 3, encrypted: 3 });
+  });
+
+  it("serializes concurrent login issuance at three requests per recipient", async () => {
+    const email = "concurrent-throttle@example.com";
+    const requests = Array.from({ length: 4 }, () => testDb.transaction((inner) => requestPortalLoginIn(inner as unknown as TxDb, {
+      eventId: eventA,
+      eventSlug: "portal-a",
+      email,
+      appBaseUrl: "https://preview.example.com",
+      sessionSecret: secret,
+      fallback: false,
+    })));
+    const results = await Promise.allSettled(requests);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(3);
+    const rejected = results.filter((result) => result.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ code: "RATE_LIMITED" });
+    const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs l JOIN contacts c ON c.id=l.contact_id WHERE c.email=$1", [email]);
+    expect(rows.rows[0]?.n).toBe(3);
   });
 
   it("round-trips the v1 encrypted envelope and rejects tampering or unknown versions", async () => {
