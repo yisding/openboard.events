@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { safeInternalPath } from "../safe-next";
 
 export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSlug: string; token: string; impersonate: boolean; next?: string }) {
   const [error, setError] = useState("");
@@ -20,7 +21,7 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
       setError("That link is invalid or expired");
       return;
     }
-    window.location.assign(next?.startsWith("/") && !next.startsWith("//") ? next : `/portal/${eventSlug}`);
+    window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
   }
 
   return <form onSubmit={submit}>

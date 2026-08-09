@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { safeInternalPath } from "../safe-next";
 
 export function OtpForm({ eventSlug, email, next }: { eventSlug: string; email: string; next?: string }) {
   const [error, setError] = useState("");
@@ -21,7 +22,7 @@ export function OtpForm({ eventSlug, email, next }: { eventSlug: string; email: 
       setError("That code is invalid or expired");
       return;
     }
-    window.location.assign(next?.startsWith("/") && !next.startsWith("//") ? next : `/portal/${eventSlug}`);
+    window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
   }
 
   return <form onSubmit={submit}>

@@ -5,7 +5,7 @@ import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
 import { getOrCreateContact } from "@/features/portal";
 import type { ContactId, EventId, UserId } from "@/shared/contracts";
-import { eventIdSchema, idem } from "@/shared/contracts";
+import { idem } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
@@ -16,8 +16,6 @@ import { sealPortalLoginPayload } from "./secret-payload";
 import { consumeToken, issuePortalToken } from "./tokens";
 
 const PORTAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
-const TEST_EVENT_ID = eventIdSchema.parse("00000000-0000-4000-8000-000000000010");
-const TEST_CONTACT_ID = "00000000-0000-4000-8000-000000000011" as ContactId;
 
 export type PortalSession = {
   contactId: ContactId;
@@ -69,9 +67,6 @@ async function setPortalCookie(eventId: EventId, raw: string) {
 }
 
 export async function requirePortalByEventId(eventId: EventId): Promise<PortalSession> {
-  if (getEnv().TEST_AUTH === "1") {
-    return { eventId, contactId: TEST_CONTACT_ID, email: "speaker@openboard.test", impersonatedByUserId: null };
-  }
   const raw = (await cookies()).get(portalCookieName(eventId))?.value;
   if (!raw) throw new AppError("UNAUTHORIZED", "Portal sign-in required");
   const [session] = await db.select({
@@ -97,7 +92,6 @@ export async function requirePortalByEventId(eventId: EventId): Promise<PortalSe
 }
 
 export async function requirePortal(eventSlug: string): Promise<PortalSession> {
-  if (getEnv().TEST_AUTH === "1") return requirePortalByEventId(TEST_EVENT_ID);
   const event = await resolveEvent(db, eventSlug);
   return requirePortalByEventId(event.id);
 }
