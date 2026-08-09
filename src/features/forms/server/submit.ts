@@ -1,4 +1,6 @@
-import { createSubmission } from "@/features/submissions";
+import { db } from "@/db/client";
+import { updateContactFields } from "@/features/portal";
+import { createSubmission, saveDraftAnswers } from "@/features/submissions";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -8,6 +10,7 @@ import {
   type ContactId,
   type EventId,
   type FormId,
+  type FormSnapshot,
   type SubmissionId,
 } from "@/shared/contracts";
 import { applyRouting, cleanAnswersToRecord } from "@/shared/lib/conditions";
@@ -31,6 +34,8 @@ export type SubmitInput = {
   participants?: Array<{ contactId: ContactId; answers?: RawAnswers; role: "speaker" | "co_speaker"; isPrimary: boolean; sortOrder: number }>;
 };
 
+export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId" | "participants">;
+
 /**
  * A mapped answer is a plain string until it is checked. Parsing rather than
  * casting means a form authored to map a free-text field onto track_id fails
@@ -38,6 +43,18 @@ export type SubmitInput = {
  */
 function brandOrNull<T>(schema: { parse: (value: unknown) => T }, value: string | null | undefined): T | null {
   return value ? schema.parse(value) : null;
+}
+
+function sectionSnapshot(snapshot: FormSnapshot, participant: boolean): FormSnapshot {
+  return {
+    ...snapshot,
+    sections: snapshot.sections.filter((section) => (section.key === "participant") === participant),
+  };
+}
+
+function answersFor(snapshot: FormSnapshot, answers: RawAnswers): RawAnswers {
+  const ids = new Set<string>(snapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
+  return Object.fromEntries(Object.entries(answers).filter(([fieldId]) => ids.has(fieldId)));
 }
 
 export async function submitCfpForm(input: SubmitInput) {
@@ -54,17 +71,25 @@ export async function submitCfpForm(input: SubmitInput) {
     });
   }
 
-  const abstract = runSubmitPipeline(rendered, input.answers, { participantId: null, requireRequired: true });
+  const abstractSnapshot = sectionSnapshot(rendered, false);
+  const participantSnapshot = sectionSnapshot(rendered, true);
+  const abstract = runSubmitPipeline(abstractSnapshot, answersFor(abstractSnapshot, input.answers), { participantId: null, requireRequired: true });
   if (!abstract.ok) throw new AppError("VALIDATION", "Some answers need attention", { fieldErrors: abstract.fieldErrors });
 
   // Each participant's section runs the same pipeline under their own id, so one
   // co-speaker's missing field cannot be attributed to another.
   const perParticipant: CleanAnswers[] = [];
-  for (const participant of input.participants ?? []) {
-    if (!participant.answers) continue;
-    const result = runSubmitPipeline(rendered, participant.answers, { participantId: participant.contactId, requireRequired: true });
+  const profilePatches: Array<{ contactId: ContactId; patch: ReturnType<typeof deriveMappedFields>["contact"] }> = [];
+  const topLevelParticipantAnswers = answersFor(participantSnapshot, input.answers);
+  const submittedParticipants = input.participants?.length
+    ? input.participants
+    : [{ contactId: input.contactId, role: "speaker" as const, isPrimary: true, sortOrder: 0, answers: topLevelParticipantAnswers }];
+  for (const participant of submittedParticipants) {
+    const raw = participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {});
+    const result = runSubmitPipeline(participantSnapshot, raw, { participantId: participant.contactId, requireRequired: true });
     if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
     perParticipant.push(result.clean);
+    profilePatches.push({ contactId: participant.contactId, patch: deriveMappedFields(participantSnapshot, result.clean).contact });
   }
   const answers = cleanAnswersSchema.parse([...abstract.clean, ...perParticipant.flat()]);
 
@@ -73,16 +98,14 @@ export async function submitCfpForm(input: SubmitInput) {
   const routing = applyRouting(await getActiveRoutingRules(input.eventId, input.formId), cleanAnswersToRecord(abstract.clean));
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
-  const participants = input.participants?.length
-    ? input.participants.map((participant) => ({
+  const participants = submittedParticipants.map((participant) => ({
       contactId: participant.contactId,
       role: participant.role,
       isPrimary: participant.isPrimary,
       sortOrder: participant.sortOrder,
-    }))
-    : [{ contactId: input.contactId, role: "speaker" as const, isPrimary: true, sortOrder: 0 }];
+    }));
 
-  return createSubmission(input.eventId, {
+  const created = await createSubmission(input.eventId, {
     formId: input.formId,
     formVersion: rendered.version,
     source: "cfp",
@@ -103,4 +126,30 @@ export async function submitCfpForm(input: SubmitInput) {
       addTagIds: routing.tagIds.map((tagId) => tagIdSchema.parse(tagId)),
     },
   });
+
+  // Email is the authenticated identity and cannot be changed by a form answer.
+  // The remaining mapped fields become the participant's real portal profile.
+  await Promise.all(profilePatches.map(({ contactId, patch }) => {
+    const safePatch = { ...patch };
+    delete safePatch.email;
+    return Object.keys(safePatch).length > 0
+      ? updateContactFields(db, input.eventId, contactId, safePatch)
+      : Promise.resolve();
+  }));
+  return created;
+}
+
+/** Persist incomplete, type-valid answers without enforcing required fields. */
+export async function saveCfpDraft(input: SaveDraftInput) {
+  const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
+  const current = await getCurrentSnapshot(input.eventId, input.formId);
+  if (!rendered || !isStructurallyCompatible(rendered, current)) {
+    throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
+      snapshot: current,
+      version: current.version,
+    });
+  }
+  const result = runSubmitPipeline(rendered, input.answers, { participantId: null, requireRequired: false });
+  if (!result.ok) throw new AppError("VALIDATION", "Some answers need attention", { fieldErrors: result.fieldErrors });
+  return saveDraftAnswers(input.eventId, input.contactId, input.formId, rendered.version, result.clean);
 }

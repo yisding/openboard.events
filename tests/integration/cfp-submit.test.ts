@@ -36,7 +36,8 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { submitCfpForm } = await import("@/features/forms/server/submit");
+const { saveCfpDraft, submitCfpForm } = await import("@/features/forms/server/submit");
+const { upsertDraft } = await import("@/features/submissions");
 
 const field = (key: string) => {
   const found = GOLDEN_SNAPSHOT.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === key);
@@ -144,6 +145,49 @@ describe("CFP submit, end to end through the server path", () => {
       "SELECT count(*)::int AS count FROM communication_logs WHERE template_key='submission_received'",
     );
     expect(emails.rows[0]?.count).toBe(1);
+  });
+
+  it("stores participant answers on the primary participant and updates their profile", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("UPDATE contacts SET first_name='', last_name='' WHERE id=$1", [speaker]);
+    const result = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers({ [field("first_name").id]: text("Grace"), [field("last_name").id]: text("Hopper") }),
+    });
+
+    const participantAnswer = await pglite.query<{ participant_id: string | null; contact_id: string }>(
+      `SELECT a.participant_id, p.contact_id
+       FROM submission_answers a
+       JOIN submission_participants p ON p.id=a.participant_id
+       WHERE a.submission_id=$1 AND a.field_id=$2`,
+      [result.submissionId, field("first_name").id],
+    );
+    expect(participantAnswer.rows[0]).toMatchObject({ contact_id: speaker });
+    expect(participantAnswer.rows[0]?.participant_id).not.toBeNull();
+
+    const profile = await pglite.query<{ first_name: string; last_name: string }>(
+      "SELECT first_name,last_name FROM contacts WHERE id=$1",
+      [speaker],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
+  });
+
+  it("persists incomplete draft answers and returns them when the draft is resumed", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await upsertDraft(eventId, speaker, formId, 1);
+    await saveCfpDraft({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: { [field("title").id]: text("A work in progress") },
+    });
+
+    const resumed = await upsertDraft(eventId, speaker, formId, 1);
+    expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
   });
 
   it("never stores an answer to a question the speaker could not see", async () => {

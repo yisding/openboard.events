@@ -1,9 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { withTx, type TxDb } from "@/db/client";
-import { forms, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
+  answerValueSchema,
   idem,
+  type AnswerValue,
   type CleanAnswers,
   type ContactId,
   type CreateSubmissionInput,
@@ -105,9 +107,10 @@ function assertOnePrimary(participants: CreateSubmissionInput["participants"]): 
   }
 }
 
-async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: string, input: CreateSubmissionInput): Promise<void> {
+async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: string, input: CreateSubmissionInput): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
   for (const participant of input.participants) {
-    await tx.insert(submissionParticipants).values({
+    const [row] = await tx.insert(submissionParticipants).values({
       eventId,
       submissionId,
       contactId: participant.contactId,
@@ -117,15 +120,31 @@ async function writeParticipants(tx: TxDb, eventId: EventId, submissionId: strin
     }).onConflictDoUpdate({
       target: [submissionParticipants.submissionId, submissionParticipants.contactId],
       set: { role: participant.role, isPrimary: participant.isPrimary, sortOrder: participant.sortOrder },
-    });
+    }).returning({ id: submissionParticipants.id, contactId: submissionParticipants.contactId });
+    if (!row) throw new AppError("INTERNAL", "Could not store a submission participant");
+    ids.set(row.contactId, row.id);
   }
+  return ids;
 }
 
-async function writeAnswers(tx: TxDb, eventId: EventId, submissionId: string, answers: CleanAnswers): Promise<void> {
+async function replaceAnswers(
+  tx: TxDb,
+  eventId: EventId,
+  submissionId: string,
+  answers: CleanAnswers,
+  participantIds: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
+  // Draft saves and final submit are snapshots, not patches. Removing rows first
+  // also discards an answer to a question that has since become hidden.
+  await tx.delete(submissionAnswers).where(eq(submissionAnswers.submissionId, submissionId));
   for (const answer of answers) {
+    const participantId = answer.participantId ? participantIds.get(answer.participantId) : null;
+    if (answer.participantId && !participantId) {
+      throw new AppError("VALIDATION", "An answer belongs to an unknown participant");
+    }
     await tx.execute(sql`
       INSERT INTO submission_answers (event_id, submission_id, field_id, participant_id, value)
-      VALUES (${eventId}, ${submissionId}, ${answer.fieldId}, ${answer.participantId ?? null}, ${JSON.stringify(answer.value)}::jsonb)
+      VALUES (${eventId}, ${submissionId}, ${answer.fieldId}, ${participantId}, ${JSON.stringify(answer.value)}::jsonb)
       ON CONFLICT (submission_id, field_id, participant_id)
       DO UPDATE SET value = EXCLUDED.value, updated_at = now()
     `);
@@ -257,8 +276,8 @@ export async function createSubmission(eventId: EventId, input: CreateSubmission
       submissionId = inserted.id;
     }
 
-    await writeParticipants(tx, eventId, submissionId, input);
-    await writeAnswers(tx, eventId, submissionId, input.answers);
+    const participantIds = await writeParticipants(tx, eventId, submissionId, input);
+    await replaceAnswers(tx, eventId, submissionId, input.answers, participantIds);
     await writeTags(tx, eventId, submissionId, input);
 
     // The per-form toggle decides for CFP submits, because M16 never passes the
@@ -289,7 +308,7 @@ export async function upsertDraft(
   contactId: ContactId,
   formId: FormId,
   formVersion: number,
-): Promise<{ submissionId: SubmissionId; code: number }> {
+): Promise<{ submissionId: SubmissionId; code: number; answers: Record<string, AnswerValue> }> {
   return withTx(async (tx) => {
     // The form_id foreign key proves the form exists, not that it belongs to
     // this event — without this a caller could start a draft against another
@@ -306,7 +325,14 @@ export async function upsertDraft(
       await tx.update(submissions)
         .set({ formVersion, updatedAt: new Date() })
         .where(eq(submissions.id, existing.id));
-      return { submissionId: existing.id as SubmissionId, code: Number(existing.code) };
+      const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
+        .from(submissionAnswers)
+        .where(and(eq(submissionAnswers.submissionId, existing.id), isNull(submissionAnswers.participantId)));
+      return {
+        submissionId: existing.id as SubmissionId,
+        code: Number(existing.code),
+        answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
+      };
     }
 
     // FOR UPDATE cannot lock a row that does not exist, so two first-time calls
@@ -334,6 +360,30 @@ export async function upsertDraft(
 
     // The losing racer's allocated code is simply unused; a gap in the sequence
     // costs nothing, a duplicate submission costs a speaker their proposal.
-    return { submissionId: inserted.id as SubmissionId, code: inserted.code };
+    return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {} };
+  });
+}
+
+/** Replace an authenticated speaker's incomplete draft answers. */
+export async function saveDraftAnswers(
+  eventId: EventId,
+  contactId: ContactId,
+  formId: FormId,
+  formVersion: number,
+  answers: CleanAnswers,
+): Promise<{ submissionId: SubmissionId }> {
+  return withTx(async (tx) => {
+    const draft = (await tx.execute<{ id: string }>(sql`
+      SELECT id FROM submissions
+      WHERE event_id = ${eventId} AND form_id = ${formId}
+        AND submitter_contact_id = ${contactId} AND status = 'draft'
+      FOR UPDATE
+    `)).rows?.[0];
+    if (!draft) throw new AppError("NOT_FOUND", "Draft not found");
+    await replaceAnswers(tx, eventId, draft.id, answers);
+    await tx.update(submissions)
+      .set({ formVersion, updatedAt: new Date() })
+      .where(eq(submissions.id, draft.id));
+    return { submissionId: draft.id as SubmissionId };
   });
 }

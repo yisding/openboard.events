@@ -1,11 +1,15 @@
 "use client";
 
-import type { AnswerValue, FieldId, FormField, FormFieldRendererProps } from "@/shared/contracts";
+import React from "react";
+import { fileIdSchema, plainTextLength, type AnswerValue, type FieldId, type FormField, type FormFieldRendererProps } from "@/shared/contracts";
 import { evaluateVisibility } from "@/shared/lib/conditions";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Dash } from "@/shared/ui/app/dash";
 import { cn } from "@/shared/lib/cn";
+import { FileUpload } from "@/shared/ui/app/file-upload";
+import { useFormUploadEventId } from "@/shared/ui/app/form-upload-context";
+import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 
 /**
  * The one renderer for a form snapshot, behind the frozen `FormFieldRendererProps`.
@@ -101,7 +105,7 @@ function ReadOnlyValue({ field, value }: { field: FormField; value: AnswerValue 
     const labels = value.v.map((chosen) => field.options.find((option) => option.id === chosen)?.label ?? chosen);
     return <span>{labels.join(", ")}</span>;
   }
-  if (value.t === "file") return <a href={`/f/${value.v}`} target="_blank" rel="noreferrer">Uploaded file</a>;
+  if (value.t === "file") return <PrivateFileLink fileId={value.v} />;
   return <span>{String(value.v)}</span>;
 }
 
@@ -116,6 +120,7 @@ function Input({
   value: AnswerValue | undefined;
   onChange: (value: AnswerValue | undefined) => void;
 }) {
+  const uploadEventId = useFormUploadEventId();
   const text = value?.t === "s" ? value.v : "";
   const emit = (next: string) => onChange(next === "" ? undefined : { t: "s", v: next });
 
@@ -124,7 +129,7 @@ function Input({
       return (
         <RichTextEditor
           value={text}
-          onChange={(html) => onChange(html === "" ? undefined : { t: "s", v: html })}
+          onChange={(html) => onChange(toRichTextAnswer(html))}
           {...(field.maxChars ? { maxChars: field.maxChars } : {})}
         />
       );
@@ -166,11 +171,16 @@ function Input({
     case "date":
       return <input id={id} type="date" value={value?.t === "d" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "d", v: event.target.value } : undefined)} />;
     case "file":
-      // Uploads mint a fileId through M07's presign/finalize; until this form is
-      // wired to <FileUpload> the value is set by the caller, never typed.
-      return value?.t === "file"
-        ? <a href={`/f/${value.v}`} target="_blank" rel="noreferrer">Uploaded file</a>
-        : <span className="dash">No file yet</span>;
+      return uploadEventId ? (
+        <FileUpload
+          eventId={uploadEventId}
+          kind="attachment"
+          currentFileId={value?.t === "file" ? value.v : null}
+          onUploaded={(fileId) => onChange({ t: "file", v: fileIdSchema.parse(fileId) })}
+        />
+      ) : (
+        <span className="dash">File uploads are unavailable here</span>
+      );
     case "email":
       return <input id={id} type="email" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
     case "url":
@@ -180,6 +190,10 @@ function Input({
     case "text":
       return <input id={id} type="text" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
   }
+}
+
+export function toRichTextAnswer(html: string): AnswerValue | undefined {
+  return plainTextLength(html) === 0 ? undefined : { t: "s", v: html };
 }
 
 export type { FieldId };
