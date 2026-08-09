@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged **STACK-DEMO** evaluation queue, plan modal, answers, and scoring lack database plans/assignments/upserts, reviewer authz, aggregates, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **claimed by Claude** for the server half (steps 1–2, 4, 6–8): `evaluation/index.ts` types, plans CRUD, reviewer assignment with the effective-scope rule, the `submitReview` upsert with server-side re-scoping, `getRatings` over `submission_ratings_v`, the five route handlers, and the PGlite suite. The merged **STACK-DEMO** queue/plan modal/scoring UI stays untouched until the server lands; the plans page, reviewer queue (steps 3, 5, 9) and `scripts/seed/evaluation.ts` (step 11) follow in their own PRs. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sun PM → Mon** (start after M18 completes; done Mon per PLAN §7. Subject to the **Sun-noon swarm check** — see *If blocked*.) The AI-review button is a post-CP4 COULD (Tue+) and cut-line #1. |
 | **Size** | L (~day) |
