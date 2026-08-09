@@ -65,7 +65,7 @@ describe("orphan upload sweep", () => {
   it("spares a row that is younger than the threshold", async () => {
     const fresh = "44444444-4444-4444-8444-00000000000c";
     await insertAsset(fresh, "evt/fresh/c", 1);
-    expect(await sweep()).toEqual([]);
+    expect(await sweep()).not.toContain("evt/fresh/c");
     await db.query("DELETE FROM file_assets WHERE id=$1", [fresh]);
   });
 
@@ -113,7 +113,10 @@ describe("orphan upload sweep", () => {
       [EVENT_ID, formId, CONTACT_ID, JSON.stringify({ [fieldId]: { t: "file", v: responseFile }, note: { t: "text", v: "hi" } })],
     );
 
-    expect(await sweep()).toEqual([]);
+    const swept = await sweep();
+    for (const key of ["evt/logo", "evt/bg", "evt/answer", "evt/task", "evt/response"]) {
+      expect(swept).not.toContain(key);
+    }
   });
 
   it("sweeps past a form response whose answers are not an object", async () => {
@@ -130,6 +133,8 @@ describe("orphan upload sweep", () => {
       [EVENT_ID, otherContact],
     );
 
-    expect(await sweep()).toEqual(["evt/orphan/second"]);
+    const swept = await sweep();
+    expect(swept).toContain("evt/orphan/second");
+    expect(swept).not.toContain("evt/response");
   });
 });

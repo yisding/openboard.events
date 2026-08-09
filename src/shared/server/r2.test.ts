@@ -110,6 +110,11 @@ describe("kind policy", () => {
     expect(policy.maxBytes).toBe(UPLOAD_MAX_SIZE_MB * MB);
   });
 
+  it("names a file request that accepts nothing instead of rejecting with an empty list", () => {
+    expect(reason(() => resolvePolicy("upload", { extensions: [" ", "."], maxSizeMb: 10 })))
+      .toContain("accepts no file types");
+  });
+
   it("refuses a policy override on a fixed-allowlist kind", () => {
     expect(reason(() => resolvePolicy("headshot", { extensions: ["exe"], maxSizeMb: 999 })))
       .toContain("only valid for kind=upload");
@@ -145,6 +150,15 @@ describe("object key scheme", () => {
     expect(sanitized.length).toBe(128);
     expect(sanitized.endsWith(".png")).toBe(true);
     expect(fileExtension(sanitized)).toBe("png");
+  });
+
+  it("truncates on code points so a key never carries a lone surrogate", () => {
+    const sanitized = sanitizeFilename(`${"\u{1F3A4}".repeat(200)}.png`);
+    expect(sanitized.length).toBeLessThanOrEqual(128);
+    expect(sanitized.endsWith(".png")).toBe(true);
+    expect(/[\uD800-\uDFFF]/.test(sanitized.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ""))).toBe(false);
+    // encodeURIComponent is what buildObjectKey's URL form runs on each segment.
+    expect(() => encodeURIComponent(sanitized)).not.toThrow();
   });
 
   it("drops control characters and falls back when nothing survives", () => {
