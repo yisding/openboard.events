@@ -172,6 +172,7 @@ Counts: WS-A 10 · WS-B 7 · WS-C 6 · WS-D 7 · WS-E 6 · WS-F 8 = **44**.
 
 **Master plan**
 - [`../PLAN.md`](../PLAN.md) — scope (§1), architecture (§2), data model (§3), module catalog (§4), dependency graph (§5), workstreams (§6), timeline (§7), risks (§8), cut lines (§9)
+- [`product-roadmap.md`](product-roadmap.md) — the product overlay beyond the judged bar (rev. 7): phased plan for the wiring debt, external proof, trust/compliance, and the commercial layer (M42–M49), including the Better Auth + Google decision. Subordinate to the recovery gates while they are open.
 
 **Design (the how)**
 - [`environments.md`](environments.md) — local/preview/production matrix, canonical resource names, bindings, secrets, and current scaffold drift

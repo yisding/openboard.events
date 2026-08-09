@@ -1,8 +1,9 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 6 — Sun Aug 9, 2026, after the foundation stack #10 → #12 **and** PRs #15–#24 merged. R1's implementation queue is empty: what remains is deployment, external proof, and the feature lanes.
-- **Baseline:** `main` after the merge of PR #20.
+- **Snapshot:** rev. 7 — Sun Aug 9, 2026 (evening), reconciling PRs #25–#52, which rev. 6 did not record. See §2b for the delta and §8 for the goal reframe.
+- **Baseline:** `main` after the merge of PR #52.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
+- **Goal reframe (rev. 7):** the owner's target is now a **sellable product**, not only the judged demo. The judging bar remains the nearest milestone; the product bar beyond it lives in [`product-roadmap.md`](product-roadmap.md), and the audit that motivated it is [`../docs/product-readiness.md`](../docs/product-readiness.md).
 
 This document is the current execution overlay for `PLAN.md` and `execution.md`. It records evidence and priority; it does not change frozen contracts, invariants, dependencies, or the minimum judging bar.
 
@@ -56,6 +57,33 @@ The stack landed in order, and the P1s rev. 5 recorded against it were answered 
 
 **The binding constraint moved.** Every R1 item that was code is now on `main`; what is left is a
 deploy, external evidence, and the eight per-feature seed bodies that belong to their own lanes.
+
+### 2b. What landed after rev. 6 (PRs #25–#52) — recorded at rev. 7
+
+Rev. 6 stopped at PR #24. Twenty-eight further PRs (~8,600 lines across 119 files) merged before
+this revision; the ledger was steering on stale instruments. The delta, grouped by module:
+
+| PRs | Module | What landed |
+|---|---|---|
+| #26, #44 | M32/M01 | Public-cache-header fixes (`s-maxage` on `/e/<slug>/schedule`); **deployed header evidence still pending** — the smoke assertion was failing on the last deployed artifact |
+| #27, #28 | M05b | Rich UI primitives and the rich-text editor |
+| #29–#31, #33 | M21 | Portal server queries/guards, submissions view, portal home — server-backed against the DB |
+| #32, #41, #46 | M09 | Seed bodies for portal, events, and forms. **4 of 8 bodies are now real** (events, forms, comms, portal); contacts, submissions, agenda, evaluation remain 13-line stubs, so a fresh seed still yields an empty abstracts table, dashboard, and public API |
+| #34 | M18 | Submission mutations — **partial**: `createSubmission`, `upsertDraft`, `nextSubmissionCode` only. `updateSubmissionFromCfp`, `notifyDecisions`, and every status-change mutation still do not exist anywhere (named only in `src/db/client.ts` comments) |
+| #35 | M16 | The real server submit pipeline: transactional, snapshot-pinned, `FORM_VERSION_STALE`, routing, SESS codes |
+| #36, #39 | M12 | Snapshot accessors and the public-form server layer (forms remain **unauthorable from the UI** — the builder still writes only to the demo store) |
+| #37, #38 | M17 | Abstracts queries + admin surface, DB-backed behind `requireAdmin` (no pagination controls, row links, or detail drawer yet) |
+| #40 | M38 | Dashboard: aggregated server endpoint over the reporting views, zod-validated, 30 s polling — server-backed |
+| #42, #45, #47 | M35 | ICS builder, invite dispatch, verified-token `/cal` routes with cancellation replay |
+| #43, #49 | M15 | The real form renderer and a submittable public CFP wizard against the server pipeline |
+| #48, #51, #52 | fixes | Public-API review regressions, regenerated CF types, `EMAIL_FROM` config errors surfaced as `INTERNAL` not user-facing validation |
+| #50 | M34/M01 | Preview flipped to `EMAIL_MODE=send` with a one-address `EMAIL_ALLOWLIST` — this **enables** delivery; it does not prove it. No delivered-email evidence is recorded in `DECISIONS.md` yet |
+
+Two bookkeeping consequences: (1) the module tables below (§3) predate this delta — read them
+together with this table until they are reconciled; (2) `e2e/helpers/landed.ts` still has **all
+17 modules at `landed: false`**, so the Playwright suite skips everything even though several of
+its gating modules now have merged server paths. Flipping those gates as evidence arrives is now
+cheap signal being left on the table.
 
 ## 3. Module status by evidence
 
@@ -125,6 +153,14 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 | CP4 — feature freeze/release proof | **NOT ATTEMPTED** | Six e2e specs, load/perf record, post-deploy smoke, security review, docs/spend and submission checklist |
 
 Until CP1 is green, daily demo claims must say **local browser demo**, never **end to end**. A claim may now say **deployed preview** only for the surfaces actually proven above (health, public probes, jobs tick) — not for auth, submission, or delivery.
+
+**Rev. 7 checkpoint notes.** The table above is unchanged in substance: no checkpoint has turned
+green. What moved: the cache-header fix is now merged (#26/#44) but unproven on a deploy; the
+Sat-thin-slice code path (fixture form → server transaction → Neon → Abstracts) is now fully
+merged (#35, #37, #38, #43, #49) and needs only a deploy plus the contacts/submissions seed
+bodies to attempt; CP2's remaining code gaps are exactly `notifyDecisions` (does not exist) and
+the four stub seeds. Email delivery remains the largest single risk — preview sending is enabled
+(#50) but no delivery has ever been demonstrated.
 
 ## 5. Recovery gates
 
@@ -232,3 +268,30 @@ feature lanes are unblocked for the first time.
 - The entire production section, including `sb-prod` migration, secrets, `EMAIL_MODE=send` with `EMAIL_FALLBACK_UI=0` and no `TEST_AUTH`, and the production health/cron confirmation.
 
 The jobs worker must receive only `APP_BASE_URL` and its environment's `CRON_SECRET`. All database, session, R2-presign, Resend, ICS, and Airtable configuration belongs to `sb-web`. A custom-domain WAF rule is optional defense-in-depth and is not applicable to a `workers.dev` hostname.
+
+**Corrections at rev. 7:**
+
+- Preview `EMAIL_MODE` is now `send` behind a one-address allowlist (PR #50). The Resend track
+  itself (verified subdomain, SPF/DKIM/DMARC, Gmail/Outlook evidence) remains entirely unproven.
+- Whether the deployed preview still predates the auth/portal merges is **unverified at this
+  revision** — re-run `scripts/post-deploy-smoke.sh` and re-record before making any claim.
+- Security note promoted from the readiness audit: `TEST_AUTH: "1"` is set on the publicly
+  reachable preview (`wrangler.jsonc`), where `/api/test/login` mints an admin session for any
+  known email with no password. Acceptable for the judged demo window only; it must come off the
+  moment the preview holds non-fixture data, and before any customer-facing use.
+
+## 8. Product overlay (rev. 7)
+
+The owner's goal is now a sellable product, not only the judged submission. Two documents extend
+this ledger without changing PLAN.md's frozen contracts or the judging bar:
+
+- [`../docs/product-readiness.md`](../docs/product-readiness.md) — the audit: what is
+  server-backed vs demo-adapter-only, what is unproven externally, and the commercial scope the
+  plan never contained.
+- [`product-roadmap.md`](product-roadmap.md) — the phased product plan layered after the
+  recovery gates (wiring debt → external proof → trust/compliance → commercial layer), including
+  the product auth decision (Better Auth with Google as a social provider; see `DECISIONS.md`,
+  "Product auth direction").
+
+Rule of precedence: until CP2 exits, the recovery gates in §5 still order all work; the roadmap
+consumes effort only where it overlaps them (which P1 deliberately does).
