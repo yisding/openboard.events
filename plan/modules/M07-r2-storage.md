@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — claimed after PRs #10/#11 merged, which satisfied both hard dependencies (`file_assets` and `getEnv()`/`AppError`). See [`../status.md`](../status.md). |
+| **Status** | IN REVIEW — steps 1–3 and 9 on PR #15, steps 5–8 (the four routes) stacked on PR #17. Steps 4 and the deployed AC remain open; see Notes. |
 | **Workstream / executing agent** | WS-D agent (catalog note: "owner: WS-D — its biggest consumer; moved from WS-A"). This agent also builds M05b (rich UI primitives, filed under WS-A's module set) the same day — both are declared temporary cross-folder grants outside this agent's normal `features/portal` lane (PLAN.md §6). |
 | **Scheduled** | **Sat AM** — starts the hour M03's `file_assets` table lands on sb-dev (before CP1, **not** at it); presign/finalize wired Sat PM. Does **not** gate CP1. Steps 1–3 (typed signatures, kind-policy table, key scheme + filename sanitization) are unit-testable against a mocked binding and can be pulled forward to **Fri evening**. Runs in parallel with M05b, whose `<FileUpload>` internals are this module's only real consumer. |
 | **Size** | M |
@@ -124,6 +124,13 @@ Copied verbatim from the catalog (PLAN.md §4, M07), plus verification commands:
 - **Module boundary:** `shared/server/r2.ts` is the only file in the repo that imports the R2 binding or `aws4fetch`. CI's invariant grep (M01 §10, **grep #11 — it ships Friday with the rest of the table, so no mid-build edit is needed**) enforces "no direct R2 calls outside `shared/server/r2.ts`". `scripts/check-invariants.sh` is **M01-owned**: if the grep is missing or needs adjusting, that is an **architect-labeled one-line PR**, never a direct edit from this lane (two lanes editing the CI file mid-Saturday is exactly the hot-file collision risk #8 exists to prevent). Do not let a feature agent hand-roll their own presign call.
 - **IDOR on `getDownloadUrl`:** always check `(eventId, fileId, requester)` together — a contact id from one event must never unlock a file in another event, even if both are technically the caller's session.
 - **Orphans are acceptable hackathon debt, cleanup is best-effort.** Do not build retry/backfill machinery around `cleanupOrphanUploads` — one daily pass is the entire budget (per platform-integrations.md §3.1/§4.3).
+
+## Notes
+
+- **The presigned PUT is signed for a staging key**, and finalize server-side copies the object to `evt_{eventId}/{kind}/{fileId}/{filename}` before inspecting it. A presigned URL stays usable until it expires, so publishing to the key it can write would let a validated object be replaced after the fact — under a `max-age=31536000, immutable` header. The published key in step 3 is unchanged; staging is an implementation detail of step 6.
+- **SigV4 cannot bind the uploaded size.** `Content-Length` is a forbidden header for browser `fetch`, so signing it risks breaking every upload. Oversize bytes are rejected and deleted at finalize, and an abandoned staging object is swept within 24h. The durable fix is a **provisioning follow-up: an R2 lifecycle rule expiring the `staging/` prefix** on `sb-files-preview` and `sb-files` — infrastructure, not app code, and not this lane's to run.
+- **Invariant grep #11 is still missing** from `scripts/check-invariants.sh` — nothing enforces "no direct R2 calls outside `shared/server/r2.ts`" yet. That file is M01-owned, so it needs an architect-labeled one-line PR (guardrails, above). Until then the module boundary is convention, not CI.
+- **Step 4 (browser CORS proof) and the deployed AC are not met.** Bucket CORS is configured on both buckets, but no browser PUT and no `curl -I /f/{id}` has run against the preview, and production S3 credentials for `sb-files` do not exist yet.
 
 ## If blocked
 

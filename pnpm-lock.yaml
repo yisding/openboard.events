@@ -49,7 +49,7 @@ importers:
         version: 0.536.0(react@19.1.9)
       next:
         specifier: 15.5.23
-        version: 15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
+        version: 15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       react:
         specifier: 19.1.9
         version: 19.1.9
@@ -74,7 +74,10 @@ importers:
         version: 3.3.6
       '@opennextjs/cloudflare':
         specifier: 1.20.2
-        version: 1.20.2(next@15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(wrangler@4.120.0)
+        version: 1.20.2(next@15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(wrangler@4.120.0)
+      '@playwright/test':
+        specifier: ^1.62.1
+        version: 1.62.1
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.3
@@ -1423,6 +1426,11 @@ packages:
       rclone.js:
         optional: true
 
+  '@playwright/test@1.62.1':
+    resolution: {integrity: sha512-DTcUc8qii+cpHvtOwggMtBRMjKZHXYWdw8syRYu2vtzuq4Wxphqq4NfCs5Zt44L6mA8rfDfj+PHnxFc/FeK6mQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
 
@@ -2769,6 +2777,11 @@ packages:
   fs.realpath@1.0.0:
     resolution: {integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==}
 
+  fsevents@2.3.2:
+    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
+    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -3420,6 +3433,16 @@ packages:
   picomatch@4.0.5:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
     engines: {node: '>=12'}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.62.1:
+    resolution: {integrity: sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -5312,7 +5335,7 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
-  '@opennextjs/aws@4.1.0(next@15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9))':
+  '@opennextjs/aws@4.1.0(next@15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))':
     dependencies:
       '@ast-grep/napi': 0.40.5
       '@aws-sdk/client-cloudfront': 3.984.0
@@ -5328,30 +5351,34 @@ snapshots:
       cookie: 1.1.1
       esbuild: 0.25.4
       express: 5.2.1
-      next: 15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
+      next: 15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       path-to-regexp: 6.3.0
       urlpattern-polyfill: 10.1.0
       yaml: 2.9.0
     transitivePeerDependencies:
       - supports-color
 
-  '@opennextjs/cloudflare@1.20.2(next@15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(wrangler@4.120.0)':
+  '@opennextjs/cloudflare@1.20.2(next@15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))(wrangler@4.120.0)':
     dependencies:
       '@ast-grep/napi': 0.40.5
       '@dotenvx/dotenvx': 1.31.0
-      '@opennextjs/aws': 4.1.0(next@15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9))
+      '@opennextjs/aws': 4.1.0(next@15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9))
       ci-info: 4.4.0
       cloudflare: 4.5.0
       comment-json: 4.6.2
       enquirer: 2.4.1
       glob: 12.0.0
-      next: 15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
+      next: 15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       ts-tqdm: 0.8.6
       wrangler: 4.120.0
       yargs: 18.1.0
     transitivePeerDependencies:
       - encoding
       - supports-color
+
+  '@playwright/test@1.62.1':
+    dependencies:
+      playwright: 1.62.1
 
   '@poppinss/colors@4.1.6':
     dependencies:
@@ -6832,6 +6859,9 @@ snapshots:
 
   fs.realpath@1.0.0: {}
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -7267,7 +7297,7 @@ snapshots:
 
   negotiator@1.0.0: {}
 
-  next@15.5.23(react-dom@19.1.9(react@19.1.9))(react@19.1.9):
+  next@15.5.23(@playwright/test@1.62.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9):
     dependencies:
       '@next/env': 15.5.23
       '@swc/helpers': 0.5.15
@@ -7285,6 +7315,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 15.5.23
       '@next/swc-win32-arm64-msvc': 15.5.23
       '@next/swc-win32-x64-msvc': 15.5.23
+      '@playwright/test': 1.62.1
       sharp: 0.34.5
     transitivePeerDependencies:
       - '@babel/core'
@@ -7461,6 +7492,14 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.5: {}
+
+  playwright-core@1.62.1: {}
+
+  playwright@1.62.1:
+    dependencies:
+      playwright-core: 1.62.1
+    optionalDependencies:
+      fsevents: 2.3.2
 
   possible-typed-array-names@1.1.0: {}
 
