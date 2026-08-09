@@ -201,10 +201,35 @@ the same wizard, and shows "updated" state to both sides.
 
 ## Persona 4 — Attendee / public visitor (highest volume, zero patience)
 
+**Positioning: the organizer's own website is the primary attendee surface, not ours.** The
+product's public offering is a ladder with three rungs, and each rung serves a different
+organizer:
+
+1. **Embed-first (the default pitch).** Organizers with a real website iframe
+   `/embed/<slug>/schedule` and `/embed/<slug>/speakers` into it. This is the primary surface —
+   it is even in the judging bar ("framed inside another site").
+2. **Hosted page as canonical fallback and link target.** `/e/<slug>/…` exists because (a) the
+   embed needs the same rendering anyway — the standalone page is roughly a header on top of it;
+   (b) decision emails, calendar invites, ICS feeds, and speakers sharing "I'm speaking at X"
+   all need canonical, product-controlled URLs that can't deep-link into an arbitrary external
+   site; and (c) a meaningful slice of the market (community conferences, meetups) has no real
+   website and buys "here's your public schedule link" as a feature. Comparable products
+   (Sessionize, Sched) ship both for the same reasons.
+3. **Public API for full custom rendering** — organizers with engineering teams read
+   `/api/v1/*`, which already serves the `published_*` views.
+
+The design consequence: the hosted page stays **deliberately minimal** — one event's schedule
+and gallery, fast and shareable. No navigation, no event discovery, no ambitions of being a
+destination. If hosted pages ever become the primary surface for paying customers, that is the
+trigger for white-labeling (custom domain, no footer — already on the roadmap backlog), not for
+growing the page.
+
 ### Flow P1 · Check the schedule
 
-**Steps:** open the conference site → the embedded schedule renders → filter by day/track → tap
-a session → see abstract + speakers → add to calendar. Repeat on the gallery for speakers.
+**Steps:** open the conference's own site → the embedded schedule renders → filter by day/track
+→ tap a session → see abstract + speakers → add to calendar. Repeat on the gallery for
+speakers. (Same flow on the hosted fallback page for events without a website, and as the
+target of shared session/speaker links.)
 
 **Current state:** the pages exist, are edge-cached, and embed correctly (proven at rev. 7) —
 but they **render demo-store fixtures, not the database** (`useDemo()` client components with
@@ -213,12 +238,12 @@ the pages don't use it.
 
 **Friction to fix:** M32's rewrite onto the published views, server-rendered (the caching
 already works); day tabs derived from real event dates; per-session deep links so sessions are
-shareable.
+shareable — the link-target role above depends on them.
 
 **Ease bar:** loads fast on conference wifi (server-rendered + cached — no client store
-hydration), every session and speaker has a shareable URL, and add-to-calendar works from the
-page in one tap. What renders is **only** published data — that boundary is already enforced in
-the views; keep it.
+hydration), renders correctly inside a foreign page at embed widths, every session and speaker
+has a shareable URL, and add-to-calendar works from the page in one tap. What renders is
+**only** published data — that boundary is already enforced in the views; keep it.
 
 ---
 
