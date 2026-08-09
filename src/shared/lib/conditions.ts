@@ -105,7 +105,9 @@ export function applyRouting(rules: readonly RoutingRule[], answers: Answers): {
   tagIds: RoutingRule["addTagIds"];
   matchedRuleId: string | null;
 } {
-  const matched = rules.find((rule) => rule.enabled && evaluateRule(rule, answers));
+  const matched = [...rules]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
+    .find((rule) => rule.enabled && evaluateRule(rule, answers));
   return matched
     ? { trackId: matched.setTrackId ?? null, tagIds: [...matched.addTagIds], matchedRuleId: matched.id }
     : { trackId: null, tagIds: [], matchedRuleId: null };

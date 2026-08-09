@@ -8,5 +8,7 @@ export const LIMITS = {
 } as const;
 
 export function plainTextLength(html: string): number {
-  return [...html.replace(/<[^>]*>/g, "")].length;
+  const text = parseTag(html, () => "", (value) => value);
+  return [...text].length;
 }
+import { parseTag } from "xss";

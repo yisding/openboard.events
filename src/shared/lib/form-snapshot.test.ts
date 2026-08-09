@@ -26,4 +26,12 @@ describe("compileFormSnapshot", () => {
     rows.fields = rows.fields.filter((field) => field.key === "notes");
     expect(compileFormSnapshot(rows).sections.flatMap((section) => section.fields)).toHaveLength(1);
   });
+
+  it.each([0, 1.5])("rejects invalid maxChars value %s", (maxChars) => {
+    const rows = structuredClone(GOLDEN_AUTHORING_ROWS);
+    const notes = rows.fields.find((field) => field.key === "notes");
+    if (!notes) throw new Error("notes fixture missing");
+    notes.maxChars = maxChars;
+    expect(() => compileFormSnapshot(rows)).toThrow(/positive integer/u);
+  });
 });
