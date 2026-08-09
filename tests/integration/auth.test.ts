@@ -63,7 +63,11 @@ describe("admin authentication", () => {
     const identity = { userId: organizerId, email: "organizer@example.com", name: "Organizer" };
     const token = await signAdminToken(identity, secret);
     await expect(verifyAdminToken(token, secret)).resolves.toEqual(identity);
-    await expect(verifyAdminToken(`${token.slice(0, -1)}x`, secret)).resolves.toBeNull();
+    const parts = token.split(".");
+    const signature = parts[2];
+    if (!parts[0] || !parts[1] || !signature) throw new Error("expected compact JWT");
+    const tampered = `${parts[0]}.${parts[1]}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+    await expect(verifyAdminToken(tampered, secret)).resolves.toBeNull();
   });
 
   it("rate-limits unknown admin credentials without storing the email", async () => {
@@ -87,4 +91,5 @@ describe("admin authentication", () => {
     expect(persisted.rows[0]?.last_used_at).not.toBeNull();
     await expect(authenticateApiKey(tx, request, null, { slug: "missing" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
+
 });
