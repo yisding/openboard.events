@@ -21,10 +21,12 @@ stored in Neon with routing applied, **email delivered to a real Gmail inbox** f
 `mail.openboard.events` sending domain (SPF/DKIM aligned), the public schedule served edge-cached
 (`s-maxage`, `x-nextjs-cache: HIT`), embed `frame-ancestors`, the public API probes, and a jobs
 cron tick. The deployed bundle measures within the Workers Free budget.
+The subsequent 50-concurrent submit run completed 50/50 with no errors and p95 27703 ms; it
+identified the event-row lock as the per-event throughput ceiling (see `DECISIONS.md`).
 
 **Not yet proven anywhere:** an Outlook delivery probe, calendar-invite delivery, DMARC
-confirmation, bounce handling, a browser R2 presign/CORS upload, the 50-concurrent load test, and
-a green `Deploy` workflow run. Large parts of the admin and portal UI currently render from a
+confirmation, bounce handling, a browser R2 presign/CORS upload, and a green `Deploy` workflow
+run. Large parts of the admin and portal UI currently render from a
 typed browser demo adapter rather than from the database — that adapter exists so the surfaces
 could be built in parallel, and it is being replaced surface by surface.
 

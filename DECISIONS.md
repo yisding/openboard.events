@@ -130,8 +130,10 @@ seeded open CFP form.
 **Result: 50/50 `200 ok`. No 500s, no typed rejections. p50 14346 ms · p95 27703 ms · p99 29044 ms.**
 
 The invariant the event-row lock exists for held: **zero duplicate codes across 81 submissions,
-codes 1–81 contiguous with max = count.** The script asserts only HTTP status, so this was
-checked in the database directly and belongs in the record next to the latency.
+codes 1–81 contiguous with max = count.** The script created all drafts sequentially before the
+concurrent promotion burst, so their codes were already allocated; this run exercised the
+unconditional final-submit event-row lock, not concurrent `nextSubmissionCode` allocation. The
+script asserts only HTTP status, so the code result was checked in the database directly.
 
 ### What the numbers mean
 
@@ -146,9 +148,9 @@ fully serialized:
 
 Per-submit cost is unchanged by contention (~580 ms), which is the signature of a queue, not of
 saturation. One event sustains **~1.7 submits/sec**, and p95 grows linearly with burst size. That
-is a correctness-preserving design — `nextSubmissionCode` takes `FOR UPDATE` on the event row so
-codes cannot collide — and it is fine for a CFP deadline at human scale, but it is a per-event
-ceiling worth knowing before anyone markets a launch-day rush.
+is a correctness-preserving design: `createSubmissionIn` takes the event row `FOR UPDATE` before
+the final-submit checks and writes. It is fine for a CFP deadline at human scale, but it is a
+per-event ceiling worth knowing before anyone markets a launch-day rush.
 
 Answer batching (PR #73) landed **before** the recorded run, as the roadmap required. It cut
 p95 from 32713 ms to 27703 ms (−15%) and per-submit cost from ~660 ms to ~580 ms. It did not
@@ -156,8 +158,8 @@ change the shape of the curve, because the remaining cost is per-transaction, no
 
 ### Consequence for the Hyperdrive question
 
-`plan/product-roadmap.md` deferred Hyperdrive to "if P2's load test shows the per-transaction
-WebSocket `Pool` handshake cost". It does: ~580 ms is spent per transaction regardless of load,
-and an uncontended end-to-end submit is 593 ms, so nearly the whole request is the transaction.
-Shortening it is now the only lever that raises per-event throughput — the lock hold time is the
-throughput, one-for-one. Not actioned here; recorded so the decision has its evidence.
+This run does **not** isolate the WebSocket `Pool` handshake: ~580 ms is the entire transaction,
+including its sequential checks and writes while the event lock is held. It therefore proves the
+per-event serialization ceiling, but not that Hyperdrive is the remedy. Reducing lock-held work
+raises per-event throughput; adopting Hyperdrive first requires handshake timing instrumentation
+or an otherwise-equivalent A/B run with pooling enabled.
