@@ -320,6 +320,10 @@ CREATE TABLE file_uploads (
 CREATE INDEX file_uploads_request_contact_idx ON file_uploads(file_request_id,contact_id);
 ALTER TABLE task_completions ADD CONSTRAINT task_completions_response_fk FOREIGN KEY (form_response_id,event_id) REFERENCES form_responses(id,event_id) ON DELETE SET NULL (form_response_id);
 ALTER TABLE task_completions ADD CONSTRAINT task_completions_upload_fk FOREIGN KEY (file_upload_id,event_id) REFERENCES file_uploads(id,event_id) ON DELETE SET NULL (file_upload_id);
+ALTER TABLE task_completions ADD CONSTRAINT task_completions_evidence_ck CHECK (
+  (completed_via='form_response') = (form_response_id IS NOT NULL)
+  AND (completed_via='file_upload') = (file_upload_id IS NOT NULL)
+);
 CREATE TABLE resource_pages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   title text NOT NULL, slug text NOT NULL, summary text NOT NULL DEFAULT '', body_html text, sort_order integer NOT NULL DEFAULT 0,

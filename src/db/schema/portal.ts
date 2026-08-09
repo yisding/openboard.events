@@ -1,4 +1,5 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, check, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, fileAssets, users } from "./core";
 import { completionViaEnum, taskModeEnum, taskTargetEnum } from "./enums";
@@ -23,7 +24,13 @@ export const taskCompletions = pgTable("task_completions", {
   contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }), submissionId: uuid("submission_id").references(() => submissions.id, { onDelete: "cascade" }),
   completedVia: completionViaEnum("completed_via").notNull(), formResponseId: uuid("form_response_id"), fileUploadId: uuid("file_upload_id"),
   completedByUserId: uuid("completed_by_user_id").references(() => users.id, { onDelete: "set null" }), completedAt: timestamp("completed_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [unique().on(table.id, table.eventId)]);
+}, (table) => [
+  unique().on(table.id, table.eventId),
+  check("task_completions_evidence_ck", sql`
+    (${table.completedVia} = 'form_response') = (${table.formResponseId} IS NOT NULL)
+    AND (${table.completedVia} = 'file_upload') = (${table.fileUploadId} IS NOT NULL)
+  `),
+]);
 export const formResponses = pgTable("form_responses", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), formId: uuid("form_id").notNull().references(() => forms.id, { onDelete: "cascade" }),
   formVersion: integer("form_version").notNull(), contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),

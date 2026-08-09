@@ -1,36 +1,66 @@
 CREATE OR REPLACE FUNCTION guard_submission_transition() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF OLD.status = NEW.status THEN RETURN NEW; END IF;
-  IF NOT (CASE OLD.status
-    WHEN 'draft' THEN NEW.status IN ('pending','withdrawn')
-    WHEN 'pending' THEN NEW.status IN ('accept_queue','decline_queue','accepted','declined','withdrawn')
-    WHEN 'accept_queue' THEN NEW.status IN ('pending','decline_queue','accepted','declined','withdrawn')
-    WHEN 'decline_queue' THEN NEW.status IN ('pending','accept_queue','accepted','declined','withdrawn')
-    WHEN 'accepted' THEN NEW.status IN ('pending','accept_queue','decline_queue','declined','withdrawn')
-    WHEN 'declined' THEN NEW.status IN ('pending','accept_queue','decline_queue','accepted')
-    WHEN 'withdrawn' THEN NEW.status IN ('pending')
-  END) THEN
-    RAISE EXCEPTION 'illegal submission transition % -> %', OLD.status, NEW.status USING ERRCODE = '23514';
-  END IF;
-  IF OLD.status = 'draft' AND NEW.submitted_at IS NULL THEN NEW.submitted_at := now(); END IF;
-  IF NEW.status = 'withdrawn' AND NEW.withdrawn_at IS NULL THEN NEW.withdrawn_at := now(); END IF;
-  IF NEW.status IN ('accept_queue','decline_queue','accepted','declined') AND NEW.decided_at IS NULL THEN NEW.decided_at := now(); END IF;
-  IF OLD.status IN ('accepted','declined') AND NEW.status NOT IN ('accepted','declined') THEN
-    NEW.notified_at := NULL;
-    NEW.notify_revision := OLD.notify_revision + 1;
+  IF OLD.status <> NEW.status THEN
+    IF NOT (CASE OLD.status
+      WHEN 'draft' THEN NEW.status IN ('pending','withdrawn')
+      WHEN 'pending' THEN NEW.status IN ('accept_queue','decline_queue','accepted','declined','withdrawn')
+      WHEN 'accept_queue' THEN NEW.status IN ('pending','decline_queue','accepted','declined','withdrawn')
+      WHEN 'decline_queue' THEN NEW.status IN ('pending','accept_queue','accepted','declined','withdrawn')
+      WHEN 'accepted' THEN NEW.status IN ('pending','accept_queue','decline_queue','declined','withdrawn')
+      WHEN 'declined' THEN NEW.status IN ('pending','accept_queue','decline_queue','accepted')
+      WHEN 'withdrawn' THEN NEW.status IN ('pending')
+    END) THEN
+      RAISE EXCEPTION 'illegal submission transition % -> %', OLD.status, NEW.status USING ERRCODE = '23514';
+    END IF;
+    IF OLD.status = 'draft' AND NEW.submitted_at IS NULL THEN NEW.submitted_at := now(); END IF;
+    IF NEW.status = 'withdrawn' AND NEW.withdrawn_at IS NULL THEN NEW.withdrawn_at := now(); END IF;
+    IF NEW.status IN ('accept_queue','decline_queue','accepted','declined') AND NEW.decided_at IS NULL THEN NEW.decided_at := now(); END IF;
+    IF OLD.status IN ('accepted','declined') AND NEW.status NOT IN ('accepted','declined') THEN
+      NEW.notified_at := NULL;
+      NEW.notify_revision := OLD.notify_revision + 1;
+    END IF;
   END IF;
   NEW.row_version := OLD.row_version + 1;
   NEW.updated_at := now();
   RETURN NEW;
 END $$;
-CREATE TRIGGER submissions_transition_guard BEFORE UPDATE OF status ON submissions FOR EACH ROW EXECUTE FUNCTION guard_submission_transition();
+CREATE TRIGGER submissions_transition_guard BEFORE UPDATE ON submissions FOR EACH ROW EXECUTE FUNCTION guard_submission_transition();
 
 CREATE FUNCTION is_form_open(p_form_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT f.status = 'open'
-    AND (f.opens_at IS NULL OR f.opens_at <= now())
-    AND (f.closes_at IS NULL OR f.closes_at > now())
-  FROM forms f WHERE f.id = p_form_id;
+  SELECT coalesce((
+    SELECT f.status = 'open'
+      AND (f.opens_at IS NULL OR f.opens_at <= now())
+      AND (f.closes_at IS NULL OR f.closes_at > now())
+    FROM forms f WHERE f.id = p_form_id
+  ), false);
 $$;
+
+CREATE FUNCTION validate_track_scope_array() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.track_ids IS NOT NULL AND EXISTS (
+    SELECT 1 FROM unnest(NEW.track_ids) scoped_id
+    LEFT JOIN tracks t ON t.id=scoped_id AND t.event_id=NEW.event_id
+    WHERE t.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'track scope contains a track from another event' USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER evaluation_plans_track_scope_guard BEFORE INSERT OR UPDATE ON evaluation_plans FOR EACH ROW EXECUTE FUNCTION validate_track_scope_array();
+CREATE TRIGGER reviewer_assignments_track_scope_guard BEFORE INSERT OR UPDATE ON reviewer_assignments FOR EACH ROW EXECUTE FUNCTION validate_track_scope_array();
+
+CREATE FUNCTION validate_routing_tag_scope_array() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM unnest(NEW.add_tag_ids) scoped_id
+    LEFT JOIN tags t ON t.id=scoped_id AND t.event_id=NEW.event_id
+    WHERE t.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'routing rule contains a tag from another event' USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER routing_rules_tag_scope_guard BEFORE INSERT OR UPDATE ON routing_rules FOR EACH ROW EXECUTE FUNCTION validate_routing_tag_scope_array();
 
 CREATE VIEW accepted_speakers_v AS
 SELECT sp.event_id, sp.contact_id, max(s.updated_at) AS updated_at
@@ -39,18 +69,25 @@ JOIN submissions s ON s.id=sp.submission_id AND s.event_id=sp.event_id
 WHERE s.status='accepted'
 GROUP BY sp.event_id,sp.contact_id;
 
--- Submission-targeted tasks assign to the primary contact only, once per
--- accepted submission; contact-targeted tasks assign to accepted_speakers_v.
+-- Submission-targeted tasks prefer the primary contact and fall back to the
+-- first sorted participant, once per accepted submission; contact-targeted
+-- tasks assign to accepted_speakers_v.
 CREATE VIEW task_assignments_v AS
 WITH targets AS (
   SELECT t.id AS task_id,t.event_id,a.contact_id,NULL::uuid AS submission_id,t.due_at,greatest(t.updated_at,a.updated_at) AS target_updated_at
   FROM portal_tasks t JOIN accepted_speakers_v a ON a.event_id=t.event_id
   WHERE t.target_type='contact' AND t.is_active
   UNION ALL
-  SELECT t.id,t.event_id,sp.contact_id,s.id,t.due_at,greatest(t.updated_at,s.updated_at)
+  SELECT t.id AS task_id,t.event_id,sp.contact_id,s.id AS submission_id,t.due_at,greatest(t.updated_at,s.updated_at)
   FROM portal_tasks t
   JOIN submissions s ON s.event_id=t.event_id AND s.status='accepted'
-  JOIN submission_participants sp ON sp.submission_id=s.id AND sp.event_id=s.event_id AND sp.is_primary
+  JOIN LATERAL (
+    SELECT candidate.contact_id
+    FROM submission_participants candidate
+    WHERE candidate.submission_id=s.id AND candidate.event_id=s.event_id
+    ORDER BY candidate.is_primary DESC,candidate.sort_order,candidate.id
+    LIMIT 1
+  ) sp ON true
   WHERE t.target_type='submission' AND t.is_active
 )
 SELECT tg.task_id,tg.event_id,tg.contact_id,tg.submission_id,tg.due_at,
@@ -82,7 +119,9 @@ SELECT event_id,status,count(*)::int AS n,max(updated_at) AS updated_at FROM sub
 
 CREATE VIEW submission_ratings_v AS
 SELECT event_id,submission_id,plan_id,avg(overall_score)::double precision AS rating,count(overall_score)::int AS n_scores,max(updated_at) AS updated_at
-FROM reviews WHERE overall_score IS NOT NULL GROUP BY event_id,submission_id,plan_id;
+FROM reviews
+WHERE overall_score IS NOT NULL AND submitted_at IS NOT NULL AND NOT is_ai
+GROUP BY event_id,submission_id,plan_id;
 
 CREATE VIEW published_sessions_v AS
 SELECT s.id,s.event_id,s.title,s.slug,s.description_html,s.starts_at,s.ends_at,
@@ -100,6 +139,7 @@ SELECT c.event_id,c.id AS contact_id,c.first_name,c.last_name,c.job_title,c.comp
   c.linkedin_url,c.twitter_url,c.website_url,greatest(c.updated_at,max(s.updated_at)) AS updated_at
 FROM contacts c
 JOIN session_speakers ss ON ss.contact_id=c.id AND ss.event_id=c.event_id
-JOIN sessions s ON s.id=ss.session_id AND s.event_id=ss.event_id AND s.status='published'
+JOIN sessions s ON s.id=ss.session_id AND s.event_id=ss.event_id
+  AND s.status='published' AND s.starts_at IS NOT NULL
 WHERE c.confirmation_status='confirmed'
 GROUP BY c.event_id,c.id,c.first_name,c.last_name,c.job_title,c.company,c.bio_html,c.headshot_file_id,c.linkedin_url,c.twitter_url,c.website_url,c.updated_at;
