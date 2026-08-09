@@ -17,8 +17,18 @@ import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type SubmissionStatu
  * `PORTAL_STATUS_LABEL` from the frozen contracts — the one table that owns this
  * mapping — rather than a second copy written here.
  */
-/** What a speaker is allowed to see: never a queue state. */
-export type PortalStatus = (typeof PORTAL_STATUS_LABEL)[SubmissionStatus];
+/**
+ * What a speaker is allowed to see: never a queue state.
+ *
+ * Written as a literal union rather than derived from `PORTAL_STATUS_LABEL`,
+ * whose `Record<SubmissionStatus, string>` annotation would widen this to
+ * `string` and let `"accept_queue"` typecheck as a portal status. The contract
+ * table is still the only mapping — `portal-status.test.ts` asserts every
+ * SubmissionStatus lands inside this union, so a contract change fails CI here
+ * rather than leaking.
+ */
+export const PORTAL_STATUSES = ["Draft", "Pending", "Accepted", "Declined", "Withdrawn"] as const;
+export type PortalStatus = (typeof PORTAL_STATUSES)[number];
 
 export type PortalSubmissionRow = {
   submissionId: string;
@@ -43,8 +53,8 @@ export type PortalSubmissionDetail = PortalSubmissionRow & {
   participants: PortalParticipant[];
 };
 
-function portalStatus(status: SubmissionStatus): PortalStatus {
-  return PORTAL_STATUS_LABEL[status];
+export function portalStatus(status: SubmissionStatus): PortalStatus {
+  return PORTAL_STATUS_LABEL[status] as PortalStatus;
 }
 
 function displayName(first: string, last: string, email: string): string {

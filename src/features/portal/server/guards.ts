@@ -34,22 +34,26 @@ export async function requirePortalContext(eventSlug: string): Promise<PortalCon
     throw error;
   }
 
-  const [event] = await db
-    .select({ id: events.id, slug: events.slug, name: events.name, timezone: events.timezone })
-    .from(events)
-    .where(eq(events.id, session.eventId))
-    .limit(1);
-  const [contact] = await db
-    .select({
-      id: contacts.id,
-      email: contacts.email,
-      firstName: contacts.firstName,
-      lastName: contacts.lastName,
-      headshotFileId: contacts.headshotFileId,
-    })
-    .from(contacts)
-    .where(and(eq(contacts.id, session.contactId), eq(contacts.eventId, session.eventId)))
-    .limit(1);
+  // Independent lookups, so they cost one round trip rather than two on every
+  // portal page render.
+  const [[event], [contact]] = await Promise.all([
+    db
+      .select({ id: events.id, slug: events.slug, name: events.name, timezone: events.timezone })
+      .from(events)
+      .where(eq(events.id, session.eventId))
+      .limit(1),
+    db
+      .select({
+        id: contacts.id,
+        email: contacts.email,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        headshotFileId: contacts.headshotFileId,
+      })
+      .from(contacts)
+      .where(and(eq(contacts.id, session.contactId), eq(contacts.eventId, session.eventId)))
+      .limit(1),
+  ]);
 
   // A live session whose contact or event no longer exists is a signed-out user
   // as far as the portal is concerned.
