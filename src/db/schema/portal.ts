@@ -13,7 +13,7 @@ export const fileRequests = pgTable("file_requests", {
 }, (table) => [unique().on(table.id, table.eventId)]);
 export const portalTasks = pgTable("portal_tasks", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), descriptionHtml: text("description_html"), targetType: taskTargetEnum("target_type").notNull().default("contact"), completionMode: taskModeEnum("completion_mode").notNull().default("manual"),
+  name: text("name").notNull(), descriptionHtml: text("description_html").notNull().default(""), targetType: taskTargetEnum("target_type").notNull().default("contact"), completionMode: taskModeEnum("completion_mode").notNull().default("manual"),
   formId: uuid("form_id").references(() => forms.id, { onDelete: "restrict" }), fileRequestId: uuid("file_request_id").references(() => fileRequests.id, { onDelete: "restrict" }),
   dueAt: timestamp("due_at", { withTimezone: true }), isActive: boolean("is_active").notNull().default(true), sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
