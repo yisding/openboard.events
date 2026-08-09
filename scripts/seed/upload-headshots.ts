@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { SEEDED_HEADSHOT_KEYS, headshotKey } from "./contacts";
 import { SEEDED_EVENT_ID } from "./lib/helpers";
@@ -12,7 +12,8 @@ import { seedId } from "./lib/ids";
  *
  * `contacts.ts` writes `file_assets` rows; without the objects behind them
  * `/f/{fileId}` serves a 404 and the gallery renders broken images, so the two
- * belong together. Run once per bucket:
+ * belong together. The normal `pnpm seed` orchestrator calls this before it
+ * commits the database rows. It can also be run directly for repairs:
  *
  *   pnpm exec tsx scripts/seed/upload-headshots.ts sb-files-preview [--remote]
  *
@@ -71,28 +72,61 @@ const PALETTE: Array<[number, number, number]> = [
   [105, 88, 215], [47, 143, 91], [182, 116, 42], [192, 75, 106], [58, 122, 176], [140, 92, 168],
 ];
 
+export type SeedHeadshotTarget = { bucket: string; remote: boolean };
+
+export function resolveSeedHeadshotTarget(env: Readonly<Record<string, string | undefined>>): SeedHeadshotTarget {
+  const configured = env.R2_BUCKET_NAME?.trim();
+  switch (env.APP_ENV) {
+    case "local": return { bucket: configured || "sb-files-dev", remote: false };
+    case "preview": {
+      if (configured && configured !== "sb-files-preview") throw new Error("preview headshots must use sb-files-preview");
+      return { bucket: "sb-files-preview", remote: true };
+    }
+    case "production": {
+      if (configured && configured !== "sb-files") throw new Error("production headshots must use sb-files");
+      return { bucket: "sb-files", remote: true };
+    }
+    default: throw new Error("cannot choose a headshot bucket without APP_ENV=local, preview, or production");
+  }
+}
+
+export function wranglerPutArgs(target: SeedHeadshotTarget, objectKey: string, file: string): string[] {
+  return [
+    "exec", "wrangler", "r2", "object", "put", `${target.bucket}/${objectKey}`,
+    "--file", file, "--content-type", "image/png", target.remote ? "--remote" : "--local",
+  ];
+}
+
+export function uploadSeedHeadshots(target: SeedHeadshotTarget): number {
+  const dir = mkdtempSync(join(tmpdir(), "openboard-headshots-"));
+
+  try {
+    let uploaded = 0;
+    for (const [index, key] of SEEDED_HEADSHOT_KEYS.entries()) {
+      const fileId = seedId("file", `headshot-${key}`);
+      const objectKey = headshotKey(SEEDED_EVENT_ID, fileId, key);
+      const file = join(dir, `${key}.png`);
+      writeFileSync(file, png(PALETTE[index % PALETTE.length] ?? [105, 88, 215]));
+
+      // `pnpm exec` guarantees the pinned Wrangler is used; it must never fall
+      // through to npx downloading a different CLI during a seed run.
+      const result = spawnSync("pnpm", wranglerPutArgs(target, objectKey, file), { stdio: "inherit" });
+      if (result.status !== 0) throw new Error(`failed to upload ${objectKey}`);
+      uploaded += 1;
+    }
+    console.log(`uploaded ${uploaded} headshots to ${target.remote ? "remote" : "local"} R2 bucket ${target.bucket}`);
+    return uploaded;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function main(): void {
   const bucket = process.argv[2];
   if (!bucket) throw new Error("usage: tsx scripts/seed/upload-headshots.ts <bucket> [--remote]");
-  const remote = process.argv.includes("--remote");
-  const dir = mkdtempSync(join(tmpdir(), "openboard-headshots-"));
-
-  let uploaded = 0;
-  for (const [index, key] of SEEDED_HEADSHOT_KEYS.entries()) {
-    const fileId = seedId("file", `headshot-${key}`);
-    const objectKey = headshotKey(SEEDED_EVENT_ID, fileId, key);
-    const file = join(dir, `${key}.png`);
-    writeFileSync(file, png(PALETTE[index % PALETTE.length] ?? [105, 88, 215]));
-
-    const result = spawnSync("npx", [
-      "wrangler", "r2", "object", "put", `${bucket}/${objectKey}`,
-      "--file", file, "--content-type", "image/png",
-      ...(remote ? ["--remote"] : []),
-    ], { stdio: "inherit" });
-    if (result.status !== 0) throw new Error(`failed to upload ${objectKey}`);
-    uploaded += 1;
-  }
-  console.log(`uploaded ${uploaded} headshots to ${bucket}`);
+  uploadSeedHeadshots({ bucket, remote: process.argv.includes("--remote") });
 }
 
-main();
+// tsx executes scripts in CJS mode here, so use the entrypoint basename rather
+// than import.meta.url; importing this module from index.ts must not run twice.
+if (process.argv[1] && basename(process.argv[1]) === "upload-headshots.ts") main();

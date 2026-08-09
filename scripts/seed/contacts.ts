@@ -32,9 +32,9 @@ const SPEAKERS = [
 ] as const;
 
 /**
- * The R2 objects these rows point at are uploaded once by
- * `scripts/seed/upload-headshots.sh`, which derives the same keys. A row without
- * its object serves a 404 from `/f/{id}`, so the two must be run together.
+ * The seed orchestrator uploads the R2 objects these rows point at before its
+ * database transaction, using the same deterministic ids and keys. A row
+ * without its object serves a 404 from `/f/{id}`, so that ordering is binding.
  */
 export function headshotKey(eventId: EventId, fileId: string, key: string): string {
   return buildObjectKey({ eventId, kind: "headshot", fileId: fileId as FileId, filename: `${key}.png` });
