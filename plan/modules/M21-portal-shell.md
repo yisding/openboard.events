@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged fixture-backed **STACK-DEMO** portal shell/home/submissions surface lacks portal auth/session, server queries, and AC. **Step 0 exception:** [M06b](./M06b-portal-auth.md) used its documented contingency to create `features/portal/server/contacts.ts` with exactly `getOrCreateContact`/`updateContactFields` in PR #12; take ownership back when that stack merges, and bind the shell's provider to the authenticated contact instead of fixture/localStorage state. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **the server half is merged** (#29, #30): the barrel, `requirePortalContext`, `listMySubmissions`/`getMySubmission`/`countMySubmissions`, the two internal routes, and seven PGlite isolation cases. Step 0's contact helpers are back under this module's ownership. Remaining: swapping the shell, Home widgets and submissions view off `useDemo()` onto these queries, `scripts/seed/portal.ts`, and the My Sessions widget against M28's dashed `getMySessions`. |
 | **Workstream / executing agent** | WS-D agent (`features/portal`, folder-owner per PLAN.md §6). This is the first `features/portal`-lane module; the same agent spent Saturday on M07 + M05b (cross-folder grants) before starting here. |
 | **Scheduled** | Sat PM – Sun, per WS-D's order (`M07 + M05b (Sat) → M21 (Sat PM–Sun)`). Starts once M06b's portal session (`requirePortal`, Sat PM) and M05a's core UI primitives (Sat AM) are available. |
 | **Size** | M |
