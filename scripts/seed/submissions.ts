@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { createSubmissionIn } from "@/features/submissions";
-import { cleanAnswersSchema, type ContactId, type FormId, type SubmissionStatus } from "@/shared/contracts";
+import { cleanAnswersSchema, type ContactId, type FieldId, type FormId, type SubmissionStatus } from "@/shared/contracts";
 import type { SeedCtx } from "./lib/helpers";
 
 /**
@@ -22,7 +22,9 @@ const HOSTILE = [
   { key: "punctuation", title: ';lkj,"quoted",=cmd|\' /C calc', status: "pending" as const },
   { key: "emoji", title: "🚀 Shipping agents 🤖 without 🔥", status: "pending" as const },
   { key: "rtl", title: "מהנדסי בינה מלאכותית בפעולה", status: "pending" as const },
-  { key: "long", title: `The ${"very ".repeat(48)}long talk`.slice(0, 255), status: "pending" as const },
+  // Exactly at the column width, not near it: 254 characters plus the final
+  // period. A probe that stops two short never tests the boundary it is for.
+  { key: "long", title: `The ${"very ".repeat(49)}long talk`.slice(0, 254) + ".", status: "pending" as const },
 ];
 
 const SPREAD: Array<{ key: string; title: string; status: SubmissionStatus }> = [
@@ -42,6 +44,9 @@ const SPREAD: Array<{ key: string; title: string; status: SubmissionStatus }> = 
   { key: "pending-5", title: "The unglamorous parts of shipping AI", status: "pending" },
 ];
 
+/** Mirrors contacts.ts, which owns these people. */
+const SPEAKER_KEYS = ["ada", "grace", "alan", "katherine", "margaret", "barbara", "tim", "radia", "linus", "sophie", "james", "shafi"];
+
 export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const { tx, eventId } = ctx;
 
@@ -49,8 +54,13 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const [form] = (await tx.execute<{ id: string }>(sql`
     SELECT id FROM forms WHERE id = ${formId} AND event_id = ${eventId}
   `)).rows ?? [];
+  // Only the contacts this seed created. A judge who adds a speaker during
+  // judging must not find themselves silently co-authoring a seeded proposal.
+  const seededContactIds = SPEAKER_KEYS.map((key) => ctx.id("contact", key));
   const contactRows = (await tx.execute<{ id: string }>(sql`
-    SELECT id FROM contacts WHERE event_id = ${eventId} ORDER BY created_at
+    SELECT id FROM contacts
+    WHERE event_id = ${eventId} AND id IN (${sql.join(seededContactIds.map((id) => sql`${id}`), sql`, `)})
+    ORDER BY created_at
   `)).rows ?? [];
   if (!form || contactRows.length === 0) {
     ctx.log("skipped — needs the seeded form and contacts (forms.ts, contacts.ts)");
@@ -59,9 +69,28 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const contacts = contactRows.map((row) => row.id as ContactId);
   const noAnswers = cleanAnswersSchema.parse([]);
 
+  // The pinned snapshot's field ids, so seeded rows have answers to show in the
+  // drawer rather than an empty Answers panel on every abstract.
+  const field = (key: string) => ctx.id("field", `form-a-${key}`) as FieldId;
+  const answersFor = (title: string, index: number) => cleanAnswersSchema.parse([
+    { fieldId: field("title"), participantId: null, value: { t: "s", v: title } },
+    { fieldId: field("description"), participantId: null, value: { t: "s", v: `<p>A talk about ${title.toLowerCase().slice(0, 60)}.</p>` } },
+    { fieldId: field("track"), participantId: null, value: { t: "opt", v: ["agents", "platforms", "security", "community"][index % 4] ?? "agents" } },
+    { fieldId: field("format"), participantId: null, value: { t: "opt", v: ["talk", "workshop", "panel", "keynote"][index % 4] ?? "talk" } },
+  ]);
+
   const create = async (key: string, title: string, status: SubmissionStatus, index: number) => {
     const primary = contacts[index % contacts.length];
     if (!primary) return;
+
+    // M09's contract is that a re-run is a no-op, and createSubmissionIn always
+    // inserts. The seed key rides in client_session_id, which is what makes a
+    // second `pnpm seed` find this row instead of writing a twin.
+    const seedKey = `seed:submission:${key}`;
+    const [existing] = (await tx.execute<{ id: string }>(sql`
+      SELECT id FROM submissions WHERE event_id = ${eventId} AND client_session_id = ${seedKey}
+    `)).rows ?? [];
+    if (existing) return;
     // A co-speaker on every third row: the fan-out law and the participant
     // rendering both need submissions with more than one person on them.
     const second = index % 3 === 0 ? contacts[(index + 5) % contacts.length] : undefined;
@@ -74,6 +103,7 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
       submitterContactId: primary,
       fields: {
         title,
+        clientSessionId: seedKey,
         descriptionHtml: key === "xss"
           // The standing probe, in rich text as well as in a title.
           ? '<p>Before: <img src=x onerror=alert(1)><script>alert(2)</script> after.</p>'
@@ -83,7 +113,7 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
         { contactId: primary, role: "speaker", isPrimary: true, sortOrder: 0 },
         ...(second && second !== primary ? [{ contactId: second, role: "co_speaker" as const, isPrimary: false, sortOrder: 1 }] : []),
       ],
-      answers: noAnswers,
+      answers: status === "draft" ? noAnswers : answersFor(title, index),
       // Seeded rows bypass the deadline and the limit deliberately: they model a
       // CFP that has been running for weeks, not one judged from now.
       enforce: { deadline: false, limit: false },
@@ -104,12 +134,14 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
     index += 1;
   }
 
-  // One row null in every nullable column it can be: the standing probe for a
-  // renderer that assumes a field is always there.
+  // One row null in every nullable column a surface actually renders: the
+  // standing probe for a renderer that assumes a field is always there.
+  // client_session_id is deliberately left alone — it carries the seed key, and
+  // nulling it makes this row reappear on every re-run.
   await tx.execute(sql`
     UPDATE submissions SET description_html = NULL, track_id = NULL, format_id = NULL, level = NULL,
-      language = NULL, capacity = NULL, client_session_id = NULL
-    WHERE event_id = ${eventId} AND title = ${SPREAD[SPREAD.length - 1]?.title ?? ""}
+      language = NULL, capacity = NULL
+    WHERE event_id = ${eventId} AND client_session_id = 'seed:submission:pending-5'
   `);
 
   ctx.log(`seeded ${SPREAD.length + HOSTILE.length + 2} submissions across every status, including the XSS, emoji, RTL and null probes`);
