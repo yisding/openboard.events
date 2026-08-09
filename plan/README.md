@@ -4,7 +4,7 @@
 
 This folder is the execution surface for the build. It contains one **work order per module** plus the schedule that says who runs what, when.
 
-> **Current rebaseline (rev. 5, Sun Aug 9):** R0 has exited and **R1 is the active gate**. PRs #6–#9 are merged and the preview Cloudflare/Neon/R2 estate is provisioned, but the database, admin-auth, and portal-auth foundation exists only on the open #10 → #11 → #12 stack, so there are still no `DONE` modules and no server-backed golden path. Read [`status.md`](status.md) before claiming work — §2a lists the review findings currently blocking that stack. The original wave table remains the dependency choreography.
+> **Current rebaseline (rev. 8, Sun Aug 9 late evening):** R0 has exited and **R1 is essentially exited** — the preview is deployed from current `main`, both non-production databases are migrated and seeded, an admin signed in on the deployed preview, and **the Saturday thin slice is green end-to-end, including a delivered Gmail confirmation from the verified sending domain** (status §2a). Under the evidence rules no module is `DONE` yet; the next actions are M18's decision half, M17's drawer, and `contacts.ts` (status §6). Read [`status.md`](status.md) before claiming work (§2c lists the #25–#52 per-module ledger); the product overlay beyond the judged bar is [`product-roadmap.md`](product-roadmap.md). The original wave table remains the dependency choreography.
 
 ## Authority order (read this before you argue with anything)
 
@@ -172,6 +172,7 @@ Counts: WS-A 10 · WS-B 7 · WS-C 6 · WS-D 7 · WS-E 6 · WS-F 8 = **44**.
 
 **Master plan**
 - [`../PLAN.md`](../PLAN.md) — scope (§1), architecture (§2), data model (§3), module catalog (§4), dependency graph (§5), workstreams (§6), timeline (§7), risks (§8), cut lines (§9)
+- [`product-roadmap.md`](product-roadmap.md) — the product overlay beyond the judged bar (rev. 7): phased plan for the wiring debt, external proof, trust/compliance, and the commercial layer (M42–M49), including the Better Auth + Google decision. Subordinate to the recovery gates while they are open.
 
 **Design (the how)**
 - [`environments.md`](environments.md) — local/preview/production matrix, canonical resource names, bindings, secrets, and current scaffold drift
