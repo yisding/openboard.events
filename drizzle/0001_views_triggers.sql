@@ -1,8 +1,16 @@
 CREATE OR REPLACE FUNCTION guard_submission_transition() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.status = NEW.status THEN RETURN NEW; END IF;
-  IF (OLD.status,NEW.status) NOT IN (('draft','pending'),('pending','accept_queue'),('pending','decline_queue'),('accept_queue','accepted'),('accept_queue','pending'),('decline_queue','declined'),('decline_queue','pending'),('accepted','pending'),('accepted','withdrawn'),('declined','pending')) THEN
-    RAISE EXCEPTION 'invalid submission transition: % -> %',OLD.status,NEW.status;
+  IF NOT (CASE OLD.status
+    WHEN 'draft' THEN NEW.status IN ('pending','withdrawn')
+    WHEN 'pending' THEN NEW.status IN ('accept_queue','decline_queue','accepted','declined','withdrawn')
+    WHEN 'accept_queue' THEN NEW.status IN ('pending','decline_queue','accepted','declined','withdrawn')
+    WHEN 'decline_queue' THEN NEW.status IN ('pending','accept_queue','accepted','declined','withdrawn')
+    WHEN 'accepted' THEN NEW.status IN ('pending','accept_queue','decline_queue','declined','withdrawn')
+    WHEN 'declined' THEN NEW.status IN ('pending','accept_queue','decline_queue','accepted')
+    WHEN 'withdrawn' THEN NEW.status IN ('pending')
+  END) THEN
+    RAISE EXCEPTION 'illegal submission transition % -> %', OLD.status, NEW.status USING ERRCODE = '23514';
   END IF;
   -- Reversing a finalized decision bumps notify_revision atomically so a
   -- fresh decision can notify again without reusing the old idempotency key.

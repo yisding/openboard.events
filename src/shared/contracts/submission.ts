@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { participantRoleSchema, submissionSourceSchema, submissionStatusSchema } from "./enums";
-import { cleanAnswersSchema } from "./forms";
+import { answerValueSchema, cleanAnswersSchema, formSnapshotSchema } from "./forms";
 import {
   contactIdSchema,
   formIdSchema,
@@ -47,9 +47,19 @@ export const submissionListRowSchema = z.object({
 export type SubmissionListRow = z.infer<typeof submissionListRowSchema>;
 
 export const answerPanelDataSchema = z.object({
-  snapshot: z.unknown(),
-  answers: z.array(z.object({ fieldId: z.string(), participantId: z.string().nullable(), value: z.unknown() })),
+  formVersion: z.int().positive().nullable(),
+  snapshot: formSnapshotSchema.nullable(),
+  answers: z.array(z.object({ fieldId: z.string(), participantId: z.string().nullable(), value: answerValueSchema })),
+  participants: z.array(z.object({
+    id: z.string(),
+    contactId: z.string(),
+    name: z.string(),
+    role: participantRoleSchema,
+    isPrimary: z.boolean(),
+  })),
+  files: z.record(z.string(), z.object({ fileId: z.string(), filename: z.string(), href: z.string().nullable() })),
 });
+export type AnswerPanelData = z.infer<typeof answerPanelDataSchema>;
 
 export const submissionDetailDtoSchema = submissionListRowSchema.extend({
   descriptionHtml: z.string().nullable(),

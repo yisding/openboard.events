@@ -42,35 +42,49 @@ export type MySessionDTO = z.infer<typeof mySessionDtoSchema>;
 
 export const publishedSessionDtoSchema = z.object({
   id: sessionIdSchema,
-  title: z.string(),
   slug: z.string(),
-  descriptionHtml: z.string(),
+  title: z.string(),
+  descriptionHtml: z.string().nullable(),
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
-  roomName: z.string().nullable(),
-  trackName: z.string().nullable(),
-  trackColor: z.string().nullable(),
-  formatName: z.string().nullable(),
-  speakers: z.array(z.object({ id: contactIdSchema, name: z.string() })),
+  dayKey: z.string(),
+  track: z.object({ id: trackIdSchema, name: z.string(), color: z.string() }).nullable(),
+  room: z.object({ id: roomIdSchema, name: z.string() }).nullable(),
+  format: z.object({ id: formatIdSchema, name: z.string() }).nullable(),
+  speakers: z.array(z.object({ contactId: contactIdSchema, name: z.string(), headshotUrl: z.string().nullable() })),
 });
 export const publishedScheduleDtoSchema = z.object({
-  event: z.object({ name: z.string(), slug: z.string(), timezone: z.string() }),
+  event: z.object({
+    name: z.string(),
+    timezone: z.string(),
+    startsAt: z.iso.datetime(),
+    endsAt: z.iso.datetime(),
+    accentColor: z.string().nullable(),
+  }),
+  days: z.array(z.string()),
   sessions: z.array(publishedSessionDtoSchema),
-  updatedAt: z.iso.datetime().nullable(),
 });
 export const publishedSpeakerDtoSchema = z.object({
-  id: contactIdSchema,
+  contactId: contactIdSchema,
   name: z.string(),
-  bioHtml: z.string().nullable(),
-  company: z.string().nullable(),
   jobTitle: z.string().nullable(),
-  headshotUrl: z.url().nullable(),
-  sessionIds: z.array(sessionIdSchema),
+  company: z.string().nullable(),
+  bioHtml: z.string().nullable(),
+  headshotUrl: z.string().nullable(),
+  linkedinUrl: z.string().nullable(),
+  twitterUrl: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  sessions: z.array(z.object({
+    id: sessionIdSchema,
+    slug: z.string(),
+    title: z.string(),
+    startsAt: z.iso.datetime(),
+    dayKey: z.string(),
+  })),
 });
 export const publishedSpeakersDtoSchema = z.object({
-  event: z.object({ name: z.string(), slug: z.string() }),
+  event: z.object({ name: z.string(), timezone: z.string(), accentColor: z.string().nullable() }),
   speakers: z.array(publishedSpeakerDtoSchema),
-  updatedAt: z.iso.datetime().nullable(),
 });
 export type PublishedSessionDTO = z.infer<typeof publishedSessionDtoSchema>;
 export type PublishedScheduleDTO = z.infer<typeof publishedScheduleDtoSchema>;

@@ -1,16 +1,18 @@
 import { z } from "zod";
 import { completionViaSchema, taskModeSchema, taskTargetSchema } from "./enums";
-import { contactIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
+import { contactIdSchema, fileRequestIdSchema, formIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
 
 export const taskDtoSchema = z.object({
   id: taskIdSchema,
-  title: z.string(),
+  name: z.string(),
   descriptionHtml: z.string(),
-  target: taskTargetSchema,
-  mode: taskModeSchema,
+  targetType: taskTargetSchema,
+  completionMode: taskModeSchema,
+  formId: formIdSchema.nullable(),
+  fileRequestId: fileRequestIdSchema.nullable(),
   dueAt: z.iso.datetime().nullable(),
-  required: z.boolean(),
-  active: z.boolean(),
+  isActive: z.boolean(),
+  createdAt: z.iso.datetime(),
 });
 export type TaskDTO = z.infer<typeof taskDtoSchema>;
 
@@ -18,6 +20,7 @@ export const taskAssignmentDtoSchema = z.object({
   taskId: taskIdSchema,
   contactId: contactIdSchema,
   submissionId: submissionIdSchema.nullable(),
+  dueAt: z.iso.datetime().nullable(),
   completed: z.boolean(),
   completedAt: z.iso.datetime().nullable(),
   completedVia: completionViaSchema.nullable(),
@@ -27,8 +30,7 @@ export type TaskAssignmentDTO = z.infer<typeof taskAssignmentDtoSchema>;
 
 export const outstandingTasksRowSchema = z.object({
   contactId: contactIdSchema,
-  contactName: z.string(),
-  email: z.email(),
+  name: z.string(),
   openCount: z.int().nonnegative(),
   overdueCount: z.int().nonnegative(),
   doneCount: z.int().nonnegative(),
