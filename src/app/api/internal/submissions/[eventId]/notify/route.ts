@@ -1,3 +1,4 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
@@ -17,15 +18,26 @@ const notify = defineHandler({
   input: z.object({}),
   handler: async ({ eventId }) => {
     const result = await notifyQueues(eventIdSchema.parse(eventId));
-    // Best effort, failures swallowed: this is latency polish on top of the cron
-    // so a decision email lands in about a second rather than at cron latency.
-    // M36's nudgeOutbox does not exist yet, so the dispatcher is called directly;
-    // it is idempotent, and a failure here must never fail the decision that has
-    // already been committed.
-    if (result.emailsQueued > 0) await dispatchOutbox().catch(() => undefined);
+    // Latency polish on top of the cron, never a substitute for it: the decision
+    // is already committed, so the drain runs after the response through
+    // waitUntil rather than making an organizer wait on an outbox backlog that
+    // has nothing to do with their click. Failures are swallowed for the same
+    // reason — the cron will pick the rows up.
+    if (result.emailsQueued > 0) nudge();
     return result;
   },
 });
+
+/** Fire-and-forget outside the request path, or not at all if there is no context. */
+function nudge(): void {
+  const drain = dispatchOutbox().catch(() => undefined);
+  try {
+    getCloudflareContext().ctx.waitUntil(drain);
+  } catch {
+    // Outside a Cloudflare context (tests, `next dev`) there is nothing to hand
+    // the promise to; the cron remains the guarantee either way.
+  }
+}
 
 export async function POST(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {
   return notify(request, route);

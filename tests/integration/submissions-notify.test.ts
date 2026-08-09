@@ -148,6 +148,32 @@ describe("decide and notify", () => {
     expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
   });
 
+  it("confirms the primary participant, not whoever filled the form in", async () => {
+    // A submitter may name somebody else as primary. Confirming the submitter
+    // then says the wrong speaker is coming.
+    const presenter = "d1000000-0000-4000-8000-000000000020";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'grace@example.com','Grace','Hopper') ON CONFLICT DO NOTHING",
+      [presenter, eventId],
+    );
+    await insert(toAccept, "accept_queue");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, presenter],
+    );
+
+    const result = await notifyQueues(eventId);
+    expect(result.emailsQueued).toBe(1);
+
+    const rows = await pglite.query<{ id: string; confirmation_status: string }>(
+      "SELECT id, confirmation_status FROM contacts ORDER BY email",
+    );
+    const byId = Object.fromEntries(rows.rows.map((row) => [row.id, row.confirmation_status]));
+    expect(byId[presenter]).toBe("confirmed");
+    // The submitter still got the email, and is not silently marked as speaking.
+    expect(byId[speaker]).toBe("unconfirmed");
+  });
+
   it("does not auto-confirm on a decline", async () => {
     await insert(toDecline, "decline_queue");
     await notifyQueues(eventId);

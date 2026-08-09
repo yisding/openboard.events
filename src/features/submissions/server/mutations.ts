@@ -385,7 +385,7 @@ export type NotifyResult = {
   skippedNoRecipient: SubmissionId[];
 };
 
-type QueueRow = { id: string; notify_revision: number; recipient: string | null };
+type QueueRow = { id: string; notify_revision: number; recipient: string | null; primary_contact: string | null };
 
 /**
  * Finalize both queues and enqueue exactly one email per submission.
@@ -406,11 +406,19 @@ export async function notifyQueues(eventId: EventId): Promise<NotifyResult> {
         UPDATE submissions s SET status = ${decided}, notified_at = now(), row_version = row_version + 1, updated_at = now()
         WHERE s.event_id = ${eventId} AND s.status = ${queue} AND s.notified_at IS NULL
         RETURNING s.id, s.notify_revision,
+          -- Two different people, deliberately. The decision email goes to whoever
+          -- submitted; the confirmation belongs to whoever is actually presenting,
+          -- and a submitter may have named somebody else as primary.
           COALESCE(s.submitter_contact_id, (
             SELECT sp.contact_id FROM submission_participants sp
             WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
             LIMIT 1
-          )) AS recipient
+          )) AS recipient,
+          (
+            SELECT sp.contact_id FROM submission_participants sp
+            WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
+            LIMIT 1
+          ) AS primary_contact
       `);
       return result.rows ?? [];
     };
@@ -443,10 +451,13 @@ export async function notifyQueues(eventId: EventId): Promise<NotifyResult> {
         emailsQueued += 1;
 
         // Auto-confirm on acceptance: there is no speaker-facing confirm button,
-        // so a speaker who has been accepted is confirmed until an organizer says
-        // otherwise.
-        if (templateKey === "submission_accepted") {
-          await updateContactFields(tx, eventId, contactId, { confirmationStatus: "confirmed" });
+        // so an accepted speaker is confirmed until an organizer says otherwise.
+        // It follows the *primary participant*, not the submitter — confirming
+        // the person who filled the form in on somebody else's behalf says the
+        // wrong speaker is coming.
+        const confirmed = (row.primary_contact ?? row.recipient) as ContactId | null;
+        if (templateKey === "submission_accepted" && confirmed) {
+          await updateContactFields(tx, eventId, confirmed, { confirmationStatus: "confirmed" });
         }
       }
     }
