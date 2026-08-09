@@ -33,6 +33,7 @@ export type PublicEvent = {
   id: string;
   slug: string;
   name: string;
+  websiteUrl: string | null;
   timezone: string;
   location: string | null;
   startsAt: Date | string;
@@ -44,6 +45,7 @@ export function publicEventDto(event: PublicEvent) {
     id: event.id,
     slug: event.slug,
     name: event.name,
+    websiteUrl: event.websiteUrl,
     timezone: event.timezone,
     location: event.location,
     startsAt: new Date(event.startsAt).toISOString(),
@@ -63,6 +65,7 @@ export async function resolvePublicEvent(slug: string): Promise<PublicEvent | nu
       id: demo.id,
       slug: demo.slug,
       name: demo.name,
+      websiteUrl: null,
       timezone: demo.timezone,
       location: demo.venue || demo.city || null,
       startsAt: demo.startsAt,
@@ -74,6 +77,7 @@ export async function resolvePublicEvent(slug: string): Promise<PublicEvent | nu
       id: events.id,
       slug: events.slug,
       name: events.name,
+      websiteUrl: events.websiteUrl,
       timezone: events.timezone,
       location: events.location,
       startsAt: events.startsAt,

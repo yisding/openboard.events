@@ -16,9 +16,10 @@ describe("public event API", () => {
     expect(response.status).toBe(200);
     const payload = await response.json() as { data: Record<string, unknown> };
     expect(Object.keys(payload.data).sort()).toEqual([
-      "endsAt", "id", "location", "name", "slug", "startsAt", "timezone",
+      "endsAt", "id", "location", "name", "slug", "startsAt", "timezone", "websiteUrl",
     ]);
     expect(payload.data.slug).toBe("ai-engineer");
+    expect(payload.data.websiteUrl).toBeNull();
   });
 
   it("keeps the local schedule DTO explicit and excludes unconfirmed speakers", async () => {
