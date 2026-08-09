@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** fixture dashboard exists on `main`; the aggregated endpoint, task-assignment counting law, polling, and deployed completion-update AC remain a **SERVER-GAP**. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — claimed by Codex after PRs #9–#11 merged the required views, shell, and shared server contracts. The fixture dashboard is **MERGED-PARTIAL**; active recovery scope is the event-scoped aggregate endpoint, task-assignment counting law, polling, and deployed completion-update AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `dashboard`. |
 | **Scheduled** | **Monday** (both tabs). Live-updating Speaker Tracking is a CP3 (Mon night) demo item. |
 | **Size** | L (≈1 day) |
