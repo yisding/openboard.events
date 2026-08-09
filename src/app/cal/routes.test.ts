@@ -1,14 +1,13 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { issuePortalToken, verifyPortalTokenIn } from "@/features/auth/server/tokens";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 import { parseEnv } from "@/shared/lib/env";
-import { calendarDownloadResponse } from "./[token]/[sessionId]/route";
-import { calendarFeedResponse } from "./[token]/route";
+import { calendarDownloadResponse, calendarFeedResponse } from "./_responses";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -117,6 +116,17 @@ describe("calendar token routes", () => {
     expect(download.status).toBe(404);
     await expect(feed.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
     await expect(download.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+  });
+
+  it("returns 404 for a malformed session UUID without querying", async () => {
+    const verify = vi.fn(async () => null);
+    const response = await calendarDownloadResponse("valid-looking-token", "not-a-uuid", {
+      dbOrTx: tx,
+      env,
+      verify,
+    });
+    expect(response.status).toBe(404);
+    expect(verify).not.toHaveBeenCalled();
   });
 
   it("returns a valid empty VCALENDAR for a speaker with no published sessions", async () => {
