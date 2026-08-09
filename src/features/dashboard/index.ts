@@ -1,7 +1,7 @@
 import type { EventId, SubmissionStatus } from "@/shared/contracts";
 
 export type DashboardOverview = {
-  event: { id: string; name: string; timezone: string; startsAt: string; daysToEvent: number };
+  event: { id: string; slug: string; name: string; timezone: string; startsAt: string; daysToEvent: number };
   kpis: { submissions: number; acceptedSpeakers: number; scheduledSessions: number; unscheduledAccepted: number };
   statusCounts: Record<SubmissionStatus, number>;
   speakerTracking: {

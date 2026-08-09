@@ -27,6 +27,7 @@ const isoDateTimeSchema = z.string().refine((value) => !Number.isNaN(Date.parse(
 const rawOverviewSchema = z.object({
   event: z.object({
     id: eventIdSchema,
+    slug: z.string().min(1),
     name: z.string(),
     timezone: z.string(),
     startsAt: isoDateTimeSchema,

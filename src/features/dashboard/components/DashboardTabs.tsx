@@ -12,16 +12,16 @@ import { TodayPanel } from "./TodayPanel";
 
 export type DashboardTab = "today" | "speakers";
 
-export function DashboardTabs(props: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string }) {
+export function DashboardTabs(props: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
   const [client] = useState(() => new QueryClient());
   return <QueryClientProvider client={client}><DashboardTabsInner {...props} /></QueryClientProvider>;
 }
 
-function DashboardTabsInner({ eventId, initialData, initialTab, firstName }: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string }) {
-  const query = useDashboardOverview(eventId, initialData);
+function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live = true }: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
+  const query = useDashboardOverview(eventId, initialData, live);
   const overview = query.data;
   return <main className="dashboard-page dashboard-live">
-    <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : "Updates every 30 seconds"}</div></header>
+    <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
     {query.isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={() => void query.refetch()}><RefreshCw size={14} /> Retry</button></div>}
     <nav className="dashboard-tabs" aria-label="Dashboard sections">
       <Link className={initialTab === "speakers" ? "active" : ""} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>

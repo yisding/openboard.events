@@ -78,6 +78,7 @@ describe("dashboard overview", () => {
     expect(Object.keys(overview.statusCounts)).toEqual(SUBMISSION_STATUSES);
     const allStatuses = Object.values(overview.statusCounts).reduce((sum, count) => sum + count, 0);
     expect(overview.kpis.submissions).toBe(allStatuses - overview.statusCounts.draft);
+    expect(overview.event.slug).toBe("dashboard-conf");
     expect(overview.event.daysToEvent).toBe(38);
     expect(overview.recentSubmissions[0]).toMatchObject({ code: "SESS-102", speakers: ["Ada Lovelace"], tags: ["AI safety"] });
   });

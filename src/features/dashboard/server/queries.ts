@@ -228,6 +228,7 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
     SELECT jsonb_build_object(
       'event', jsonb_build_object(
         'id', ev.id,
+        'slug', ev.slug,
         'name', ev.name,
         'timezone', ev.timezone,
         'startsAt', ev.starts_at

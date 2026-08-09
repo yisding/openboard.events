@@ -14,14 +14,14 @@ function closesLabel(closesAt: string | null, timezone: string): string {
   return `Closes in ${days} days`;
 }
 
-export function FormProgressCards({ eventId, timezone, forms }: { eventId: string; timezone: string; forms: DashboardOverview["forms"] }) {
+export function FormProgressCards({ eventId, eventSlug, timezone, forms }: { eventId: string; eventSlug: string; timezone: string; forms: DashboardOverview["forms"] }) {
   if (forms.length === 0) return <DashboardEmpty icon={<FilePlus2 size={22} />} title="No submission forms yet" hint="Create one in Program → Forms." />;
   return <section className="dashboard-widget dashboard-form-progress">
     <WidgetTitle title="Form progress" hint="Submitted totals exclude drafts" action={<Link href={`/events/${eventId}/forms`}>View all</Link>} />
     <div>{forms.map((form) => <article key={form.formId}>
       <header><div><b>{form.name}</b><span>{closesLabel(form.closesAt, timezone)}</span></div><StatusBadge value={form.status} /></header>
       <dl><div><dt>Submitted</dt><dd>{form.submitted}</dd></div><div><dt>Drafts</dt><dd>{form.drafts}</dd></div></dl>
-      <footer><Link className="button button-secondary button-sm" href={`/submit/${eventId}/${form.formId}`}>View</Link><Link className="button button-primary button-sm" href={`/events/${eventId}/forms/${form.formId}`}>Manage</Link></footer>
+      <footer><Link className="button button-secondary button-sm" href={`/submit/${eventSlug}/${form.formId}`}>View</Link><Link className="button button-primary button-sm" href={`/events/${eventId}/forms/${form.formId}`}>Manage</Link></footer>
     </article>)}</div>
   </section>;
 }
