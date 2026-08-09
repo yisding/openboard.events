@@ -1,8 +1,8 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { calendarInvites, contacts, events, rooms, sessions, sessionSpeakers, tracks } from "@/db/schema";
 import { issuePortalToken } from "@/features/auth";
-import { buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl, type IcsEvent } from "@/features/comms/ics";
+import { buildFeed, buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl, type IcsEvent } from "@/features/comms/ics";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
@@ -180,4 +180,113 @@ export async function prepareInviteIn(
 
 export async function prepareInvite(row: InviteRow): Promise<PreparedInvite | null> {
   return prepareInviteIn(db, row, getEnv());
+}
+
+export type CalendarTokenIdentity = { contactId: string; eventId: string };
+
+async function calendarIdentity(dbOrTx: DbOrTx, identity: CalendarTokenIdentity) {
+  const [record] = await dbOrTx.select({
+    eventName: events.name,
+    eventSlug: events.slug,
+    eventLocation: events.location,
+    firstName: contacts.firstName,
+    lastName: contacts.lastName,
+    email: contacts.email,
+  }).from(events)
+    .innerJoin(contacts, and(eq(contacts.eventId, events.id), eq(contacts.id, identity.contactId)))
+    .where(eq(events.id, identity.eventId))
+    .limit(1);
+  return record ?? null;
+}
+
+async function calendarSessions(dbOrTx: DbOrTx, identity: CalendarTokenIdentity, sessionId?: string) {
+  const filters: SQL[] = [
+    eq(sessions.eventId, identity.eventId),
+    eq(sessions.status, "published"),
+    isNotNull(sessions.startsAt),
+    isNotNull(sessions.endsAt),
+    ...(sessionId ? [eq(sessions.id, sessionId)] : []),
+  ];
+  return dbOrTx.select({
+    id: sessions.id,
+    title: sessions.title,
+    descriptionHtml: sessions.descriptionHtml,
+    startsAt: sessions.startsAt,
+    endsAt: sessions.endsAt,
+    updatedAt: sessions.updatedAt,
+    scheduleRevision: sessions.scheduleRevision,
+    room: rooms.name,
+    inviteUid: calendarInvites.icsUid,
+    inviteSequence: calendarInvites.sequence,
+    organizerEmail: calendarInvites.organizerEmail,
+  }).from(sessions)
+    .innerJoin(sessionSpeakers, and(
+      eq(sessionSpeakers.eventId, sessions.eventId),
+      eq(sessionSpeakers.sessionId, sessions.id),
+      eq(sessionSpeakers.contactId, identity.contactId),
+    ))
+    .leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
+    .leftJoin(calendarInvites, and(
+      eq(calendarInvites.eventId, sessions.eventId),
+      eq(calendarInvites.sessionId, sessions.id),
+      eq(calendarInvites.contactId, identity.contactId),
+    ))
+    .where(and(...filters))
+    .orderBy(asc(sessions.startsAt), asc(sessions.id));
+}
+
+type CalendarSession = Awaited<ReturnType<typeof calendarSessions>>[number];
+type IdentityRecord = NonNullable<Awaited<ReturnType<typeof calendarIdentity>>>;
+
+function feedEvent(
+  session: CalendarSession,
+  identity: CalendarTokenIdentity,
+  event: IdentityRecord,
+  env: RuntimeEnv,
+): IcsEvent | null {
+  if (!session.startsAt || !session.endsAt) return null;
+  const organizerEmail = session.organizerEmail ?? senderAddress(env);
+  const portalUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(event.eventSlug)}`;
+  return {
+    uid: session.inviteUid ?? icsUid(session.id, identity.contactId, senderDomain(organizerEmail)),
+    sequence: session.inviteSequence ?? session.scheduleRevision,
+    method: null,
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    dtstamp: session.updatedAt,
+    summary: session.title,
+    description: [stripHtml(session.descriptionHtml ?? ""), portalUrl].filter(Boolean).join("\n\n"),
+    location: [session.room, event.eventLocation].filter(Boolean).join(" · "),
+    url: `${env.APP_BASE_URL}/e/${encodeURIComponent(event.eventSlug)}/schedule?session=${encodeURIComponent(session.id)}`,
+    organizer: { name: event.eventName, email: organizerEmail },
+  };
+}
+
+export async function buildCalendarFeedIn(
+  dbOrTx: DbOrTx,
+  identity: CalendarTokenIdentity,
+  env: RuntimeEnv,
+): Promise<string | null> {
+  const event = await calendarIdentity(dbOrTx, identity);
+  if (!event) return null;
+  const sessionsForSpeaker = await calendarSessions(dbOrTx, identity);
+  const calendarEvents = sessionsForSpeaker
+    .map((session) => feedEvent(session, identity, event, env))
+    .filter((session): session is IcsEvent => session !== null);
+  const speakerName = `${event.firstName} ${event.lastName}`.trim() || event.email;
+  return buildFeed(`${event.eventName} — ${speakerName}`, calendarEvents);
+}
+
+export async function buildCalendarDownloadIn(
+  dbOrTx: DbOrTx,
+  identity: CalendarTokenIdentity,
+  sessionId: string,
+  env: RuntimeEnv,
+): Promise<string | null> {
+  const event = await calendarIdentity(dbOrTx, identity);
+  if (!event) return null;
+  const [session] = await calendarSessions(dbOrTx, identity, sessionId);
+  if (!session) return null;
+  const calendarEvent = feedEvent(session, identity, event, env);
+  return calendarEvent ? buildInvite(calendarEvent) : null;
 }
