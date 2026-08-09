@@ -26,6 +26,7 @@
 
 - The local demo uses a typed, persisted browser store when external services are absent. Production adapters remain isolated behind server interfaces.
 - Admin authentication uses the Workers-safe jose/Web Crypto fallback until a deployed better-auth round-trip can be proven; downstream features remain isolated behind the frozen auth barrel.
+- M06b used its documented contingency grant to add only `features/portal/server/contacts.ts` and its barrel because M21's canonical contact helpers had not landed; ownership returns to the portal module after this stack merges.
 
 ## Discord clarifications
 

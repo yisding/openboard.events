@@ -1,0 +1,224 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { and, count, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
+import { getOrCreateContact } from "@/features/portal";
+import type { ContactId, EventId, UserId } from "@/shared/contracts";
+import { eventIdSchema, idem } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
+import { getEnv } from "@/shared/lib/env";
+import { enqueueEmail } from "@/shared/server/enqueue-email";
+import { getAdminSession, requireAdmin } from "./admin";
+import { PORTAL_COOKIE_PREFIX } from "../cookies";
+import { randomBytes, sha256, toBase64Url } from "./crypto";
+import { sealPortalLoginPayload } from "./secret-payload";
+import { consumeToken, issuePortalToken } from "./tokens";
+
+const PORTAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
+const TEST_EVENT_ID = eventIdSchema.parse("00000000-0000-4000-8000-000000000010");
+const TEST_CONTACT_ID = "00000000-0000-4000-8000-000000000011" as ContactId;
+
+export type PortalSession = {
+  contactId: ContactId;
+  eventId: EventId;
+  email: string;
+  impersonatedByUserId: UserId | null;
+};
+
+export type PortalLoginRequestResult = {
+  message: string;
+  fallback?: { otp: string; magicLink: string };
+};
+
+export function portalCookieName(eventId: EventId): string {
+  return `${PORTAL_COOKIE_PREFIX}${eventId}`;
+}
+
+function portalCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: getEnv().APP_ENV !== "local",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: PORTAL_SESSION_SECONDS,
+  };
+}
+
+async function resolveEvent(dbOrTx: DbOrTx, eventSlug: string): Promise<{ id: EventId; slug: string }> {
+  const [event] = await dbOrTx.select({ id: events.id, slug: events.slug }).from(events).where(eq(events.slug, eventSlug)).limit(1);
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+  return { id: event.id as EventId, slug: event.slug };
+}
+
+async function createPortalSessionRow(dbOrTx: DbOrTx, contactId: ContactId, eventId: EventId, impersonatedByUserId: UserId | null) {
+  const raw = toBase64Url(randomBytes(32));
+  const expiresAt = new Date(Date.now() + PORTAL_SESSION_SECONDS * 1_000);
+  await dbOrTx.insert(portalSessions).values({
+    contactId,
+    eventId,
+    tokenHash: await sha256(raw),
+    impersonatedByUserId,
+    expiresAt,
+  });
+  return { raw, expiresAt };
+}
+
+async function setPortalCookie(eventId: EventId, raw: string) {
+  (await cookies()).set(portalCookieName(eventId), raw, portalCookieOptions());
+}
+
+export async function requirePortalByEventId(eventId: EventId): Promise<PortalSession> {
+  if (getEnv().TEST_AUTH === "1") {
+    return { eventId, contactId: TEST_CONTACT_ID, email: "speaker@openboard.test", impersonatedByUserId: null };
+  }
+  const raw = (await cookies()).get(portalCookieName(eventId))?.value;
+  if (!raw) throw new AppError("UNAUTHORIZED", "Portal sign-in required");
+  const [session] = await db.select({
+    contactId: portalSessions.contactId,
+    eventId: portalSessions.eventId,
+    email: contacts.email,
+    impersonatedByUserId: portalSessions.impersonatedByUserId,
+  }).from(portalSessions)
+    .innerJoin(contacts, and(eq(contacts.id, portalSessions.contactId), eq(contacts.eventId, portalSessions.eventId)))
+    .where(and(
+      eq(portalSessions.eventId, eventId),
+      eq(portalSessions.tokenHash, await sha256(raw)),
+      gt(portalSessions.expiresAt, new Date()),
+    ))
+    .limit(1);
+  if (!session) throw new AppError("UNAUTHORIZED", "Portal session expired");
+  return {
+    contactId: session.contactId as ContactId,
+    eventId: session.eventId as EventId,
+    email: session.email,
+    impersonatedByUserId: session.impersonatedByUserId as UserId | null,
+  };
+}
+
+export async function requirePortal(eventSlug: string): Promise<PortalSession> {
+  if (getEnv().TEST_AUTH === "1") return requirePortalByEventId(TEST_EVENT_ID);
+  const event = await resolveEvent(db, eventSlug);
+  return requirePortalByEventId(event.id);
+}
+
+export async function ensurePortalSession(contactId: ContactId, eventId: EventId): Promise<void> {
+  const session = await createPortalSessionRow(db, contactId, eventId, null);
+  await setPortalCookie(eventId, session.raw);
+}
+
+export async function requestPortalLoginIn(tx: TxDb, args: {
+  eventId: EventId;
+  eventSlug: string;
+  email: string;
+  appBaseUrl: string;
+  sessionSecret: string;
+  fallback: boolean;
+}): Promise<PortalLoginRequestResult> {
+  const email = args.email.trim().toLowerCase();
+  const [existing] = await tx.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, email)))
+    .limit(1);
+  if (existing) {
+    const since = new Date(Date.now() - 10 * 60 * 1_000);
+    const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
+      eq(portalTokens.eventId, args.eventId),
+      eq(portalTokens.contactId, existing.id),
+      eq(portalTokens.purpose, "magic_link"),
+      isNotNull(portalTokens.otpHash),
+      gt(portalTokens.createdAt, since),
+    ));
+    if ((recent?.n ?? 0) >= 3) {
+      throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
+    }
+  }
+
+  const contactId = await getOrCreateContact(tx, args.eventId, email);
+  await tx.update(portalTokens).set({ consumedAt: new Date() }).where(and(
+    eq(portalTokens.eventId, args.eventId),
+    eq(portalTokens.contactId, contactId),
+    eq(portalTokens.purpose, "magic_link"),
+    isNotNull(portalTokens.otpHash),
+    isNull(portalTokens.consumedAt),
+  ));
+  const issued = await issuePortalToken(tx, { contactId, eventId: args.eventId, purpose: "magic_link", ttl: "PT15M", withOtp: true });
+  if (!issued.otp) throw new AppError("INTERNAL", "Portal OTP was not created");
+  const magicLink = `${args.appBaseUrl}/portal/${args.eventSlug}/verify?token=${encodeURIComponent(issued.raw)}`;
+  const secretPayloadCiphertext = await sealPortalLoginPayload(
+    { otp: issued.otp, magicLink },
+    { eventId: args.eventId, contactId, tokenId: issued.tokenId },
+    args.sessionSecret,
+  );
+  await enqueueEmail(tx, {
+    eventId: args.eventId,
+    contactId,
+    templateKey: "portal_login",
+    idempotencyKey: idem.portalLogin(args.eventId, contactId, issued.tokenId),
+    secretPayloadCiphertext,
+  });
+  return {
+    message: "If that address is on file, we've sent a code",
+    ...(args.fallback ? { fallback: { otp: issued.otp, magicLink } } : {}),
+  };
+}
+
+export async function requestPortalLogin(eventSlug: string, email: string): Promise<PortalLoginRequestResult> {
+  const event = await resolveEvent(db, eventSlug);
+  const env = getEnv();
+  if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for portal authentication");
+  return withTx((tx) => requestPortalLoginIn(tx, {
+    eventId: event.id,
+    eventSlug,
+    email,
+    appBaseUrl: env.APP_BASE_URL,
+    sessionSecret: env.SESSION_SECRET as string,
+    fallback: env.APP_ENV !== "production" && env.EMAIL_FALLBACK_UI === "1",
+  }));
+}
+
+export async function verifyPortalLogin(args: { eventSlug: string; raw?: string; code?: string; email?: string; impersonate?: boolean }): Promise<PortalSession> {
+  const event = await resolveEvent(db, args.eventSlug);
+  const admin = args.impersonate ? await getAdminSession() : null;
+  if (args.impersonate && !admin) throw new AppError("UNAUTHORIZED", "Admin sign-in required");
+  if (admin) await requireAdmin(event.id);
+  const result = await withTx(async (tx) => {
+    let contactId: ContactId | undefined;
+    if (args.code && args.email) {
+      const [contact] = await tx.select({ id: contacts.id }).from(contacts)
+        .where(and(eq(contacts.eventId, event.id), eq(contacts.email, args.email.trim().toLowerCase())))
+        .limit(1);
+      contactId = contact?.id as ContactId | undefined;
+    }
+    const purpose = args.impersonate ? "impersonation" as const : "magic_link" as const;
+    const consumed = await consumeToken(tx, { ...(args.raw ? { raw: args.raw } : {}), ...(args.code ? { code: args.code } : {}), ...(contactId ? { contactId } : {}) }, { eventId: event.id, purpose });
+    if (!consumed) throw new AppError("UNAUTHORIZED", "That code or link is invalid or expired");
+    const session = await createPortalSessionRow(tx, consumed.contactId, event.id, admin?.userId ?? null);
+    const [contact] = await tx.select({ email: contacts.email }).from(contacts)
+      .where(and(eq(contacts.id, consumed.contactId), eq(contacts.eventId, event.id)))
+      .limit(1);
+    if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
+    return { raw: session.raw, contactId: consumed.contactId, email: contact.email };
+  });
+  await setPortalCookie(event.id, result.raw);
+  return { contactId: result.contactId, eventId: event.id, email: result.email, impersonatedByUserId: admin?.userId ?? null };
+}
+
+export async function logoutPortal(eventSlug: string): Promise<void> {
+  const event = await resolveEvent(db, eventSlug);
+  const jar = await cookies();
+  const raw = jar.get(portalCookieName(event.id))?.value;
+  if (raw) await db.delete(portalSessions).where(and(eq(portalSessions.eventId, event.id), eq(portalSessions.tokenHash, await sha256(raw))));
+  jar.set(portalCookieName(event.id), "", { ...portalCookieOptions(), maxAge: 0 });
+}
+
+export async function startImpersonation(eventId: EventId, contactId: ContactId): Promise<void> {
+  redirect(await createImpersonationLink(eventId, contactId));
+}
+
+export async function createImpersonationLink(eventId: EventId, contactId: ContactId): Promise<string> {
+  await requireAdmin(eventId);
+  const [event] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+  const issued = await issuePortalToken(db, { contactId, eventId, purpose: "impersonation", ttl: "PT5M" });
+  return `/portal/${event.slug}/verify?token=${encodeURIComponent(issued.raw)}&impersonate=1`;
+}

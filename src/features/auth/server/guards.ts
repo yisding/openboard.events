@@ -7,6 +7,7 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { requireAdmin } from "./admin";
 import { safeEqual, sha256 } from "./crypto";
+import { requirePortalByEventId } from "./portal";
 
 export const adminAuth = (options?: { role?: "owner" | "organizer" | "reviewer" }): HandlerGuard => async (_request, eventId) => {
   if (!eventId) throw new AppError("VALIDATION", "eventId route parameter is required");
@@ -22,6 +23,12 @@ export const cronAuth = (): HandlerGuard => async (request) => {
 };
 
 export const publicAuth = (): HandlerGuard => async () => null;
+
+export const portalAuth = (): HandlerGuard => async (_request, eventId) => {
+  if (!eventId) throw new AppError("VALIDATION", "eventId route parameter is required");
+  const session = await requirePortalByEventId(eventId);
+  return { actorId: session.contactId, role: "portal" };
+};
 
 export const apiKeyAuth = (): HandlerGuard => async (request, eventId) => {
   if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
