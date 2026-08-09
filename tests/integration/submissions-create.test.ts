@@ -14,15 +14,24 @@ const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
 const closedForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000003");
 const speaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000004");
+const missingContact = contactIdSchema.parse("e0000000-0000-4000-8000-000000000005");
 
 let pglite: PGlite;
-let tx: TxDb;
+function createTestDb(client: PGlite) {
+  return drizzle(client, { schema });
+}
+let testDb: ReturnType<typeof createTestDb>;
 
 // withTx opens a WebSocket Pool against Neon; the seam under test is everything
-// inside it, so the suite runs the same body against PGlite.
+// inside it, so the suite runs the same body inside a real PGlite transaction.
 vi.mock("@/db/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db/client")>();
-  return { ...actual, withTx: async (work: (handle: TxDb) => Promise<unknown>) => work(tx) };
+  return {
+    ...actual,
+    withTx: async (work: (handle: TxDb) => Promise<unknown>) => testDb.transaction(
+      async (handle) => work(handle as unknown as TxDb),
+    ),
+  };
 });
 
 const { createSubmission, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
@@ -53,7 +62,7 @@ describe("createSubmission", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
-    tx = drizzle(pglite, { schema }) as unknown as TxDb;
+    testDb = createTestDb(pglite);
 
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at,submission_cap_per_user) VALUES($1,'Event','event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z',2)",
@@ -78,8 +87,13 @@ describe("createSubmission", () => {
   });
 
   it("allocates sequential codes with no gaps or duplicates", async () => {
-    const codes: number[] = [];
-    for (let index = 0; index < 10; index += 1) codes.push(await nextSubmissionCode(tx, eventId));
+    const codes = await testDb.transaction(async (handle) => {
+      const allocated: number[] = [];
+      for (let index = 0; index < 10; index += 1) {
+        allocated.push(await nextSubmissionCode(handle as unknown as TxDb, eventId));
+      }
+      return allocated;
+    });
     expect(new Set(codes).size).toBe(10);
     expect(codes).toEqual([...codes].sort((a, b) => a - b));
     expect((codes.at(-1) ?? 0) - (codes[0] ?? 0)).toBe(9);
@@ -111,14 +125,19 @@ describe("createSubmission", () => {
   });
 
   it("refuses once the per-user limit is used up, and drafts do not count", async () => {
-    // The event cap is 2; one submission already exists from the case above.
-    await upsertDraft(eventId, speaker, openForm, 1);
-    const second = await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
-    expect(second.promotedFromDraft).toBe(true);
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await createSubmission(eventId, cfpInput({ fields: { title: "First talk" } }));
+    await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
 
     const error = await createSubmission(eventId, cfpInput({ fields: { title: "Third talk" } }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("LIMIT_REACHED");
+    expect(await countRows("submissions", "status='pending'")).toBe(2);
+    expect(await countRows("submissions", "status='draft'")).toBe(1);
+    const rows = await pglite.query<{ status: string }>("SELECT status FROM submissions WHERE id=$1", [draft.submissionId]);
+    expect(rows.rows[0]?.status).toBe("draft");
   });
 
   it("promotes a draft in place, keeping the code the speaker was shown", async () => {
@@ -130,6 +149,35 @@ describe("createSubmission", () => {
     expect(submitted.submissionId).toBe(draft.submissionId);
     expect(submitted.code).toBe(draft.code);
     expect(await countRows("submissions")).toBe(1);
+  });
+
+  it("rejects an illegal draft promotion before the database trigger", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+
+    const error = await createSubmission(eventId, cfpInput({ initialStatus: "accepted" }))
+      .catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("STALE_STATUS");
+    const rows = await pglite.query<{ status: string; submitted_at: Date | null }>(
+      "SELECT status,submitted_at FROM submissions WHERE id=$1",
+      [draft.submissionId],
+    );
+    expect(rows.rows[0]).toEqual({ status: "draft", submitted_at: null });
+  });
+
+  it("rolls back a partially written submission", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const before = await pglite.query<{ submission_seq: number }>("SELECT submission_seq FROM events WHERE id=$1", [eventId]);
+
+    const error = await createSubmission(eventId, cfpInput({
+      participants: [{ contactId: missingContact, role: "speaker", isPrimary: true, sortOrder: 0 }],
+    })).catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(await countRows("submissions")).toBe(0);
+    const after = await pglite.query<{ submission_seq: number }>("SELECT submission_seq FROM events WHERE id=$1", [eventId]);
+    expect(after.rows[0]?.submission_seq).toBe(before.rows[0]?.submission_seq);
   });
 
   it("writes a manual row with no deadline, limit or confirmation", async () => {
@@ -153,11 +201,13 @@ describe("createSubmission", () => {
     await pglite.query("DELETE FROM communication_logs");
     await pglite.query("UPDATE forms SET send_confirmation=false WHERE id=$1", [openForm]);
 
-    await createSubmission(eventId, cfpInput());
-    // M14's toggle only works because the per-form flag decides here.
-    expect(await countRows("communication_logs")).toBe(0);
-
-    await pglite.query("UPDATE forms SET send_confirmation=true WHERE id=$1", [openForm]);
+    try {
+      await createSubmission(eventId, cfpInput());
+      // M14's toggle only works because the per-form flag decides here.
+      expect(await countRows("communication_logs")).toBe(0);
+    } finally {
+      await pglite.query("UPDATE forms SET send_confirmation=true WHERE id=$1", [openForm]);
+    }
   });
 
   it("is idempotent when the same submit is retried", async () => {

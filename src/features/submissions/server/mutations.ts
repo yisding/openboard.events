@@ -242,6 +242,9 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
     promotedFromDraft = true;
     submissionId = draft.id;
     code = Number(draft.code);
+    // Give callers the same stable AppError as every other lifecycle mutation;
+    // do not defer illegal draft jumps to the database trigger.
+    assertTransition("draft", status);
     await tx.update(submissions).set({
       ...columns,
       status,
