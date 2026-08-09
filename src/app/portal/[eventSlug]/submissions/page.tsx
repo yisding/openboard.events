@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { listMySubmissions, requirePortalContext } from "@/features/portal";
+import { FocusRefresh } from "@/features/portal/components/submissions-view/focus-refresh.client";
 import { SubmissionList } from "@/features/portal/components/submissions-view/submission-list";
 import { PortalSubmissions } from "@/features/portal/portal-submissions";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
@@ -17,6 +18,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   const rows = await listMySubmissions(event.id, contact.id);
   return (
     <div className="portal-container portal-page">
+      <FocusRefresh />
       <header className="portal-page-header">
         <span className="public-eyebrow">MY PROGRAM</span>
         <h1>My submissions</h1>
