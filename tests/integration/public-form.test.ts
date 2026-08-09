@@ -89,6 +89,17 @@ describe("getPublicForm", () => {
     await pglite.query("UPDATE forms SET submission_limit=2 WHERE id=$1", [cfpForm]);
   });
 
+  it("returns the opening timestamp needed by the not-open-yet page", async () => {
+    const opensAt = "2100-09-01T12:00:00.000Z";
+    await pglite.query("UPDATE forms SET opens_at=$1 WHERE id=$2", [opensAt, cfpForm]);
+
+    const result = await getPublicFormIn(db, "ai-engineer", cfpForm);
+    expect(result.form.opensAt).toBe(opensAt);
+    expect(result.openState).toEqual({ open: false, reason: "not_open_yet" });
+
+    await pglite.query("UPDATE forms SET opens_at=NULL WHERE id=$1", [cfpForm]);
+  });
+
   it("refuses a form from another event even with the right slug", async () => {
     const error = await getPublicFormIn(db, "ai-engineer", otherEventForm).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("NOT_FOUND");
@@ -123,6 +134,11 @@ describe("decideOpenState", () => {
     // One is a date to come back on; the other is an apology.
     expect(decideOpenState({ status: "open", opensAt: future, closesAt: null }, now).reason).toBe("not_open_yet");
     expect(decideOpenState({ status: "open", opensAt: null, closesAt: past }, now).reason).toBe("closed_by_date");
+  });
+
+  it("is closed at the exact closing instant", () => {
+    expect(decideOpenState({ status: "open", opensAt: null, closesAt: now }, now))
+      .toEqual({ open: false, reason: "closed_by_date" });
   });
 
   it("lets an admin close a form early, whatever its dates say", () => {

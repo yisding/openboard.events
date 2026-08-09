@@ -31,6 +31,7 @@ export type PublicForm = {
     participantRoles: unknown;
     successHtml: string | null;
     autoRedirectToPortal: boolean;
+    opensAt: string | null;
     closesAt: string | null;
     effectiveLimit: number;
   };
@@ -46,7 +47,7 @@ export function decideOpenState(
   // and telling a speaker to "come back on the 12th" would be a lie.
   if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
   if (form.opensAt && now < form.opensAt) return { open: false, reason: "not_open_yet" };
-  if (form.closesAt && now > form.closesAt) return { open: false, reason: "closed_by_date" };
+  if (form.closesAt && now >= form.closesAt) return { open: false, reason: "closed_by_date" };
   return { open: true, reason: "ok" };
 }
 
@@ -115,6 +116,7 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       participantRoles: form.participantRoles,
       successHtml: form.successHtml,
       autoRedirectToPortal: form.autoRedirectToPortal,
+      opensAt: form.opensAt ? form.opensAt.toISOString() : null,
       closesAt: form.closesAt ? form.closesAt.toISOString() : null,
       // The form's own limit wins; the event cap is the default it falls back to.
       effectiveLimit: form.submissionLimit ?? event.submissionCapPerUser,
