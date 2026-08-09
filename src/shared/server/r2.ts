@@ -330,8 +330,16 @@ export async function createUpload(input: CreateUploadInput): Promise<CreateUplo
     ...(input.uploadedByUserId ? { uploadedByUserId: input.uploadedByUserId } : {}),
     ...(input.uploadedByContactId ? { uploadedByContactId: input.uploadedByContactId } : {}),
   });
-  const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, { "content-type": input.mime });
-  return { fileId, uploadUrl, requiredHeaders: { "Content-Type": input.mime } };
+  // Bind both claims into SigV4. A browser owns the actual Content-Length
+  // header, but for a Blob/File body it emits the byte length automatically;
+  // signing it prevents a client from PUTting more bytes than were authorized.
+  const signedHeaders = { "content-type": input.mime, "content-length": String(input.sizeBytes) };
+  const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, signedHeaders);
+  return {
+    fileId,
+    uploadUrl,
+    requiredHeaders: { "Content-Type": input.mime, "Content-Length": String(input.sizeBytes) },
+  };
 }
 
 export type FinalizeResult = { status: "ready" } | { status: "rejected"; reason: string };
