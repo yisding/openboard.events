@@ -19,7 +19,6 @@
     "worker:size": "bash scripts/check-worker-size.sh",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "db:migrate": "drizzle-kit migrate",
-    "db:generate": "drizzle-kit generate",
     "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled --var APP_BASE_URL:http://localhost:3000",
     "deploy:web": "pnpm deploy:web:production",
     "deploy:web:preview": "bash scripts/deploy-cloudflare.sh web preview",

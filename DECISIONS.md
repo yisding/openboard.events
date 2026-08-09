@@ -58,3 +58,8 @@
 ## CP1 freeze record
 
 - Contracts, migration schema, feature barrels, version pair, and invariant rules freeze after the foundation PR is accepted.
+
+## Migration authorship
+
+- The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.
+- Migration generation is deliberately disabled until a complete Drizzle metadata baseline can reproduce those constraints without weakening them. The TypeScript schema remains available for query typing; schema changes are authored and reviewed directly in SQL meanwhile.

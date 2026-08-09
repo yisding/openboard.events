@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, sessionFormats, tags, tracks } from "./core";
 import { participantRoleEnum, submissionKindEnum, submissionSourceEnum, submissionStatusEnum } from "./enums";
@@ -31,9 +31,12 @@ export const submissionParticipants = pgTable("submission_participants", {
 
 export const submissionAnswers = pgTable("submission_answers", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), submissionId: uuid("submission_id").notNull().references(() => submissions.id, { onDelete: "cascade" }),
-  fieldId: uuid("field_id").notNull().references(() => formFields.id), participantId: uuid("participant_id").references(() => submissionParticipants.id, { onDelete: "cascade" }),
+  fieldId: uuid("field_id").notNull(), participantId: uuid("participant_id").references(() => submissionParticipants.id, { onDelete: "cascade" }),
   value: jsonb("value").notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [unique().on(table.id, table.eventId)]);
+}, (table) => [
+  unique().on(table.id, table.eventId),
+  foreignKey({ columns: [table.fieldId, table.eventId], foreignColumns: [formFields.id, formFields.eventId] }),
+]);
 
 export const submissionTags = pgTable("submission_tags", {
   eventId: uuid("event_id").notNull(), submissionId: uuid("submission_id").notNull().references(() => submissions.id, { onDelete: "cascade" }),

@@ -80,6 +80,34 @@ describe("database invariants", () => {
     await expect(db.query("INSERT INTO submissions(event_id,code,status,source,track_id) VALUES($1,1,'draft','manual',$2)", [eventA, trackB])).rejects.toMatchObject({ code: "23503" });
   });
 
+  it("rejects an answer that points at a field from another event", async () => {
+    const eventA = "41000000-0000-4000-8000-000000000001";
+    const eventB = "41000000-0000-4000-8000-000000000002";
+    const formB = "41000000-0000-4000-8000-000000000003";
+    const sectionB = "41000000-0000-4000-8000-000000000004";
+    const fieldB = "41000000-0000-4000-8000-000000000005";
+    const submissionA = "41000000-0000-4000-8000-000000000006";
+    await insertEvent(eventA, "answer-event-a");
+    await insertEvent(eventB, "answer-event-b");
+    await db.query("INSERT INTO forms(id,event_id,context,internal_name) VALUES($1,$2,'cfp','Other form')", [formB, eventB]);
+    await db.query("INSERT INTO form_sections(id,event_id,form_id,key) VALUES($1,$2,$3,'abstract')", [sectionB, eventB, formB]);
+    await db.query("INSERT INTO form_fields(id,event_id,form_id,section_id,key,label,field_type) VALUES($1,$2,$3,$4,'title','Title','text')", [fieldB, eventB, formB, sectionB]);
+    await db.query("INSERT INTO submissions(id,event_id,code,status,source) VALUES($1,$2,1,'draft','manual')", [submissionA, eventA]);
+    await expect(db.query(
+      "INSERT INTO submission_answers(event_id,submission_id,field_id,value) VALUES($1,$2,$3,'{\"t\":\"s\",\"v\":\"cross tenant\"}')",
+      [eventA, submissionA, fieldB],
+    )).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("exposes JavaScript numbers from aggregate views", async () => {
+    const eventId = "42000000-0000-4000-8000-000000000001";
+    await insertEvent(eventId, "numeric-views");
+    await db.query("INSERT INTO submissions(event_id,code,status,source) VALUES($1,1,'pending','manual')", [eventId]);
+    const result = await db.query<{ n: number }>("SELECT n FROM submission_status_counts_v WHERE event_id=$1", [eventId]);
+    expect(result.rows[0]?.n).toBe(1);
+    expect(typeof result.rows[0]?.n).toBe("number");
+  });
+
   it("enforces NULLS NOT DISTINCT answer uniqueness", async () => {
     const eventId = "50000000-0000-4000-8000-000000000001";
     const formId = "50000000-0000-4000-8000-000000000002";
