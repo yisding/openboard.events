@@ -54,12 +54,17 @@ async function downscale(file: File, maxEdge: number): Promise<File> {
   return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
 }
 
-async function postJson(path: string, body: unknown): Promise<{ ok: boolean; data?: Record<string, unknown>; message: string }> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+export async function postJson(path: string, body: unknown): Promise<{ ok: boolean; data?: Record<string, unknown>; message: string }> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, message: "The server could not be reached — check your connection and retry" };
+  }
   const payload = await response.json().catch(() => null) as { data?: Record<string, unknown>; error?: { message?: string } } | null;
   if (!response.ok || !payload?.data) {
     return { ok: false, message: payload?.error?.message ?? "Something went wrong" };

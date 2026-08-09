@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -48,13 +49,13 @@ export function RichTextEditor({
       }),
       Underline,
       Link.configure({ openOnClick: false, autolink: false, protocols: ["http", "https", "mailto"] }),
+      ...(placeholder ? [Placeholder.configure({ placeholder })] : []),
     ],
     content: value,
     editorProps: {
       attributes: {
         class: "rich-text-editor__surface",
         "aria-label": ariaLabel,
-        ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
     },
     onUpdate: ({ editor: instance }) => onChange(sanitize(instance.getHTML())),
