@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN REVIEW — **PR-OPEN** in [PR #12](https://github.com/yisding/symmetrical-happiness/pull/12): single-use hashed magic-link/OTP tokens with attempt limits, AES-GCM-encrypted `portal_login` delivery payloads, durable portal sessions, impersonation, cookie middleware, and issuance throttling serialized under a contact row lock. Used the documented contingency grant to create `features/portal/server/contacts.ts` with exactly `getOrCreateContact`/`updateContactFields`; **ownership returns to [M21](./M21-portal-shell.md) when the stack merges**. Blocking: the portal shell must bind to the authenticated contact rather than fixture/localStorage state, and no `portal_login` mail has been delivered or logged through M34. See [`../status.md`](../status.md) §2a. |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Sat PM. Does **not** gate CP1; blocks [M15](./M15-public-cfp-wizard.md)'s Account step (needed by Sun AM), [M21](./M21-portal-shell.md), [M27](./M27-speakers-admin.md), and (dashed) [M34](./M34-comms-outbox-dispatcher.md)/[M35](./M35-ics-calendar-invites.md) |
 | **Size** | M–L |

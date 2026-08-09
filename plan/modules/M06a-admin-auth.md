@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN REVIEW — **PR-OPEN** in [PR #11](https://github.com/yisding/symmetrical-happiness/pull/11): jose HS256 session cookies, Web Crypto PBKDF2 verification, `requireAdmin(eventId, role?)`, admin/API-key/cron/public guard factories, middleware redirects, a sign-in attempt throttle, and `pnpm admin:bootstrap`. S4 had no credential-backed deployed verdict, so the pre-decided Workers-safe fallback was adopted and recorded in `DECISIONS.md`. Blocking: the `admin_login_attempts` migration must move out of the already-applied `0000_init.sql`, reviewers must not reach organizer routes, and the deployed auth round-trip is still unproven. See [`../status.md`](../status.md) §2a. |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Sat AM — gates CP1 (Sat noon); every admin surface unblocks on it |
 | **Size** | M |

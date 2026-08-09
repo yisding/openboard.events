@@ -4,7 +4,7 @@
 
 This folder is the execution surface for the build. It contains one **work order per module** plus the schedule that says who runs what, when.
 
-> **Current rebaseline:** PR #3 is merged, but the audit through stacked PR #5 found no `DONE` modules and no deployed/server-backed golden path. Read [`status.md`](status.md) before claiming work. Its R0–R4 gates are the active queue; the original wave table remains the dependency choreography.
+> **Current rebaseline (rev. 5, Sun Aug 9):** R0 has exited and **R1 is the active gate**. PRs #6–#9 are merged and the preview Cloudflare/Neon/R2 estate is provisioned, but the database, admin-auth, and portal-auth foundation exists only on the open #10 → #11 → #12 stack, so there are still no `DONE` modules and no server-backed golden path. Read [`status.md`](status.md) before claiming work — §2a lists the review findings currently blocking that stack. The original wave table remains the dependency choreography.
 
 ## Authority order (read this before you argue with anything)
 
@@ -54,7 +54,9 @@ If you must abandon a module mid-flight (swarm call, cut line fired), set it bac
 
 **One module at a time per agent.** Pick up the next only when the current one is `IN REVIEW` or `DONE`.
 
-After the rev. 4 rebaseline, a status may carry one evidence label from `status.md` (`MERGED-PARTIAL`, `STACK-DEMO`, `SERVER-GAP`, `REVIEW-BLOCKED`). The label explains partial progress; it never weakens the four-state protocol.
+After the rev. 4 rebaseline, a status may carry one evidence label from `status.md` (`MERGED-PARTIAL`, `STACK-DEMO`, `SERVER-GAP`, `REVIEW-BLOCKED`, and — added in rev. 5 — `PR-OPEN`). The label explains partial progress; it never weakens the four-state protocol.
+
+`PR-OPEN` marks a module whose implementation exists only on an unmerged branch. It pairs with `IN REVIEW` and is the label that keeps step 4's dependency rule honest: **a `PR-OPEN` module is not a satisfied hard dependency.** It does not soften step 1 — a solid edge into a `PR-OPEN` module still blocks the claim, exactly as `NOT STARTED` would. Only a *dashed* dependency lets you start against a stub or fixture, and that was already true. What you may do while you wait is pure preparatory work that claims nothing: contract-level tests, fixtures, and design notes. Never branch feature work off an open `agent/*` branch — it will be rebased or amended under you during review.
 
 The rebaseline's 34 `IN PROGRESS` headers are a one-time audit of partial code already spread across the PR stack, not 34 active assignments. New work still obeys one active module per agent; the chosen recovery module should name its current owner/evidence while untouched partial modules retain their audit note.
 

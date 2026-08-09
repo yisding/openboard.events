@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** operator evaluation and 14 tests exist; visibility traversal, hidden-answer stripping, routing, golden fixture, and 40+ test AC remain open. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED**, AC sign-off pending. PR #9 completed the operator set, visibility traversal, hidden-answer stripping, and routing against the golden fixture. Confirm the 40+ test contract count before claiming `DONE`. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B2 (public runtime)**. Matches the catalog (PLAN §4 WS-B; §6 "B2: M13a (Fri night) → …"). This is the one module B2 writes inside `src/shared/lib/` — a **declared temporary cross-folder grant** (same pattern as WS-D owning `shared/server/r2.ts`): the three files below belong to B2, everything else in `shared/lib` stays with the architect (M04). |
 | **Scheduled** | **Fri night (Phase 0)**, against the M02 contracts *draft*. It is the first WS-B artifact and gates nothing upstream, so it can start before the schema exists. |
 | **Size** | S–M (~2–4 h) |

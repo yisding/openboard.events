@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL** guarded no-op routes, job contracts, dispatcher, canonical preview/production config, and exact-URL deploy commands exist. Remaining: deployed worker→web proof, per-environment secrets on both workers, tail evidence, and AC-gated stub swaps. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL**. The deployed worker→web proof now exists: a preview jobs tick reached `sb-web-preview` and its authenticated `outbox` request returned HTTP 200 with `{ ok: true, stats: { noop: 1 } }` in 1 ms CPU, after `global_fetch_strictly_public` resolved Cloudflare error 1042. Remaining: production `CRON_SECRET` on both Workers, tail evidence, and AC-gated stub swaps. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API). **Executor differs from the catalog's WS-A origin** — M08 was moved from the architect to WS-F (PLAN §4 note and §6 WS-F order). Zero app imports in `workers/jobs/`. |
 | **Scheduled** | **Sat AM** — the first thing WS-F builds, before M34 (PLAN §6 WS-F order, §7 Sat AM). |
 | **Size** | S (≈2h) |
