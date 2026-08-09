@@ -127,7 +127,7 @@ Ordered remaining work:
 
 1. Clear the §2a review queue, starting with #11's login-attempts migration — it is the one finding that silently breaks a deployed sign-in.
 2. Merge #10 → #11 → #12 in order, retargeting each as its base lands.
-3. Apply the migrations to `sb-prod` through the guarded production deployment step; keep `drizzle/` additive-only now that `0000_init.sql` is applied.
+3. Keep `drizzle/` additive-only now that `0000_init.sql` is journaled and applied. Every new migration — starting with #11's `admin_login_attempts` fix — runs on the disposable branch first, then `sb-dev` **and** `sb-test`, before `sb-prod` goes through the guarded production deployment step. `pnpm db:migrate` applies pending journal entries to whichever database `DATABASE_URL` points at, and the deploy workflow only ever migrates the environment it is deploying (preview → `sb-test`, production → `sb-prod`), so **`sb-dev` is nobody's job unless someone runs it**. A stale `sb-dev` silently breaks the auth and seed work that develops against it.
 4. Finish M05a's remaining primitives and wire the `(admin)` route group to merged auth.
 5. Land M07 (R2 presign/finalize/`/f/[fileId]`) against the already-created buckets, and M09's database seed orchestrator with judge credentials.
 6. Land M10's CP1 slice: `playwright.config.ts`, shared helpers, and all six skeleton specs running with zero failures; unlanded feature steps remain explicitly skipped.
@@ -139,7 +139,7 @@ Ordered remaining work:
 ### R2 — Server-backed golden spine
 
 - Finish M05b before M12's rich-text integration; its prop-stub slice may land first, but the complete rich primitives remain part of this gate.
-- Finish M11–M18 and M34 against the now-frozen snapshot/evaluator contract from PR #9.
+- Finish M11–M18 and M34 against PR #9's snapshot/evaluator contract, which is merged and stable but **pending its CP1 freeze declaration** — until that declaration lands in `DECISIONS.md`, a contract change is still an architect call rather than a protocol violation.
 - Replace fixed OTP/localStorage submission and decision logging with auth, Neon transactions, deadline/limit enforcement, outbox enqueue, dispatcher delivery, and event-scoped reads.
 - Prove the thin slice first; then accept/notify with exactly one email and portal link.
 

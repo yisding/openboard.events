@@ -56,7 +56,7 @@ If you must abandon a module mid-flight (swarm call, cut line fired), set it bac
 
 After the rev. 4 rebaseline, a status may carry one evidence label from `status.md` (`MERGED-PARTIAL`, `STACK-DEMO`, `SERVER-GAP`, `REVIEW-BLOCKED`, and — added in rev. 5 — `PR-OPEN`). The label explains partial progress; it never weakens the four-state protocol.
 
-`PR-OPEN` marks a module whose implementation exists only on an unmerged branch. It pairs with `IN REVIEW` and is the label that keeps step 4's dependency rule honest: **a `PR-OPEN` module is not a satisfied hard dependency.** If your queue's next module depends on one, you build against contracts and fixtures, not against the open branch.
+`PR-OPEN` marks a module whose implementation exists only on an unmerged branch. It pairs with `IN REVIEW` and is the label that keeps step 4's dependency rule honest: **a `PR-OPEN` module is not a satisfied hard dependency.** It does not soften step 1 — a solid edge into a `PR-OPEN` module still blocks the claim, exactly as `NOT STARTED` would. Only a *dashed* dependency lets you start against a stub or fixture, and that was already true. What you may do while you wait is pure preparatory work that claims nothing: contract-level tests, fixtures, and design notes. Never branch feature work off an open `agent/*` branch — it will be rebased or amended under you during review.
 
 The rebaseline's 34 `IN PROGRESS` headers are a one-time audit of partial code already spread across the PR stack, not 34 active assignments. New work still obeys one active module per agent; the chosen recovery module should name its current owner/evidence while untouched partial modules retain their audit note.
 

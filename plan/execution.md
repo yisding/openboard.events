@@ -27,7 +27,7 @@ Run this recovery queue before resuming the original wave placements:
 | **R3 Judged loop** | Minimum M19, M21/M22/M23/M25, M28/M29/M32/M33, M35/M36/M38 slices | Full PLAN §9 minimum bar, including persisted reviewer scoring, works cold on the deployed URL |
 | **R4 Release proof** | Complete M10 after its R1 skeleton and perform P0-only hardening; bonuses only after exit | Six e2e specs, load/smoke/external probes, docs/spend, checklist, submission accepted |
 
-**Dependency caution (rev. 5):** M03, M04's server half, M06a, and M06b are `PR-OPEN` — implemented, but on unmerged branches. They are **not** satisfied hard dependencies. Lanes waiting on them build against PR #9's frozen contracts and fixtures until the stack lands; do not branch feature work off `agent/complete-*`.
+**Dependency caution (rev. 5):** M03, M04's server half, M06a, and M06b are `PR-OPEN` — implemented, but on unmerged branches. They are **not** satisfied hard dependencies, and a solid edge into one still blocks the downstream claim. A dashed edge behaves as it always has: start against the stub or fixture. Otherwise the wait is filled with pure preparatory work that claims no module — tests and fixtures against PR #9's merged contracts (stable, but pending the CP1 freeze declaration). Do not branch feature work off `agent/complete-*`.
 
 **Active swarm rule:** while an earlier recovery gate is red, later UI expansion and bonus work stop. M39 and M40 are paused; M30 uses manual scheduling as its cut-line fallback; M31/M37 polish cannot displace the minimum loop. Unsafe fixture APIs may be disabled rather than completed before R3.
 
