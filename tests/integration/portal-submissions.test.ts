@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { countMySubmissionsIn, getMySubmissionIn, listMySubmissionsIn } from "@/features/portal";
+import { countMySubmissionsIn, getMySubmissionIn, getMyTaskSummaryIn, listMySubmissionsIn } from "@/features/portal";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -136,6 +136,25 @@ describe("portal submission queries", () => {
     expect(await getMySubmissionIn(db, eventA, speaker, inOtherEvent)).toBeNull();
     expect(await getMySubmissionIn(db, eventB, speaker, inOtherEvent)).toBeNull();
     expect(await listMySubmissionsIn(db, eventB, speaker)).toEqual([]);
+  });
+
+  it("reads task counts from the view, and zero when there are no assignments", async () => {
+    // No assignments is zero, not an absent row the caller has to interpret.
+    expect(await getMyTaskSummaryIn(db, eventA, speaker)).toEqual({ open: 0, overdue: 0, done: 0 });
+
+    // accepted_speakers_v drives contact-targeted assignment, so an accepted
+    // submission plus an active task is what makes one appear.
+    const task = "c0000000-0000-4000-8000-000000000040";
+    await pglite.query(
+      "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,due_at) VALUES($1,$2,'Confirm details','contact','manual', now() - interval '2 days')",
+      [task, eventA],
+    );
+    const summary = await getMyTaskSummaryIn(db, eventA, speaker);
+    expect(summary.open).toBe(1);
+    expect(summary.overdue).toBe(1);
+    expect(summary.done).toBe(0);
+
+    await pglite.query("DELETE FROM portal_tasks WHERE id=$1", [task]);
   });
 
   it("returns nothing for a contact with no submissions", async () => {

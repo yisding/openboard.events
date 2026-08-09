@@ -217,3 +217,32 @@ export function getMySubmission(eventId: EventId, contactId: ContactId, submissi
 export function countMySubmissions(eventId: EventId, contactId: ContactId): Promise<number> {
   return countMySubmissionsIn(db, eventId, contactId);
 }
+
+export type PortalTaskSummary = { open: number; overdue: number; done: number };
+
+/**
+ * The Home page's task counts, read from `speaker_outstanding_v` rather than
+ * recomputed. That view is where the fan-out law lives — submission-targeted
+ * tasks assign to the primary contact once per accepted submission — and every
+ * consumer reading it identically is what keeps four surfaces agreeing on one
+ * number.
+ *
+ * No row means no assignments, which is zero, not an error.
+ */
+export async function getMyTaskSummaryIn(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId): Promise<PortalTaskSummary> {
+  const result = await dbOrTx.execute<{ open_count: number; overdue_count: number; done_count: number }>(sql`
+    SELECT open_count, overdue_count, done_count
+    FROM speaker_outstanding_v
+    WHERE event_id = ${eventId} AND contact_id = ${contactId}
+  `);
+  const row = (result.rows ?? [])[0];
+  return {
+    open: Number(row?.open_count ?? 0),
+    overdue: Number(row?.overdue_count ?? 0),
+    done: Number(row?.done_count ?? 0),
+  };
+}
+
+export function getMyTaskSummary(eventId: EventId, contactId: ContactId): Promise<PortalTaskSummary> {
+  return getMyTaskSummaryIn(db, eventId, contactId);
+}
