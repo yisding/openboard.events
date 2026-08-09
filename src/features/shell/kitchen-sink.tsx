@@ -149,7 +149,10 @@ export function KitchenSink() {
           ? "Someone else saved a newer version. Reload to see theirs — there is no force option, because you cannot see what you would overwrite."
           : "Nothing is actually deleted here; the dialog is the point."}
         confirmLabel="Delete row"
-        onConfirm={() => setConfirming(null)}
+        onConfirm={() => {
+          setConfirming(null);
+          if (confirming === "stale") window.location.reload();
+        }}
         onCancel={() => setConfirming(null)}
       />
     </main>

@@ -12,7 +12,8 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Dash } from "./dash";
 
 /**
  * The one table in the product. Building a second one is a review-blocker: six
@@ -58,17 +59,31 @@ export type DataTableProps<Row> = {
  * default comparator puts unreviewed submissions first on one click and last on
  * the other, so "sort by rating" never shows the best proposals.
  */
-export function nullsLast<TData>(rowA: TableRow<TData>, rowB: TableRow<TData>, columnId: string): number {
+export function nullsLast<TData>(
+  rowA: TableRow<TData>,
+  rowB: TableRow<TData>,
+  columnId: string,
+  descending = false,
+): number {
   const a = rowA.getValue(columnId);
   const b = rowB.getValue(columnId);
   const aEmpty = a === null || a === undefined || a === "";
   const bEmpty = b === null || b === undefined || b === "";
   if (aEmpty && bEmpty) return 0;
-  // The sign is flipped back by TanStack when the direction is descending, so
-  // returning a fixed order here would put empties first on one of the clicks.
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
+  // TanStack reverses the comparator for descending sorts. Pre-flip only the
+  // empty-value verdict so that its reversal still leaves empties at the end;
+  // populated values keep the normal direction reversal.
+  if (aEmpty) return descending ? -1 : 1;
+  if (bEmpty) return descending ? 1 : -1;
   return String(a).localeCompare(String(b), undefined, { numeric: true });
+}
+
+export function defaultRowId<Row>(row: Row, index: number): string {
+  if (typeof row === "object" && row !== null && "id" in row) {
+    const id = (row as { id?: unknown }).id;
+    if (id !== null && id !== undefined) return String(id);
+  }
+  return String(index);
 }
 
 function readVisibility(key: string | undefined): VisibilityState {
@@ -109,9 +124,27 @@ export function DataTable<Row>({
     window.localStorage.setItem(`openboard:columns:${columnVisibilityKey}`, JSON.stringify(columnVisibility));
   }, [columnVisibility, columnVisibilityKey]);
 
+  const directionAwareColumns = useMemo(
+    () => columns.map((column) => column.sortingFn === nullsLast
+      ? {
+          ...column,
+          sortingFn: (rowA: TableRow<Row>, rowB: TableRow<Row>, columnId: string) => nullsLast(
+            rowA,
+            rowB,
+            columnId,
+            sorting.some((entry) => entry.id === columnId && entry.desc),
+          ),
+        }
+      : column),
+    [columns, sorting],
+  );
+
   const table = useReactTable({
     data,
-    columns,
+    columns: directionAwareColumns,
+    defaultColumn: {
+      cell: ({ getValue }) => <Dash value={getValue()} />,
+    },
     state: { sorting, rowSelection, columnVisibility, pagination },
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
@@ -122,7 +155,7 @@ export function DataTable<Row>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    ...(getRowId ? { getRowId } : {}),
+    getRowId: getRowId ?? defaultRowId,
   });
 
   const pageCount = table.getPageCount();
@@ -134,14 +167,27 @@ export function DataTable<Row>({
     }
   }, [pageCount, pagination.pageIndex]);
 
+  const rows = table.getRowModel().rows;
+  // Page-local means hidden selections do not merely disappear from the count:
+  // changing page/filter discards their keys so returning cannot resurrect them.
+  useEffect(() => {
+    const visibleIds = new Set(rows.map((row) => row.id));
+    setRowSelection((current) => {
+      const visible = Object.fromEntries(Object.entries(current).filter(([id]) => visibleIds.has(id)));
+      return Object.keys(visible).length === Object.keys(current).length ? current : visible;
+    });
+  }, [rows]);
+
+  const selectedIds = useMemo(
+    () => new Set(Object.entries(rowSelection).filter(([, selected]) => selected).map(([id]) => id)),
+    [rowSelection],
+  );
   const selectedRows = useMemo(
-    () => table.getSelectedRowModel().rows.map((row) => row.original),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selection identity is what changed
-    [rowSelection, data],
+    () => rows.filter((row) => selectedIds.has(row.id)).map((row) => row.original),
+    [rows, selectedIds],
   );
   useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
 
-  const rows = table.getRowModel().rows;
   const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
@@ -225,7 +271,22 @@ export function DataTable<Row>({
                 <tr
                   key={row.id}
                   className={row.getIsSelected() ? "selected" : undefined}
-                  {...(onRowClick ? { onClick: () => onRowClick(row.original) } : {})}
+                  {...(onRowClick
+                    ? {
+                        onClick: () => onRowClick(row.original),
+                        tabIndex: 0,
+                        "aria-keyshortcuts": "Enter Space",
+                        onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                          // Interactive descendants own their keys; only a
+                          // directly focused row invokes the row action.
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        },
+                      }
+                    : {})}
                 >
                   {enableSelection && (
                     <td onClick={(event) => event.stopPropagation()}>

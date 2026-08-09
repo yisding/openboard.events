@@ -1,6 +1,13 @@
 import type { TimeStyle } from "@/shared/lib/time";
-import { formatInZone } from "@/shared/lib/time";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { Dash } from "./dash";
+
+export function formatTzTime(instant: Date | string | number, tz: string, style: TimeStyle): string {
+  const value = formatInZone(instant, tz, style);
+  const usesStyleShortcut = typeof style === "object"
+    && (style.dateStyle !== undefined || style.timeStyle !== undefined);
+  return usesStyleShortcut ? `${value} ${zoneAbbreviation(instant, tz)}` : value;
+}
 
 /**
  * Every rendered time in the product goes through here, and every rendered time
@@ -23,13 +30,13 @@ export function TzTime({
   secondary?: TimeStyle;
 }) {
   if (instant === null || instant === undefined || instant === "") return <Dash />;
-  const value = formatInZone(instant, tz, style);
+  const value = formatTzTime(instant, tz, style);
   const iso = new Date(instant).toISOString();
   if (!secondary) return <time dateTime={iso}>{value}</time>;
   return (
     <time className="table-date" dateTime={iso}>
       {value}
-      <small>{formatInZone(instant, tz, secondary)}</small>
+      <small>{formatTzTime(instant, tz, secondary)}</small>
     </time>
   );
 }
