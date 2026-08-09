@@ -6,6 +6,7 @@ import { fileAssets } from "@/db/schema";
 import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type MemberRole } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 
 /**
  * The only module in the repository allowed to touch the R2 binding or aws4fetch.
@@ -19,6 +20,7 @@ const MB = 1024 * 1024;
 const PRESIGN_PUT_SECONDS = 15 * 60;
 const DOWNLOAD_URL_SECONDS = 60 * 60;
 const MAX_FILENAME_LENGTH = 128;
+const COPY_TIMEOUT_MS = 20_000;
 
 /** Hard ceiling a file_requests row may never raise, only lower. */
 export const UPLOAD_MAX_SIZE_MB = 100;
@@ -94,12 +96,11 @@ export function resolvePolicy(kind: FileKind, override?: PolicyOverride): Resolv
   if (!override) throw new AppError("VALIDATION", "kind=upload requires the owning file request policy");
   const maxSizeMb = Math.min(UPLOAD_MAX_SIZE_MB, override.maxSizeMb);
   if (!(maxSizeMb > 0)) throw new AppError("VALIDATION", "file request size limit must be positive");
-  return {
-    maxBytes: maxSizeMb * MB,
-    mimes: null,
-    extensions: override.extensions.map(normalizeExtension).filter(Boolean),
-    access: "private",
-  };
+  const extensions = override.extensions.map(normalizeExtension).filter(Boolean);
+  // An empty allowlist is a misconfigured request, not "anything goes": say so
+  // rather than rejecting every upload with an empty list in the message.
+  if (extensions.length === 0) throw new AppError("VALIDATION", "this file request accepts no file types");
+  return { maxBytes: maxSizeMb * MB, mimes: null, extensions, access: "private" };
 }
 
 /**
@@ -150,7 +151,15 @@ export function sanitizeFilename(raw: string): string {
   if (printable.length <= MAX_FILENAME_LENGTH) return printable;
   const dot = printable.lastIndexOf(".");
   const extension = dot > 0 && printable.length - dot <= 17 ? printable.slice(dot) : "";
-  return `${printable.slice(0, MAX_FILENAME_LENGTH - extension.length)}${extension}`;
+  // Truncate by code point: a lone surrogate would later make encodeURIComponent
+  // throw while building the object URL, turning a long name into a 500.
+  const stem = [...printable.slice(0, printable.length - extension.length)];
+  let kept = "";
+  for (const character of stem) {
+    if (kept.length + character.length > MAX_FILENAME_LENGTH - extension.length) break;
+    kept += character;
+  }
+  return `${kept}${extension}`;
 }
 
 /** Keys are always server-generated; a client-supplied key is never accepted. */
@@ -268,6 +277,8 @@ async function copyObject(sourceKey: string, destinationKey: string): Promise<vo
   const response = await awsClient(config).fetch(objectUrl(config, destinationKey).toString(), {
     method: "PUT",
     headers: { "x-amz-copy-source": source },
+    // Finalize runs on the request path; a stalled copy must not hold it open.
+    signal: AbortSignal.timeout(COPY_TIMEOUT_MS),
   });
   const body = await response.text();
   if (!response.ok || body.includes("<Error")) {
@@ -326,13 +337,12 @@ export async function createUpload(input: CreateUploadInput): Promise<CreateUplo
 export type FinalizeResult = { status: "ready" } | { status: "rejected"; reason: string };
 
 async function purge(key: string, fileId: FileId): Promise<void> {
-  try {
-    await filesBucket().delete(key);
-  } finally {
-    // Leaving the row behind would let a caller that already holds the fileId
-    // point at nothing, so the row goes even if the object delete failed.
-    await db.delete(fileAssets).where(eq(fileAssets.id, fileId));
-  }
+  // The object delete is best effort — a failure here must not turn a rejection
+  // into a thrown error, because the caller is told to drop this fileId either way.
+  await filesBucket().delete(key).catch(() => undefined);
+  // Leaving the row behind would let a caller that already holds the fileId point
+  // at nothing.
+  await db.delete(fileAssets).where(eq(fileAssets.id, fileId));
 }
 
 /**
@@ -382,14 +392,22 @@ export async function finalizeUpload(fileId: string): Promise<FinalizeResult> {
   const stagingKey = asset.r2Key;
   const bucket = filesBucket();
   if (!(await bucket.head(stagingKey))) {
+    // A concurrent finalize publishes and then removes the staging object, so a
+    // missing one only means "never uploaded" while the row still points at it.
+    if (await isPublished(id, publishedKey)) return { status: "ready" };
     await purge(stagingKey, id);
     return { status: "rejected", reason: "the upload never reached storage" };
   }
-  await copyObject(stagingKey, publishedKey);
+  try {
+    await copyObject(stagingKey, publishedKey);
+  } catch (error) {
+    if (await isPublished(id, publishedKey)) return { status: "ready" };
+    throw error;
+  }
 
   const reason = await inspectPublished(publishedKey, { kind: asset.kind, mime: asset.mime, authorizedBytes: asset.sizeBytes });
   if (reason) {
-    await bucket.delete(publishedKey);
+    await bucket.delete(publishedKey).catch(() => undefined);
     await purge(stagingKey, id);
     return { status: "rejected", reason };
   }
@@ -399,6 +417,12 @@ export async function finalizeUpload(fileId: string): Promise<FinalizeResult> {
   // Best effort: a leftover staging object is storage debt, not a correctness bug.
   await bucket.delete(stagingKey).catch(() => undefined);
   return { status: "ready" };
+}
+
+/** Re-reads the row: the published key is the marker that finalize already ran. */
+async function isPublished(fileId: FileId, publishedKey: string): Promise<boolean> {
+  const [row] = await db.select({ r2Key: fileAssets.r2Key }).from(fileAssets).where(eq(fileAssets.id, fileId)).limit(1);
+  return row?.r2Key === publishedKey;
 }
 
 /** Returns a rejection reason, or null when the published object is acceptable. */
@@ -506,11 +530,22 @@ export async function readPublicFile(fileId: string): Promise<{ body: ReadableSt
 export async function getDownloadUrl(eventId: EventId, fileId: string, requester: FileRequester): Promise<string> {
   const id = fileIdSchema.parse(fileId);
   const [asset] = await db
-    .select({ r2Key: fileAssets.r2Key, uploadedByContactId: fileAssets.uploadedByContactId })
+    .select({
+      kind: fileAssets.kind,
+      filename: fileAssets.filename,
+      r2Key: fileAssets.r2Key,
+      uploadedByContactId: fileAssets.uploadedByContactId,
+    })
     .from(fileAssets)
     .where(sql`${fileAssets.id} = ${id} AND ${fileAssets.eventId} = ${eventId}`)
     .limit(1);
   if (!asset) throw new AppError("NOT_FOUND", "File not found");
+  // A row still on its staging key never passed finalize, so its bytes were never
+  // size-checked or sniffed. Handing out a URL for them would serve exactly what
+  // the module promises never to serve.
+  if (asset.r2Key !== buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename })) {
+    throw new AppError("NOT_FOUND", "File is not ready yet");
+  }
 
   const linkedContactIds = requester.kind === "contact" ? await linkedContacts(eventId, id) : [];
   if (!decideFileAccess({ uploadedByContactId: asset.uploadedByContactId, linkedContactIds, requester })) {
@@ -573,7 +608,13 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
   const keys = (deleted.rows ?? []).map((row) => row.r2_key);
   if (keys.length > 0) {
     const bucket = filesBucket();
-    await Promise.allSettled(keys.map((key) => bucket.delete(key)));
+    const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
+    // The row that held the key is already gone, so a failed delete can never be
+    // retried from the database — log the keys or the object is silently stranded.
+    const stranded = keys.filter((_key, index) => results[index]?.status === "rejected");
+    if (stranded.length > 0) {
+      log({ level: "warn", msg: "r2.cleanup.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
+    }
   }
   return { deleted: keys.length };
 }
