@@ -124,7 +124,16 @@ export const cleanAnswersSchema = z.array(z.object({
   fieldId: fieldIdSchema,
   participantId: z.string().nullable(),
   value: answerValueSchema,
-})).brand<"CleanAnswers">();
+})).superRefine((answers, context) => {
+  const seen = new Set<string>();
+  for (const [index, answer] of answers.entries()) {
+    const key = JSON.stringify([answer.fieldId, answer.participantId]);
+    if (seen.has(key)) {
+      context.addIssue({ code: "custom", path: [index], message: "duplicate answer for field and participant" });
+    }
+    seen.add(key);
+  }
+}).brand<"CleanAnswers">();
 export type CleanAnswers = z.infer<typeof cleanAnswersSchema>;
 
 export type FormAuthoringRows = {

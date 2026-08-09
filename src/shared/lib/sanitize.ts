@@ -55,8 +55,9 @@ export function isAllowedEmbedUrl(value: string): boolean {
 function removeUnsafeIframes(html: string): string {
   return html.replace(/<iframe\b([^>]*)>[\s\S]*?<\/iframe\s*>/gi, (full, attributes: string) => {
     if (/\bsrcdoc\s*=/i.test(attributes)) return "";
-    const match = /\bsrc\s*=\s*(["'])(.*?)\1/i.exec(attributes);
-    return match?.[2] && isAllowedEmbedUrl(match[2]) ? full : "";
+    const match = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i.exec(attributes);
+    const src = match?.[1] ?? match?.[2] ?? match?.[3];
+    return src && isAllowedEmbedUrl(src) ? full : "";
   });
 }
 
