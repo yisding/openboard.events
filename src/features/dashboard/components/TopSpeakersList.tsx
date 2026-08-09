@@ -9,7 +9,7 @@ export function TopSpeakersList({ eventId, rows }: { eventId: string; rows: Dash
     <WidgetTitle title="Top speakers by outstanding tasks" hint="Open assignments from the canonical task view" />
     <ol>{rows.map((row, index) => <li key={row.contactId}>
       <span className="dashboard-rank">{index + 1}</span>
-      <Link href={`/events/${eventId}/speakers/${row.contactId}`}><b>{row.name}</b><span>{row.overdueCount > 0 ? `${row.overdueCount} overdue` : "On time"}</span></Link>
+      <Link href={`/events/${eventId}/speakers?contactId=${encodeURIComponent(row.contactId)}`}><b>{row.name}</b><span>{row.overdueCount > 0 ? `${row.overdueCount} overdue` : "On time"}</span></Link>
       <div className="dashboard-bar" aria-hidden="true"><i style={{ width: `${(row.openCount / max) * 100}%` }} /></div>
       <strong>{row.openCount}</strong>
     </li>)}</ol>
