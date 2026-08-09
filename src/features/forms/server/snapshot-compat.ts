@@ -25,6 +25,7 @@ export function isStructurallyCompatible(rendered: FormSnapshot, current: FormSn
       continue;
     }
     if (before.type !== field.type) return false;
+    if (before.mapsTo !== field.mapsTo) return false;
     if (!before.required && field.required) return false;
     // Options the speaker could pick must still be pickable; new ones are fine.
     const options = new Set(field.options.map((option) => option.id));
