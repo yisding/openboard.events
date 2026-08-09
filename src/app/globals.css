@@ -516,3 +516,17 @@ input::placeholder, textarea::placeholder { color: #aba8b5; }
 .rich-text-editor__surface blockquote{margin:0 0 8px;padding-left:10px;border-left:2px solid var(--line);color:var(--muted)}
 .rich-text-editor__count{padding:5px 10px;border-top:1px solid var(--line);text-align:right;color:var(--muted);font-size:8px}
 .rich-text-editor__count.is-over{color:#b23b3b;font-weight:700}
+
+/* M21 server-backed submissions view. */
+.portal-submission__role{color:var(--purple);font-size:8px}
+.portal-submission-detail{display:grid;gap:20px;max-width:720px}
+.portal-submission-detail header{display:grid;gap:8px}
+.portal-submission-detail header h1{font-size:26px;line-height:1.25;letter-spacing:-.7px;margin:4px 0 0}
+.portal-submission-detail header p{margin:0;color:var(--muted);font-size:10px}
+.portal-back{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:9px}
+.portal-participants{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.portal-participants li{display:grid;gap:2px;padding:11px 12px;border:1px solid var(--line);border-radius:9px}
+.portal-participants b{font-size:10px}
+.portal-participants span{color:var(--muted);font-size:9px}
+.portal-participants em{font-style:normal;color:var(--purple);font-size:8px}
+.portal-note{color:var(--muted);font-size:9px}
