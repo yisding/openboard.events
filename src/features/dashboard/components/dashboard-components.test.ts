@@ -2,9 +2,13 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../fixtures";
+import { resolveDashboardTab, resolveLocalDashboardEventId } from "../lib/dashboard-tab";
+import { DEMO_EVENT_ID } from "@/shared/demo/seed";
 import { FormProgressCards } from "./FormProgressCards";
+import { OverdueList } from "./OverdueList";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
 import { TodayPanel } from "./TodayPanel";
+import { TopSpeakersList } from "./TopSpeakersList";
 
 Object.assign(globalThis, { React });
 
@@ -35,5 +39,34 @@ describe("dashboard components", () => {
     expect(html).toContain(`/submit/${FIXTURE_OVERVIEW.event.slug}/${formId}`);
     expect(html).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/forms/${formId}`);
     expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.id}/`);
+  });
+
+  it("routes speaker task rows through the implemented list drawer", () => {
+    const topHtml = renderToStaticMarkup(React.createElement(TopSpeakersList, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      rows: FIXTURE_OVERVIEW.speakerTracking.topByOutstanding,
+    }));
+    const overdueHtml = renderToStaticMarkup(React.createElement(OverdueList, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone: FIXTURE_OVERVIEW.event.timezone,
+      rows: FIXTURE_OVERVIEW.speakerTracking.overdue,
+    }));
+    const contactId = FIXTURE_OVERVIEW.speakerTracking.topByOutstanding[0]?.contactId;
+
+    expect(topHtml).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/speakers?contactId=${contactId}`);
+    expect(overdueHtml).toContain("/speakers?contactId=");
+    expect(`${topHtml}${overdueHtml}`).not.toContain(`/speakers/${contactId}`);
+  });
+
+  it("honors a valid requested dashboard tab and falls back otherwise", () => {
+    expect(resolveDashboardTab("today", "speakers")).toBe("today");
+    expect(resolveDashboardTab("speakers", "today")).toBe("speakers");
+    expect(resolveDashboardTab("unknown", "today")).toBe("today");
+  });
+
+  it("accepts the non-UUID seeded event only in the local dashboard resolver", () => {
+    expect(resolveLocalDashboardEventId(DEMO_EVENT_ID)).toBe(DEMO_EVENT_ID);
+    expect(resolveLocalDashboardEventId(FIXTURE_OVERVIEW.event.id)).toBe(FIXTURE_OVERVIEW.event.id);
+    expect(resolveLocalDashboardEventId("not-an-event")).toBeNull();
   });
 });

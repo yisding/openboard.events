@@ -11,7 +11,7 @@ export const DEMO_CAL_TOKENS: Record<string, string> = {
   tok_cal_nadia_8f21c4d7a6: DEMO_SPEAKER_ID,
 };
 
-const speakers: SpeakerRecord[] = [
+const speakers: SpeakerRecord[] = ([
   { id: "spk_nadia", eventId: DEMO_EVENT_ID, firstName: "Nadia", lastName: "Rahman", email: "nadia@vectorlab.ai", company: "VectorLab", title: "VP of AI", bio: "Nadia builds reliable AI systems for high-stakes environments. She leads applied research at VectorLab and is a frequent speaker on evaluation, observability, and human-centered AI.", location: "New York, NY", website: "https://vectorlab.ai", linkedin: "linkedin.com/in/nadiarahman", avatar: "NR", avatarColor: "#6958d7", confirmation: "confirmed", profileCompletion: 100, tags: ["Keynote", "AI systems"] },
   { id: "spk_alex", eventId: DEMO_EVENT_ID, firstName: "Alex", lastName: "Chen", email: "alex@latent.space", company: "Latent Space", title: "Founder", bio: "Alex explores the intersection of developer tools and foundation models.", location: "San Francisco, CA", website: "https://latent.space", linkedin: "linkedin.com/in/alexchen", avatar: "AC", avatarColor: "#2d8d79", confirmation: "confirmed", profileCompletion: 92, tags: ["Agents"] },
   { id: "spk_priya", eventId: DEMO_EVENT_ID, firstName: "Priya", lastName: "Shah", email: "priya@modelworks.com", company: "Modelworks", title: "Staff Engineer", bio: "Priya works on training infrastructure and model serving at global scale.", location: "Seattle, WA", website: "", linkedin: "linkedin.com/in/priyashah", avatar: "PS", avatarColor: "#db715a", confirmation: "confirmed", profileCompletion: 84, tags: ["Infrastructure"] },
@@ -24,7 +24,7 @@ const speakers: SpeakerRecord[] = [
   { id: "spk_theo", eventId: DEMO_EVENT_ID, firstName: "Theo", lastName: "Martin", email: "theo@craft.dev", company: "Craft", title: "Design Engineer", bio: "Theo prototypes new ways for humans to collaborate with AI.", location: "Paris, France", website: "https://theomartin.design", linkedin: "", avatar: "TM", avatarColor: "#b35f65", confirmation: "confirmed", profileCompletion: 100, tags: ["Design"] },
   { id: "spk_aisha", eventId: DEMO_EVENT_ID, firstName: "Aisha", lastName: "Bello", email: "aisha@signal.bio", company: "Signal Bio", title: "ML Director", bio: "Aisha leads scientific AI programs for drug discovery.", location: "Boston, MA", website: "", linkedin: "linkedin.com/in/aishabello", avatar: "AB", avatarColor: "#8c6bb1", confirmation: "confirmed", profileCompletion: 72, tags: ["Applied AI"] },
   { id: "spk_owen", eventId: DEMO_EVENT_ID, firstName: "Owen", lastName: "Brooks", email: "owen@relay.systems", company: "Relay Systems", title: "Co-founder", bio: "Owen builds multi-agent coordination infrastructure.", location: "Chicago, IL", website: "https://relay.systems", linkedin: "", avatar: "OB", avatarColor: "#347d87", confirmation: "declined", profileCompletion: 81, tags: ["Agents"] },
-];
+] satisfies SpeakerRecord[]).map((speaker) => ({ ...speaker, hasHeadshot: speaker.id !== "spk_marcus" && speaker.id !== "spk_mina" }));
 
 const submissionSeed: Array<[string, string, string, string, string, string]> = [
   ["sub_101", "SESS-101", "spk_nadia", "From Prototype to Production: Evaluating Agentic Systems", "AI Agents", "Talk · 30 min"],

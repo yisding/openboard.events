@@ -5,20 +5,36 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useDemo, speakerName } from "@/shared/demo/demo-provider";
 import { PORTAL_SPEAKER_KEY } from "./portal-context";
+import { matchesMissingAsset, type SpeakerMissingFilter } from "./speaker-deep-links";
 import type { SpeakerRecord } from "@/shared/demo/types";
 import { Avatar, Button, Drawer, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
-export function SpeakersPage({ eventId }: { eventId: string }) {
+export function SpeakersPage({
+  eventId,
+  initialContactId = null,
+  initialSpeaker = null,
+  missing = null,
+}: {
+  eventId: string;
+  initialContactId?: string | null;
+  initialSpeaker?: SpeakerRecord | null;
+  missing?: SpeakerMissingFilter | null;
+}) {
   const { state, dispatch } = useDemo();
   const { toast } = useToast();
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [confirmation, setConfirmation] = useState("all");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialContactId);
   const event = state.events.find((item) => item.id === eventId);
-  const eventSpeakers = useMemo(() => state.speakers.filter((speaker) => speaker.eventId === eventId), [state.speakers, eventId]);
-  const speakers = useMemo(() => eventSpeakers.filter((speaker) => (confirmation === "all" || speaker.confirmation === confirmation) && `${speakerName(speaker)} ${speaker.company} ${speaker.email}`.toLowerCase().includes(search.toLowerCase())), [confirmation, search, eventSpeakers]);
+  const eventSpeakers = useMemo(() => {
+    const records = state.speakers.filter((speaker) => speaker.eventId === eventId);
+    return initialSpeaker && !records.some((speaker) => speaker.id === initialSpeaker.id)
+      ? [...records, initialSpeaker]
+      : records;
+  }, [state.speakers, eventId, initialSpeaker]);
+  const speakers = useMemo(() => eventSpeakers.filter((speaker) => matchesMissingAsset(speaker, missing) && (confirmation === "all" || speaker.confirmation === confirmation) && `${speakerName(speaker)} ${speaker.company} ${speaker.email}`.toLowerCase().includes(search.toLowerCase())), [confirmation, search, eventSpeakers, missing]);
   const active = eventSpeakers.find((item) => item.id === openId) ?? null;
   const outstanding = (speakerId: string) => state.tasks.filter((task) => task.eventId === eventId && !state.completions.some((done) => done.taskId === task.id && done.speakerId === speakerId)).length;
   // Demo impersonation: store the speaker id the portal session should assume,
@@ -30,6 +46,7 @@ export function SpeakersPage({ eventId }: { eventId: string }) {
   return <>
     <PageHeader eyebrow="PEOPLE" title="Speakers" description="Track confirmation, profiles, and onboarding from one place." actions={<><Button variant="secondary" onClick={() => toast("Reminder queued for 6 speakers")}><Mail size={16} /> Send reminder</Button><Button onClick={() => toast("Speaker invite link copied")}><Plus size={16} /> Add speaker</Button></>} />
     <section className="summary-row"><article><span className="summary-icon purple"><Users size={19} /></span><div><strong>{eventSpeakers.length + 70}</strong><small>Accepted speakers</small></div></article><article><span className="summary-icon green"><UserCheck size={19} /></span><div><strong>{eventSpeakers.filter((speaker) => speaker.confirmation === "confirmed").length + 68}</strong><small>Confirmed</small></div></article><article><span className="summary-icon amber"><span>!</span></span><div><strong>18</strong><small>Need attention</small></div></article><article><span className="summary-icon blue"><span>✓</span></span><div><strong>91%</strong><small>Average readiness</small></div></article></section>
+    {missing && <div className="data-toolbar"><span className="row-count">Showing speakers missing {missing === "either" ? "a bio or headshot" : `a ${missing}`}</span><button type="button" className="filter-button" onClick={() => router.push(`/events/${eventId}/speakers`)}>Clear filter <X size={14} /></button></div>}
     <section className="panel data-panel"><div className="data-toolbar"><label className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search speakers" aria-label="Search speakers" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch("")}><X size={14} /></button>}</label><button className="filter-button"><Filter size={15} /> Track <ChevronDown size={14} /></button><select className="compact-select" value={confirmation} onChange={(event) => setConfirmation(event.target.value)}><option value="all">All confirmations</option><option value="confirmed">Confirmed</option><option value="unconfirmed">Unconfirmed</option><option value="declined">Declined</option></select><span className="row-count">{speakers.length} shown</span></div>
       <div className="table-scroll"><table className="data-table speakers-table"><thead><tr><th><input type="checkbox" aria-label="Select all speakers" /></th><th>Speaker</th><th>Confirmation</th><th>Profile</th><th>Outstanding</th><th>Sessions</th><th /></tr></thead><tbody>{speakers.map((speaker) => {
         const remaining = outstanding(speaker.id);

@@ -22,7 +22,7 @@ export type FormRecord = {
 export type SpeakerRecord = {
   id: string; eventId: string; firstName: string; lastName: string; email: string; company: string; title: string;
   bio: string; location: string; website: string; linkedin: string; avatar: string; avatarColor: string;
-  confirmation: "unconfirmed" | "confirmed" | "declined"; profileCompletion: number; tags: string[];
+  hasHeadshot?: boolean; confirmation: "unconfirmed" | "confirmed" | "declined"; profileCompletion: number; tags: string[];
 };
 
 export type SubmissionRecord = {

@@ -15,6 +15,22 @@ function isDemoSnapshot(value: unknown): value is DemoState {
   return DEMO_COLLECTIONS.every((key) => Array.isArray((value as Record<string, unknown>)[key]));
 }
 
+export function mergeDemoSnapshot(value: unknown): DemoState | null {
+  if (!isDemoSnapshot(value)) return null;
+  const seed = structuredClone(initialDemoState);
+  const seededHeadshots = new Map(seed.speakers.map((speaker) => [speaker.id, speaker.hasHeadshot]));
+  return {
+    ...seed,
+    ...value,
+    // v3 snapshots predate hasHeadshot. Preserve explicit edits, restore the
+    // seeded values where known, and treat unknown legacy records as present.
+    speakers: value.speakers.map((speaker) => ({
+      ...speaker,
+      hasHeadshot: speaker.hasHeadshot ?? seededHeadshots.get(speaker.id) ?? true,
+    })),
+  };
+}
+
 function reducer(state: DemoState, action: DemoAction): DemoState {
   switch (action.type) {
     case "RESET": return structuredClone(initialDemoState);
@@ -74,8 +90,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     if (saved) {
       try {
         const parsed: unknown = JSON.parse(saved);
-        if (!isDemoSnapshot(parsed)) throw new Error("invalid snapshot");
-        dispatch({ type: "HYDRATE", state: { ...structuredClone(initialDemoState), ...parsed } });
+        const merged = mergeDemoSnapshot(parsed);
+        if (!merged) throw new Error("invalid snapshot");
+        dispatch({ type: "HYDRATE", state: merged });
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       }
