@@ -133,10 +133,11 @@ post-deploy smoke. Deploying web before jobs prevents a new cron route from targ
 web artifact. Migrations remain additive/backward-compatible while either old worker version
 may still receive traffic.
 
-CI validation order is clean install → generated Wrangler types → typecheck/lint/invariants
-→ unit/PGlite tests → Next build → OpenNext build + gzip measurement → Playwright against
-the isolated preview and `sb-test`. Production deploy credentials live in a protected GitHub
-environment, not ordinary workflow variables.
+CI validation order is clean install → typecheck/lint/invariants → unit/PGlite tests → Next
+build → OpenNext build → generated Wrangler-type freshness (after the generated Worker
+entrypoint exists) → gzip measurement → Playwright against the isolated preview and
+`sb-test`. Production deploy credentials live in a protected GitHub environment, not
+ordinary workflow variables.
 
 ## 4. Neon and database access
 

@@ -19,6 +19,7 @@ jobs:
       # check-invariants.sh fails closed when ripgrep is missing.
       - run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
       - run: pnpm install --frozen-lockfile
-      - run: pnpm cf-typegen:check
       - run: pnpm check
+      # Wrangler resolves the self-service binding against the generated OpenNext entrypoint.
+      - run: pnpm cf-typegen:check
       - run: pnpm worker:size
