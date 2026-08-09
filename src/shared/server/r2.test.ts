@@ -1,0 +1,217 @@
+import { describe, expect, it } from "vitest";
+import { isAppError } from "@/shared/lib/errors";
+import type { ContactId, EventId, FileKind } from "@/shared/contracts";
+import {
+  KIND_POLICY,
+  UPLOAD_MAX_SIZE_MB,
+  assertUploadAllowed,
+  buildObjectKey,
+  decideFileAccess,
+  fileExtension,
+  isPublicKind,
+  resolvePolicy,
+  sanitizeFilename,
+  sniffMatchesMime,
+} from "./r2";
+
+const MB = 1024 * 1024;
+const EVENT_ID = "11111111-1111-4111-8111-111111111111" as EventId;
+const CONTACT_A = "22222222-2222-4222-8222-222222222222" as ContactId;
+const CONTACT_B = "33333333-3333-4333-8333-333333333333" as ContactId;
+
+function reason(run: () => unknown): string {
+  try {
+    run();
+  } catch (error) {
+    return isAppError(error) ? error.message : String(error);
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("kind policy", () => {
+  const cases: Array<{ kind: FileKind; accepted: string; rejected: string; maxSizeMb: number }> = [
+    { kind: "logo", accepted: "image/png", rejected: "image/svg+xml", maxSizeMb: 5 },
+    { kind: "background", accepted: "image/webp", rejected: "application/pdf", maxSizeMb: 5 },
+    { kind: "headshot", accepted: "image/jpeg", rejected: "image/gif", maxSizeMb: 5 },
+    { kind: "slide", accepted: "application/pdf", rejected: "image/png", maxSizeMb: 100 },
+    { kind: "attachment", accepted: "application/pdf", rejected: "text/html", maxSizeMb: 25 },
+  ];
+
+  for (const testCase of cases) {
+    it(`accepts an allowlisted ${testCase.kind} and rejects one off-list mime plus one oversize value`, () => {
+      expect(() => assertUploadAllowed({
+        kind: testCase.kind,
+        filename: "deck.pdf",
+        mime: testCase.accepted,
+        sizeBytes: 1024,
+      })).not.toThrow();
+
+      expect(reason(() => assertUploadAllowed({
+        kind: testCase.kind,
+        filename: "deck.pdf",
+        mime: testCase.rejected,
+        sizeBytes: 1024,
+      }))).toContain("not an accepted type");
+
+      expect(reason(() => assertUploadAllowed({
+        kind: testCase.kind,
+        filename: "deck.pdf",
+        mime: testCase.accepted,
+        sizeBytes: testCase.maxSizeMb * MB + 1,
+      }))).toContain(`limited to ${testCase.maxSizeMb} MB`);
+    });
+  }
+
+  it("excludes SVG from every public image kind", () => {
+    for (const kind of ["logo", "background", "headshot"] as const) {
+      expect(KIND_POLICY[kind].mimes).not.toContain("image/svg+xml");
+      expect(isPublicKind(kind)).toBe(true);
+    }
+    for (const kind of ["slide", "attachment", "upload"] as const) {
+      expect(isPublicKind(kind)).toBe(false);
+    }
+  });
+
+  it("validates file-request uploads against the request's extensions", () => {
+    const policyOverride = { extensions: ["pdf", ".PPTX"], maxSizeMb: 20 };
+    expect(() => assertUploadAllowed({
+      kind: "upload",
+      filename: "keynote.pptx",
+      mime: "application/octet-stream",
+      sizeBytes: 5 * MB,
+    })).toThrow();
+    expect(() => assertUploadAllowed({
+      kind: "upload",
+      filename: "keynote.pptx",
+      mime: "application/octet-stream",
+      sizeBytes: 5 * MB,
+      policyOverride,
+    })).not.toThrow();
+    expect(reason(() => assertUploadAllowed({
+      kind: "upload",
+      filename: "notes.txt",
+      mime: "text/plain",
+      sizeBytes: 1024,
+      policyOverride,
+    }))).toContain("accepts pdf, pptx");
+    expect(reason(() => assertUploadAllowed({
+      kind: "upload",
+      filename: "keynote.pptx",
+      mime: "application/octet-stream",
+      sizeBytes: 21 * MB,
+      policyOverride,
+    }))).toContain("limited to 20 MB");
+  });
+
+  it("clamps a file request that asks for more than the hard ceiling", () => {
+    const policy = resolvePolicy("upload", { extensions: ["zip"], maxSizeMb: 5_000 });
+    expect(policy.maxBytes).toBe(UPLOAD_MAX_SIZE_MB * MB);
+  });
+
+  it("refuses a policy override on a fixed-allowlist kind", () => {
+    expect(reason(() => resolvePolicy("headshot", { extensions: ["exe"], maxSizeMb: 999 })))
+      .toContain("only valid for kind=upload");
+  });
+
+  it("rejects a non-positive or fractional declared size", () => {
+    for (const sizeBytes of [0, -1, 1.5]) {
+      expect(reason(() => assertUploadAllowed({ kind: "headshot", filename: "a.png", mime: "image/png", sizeBytes })))
+        .toContain("positive integer");
+    }
+  });
+});
+
+describe("object key scheme", () => {
+  it("strips traversal segments from a hostile filename", () => {
+    expect(sanitizeFilename("../../etc/passwd")).toBe("passwd");
+    expect(sanitizeFilename("..\\..\\windows\\system32\\cmd.exe")).toBe("cmd.exe");
+    const key = buildObjectKey({ eventId: EVENT_ID, kind: "slide", fileId: "abc", filename: "../../etc/passwd" });
+    expect(key).toBe(`evt_${EVENT_ID}/slide/abc/passwd`);
+    expect(key).not.toContain("..");
+  });
+
+  it("normalizes unicode combining marks", () => {
+    const decomposed = "cafe\u0301.png";
+    const composed = "caf\u00e9.png";
+    expect(decomposed).not.toBe(composed);
+    expect(sanitizeFilename(decomposed)).toBe(composed);
+  });
+
+  it("truncates a 300-character name to 128 while keeping the extension", () => {
+    const long = `${"a".repeat(300)}.png`;
+    const sanitized = sanitizeFilename(long);
+    expect(sanitized.length).toBe(128);
+    expect(sanitized.endsWith(".png")).toBe(true);
+    expect(fileExtension(sanitized)).toBe("png");
+  });
+
+  it("drops control characters and falls back when nothing survives", () => {
+    expect(sanitizeFilename("re\u0007port.pdf")).toBe("report.pdf");
+    expect(sanitizeFilename("///")).toBe("file");
+    expect(sanitizeFilename("...")).toBe("file");
+  });
+});
+
+describe("content sniffing", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const text = new Uint8Array([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0, 0, 0, 0, 0, 0, 0]);
+
+  it("accepts matching magic bytes and rejects a renamed file", () => {
+    expect(sniffMatchesMime("image/png", png)).toBe(true);
+    expect(sniffMatchesMime("image/png", text)).toBe(false);
+    expect(sniffMatchesMime("image/jpeg", new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe(true);
+    expect(sniffMatchesMime("image/jpeg", png)).toBe(false);
+  });
+
+  it("accepts a webp container and rejects a truncated one", () => {
+    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
+    expect(sniffMatchesMime("image/webp", webp)).toBe(true);
+    expect(sniffMatchesMime("image/webp", new Uint8Array([0x52, 0x49, 0x46, 0x46]))).toBe(false);
+  });
+
+  it("does not gate mimes it has no signature for", () => {
+    expect(sniffMatchesMime("application/pdf", text)).toBe(true);
+  });
+});
+
+describe("authz", () => {
+  it("lets any admin of the event read, whatever their role", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [],
+      requester: { kind: "admin", role: "reviewer" },
+    })).toBe(true);
+  });
+
+  it("refuses contact A a private file belonging to contact B", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [CONTACT_B],
+      requester: { kind: "contact", contactId: CONTACT_A },
+    })).toBe(false);
+  });
+
+  it("lets the uploader read their own file", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_A,
+      linkedContactIds: [],
+      requester: { kind: "contact", contactId: CONTACT_A },
+    })).toBe(true);
+  });
+
+  it("lets a co-participant of the owning submission read it", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [CONTACT_B, CONTACT_A],
+      requester: { kind: "contact", contactId: CONTACT_A },
+    })).toBe(true);
+  });
+
+  it("refuses an unlinked contact when the file has no uploader recorded", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: null,
+      linkedContactIds: [],
+      requester: { kind: "contact", contactId: CONTACT_A },
+    })).toBe(false);
+  });
+});

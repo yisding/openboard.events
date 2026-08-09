@@ -26,6 +26,9 @@ importers:
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
+      aws4fetch:
+        specifier: ^1.0.20
+        version: 1.0.20
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
