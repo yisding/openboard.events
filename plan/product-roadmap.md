@@ -178,8 +178,10 @@ These join P3's release-gate list; none is larger than an afternoon.
 4. **Per-address abuse on portal login.** `requestPortalLoginIn`
    (`src/features/auth/server/portal.ts:156`) calls `getOrCreateContact` before any gate, and
    the 3-per-10-min throttle is per **contact** — one IP can create unlimited contacts and fire
-   an email per address. Add a per-IP cap (the admin login lockout table is the pattern to
-   copy) ahead of the Cloudflare-native rate-limit adoption below.
+   an email per address. Add a cap keyed **solely on the trusted client IP** — the admin
+   lockout's table/upsert mechanics and header extraction are reusable, but its key is
+   `sha256(email + ip)`, which hands an email-cycling attacker a fresh bucket per address —
+   ahead of the Cloudflare-native rate-limit adoption below.
 5. **Unexpected 500s are unobservable.** `defineHandler` (`src/shared/server/handler.ts:70-84`)
    maps unknown errors to `INTERNAL` without ever logging message or stack — every production
    500 is a blind spot today. Log before mapping; this is the concrete reason the Sentry
@@ -248,11 +250,15 @@ one-off deletion of the duplicate evaluator in favor of `shared/lib/conditions.t
   any deep-copy refactor silently breaks every non-login email; make the link an explicit
   field.
 - **The deadline-hour hot path fights its own lock.** `replaceAnswers`
-  (`submissions/server/mutations.ts:137-149`) deletes-then-inserts one row per round trip and
-  `notifyQueues` writes per-statement — inside transactions holding the event-row
-  `FOR UPDATE` lock, over a per-transaction WebSocket `Pool` to Neon. Batch these into
-  multi-row statements **before** running lane item 4's 50-concurrent load test, so the test
-  measures the intended design rather than a known-fixable serialization.
+  (`submissions/server/mutations.ts`) deletes-then-inserts one answer row per round trip
+  inside the transaction holding the event-row `FOR UPDATE` lock, over a per-transaction
+  WebSocket `Pool` to Neon. Batch it into multi-row statements **before** running lane item
+  4's 50-concurrent load test (which fires only the submit endpoint), so the test measures
+  the intended design rather than a known-fixable serialization. Separately — not under the
+  event lock and not exercised by that test — `notifyQueues` enqueues emails and updates
+  contacts one statement per submission in its own transaction; batch it too, on its own
+  schedule, since a large decision batch holds its updated submissions' row locks for the
+  duration.
 
 ### Smaller items, recorded so they don't rot
 
