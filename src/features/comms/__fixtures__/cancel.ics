@@ -1,0 +1,22 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//openboard//EN
+CALSCALE:GREGORIAN
+METHOD:CANCEL
+BEGIN:VEVENT
+UID:sess-session-1-spk-contact-1@events.example.com
+SEQUENCE:2
+DTSTAMP:20260809T123456Z
+DTSTART:20260915T160000Z
+DTEND:20260915T163000Z
+SUMMARY:Agents\; evals\, production
+DESCRIPTION:Line one\nLine two\; important\, really
+LOCATION:Main Stage\, Fort Mason
+URL:https://events.example.com/e/ai-engineer/schedule?session=session-1
+STATUS:CANCELLED
+ORGANIZER;CN=AI Engineer\; Events:mailto:speakers@events.example.com
+ATTENDEE;CN=Nadia\, Speaker;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:nadia@ex
+ ample.com
+LAST-MODIFIED:20260809T123456Z
+END:VEVENT
+END:VCALENDAR
