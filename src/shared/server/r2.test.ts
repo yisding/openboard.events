@@ -6,9 +6,11 @@ import {
   UPLOAD_MAX_SIZE_MB,
   assertUploadAllowed,
   buildObjectKey,
+  buildStagingKey,
   decideFileAccess,
   fileExtension,
   isPublicKind,
+  rejectionForSize,
   resolvePolicy,
   sanitizeFilename,
   sniffMatchesMime,
@@ -149,6 +151,33 @@ describe("object key scheme", () => {
     expect(sanitizeFilename("re\u0007port.pdf")).toBe("report.pdf");
     expect(sanitizeFilename("///")).toBe("file");
     expect(sanitizeFilename("...")).toBe("file");
+  });
+
+  it("stages the presigned PUT on a key the published object never uses", () => {
+    const parts = { eventId: EVENT_ID, kind: "headshot" as const, fileId: "abc", filename: "me.png" };
+    const staging = buildStagingKey(parts);
+    const published = buildObjectKey(parts);
+    expect(staging).toBe(`evt_${EVENT_ID}/staging/headshot/abc/me.png`);
+    expect(published).toBe(`evt_${EVENT_ID}/headshot/abc/me.png`);
+    expect(staging).not.toBe(published);
+    expect(buildStagingKey({ ...parts, filename: "../../etc/passwd" })).toBe(`evt_${EVENT_ID}/staging/headshot/abc/passwd`);
+  });
+});
+
+describe("finalized size", () => {
+  it("accepts bytes within both the ceiling and what presign authorized", () => {
+    expect(rejectionForSize({ kind: "slide", actualBytes: 9 * MB, authorizedBytes: 10 * MB })).toBeNull();
+  });
+
+  it("rejects an upload larger than its file request allowed, below the hard ceiling", () => {
+    // The owning file request capped this at 20 MB; the kind ceiling alone would pass 90 MB.
+    expect(rejectionForSize({ kind: "upload", actualBytes: 90 * MB, authorizedBytes: 20 * MB }))
+      .toContain("larger than the size it was authorized for");
+  });
+
+  it("rejects anything over the kind ceiling whatever presign authorized", () => {
+    expect(rejectionForSize({ kind: "headshot", actualBytes: 6 * MB, authorizedBytes: 50 * MB }))
+      .toContain("limited to 5 MB");
   });
 });
 

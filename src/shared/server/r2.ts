@@ -158,6 +158,16 @@ export function buildObjectKey(input: { eventId: EventId; kind: FileKind; fileId
   return `evt_${input.eventId}/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
 }
 
+/**
+ * The presigned PUT is only ever signed for this key. A presigned URL stays usable
+ * until it expires — including after finalize — so the bytes the browser writes and
+ * the bytes we publish must never share a key, or a second PUT could replace a
+ * validated object that `/f/{fileId}` serves as immutable.
+ */
+export function buildStagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }): string {
+  return `evt_${input.eventId}/staging/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
+}
+
 function startsWith(bytes: Uint8Array, signature: readonly number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
@@ -227,22 +237,42 @@ export function objectUrl(config: R2Config, key: string): URL {
   return new URL(`https://${config.accountId}.r2.cloudflarestorage.com/${config.bucket}/${encoded}`);
 }
 
-async function presign(key: string, method: "PUT" | "GET", expiresInSeconds: number, headers?: Record<string, string>): Promise<string> {
-  const config = r2Config();
-  const url = objectUrl(config, key);
-  url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
-  const client = new AwsClient({
+function awsClient(config: R2Config): AwsClient {
+  return new AwsClient({
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     service: "s3",
     region: "auto",
   });
-  const signed = await client.sign(url.toString(), {
+}
+
+async function presign(key: string, method: "PUT" | "GET", expiresInSeconds: number, headers?: Record<string, string>): Promise<string> {
+  const config = r2Config();
+  const url = objectUrl(config, key);
+  url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
+  const signed = await awsClient(config).sign(url.toString(), {
     method,
     ...(headers ? { headers } : {}),
     aws: { signQuery: true },
   });
   return signed.url;
+}
+
+/**
+ * Server-side copy — the bytes stay inside R2, so a 100 MB slide costs the Worker
+ * nothing. S3 can report failure inside a 200 body, so the body is checked too.
+ */
+async function copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+  const config = r2Config();
+  const source = `/${config.bucket}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`;
+  const response = await awsClient(config).fetch(objectUrl(config, destinationKey).toString(), {
+    method: "PUT",
+    headers: { "x-amz-copy-source": source },
+  });
+  const body = await response.text();
+  if (!response.ok || body.includes("<Error")) {
+    throw new AppError("INTERNAL", `Could not publish the uploaded file (${response.status})`);
+  }
 }
 
 export interface CreateUploadInput {
@@ -264,27 +294,32 @@ export interface CreateUploadResult {
 }
 
 /**
- * file_assets has no status column, so a row means "presigned", not "ready".
- * Callers must only persist a fileId into an owning column after finalizeUpload
- * returns ready; cleanupOrphanUploads sweeps whatever never got there.
+ * file_assets has no status column, so a row means "presigned", not "ready" — a
+ * pending row is the one whose r2_key is still the staging key. Callers must only
+ * persist a fileId into an owning column after finalizeUpload returns ready;
+ * cleanupOrphanUploads sweeps whatever never got there.
+ *
+ * size_bytes holds the client's declared size until finalize overwrites it with the
+ * size that actually landed. That declared value is what presign checked the policy
+ * against, which is how finalize enforces a per-file-request limit it cannot see.
  */
 export async function createUpload(input: CreateUploadInput): Promise<CreateUploadResult> {
   assertUploadAllowed(input);
   const fileId = fileIdSchema.parse(crypto.randomUUID());
   const filename = sanitizeFilename(input.filename);
-  const r2Key = buildObjectKey({ eventId: input.eventId, kind: input.kind, fileId, filename });
+  const stagingKey = buildStagingKey({ eventId: input.eventId, kind: input.kind, fileId, filename });
   await db.insert(fileAssets).values({
     id: fileId,
     eventId: input.eventId,
     kind: input.kind,
-    r2Key,
+    r2Key: stagingKey,
     filename,
     mime: input.mime,
     sizeBytes: input.sizeBytes,
     ...(input.uploadedByUserId ? { uploadedByUserId: input.uploadedByUserId } : {}),
     ...(input.uploadedByContactId ? { uploadedByContactId: input.uploadedByContactId } : {}),
   });
-  const uploadUrl = await presign(r2Key, "PUT", PRESIGN_PUT_SECONDS, { "content-type": input.mime });
+  const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, { "content-type": input.mime });
   return { fileId, uploadUrl, requiredHeaders: { "Content-Type": input.mime } };
 }
 
@@ -301,40 +336,89 @@ async function purge(key: string, fileId: FileId): Promise<void> {
 }
 
 /**
+ * Size verdict for the bytes that actually landed. `authorizedBytes` is the size
+ * presign approved against the effective policy — for kind=upload that policy came
+ * from the owning file_requests row, which finalize can no longer see, so honouring
+ * the authorized size is what keeps an organizer's per-request limit real.
+ */
+export function rejectionForSize(input: { kind: FileKind; actualBytes: number; authorizedBytes: number }): string | null {
+  const ceiling = KIND_POLICY[input.kind].maxSizeMb * MB;
+  if (input.actualBytes > ceiling) {
+    return `${input.kind} files are limited to ${Math.floor(ceiling / MB)} MB`;
+  }
+  if (input.actualBytes > input.authorizedBytes) {
+    return "the upload is larger than the size it was authorized for";
+  }
+  return null;
+}
+
+/**
  * Authoritative post-upload check: presign constrains the claim, this constrains
- * the bytes. For kind=upload the per-request size limit is enforced at presign;
- * here only the hard ceiling applies, because the owning file_requests row is
- * not linked until the task completion writes file_uploads.
+ * the bytes. The staged object is copied to its published key *before* it is
+ * inspected, because the presigned PUT stays usable until it expires and can only
+ * ever write the staging key — so what we validate is exactly what we serve.
  */
 export async function finalizeUpload(fileId: string): Promise<FinalizeResult> {
   const id = fileIdSchema.parse(fileId);
   const [asset] = await db
-    .select({ id: fileAssets.id, kind: fileAssets.kind, mime: fileAssets.mime, r2Key: fileAssets.r2Key })
+    .select({
+      eventId: fileAssets.eventId,
+      kind: fileAssets.kind,
+      mime: fileAssets.mime,
+      filename: fileAssets.filename,
+      r2Key: fileAssets.r2Key,
+      sizeBytes: fileAssets.sizeBytes,
+    })
     .from(fileAssets)
     .where(eq(fileAssets.id, id))
     .limit(1);
   if (!asset) throw new AppError("NOT_FOUND", "Upload not found");
 
-  const maxBytes = KIND_POLICY[asset.kind].maxSizeMb * MB;
-  const head = await filesBucket().head(asset.r2Key);
-  if (!head) {
-    await purge(asset.r2Key, id);
+  const eventId = asset.eventId as EventId;
+  const publishedKey = buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename });
+  // Already published: the row's key is the immutable one, so finalize is a no-op.
+  if (asset.r2Key === publishedKey) return { status: "ready" };
+
+  const stagingKey = asset.r2Key;
+  const bucket = filesBucket();
+  if (!(await bucket.head(stagingKey))) {
+    await purge(stagingKey, id);
     return { status: "rejected", reason: "the upload never reached storage" };
   }
-  if (head.size > maxBytes) {
-    await purge(asset.r2Key, id);
-    return { status: "rejected", reason: `${asset.kind} files are limited to ${Math.floor(maxBytes / MB)} MB` };
+  await copyObject(stagingKey, publishedKey);
+
+  const reason = await inspectPublished(publishedKey, { kind: asset.kind, mime: asset.mime, authorizedBytes: asset.sizeBytes });
+  if (reason) {
+    await bucket.delete(publishedKey);
+    await purge(stagingKey, id);
+    return { status: "rejected", reason };
   }
-  if (IMAGE_MIMES.includes(asset.mime.toLowerCase() as (typeof IMAGE_MIMES)[number])) {
-    const ranged = await filesBucket().get(asset.r2Key, { range: { offset: 0, length: 16 } });
-    const bytes = ranged ? new Uint8Array(await ranged.arrayBuffer()) : new Uint8Array();
-    if (!sniffMatchesMime(asset.mime, bytes)) {
-      await purge(asset.r2Key, id);
-      return { status: "rejected", reason: "the file contents do not match the declared type" };
-    }
-  }
-  await db.update(fileAssets).set({ sizeBytes: head.size }).where(eq(fileAssets.id, id));
+
+  const head = await bucket.head(publishedKey);
+  await db.update(fileAssets).set({ r2Key: publishedKey, sizeBytes: head?.size ?? asset.sizeBytes }).where(eq(fileAssets.id, id));
+  // Best effort: a leftover staging object is storage debt, not a correctness bug.
+  await bucket.delete(stagingKey).catch(() => undefined);
   return { status: "ready" };
+}
+
+/** Returns a rejection reason, or null when the published object is acceptable. */
+async function inspectPublished(
+  key: string,
+  asset: { kind: FileKind; mime: string; authorizedBytes: number },
+): Promise<string | null> {
+  const bucket = filesBucket();
+  const head = await bucket.head(key);
+  if (!head) return "the upload never reached storage";
+
+  const sizeReason = rejectionForSize({ kind: asset.kind, actualBytes: head.size, authorizedBytes: asset.authorizedBytes });
+  if (sizeReason) return sizeReason;
+
+  if (IMAGE_MIMES.includes(asset.mime.toLowerCase() as (typeof IMAGE_MIMES)[number])) {
+    const ranged = await bucket.get(key, { range: { offset: 0, length: 16 } });
+    const bytes = ranged ? new Uint8Array(await ranged.arrayBuffer()) : new Uint8Array();
+    if (!sniffMatchesMime(asset.mime, bytes)) return "the file contents do not match the declared type";
+  }
+  return null;
 }
 
 /**
@@ -378,9 +462,11 @@ async function linkedContacts(eventId: EventId, fileId: FileId): Promise<string[
  * entire budget — no retry or backfill machinery.
  */
 /**
- * Every owning column that makes a file_assets row live. Exported so the runtime
- * sweep and its PGlite regression test cannot drift apart — a missed reference
- * here deletes a file that is still in use.
+ * Every owning reference that makes a file_assets row live — the four owning
+ * columns plus the two answer stores that hold a `{t:'file'}` value (a CFP answer
+ * row and a portal form response's answers object). Exported so the runtime sweep
+ * and its PGlite regression test cannot drift apart: a missed reference here
+ * deletes a file that is still in use.
  */
 export const ORPHAN_PREDICATE_SQL = `
   NOT EXISTS (SELECT 1 FROM contacts c WHERE c.headshot_file_id = fa.id)
@@ -389,6 +475,13 @@ export const ORPHAN_PREDICATE_SQL = `
   AND NOT EXISTS (
     SELECT 1 FROM submission_answers sa
     WHERE sa.value->>'t' = 'file' AND sa.value->>'v' = fa.id::text
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM form_responses fr
+    CROSS JOIN LATERAL jsonb_each(
+      CASE WHEN jsonb_typeof(fr.answers) = 'object' THEN fr.answers ELSE '{}'::jsonb END
+    ) AS answer(key, value)
+    WHERE answer.value->>'t' = 'file' AND answer.value->>'v' = fa.id::text
   )
 `;
 

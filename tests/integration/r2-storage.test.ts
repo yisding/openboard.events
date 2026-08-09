@@ -74,7 +74,14 @@ describe("orphan upload sweep", () => {
     const background = "44444444-4444-4444-8444-00000000000e";
     const answerFile = "44444444-4444-4444-8444-00000000000f";
     const taskUpload = "44444444-4444-4444-8444-000000000010";
-    for (const [id, key] of [[logo, "evt/logo"], [background, "evt/bg"], [answerFile, "evt/answer"], [taskUpload, "evt/task"]] as const) {
+    const responseFile = "44444444-4444-4444-8444-000000000011";
+    for (const [id, key] of [
+      [logo, "evt/logo"],
+      [background, "evt/bg"],
+      [answerFile, "evt/answer"],
+      [taskUpload, "evt/task"],
+      [responseFile, "evt/response"],
+    ] as const) {
       await insertAsset(id, key, 48);
     }
     await db.query("UPDATE events SET logo_file_id=$1, background_file_id=$2 WHERE id=$3", [logo, background, EVENT_ID]);
@@ -100,7 +107,29 @@ describe("orphan upload sweep", () => {
       "INSERT INTO file_uploads(event_id,file_request_id,contact_id,file_asset_id) VALUES($1,$2,$3,$4)",
       [EVENT_ID, requestId, CONTACT_ID, taskUpload],
     );
+    // A portal form response holds its file answers in one jsonb object, not a row per answer.
+    await db.query(
+      `INSERT INTO form_responses(event_id,form_id,form_version,contact_id,answers) VALUES($1,$2,1,$3,$4::jsonb)`,
+      [EVENT_ID, formId, CONTACT_ID, JSON.stringify({ [fieldId]: { t: "file", v: responseFile }, note: { t: "text", v: "hi" } })],
+    );
 
     expect(await sweep()).toEqual([]);
+  });
+
+  it("sweeps past a form response whose answers are not an object", async () => {
+    const orphan = "44444444-4444-4444-8444-000000000012";
+    const otherContact = "44444444-4444-4444-8444-000000000013";
+    await insertAsset(orphan, "evt/orphan/second", 48);
+    await db.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'second@example.com','Second','Speaker')",
+      [otherContact, EVENT_ID],
+    );
+    await db.query(
+      `INSERT INTO form_responses(event_id,form_id,form_version,contact_id,answers)
+       VALUES($1,(SELECT id FROM forms LIMIT 1),1,$2,'null'::jsonb)`,
+      [EVENT_ID, otherContact],
+    );
+
+    expect(await sweep()).toEqual(["evt/orphan/second"]);
   });
 });
