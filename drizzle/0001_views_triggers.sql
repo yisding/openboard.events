@@ -63,9 +63,9 @@ LEFT JOIN task_completions tc ON tc.task_id=tg.task_id AND tc.contact_id=tg.cont
 
 CREATE VIEW speaker_outstanding_v AS
 SELECT event_id,contact_id,
-  count(*) FILTER(WHERE NOT completed) AS open_count,
-  count(*) FILTER(WHERE overdue) AS overdue_count,
-  count(*) FILTER(WHERE completed) AS done_count,
+  (count(*) FILTER(WHERE NOT completed))::int AS open_count,
+  (count(*) FILTER(WHERE overdue))::int AS overdue_count,
+  (count(*) FILTER(WHERE completed))::int AS done_count,
   max(updated_at) AS updated_at
 FROM task_assignments_v GROUP BY event_id,contact_id;
 
@@ -77,11 +77,11 @@ SELECT c.event_id,c.id AS contact_id,
 FROM contacts c JOIN accepted_speakers_v a ON a.event_id=c.event_id AND a.contact_id=c.id;
 
 CREATE VIEW submission_status_counts_v AS
-SELECT event_id,status,count(*) AS n,max(updated_at) AS updated_at FROM submissions GROUP BY event_id,status;
+SELECT event_id,status,count(*)::int AS n,max(updated_at) AS updated_at FROM submissions GROUP BY event_id,status;
 -- Submissions KPI = sum where status <> 'draft'; tabs show per-status n; All = sum(all).
 
 CREATE VIEW submission_ratings_v AS
-SELECT event_id,submission_id,plan_id,avg(overall_score) AS rating,count(overall_score) AS n_scores,max(updated_at) AS updated_at
+SELECT event_id,submission_id,plan_id,avg(overall_score)::double precision AS rating,count(overall_score)::int AS n_scores,max(updated_at) AS updated_at
 FROM reviews WHERE overall_score IS NOT NULL GROUP BY event_id,submission_id,plan_id;
 
 CREATE VIEW published_sessions_v AS
