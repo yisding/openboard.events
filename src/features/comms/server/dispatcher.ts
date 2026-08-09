@@ -32,15 +32,17 @@ function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
 }
 
-function redactTokenQueries(value: string): string {
-  return value.replace(/([?&](?:amp;)?token=)[^"'&\s<]+/giu, "$1[redacted]");
+function redactCredentials(value: string): string {
+  return value
+    .replace(/([?&](?:amp;)?token=)[^"'&\s<]+/giu, "$1[redacted]")
+    .replace(/(\/cal\/)[^/"'&\s<]+/giu, "$1[redacted]");
 }
 
 function persistedHtml(row: OutboxRow, html: string, env: RuntimeEnv): string {
   if (row.templateKey === "portal_login" && !(env.APP_ENV !== "production" && env.EMAIL_MODE === "log" && env.EMAIL_FALLBACK_UI === "1")) {
-    return redactTokenQueries(html).replace(/\b\d{6}\b/gu, "[redacted]");
+    return redactCredentials(html).replace(/\b\d{6}\b/gu, "[redacted]");
   }
-  return env.APP_ENV === "production" && env.EMAIL_MODE === "send" ? redactTokenQueries(html) : html;
+  return env.APP_ENV === "production" && env.EMAIL_MODE === "send" ? redactCredentials(html) : html;
 }
 
 async function markSkipped(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Promise<void> {

@@ -8,6 +8,7 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";
 import { escapeHtml } from "./render";
+import { signUnsubscribeToken } from "./unsubscribe";
 
 export type OutboxRow = typeof communicationLogs.$inferSelect;
 
@@ -95,7 +96,12 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
 
   const contactId = row.contactId as ContactId;
   const eventId = row.eventId as EventId;
-  const unsubscribeUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/unsubscribe?contact=${encodeURIComponent(contactId)}`;
+  let unsubscribeUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/unsubscribe`;
+  if (row.templateKey === "task_reminder") {
+    if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for unsubscribe links");
+    const unsubscribeToken = await signUnsubscribeToken({ eventId, contactId }, env.SESSION_SECRET);
+    unsubscribeUrl += `?token=${encodeURIComponent(unsubscribeToken)}`;
+  }
   let magicLink = "";
   let otpCode: string | undefined;
   if (row.templateKey === "portal_login") {
@@ -191,7 +197,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     if (!session) throw new SkipEmail("session no longer exists");
     if (!session.startsAt || !session.endsAt || session.status !== "published") throw new SkipEmail("session is no longer published and scheduled");
     const { raw: calendarToken } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "ics_download", ttl: "P365D" });
-    const downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(row.icsUid ?? row.sessionId)}?token=${encodeURIComponent(calendarToken)}`;
+    const downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(calendarToken)}/${encodeURIComponent(row.sessionId)}`;
     vars = {
       ...common,
       session: {

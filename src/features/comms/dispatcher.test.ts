@@ -9,7 +9,9 @@ import {
   contactIdSchema,
   eventIdSchema,
   idem,
+  sessionIdSchema,
   submissionIdSchema,
+  taskIdSchema,
   tokenIdSchema,
 } from "@/shared/contracts";
 import { parseEnv } from "@/shared/lib/env";
@@ -17,6 +19,7 @@ import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
 import { seedDefaultTemplates } from "./server/templates";
+import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -26,6 +29,8 @@ const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
 const receivedId = submissionIdSchema.parse("c0000000-0000-4000-8000-000000000004");
 const decisionId = submissionIdSchema.parse("c0000000-0000-4000-8000-000000000005");
 const formId = "c0000000-0000-4000-8000-000000000006";
+const sessionId = sessionIdSchema.parse("c0000000-0000-4000-8000-000000000007");
+const reminderTaskId = taskIdSchema.parse("c0000000-0000-4000-8000-000000000008");
 const secret = "dispatcher-test-secret-that-is-at-least-32-bytes";
 const logEnv = parseEnv({
   APP_ENV: "local",
@@ -43,6 +48,17 @@ const sendEnv = parseEnv({
   EMAIL_FROM: "mail@example.com",
   RESEND_API_KEY: "re_test",
 });
+const productionSendEnv = parseEnv({
+  ...sendEnv,
+  APP_ENV: "production",
+  APP_BASE_URL: "https://events.example.com",
+  DATABASE_URL: "postgres://user:pass@db.example.com/openboard",
+  CRON_SECRET: "c".repeat(32),
+  R2_ACCOUNT_ID: "account",
+  R2_ACCESS_KEY_ID: "access",
+  R2_SECRET_ACCESS_KEY: "secret",
+  R2_BUCKET_NAME: "sb-files",
+});
 
 describe("communications outbox dispatcher", () => {
   let pglite: PGlite;
@@ -56,12 +72,17 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);
     await pglite.query("INSERT INTO submissions(id,event_id,form_id,form_version,code,status,title,source,submitter_contact_id) VALUES($1,$3,$4,1,7,'pending',';lkj<img onerror=alert(1)>','cfp',$5),($2,$3,$4,1,8,'accepted','Decision session','cfp',$5)", [receivedId, decisionId, eventId, formId, contactId]);
+    await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary) VALUES($1,$2,$3,true)", [eventId, decisionId, contactId]);
+    await pglite.query("INSERT INTO sessions(id,event_id,submission_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,$3,'Decision session','decision-session','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published')", [sessionId, eventId, decisionId]);
+    await pglite.query("INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,due_at) VALUES($1,$2,'Complete profile','contact','manual','2026-09-01T07:00:00Z')", [reminderTaskId, eventId]);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   }, 30_000);
 
   beforeEach(async () => {
     await pglite.query("DELETE FROM communication_logs");
     await pglite.query("DELETE FROM portal_tokens");
+    await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1", [contactId]);
+    await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
   });
 
   afterAll(async () => pglite.close());
@@ -177,6 +198,38 @@ describe("communications outbox dispatcher", () => {
     expect(sender).not.toHaveBeenCalled();
     const tokens = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM portal_tokens");
     expect(tokens.rows[0]?.n).toBe(0);
+  });
+
+  it("renders calendar downloads in the token-first route format", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:schedule-link`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const stored = await pglite.query<{ body: string }>("SELECT body_rendered_html AS body FROM communication_logs");
+    expect(stored.rows[0]?.body).toMatch(new RegExp(`/cal/[^/?\"&]+/${sessionId}`));
+    expect(stored.rows[0]?.body).not.toContain(`/cal/${sessionId}?token=`);
+
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("DELETE FROM portal_tokens");
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:schedule-link-production`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: productionSendEnv, sender: vi.fn(async () => "sent-id") })).resolves.toMatchObject({ sent: 1 });
+    const redacted = await pglite.query<{ body: string }>("SELECT body_rendered_html AS body FROM communication_logs");
+    expect(redacted.rows[0]?.body).toContain(`/cal/[redacted]/${sessionId}`);
+  });
+
+  it("uses a scoped unsubscribe capability and persists the reminder opt-out", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "task_reminder", idempotencyKey: `${eventId}:reminder-link`, refs: { taskId: reminderTaskId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const stored = await pglite.query<{ body: string }>("SELECT body_rendered_html AS body FROM communication_logs");
+    expect(stored.rows[0]?.body).toContain("/portal/ai-engineer/unsubscribe?token=");
+    expect(stored.rows[0]?.body).not.toContain("?contact=");
+
+    const token = await signUnsubscribeToken({ eventId, contactId }, secret);
+    await expect(verifyUnsubscribeToken(token, secret)).resolves.toMatchObject({ eventId, contactId, purpose: "task_reminder_unsubscribe" });
+    await expect(unsubscribeFromRemindersIn(tx, "wrong-event", token, secret)).resolves.toBe(false);
+    await expect(unsubscribeFromRemindersIn(tx, "ai-engineer", token, secret)).resolves.toBe(true);
+    const contact = await pglite.query<{ unsubscribed: boolean }>("SELECT unsubscribed_at IS NOT NULL AS unsubscribed FROM contacts WHERE id=$1", [contactId]);
+    expect(contact.rows[0]?.unsubscribed).toBe(true);
   });
 
   it("claims concurrent batches without overlap", async () => {
