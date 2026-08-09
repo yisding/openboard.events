@@ -1,6 +1,6 @@
-import { db } from "@/db/client";
+import { withTx } from "@/db/client";
 import { updateContactFields } from "@/features/portal";
-import { createSubmission, saveDraftAnswers } from "@/features/submissions";
+import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -79,17 +79,27 @@ export async function submitCfpForm(input: SubmitInput) {
   // Each participant's section runs the same pipeline under their own id, so one
   // co-speaker's missing field cannot be attributed to another.
   const perParticipant: CleanAnswers[] = [];
-  const profilePatches: Array<{ contactId: ContactId; patch: ReturnType<typeof deriveMappedFields>["contact"] }> = [];
   const topLevelParticipantAnswers = answersFor(participantSnapshot, input.answers);
   const submittedParticipants = input.participants?.length
     ? input.participants
     : [{ contactId: input.contactId, role: "speaker" as const, isPrimary: true, sortOrder: 0, answers: topLevelParticipantAnswers }];
+  if (submittedParticipants.some((participant) => participant.contactId !== input.contactId)) {
+    throw new AppError("FORBIDDEN", "A public CFP submission can only update the signed-in speaker");
+  }
+
+  let profilePatch: ReturnType<typeof deriveMappedFields>["contact"] = {};
+  const abstractContext = answersFor(abstractSnapshot, input.answers);
+  const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
   for (const participant of submittedParticipants) {
-    const raw = participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {});
-    const result = runSubmitPipeline(participantSnapshot, raw, { participantId: participant.contactId, requireRequired: true });
+    const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
+    // Keep the full snapshot while evaluating participant fields: their
+    // visibility may depend on an abstract answer from an earlier section.
+    // Only participant answers are retained after that evaluation.
+    const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.contactId, requireRequired: true });
     if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
-    perParticipant.push(result.clean);
-    profilePatches.push({ contactId: participant.contactId, patch: deriveMappedFields(participantSnapshot, result.clean).contact });
+    const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
+    perParticipant.push(participantClean);
+    if (participant.isPrimary) profilePatch = deriveMappedFields(participantSnapshot, participantClean).contact;
   }
   const answers = cleanAnswersSchema.parse([...abstract.clean, ...perParticipant.flat()]);
 
@@ -99,44 +109,45 @@ export async function submitCfpForm(input: SubmitInput) {
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   const participants = submittedParticipants.map((participant) => ({
-      contactId: participant.contactId,
-      role: participant.role,
-      isPrimary: participant.isPrimary,
-      sortOrder: participant.sortOrder,
-    }));
-
-  const created = await createSubmission(input.eventId, {
-    formId: input.formId,
-    formVersion: rendered.version,
-    source: "cfp",
-    kind: "abstract",
-    submitterContactId: input.contactId,
-    ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
-    fields: {
-      title: mapped.submission.title ?? "",
-      descriptionHtml: mapped.submission.descriptionHtml ?? null,
-      trackId: brandOrNull(trackIdSchema, routing.trackId ?? mapped.submission.trackId),
-      formatId: brandOrNull(formatIdSchema, mapped.submission.formatId),
-      level: mapped.submission.level ?? null,
-    },
-    participants,
-    answers,
-    routing: {
-      setTrackId: brandOrNull(trackIdSchema, routing.trackId),
-      addTagIds: routing.tagIds.map((tagId) => tagIdSchema.parse(tagId)),
-    },
-  });
-
-  // Email is the authenticated identity and cannot be changed by a form answer.
-  // The remaining mapped fields become the participant's real portal profile.
-  await Promise.all(profilePatches.map(({ contactId, patch }) => {
-    const safePatch = { ...patch };
-    delete safePatch.email;
-    return Object.keys(safePatch).length > 0
-      ? updateContactFields(db, input.eventId, contactId, safePatch)
-      : Promise.resolve();
+    contactId: participant.contactId,
+    role: participant.role,
+    isPrimary: participant.isPrimary,
+    sortOrder: participant.sortOrder,
   }));
-  return created;
+
+  return withTx(async (tx) => {
+    const created = await createSubmissionIn(tx, input.eventId, {
+      formId: input.formId,
+      formVersion: rendered.version,
+      source: "cfp",
+      kind: "abstract",
+      submitterContactId: input.contactId,
+      ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
+      fields: {
+        title: mapped.submission.title ?? "",
+        descriptionHtml: mapped.submission.descriptionHtml ?? null,
+        trackId: brandOrNull(trackIdSchema, routing.trackId ?? mapped.submission.trackId),
+        formatId: brandOrNull(formatIdSchema, mapped.submission.formatId),
+        level: mapped.submission.level ?? null,
+      },
+      participants,
+      answers,
+      routing: {
+        setTrackId: brandOrNull(trackIdSchema, routing.trackId),
+        addTagIds: routing.tagIds.map((tagId) => tagIdSchema.parse(tagId)),
+      },
+    });
+
+    // Email is the authenticated identity and cannot be changed by a form
+    // answer. Commit the remaining profile changes with the submission so a
+    // failed profile write cannot leave a partially completed CFP submit.
+    const safePatch = { ...profilePatch };
+    delete safePatch.email;
+    if (Object.keys(safePatch).length > 0) {
+      await updateContactFields(tx, input.eventId, input.contactId, safePatch);
+    }
+    return created;
+  });
 }
 
 /** Persist incomplete, type-valid answers without enforcing required fields. */

@@ -176,6 +176,20 @@ describe("createSubmission", () => {
     expect(await countRows("communication_logs")).toBe(1);
   });
 
+  it("returns an already submitted draft before rechecking the now-consumed limit", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("UPDATE events SET submission_cap_per_user=1 WHERE id=$1", [eventId]);
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+
+    const first = await createSubmission(eventId, cfpInput({ draftSubmissionId: draft.submissionId }));
+    const retry = await createSubmission(eventId, cfpInput({ draftSubmissionId: draft.submissionId }));
+
+    expect(retry.submissionId).toBe(first.submissionId);
+    expect(await countRows("submissions")).toBe(1);
+    await pglite.query("UPDATE events SET submission_cap_per_user=2 WHERE id=$1", [eventId]);
+  });
+
   it("never promotes a speaker's draft into an organizer's manual submission", async () => {
     await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, openForm, 1);

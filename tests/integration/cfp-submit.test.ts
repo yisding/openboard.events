@@ -27,12 +27,16 @@ const tagId = TAGS[0]?.tagId ?? "";
 let pglite: PGlite;
 let tx: TxDb;
 
+async function runInTransaction<T>(work: (handle: TxDb) => Promise<T>): Promise<T> {
+  return (tx as unknown as { transaction: (callback: (handle: TxDb) => Promise<T>) => Promise<T> }).transaction(work);
+}
+
 vi.mock("@/db/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db/client")>();
   return {
     ...actual,
     db: new Proxy({}, { get: (_target, property) => Reflect.get(tx as object, property, tx) }),
-    withTx: async (work: (handle: TxDb) => Promise<unknown>) => work(tx),
+    withTx: runInTransaction,
   };
 });
 
@@ -173,6 +177,78 @@ describe("CFP submit, end to end through the server path", () => {
       [speaker],
     );
     expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
+  });
+
+  it("rejects participant identities other than the signed-in speaker", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const otherContact = contactIdSchema.parse("f0000000-0000-4000-8000-000000000004");
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'other@example.com','Other','Speaker') ON CONFLICT DO NOTHING",
+      [otherContact, eventId],
+    );
+
+    const error = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [{ contactId: otherContact, role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() }],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("FORBIDDEN");
+    const rows = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions");
+    expect(rows.rows[0]?.count).toBe(0);
+  });
+
+  it("uses abstract answers when evaluating participant field visibility", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const crossSection = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
+    crossSection.version = 2;
+    const company = crossSection.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "company");
+    if (!company) throw new Error("company field missing");
+    company.visibility = { match: "all", conditions: [{ sourceFieldId: field("format").id, op: "eq", value: "workshop" }] };
+    await pglite.query(
+      "INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,2,$3::jsonb)",
+      [eventId, formId, JSON.stringify(crossSection)],
+    );
+
+    const result = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 2,
+      answers: answers({ [field("format").id]: option("workshop"), [field("company").id]: text("Analytical Engines") }),
+    });
+    const stored = await pglite.query<{ value: { v: string } }>(
+      "SELECT value FROM submission_answers WHERE submission_id=$1 AND field_id=$2",
+      [result.submissionId, field("company").id],
+    );
+    expect(stored.rows[0]?.value.v).toBe("Analytical Engines");
+
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM form_versions WHERE version=2");
+  });
+
+  it("rolls back submission creation when the profile update fails", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_reject_test_name");
+    await pglite.query("ALTER TABLE contacts ADD CONSTRAINT contacts_reject_test_name CHECK (first_name <> 'ROLLBACK')");
+
+    await expect(submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers({ [field("first_name").id]: text("ROLLBACK") }),
+    })).rejects.toThrow();
+
+    const submissions = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions");
+    const emails = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM communication_logs");
+    expect(submissions.rows[0]?.count).toBe(0);
+    expect(emails.rows[0]?.count).toBe(0);
+    await pglite.query("ALTER TABLE contacts DROP CONSTRAINT contacts_reject_test_name");
   });
 
   it("persists incomplete draft answers and returns them when the draft is resumed", async () => {

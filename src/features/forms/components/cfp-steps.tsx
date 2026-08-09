@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PublicForm } from "@/features/forms";
 import { FormFieldRenderer } from "./form-field-renderer";
 import type { AnswerValue, ContactId, FieldId, FormSnapshot } from "@/shared/contracts";
@@ -19,8 +19,16 @@ type Step = "account" | "submission" | "speaker" | "review" | "done";
 
 type Answers = Record<string, AnswerValue | undefined>;
 
-async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<{ ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string> }> {
-  const response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
+export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
+
+async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    return { ok: false, data: {}, message: "Could not reach the server", retryable: true };
+  }
   const payload = await response.json().catch(() => null) as {
     data?: Record<string, unknown>;
     error?: { message?: string; data?: { fieldErrors?: Record<string, string> }; fieldErrors?: Record<string, string> };
@@ -32,9 +40,39 @@ async function request(path: string, body: unknown, method: "POST" | "PATCH" = "
       message: payload?.error?.message ?? "Something went wrong",
       ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
       ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
+      retryable: response.status === 408 || response.status === 429 || response.status >= 500,
     };
   }
   return { ok: true, data: payload.data, message: "" };
+}
+
+export async function saveWithRetry(
+  save: () => Promise<RequestResult>,
+  onState: (state: AutosaveState) => void,
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)),
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    onState(attempt === 0 ? "saving" : "retrying");
+    const result = await save();
+    if (result.ok) {
+      onState("saved");
+      return true;
+    }
+    if (!result.retryable || attempt === 2) break;
+    await wait(250 * (2 ** attempt));
+  }
+  onState("failed");
+  return false;
+}
+
+/** Queue full-answer snapshots so a slow older PATCH cannot overwrite a newer one. */
+export function serializeAutosaves<T>(save: (snapshot: T) => Promise<boolean>): (snapshot: T) => Promise<boolean> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (snapshot) => {
+    const pending = tail.then(() => save(snapshot));
+    tail = pending.catch(() => false);
+    return pending;
+  };
 }
 
 export function CfpSteps({ data }: { data: PublicForm }) {
@@ -50,8 +88,18 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [contactId, setContactId] = useState<ContactId | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "retry">("idle");
+  const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
+  const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
+  autosave.current ??= serializeAutosaves((snapshotAnswers) => saveWithRetry(
+    () => request(`/api/internal/forms/${form.id}/draft`, {
+      eventId: event.id,
+      formId: form.id,
+      formVersion: snapshot.version,
+      answers: snapshotAnswers,
+    }, "PATCH"),
+    setSaveState,
+  ));
 
   const onChange = (fieldId: FieldId, value: AnswerValue | undefined) => {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
@@ -66,15 +114,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     if (!draftId) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
-      void request(`/api/internal/forms/${form.id}/draft`, {
-        eventId: event.id,
-        formId: form.id,
-        formVersion: snapshot.version,
-        answers,
-      }, "PATCH").then((saved) => setSaveState(saved.ok ? "saved" : "retry"));
+      void autosave.current?.({ ...answers });
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [answers, draftId, event.id, form.id, snapshot.version]);
+  }, [answers, draftId]);
 
   async function requestCode() {
     setBusy(true);
@@ -216,7 +259,19 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       )}
 
       {notice && <p className="cfp-notice" role="status">{notice}</p>}
-      {draftId && <p className="autosave" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "retry" ? "Changes will retry" : saveState === "saved" ? "Saved" : ""}</p>}
+      {draftId && (
+        <div className="autosave" aria-live="polite">
+          {saveState === "saving" && "Saving…"}
+          {saveState === "retrying" && "Save interrupted — retrying…"}
+          {saveState === "saved" && "Saved"}
+          {saveState === "failed" && (
+            <>
+              <span>Changes are not saved.</span>{" "}
+              <button type="button" onClick={() => void autosave.current?.({ ...answers })}>Retry now</button>
+            </>
+          )}
+        </div>
+      )}
     </section>
     </FormUploadProvider>
   );
