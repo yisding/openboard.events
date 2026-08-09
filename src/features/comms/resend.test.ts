@@ -29,4 +29,22 @@ describe("email provider adapter", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("provider unavailable", { status: 503 }));
     await expect(sendViaResend(message, fetcher as typeof fetch)).rejects.toThrowError("email provider 503: provider unavailable");
   });
+
+  it("passes calendar attachment content types through to Resend", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "provider-ics" }), { status: 200 }));
+    await sendViaResend({
+      ...message,
+      attachments: [{
+        filename: "invite.ics",
+        content: "QkVHSU46VkNBTEVOREFS",
+        content_type: "text/calendar; charset=utf-8; method=REQUEST",
+      }],
+    }, fetcher as typeof fetch);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.attachments).toEqual([{
+      filename: "invite.ics",
+      content: "QkVHSU46VkNBTEVOREFS",
+      content_type: "text/calendar; charset=utf-8; method=REQUEST",
+    }]);
+  });
 });

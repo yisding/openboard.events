@@ -18,6 +18,7 @@ import { parseEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
+import type { EmailMessage } from "./server/resend";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
 
@@ -74,15 +75,19 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("INSERT INTO submissions(id,event_id,form_id,form_version,code,status,title,source,submitter_contact_id) VALUES($1,$3,$4,1,7,'pending',';lkj<img onerror=alert(1)>','cfp',$5),($2,$3,$4,1,8,'accepted','Decision session','cfp',$5)", [receivedId, decisionId, eventId, formId, contactId]);
     await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary) VALUES($1,$2,$3,true)", [eventId, decisionId, contactId]);
     await pglite.query("INSERT INTO sessions(id,event_id,submission_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,$3,'Decision session','decision-session','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published')", [sessionId, eventId, decisionId]);
+    await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3)", [eventId, sessionId, contactId]);
     await pglite.query("INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,due_at) VALUES($1,$2,'Complete profile','contact','manual','2026-09-01T07:00:00Z')", [reminderTaskId, eventId]);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   }, 30_000);
 
   beforeEach(async () => {
     await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("DELETE FROM calendar_invites");
     await pglite.query("DELETE FROM portal_tokens");
     await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1", [contactId]);
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
+    await pglite.query("UPDATE sessions SET starts_at='2026-09-15T18:00:00Z',ends_at='2026-09-15T18:30:00Z',status='published',schedule_revision=0 WHERE id=$1", [sessionId]);
+    await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [eventId, sessionId, contactId]);
   });
 
   afterAll(async () => pglite.close());
@@ -204,9 +209,12 @@ describe("communications outbox dispatcher", () => {
     await seedDefaultTemplates(tx, eventId);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:schedule-link`, refs: { sessionId } });
     await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
-    const stored = await pglite.query<{ body: string }>("SELECT body_rendered_html AS body FROM communication_logs");
+    const stored = await pglite.query<{ body: string; ics_uid: string }>("SELECT body_rendered_html AS body,ics_uid FROM communication_logs");
     expect(stored.rows[0]?.body).toMatch(new RegExp(`/cal/[^/?\"&]+/${sessionId}`));
     expect(stored.rows[0]?.body).not.toContain(`/cal/${sessionId}?token=`);
+    expect(stored.rows[0]?.ics_uid).toContain(`sess-${sessionId}-spk-${contactId}@`);
+    const inviteState = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
+    expect(inviteState.rows[0]).toEqual({ sequence: 0, last_method: "request" });
 
     await pglite.query("DELETE FROM communication_logs");
     await pglite.query("DELETE FROM portal_tokens");
@@ -214,6 +222,103 @@ describe("communications outbox dispatcher", () => {
     await expect(dispatchOutboxIn(tx, 50, { env: productionSendEnv, sender: vi.fn(async () => "sent-id") })).resolves.toMatchObject({ sent: 1 });
     const redacted = await pglite.query<{ body: string }>("SELECT body_rendered_html AS body FROM communication_logs");
     expect(redacted.rows[0]?.body).toContain(`/cal/[redacted]/${sessionId}`);
+  });
+
+  it("keeps UID and organizer stable across request, reschedule, and cancel attachments", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    const messages: EmailMessage[] = [];
+    const sender = vi.fn(async (message: EmailMessage) => {
+      messages.push(message);
+      return `sent-${messages.length}`;
+    });
+
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:invite:0`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+
+    await pglite.query("UPDATE sessions SET starts_at='2026-09-15T19:00:00Z',ends_at='2026-09-15T19:30:00Z',schedule_revision=1 WHERE id=$1", [sessionId]);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:1`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+
+    await pglite.query("DELETE FROM session_speakers WHERE session_id=$1 AND contact_id=$2", [sessionId, contactId]);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:2`, refs: { sessionId } });
+    const changedSenderEnv = parseEnv({ ...sendEnv, EMAIL_FROM: "calendar@other.example" });
+    await expect(dispatchOutboxIn(tx, 50, { env: changedSenderEnv, sender })).resolves.toMatchObject({ sent: 1 });
+
+    expect(sender).toHaveBeenCalledTimes(3);
+    const calendars = messages.map((message) => {
+      const attachment = message.attachments?.[0];
+      expect(attachment?.filename).toBe("invite.ics");
+      const bytes = Uint8Array.from(atob(attachment?.content ?? ""), (character) => character.charCodeAt(0));
+      return new TextDecoder().decode(bytes).replaceAll("\r\n ", "");
+    });
+    expect(calendars[0]).toContain("METHOD:REQUEST\r\n");
+    expect(calendars[0]).toContain("SEQUENCE:0\r\n");
+    expect(calendars[1]).toContain("SEQUENCE:1\r\n");
+    expect(calendars[2]).toContain("METHOD:CANCEL\r\n");
+    expect(calendars[2]).toContain("SEQUENCE:2\r\n");
+    for (const calendar of calendars) {
+      expect(calendar).toContain("ORGANIZER;CN=\"AI Engineer\":mailto:mail@example.com");
+      expect(calendar).toContain("ATTENDEE;CN=\"Nadia Lee\";PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:speaker@example.com");
+    }
+    expect(messages[0]?.attachments?.[0]?.content_type).toContain("method=REQUEST");
+    expect(messages[2]?.attachments?.[0]?.content_type).toContain("method=CANCEL");
+
+    const state = await pglite.query<{ sequence: number; last_method: string; ics_uid: string; organizer_email: string }>(
+      "SELECT sequence,last_method,ics_uid,organizer_email FROM calendar_invites",
+    );
+    expect(state.rows[0]).toMatchObject({ sequence: 2, last_method: "cancel", organizer_email: "mail@example.com" });
+    const logUids = await pglite.query<{ ics_uid: string }>("SELECT DISTINCT ics_uid FROM communication_logs");
+    expect(logUids.rows).toEqual([{ ics_uid: state.rows[0]?.ics_uid }]);
+  });
+
+  it("retries a failed CANCEL with the same sequence", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:cancel-retry:request`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: vi.fn(async () => "request-sent") })).resolves.toMatchObject({ sent: 1 });
+
+    await pglite.query("DELETE FROM session_speakers WHERE session_id=$1 AND contact_id=$2", [sessionId, contactId]);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:cancel-retry:cancel`, refs: { sessionId } });
+    const failingSender = vi.fn(async () => { throw new Error("provider unavailable"); });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: failingSender })).resolves.toMatchObject({ retried: 1 });
+    const prepared = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
+    expect(prepared.rows[0]).toEqual({ sequence: 1, last_method: "cancel" });
+
+    await pglite.query("UPDATE communication_logs SET next_attempt_at=now() WHERE idempotency_key=$1", [`${eventId}:cancel-retry:cancel`]);
+    const retriedMessages: EmailMessage[] = [];
+    const retrySender = vi.fn(async (message: EmailMessage) => {
+      retriedMessages.push(message);
+      return "cancel-sent";
+    });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: retrySender })).resolves.toMatchObject({ sent: 1 });
+    const attachment = retriedMessages[0]?.attachments?.[0];
+    const bytes = Uint8Array.from(atob(attachment?.content ?? ""), (character) => character.charCodeAt(0));
+    const calendar = new TextDecoder().decode(bytes).replaceAll("\r\n ", "");
+    expect(calendar).toContain("METHOD:CANCEL\r\n");
+    expect(calendar).toContain("SEQUENCE:1\r\n");
+    const delivered = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
+    expect(delivered.rows[0]).toEqual({ sequence: 1, last_method: "cancel" });
+  });
+
+  it("fails closed without sending when ATTENDEE differs from To", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:invite:mismatch`, refs: { sessionId } });
+    const sender = vi.fn(async () => "sent-id");
+    const invitePreparer = vi.fn(async () => ({
+      ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+      filename: "invite.ics" as const,
+      contentType: "text/calendar; charset=utf-8; method=REQUEST",
+      uid: "wrong-attendee@example.com",
+      sequence: 0,
+      method: "REQUEST" as const,
+      attendeeEmail: "someone-else@example.com",
+      googleUrl: "https://calendar.google.com/calendar/render?action=TEMPLATE",
+      outlookUrl: "https://outlook.live.com/calendar/0/deeplink/compose?rru=addevent",
+      downloadUrl: "https://events.example.com/cal/token/session",
+    }));
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender, invitePreparer })).resolves.toEqual({ claimed: 1, sent: 0, skipped: 0, failed: 1, retried: 0 });
+    expect(sender).not.toHaveBeenCalled();
+    const [failed] = (await pglite.query<{ status: string; error: string }>("SELECT status,error FROM communication_logs")).rows;
+    expect(failed).toMatchObject({ status: "failed", error: "calendar ATTENDEE must match the email recipient" });
   });
 
   it("uses a scoped unsubscribe capability and persists the reminder opt-out", async () => {

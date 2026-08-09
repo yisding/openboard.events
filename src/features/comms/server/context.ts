@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
-import { communicationLogs, contacts, events, forms, portalTasks, rooms, sessions, submissions, tracks } from "@/db/schema";
+import { calendarInvites, communicationLogs, contacts, events, forms, portalTasks, rooms, sessions, sessionSpeakers, submissions, tracks } from "@/db/schema";
 import { issuePortalToken, openPortalLoginPayload } from "@/features/auth";
 import { tokenIdSchema, type ContactId, type EventId, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -26,6 +26,7 @@ export type BuiltContext = {
   eventName: string;
   logoUrl?: string;
   unsubscribeUrl: string;
+  calendarDownloadUrl?: string;
   templateOverride?: { subject?: string; bodyHtml?: string };
 };
 
@@ -72,8 +73,23 @@ function buildCalendarLinks(args: { title: string; startsAt: Date; endsAt: Date;
   outlook.searchParams.set("location", args.location);
   const googleUrl = google.toString();
   const outlookUrl = outlook.toString();
-  const buttonsHtml = `<p><a href="${escapeHtml(googleUrl)}">Add to Google Calendar</a> · <a href="${escapeHtml(outlookUrl)}">Add to Outlook</a> · <a href="${escapeHtml(args.downloadUrl)}">Download calendar invite</a></p>`;
-  return { google_url: googleUrl, outlook_url: outlookUrl, download_url: args.downloadUrl, buttons_html: buttonsHtml };
+  return calendarTemplateVars({ googleUrl, outlookUrl, downloadUrl: args.downloadUrl });
+}
+
+function calendarTemplateVars(args: { googleUrl: string; outlookUrl: string; downloadUrl: string }) {
+  const buttonsHtml = `<p><a href="${escapeHtml(args.googleUrl)}">Add to Google Calendar</a> · <a href="${escapeHtml(args.outlookUrl)}">Add to Outlook</a> · <a href="${escapeHtml(args.downloadUrl)}">Download calendar invite</a></p>`;
+  return { google_url: args.googleUrl, outlook_url: args.outlookUrl, download_url: args.downloadUrl, buttons_html: buttonsHtml };
+}
+
+export function applyCalendarInvite(
+  context: BuiltContext,
+  invite: { googleUrl: string; outlookUrl: string; downloadUrl: string },
+): BuiltContext {
+  return {
+    ...context,
+    vars: { ...context.vars, calendar: calendarTemplateVars(invite) } as TemplateVars,
+    calendarDownloadUrl: invite.downloadUrl,
+  };
 }
 
 export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
@@ -82,6 +98,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     eventSlug: events.slug,
     eventTimezone: events.timezone,
     eventStartsAt: events.startsAt,
+    eventEndsAt: events.endsAt,
     eventLocation: events.location,
     logoFileId: events.logoFileId,
     email: contacts.email,
@@ -134,6 +151,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
   };
   let vars: TemplateVars;
   let templateOverride: BuiltContext["templateOverride"];
+  let calendarDownloadUrl: string | undefined;
 
   if (row.templateKey.startsWith("submission_")) {
     if (!row.submissionId) throw new AppError("TEMPLATE_VAR_MISSING", "missing variable submission.id");
@@ -189,26 +207,47 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
       startsAt: sessions.startsAt,
       endsAt: sessions.endsAt,
       status: sessions.status,
+      speakerContactId: sessionSpeakers.contactId,
       room: rooms.name,
       track: tracks.name,
-    }).from(sessions).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
+    }).from(sessions).leftJoin(sessionSpeakers, and(
+      eq(sessionSpeakers.eventId, sessions.eventId),
+      eq(sessionSpeakers.sessionId, sessions.id),
+      eq(sessionSpeakers.contactId, row.contactId),
+    )).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
       .leftJoin(tracks, and(eq(tracks.id, sessions.trackId), eq(tracks.eventId, sessions.eventId)))
       .where(and(eq(sessions.id, row.sessionId), eq(sessions.eventId, row.eventId))).limit(1);
     if (!session) throw new SkipEmail("session no longer exists");
-    if (!session.startsAt || !session.endsAt || session.status !== "published") throw new SkipEmail("session is no longer published and scheduled");
+    const scheduled = Boolean(session.startsAt && session.endsAt && session.status === "published" && session.speakerContactId);
+    if (!scheduled) {
+      const [existingInvite] = await dbOrTx.select({ lastMethod: calendarInvites.lastMethod }).from(calendarInvites)
+        .where(and(
+          eq(calendarInvites.eventId, row.eventId),
+          eq(calendarInvites.contactId, row.contactId),
+          eq(calendarInvites.sessionId, row.sessionId),
+        )).limit(1);
+      if (!existingInvite) throw new SkipEmail("session is no longer published and scheduled");
+      templateOverride = {
+        subject: "Schedule removed: {{session.title}}",
+        bodyHtml: "<p><strong>{{session.title}}</strong> is no longer on the published schedule.</p>{{calendar.buttons_html}}",
+      };
+    }
     const { raw: calendarToken } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "ics_download", ttl: "P365D" });
     const downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(calendarToken)}/${encodeURIComponent(row.sessionId)}`;
+    calendarDownloadUrl = downloadUrl;
+    const startsAt = session.startsAt ?? base.eventStartsAt;
+    const endsAt = session.endsAt ?? base.eventEndsAt;
     vars = {
       ...common,
       session: {
         title: session.title,
-        start_time_local: formatInZone(session.startsAt, base.eventTimezone, "dateTime"),
-        end_time_local: formatInZone(session.endsAt, base.eventTimezone, "time"),
+        start_time_local: formatInZone(startsAt, base.eventTimezone, "dateTime"),
+        end_time_local: formatInZone(endsAt, base.eventTimezone, "time"),
         timezone: base.eventTimezone,
         room: session.room ?? "Room to be announced",
         track: session.track ?? "General",
       },
-      calendar: buildCalendarLinks({ title: session.title, startsAt: session.startsAt, endsAt: session.endsAt, location: session.room ?? base.eventLocation ?? "", downloadUrl }),
+      calendar: buildCalendarLinks({ title: session.title, startsAt, endsAt, location: session.room ?? base.eventLocation ?? "", downloadUrl }),
     } as TemplateVars;
   } else {
     vars = { ...common, otp: { code: otpCode } } as TemplateVars;
@@ -225,6 +264,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     recipientName: `${base.firstName} ${base.lastName}`.trim() || base.email,
     eventName: base.eventName,
     unsubscribeUrl,
+    ...(calendarDownloadUrl ? { calendarDownloadUrl } : {}),
     ...(base.logoFileId ? { logoUrl: `${env.APP_BASE_URL}/f/${base.logoFileId}` } : {}),
     ...(templateOverride ? { templateOverride } : {}),
   };

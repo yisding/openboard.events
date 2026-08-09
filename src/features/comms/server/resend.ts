@@ -9,7 +9,7 @@ export type EmailMessage = {
   html: string;
   text: string;
   idempotencyKey: string;
-  attachments?: Array<{ filename: string; content: string }>;
+  attachments?: Array<{ filename: string; content: string; content_type: string }>;
 };
 
 export async function sendViaResend(message: EmailMessage, fetcher: typeof fetch = fetch): Promise<string> {
