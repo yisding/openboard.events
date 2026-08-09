@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/shared/contracts/**/*.ts"],
+  "exclude": ["src/shared/contracts/**/*.test.ts"]
+}
