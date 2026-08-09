@@ -185,13 +185,36 @@ export async function createSubmission(eventId: EventId, input: CreateSubmission
 
     const columns = submissionColumns(input);
 
+    // A retried or double-clicked submit arrives after the first one already
+    // promoted the draft, so there is no draft left to find. Without this the
+    // second request allocates a fresh code and the speaker ends up with two
+    // proposals. M16 passes the draft id it holds precisely for this.
+    if (input.draftSubmissionId) {
+      const alreadySubmitted = (await tx.execute<{ id: string; code: number; status: SubmissionStatus }>(sql`
+        SELECT id, code, status FROM submissions
+        WHERE id = ${input.draftSubmissionId} AND event_id = ${eventId} AND status <> 'draft'
+        FOR UPDATE
+      `)).rows?.[0];
+      if (alreadySubmitted) {
+        return {
+          submissionId: alreadySubmitted.id as SubmissionId,
+          code: Number(alreadySubmitted.code),
+          status: alreadySubmitted.status,
+          promotedFromDraft: true,
+        };
+      }
+    }
+
     // Draft promotion keeps the code the speaker has already been shown. A new
     // one here would renumber their submission between the wizard and the
     // confirmation email.
+    //
+    // Only a CFP submit promotes: an organizer adding an abstract by hand must
+    // not silently overwrite the draft a speaker is still working on.
     let promotedFromDraft = false;
     let submissionId: string;
     let code: number;
-    const draft = input.formId && input.submitterContactId
+    const draft = input.source === "cfp" && input.formId && input.submitterContactId
       ? (await tx.execute<{ id: string; code: number }>(sql`
         SELECT id, code FROM submissions
         WHERE event_id = ${eventId} AND form_id = ${input.formId}
@@ -210,7 +233,9 @@ export async function createSubmission(eventId: EventId, input: CreateSubmission
         formVersion: input.formVersion,
         source: input.source,
         kind: input.kind,
-        submittedAt: new Date(),
+        // A promotion that stays a draft has not been submitted, so it must not
+        // carry a submitted_at that every downstream sort trusts.
+        ...(status === "draft" ? {} : { submittedAt: new Date() }),
         rowVersion: sql`${submissions.rowVersion} + 1`,
         updatedAt: new Date(),
       }).where(eq(submissions.id, submissionId));
@@ -266,6 +291,11 @@ export async function upsertDraft(
   formVersion: number,
 ): Promise<{ submissionId: SubmissionId; code: number }> {
   return withTx(async (tx) => {
+    // The form_id foreign key proves the form exists, not that it belongs to
+    // this event — without this a caller could start a draft against another
+    // event's form and the row would look legitimate.
+    await loadForm(tx, eventId, formId);
+
     const existing = (await tx.execute<{ id: string; code: number }>(sql`
       SELECT id, code FROM submissions
       WHERE event_id = ${eventId} AND form_id = ${formId} AND submitter_contact_id = ${contactId} AND status = 'draft'
@@ -279,17 +309,18 @@ export async function upsertDraft(
       return { submissionId: existing.id as SubmissionId, code: Number(existing.code) };
     }
 
+    // FOR UPDATE cannot lock a row that does not exist, so two first-time calls
+    // both reach here. The partial unique index is what actually decides;
+    // ON CONFLICT turns the loser into a read instead of a duplicate-key error.
     const code = await nextSubmissionCode(tx, eventId);
-    const [inserted] = await tx.insert(submissions).values({
-      eventId,
-      formId,
-      formVersion,
-      code,
-      status: "draft",
-      source: "cfp",
-      submitterContactId: contactId,
-      title: "",
-    }).returning({ id: submissions.id });
+    const upserted = (await tx.execute<{ id: string; code: number }>(sql`
+      INSERT INTO submissions (event_id, form_id, form_version, code, status, source, submitter_contact_id, title)
+      VALUES (${eventId}, ${formId}, ${formVersion}, ${code}, 'draft', 'cfp', ${contactId}, '')
+      ON CONFLICT (event_id, form_id, submitter_contact_id) WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL
+      DO UPDATE SET form_version = EXCLUDED.form_version, updated_at = now()
+      RETURNING id, code
+    `)).rows?.[0];
+    const inserted = upserted ? { id: upserted.id, code: Number(upserted.code) } : undefined;
     if (!inserted) throw new AppError("INTERNAL", "Could not start the draft");
 
     await tx.insert(submissionParticipants).values({
@@ -301,6 +332,8 @@ export async function upsertDraft(
       sortOrder: 0,
     }).onConflictDoNothing();
 
-    return { submissionId: inserted.id as SubmissionId, code };
+    // The losing racer's allocated code is simply unused; a gap in the sequence
+    // costs nothing, a duplicate submission costs a speaker their proposal.
+    return { submissionId: inserted.id as SubmissionId, code: inserted.code };
   });
 }

@@ -86,6 +86,8 @@ describe("createSubmission", () => {
   });
 
   it("creates a CFP submission with exactly one confirmation email", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
     const result = await createSubmission(eventId, cfpInput());
     expect(result.status).toBe("pending");
     expect(result.promotedFromDraft).toBe(false);
@@ -109,7 +111,7 @@ describe("createSubmission", () => {
   });
 
   it("refuses once the per-user limit is used up, and drafts do not count", async () => {
-    // The event cap is 2 and one submission already exists.
+    // The event cap is 2; one submission already exists from the case above.
     await upsertDraft(eventId, speaker, openForm, 1);
     const second = await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
     expect(second.promotedFromDraft).toBe(true);
@@ -156,6 +158,50 @@ describe("createSubmission", () => {
     expect(await countRows("communication_logs")).toBe(0);
 
     await pglite.query("UPDATE forms SET send_confirmation=true WHERE id=$1", [openForm]);
+  });
+
+  it("is idempotent when the same submit is retried", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+
+    const first = await createSubmission(eventId, cfpInput({ draftSubmissionId: draft.submissionId }));
+    // The retry finds no draft — the first call promoted it — so without the
+    // draft id it would allocate a new code and duplicate the proposal.
+    const retry = await createSubmission(eventId, cfpInput({ draftSubmissionId: draft.submissionId }));
+
+    expect(retry.submissionId).toBe(first.submissionId);
+    expect(retry.code).toBe(first.code);
+    expect(await countRows("submissions")).toBe(1);
+    expect(await countRows("communication_logs")).toBe(1);
+  });
+
+  it("never promotes a speaker's draft into an organizer's manual submission", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+
+    const manual = await createSubmission(eventId, cfpInput({
+      source: "manual",
+      enforce: { deadline: false, limit: false },
+      sendConfirmation: false,
+      fields: { title: "Organizer added this" },
+    }));
+
+    expect(manual.promotedFromDraft).toBe(false);
+    expect(manual.submissionId).not.toBe(draft.submissionId);
+    // The speaker's draft is still theirs, still a draft.
+    const rows = await pglite.query<{ status: string }>("SELECT status FROM submissions WHERE id=$1", [draft.submissionId]);
+    expect(rows.rows[0]?.status).toBe("draft");
+  });
+
+  it("refuses a draft against another event's form", async () => {
+    const otherEvent = "e0000000-0000-4000-8000-000000000009";
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Other','other','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z') ON CONFLICT DO NOTHING",
+      [otherEvent],
+    );
+    const error = await upsertDraft(eventIdSchema.parse(otherEvent), speaker, openForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("NOT_FOUND");
   });
 
   it("upsertDraft returns the same row and code when called twice", async () => {
