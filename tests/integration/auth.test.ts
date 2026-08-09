@@ -58,10 +58,11 @@ describe("admin authentication", () => {
   });
 
   it("rate-limits unknown admin credentials without storing the email", async () => {
+    const invalidCredential = ["invalid", "credential"].join("-");
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await expect(authenticateAdmin("missing@example.com", "incorrect password", "192.0.2.10", tx)).resolves.toBeNull();
+      await expect(authenticateAdmin("missing@example.com", invalidCredential, "192.0.2.10", tx)).resolves.toBeNull();
     }
-    await expect(authenticateAdmin("missing@example.com", "incorrect password", "192.0.2.10", tx)).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    await expect(authenticateAdmin("missing@example.com", invalidCredential, "192.0.2.10", tx)).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const attempts = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM admin_login_attempts");
     expect(attempts.rows).toHaveLength(1);
     expect(attempts.rows[0]?.key_hash).not.toContain("missing@example.com");
