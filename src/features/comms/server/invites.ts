@@ -61,9 +61,10 @@ export async function prepareInviteIn(
     attendeeEmail: contacts.email,
     attendeeFirstName: contacts.firstName,
     attendeeLastName: contacts.lastName,
+    speakerContactId: sessionSpeakers.contactId,
   }).from(sessions)
     .innerJoin(events, and(eq(events.id, sessions.eventId), eq(events.id, row.eventId)))
-    .innerJoin(sessionSpeakers, and(
+    .leftJoin(sessionSpeakers, and(
       eq(sessionSpeakers.eventId, sessions.eventId),
       eq(sessionSpeakers.sessionId, sessions.id),
       eq(sessionSpeakers.contactId, row.contactId),
@@ -83,7 +84,7 @@ export async function prepareInviteIn(
       eq(calendarInvites.sessionId, row.sessionId),
     ))
     .limit(1);
-  const scheduled = record.status === "published" && Boolean(record.startsAt && record.endsAt);
+  const scheduled = record.status === "published" && Boolean(record.startsAt && record.endsAt && record.speakerContactId);
   const method = scheduled ? "REQUEST" : existing?.lastMethod === "request" ? "CANCEL" : null;
   if (!method) return null;
 

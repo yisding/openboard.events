@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
-import { calendarInvites, communicationLogs, contacts, events, forms, portalTasks, rooms, sessions, submissions, tracks } from "@/db/schema";
+import { calendarInvites, communicationLogs, contacts, events, forms, portalTasks, rooms, sessions, sessionSpeakers, submissions, tracks } from "@/db/schema";
 import { issuePortalToken, openPortalLoginPayload } from "@/features/auth";
 import { tokenIdSchema, type ContactId, type EventId, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -207,13 +207,18 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
       startsAt: sessions.startsAt,
       endsAt: sessions.endsAt,
       status: sessions.status,
+      speakerContactId: sessionSpeakers.contactId,
       room: rooms.name,
       track: tracks.name,
-    }).from(sessions).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
+    }).from(sessions).leftJoin(sessionSpeakers, and(
+      eq(sessionSpeakers.eventId, sessions.eventId),
+      eq(sessionSpeakers.sessionId, sessions.id),
+      eq(sessionSpeakers.contactId, row.contactId),
+    )).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
       .leftJoin(tracks, and(eq(tracks.id, sessions.trackId), eq(tracks.eventId, sessions.eventId)))
       .where(and(eq(sessions.id, row.sessionId), eq(sessions.eventId, row.eventId))).limit(1);
     if (!session) throw new SkipEmail("session no longer exists");
-    const scheduled = Boolean(session.startsAt && session.endsAt && session.status === "published");
+    const scheduled = Boolean(session.startsAt && session.endsAt && session.status === "published" && session.speakerContactId);
     if (!scheduled) {
       const [existingInvite] = await dbOrTx.select({ lastMethod: calendarInvites.lastMethod }).from(calendarInvites)
         .where(and(

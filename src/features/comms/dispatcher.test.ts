@@ -87,6 +87,7 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1", [contactId]);
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
     await pglite.query("UPDATE sessions SET starts_at='2026-09-15T18:00:00Z',ends_at='2026-09-15T18:30:00Z',status='published',schedule_revision=0 WHERE id=$1", [sessionId]);
+    await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [eventId, sessionId, contactId]);
   });
 
   afterAll(async () => pglite.close());
@@ -238,7 +239,7 @@ describe("communications outbox dispatcher", () => {
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:1`, refs: { sessionId } });
     await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
 
-    await pglite.query("UPDATE sessions SET status='draft' WHERE id=$1", [sessionId]);
+    await pglite.query("DELETE FROM session_speakers WHERE session_id=$1 AND contact_id=$2", [sessionId, contactId]);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:2`, refs: { sessionId } });
     const changedSenderEnv = parseEnv({ ...sendEnv, EMAIL_FROM: "calendar@other.example" });
     await expect(dispatchOutboxIn(tx, 50, { env: changedSenderEnv, sender })).resolves.toMatchObject({ sent: 1 });
