@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { withTx, type TxDb } from "@/db/client";
+import { db, withTx, type TxDb } from "@/db/client";
 import { forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
@@ -14,9 +14,12 @@ import {
   type SubmissionId,
   type SubmissionStatus,
 } from "@/shared/contracts";
+import { updateContactFields } from "@/features/portal";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
+import { assertTransition } from "./guards";
+export { formatCode } from "./guards";
 
 /**
  * The result shape M18 publishes. Contracts froze the *input* verbatim but not
@@ -35,11 +38,6 @@ export type CreateSubmissionResult = {
  * allocation, the limit rule and the outbox write from being reimplemented
  * three different ways.
  */
-
-/** Every rendering of a submission code, everywhere. */
-export function formatCode(code: number): string {
-  return `SESS-${code}`;
-}
 
 /**
  * The one code allocator. It runs inside the caller's transaction — hence the
@@ -386,5 +384,140 @@ export async function saveDraftAnswers(
       .set({ formVersion, updatedAt: new Date() })
       .where(eq(submissions.id, draft.id));
     return { submissionId: draft.id as SubmissionId };
+  });
+}
+
+export type TransitionResult = { changed: SubmissionId[]; stale: SubmissionId[] };
+
+/**
+ * Guarded bulk transition. `expectedFrom` is what the organizer's screen showed;
+ * a row that has moved since is reported `stale` rather than overwritten, which
+ * is the difference between two organizers working the queue together and one of
+ * them silently undoing the other.
+ *
+ * The SET clause mirrors what the database trigger does on a final→non-final
+ * move, so the application and the trigger agree instead of fighting: undoing a
+ * decision clears `notified_at` and bumps `notify_revision`, which is what makes
+ * a later re-notify a *new* email rather than a suppressed duplicate.
+ */
+export async function transitionStatus(
+  eventId: EventId,
+  ids: SubmissionId[],
+  to: SubmissionStatus,
+  expectedFrom: SubmissionStatus | SubmissionStatus[],
+): Promise<TransitionResult> {
+  if (ids.length === 0) return { changed: [], stale: [] };
+  const from = Array.isArray(expectedFrom) ? expectedFrom : [expectedFrom];
+  // A friendly error before the trigger's 23514, for the cases a UI can prevent.
+  for (const source of from) assertTransition(source, to);
+
+  const updated = await db.execute<{ id: string }>(sql`
+    UPDATE submissions SET
+      status = ${to},
+      row_version = row_version + 1,
+      updated_at = now(),
+      notified_at = CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN NULL ELSE notified_at END,
+      notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN 1 ELSE 0 END
+    WHERE event_id = ${eventId}
+      AND id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+      AND status IN (${sql.join(from.map((status) => sql`${status}`), sql`, `)})
+    RETURNING id
+  `);
+
+  const changed = (updated.rows ?? []).map((row: { id: string }) => row.id as SubmissionId);
+  const changedSet = new Set<string>(changed);
+  return { changed, stale: ids.filter((id) => !changedSet.has(id)) };
+}
+
+export type NotifyResult = {
+  accepted: SubmissionId[];
+  declined: SubmissionId[];
+  emailsQueued: number;
+  skippedNoRecipient: SubmissionId[];
+};
+
+type QueueRow = { id: string; notify_revision: number; recipient: string | null; primary_contact: string | null };
+
+/**
+ * Finalize both queues and enqueue exactly one email per submission.
+ *
+ * `notified_at IS NULL` in the WHERE clause is the idempotency: pressing Notify
+ * twice finds nothing the second time. The idempotency key carries
+ * `notify_revision`, so an organizer who undoes a decision and re-notifies gets a
+ * genuinely new email rather than one the outbox silently swallows as a duplicate.
+ *
+ * The recipient is the submitter — the primary contact — and nobody else.
+ * Co-speakers learn through the portal; mailing all of them turns one decision
+ * into four emails, three of which nobody asked for.
+ */
+export async function notifyQueues(eventId: EventId): Promise<NotifyResult> {
+  return withTx(async (tx) => {
+    const finalize = async (queue: "accept_queue" | "decline_queue", decided: "accepted" | "declined") => {
+      const result = await tx.execute<QueueRow>(sql`
+        UPDATE submissions s SET status = ${decided}, notified_at = now(), row_version = row_version + 1, updated_at = now()
+        WHERE s.event_id = ${eventId} AND s.status = ${queue} AND s.notified_at IS NULL
+        RETURNING s.id, s.notify_revision,
+          -- Two different people, deliberately. The decision email goes to whoever
+          -- submitted; the confirmation belongs to whoever is actually presenting,
+          -- and a submitter may have named somebody else as primary.
+          COALESCE(s.submitter_contact_id, (
+            SELECT sp.contact_id FROM submission_participants sp
+            WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
+            LIMIT 1
+          )) AS recipient,
+          (
+            SELECT sp.contact_id FROM submission_participants sp
+            WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
+            LIMIT 1
+          ) AS primary_contact
+      `);
+      return result.rows ?? [];
+    };
+
+    const acceptedRows = await finalize("accept_queue", "accepted");
+    const declinedRows = await finalize("decline_queue", "declined");
+
+    const skippedNoRecipient: SubmissionId[] = [];
+    let emailsQueued = 0;
+
+    for (const [rows, templateKey] of [
+      [acceptedRows, "submission_accepted"],
+      [declinedRows, "submission_declined"],
+    ] as const) {
+      for (const row of rows) {
+        if (!row.recipient) {
+          // A submission with nobody on it is a data problem, not a reason to
+          // fail the whole batch; it is reported so somebody can fix it.
+          skippedNoRecipient.push(row.id as SubmissionId);
+          continue;
+        }
+        const contactId = row.recipient as ContactId;
+        await enqueueEmail(tx, {
+          eventId,
+          templateKey,
+          contactId,
+          idempotencyKey: idem.decision(eventId, row.id as SubmissionId, Number(row.notify_revision)),
+          refs: { submissionId: row.id as SubmissionId },
+        });
+        emailsQueued += 1;
+
+        // Auto-confirm on acceptance: there is no speaker-facing confirm button,
+        // so an accepted speaker is confirmed until an organizer says otherwise.
+        // It follows the *primary participant*, not the submitter — confirming
+        // the person who filled the form in on somebody else's behalf says the
+        // wrong speaker is coming.
+        const confirmed = (row.primary_contact ?? row.recipient) as ContactId | null;
+        if (templateKey === "submission_accepted" && confirmed) {
+          await updateContactFields(tx, eventId, confirmed, { confirmationStatus: "confirmed" });
+        }
+      }
+    }
+
+    return {
+      accepted: acceptedRows.map((row) => row.id as SubmissionId),
+      declined: declinedRows.map((row) => row.id as SubmissionId),
+      emailsQueued,
+      skippedNoRecipient,
+    };
   });
 }

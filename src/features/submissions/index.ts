@@ -1,5 +1,14 @@
-export type { CreateSubmissionResult } from "./server/mutations";
-export { createSubmission, createSubmissionIn, formatCode, nextSubmissionCode, saveDraftAnswers, upsertDraft } from "./server/mutations";
+export type { CreateSubmissionResult, NotifyResult, TransitionResult } from "./server/mutations";
+export {
+  createSubmission,
+  createSubmissionIn,
+  formatCode,
+  nextSubmissionCode,
+  notifyQueues,
+  saveDraftAnswers,
+  transitionStatus,
+  upsertDraft,
+} from "./server/mutations";
 export { assertTransition, toPortalStatus } from "./server/guards";
 export type { SubmissionFilters } from "./server/filters";
 export { submissionFiltersSchema } from "./server/filters";
