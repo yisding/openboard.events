@@ -17,6 +17,9 @@ const WORKSHOP_DURATION = fieldByKey("workshop_duration");
 const FIRST = fieldByKey("first_name");
 const LAST = fieldByKey("last_name");
 const EMAIL = fieldByKey("email");
+const TOPICS = fieldByKey("topics");
+const SLIDES = fieldByKey("slides");
+const SUPPORTING = fieldByKey("supporting");
 
 const text = (v: string): AnswerValue => ({ t: "s", v });
 const option = (v: string): AnswerValue => ({ t: "opt", v });
@@ -82,6 +85,13 @@ describe("runSubmitPipeline", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("treats an empty single-choice value as missing", () => {
+    const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [TRACK.id]: option("") }, { requireRequired: true });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[TRACK.id]).toContain("required");
+  });
+
   it("treats markup with no text as a missing rich-text answer", () => {
     const result = runSubmitPipeline(
       GOLDEN_SNAPSHOT,
@@ -114,6 +124,46 @@ describe("runSubmitPipeline", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.fieldErrors[TRACK.id]).toContain("offered options");
+  });
+
+  it.each([
+    ["text", TITLE.id, option("not-text")],
+    ["dropdown", TRACK.id, text("platforms")],
+    ["multiselect", TOPICS.id, option("evals")],
+    ["file", SUPPORTING.id, text("not-a-file-answer")],
+  ])("rejects a valid AnswerValue with the wrong %s field type", (_name, fieldId, value) => {
+    const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [fieldId]: value }, { requireRequired: true });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[fieldId]).toContain("expected answer type");
+  });
+
+  it("validates email and URL string formats", () => {
+    const badEmail = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [EMAIL.id]: text("not an email") }, { requireRequired: true });
+    expect(badEmail.ok).toBe(false);
+    if (!badEmail.ok) expect(badEmail.fieldErrors[EMAIL.id]).toContain("valid email");
+
+    const badUrl = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [SLIDES.id]: text("not a URL") }, { requireRequired: true });
+    expect(badUrl.ok).toBe(false);
+    if (!badUrl.ok) expect(badUrl.fieldErrors[SLIDES.id]).toContain("valid URL");
+  });
+
+  it("returns validation instead of throwing for a malformed known value", () => {
+    const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [EMAIL.id]: null }, { requireRequired: true });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[EMAIL.id]).toContain("expected answer type");
+  });
+
+  it("discards a malformed hidden answer instead of validating it", () => {
+    const result = runSubmitPipeline(
+      GOLDEN_SNAPSHOT,
+      { ...completeAnswers(), [FORMAT.id]: option("talk"), [WORKSHOP_DURATION.id]: option("wrong-for-text") },
+      { requireRequired: true },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.discarded).toContain(WORKSHOP_DURATION.id);
   });
 
   it("counts rich text length on text, not on markup", () => {
@@ -239,6 +289,13 @@ describe("isStructurallyCompatible", () => {
     const next = clone();
     const conditional = next.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "workshop_duration");
     if (conditional) conditional.visibility = null;
+    expect(isStructurallyCompatible(GOLDEN_SNAPSHOT, next)).toBe(false);
+  });
+
+  it("rejects a changed field mapping", () => {
+    const next = clone();
+    const company = next.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "company");
+    if (company) company.mapsTo = "contact.job_title";
     expect(isStructurallyCompatible(GOLDEN_SNAPSHOT, next)).toBe(false);
   });
 
