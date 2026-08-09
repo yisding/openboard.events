@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — claimed by Codex after PRs #9–#12 merged to `main`, satisfying the contracts/schema/shared-server/auth prerequisites; implementation is isolated on `agent/complete-comms-dispatcher`. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms`. |
 | **Scheduled** | **Sat AM start (right after [M08](./M08-jobs-worker.md)), finished Sat PM.** The Sat-PM WS-F checklist items ([M35](./M35-ics-calendar-invites.md)'s canned ICS curl, [M39](./M39-airtable-export.md)'s Airtable provisioning) run interleaved. |
 | **Size** | L (≈1 day) |
