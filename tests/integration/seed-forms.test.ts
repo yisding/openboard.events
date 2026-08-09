@@ -156,4 +156,28 @@ describe("forms seed", () => {
       enabled: true,
     });
   });
+
+  it("reclaims a seeded field key from an organizer-created replacement", async () => {
+    const formId = seedId("form", "form-a");
+    const seededFieldId = seedId("field", "form-a-track");
+    const replacementId = seedId("field", "organizer-replacement-track");
+
+    await pglite.query("UPDATE form_fields SET deleted_at=now() WHERE id=$1", [seededFieldId]);
+    await pglite.query(
+      `INSERT INTO form_fields (id,event_id,form_id,section_id,key,label,field_type)
+       VALUES ($1,$2,$3,$4,'track','Replacement track','text')`,
+      [replacementId, SEEDED_EVENT_ID, formId, seedId("section", "form-a-abstract")],
+    );
+
+    await expect(seedForms(ctx)).resolves.toBeUndefined();
+
+    const fields = await pglite.query<{ id: string; label: string; deleted_at: Date | null }>(
+      "SELECT id,label,deleted_at FROM form_fields WHERE form_id=$1 AND key='track' ORDER BY id",
+      [formId],
+    );
+    const seeded = fields.rows.find((field) => field.id === seededFieldId);
+    const replacement = fields.rows.find((field) => field.id === replacementId);
+    expect(seeded).toMatchObject({ label: "Track", deleted_at: null });
+    expect(replacement?.deleted_at).toBeInstanceOf(Date);
+  });
 });

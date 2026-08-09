@@ -1,3 +1,4 @@
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { forms, formFields, formSections, formVersions, routingRules } from "@/db/schema";
 import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import type { FormAuthoringRows } from "@/shared/contracts";
@@ -129,6 +130,21 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
       });
     }
     for (const authored of rows.fields) {
+      // An organizer can replace a soft-deleted seeded field with a new row that
+      // reuses its key. Restore the deterministic row without violating the
+      // partial unique index, while preserving the replacement as soft-deleted
+      // history instead of destroying it.
+      if (!authored.deletedAt) {
+        const reconciledAt = new Date();
+        await tx.update(formFields)
+          .set({ deletedAt: reconciledAt, updatedAt: reconciledAt })
+          .where(and(
+            eq(formFields.formId, rows.form.id),
+            eq(formFields.key, authored.key),
+            isNull(formFields.deletedAt),
+            ne(formFields.id, authored.id),
+          ));
+      }
       await tx.insert(formFields).values({
         id: authored.id, eventId, formId: rows.form.id, sectionId: authored.sectionId, key: authored.key,
         label: authored.label, fieldType: authored.fieldType, required: authored.required, locked: authored.locked,
