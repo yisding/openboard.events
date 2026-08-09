@@ -1,5 +1,5 @@
 import type { AnswerValue, FormSnapshot } from "./forms";
-import type { FieldId } from "./ids";
+import type { FieldId, ParticipantId } from "./ids";
 
 export type FormFieldRendererProps = {
   snapshot: FormSnapshot;
@@ -7,6 +7,6 @@ export type FormFieldRendererProps = {
   onChange: (fieldId: FieldId, value: AnswerValue | undefined) => void;
   mode: "edit" | "review" | "readonly";
   sectionKeys?: string[];
-  participantId?: string | null;
+  participantId?: ParticipantId | null;
   errors?: Record<string, string>;
 };

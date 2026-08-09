@@ -15,6 +15,10 @@ describe("sanitize", () => {
     expect(WIDE_IFRAME_HOSTS).toContain("docs.google.com");
   });
 
+  it("allows an allowlisted unquoted iframe src in the wide profile", () => {
+    expect(sanitize("<iframe src=https://player.vimeo.com/video/123></iframe>", { profile: "wide" })).toContain("player.vimeo.com");
+  });
+
   it.each([
     '<iframe src="http://www.youtube.com/embed/x"></iframe>',
     '<iframe src="https://evil.example/embed/x"></iframe>',

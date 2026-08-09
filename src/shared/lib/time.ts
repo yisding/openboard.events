@@ -14,7 +14,11 @@ export function zonedInputToUtc(localISO: string, timeZone: string): Date {
 export function formatInZone(utc: Date | string | number, timeZone: string, style: TimeStyle): string {
   const value = asDate(utc);
   if (typeof style === "object") {
-    const rendered = new Intl.DateTimeFormat("en-US", { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" }).format(value);
+    const usesStyleShortcut = style.dateStyle !== undefined || style.timeStyle !== undefined;
+    const options: Intl.DateTimeFormatOptions = usesStyleShortcut
+      ? { ...style, timeZone }
+      : { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" };
+    const rendered = new Intl.DateTimeFormat("en-US", options).format(value);
     return rendered;
   }
   const pattern = style === "date" ? "MMM d, yyyy" : style === "time" ? "h:mm a" : style === "long" ? "MMMM d, yyyy 'at' h:mm a" : "MMM d, yyyy, h:mm a";
@@ -36,8 +40,8 @@ export function daysToEvent(nowUtc: Date, eventStartUtc: Date, timeZone: string)
 }
 
 export function addDuration(utc: Date, isoDuration: string): Date {
-  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(isoDuration);
-  if (!match) throw new TypeError(`Unsupported ISO duration: ${isoDuration}`);
+  const match = /^P(?:(\d+)D)?(?:T(?=\d)(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(isoDuration);
+  if (!match || !match.slice(1).some((component) => component !== undefined)) throw new TypeError(`Unsupported ISO duration: ${isoDuration}`);
   const totalSeconds = Number(match[1] ?? 0) * 86_400
     + Number(match[2] ?? 0) * 3_600
     + Number(match[3] ?? 0) * 60

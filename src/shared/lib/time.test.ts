@@ -24,6 +24,10 @@ describe("event timezone API", () => {
     expect(formatInZone("2026-12-15T20:00:00.000Z", LA, "dateTime")).toMatch(/PST$/);
   });
 
+  it("accepts Intl style shortcuts without mixing component options", () => {
+    expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { dateStyle: "medium" })).toBe("Oct 15, 2026");
+  });
+
   it("uses calendar-day differences across DST", () => {
     expect(daysToEvent(new Date("2026-01-10T20:00:00.000Z"), new Date("2026-03-16T19:00:00.000Z"), LA)).toBe(65);
   });
@@ -31,5 +35,9 @@ describe("event timezone API", () => {
   it("adds supported ISO durations", () => {
     expect(addDuration(new Date("2026-03-08T09:00:00.000Z"), "P1D").toISOString()).toBe("2026-03-09T09:00:00.000Z");
     expect(addDuration(new Date("2026-03-08T09:00:00.000Z"), "PT1H30M").toISOString()).toBe("2026-03-08T10:30:00.000Z");
+  });
+
+  it.each(["P", "PT", "P1DT"])("rejects incomplete ISO duration %s", (duration) => {
+    expect(() => addDuration(new Date("2026-03-08T09:00:00.000Z"), duration)).toThrow(TypeError);
   });
 });

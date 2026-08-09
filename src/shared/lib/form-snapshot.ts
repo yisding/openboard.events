@@ -55,6 +55,7 @@ export function compileFormSnapshot(rows: FormAuthoringRows): FormSnapshot {
       optionIds.add(option.id);
     }
     if (field.maxChars !== null) {
+      if (!Number.isSafeInteger(field.maxChars) || field.maxChars <= 0) invalid(field.id, "maxChars must be a positive integer");
       const max = field.mapsTo === "submission.title" ? LIMITS.TITLE : field.fieldType === "richtext" ? LIMITS.RICHTEXT : Number.MAX_SAFE_INTEGER;
       if (field.maxChars > max) invalid(field.id, `maxChars exceeds ${max}`);
     }

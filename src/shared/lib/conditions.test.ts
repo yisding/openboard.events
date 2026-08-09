@@ -93,7 +93,7 @@ describe("condition evaluator", () => {
   it("applies only the first enabled matching routing rule", () => {
     const first = routingRuleSchema.parse({ id: "00000000-0000-4000-8000-000000000301", sortOrder: 1, match: "all", conditions: [{ sourceFieldId: SOURCE, op: "eq", value: "agents" }], setTrackId: TRACK, addTagIds: [], enabled: true });
     const fallback = routingRuleSchema.parse({ id: "00000000-0000-4000-8000-000000000302", sortOrder: 2, match: "all", conditions: [{ sourceFieldId: SOURCE, op: "answered" }], addTagIds: [], enabled: true });
-    expect(applyRouting([first, fallback], answer({ t: "opt", v: "agents" }))).toEqual({
+    expect(applyRouting([fallback, first], answer({ t: "opt", v: "agents" }))).toEqual({
       trackId: TRACK,
       tagIds: [],
       matchedRuleId: first.id,
