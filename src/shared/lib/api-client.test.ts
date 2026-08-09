@@ -5,14 +5,14 @@ import { api } from "./api-client";
 describe("api client", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("unwraps a successful API data envelope before validating the DTO", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: { id: "task-1" } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    ));
+  it("unwraps the successful handler envelope before DTO validation", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: { name: "Slides" }, meta: { requestId: "req-1" } }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(api("tasks/1", z.object({ name: z.string() }))).resolves.toEqual({ name: "Slides" });
+  });
 
-    await expect(api("tasks/task-1", z.object({ id: z.string() }))).resolves.toEqual({ id: "task-1" });
+  it("preserves structured API errors", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { code: "NOT_FOUND", message: "Task not found" } }, { status: 404 })));
+    await expect(api("tasks/missing", z.object({ name: z.string() }))).rejects.toMatchObject({ code: "NOT_FOUND", message: "Task not found" });
   });
 });
