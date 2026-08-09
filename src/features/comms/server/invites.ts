@@ -4,7 +4,7 @@ import { calendarInvites, contacts, events, rooms, sessions, sessionSpeakers, tr
 import { issuePortalToken } from "@/features/auth";
 import { buildFeed, buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl, type IcsEvent } from "@/features/comms/ics";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
-import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
+import { emailFromAddress, getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { stripHtml } from "./render";
 import type { OutboxRow } from "./context";
@@ -27,7 +27,10 @@ export type PreparedInvite = {
 type PrepareOptions = { downloadUrl?: string; now?: Date };
 
 function senderAddress(env: RuntimeEnv): string {
-  if (env.EMAIL_FROM) return env.EMAIL_FROM;
+  if (env.EMAIL_FROM) {
+    const address = emailFromAddress(env.EMAIL_FROM);
+    if (address) return address;
+  }
   const hostname = new URL(env.APP_BASE_URL).hostname;
   return `calendar@${hostname.includes(".") ? hostname : "openboard.local"}`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCredentialFreeLocalDemo, parseEnv } from "./env";
+import { emailFromAddress, isCredentialFreeLocalDemo, parseEnv } from "./env";
 
 const deployed = {
   APP_BASE_URL: "https://example.com",
@@ -72,14 +72,17 @@ describe("EMAIL_FROM", () => {
     // own email address was invalid: the env failed to parse and every route
     // that catches ZodError blamed the request.
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "AI.Engineer Sandbox <hello@mail.openboard.events>" })).not.toThrow();
+    expect(emailFromAddress("AI.Engineer Sandbox <hello@mail.openboard.events>")).toBe("hello@mail.openboard.events");
   });
 
   it("accepts a bare address", () => {
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "hello@mail.openboard.events" })).not.toThrow();
+    expect(emailFromAddress("hello@mail.openboard.events")).toBe("hello@mail.openboard.events");
   });
 
   it("still refuses something that is not an address", () => {
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "AI.Engineer Sandbox" })).toThrow();
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "Name <not-an-address>" })).toThrow();
+    expect(emailFromAddress("Name <not-an-address>")).toBeNull();
   });
 });

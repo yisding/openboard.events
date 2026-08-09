@@ -232,12 +232,13 @@ describe("communications outbox dispatcher", () => {
       return `sent-${messages.length}`;
     });
 
+    const displaySenderEnv = parseEnv({ ...sendEnv, EMAIL_FROM: "AI Engineer Sandbox <mail@example.com>" });
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:invite:0`, refs: { sessionId } });
-    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+    await expect(dispatchOutboxIn(tx, 50, { env: displaySenderEnv, sender })).resolves.toMatchObject({ sent: 1 });
 
     await pglite.query("UPDATE sessions SET starts_at='2026-09-15T19:00:00Z',ends_at='2026-09-15T19:30:00Z',schedule_revision=1 WHERE id=$1", [sessionId]);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:1`, refs: { sessionId } });
-    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+    await expect(dispatchOutboxIn(tx, 50, { env: displaySenderEnv, sender })).resolves.toMatchObject({ sent: 1 });
 
     await pglite.query("DELETE FROM session_speakers WHERE session_id=$1 AND contact_id=$2", [sessionId, contactId]);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_changed", idempotencyKey: `${eventId}:invite:2`, refs: { sessionId } });
@@ -245,6 +246,7 @@ describe("communications outbox dispatcher", () => {
     await expect(dispatchOutboxIn(tx, 50, { env: changedSenderEnv, sender })).resolves.toMatchObject({ sent: 1 });
 
     expect(sender).toHaveBeenCalledTimes(3);
+    expect(messages[0]?.from).toBe("AI Engineer Sandbox <mail@example.com>");
     const calendars = messages.map((message) => {
       const attachment = message.attachments?.[0];
       expect(attachment?.filename).toBe("invite.ics");
