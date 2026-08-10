@@ -1,7 +1,7 @@
 # M29 — Conflict engine
 | | |
 |---|---|
-| **Status** | IN PROGRESS — a pure conflict-engine slice and tests are merged; reconcile it with frozen contracts and complete the property/acceptance suite. See [`../status.md`](../status.md). |
+| **Status** | IN REVIEW — **PR-OPEN (draft)** by Claude. Steps 1–3 are done: `conflicts.ts` now speaks the frozen contract — `ScheduledSession` in epoch milliseconds, `toScheduledSession` returning `null` for NULL-time rows, and `detectConflicts` returning `ConflictDTO[]` (`a`/`b`/`subjectId`/`overlapStartMs`/`overlapEndMs`) from a per-subject sweep rather than the previous `O(n²)` pass over demo `SessionRecord`s. The suite is 10 cases including the strict half-open back-to-back guard, one-conflict-per-colliding-subject, three-way room pile-ups and order independence. The browser demo keeps using the single engine through a `demo-conflicts.ts` adapter, so no second overlap implementation exists. **Remaining before `DONE`:** step 4's randomized property test, and consumption by a real server caller — [M28](./M28-sessions-crud.md)'s `getSchedulableSessions` does not exist yet, so nothing outside the demo calls this in anger. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Original target: Fri night → Sat AM. Current gate: reconcile the merged slice with frozen contracts and make the full property/acceptance suite green before conflict-dependent M28/M30/M31 work consumes it. |
 | **Size** | S |
