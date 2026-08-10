@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { portalAuth } from "@/features/auth";
 import { contactIdSchema, eventIdSchema, type ContactId } from "@/shared/contracts";
 import type { AuthGuard, RouteParams } from "@/shared/server/handler";
@@ -18,4 +18,36 @@ export const portalQueryAuth: AuthGuard = async (request: NextRequest, _eventId,
 /** The signed-in contact. Throws rather than returning a nullable id no caller can use. */
 export function sessionContactId(session: { actorId: string } | null): ContactId {
   return contactIdSchema.parse(session?.actorId);
+}
+
+/**
+ * `defineHandler` takes a non-GET request's whole body as its input, so a path
+ * parameter has to be folded into that body before it is parsed. Rebuilding the
+ * request keeps each route on one validated input object instead of a
+ * schema-checked body plus a hand-read, unchecked path string.
+ *
+ * The path always wins: `/tasks/A` may not complete task B because the body
+ * said so.
+ */
+export async function requestWithPathValues(
+  request: NextRequest,
+  values: Record<string, string>,
+): Promise<NextRequest> {
+  const text = await request.text();
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+
+  let parsed: unknown = {};
+  try {
+    if (text.trim().length > 0) parsed = JSON.parse(text);
+  } catch {
+    // Let the handler report the malformed JSON rather than throwing here,
+    // where it would surface as a 500 instead of a 400.
+    return new NextRequest(request.url, { method: request.method, headers, body: text });
+  }
+
+  const body = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? { ...parsed, ...values }
+    : values;
+  return new NextRequest(request.url, { method: request.method, headers, body: JSON.stringify(body) });
 }
