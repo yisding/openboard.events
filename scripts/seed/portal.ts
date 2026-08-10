@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   contacts,
   events,
@@ -115,7 +115,7 @@ async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
 
   for (const seed of seeds) {
     const { rows } = seed;
-    await tx.insert(forms).values({
+    const [inserted] = await tx.insert(forms).values({
       id: rows.form.id,
       eventId,
       context: "portal",
@@ -128,22 +128,12 @@ async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
       autoRedirectToPortal: false,
       targetType: seed.targetType,
       currentVersion: 1,
-    }).onConflictDoUpdate({
-      target: forms.id,
-      set: {
-        context: "portal",
-        internalName: seed.internalName,
-        externalTitle: seed.externalTitle,
-        status: "open",
-        collectParticipants: false,
-        showWelcome: false,
-        sendConfirmation: false,
-        autoRedirectToPortal: false,
-        targetType: seed.targetType,
-        currentVersion: 1,
-        updatedAt: new Date(),
-      },
-    });
+    }).onConflictDoNothing({ target: forms.id }).returning({ id: forms.id });
+
+    // Seeded forms are editable fixtures. Once present, their authoring rows and
+    // immutable published versions belong to the organizer; a normal non-wiping
+    // seed must never rewind current_version or overwrite those edits.
+    if (!inserted) continue;
 
     for (const section of rows.sections) {
       await tx.insert(formSections).values({
@@ -155,29 +145,10 @@ async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
         pageHeading: section.pageHeading,
         descriptionHtml: section.descriptionHtml,
         sortOrder: section.sortOrder,
-      }).onConflictDoUpdate({
-        target: formSections.id,
-        set: {
-          key: section.key,
-          title: section.title,
-          pageHeading: section.pageHeading,
-          descriptionHtml: section.descriptionHtml,
-          sortOrder: section.sortOrder,
-          updatedAt: new Date(),
-        },
       });
     }
 
     for (const field of rows.fields) {
-      const reconciledAt = new Date();
-      await tx.update(formFields)
-        .set({ deletedAt: reconciledAt, updatedAt: reconciledAt })
-        .where(and(
-          eq(formFields.formId, rows.form.id),
-          eq(formFields.key, field.key),
-          isNull(formFields.deletedAt),
-          ne(formFields.id, field.id),
-        ));
       await tx.insert(formFields).values({
         id: field.id,
         eventId,
@@ -195,24 +166,6 @@ async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
         mapsTo: field.mapsTo,
         sortOrder: field.sortOrder,
         deletedAt: null,
-      }).onConflictDoUpdate({
-        target: formFields.id,
-        set: {
-          sectionId: field.sectionId,
-          key: field.key,
-          label: field.label,
-          fieldType: field.fieldType,
-          required: field.required,
-          locked: field.locked,
-          maxChars: field.maxChars,
-          helpText: field.helpText,
-          options: field.options,
-          visibility: field.visibility,
-          mapsTo: field.mapsTo,
-          sortOrder: field.sortOrder,
-          deletedAt: null,
-          updatedAt: new Date(),
-        },
       });
     }
 
@@ -223,9 +176,6 @@ async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
       formId: rows.form.id,
       version: 1,
       snapshot,
-    }).onConflictDoUpdate({
-      target: formVersions.id,
-      set: { snapshot },
     });
   }
 
@@ -270,8 +220,22 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
     maxSizeMb: 100,
   }).onConflictDoUpdate({
     target: fileRequests.id,
-    set: { title: "Final slide deck", maxSizeMb: 100, updatedAt: new Date() },
+    set: {
+      title: "Final slide deck",
+      targetType: "contact",
+      instructionsHtml: "<p>PDF or Keynote, 16:9. Upload a backup PDF even if you present from your own laptop.</p>",
+      acceptedExtensions: ["pdf", "key", "pptx"],
+      maxSizeMb: 100,
+      updatedAt: new Date(),
+    },
   });
+
+  // This replaces the original manual travel fixture with a form-backed profile
+  // task. Preserve any historical completion evidence, but remove the legacy
+  // task from active assignment views rather than changing its meaning in place.
+  await tx.update(portalTasks)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(and(eq(portalTasks.eventId, eventId), eq(portalTasks.id, ctx.id("task", "travel-form"))));
 
   const tasks = [
     {
@@ -297,9 +261,7 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       formId: null,
     },
     {
-      // Keep the original deterministic key so re-seeding upgrades existing
-      // demo databases instead of leaving the old travel task behind.
-      key: "travel-form",
+      key: "update-profile",
       name: "Update your profile",
       descriptionHtml: "<p>Review your bio, headshot, pronouns, company, and job title.</p>",
       completionMode: "form" as const,
@@ -327,10 +289,13 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       set: {
         name: task.name,
         descriptionHtml: task.descriptionHtml,
+        targetType: "contact",
         dueAt: task.dueAt,
         completionMode: task.completionMode,
         formId: task.formId,
         fileRequestId: task.fileRequestId,
+        isActive: true,
+        sortOrder: task.sortOrder,
         updatedAt: new Date(),
       },
     });

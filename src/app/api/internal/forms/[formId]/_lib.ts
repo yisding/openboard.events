@@ -9,11 +9,11 @@ import type { AuthGuard } from "@/shared/server/handler";
 /** Resolve the event from the route-owned form before authenticating the portal session. */
 export const formPortalAuth: AuthGuard = async (request, _eventId, params) => {
   const formId = formIdSchema.parse(params.formId);
-  const [form] = await db.select({ eventId: forms.eventId })
+  const [form] = await db.select({ eventId: forms.eventId, context: forms.context })
     .from(forms)
     .where(eq(forms.id, formId))
     .limit(1);
-  if (!form) throw new AppError("NOT_FOUND", "Form not found");
+  if (!form || form.context !== "cfp") throw new AppError("NOT_FOUND", "Form not found");
 
   const eventId = eventIdSchema.parse(form.eventId);
   const session = await portalAuth()(request, eventId, params);

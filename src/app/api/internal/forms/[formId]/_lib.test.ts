@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema, formIdSchema } from "@/shared/contracts";
 
 const mocks = vi.hoisted(() => ({
-  rows: [] as Array<{ eventId: string }>,
+  rows: [] as Array<{ eventId: string; context: "cfp" | "portal" | "onboarding" }>,
   portalGuard: vi.fn(),
 }));
 
@@ -28,7 +28,7 @@ const formId = formIdSchema.parse("a0000000-0000-4000-8000-000000000002");
 
 describe("formPortalAuth", () => {
   beforeEach(() => {
-    mocks.rows = [{ eventId }];
+    mocks.rows = [{ eventId, context: "cfp" }];
     mocks.portalGuard.mockReset().mockResolvedValue({ actorId: "contact", role: "portal" });
   });
 
@@ -42,6 +42,14 @@ describe("formPortalAuth", () => {
 
   it("does not authenticate a form that does not exist", async () => {
     mocks.rows = [];
+    const request = new NextRequest(`https://example.test/api/internal/forms/${formId}/submit`);
+
+    await expect(formPortalAuth(request, null, { formId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(mocks.portalGuard).not.toHaveBeenCalled();
+  });
+
+  it("does not expose portal forms through the CFP routes", async () => {
+    mocks.rows = [{ eventId, context: "portal" }];
     const request = new NextRequest(`https://example.test/api/internal/forms/${formId}/submit`);
 
     await expect(formPortalAuth(request, null, { formId })).rejects.toMatchObject({ code: "NOT_FOUND" });

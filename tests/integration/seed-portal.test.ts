@@ -43,7 +43,7 @@ describe("portal seed", () => {
 
   it("seeds one task per completion mode, with one already overdue", async () => {
     const rows = await pglite.query<{ completion_mode: string; due_at: Date | null }>(
-      "SELECT completion_mode, due_at FROM portal_tasks ORDER BY sort_order",
+      "SELECT completion_mode, due_at FROM portal_tasks WHERE is_active ORDER BY sort_order",
     );
     expect(rows.rows).toHaveLength(3);
     expect(rows.rows.map((row) => row.completion_mode)).toEqual(["manual", "file_request", "form"]);
@@ -140,6 +140,64 @@ describe("portal seed", () => {
     expect(counts.rows[0]).toEqual({ tasks: 3, requests: 1, pages: 2, forms: 2, versions: 2 });
   });
 
+  it("preserves organizer edits and immutable published form versions", async () => {
+    const formId = seedId("form", "profile-update");
+    const sectionId = seedId("section", "profile-update-details");
+    const customFieldId = "d0000000-0000-4000-8000-000000000010";
+    const versionId = "d0000000-0000-4000-8000-000000000011";
+    const version1 = (await pglite.query<{ snapshot: Record<string, unknown> }>(
+      "SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1",
+      [formId],
+    )).rows[0]?.snapshot;
+    if (!version1) throw new Error("seeded version 1 missing");
+    const version2 = structuredClone(version1) as {
+      version: number;
+      sections: Array<{ fields: Array<Record<string, unknown>> }>;
+    };
+    version2.version = 2;
+    version2.sections[0]?.fields.push({
+      id: customFieldId,
+      key: "custom_note",
+      label: "Custom note",
+      type: "text",
+      required: false,
+      locked: false,
+      maxChars: null,
+      helpText: "",
+      options: [],
+      visibility: null,
+      mapsTo: null,
+    });
+    await pglite.query(
+      "INSERT INTO form_fields(id,event_id,form_id,section_id,key,label,field_type) VALUES($1,$2,$3,$4,'custom_note','Custom note','text')",
+      [customFieldId, SEEDED_EVENT_ID, formId, sectionId],
+    );
+    await pglite.query(
+      "INSERT INTO form_versions(id,event_id,form_id,version,snapshot) VALUES($1,$2,$3,2,$4::jsonb)",
+      [versionId, SEEDED_EVENT_ID, formId, JSON.stringify(version2)],
+    );
+    await pglite.query(
+      "UPDATE forms SET external_title='Organizer-edited profile', current_version=2 WHERE id=$1",
+      [formId],
+    );
+
+    await seedPortal(ctx);
+
+    const form = await pglite.query<{ external_title: string; current_version: number }>(
+      "SELECT external_title,current_version FROM forms WHERE id=$1",
+      [formId],
+    );
+    expect(form.rows[0]).toEqual({ external_title: "Organizer-edited profile", current_version: 2 });
+    expect((await pglite.query<{ snapshot: Record<string, unknown> }>(
+      "SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1",
+      [formId],
+    )).rows[0]?.snapshot).toEqual(version1);
+    expect((await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM form_fields WHERE id=$1 AND deleted_at IS NULL",
+      [customFieldId],
+    )).rows[0]?.count).toBe(1);
+  });
+
   it("skips rather than crashing when the event has not been seeded yet", async () => {
     // events.ts is still a no-op in the orchestrator, so a fresh run reaches this
     // module with no event row. Failing a foreign key here would take the whole
@@ -157,18 +215,34 @@ describe("portal seed", () => {
     await empty.close();
   }, 60_000);
 
-  it("repairs an existing task back to the seeded form contract", async () => {
+  it("repairs task and attachment rows back to the seeded contract", async () => {
     await pglite.query(
-      "UPDATE portal_tasks SET completion_mode = 'manual', form_id = NULL WHERE id = $1",
-      [seedId("task", "travel-form")],
+      "UPDATE portal_tasks SET target_type='submission', completion_mode='manual', form_id=NULL, is_active=false, sort_order=99 WHERE id=$1",
+      [seedId("task", "update-profile")],
     );
+    await pglite.query("UPDATE file_requests SET target_type='submission' WHERE id=$1", [seedId("file_request", "slides")]);
     await seedPortal(ctx);
-    const rows = await pglite.query<{ completion_mode: string; form_id: string | null }>(
-      "SELECT completion_mode, form_id FROM portal_tasks WHERE id = $1",
-      [seedId("task", "travel-form")],
+    const rows = await pglite.query<{
+      target_type: string;
+      completion_mode: string;
+      form_id: string | null;
+      is_active: boolean;
+      sort_order: number;
+    }>(
+      "SELECT target_type,completion_mode,form_id,is_active,sort_order FROM portal_tasks WHERE id=$1",
+      [seedId("task", "update-profile")],
     );
-    expect(rows.rows[0]?.completion_mode).toBe("form");
-    expect(rows.rows[0]?.form_id).toBe(seedId("form", "profile-update"));
+    expect(rows.rows[0]).toEqual({
+      target_type: "contact",
+      completion_mode: "form",
+      form_id: seedId("form", "profile-update"),
+      is_active: true,
+      sort_order: 2,
+    });
+    expect((await pglite.query<{ target_type: string }>(
+      "SELECT target_type FROM file_requests WHERE id=$1",
+      [seedId("file_request", "slides")],
+    )).rows[0]?.target_type).toBe("contact");
   });
 
   it("records a completion once contacts exist, and none before", async () => {
@@ -182,6 +256,36 @@ describe("portal seed", () => {
     const rows = await pglite.query<{ contact_id: string; completed_via: string }>("SELECT contact_id, completed_via FROM task_completions");
     expect(rows.rows).toHaveLength(1);
     expect(rows.rows[0]).toEqual({ contact_id: contactId, completed_via: "manual" });
+  });
+
+  it("retires the legacy travel task without rewriting its completion evidence", async () => {
+    const legacyTaskId = seedId("task", "travel-form");
+    const contactId = "d0000000-0000-4000-8000-000000000002";
+    await pglite.query(
+      `INSERT INTO portal_tasks(id,event_id,name,completion_mode) VALUES($1,$2,'Tell us about your travel','manual')
+       ON CONFLICT (id) DO UPDATE SET is_active=true`,
+      [legacyTaskId, SEEDED_EVENT_ID],
+    );
+    await pglite.query(
+      "INSERT INTO task_completions(id,event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
+      ["d0000000-0000-4000-8000-000000000012", SEEDED_EVENT_ID, legacyTaskId, contactId],
+    );
+
+    await seedPortal(ctx);
+
+    const legacy = await pglite.query<{ name: string; completion_mode: string; is_active: boolean }>(
+      "SELECT name,completion_mode,is_active FROM portal_tasks WHERE id=$1",
+      [legacyTaskId],
+    );
+    expect(legacy.rows[0]).toEqual({
+      name: "Tell us about your travel",
+      completion_mode: "manual",
+      is_active: false,
+    });
+    expect((await pglite.query<{ completed_via: string }>(
+      "SELECT completed_via FROM task_completions WHERE task_id=$1",
+      [legacyTaskId],
+    )).rows).toEqual([{ completed_via: "manual" }]);
   });
 
   it("leaves the empty event empty", async () => {

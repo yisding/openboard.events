@@ -1,6 +1,8 @@
+import { and, eq, sql } from "drizzle-orm";
 import { withTx } from "@/db/client";
+import { contacts, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
-import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions";
+import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult } from "@/features/submissions";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -12,6 +14,7 @@ import {
   type FormId,
   type FormSnapshot,
   type SubmissionId,
+  submissionIdSchema,
 } from "@/shared/contracts";
 import { applyRouting, cleanAnswersToRecord } from "@/shared/lib/conditions";
 import { AppError } from "@/shared/lib/errors";
@@ -64,7 +67,7 @@ function answersFor(snapshot: FormSnapshot, answers: RawAnswers): RawAnswers {
   return Object.fromEntries(Object.entries(answers).filter(([fieldId]) => ids.has(fieldId)));
 }
 
-export async function submitCfpForm(input: SubmitInput) {
+export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissionResult> {
   // The version the client rendered decides which snapshot its answers mean.
   const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
   const current = await getCurrentSnapshot(input.eventId, input.formId);
@@ -115,6 +118,8 @@ export async function submitCfpForm(input: SubmitInput) {
   }> = [];
   const abstractContext = answersFor(abstractSnapshot, input.answers);
   const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
+  const participantEmailFieldIds = new Set(participantSnapshot.sections.flatMap((section) =>
+    section.fields.filter((field) => field.mapsTo === "contact.email").map((field) => field.id)));
   for (const participant of submittedParticipants) {
     const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
     // Keep the full snapshot while evaluating participant fields: their
@@ -137,10 +142,43 @@ export async function submitCfpForm(input: SubmitInput) {
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   return withTx(async (tx) => {
+    if (input.draftSubmissionId) {
+      // Serialize against createSubmissionIn's event lock before participant
+      // side effects. A lost-response retry must return the committed result
+      // without applying a changed payload, and a caller cannot borrow another
+      // speaker's submitted UUID as an idempotency key.
+      const lockedEvent = await tx.execute<{ id: string }>(sql`
+        SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
+      `);
+      if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
+      const [draft] = await tx.select({
+        id: submissions.id,
+        formId: submissions.formId,
+        submitterContactId: submissions.submitterContactId,
+        code: submissions.code,
+        status: submissions.status,
+      }).from(submissions).where(and(
+        eq(submissions.id, input.draftSubmissionId),
+        eq(submissions.eventId, input.eventId),
+      )).limit(1);
+      if (!draft || draft.formId !== input.formId || draft.submitterContactId !== input.contactId) {
+        throw new AppError("NOT_FOUND", "Draft not found");
+      }
+      if (draft.status !== "draft") {
+        return {
+          submissionId: submissionIdSchema.parse(draft.id),
+          code: draft.code,
+          status: draft.status,
+          promotedFromDraft: true,
+        };
+      }
+    }
+
     // Public participant identifiers exist only in the browser. Resolve every
     // email here, in the same transaction as the submission, then remap answer
     // ownership to contact IDs for createSubmissionIn's participant map.
     const contactIds = new Map<string, ContactId>();
+    const canonicalEmails = new Map<string, string>();
     const seenContacts = new Set<string>();
     const participants: Array<{
       contactId: ContactId;
@@ -154,6 +192,15 @@ export async function submitCfpForm(input: SubmitInput) {
         if (!participant.email) throw new AppError("INTERNAL", "Participant email was not resolved");
         contactId = await getOrCreateContact(tx, input.eventId, participant.email);
       }
+      let canonicalEmail = participant.email;
+      if (!canonicalEmail) {
+        const [contact] = await tx.select({ email: contacts.email }).from(contacts).where(and(
+          eq(contacts.eventId, input.eventId),
+          eq(contacts.id, contactId),
+        )).limit(1);
+        if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
+        canonicalEmail = contact.email.trim().toLowerCase();
+      }
       if (participant.isPrimary && contactId !== input.contactId) {
         throw new AppError("FORBIDDEN", "The primary participant must be the signed-in speaker");
       }
@@ -162,6 +209,7 @@ export async function submitCfpForm(input: SubmitInput) {
       }
       seenContacts.add(contactId);
       contactIds.set(participant.clientId, contactId);
+      canonicalEmails.set(participant.clientId, canonicalEmail);
       participants.push({
         contactId,
         role: participant.role,
@@ -171,6 +219,9 @@ export async function submitCfpForm(input: SubmitInput) {
 
       // Email is explicit identity data, not an answer-mapped profile update.
       const safePatch = { ...participant.profilePatch };
+      if (safePatch.email && safePatch.email.trim().toLowerCase() !== canonicalEmail) {
+        throw new AppError("VALIDATION", "Participant email answer must match the participant email");
+      }
       delete safePatch.email;
       if (Object.keys(safePatch).length > 0) {
         await updateContactFields(tx, input.eventId, contactId, safePatch);
@@ -180,6 +231,11 @@ export async function submitCfpForm(input: SubmitInput) {
       if (!answer.participantId) return answer;
       const contactId = contactIds.get(answer.participantId);
       if (!contactId) throw new AppError("INTERNAL", "Participant answer was not resolved");
+      if (participantEmailFieldIds.has(answer.fieldId)) {
+        const canonicalEmail = canonicalEmails.get(answer.participantId);
+        if (!canonicalEmail) throw new AppError("INTERNAL", "Participant email was not resolved");
+        return { ...answer, participantId: contactId, value: { t: "s" as const, v: canonicalEmail } };
+      }
       return { ...answer, participantId: contactId };
     }));
 

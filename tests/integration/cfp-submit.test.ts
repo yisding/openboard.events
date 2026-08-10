@@ -259,6 +259,135 @@ describe("CFP submit, end to end through the server path", () => {
     expect(coSpeakerAnswer.rows[0]).toEqual({ email: "grace@example.com", value: { t: "s", v: "Grace" } });
   });
 
+  it("rejects a primary mapped email that contradicts the authenticated identity", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const error = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [{
+        clientId: "primary",
+        email: "ada@example.com",
+        role: "speaker",
+        isPrimary: true,
+        sortOrder: 0,
+        answers: answers({ [field("email").id]: text("different@example.com") }),
+      }],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
+  });
+
+  it("rejects a co-speaker mapped email that contradicts their canonical email", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+    const error = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-1",
+          email: "grace@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({ [field("email").id]: text("different@example.com") }),
+        },
+      ],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='grace@example.com'")).rows[0]?.count).toBe(0);
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
+  });
+
+  it("returns an already-submitted draft without applying a changed retry payload", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email='retry-only@example.com'");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const created = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers(),
+    });
+
+    const retried = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers({ [field("title").id]: text("Changed retry title") }),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "retry-co",
+          email: "retry-only@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({ [field("email").id]: text("retry-only@example.com") }),
+        },
+      ],
+    });
+
+    expect(retried).toEqual(created);
+    expect((await pglite.query<{ title: string }>("SELECT title FROM submissions WHERE id=$1", [created.submissionId])).rows[0]?.title).toBe("Caching at the edge");
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='retry-only@example.com'")).rows[0]?.count).toBe(0);
+  });
+
+  it("rejects a submitted draft ID that belongs to another speaker", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email IN ('owner@example.com','foreign-side-effect@example.com')");
+    const owner = contactIdSchema.parse("f0000000-0000-4000-8000-000000000005");
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'owner@example.com','Draft','Owner')",
+      [owner, eventId],
+    );
+    const foreignDraft = await upsertDraft(eventId, owner, formId, 1);
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: owner,
+      formVersion: 1,
+      draftSubmissionId: foreignDraft.submissionId,
+      answers: answers({ [field("email").id]: text("owner@example.com") }),
+    });
+
+    const error = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: foreignDraft.submissionId,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "foreign-co",
+          email: "foreign-side-effect@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({ [field("email").id]: text("foreign-side-effect@example.com") }),
+        },
+      ],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("NOT_FOUND");
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='foreign-side-effect@example.com'")).rows[0]?.count).toBe(0);
+  });
+
   it("uses abstract answers when evaluating participant field visibility", async () => {
     await pglite.query("DELETE FROM submissions");
     const crossSection = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
