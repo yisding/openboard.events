@@ -8,6 +8,7 @@ import {
   assignReviewersIn,
   deletePlanIn,
   getActivePlanIn,
+  getPlanIn,
   getRatingsIn,
   listPlansIn,
   listSubmissionsIn,
@@ -149,6 +150,40 @@ describe("evaluation plans and reviewer routing", () => {
     expect(after?.criteria.map((criterion) => criterion.label)).toEqual(["Relevance to the track", "Delivery"]);
   });
 
+  it("rejects a criterion id owned by another plan without changing either plan", async () => {
+    const first = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
+    const second = await savePlanIn(db, eventId, planInput({
+      name: "Round 2",
+      round: 2,
+      criteria: [{ label: "Delivery", weight: 1 }],
+    }));
+    const secondBefore = await getPlanIn(db, eventId, second.planId);
+
+    const error = await savePlanIn(db, eventId, planInput({
+      planId: first,
+      name: "Hijacked",
+      criteria: [{ id: secondBefore.criteria[0]?.id, label: "Renamed from elsewhere", weight: 4 }],
+    })).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect((await getPlanIn(db, eventId, first)).name).toBe("Round 1");
+    expect((await getPlanIn(db, eventId, second.planId)).criteria[0]?.label).toBe("Delivery");
+  });
+
+  it("rejects duplicate criterion ids as validation instead of a database error", async () => {
+    const planId = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
+    const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
+    const error = await savePlanIn(db, eventId, planInput({
+      planId,
+      criteria: [
+        { id: criterion?.id, label: "Relevance", weight: 1 },
+        { id: criterion?.id, label: "Repeated", weight: 2 },
+      ],
+    })).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect((await getPlanIn(db, eventId, planId)).criteria.map((entry) => entry.label)).toEqual(["Relevance"]);
+  });
+
   it("reports a duplicate round name as a field error, not a crash", async () => {
     await seedPlan();
     const error = await savePlanIn(db, eventId, planInput()).catch((thrown: unknown) => thrown);
@@ -205,6 +240,37 @@ describe("evaluation plans and reviewer routing", () => {
     expect(rows.rows[0]?.n).toBe(0);
   });
 
+  it("leaves every assignment unchanged when one incoming reviewer is invalid", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [
+      { userId: ada, trackIds: [platforms] },
+      { userId: grace, trackIds: null },
+    ]);
+
+    const error = await assignReviewersIn(db, eventId, planId, [
+      { userId: ada, trackIds: [agents] },
+      { userId: stranger, trackIds: null },
+    ]).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    const [plan] = await listPlansIn(db, eventId);
+    expect(plan?.reviewers.map((reviewer) => ({ userId: reviewer.userId, trackIds: reviewer.trackIds }))).toEqual([
+      { userId: ada, trackIds: [platforms] },
+      { userId: grace, trackIds: null },
+    ]);
+  });
+
+  it("rejects duplicate reviewer ids before changing assignments", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
+    const error = await assignReviewersIn(db, eventId, planId, [
+      { userId: ada, trackIds: null },
+      { userId: ada, trackIds: [agents] },
+    ]).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect((await listPlansIn(db, eventId))[0]?.reviewers.map((reviewer) => reviewer.userId)).toEqual([grace]);
+  });
+
   it("drops a reviewer's routing without dropping their scores", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
@@ -231,6 +297,18 @@ describe("evaluation plans and reviewer routing", () => {
     // Two verdicts averaged; the unscored one is absent rather than a zero.
     expect(ratings.get(platformsTalk)).toEqual({ rating: 3.5, nScores: 2 });
     expect(ratings.has(agentsTalk)).toBe(false);
+  });
+
+  it("keeps scored progress inside the plan's current submission scope", async () => {
+    const planId = await seedPlan();
+    await giveReview(planId, platformsTalk, ada, 3);
+    await giveReview(planId, agentsTalk, ada, 5);
+
+    await savePlanIn(db, eventId, planInput({ planId, trackIds: [agents] }));
+    expect((await getPlanIn(db, eventId, planId)).progress).toEqual({ scored: 1, total: 1 });
+
+    await pglite.query("UPDATE submissions SET status = 'withdrawn' WHERE id = $1", [agentsTalk]);
+    expect((await getPlanIn(db, eventId, planId)).progress).toEqual({ scored: 0, total: 0 });
   });
 
   it("closes a round with reviews instead of deleting it", async () => {

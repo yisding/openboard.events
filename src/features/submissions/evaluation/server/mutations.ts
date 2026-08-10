@@ -55,6 +55,27 @@ async function assertTracksInEvent(dbOrTx: DbOrTx, eventId: EventId, trackIds: r
   }
 }
 
+async function assertCriteriaInPlan(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  planId: PlanId | null,
+  criterionIds: readonly string[],
+): Promise<void> {
+  if (criterionIds.length === 0) return;
+  if (new Set(criterionIds).size !== criterionIds.length) {
+    throw new AppError("VALIDATION", "A criterion can only appear once in an evaluation plan");
+  }
+  if (!planId) throw new AppError("VALIDATION", "Existing criteria can only be reused by their evaluation plan");
+  const result = await dbOrTx.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM evaluation_criteria
+    WHERE event_id = ${eventId} AND plan_id = ${planId}
+      AND id IN (${sql.join(criterionIds.map((id) => sql`${id}`), sql`, `)})
+  `);
+  if (Number((result.rows ?? [])[0]?.n ?? 0) !== criterionIds.length) {
+    throw new AppError("VALIDATION", "Every criterion id must belong to this evaluation plan");
+  }
+}
+
 /**
  * Create or update a round together with its criteria, in one statement.
  * Criteria are matched by id rather than wiped and re-created: a review's
@@ -77,6 +98,7 @@ export async function savePlanIn(
     sort_order: index,
   }));
   const keepIds = criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
+  await assertCriteriaInPlan(dbOrTx, eventId, input.planId, keepIds);
 
   let rows: Array<{ id: string }>;
   try {
@@ -105,6 +127,8 @@ export async function savePlanIn(
           AS incoming(id uuid, label text, weight numeric, sort_order int)
         ON CONFLICT (id) DO UPDATE SET
           label = EXCLUDED.label, weight = EXCLUDED.weight, sort_order = EXCLUDED.sort_order
+        WHERE evaluation_criteria.event_id = EXCLUDED.event_id
+          AND evaluation_criteria.plan_id = EXCLUDED.plan_id
       )
       SELECT id FROM saved
     `);
@@ -165,6 +189,9 @@ export async function assignReviewersIn(
   planId: PlanId,
   assignments: readonly ReviewerAssignmentInput[],
 ): Promise<void> {
+  if (new Set(assignments.map((assignment) => assignment.userId)).size !== assignments.length) {
+    throw new AppError("VALIDATION", "A reviewer can only be assigned once per evaluation plan");
+  }
   for (const assignment of assignments) await assertTracksInEvent(dbOrTx, eventId, assignment.trackIds);
   const incoming = assignments.map((assignment) => ({
     user_id: assignment.userId,
@@ -185,13 +212,18 @@ export async function assignReviewersIn(
       SELECT i.user_id, i.track_ids FROM incoming i
       JOIN event_members m ON m.user_id = i.user_id AND m.event_id = ${eventId}
     ),
+    valid AS (
+      SELECT (SELECT count(*) FROM incoming) = (SELECT count(*) FROM members) AS ok
+    ),
     removed AS (
       DELETE FROM reviewer_assignments a USING plan
-      WHERE a.plan_id = plan.id AND a.user_id NOT IN (SELECT user_id FROM members)
+      WHERE (SELECT ok FROM valid) AND a.plan_id = plan.id
+        AND a.user_id NOT IN (SELECT user_id FROM members)
     ),
     upserted AS (
       INSERT INTO reviewer_assignments (event_id, plan_id, user_id, track_ids)
       SELECT ${eventId}, plan.id, members.user_id, members.track_ids FROM plan, members
+      WHERE (SELECT ok FROM valid)
       ON CONFLICT (plan_id, user_id) DO UPDATE SET track_ids = EXCLUDED.track_ids
     )
     SELECT (SELECT count(*)::int FROM plan) AS plan_found, (SELECT count(*)::int FROM members) AS matched

@@ -92,7 +92,9 @@ async function selectPlans(dbOrTx: DbOrTx, eventId: EventId, only?: SQL): Promis
       (SELECT count(*)::int FROM submissions s
        WHERE s.event_id = p.event_id AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS total,
       (SELECT count(DISTINCT r.submission_id)::int FROM reviews r
-       WHERE r.plan_id = p.id AND r.overall_score IS NOT NULL) AS scored
+       JOIN submissions s ON s.id = r.submission_id AND s.event_id = r.event_id
+       WHERE r.plan_id = p.id AND r.event_id = p.event_id AND r.overall_score IS NOT NULL
+         AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS scored
     FROM evaluation_plans p
     WHERE p.event_id = ${eventId} ${only ? sql`AND ${only}` : sql``}
     ORDER BY p.round, lower(p.name)
