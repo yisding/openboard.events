@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import { eventMembers, events, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
+import { eventMembers, events, organizationMembers, organizations, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
+import { DEFAULT_ORGANIZATION_ID } from "@/shared/contracts";
 import { EVENT_TIMEZONE, eventLocal, type SeedCtx } from "./lib/helpers";
 
 /**
@@ -47,6 +48,14 @@ const ADMINS = [
 
 export async function seedEvents(ctx: SeedCtx): Promise<void> {
   const { tx } = ctx;
+
+  // M43 made events organization-scoped with a NOT NULL default pointing at
+  // the fixed default organization the 0010 backfill created. A --wipe run
+  // deletes that row, so the seed must restore it before any event insert or
+  // the very first row violates events_organization_id_fkey.
+  await tx.insert(organizations)
+    .values({ id: DEFAULT_ORGANIZATION_ID, name: "Default Organization", slug: "default" })
+    .onConflictDoNothing({ target: organizations.id });
 
   // 65 days out: far enough that the CFP is plausibly open, close enough that
   // "days to event" is a real number on the dashboard.
@@ -122,6 +131,11 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     await tx.insert(eventMembers)
       .values({ userId, eventId: ctx.emptyEventId, role: admin.role })
       .onConflictDoUpdate({ target: [eventMembers.userId, eventMembers.eventId], set: { role: admin.role } });
+    // Mirror the 0010 backfill: admins join the default organization at their
+    // event role, so the org layer is populated after a wipe too.
+    await tx.insert(organizationMembers)
+      .values({ userId, organizationId: DEFAULT_ORGANIZATION_ID, role: admin.role === "reviewer" ? "reviewer" : "organizer" })
+      .onConflictDoNothing({ target: [organizationMembers.userId, organizationMembers.organizationId] });
   }
 
   ctx.log(`seeded 2 events, ${TRACKS.length} tracks, ${ROOMS.length} rooms, ${FORMATS.length} formats, ${TAGS.length} tags, ${ADMINS.length} admins`);
