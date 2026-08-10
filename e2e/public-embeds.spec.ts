@@ -196,10 +196,25 @@ test.describe("public-embeds", () => {
       const assertClean = expectNoConsoleErrors(page);
       // The standing empty-state probe: an empty public page that crashes is a
       // judged failure, and this is the cheapest place to catch it.
-      await page.goto(`/e/${EVENTS.empty.slug}/schedule`);
-      await expect(page.getByText("Schedule coming soon")).toBeVisible();
-      await page.goto(`/e/${EVENTS.empty.slug}/speakers`);
-      await expect(page.getByText("Speakers coming soon")).toBeVisible();
+      //
+      // Every surface, by the copy it actually renders. M53 split the single
+      // combined "/schedule" view into five distinct surfaces, each with its
+      // own empty state, and this probe had gone on asserting the old page's
+      // wording — so it was testing a URL that now 307s to the agenda rather
+      // than the five pages a visitor can reach. The legacy path stays first in
+      // the list precisely because that redirect still has to land somewhere.
+      const surfaces = [
+        ["schedule", "Agenda coming soon"],
+        ["sessions", "Sessions coming soon"],
+        ["agenda", "Agenda coming soon"],
+        ["itinerary", "Schedule coming soon"],
+        ["speakers", "Speakers coming soon"],
+        ["gallery", "Speakers coming soon"],
+      ] as const;
+      for (const [surface, emptyCopy] of surfaces) {
+        await page.goto(`/e/${EVENTS.empty.slug}/${surface}`);
+        await expect(page.getByText(emptyCopy), `/e/${EVENTS.empty.slug}/${surface} renders its empty state`).toBeVisible();
+      }
       assertClean();
     });
   });

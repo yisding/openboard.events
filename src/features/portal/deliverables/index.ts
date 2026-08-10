@@ -2,8 +2,10 @@
  * M52 — the central Files view: every file-request deliverable across the
  * event, filterable, with bulk reminders.
  */
-export type { DeliverableFilters, DeliverableState } from "./server/queries";
-export { listDeliverables, listDeliverablesIn } from "./server/queries";
+export type { DeliverableFilters, DeliverableState, DeliverableStateCounts } from "./server/queries";
+export { getDeliverableStateCounts, getDeliverableStateCountsIn, listDeliverables, listDeliverablesIn } from "./server/queries";
+export type { DeliverablePageFilters } from "./server/filters";
+export { deliverableFiltersSchema, parseDeliverableFiltersForPage } from "./server/filters";
 export type { BulkRemindInput, OrganizerCommentInput } from "./server/mutations";
 export { addOrganizerComment, bulkRemind, bulkRemindInputSchema, organizerCommentInputSchema } from "./server/mutations";
 

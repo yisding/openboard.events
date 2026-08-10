@@ -32,9 +32,22 @@ export const portalSessions = pgTable("portal_sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.id, table.eventId)]);
 
+/**
+ * M42 — the revocable admin session store, extended by `drizzle/0009_product_auth.sql`.
+ *
+ * Created in 0000_init.sql and left unwritten while admin auth ran on the
+ * stateless jose fallback. Better Auth now owns it: `token` is the session
+ * token it looks rows up by, `tokenHash` is the never-populated original
+ * column (nullable since 0009). Deleting a row revokes the session.
+ * Isolated from `portalSessions` above — speaker auth does not move in M42.
+ */
 export const adminSessions = pgTable("admin_sessions", {
   id: uuid("id").defaultRandom().primaryKey(), userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  tokenHash: text("token_hash").notNull().unique(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  tokenHash: text("token_hash").unique(), token: text("token").unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  ipAddress: text("ip_address"), userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

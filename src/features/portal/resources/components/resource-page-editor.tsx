@@ -143,7 +143,7 @@ export function ResourcePageEditor({
           <input value={draft.slug} onChange={(event) => setSlug(event.target.value)} placeholder="speaker-guide" />
         </Field>
 
-        <Field label="Body">
+        <Field label="Body" group>
           <div className="rich-text-mode-toggle" role="tablist" aria-label="Body editing mode">
             <button type="button" role="tab" aria-selected={mode === "rich"} className={mode === "rich" ? "active" : ""} onClick={() => setMode("rich")}>Rich text</button>
             <button type="button" role="tab" aria-selected={mode === "source"} className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>HTML source</button>

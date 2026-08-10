@@ -1,5 +1,5 @@
 import type { BuilderField, FieldPatch } from "../builder-types";
-import { eventIdSchema } from "@/shared/contracts";
+import { eventIdSchema, type MapsToTarget, type TaskTarget } from "@/shared/contracts";
 import type { HandlerGuard } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
 import { requireAdmin } from "@/features/auth/server/admin";
@@ -45,5 +45,26 @@ export function assertUniqueFieldKey(fields: BuilderField[], fieldId: string | n
 export function assertUniqueMapsTo(fields: BuilderField[], fieldId: string, mapsTo: string | null): void {
   if (mapsTo && fields.some((field) => field.id !== fieldId && field.mapsTo === mapsTo)) {
     throw new AppError("VALIDATION", `Another live field already maps to ${mapsTo}.`, { mapsTo });
+  }
+}
+
+// data-model.md §3.4 / M24 §5's 8-triple library: a portal form's `target_type`
+// ("contact" or "submission") must agree with the record a mapped field writes
+// back to on task completion (`deriveMappedFields` in
+// features/forms/server/pipeline.ts branches on the `mapsTo` prefix, and only
+// the submission branch is gated by `submissionId` — the contact branch is
+// unconditional). Without this check, a direct API call could set
+// `mapsTo='contact.email'` on a `target_type='submission'` portal form field,
+// and every future response to that field would silently overwrite the
+// responding contact's real profile data on task completion. `mapsTo` values
+// are always `"<target>.<column>"` (see `MAPS_TO_TARGETS`), so the prefix is
+// the target. CFP forms have `targetType === null` and are intentionally
+// exempt — a CFP form legitimately maps both `contact.*` and `submission.*`
+// fields on the same form (see `cfpAuthoringRows` in builder-mutations.ts).
+export function assertMapsToMatchesTarget(targetType: TaskTarget | null, mapsTo: MapsToTarget | null): void {
+  if (targetType === null || mapsTo === null) return;
+  const prefix = mapsTo.slice(0, mapsTo.indexOf("."));
+  if (prefix !== targetType) {
+    throw new AppError("VALIDATION", `“${mapsTo}” cannot be used on a ${targetType} form.`, { mapsTo, targetType });
   }
 }

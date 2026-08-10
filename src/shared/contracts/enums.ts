@@ -16,10 +16,11 @@ export const COMPLETION_VIAS = ["manual", "form_response", "file_upload", "admin
 export const SESSION_STATUSES = ["draft", "published"] as const;
 export const PLAN_STATUSES = ["open", "closed"] as const;
 export const EMBED_CONTENT_TYPES = ["agenda", "session_list", "schedule_itinerary", "speaker_list", "speaker_gallery"] as const;
-// M50 adds the two review-operations keys, M51 the bulk-speaker-message key.
-// They are appended, never reordered: `template_key` is a Postgres enum and
-// its existing labels are already stored.
-export const TEMPLATE_KEYS = ["submission_received", "submission_accepted", "submission_declined", "task_assigned", "task_reminder", "schedule_assigned", "schedule_changed", "portal_login", "reviewer_invited", "review_reminder", "speaker_bulk_message"] as const;
+// M50 adds the two review-operations keys, M51 the bulk-speaker-message key,
+// M42 the two admin-auth keys, M44 the team-invitation key. They are
+// appended, never reordered: `template_key` is a Postgres enum and its
+// existing labels are already stored.
+export const TEMPLATE_KEYS = ["submission_received", "submission_accepted", "submission_declined", "task_assigned", "task_reminder", "schedule_assigned", "schedule_changed", "portal_login", "reviewer_invited", "review_reminder", "speaker_bulk_message", "admin_password_reset", "admin_email_verification", "organization_invited"] as const;
 // P3-EMAIL: `bounced`/`complained` record a Resend delivery-failure webhook
 // against the log row that was actually sent (`sent` -> `bounced`/`complained`).
 // Appended, never reordered — `comm_status` is a Postgres enum whose existing
@@ -50,6 +51,30 @@ export const REVIEW_ASSIGNMENT_STATUSES = ["assigned", "recused"] as const;
 // the two kinds an organizer can define on an event-scoped custom field.
 export const SPEAKER_WORKFLOW_STATUSES = ["new", "contacted", "invited", "confirmed", "declined", "withdrawn"] as const;
 export const SPEAKER_LOGISTICS_FIELD_TYPES = ["text", "select"] as const;
+// M49 — billing scaffold. `BILLING_PLAN_IDS` is the small, hand-seeded plan
+// catalog (`drizzle/0012_billing_scaffold.sql`'s `billing_plans` table uses
+// these as its literal primary keys, not a Postgres enum, so adding a plan
+// later is an INSERT, not a migration). `SUBSCRIPTION_STATUSES` backs the one
+// real enum this module adds, `organization_subscriptions.status`.
+export const BILLING_PLAN_IDS = ["free", "pro", "enterprise"] as const;
+export const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "canceled"] as const;
+// M55 — organization-level speaker CRM. `CRM_CONTACT_SOURCES` records how an
+// organization identity first came into being; `merge` is stamped on a row
+// only as the *result* of `mergeOrganizationContactsIn` absorbing another —
+// never chosen by an organizer directly. `CRM_ACTIVITY_KINDS` is the closed
+// vocabulary every mutation in `src/features/crm` appends to the append-only
+// timeline with; `CRM_PIPELINE_STAGES` is deliberately the three-state
+// lifecycle the work order names (open/won/lost), not a wider custom-stage
+// kanban. Custom-field types reuse `SPEAKER_LOGISTICS_FIELD_TYPES`
+// (`speakerLogisticsFieldTypeSchema`/`speaker_logistics_field_type`) rather
+// than declaring a second identical text/select enum.
+export const CRM_CONTACT_SOURCES = ["manual", "import", "event_sync", "merge"] as const;
+export const CRM_ACTIVITY_KINDS = [
+  "created", "note_added", "tag_added", "tag_removed", "field_changed",
+  "event_linked", "merged_from", "merged_into", "pipeline_created",
+  "pipeline_stage_changed", "email_sent", "imported",
+] as const;
+export const CRM_PIPELINE_STAGES = ["open", "won", "lost"] as const;
 
 export const submissionStatusSchema = z.enum(SUBMISSION_STATUSES);
 export const submissionKindSchema = z.enum(SUBMISSION_KINDS);
@@ -81,6 +106,14 @@ export const reviewAssignmentStatusSchema = z.enum(REVIEW_ASSIGNMENT_STATUSES);
 export const suppressionReasonSchema = z.enum(SUPPRESSION_REASONS);
 export const speakerWorkflowStatusSchema = z.enum(SPEAKER_WORKFLOW_STATUSES);
 export const speakerLogisticsFieldTypeSchema = z.enum(SPEAKER_LOGISTICS_FIELD_TYPES);
+// M49 — billing scaffold. Named `billingPlanIdSchema` (not `planIdSchema`)
+// because `PlanId` already names M50's evaluation-round plan id (`./ids.ts`,
+// `evaluation_plans`) — a different `plans` table entirely.
+export const billingPlanIdSchema = z.enum(BILLING_PLAN_IDS);
+export const subscriptionStatusSchema = z.enum(SUBSCRIPTION_STATUSES);
+export const crmContactSourceSchema = z.enum(CRM_CONTACT_SOURCES);
+export const crmActivityKindSchema = z.enum(CRM_ACTIVITY_KINDS);
+export const crmPipelineStageSchema = z.enum(CRM_PIPELINE_STAGES);
 
 export type SubmissionStatus = z.infer<typeof submissionStatusSchema>;
 export type SubmissionKind = z.infer<typeof submissionKindSchema>;
@@ -112,6 +145,11 @@ export type ReviewVisibility = z.infer<typeof reviewVisibilitySchema>;
 export type ReviewAssignmentStatus = z.infer<typeof reviewAssignmentStatusSchema>;
 export type SpeakerWorkflowStatus = z.infer<typeof speakerWorkflowStatusSchema>;
 export type SpeakerLogisticsFieldType = z.infer<typeof speakerLogisticsFieldTypeSchema>;
+export type BillingPlanId = z.infer<typeof billingPlanIdSchema>;
+export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
+export type CrmContactSource = z.infer<typeof crmContactSourceSchema>;
+export type CrmActivityKind = z.infer<typeof crmActivityKindSchema>;
+export type CrmPipelineStage = z.infer<typeof crmPipelineStageSchema>;
 
 // Temporary name retained for the merged demo adapter while server consumers
 // use the canonical CONDITION_OPS name.

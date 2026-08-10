@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { emailTemplates, eventMembers, events, sessionFormats } from "@/db/schema";
 import { seedDefaultTemplates } from "@/features/comms";
-import { eventIdSchema, type EventDTO, type EventId, type UserId } from "@/shared/contracts";
+import { eventIdSchema, type EventDTO, type EventId, type OrganizationId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { RESERVED_SLUGS, slugify } from "@/shared/lib/slug";
 import type { CreateEventInput, UpdateEventInput } from "../schemas";
@@ -117,7 +117,12 @@ async function grantOwnerIn(dbOrTx: DbOrTx, eventId: EventId, actorUserId: UserI
  * fully-seeded event is a no-op — a caller can never receive an event
  * missing its defaults.
  */
-export async function createEventIn(dbOrTx: DbOrTx, actorUserId: UserId, input: CreateEventInput): Promise<EventDTO> {
+export async function createEventIn(
+  dbOrTx: DbOrTx,
+  actorUserId: UserId,
+  input: CreateEventInput,
+  organizationId?: OrganizationId,
+): Promise<EventDTO> {
   const slugCandidate = slugify((input.slug ?? "").trim() || input.name);
   assertValidSlug(slugCandidate);
   assertValidTimezone(input.timezone);
@@ -141,6 +146,14 @@ export async function createEventIn(dbOrTx: DbOrTx, actorUserId: UserId, input: 
       startsAt,
       endsAt,
       theme: input.theme || null,
+      // Omitted when the caller has no organization to name, which is what
+      // leaves `events.organization_id`'s column DEFAULT in charge — the
+      // additive shape `drizzle/0010_organization_tenancy.sql` relies on for
+      // seeds and fixtures. Every *request-driven* caller now passes one: that
+      // default is the migration's compatibility hinge, not a tenancy policy,
+      // and letting it decide meant a self-serve organization's event landed in
+      // the shared default tenant.
+      ...(organizationId ? { organizationId } : {}),
     });
   } catch (error) {
     if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
@@ -162,7 +175,8 @@ export async function createEventIn(dbOrTx: DbOrTx, actorUserId: UserId, input: 
   if (!created) throw new AppError("INTERNAL", "Could not load the created event");
   return created;
 }
-export const createEvent = (actorUserId: UserId, input: CreateEventInput): Promise<EventDTO> => createEventIn(db, actorUserId, input);
+export const createEvent = (actorUserId: UserId, input: CreateEventInput, organizationId?: OrganizationId): Promise<EventDTO> =>
+  createEventIn(db, actorUserId, input, organizationId);
 
 /**
  * Optimistic concurrency keyed on the frozen `EventDTO.rowVersion` field

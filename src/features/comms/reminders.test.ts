@@ -26,6 +26,14 @@ const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_op
 // inserts a row per `TEMPLATE_KEYS` entry, so the enum needs every label a
 // migration ever appended, in order, or the very first insert 22P02s.
 const migrationRoster = readFileSync(new URL("../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M42 adds the admin_password_reset / admin_email_verification template keys,
+// which `seedDefaultTemplates` inserts for every event.
+const migrationProductAuth = readFileSync(new URL("../../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
+// M43's `organizations` table, which M44's `organization_invitations`/
+// `organization_audit_log` FK against; M44 appended `organization_invited` to
+// `template_key`, which `seedDefaultTemplates` also inserts for every event.
+const migrationTenancy = readFileSync(new URL("../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000002");
@@ -48,6 +56,9 @@ describe("reminder + assignment scan", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationProductAuth);
+    await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationUserManagement);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   });
 

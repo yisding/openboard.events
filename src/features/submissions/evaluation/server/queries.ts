@@ -165,6 +165,35 @@ export function listPlansIn(dbOrTx: DbOrTx, eventId: EventId): Promise<PlanDTO[]
   return selectPlans(dbOrTx, eventId);
 }
 
+/**
+ * A reviewer's copy of a round: its governance and its scorecard, and none of
+ * the committee.
+ *
+ * `PlanDTO.reviewers` is organizer material — every colleague's name, address
+ * and completion count. The reviewer's own screens never render it, so shipping
+ * it to them was only ever a payload nobody looked at, and in a blind round
+ * "who else is reading this" is precisely the kind of thing that should not
+ * travel further than it has to. Redaction happens here, while the DTO is being
+ * built, for the same reason blindness does: a route cannot forget to do what it
+ * was never handed.
+ */
+export function forReviewer(plan: PlanDTO): PlanDTO {
+  return { ...plan, reviewers: [] };
+}
+
+/** The rounds a reviewer is on, as their own round-switcher lists them. */
+export async function listReviewerPlansIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  reviewerUserId: UserId,
+): Promise<PlanDTO[]> {
+  const plans = await selectPlans(dbOrTx, eventId, sql`EXISTS (
+    SELECT 1 FROM reviewer_assignments a
+    WHERE a.plan_id = p.id AND a.event_id = p.event_id AND a.user_id = ${reviewerUserId}
+  )`);
+  return plans.map(forReviewer);
+}
+
 export async function getPlanIn(dbOrTx: DbOrTx, eventId: EventId, planId: PlanId): Promise<PlanDTO> {
   const [plan] = await selectPlans(dbOrTx, eventId, sql`p.id = ${planId}`);
   if (!plan) throw new AppError("NOT_FOUND", "Evaluation plan not found");
@@ -229,10 +258,13 @@ export async function listReviewQueueIn(
   planId: PlanId | null,
   now: Date = new Date(),
 ): Promise<ReviewQueueDTO> {
-  const plan = planId
+  const found = planId
     ? await getPlanIn(dbOrTx, eventId, planId)
     : await getReviewerDefaultPlanIn(dbOrTx, eventId, reviewerUserId);
-  if (!plan) return { plan: null, rows: [], progress: { scored: 0, total: 0 }, window: null };
+  if (!found) return { plan: null, rows: [], progress: { scored: 0, total: 0 }, window: null };
+  // The reviewer's copy from here down: the committee roster is the
+  // organizer's, and this DTO goes straight to a reviewer's browser.
+  const plan = forReviewer(found);
 
   const window = reviewWindow(plan, now);
   if (!window.canRead) return { plan, rows: [], progress: { scored: 0, total: 0 }, window };
@@ -410,6 +442,8 @@ export async function getRatingsIn(
 }
 
 export const listPlans = (eventId: EventId) => listPlansIn(db, eventId);
+export const listReviewerPlans = (eventId: EventId, reviewerUserId: UserId) =>
+  listReviewerPlansIn(db, eventId, reviewerUserId);
 export const getPlan = (eventId: EventId, planId: PlanId) => getPlanIn(db, eventId, planId);
 export const getActivePlan = (eventId: EventId) => getActivePlanIn(db, eventId);
 export const listReviewQueue = (eventId: EventId, reviewerUserId: UserId, planId: PlanId | null) =>

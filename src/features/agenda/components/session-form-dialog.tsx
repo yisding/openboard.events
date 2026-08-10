@@ -367,7 +367,7 @@ function SessionHistoryPanel({
   const hint = revisions.length > 0 ? `${revisions.length} revision${revisions.length === 1 ? "" : "s"}` : undefined;
 
   return (
-    <Field label="Content history" {...(hint ? { hint } : {})}>
+    <Field label="Content history" group {...(hint ? { hint } : {})}>
       {query.isLoading && <p className="portal-note">Loading history…</p>}
       {!query.isLoading && revisions.length === 0 && <p className="portal-note">No edits recorded yet.</p>}
       {revisions.length > 0 && (

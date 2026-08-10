@@ -151,6 +151,31 @@ describe("M52: the central Files view's deliverable list", () => {
     expect(await listDeliverablesIn(db, otherEventId)).toEqual([]);
   });
 
+  it("computes the central Files view's tab-badge counts from a filtered aggregate, not from a fetched row set", async () => {
+    const { getDeliverableStateCountsIn } = await import("@/features/portal/deliverables/server/queries");
+    const [all, counts] = await Promise.all([
+      listDeliverablesIn(db, eventId),
+      getDeliverableStateCountsIn(db, eventId),
+    ]);
+    expect(counts.all).toBe(all.length);
+    expect(counts.open).toBe(all.filter((row) => !row.completed).length);
+    expect(counts.overdue).toBe(all.filter((row) => row.overdue).length);
+    expect(counts.completed).toBe(all.filter((row) => row.completed).length);
+
+    // A search narrows the badges — the same discipline `getStatusCountsIn`
+    // keeps for Abstracts — because an organizer who has already typed
+    // "lovelace" should not see "Open (4)" implying three other rows exist.
+    const [adaOnly, adaCounts] = await Promise.all([
+      listDeliverablesIn(db, eventId, { search: "lovelace" }),
+      getDeliverableStateCountsIn(db, eventId, { search: "lovelace" }),
+    ]);
+    expect(adaCounts.all).toBe(adaOnly.length);
+    expect(adaCounts.all).toBeLessThan(counts.all);
+
+    // Never crosses the event boundary either.
+    expect((await getDeliverableStateCountsIn(db, otherEventId)).all).toBe(0);
+  });
+
   describe("createFileExportJobIn / processFileExportJobIn", () => {
     it("re-derives the latest file per slot server-side and freezes it into the job", async () => {
       const { createFileExportJobIn } = await import("@/features/portal/deliverables/server/export");

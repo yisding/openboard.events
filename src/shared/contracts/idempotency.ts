@@ -1,4 +1,4 @@
-import type { ContactId, EventId, PlanId, SessionId, SubmissionId, TaskId, TokenId, UserId } from "./ids";
+import type { ContactId, EventId, OrganizationInvitationId, PlanId, SessionId, SubmissionId, TaskId, TokenId, UserId } from "./ids";
 
 export const idem = {
   received: (eventId: EventId, submissionId: SubmissionId) => `${eventId}:received:${submissionId}`,
@@ -22,6 +22,24 @@ export const idem = {
   // string, which is how `buildContext` finds the one recipient's rendered
   // content for a given outbox row.
   speakerBulk: (eventId: EventId, contactId: ContactId, sendId: string) => `${eventId}:speaker_bulk:${contactId}:${sendId}`,
+  // M42. `linkId` is one server-generated value per issued reset/verification
+  // link, and it is also the last AAD component the sealed payload is bound to
+  // — `buildContext` recovers it from this key, the same trick `portalLogin`
+  // uses for its token id. A second "email me a link" click is a new link and
+  // therefore a new row, so an older link cannot be resurrected from the
+  // outbox.
+  adminAuthLink: (eventId: EventId, templateKey: "admin_password_reset" | "admin_email_verification", userId: UserId, linkId: string) =>
+    `${eventId}:${templateKey}:${userId}:${linkId}`,
+  // M44. `eventId` is the organization's routing event (`homeEventId` in
+  // `features/organizations/server/invitations.ts`, the same "oldest
+  // membership" trick `adminAuthLink` above uses one scope down), never the
+  // organization id itself — the outbox row it stamps is always addressed
+  // through an event and a contact. `sendId` is one fresh value per "invite" /
+  // "resend" click, so a resend enqueues a new row instead of colliding with
+  // (and silently no-op'ing against) the first one on `idempotency_key`'s
+  // unique index.
+  organizationInvited: (eventId: EventId, invitationId: OrganizationInvitationId, sendId: string) =>
+    `${eventId}:organization_invited:${invitationId}:${sendId}`,
 } as const;
 
 // Assignments are lazy view rows with no PK — keys are composed from the

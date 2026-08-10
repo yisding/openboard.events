@@ -18,3 +18,24 @@ CRON_SECRET=replace-with-at-least-32-random-characters
 APP_BASE_URL=http://localhost:3000
 TEST_AUTH=1
 NEXT_PUBLIC_BUILD_SHA=local
+
+# M42 — admin/organizer auth provider. `fallback` is the shipping jose/PBKDF2
+# implementation and the default everywhere; set `better-auth` to run admin auth
+# on Better Auth (revocable sessions in `admin_sessions`, Google social login,
+# password reset through the outbox). Requires SESSION_SECRET.
+#
+# Flip it back at any time: the two providers read disjoint session storage, and
+# passwords are mirrored both ways (`upsertCredentialAccount` on provisioning,
+# `mirrorCredentialToFallback` on reset/signup), so the *current* password works
+# on either provider. One caveat worth knowing before you rely on the revert:
+# the fallback's cookie is a stateless 7-day JWT with no server record, so a
+# password reset performed under `better-auth` cannot invalidate a fallback
+# cookie issued before the switch. Rotate SESSION_SECRET if that matters.
+ADMIN_AUTH_PROVIDER=fallback
+# Optional. Google social login for admins; must be set as a pair. Register the
+# redirect URI <origin>/api/auth/callback/google in the Google console.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Optional origin override for Better Auth's callback and email links; defaults
+# to APP_BASE_URL. Origin only — no path, no trailing slash.
+BETTER_AUTH_URL=

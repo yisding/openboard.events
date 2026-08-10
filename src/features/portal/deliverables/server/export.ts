@@ -208,8 +208,9 @@ export const processFileExportJob = (eventId: EventId, jobId: string) => process
  * stranded key is logged rather than retried from a database that no longer
  * has anywhere to retry it from.
  *
- * Exported for a future cron wiring (the existing `/api/jobs/cleanup` stub
- * is reserved for R2's own orphan sweep) rather than self-scheduling here.
+ * Wired into the existing `/api/jobs/cleanup` cron slot alongside R2's own
+ * orphan sweep and the M47 retention sweep (`src/app/api/jobs/cleanup/route.ts`)
+ * rather than self-scheduling here.
  */
 export async function pruneExpiredFileExportsIn(dbOrTx: DbOrTx): Promise<{ deleted: number }> {
   const expired = await dbOrTx.execute<{ id: string; result_file_id: string | null }>(sql`
@@ -222,8 +223,10 @@ export async function pruneExpiredFileExportsIn(dbOrTx: DbOrTx): Promise<{ delet
   if (resultFileIds.length > 0) {
     // The job row is already gone; the R2 object and its `file_assets` row
     // are the export's own artifact (never the source deliverables), so both
-    // are removed here rather than left to the general orphan sweep, which
-    // only ever looks at `upload`-kind rows.
+    // are removed here rather than left to the general orphan sweep — that
+    // sweep's `ORPHAN_PREDICATE_SQL` deliberately excludes any row a live
+    // `file_export_jobs.result_file_id` still points to, so it is this
+    // function alone that ever reclaims a completed export's ZIP.
     const keys = await dbOrTx.execute<{ r2_key: string }>(sql`
       DELETE FROM file_assets WHERE id = ANY(${uuidArraySql(resultFileIds)}) RETURNING r2_key
     `);

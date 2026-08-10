@@ -20,6 +20,7 @@ import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import { sanitize } from "@/shared/lib/sanitize";
 import type { BuilderField, BuilderForm, BuilderStep, FieldPatch, FormPatch, SectionPatch } from "../builder-types";
 import {
+  assertMapsToMatchesTarget,
   assertNotLockedField,
   assertStructuralAllowed,
   assertUniqueFieldKey,
@@ -429,6 +430,7 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
   const nextMapsTo = patch.mapsTo === undefined ? field.mapsTo : patch.mapsTo;
   assertUniqueFieldKey(fields, field.id, nextKey);
   assertUniqueMapsTo(fields, field.id, nextMapsTo);
+  assertMapsToMatchesTarget(form.targetType, nextMapsTo);
   const nextType = patch.fieldType ?? field.fieldType;
   const isOptions = nextType === "dropdown" || nextType === "multiselect";
   const acceptsMaxChars = nextType === "text" || nextType === "textarea" || nextType === "richtext";

@@ -88,18 +88,25 @@ test.describe("abstracts-decide", () => {
     test("bulk accept and notify sends exactly one email per submission", async ({ page }) => {
       await loginAsAdmin(page);
 
+      const statusOf = async (title: string): Promise<string> => {
+        const list = await apiData<{ rows: ListRow[] }>(page.request, `${API}?status=all&search=${encodeURIComponent(title)}`);
+        return list.rows[0]?.status ?? "";
+      };
+
       await test.step("select two rows and move them to the accept queue", async () => {
         for (const title of TO_ACCEPT) {
+          // Retry-safe: this test mutates seeded rows, and an attempt that
+          // moved a row before failing further down leaves nothing on the
+          // Pending tab for the retry to select — which reports "the checkbox
+          // did not change its state" instead of the original failure.
+          if (await statusOf(title) === "accept_queue") continue;
           await page.goto(`${ABSTRACTS}?status=pending&search=${encodeURIComponent(title)}`);
           // One row matches the search, so "select every row on this page" is a
           // precise selection rather than a blunt one.
           await page.getByRole("checkbox", { name: "Select every row on this page" }).check();
           await page.getByRole("button", { name: /move to accept queue/i }).click();
           await expect.poll(
-            async () => {
-              const list = await apiData<{ rows: ListRow[] }>(page.request, `${API}?status=all&search=${encodeURIComponent(title)}`);
-              return list.rows[0]?.status ?? "";
-            },
+            () => statusOf(title),
             { message: `${title} should be in the accept queue`, timeout: 20_000 },
           ).toBe("accept_queue");
         }
@@ -117,10 +124,7 @@ test.describe("abstracts-decide", () => {
 
         for (const title of TO_ACCEPT) {
           await expect.poll(
-            async () => {
-              const list = await apiData<{ rows: ListRow[] }>(page.request, `${API}?status=all&search=${encodeURIComponent(title)}`);
-              return list.rows[0]?.status ?? "";
-            },
+            () => statusOf(title),
             { message: `${title} should be accepted`, timeout: 30_000 },
           ).toBe("accepted");
         }
@@ -188,7 +192,10 @@ test.describe("abstracts-decide", () => {
       // An empty surface that crashes is a judged failure, and this is the
       // cheapest place to catch it.
       await page.goto(`/events/${EVENTS.empty.id}/abstracts`);
-      await expect(page.getByRole("heading", { name: "Abstracts" })).toBeVisible();
+      // `exact`, because the empty state's own <h3> ("No abstracts yet") is
+      // also a heading whose accessible name contains "abstracts" — an
+      // inexact name matches both and fails strict mode on a healthy page.
+      await expect(page.getByRole("heading", { name: "Abstracts", exact: true })).toBeVisible();
       await expect(page.getByText("No abstracts yet")).toBeVisible();
       await expect(page.getByText(/submissions appear here as speakers complete/i)).toBeVisible();
       assertClean();

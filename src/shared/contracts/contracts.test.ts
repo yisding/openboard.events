@@ -21,10 +21,11 @@ describe("frozen contracts", () => {
   it("keeps enum cardinality and committed field scope explicit", () => {
     expect(SUBMISSION_STATUSES).toHaveLength(7);
     // 7 domain keys + portal_login, plus M50's reviewer_invited and
-    // review_reminder, plus M51's speaker_bulk_message. Appended, never
-    // reordered: `template_key` is a Postgres enum whose existing labels are
-    // already stored.
-    expect(TEMPLATE_KEYS).toHaveLength(11);
+    // review_reminder, plus M51's speaker_bulk_message, plus M42's
+    // admin_password_reset and admin_email_verification, plus M44's
+    // organization_invited. Appended, never reordered: `template_key` is a
+    // Postgres enum whose existing labels are already stored.
+    expect(TEMPLATE_KEYS).toHaveLength(14);
     expect(COMMITTED_FIELD_TYPES).toHaveLength(8);
     expect(COMMITTED_FIELD_TYPES.every((type) => FIELD_TYPES.includes(type))).toBe(true);
   });

@@ -13,6 +13,11 @@ const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.me
 // Drizzle, which names every mapped column, so the fixture needs the column
 // to exist even though this suite never asserts on it.
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M42 added `users.email_verified`/`users.image`, which the seed's admin
+// upsert names on every insert — same reason as the line above.
+const migrationProductAuth = readFileSync(new URL("../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
+// M43 added `events.organization_id` — same reason as the line above.
+const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 
 describe("events seed", () => {
   let pglite: PGlite;
@@ -22,6 +27,8 @@ describe("events seed", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationProductAuth);
+    await pglite.exec(migrationTenancy);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
       now: new Date("2026-08-09T12:00:00.000Z"),

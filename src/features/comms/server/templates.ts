@@ -55,6 +55,24 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml:
     subject: "A message about {{event.name}}",
     bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>(This default is never sent — every send overrides it.)</p>",
   },
+  // M42. Admin auth mail: the recipient is an organizer or reviewer signing in
+  // to the admin app, so neither of these mentions the speaker portal. Both
+  // say plainly what to do if the request was not theirs, because a reset link
+  // arriving unasked-for is the one signal a user has that something is wrong.
+  admin_password_reset: {
+    subject: "Reset your {{event.name}} organizer password",
+    bodyHtml: "<p>Hi {{admin.name}},</p><p>Someone asked to reset the password for this account on {{event.name}}.</p><p><a href=\"{{admin.action_url}}\">Choose a new password</a>. The link works once and expires in {{admin.expires_in}}.</p><p>If this was not you, you can ignore this email — your password has not changed.</p>",
+  },
+  admin_email_verification: {
+    subject: "Confirm your email for {{event.name}}",
+    bodyHtml: "<p>Hi {{admin.name}},</p><p>Confirm this address to finish setting up your {{event.name}} organizer account.</p><p><a href=\"{{admin.action_url}}\">Confirm your email</a>. The link works once and expires in {{admin.expires_in}}.</p>",
+  },
+  // M44 — team invitations. `invite.role` is a plain word ("organizer",
+  // "reviewer"), not a badge, so it reads fine inline.
+  organization_invited: {
+    subject: "You're invited to join {{invite.organization_name}}",
+    bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>{{invite.inviter_name}} invited you to join <strong>{{invite.organization_name}}</strong> on Openboard as a {{invite.role}}.</p><p><a href=\"{{invite.action_url}}\">Accept the invitation</a>. The link expires {{invite.expires_at}}.</p><p>If you were not expecting this, you can ignore this email.</p>",
+  },
 };
 
 export async function seedDefaultTemplates(dbOrTx: DbOrTx, eventId: EventId): Promise<void> {

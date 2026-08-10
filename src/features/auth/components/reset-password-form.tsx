@@ -1,0 +1,72 @@
+"use client";
+
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { ArrowRight, LockKeyhole } from "lucide-react";
+
+/**
+ * M42 — the landing page for a Better Auth password-reset link.
+ *
+ * The token arrives as `?token=…` (chosen in `better-auth.ts` so the
+ * dispatcher's existing `token=` redaction covers the stored email body) and is
+ * posted straight back to Better Auth's own `reset-password` endpoint. Nothing
+ * here validates the token itself — the server owns that, and a client that
+ * pre-checked it would only leak whether a token is live.
+ */
+export function ResetPasswordForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token") ?? "";
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const data = new FormData(event.currentTarget);
+    const password = String(data.get("password") ?? "");
+    if (password !== String(data.get("confirm") ?? "")) {
+      setError("Those passwords do not match");
+      return;
+    }
+    setPending(true);
+    try {
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ newPassword: password, token }),
+      });
+      if (!response.ok) {
+        setError("That reset link is no longer valid. Request a new one.");
+        return;
+      }
+      setDone(true);
+      router.replace("/login");
+    } catch {
+      setError("Password reset is temporarily unavailable");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!token) {
+    return <div>
+      <span className="metric-icon accent"><LockKeyhole size={20} /></span>
+      <h1>This link is incomplete</h1>
+      <p>Open the reset link from your email again, or request a new one.</p>
+    </div>;
+  }
+
+  return <form onSubmit={submit}>
+    <span className="metric-icon accent"><LockKeyhole size={20} /></span>
+    <h1>Choose a new password</h1>
+    <p>Pick something you have not used here before.</p>
+    <label className="field"><span>New password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" /></label>
+    <label className="field"><span>Confirm new password</span><input name="confirm" autoComplete="new-password" required minLength={12} type="password" /></label>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <button className="button button-primary button-lg" disabled={pending || done} type="submit">
+      {pending ? "Saving…" : "Save password"} <ArrowRight size={16} />
+    </button>
+  </form>;
+}

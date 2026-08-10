@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireAdmin } from "@/features/auth";
-import { listPlans, listReviewQueue } from "@/features/submissions";
+import { listReviewerPlans, listReviewQueue } from "@/features/submissions";
 import { ReviewQueueView } from "@/features/submissions/evaluation/components/review-queue-view";
 import { eventIdSchema, planIdSchema, userIdSchema } from "@/shared/contracts";
 
@@ -26,8 +26,10 @@ export default async function Page({
   const query = await searchParams;
   const requestedPlanId = typeof query.planId === "string" ? planIdSchema.parse(query.planId) : null;
   const reviewerId = userIdSchema.parse(session.userId);
-  const allPlans = await listPlans(eventId);
-  const plans = allPlans.filter((plan) => plan.reviewers.some((reviewer) => reviewer.userId === reviewerId));
+  // The rounds this member is actually on, already stripped of the committee
+  // roster: this page is a client component's props, so whatever it reads is
+  // whatever a reviewer can read.
+  const plans = await listReviewerPlans(eventId, reviewerId);
   const planId = requestedPlanId && plans.some((plan) => plan.id === requestedPlanId) ? requestedPlanId : null;
 
   const queue = await listReviewQueue(eventId, reviewerId, planId);

@@ -31,10 +31,14 @@ export const MODULES = {
   M33: { landed: true, what: "embed shells (frame-ancestors, no X-Frame-Options)" },
   M34: { landed: true, what: "comms outbox dispatcher (one log row per submission)" },
   M40: { landed: true, what: "public API (published-only rows matching the page)" },
-  // M50's code is merged, but this gate is about *deployed* evidence: the spec
-  // signs a reviewer in on the preview and asserts on a blind payload, so it
-  // flips only once the preview runs a build that carries migration 0004.
-  M50: { landed: false, what: "review operations — needs a preview deployed with drizzle/0004" },
+  // M50's code is merged and the preview already runs a build carrying
+  // migration 0004, so the deployment is no longer what this gate waits on:
+  // the *data* is. The spec drives Round 2 — blind, windowed, typed — and reads
+  // a blind payload that has to both contain the "Approach" answer and omit the
+  // "Employer" one, and `sb-test` was seeded before either existed. `pnpm seed`
+  // now tops both up in place rather than needing a wipe, so this flips once
+  // that run is confirmed against the preview's own database.
+  M50: { landed: false, what: "review operations — needs sb-test reseeded with Round 2 and the blind-review questions" },
   // M51's code is merged, but this gate is about *deployed* evidence: the
   // spec adds/imports/invites/uploads/bulk-emails against the real preview
   // and reads communication_logs back, so it flips only once the preview
@@ -45,6 +49,22 @@ export const MODULES = {
   // placement against the preview's own schedule and blackout rows, so it
   // flips once that run is confirmed against a deployed preview.
   M54: { landed: false, what: "assisted agenda placement — needs deployed preview/apply evidence" },
+  // M52's code is merged (drizzle/0006_content_deliverables.sql) and its
+  // PGlite suite is green, but this gate is about *deployed* evidence too:
+  // the spec uploads two real versions through the browser, exchanges a
+  // comment, bulk-reminds through the real outbox, restores/publishes a
+  // session against the real public schedule, and reads back real ZIP bytes
+  // from R2 — none of which PGlite or a fixture can stand in for.
+  M52: { landed: false, what: "content/deliverables lifecycle — needs a preview deployed with drizzle/0006" },
+  // M53's code is merged (no new migration — it reads M32/M33's existing
+  // views and the pre-existing `embeds` table/enum) and its own unit/
+  // integration coverage is green, but this gate is about *deployed*
+  // evidence too: the spec exercises every search/filter/day/detail
+  // interaction across all five surfaces, a real localStorage star/reload/
+  // export round trip, a genuine cross-origin iframe render, and a
+  // parity comparison against the organizer's own admin API — none of
+  // which a fixture can stand in for.
+  M53: { landed: false, what: "five public widgets + embed parity — needs a deployed preview" },
 } as const;
 
 export type ModuleId = keyof typeof MODULES;

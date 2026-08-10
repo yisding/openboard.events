@@ -172,7 +172,7 @@ export function TaskEditor({
           </Field>
         </div>
 
-        <Field label="Completion mode" {...hintProp(fieldErrors.completionMode)}>
+        <Field label="Completion mode" group {...hintProp(fieldErrors.completionMode)}>
           <div className="choice-cards compact">
             {(["manual", "form", "file_request"] as const).map((mode) => (
               <button type="button" key={mode} disabled={locked} className={draft.completionMode === mode ? "active" : ""} onClick={() => setMode(mode)}>

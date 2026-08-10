@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { requestPortalLogin } from "@/features/auth";
 import { isAppError, toHttp } from "@/shared/lib/errors";
+import { assertSameOrigin } from "@/shared/server/csrf";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
 
 const inputSchema = z.object({ eventSlug: z.string().min(1), email: z.email(), next: z.string().max(2_000).optional() });
@@ -16,6 +17,7 @@ const inputSchema = z.object({ eventSlug: z.string().min(1), email: z.email(), n
  */
 export async function POST(request: NextRequest) {
   try {
+    assertSameOrigin(request);
     await checkRateLimit(db, { key: `portal-login-request:${clientIp(request)}`, limit: 20, windowMs: 10 * 60 * 1000 });
     const input = inputSchema.parse(await request.json());
     return NextResponse.json({ data: await requestPortalLogin(input.eventSlug, input.email, input.next) });

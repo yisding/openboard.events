@@ -1,0 +1,82 @@
+import { z } from "zod";
+import { memberRoleSchema } from "./enums";
+import { organizationAuditLogIdSchema, organizationIdSchema, organizationInvitationIdSchema, userIdSchema } from "./ids";
+
+/**
+ * M43 — organization tenancy contracts.
+ *
+ * Additive: nothing here changes an existing export. In particular
+ * `EventDTO` is deliberately untouched — every producer of it would otherwise
+ * have to be edited in lockstep, and the event->organization link is read
+ * through `getEventOrganization` instead.
+ */
+
+const iso = z.iso.datetime();
+
+/**
+ * The organization every event created before M43 belongs to, inserted by
+ * `drizzle/0010_organization_tenancy.sql` and used as the database DEFAULT of
+ * `events.organization_id`. Named here so application code and tests can refer
+ * to the backfilled row without re-deriving it from its slug.
+ */
+export const DEFAULT_ORGANIZATION_ID = organizationIdSchema.parse("d3fa0000-0000-4000-8000-000000000001");
+
+export const organizationDtoSchema = z.object({
+  id: organizationIdSchema,
+  name: z.string(),
+  slug: z.string(),
+  createdAt: iso,
+});
+export type OrganizationDTO = z.infer<typeof organizationDtoSchema>;
+
+/**
+ * Membership carries `member_role`, the same `owner > organizer > reviewer`
+ * ladder `event_members` uses, so one `roleSatisfies` ranks both scopes.
+ */
+export const organizationMemberDtoSchema = z.object({
+  userId: userIdSchema,
+  organizationId: organizationIdSchema,
+  email: z.string(),
+  name: z.string(),
+  role: memberRoleSchema,
+  createdAt: iso,
+});
+export type OrganizationMemberDTO = z.infer<typeof organizationMemberDtoSchema>;
+
+/**
+ * M44 — a pending or resolved team invitation. Never carries the raw token
+ * (only its hash lives at rest, and even that is not read back through this
+ * DTO) — accepting one is always a separate, explicit action
+ * (`acceptOrganizationInvitation`), never something this listing can do.
+ */
+export const organizationInvitationDtoSchema = z.object({
+  id: organizationInvitationIdSchema,
+  organizationId: organizationIdSchema,
+  email: z.string(),
+  role: memberRoleSchema,
+  invitedByUserId: userIdSchema,
+  createdAt: iso,
+  expiresAt: iso,
+  acceptedAt: iso.nullable(),
+  revokedAt: iso.nullable(),
+});
+export type OrganizationInvitationDTO = z.infer<typeof organizationInvitationDtoSchema>;
+
+/**
+ * M44 — one row of the organization audit log. `actorUserId`/`targetUserId`
+ * are nullable because the underlying `users` row can be deleted out from
+ * under a historical entry (`ON DELETE SET NULL`); the log outlives the
+ * account.
+ */
+export const organizationAuditLogEntryDtoSchema = z.object({
+  id: organizationAuditLogIdSchema,
+  organizationId: organizationIdSchema,
+  actorUserId: userIdSchema.nullable(),
+  actorEmail: z.string().nullable(),
+  action: z.string(),
+  targetUserId: userIdSchema.nullable(),
+  targetEmail: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: iso,
+});
+export type OrganizationAuditLogEntryDTO = z.infer<typeof organizationAuditLogEntryDtoSchema>;

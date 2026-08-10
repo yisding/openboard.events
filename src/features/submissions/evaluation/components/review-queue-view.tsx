@@ -383,7 +383,17 @@ export function ReviewQueueView({
                         criterion.required ? "Required" : "Optional",
                       ].filter(Boolean).join(" · ");
                       return (
-                        <Field key={criterion.id} label={criterion.label} hint={hint}>
+                        <Field
+                          key={criterion.id}
+                          label={criterion.label}
+                          hint={hint}
+                          // A numeric criterion's control is a row of score
+                          // buttons; a `<label>` around them names the first
+                          // button after all the others, so no score can be
+                          // picked by its own number. `select`/`text` are real
+                          // labelable inputs and keep the label.
+                          {...(criterion.kind === "numeric" ? { group: true } : {})}
+                        >
                           {criterion.kind === "numeric" && (
                             <div className="score-buttons">
                               {Array.from(

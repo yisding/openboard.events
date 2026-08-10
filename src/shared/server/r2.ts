@@ -581,9 +581,18 @@ async function linkedContacts(eventId: EventId, fileId: FileId): Promise<string[
 /**
  * Every owning reference that makes a file_assets row live — the four owning
  * columns plus the two answer stores that hold a `{t:'file'}` value (a CFP answer
- * row and a portal form response's answers object). Exported so the runtime sweep
+ * row and a portal form response's answers object), plus a completed M52
+ * export's own `file_export_jobs.result_file_id`. Exported so the runtime sweep
  * and its PGlite regression test cannot drift apart: a missed reference here
  * deletes a file that is still in use.
+ *
+ * The export-job clause matters even though `result_file_id` has an
+ * `ON DELETE SET NULL` FK to this table: without it, this general sweep (age-gated
+ * on `file_assets.created_at`, with no notion of the job's own `expires_at`) would
+ * silently null out a live, not-yet-expired export's `result_file_id` and delete
+ * its ZIP the moment the row turns 24h old — expiry-based cleanup for export ZIPs
+ * belongs to `pruneExpiredFileExportsIn` alone (`deliverables/server/export.ts`),
+ * which respects `expires_at` and removes the job row along with it.
  */
 export const ORPHAN_PREDICATE_SQL = `
   NOT EXISTS (SELECT 1 FROM contacts c WHERE c.headshot_file_id = fa.id)
@@ -600,6 +609,7 @@ export const ORPHAN_PREDICATE_SQL = `
     ) AS answer(key, value)
     WHERE answer.value->>'t' = 'file' AND answer.value->>'v' = fa.id::text
   )
+  AND NOT EXISTS (SELECT 1 FROM file_export_jobs fej WHERE fej.result_file_id = fa.id)
 `;
 
 /**
@@ -816,6 +826,46 @@ export async function deleteObjects(keys: readonly string[]): Promise<{ stranded
   const bucket = filesBucket();
   const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
   return { stranded: keys.filter((_key, index) => results[index]?.status === "rejected") };
+}
+
+// ---------------------------------------------------------------------------
+// M47 — data lifecycle & GDPR. Right-to-erasure deletes a contact's owning
+// rows (file_uploads, contacts.headshot_file_id going away with the row
+// itself) immediately, inside its own transaction; the `file_assets` rows
+// those owners pointed at are not touched there, because R2/network calls do
+// not belong inside a WebSocket-pool transaction. This is the prompt-purge
+// half, called right after that transaction commits: unlike
+// `cleanupOrphanUploads`'s daily age-gated sweep (which would eventually
+// reclaim the same rows, just not for up to `olderThanHours`), this is
+// scoped to exactly the file ids the caller already knows just lost their
+// last owner, so it carries no age cutoff and cannot race a concurrent
+// in-flight upload elsewhere the way a broadened global sweep would.
+// ---------------------------------------------------------------------------
+
+/**
+ * Deletes each candidate `file_assets` row (and its R2 object) only if it is
+ * *actually* orphaned right now — re-checked with the same `ORPHAN_PREDICATE_SQL`
+ * the daily sweep uses, so a file id that turned out to still be referenced
+ * elsewhere (e.g. a slide also attached to another contact's submission) is
+ * left alone rather than deleted out from under that other reference.
+ */
+export async function purgeOrphanedFileAssets(candidateIds: readonly string[]): Promise<{ deleted: number }> {
+  const ids = [...new Set(candidateIds)].filter(Boolean);
+  if (ids.length === 0) return { deleted: 0 };
+  const deleted = await db.execute<{ r2_key: string }>(sql`
+    DELETE FROM file_assets fa
+    WHERE fa.id = ANY(${ids}::uuid[]) AND ${sql.raw(ORPHAN_PREDICATE_SQL)}
+    RETURNING fa.r2_key
+  `);
+  const keys = (deleted.rows ?? []).map((row) => row.r2_key);
+  if (keys.length === 0) return { deleted: 0 };
+  const bucket = filesBucket();
+  const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
+  const stranded = keys.filter((_key, index) => results[index]?.status === "rejected");
+  if (stranded.length > 0) {
+    log({ level: "warn", msg: "r2.contact_erasure.object_delete_failed", requestId: "gdpr", feature: "uploads", code: stranded.join(",") });
+  }
+  return { deleted: keys.length };
 }
 
 /**

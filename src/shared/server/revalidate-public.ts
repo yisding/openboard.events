@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
+import type { CanonicalEmbedContentType } from "@/features/public/embed-config-types";
 import type { EventId } from "@/shared/contracts";
 import { log } from "@/shared/lib/log";
 
@@ -41,6 +42,15 @@ const SURFACE_ROUTES: Record<PublicEventSurface, readonly string[]> = {
   speakers: ["speakers", "gallery"],
 };
 
+/**
+ * M53's `/embed/**` routes share the exact same `route` segments and read
+ * from the exact same `getPublishedSchedule`/`getPublishedSpeakers` queries
+ * as their `/e/**` counterparts (the "one component/data contract" guardrail)
+ * — so a session/speaker write that goes stale on one goes stale on the
+ * other. `/embed/**` only started needing this call once it became
+ * `revalidate = 60` itself (the caching-regression fix, status.md rev. 11);
+ * while it read `searchParams` it was never cached in the first place.
+ */
 export async function revalidatePublicEvent(eventId: EventId, surfaces: readonly PublicEventSurface[], requestId: string): Promise<void> {
   try {
     const [event] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
@@ -48,7 +58,34 @@ export async function revalidatePublicEvent(eventId: EventId, surfaces: readonly
     // De-duplicated: `["schedule", "speakers"]` is the common call and the two
     // fan-outs must not revalidate a shared route twice.
     const routes = new Set(surfaces.flatMap((surface) => SURFACE_ROUTES[surface]));
-    for (const route of routes) revalidatePath(`/e/${event.slug}/${route}`);
+    for (const route of routes) {
+      revalidatePath(`/e/${event.slug}/${route}`);
+      revalidatePath(`/embed/${event.slug}/${route}`);
+    }
+  } catch {
+    log({ level: "warn", msg: "revalidate.failed", requestId, feature: "cache", eventId });
+  }
+}
+
+/**
+ * A saved embed config (kill switch, style, or content filters) only ever
+ * affects its own `/embed/[slug]/<route>` page — never the direct `/e/**`
+ * page, which never reads the config at all — so this is deliberately
+ * narrower than `revalidatePublicEvent` above rather than a call into it.
+ */
+const EMBED_CONTENT_TYPE_ROUTE: Record<CanonicalEmbedContentType, string> = {
+  session_list: "sessions",
+  agenda: "agenda",
+  schedule_itinerary: "itinerary",
+  speaker_list: "speakers",
+  speaker_gallery: "gallery",
+};
+
+export async function revalidatePublicEmbed(eventId: EventId, contentType: CanonicalEmbedContentType, requestId: string): Promise<void> {
+  try {
+    const [event] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
+    if (!event) return;
+    revalidatePath(`/embed/${event.slug}/${EMBED_CONTENT_TYPE_ROUTE[contentType]}`);
   } catch {
     log({ level: "warn", msg: "revalidate.failed", requestId, feature: "cache", eventId });
   }

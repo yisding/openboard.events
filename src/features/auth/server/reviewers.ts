@@ -6,6 +6,7 @@ import { idem, memberRoleSchema, type ContactId, type EventId, type MemberRole, 
 import { AppError } from "@/shared/lib/errors";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
+import { upsertCredentialAccount } from "./credential-account";
 import { hashPassword } from "./fallback-session";
 
 /**
@@ -73,11 +74,21 @@ export async function createEventReviewerIn(
     .returning();
   let userId = inserted[0]?.id as UserId | undefined;
   const createdUser = userId !== undefined;
+  let credentialHash: string | null = createdUser ? passwordHash : null;
   if (!userId) {
-    const [existing] = await dbOrTx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    const [existing] = await dbOrTx.select({ id: users.id, passwordHash: users.passwordHash })
+      .from(users).where(eq(users.email, email)).limit(1);
     if (!existing) throw new AppError("INTERNAL", "Reviewer account upsert did not return a row");
     userId = existing.id as UserId;
+    // Deliberately the account's *existing* hash, not the one just generated —
+    // provisioning must not overwrite an organizer's password (see the doc
+    // comment above). Mirroring it keeps Better Auth able to serve the same
+    // credential the fallback already accepts.
+    credentialHash = existing.passwordHash;
   }
+  // M42 — mirror the credential into `admin_accounts` so this account can sign
+  // in under either provider. See `credential-account.ts`.
+  if (credentialHash) await upsertCredentialAccount(dbOrTx, userId, credentialHash);
 
   await dbOrTx.insert(eventMembers)
     .values({ userId, eventId, role: input.role })

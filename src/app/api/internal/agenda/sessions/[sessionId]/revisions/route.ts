@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agendaAuth, listSessionContentRevisions, restoreSessionContent } from "@/features/agenda";
 import { eventIdSchema, sessionIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,17 @@ const list = defineHandler({
 const restore = defineHandler({
   auth: agendaAuth(),
   input: z.object({ revisionId: z.uuid() }),
-  handler: async ({ eventId, params, input, session: authSession }) => {
+  handler: async ({ eventId, params, input, requestId, session: authSession }) => {
     const { sessionId } = paramsSchema.parse(params);
+    const scopedEventId = eventIdSchema.parse(eventId);
     const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
-    return restoreSessionContent(eventIdSchema.parse(eventId), sessionId, input.revisionId, actorUserId);
+    const session = await restoreSessionContent(scopedEventId, sessionId, input.revisionId, actorUserId);
+    // A restore rewrites the title and description the public agenda renders,
+    // so a published session's pages are asked back like any other content edit
+    // — including the speaker pages, which print the session title beside each
+    // speaker, exactly as the sibling save handler does.
+    if (session.status === "published") await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    return session;
   },
 });
 

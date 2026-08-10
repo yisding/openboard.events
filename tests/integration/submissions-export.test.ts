@@ -25,6 +25,9 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // P3-EMAIL added `events.physical_address`; the export loads the event through
 // Drizzle, which names every mapped column, so the fixture needs the column.
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M43 added `events.organization_id`, and the export loads the event through
+// the same Drizzle select — same reason as the line above.
+const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const capEventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000002");
@@ -39,6 +42,7 @@ describe("submissions CSV export", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationTenancy);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug, timezone] of [

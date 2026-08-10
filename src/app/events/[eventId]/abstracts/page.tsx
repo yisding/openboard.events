@@ -5,7 +5,7 @@ import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { AbstractsPage } from "@/features/submissions/abstracts-page";
 import { AbstractsView } from "@/features/submissions/components/abstracts-view";
-import { getStatusCounts, getSubmissionVocabulary, listSubmissions, submissionFiltersSchema } from "@/features/submissions";
+import { getStatusCounts, getSubmissionVocabulary, listSubmissions, parseSubmissionFiltersForPage } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
@@ -32,13 +32,12 @@ export default async function Page({
   const session = await requireAdmin(eventId);
   const canEdit = session.role === "owner" || session.role === "organizer";
 
-  const query = await searchParams;
-  const filters = submissionFiltersSchema.parse({
-    ...(typeof query.status === "string" ? { status: query.status } : {}),
-    ...(typeof query.search === "string" ? { search: query.search } : {}),
-    ...(typeof query.page === "string" ? { page: Number(query.page) } : {}),
-    ...(typeof query.sort === "string" ? { sort: query.sort } : {}),
-  });
+  // Read through the page reader, which keeps a hand-edited or stale query
+  // string from 500ing the whole surface. The hand-rolled `Number(page)` this
+  // replaces was also the reason the paging bug hid: the page coerced by hand
+  // and worked, while the API route it shares the schema with rejected the same
+  // value, so `?pageSize=200` was a 400 nobody saw in a browser.
+  const filters = parseSubmissionFiltersForPage(await searchParams);
 
   const [event] = await db
     .select({ timezone: events.timezone })

@@ -1,11 +1,17 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
+import { communicationLogs } from "@/db/schema";
 import { createEventReviewerIn } from "@/features/auth";
 import { listOutstandingReviewersIn, sendReviewRemindersIn } from "@/features/comms";
+import { buildContext, type OutboxRow } from "@/features/comms/server/context";
+import { renderTemplateContent } from "@/features/comms/server/render";
+import { DEFAULT_TEMPLATES } from "@/features/comms/server/templates";
+import { parseEnv } from "@/shared/lib/env";
 import {
   assignReviewersIn,
   assignSubmissionsIn,
@@ -13,6 +19,7 @@ import {
   getRatingsIn,
   getReviewerSubmissionDetailIn,
   listAssignableSubmissionsIn,
+  listReviewerPlansIn,
   listReviewQueueIn,
   planInputSchema,
   recuseAssignmentIn,
@@ -23,6 +30,7 @@ import {
   eventIdSchema,
   fieldIdSchema,
   formIdSchema,
+  idem,
   sectionIdSchema,
   submissionIdSchema,
   trackIdSchema,
@@ -133,6 +141,22 @@ const SNAPSHOT: FormSnapshot = {
 
 let pglite: PGlite;
 let db: DbOrTx;
+
+/**
+ * Enough environment to render an email, and no more: the reminder's queue link
+ * is built from `APP_BASE_URL`, and every non-essential send needs the
+ * unsubscribe secret.
+ */
+const mailEnv = parseEnv({
+  APP_ENV: "local",
+  APP_BASE_URL: "http://localhost:3000",
+  SESSION_SECRET: "review-operations-secret-at-least-32-bytes",
+  UNSUBSCRIBE_SECRET: "review-operations-unsubscribe-secret-32b",
+  EMAIL_MODE: "log",
+});
+
+/** The reminder's idempotency cycle: one bucket per minute, as `sendReviewRemindersIn` computes it. */
+const cycleOf = (at: Date) => Math.floor(at.getTime() / 60_000);
 
 const AT_OPEN = new Date("2026-09-01T17:00:00.000Z");
 const BEFORE_OPEN = new Date("2026-08-31T17:00:00.000Z");
@@ -332,6 +356,29 @@ describe("review operations", () => {
     const refusedSave = await submitReviewIn(db, eventId, planId, three, ada, verdict({ overallScore: 4 }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(refusedSave) && refusedSave.code).toBe("FORBIDDEN");
+  });
+
+  it("keeps the committee roster out of a reviewer's own payload", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+
+    // The organizer's own page is what per-reviewer progress is for.
+    const organizerView = await getPlanIn(db, eventId, planId);
+    expect(organizerView.reviewers.map((reviewer) => reviewer.email).sort())
+      .toEqual(["ada@example.com", "grace@example.com"]);
+
+    // The reviewer's copy carries the round's governance and scorecard and
+    // nothing about who else is on the committee — it is rendered by a client
+    // component, so anything in it is something a reviewer can read.
+    const queue = await listReviewQueueIn(db, eventId, ada, planId);
+    expect(queue.plan?.reviewers).toEqual([]);
+    expect(queue.plan?.criteria.length).toBe(organizerView.criteria.length);
+    const mine = await listReviewerPlansIn(db, eventId, ada);
+    expect(mine.map((plan) => plan.id)).toEqual([planId]);
+    expect(mine.flatMap((plan) => plan.reviewers)).toEqual([]);
+    // Somebody with no round at all gets no round list, rather than the event's.
+    expect(await listReviewerPlansIn(db, eventId, organizer)).toEqual([]);
   });
 
   it("builds a blind DTO from the pinned snapshot and leaves the organizer's complete", async () => {
@@ -713,6 +760,36 @@ describe("review operations", () => {
     const early = await sendReviewRemindersIn(db, eventId, planId, null, BEFORE_OPEN.getTime())
       .catch((thrown: unknown) => thrown);
     expect(isAppError(early) && early.code).toBe("CONFLICT");
+
+    /**
+     * The row is only half the promise. A queued reminder that cannot be
+     * *rendered* fails at the dispatcher with `TEMPLATE_VAR_MISSING`, on the
+     * deployed preview, hours later — and this template's four variables are
+     * recovered from the idempotency key rather than from a foreign key, which
+     * is exactly the kind of wiring that no enqueue assertion touches.
+     */
+    const [queued] = await db.select().from(communicationLogs)
+      .where(eq(communicationLogs.idempotencyKey, idem.reviewReminder(eventId, planId, ada, cycleOf(AT_OPEN))));
+    expect(queued, "the reminder enqueued above is what gets rendered").toBeDefined();
+    const context = await buildContext(queued as OutboxRow, db, mailEnv);
+    const template = DEFAULT_TEMPLATES.review_reminder;
+    const rendered = renderTemplateContent("review_reminder", template.subject, template.bodyHtml, context.vars, {});
+    expect(rendered.html).toContain(`/events/${eventId}/review?planId=${planId}`);
+    expect(rendered.html).toContain("Round 1");
+    expect(rendered.subject.length).toBeGreaterThan(0);
+    // Two of Ada's three assigned abstracts are still unscored, the round she is
+    // being reminded about is named rather than guessed at, and the deadline is
+    // a real date rather than the "when the organizers close it" fallback.
+    const review = (context.vars as { review: { round: string; outstanding: string; closes_at: string } }).review;
+    expect(review).toMatchObject({ round: "Round 1", outstanding: "2" });
+    expect(review.closes_at).toContain("2026");
+
+    // And the precondition that keeps a nagging email off a finished queue:
+    // once nothing is outstanding the row is skipped at render time, not sent
+    // with a zero in it.
+    await submitReviewIn(db, eventId, planId, two, ada, verdict({ overallScore: 4 }), AT_OPEN);
+    await submitReviewIn(db, eventId, planId, three, ada, verdict({ overallScore: 4 }), AT_OPEN);
+    await expect(buildContext(queued as OutboxRow, db, mailEnv)).rejects.toThrow(/nothing outstanding/u);
   });
 
   it("provisions a reviewer on the existing membership path and invites them through the outbox", async () => {

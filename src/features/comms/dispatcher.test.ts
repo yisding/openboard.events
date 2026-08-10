@@ -12,7 +12,7 @@ import {
   sessionIdSchema,
   submissionIdSchema,
   taskIdSchema,
-  tokenIdSchema, TEMPLATE_KEYS } from "@/shared/contracts";
+  tokenIdSchema, userIdSchema, TEMPLATE_KEYS } from "@/shared/contracts";
 import { parseEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
@@ -33,6 +33,15 @@ const migrationEmailCompliance = readFileSync(new URL("../../../drizzle/0007_ema
 // M51 appended `speaker_bulk_message` to `template_key`; `seedDefaultTemplates`
 // needs every migration that ever appended a label, in order.
 const migrationRoster = readFileSync(new URL("../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M42 adds the admin_password_reset / admin_email_verification template keys,
+// which `seedDefaultTemplates` inserts for every event.
+const migrationProductAuth = readFileSync(new URL("../../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
+// M43's `organizations` table is what M44's `organization_invitations`/
+// `organization_audit_log` FK against; M44 appended `organization_invited` to
+// `template_key`, which `seedDefaultTemplates` inserts for every event —
+// both are required for the same reason `migrationProductAuth` is.
+const migrationTenancy = readFileSync(new URL("../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const emptyEventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
 const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
@@ -85,6 +94,9 @@ describe("communications outbox dispatcher", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationProductAuth);
+    await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationUserManagement);
     await pglite.query("INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Empty','empty','Online','UTC','2026-10-01T09:00:00Z','2026-10-01T17:00:00Z')", [eventId, emptyEventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);
@@ -131,6 +143,47 @@ describe("communications outbox dispatcher", () => {
     expect(stored.rows[0]).toMatchObject({ status: "sent", provider_message_id: "log-mode" });
     expect(stored.rows[0]?.body_rendered_html).toContain(";lkj&lt;img onerror=alert(1)&gt;");
     expect(stored.rows[0]?.body_rendered_html).not.toContain("<img onerror");
+  });
+
+  /**
+   * M50. `createEventReviewer` creates the account, the membership and this
+   * outbox row, in that order and nothing more — putting the new reviewer on a
+   * round is the organizer's *next* action. An invitation that renders only for
+   * a reviewer who is already on one is therefore an invitation that is skipped
+   * every time it matters, which is what the reminder's own precondition used to
+   * do to it.
+   */
+  it("renders a reviewer invitation before the reviewer is on any round, and names the round once there is one", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    const nina = userIdSchema.parse("c0000000-0000-4000-8000-00000000000a");
+    const omar = userIdSchema.parse("c0000000-0000-4000-8000-00000000000b");
+    await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'nina@example.com','Nina'),($2,'omar@example.com','Omar') ON CONFLICT DO NOTHING", [nina, omar]);
+
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "reviewer_invited", idempotencyKey: idem.reviewerInvited(eventId, nina) });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1, skipped: 0, failed: 0 });
+    const unassigned = await pglite.query<{ status: string; body_rendered_html: string }>(
+      "SELECT status,body_rendered_html FROM communication_logs WHERE idempotency_key=$1",
+      [idem.reviewerInvited(eventId, nina)],
+    );
+    expect(unassigned.rows[0]?.status).toBe("sent");
+    // No round exists, so none is named — the invitation must not send the
+    // reviewer looking for a round that is not there.
+    expect(unassigned.rows[0]?.body_rendered_html).toContain("not yet announced");
+    expect(unassigned.rows[0]?.body_rendered_html).toContain("/events/");
+
+    const planId = "c0000000-0000-4000-8000-00000000000c";
+    await pglite.query(
+      "INSERT INTO evaluation_plans(id,event_id,name,round,scale_min,scale_max,status) VALUES($1,$2,'Round 1',1,1,5,'open')",
+      [planId, eventId],
+    );
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "reviewer_invited", idempotencyKey: idem.reviewerInvited(eventId, omar) });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1, skipped: 0, failed: 0 });
+    const assigned = await pglite.query<{ body_rendered_html: string }>(
+      "SELECT body_rendered_html FROM communication_logs WHERE idempotency_key=$1",
+      [idem.reviewerInvited(eventId, omar)],
+    );
+    expect(assigned.rows[0]?.body_rendered_html).toContain("Round 1");
+    await pglite.query("DELETE FROM evaluation_plans WHERE id=$1", [planId]);
   });
 
   it("uses per-form confirmation overrides with the same safe renderer", async () => {

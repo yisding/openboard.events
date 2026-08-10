@@ -2,8 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
 import { calendarInvites, communicationLogs, contacts, contactSuppressions, events, forms, portalTasks, rooms, sessions, sessionSpeakers, speakerBulkMessages, submissions, tracks } from "@/db/schema";
-import { issuePortalToken, openPortalLoginPayload } from "@/features/auth";
-import { isTransactionalTemplate, tokenIdSchema, type ContactId, type EventId, type TemplateVars } from "@/shared/contracts";
+import { issuePortalToken, openAdminLinkPayload, openPortalLoginPayload, type AdminLinkPayload } from "@/features/auth";
+import { issueOrganizationInvitationTokenIn } from "@/features/organizations";
+import { isTransactionalTemplate, organizationInvitationIdSchema, tokenIdSchema, type ContactId, type EventId, type TemplateKey, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";
@@ -11,6 +12,28 @@ import { escapeHtml } from "./render";
 import { signUnsubscribeToken } from "./unsubscribe";
 
 export type OutboxRow = typeof communicationLogs.$inferSelect;
+
+/**
+ * M42 — admin/organizer auth mail. Grouped here because three separate
+ * decisions key off it: the sealed link payload is opened instead of a portal
+ * OTP, no speaker-portal magic link is minted, and the dispatcher redacts the
+ * stored body.
+ */
+export function isAdminAuthTemplate(key: TemplateKey): boolean {
+  return key === "admin_password_reset" || key === "admin_email_verification";
+}
+
+/**
+ * M44 — team invitations. Grouped separately from `isAdminAuthTemplate`
+ * because the two mint their credential differently (a fresh bearer token at
+ * *render* time here, vs. a sealed payload opened from what was already
+ * minted at enqueue time there — see `issueOrganizationInvitationTokenIn`'s
+ * doc comment) even though both share the same "no speaker-portal magic
+ * link" treatment below.
+ */
+export function isOrganizationInviteTemplate(key: TemplateKey): boolean {
+  return key === "organization_invited";
+}
 
 export class SkipEmail extends Error {
   constructor(message: string) {
@@ -101,6 +124,14 @@ export function applyCalendarInvite(
  * `outstanding` is counted at render time rather than at enqueue time: a
  * reviewer who finished between the click and the send is told nothing at all,
  * rather than being nagged about work they have already done.
+ *
+ * The two keys are not the same question, and conflating them silently ate the
+ * invitation. A *reminder* is about a round somebody is on: no round, nothing to
+ * chase, skip. An *invitation* is enqueued by `createEventReviewer`, which
+ * creates the account and the membership and nothing else — being on a round is
+ * the organizer's next action, not a precondition — so it renders whether or not
+ * a round exists yet, preferring the reviewer's own round, then the event's
+ * current one, and naming none when the event has none.
  */
 async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) {
   const segments = row.idempotencyKey.split(":");
@@ -119,22 +150,30 @@ async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) 
     FROM evaluation_plans p
     WHERE p.event_id = ${row.eventId}
       AND (${planId}::uuid IS NULL OR p.id = ${planId}::uuid)
-      AND EXISTS (SELECT 1 FROM reviewer_assignments a WHERE a.plan_id = p.id AND a.user_id = ${reviewerUserId})
-    ORDER BY (p.status = 'open') DESC, p.round ASC, p.created_at ASC
+      AND (${!isReminder}
+           OR EXISTS (SELECT 1 FROM reviewer_assignments a WHERE a.plan_id = p.id AND a.user_id = ${reviewerUserId}))
+    -- An invitation prefers a round the reviewer is already on; a reminder only
+    -- ever sees those, so the first key is a no-op for it.
+    ORDER BY EXISTS (SELECT 1 FROM reviewer_assignments a WHERE a.plan_id = p.id AND a.user_id = ${reviewerUserId}) DESC,
+             (p.status = 'open') DESC, p.round ASC, p.created_at ASC
     LIMIT 1
   `);
   const [plan] = rowsOf<{ name: string; closes_at: Date | string | null; outstanding: number }>(planResult);
-  if (!plan) throw new SkipEmail("reviewer is no longer on a review round");
-  const outstanding = Number(plan.outstanding ?? 0);
-  if (isReminder && outstanding === 0) throw new SkipEmail("reviewer has nothing outstanding");
+  if (isReminder) {
+    if (!plan) throw new SkipEmail("reviewer is no longer on a review round");
+    if (Number(plan.outstanding ?? 0) === 0) throw new SkipEmail("reviewer has nothing outstanding");
+  }
+  const outstanding = Number(plan?.outstanding ?? 0);
 
   const [event] = await dbOrTx.select({ timezone: events.timezone }).from(events)
     .where(eq(events.id, row.eventId)).limit(1);
   return {
-    round: plan.name,
+    // Naming a round that does not exist would be the one lie an invitation
+    // cannot afford: the reviewer would go looking for it.
+    round: plan?.name ?? "not yet announced",
     queue_url: `${env.APP_BASE_URL}/events/${encodeURIComponent(row.eventId)}/review${planId ? `?planId=${encodeURIComponent(planId)}` : ""}`,
     outstanding: String(outstanding),
-    closes_at: plan.closes_at ? formatInZone(plan.closes_at, event?.timezone ?? "UTC", "dateTime") : "when the organizers close it",
+    closes_at: plan?.closes_at ? formatInZone(plan.closes_at, event?.timezone ?? "UTC", "dateTime") : "when the organizers close it",
   };
 }
 
@@ -181,7 +220,27 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
   }
   let magicLink = "";
   let otpCode: string | undefined;
-  if (row.templateKey === "portal_login") {
+  let adminLink: AdminLinkPayload | undefined;
+  let orgInvite: Awaited<ReturnType<typeof issueOrganizationInvitationTokenIn>> | undefined;
+  if (isAdminAuthTemplate(row.templateKey)) {
+    // M42 — the reset/verification URL travels sealed in the outbox row, the
+    // same way `portal_login`'s OTP does, and is bound by AAD to this event,
+    // this contact and the link id at the tail of the idempotency key.
+    if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "admin auth link payload is missing");
+    if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth delivery");
+    const linkId = row.idempotencyKey.split(":").at(-1);
+    if (!linkId) throw new AppError("VALIDATION", "admin auth idempotency key is malformed");
+    adminLink = await openAdminLinkPayload(row.secretPayloadCiphertext, { eventId, contactId, linkId }, env.SESSION_SECRET);
+  } else if (isOrganizationInviteTemplate(row.templateKey)) {
+    // M44 — mint the join token fresh at render time; see
+    // `issueOrganizationInvitationTokenIn`'s doc comment for why this reads
+    // as "no sealed payload" rather than an oversight.
+    const invitationId = organizationInvitationIdSchema.safeParse(row.idempotencyKey.split(":")[2]);
+    if (!invitationId.success) throw new AppError("VALIDATION", "organization invite idempotency key is malformed");
+    const issued = await issueOrganizationInvitationTokenIn(dbOrTx, invitationId.data);
+    if (!issued) throw new SkipEmail("invitation is no longer pending");
+    orgInvite = issued;
+  } else if (row.templateKey === "portal_login") {
     if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "portal login payload is missing");
     if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for portal login delivery");
     const parsedTokenId = tokenIdSchema.safeParse(row.idempotencyKey.split(":").at(-1));
@@ -324,11 +383,43 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     if (!message) throw new SkipEmail("bulk message content is no longer available");
     templateOverride = { subject: message.subject, bodyHtml: message.bodyHtml };
     vars = { ...common } as TemplateVars;
+  } else if (adminLink) {
+    // M42. `common.portal` is dropped rather than passed through: the admin
+    // templates' var schema has no `portal` key, and there is no magic link to
+    // put in it (nothing is minted below for these keys).
+    const adminCommon = { event: common.event, speaker: common.speaker, unsubscribe: common.unsubscribe };
+    vars = {
+      ...adminCommon,
+      admin: {
+        name: base.firstName.trim() || base.email,
+        action_url: adminLink.url,
+        expires_in: adminLink.expiresIn,
+      },
+    } as unknown as TemplateVars;
+  } else if (orgInvite) {
+    // M44. Same `portal`-dropping treatment as `adminLink` above, and for the
+    // same reason: the recipient is joining the admin app, not the speaker
+    // portal.
+    const inviteCommon = { event: common.event, speaker: common.speaker, unsubscribe: common.unsubscribe };
+    vars = {
+      ...inviteCommon,
+      invite: {
+        organization_name: orgInvite.organizationName,
+        inviter_name: orgInvite.inviterEmail,
+        role: orgInvite.role,
+        action_url: `${env.APP_BASE_URL}/join?token=${encodeURIComponent(orgInvite.raw)}`,
+        expires_at: formatInZone(orgInvite.expiresAt, base.eventTimezone, "dateTime"),
+      },
+    } as unknown as TemplateVars;
   } else {
     vars = { ...common, otp: { code: otpCode } } as TemplateVars;
   }
 
-  if (row.templateKey !== "portal_login") {
+  // A speaker-portal magic link is minted for every template that offers the
+  // `portal.magic_link` token. `portal_login` already carries its own; M42's
+  // admin auth mail and M44's team-invitation mail deliberately have none —
+  // see `isAdminAuthTemplate`/`isOrganizationInviteTemplate`.
+  if (row.templateKey !== "portal_login" && !isAdminAuthTemplate(row.templateKey) && !isOrganizationInviteTemplate(row.templateKey)) {
     const { raw } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "magic_link", ttl: "P30D" });
     common.portal.magic_link = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/verify?token=${encodeURIComponent(raw)}`;
   }

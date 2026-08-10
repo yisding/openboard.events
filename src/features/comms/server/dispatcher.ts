@@ -4,7 +4,7 @@ import { communicationLogs, emailTemplates } from "@/db/schema";
 import { isTransactionalTemplate, type JobStats } from "@/shared/contracts";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { AppError, isAppError } from "@/shared/lib/errors";
-import { applyCalendarInvite, buildContext, SkipEmail, type OutboxRow } from "./context";
+import { applyCalendarInvite, buildContext, isAdminAuthTemplate, SkipEmail, type OutboxRow } from "./context";
 import { prepareInviteIn, type PreparedInvite } from "./invites";
 import { renderTemplateContent } from "./render";
 import { sendViaResend, type EmailMessage } from "./resend";
@@ -52,7 +52,12 @@ function redactCredentials(value: string): string {
 }
 
 function persistedHtml(row: OutboxRow, html: string, env: RuntimeEnv): string {
-  if (row.templateKey === "portal_login" && !(env.APP_ENV !== "production" && env.EMAIL_MODE === "log" && env.EMAIL_FALLBACK_UI === "1")) {
+  // M42 puts admin password-reset and email-verification links on the same
+  // footing as a portal OTP: a one-shot credential that must not outlive the
+  // send inside a stored body. Their URLs carry the token as a `token=` query
+  // parameter precisely so `redactCredentials` already strips them.
+  const carriesCredential = row.templateKey === "portal_login" || isAdminAuthTemplate(row.templateKey);
+  if (carriesCredential && !(env.APP_ENV !== "production" && env.EMAIL_MODE === "log" && env.EMAIL_FALLBACK_UI === "1")) {
     return redactCredentials(html).replace(/\b\d{6}\b/gu, "[redacted]");
   }
   return env.APP_ENV === "production" && env.EMAIL_MODE === "send" ? redactCredentials(html) : html;
@@ -70,7 +75,10 @@ async function markSkipped(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Prom
 function isTerminalFailure(row: OutboxRow, error: unknown): boolean {
   if (row.attempts >= 6) return true;
   if (isAppError(error) && error.code === "TEMPLATE_VAR_MISSING") return true;
-  if (row.templateKey === "portal_login" && isAppError(error) && error.code === "VALIDATION") return true;
+  // A sealed one-shot credential that will not open never opens on a retry
+  // either — fail it now rather than six times. Same rule for M42's admin
+  // links as for a portal login payload.
+  if ((row.templateKey === "portal_login" || isAdminAuthTemplate(row.templateKey)) && isAppError(error) && error.code === "VALIDATION") return true;
   if ((row.templateKey === "schedule_assigned" || row.templateKey === "schedule_changed") && isAppError(error) && error.code === "VALIDATION") return true;
   const message = errorMessage(error);
   return message.includes("email template was not found") || message.includes("email sending is not configured");

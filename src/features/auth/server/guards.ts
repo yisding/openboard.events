@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { apiKeys, events } from "@/db/schema";
-import { eventIdSchema, type ApiKeyId } from "@/shared/contracts";
+import { eventIdSchema, organizationIdSchema, type ApiKeyId } from "@/shared/contracts";
 import type { HandlerGuard, RouteParams } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
-import { requireAdmin } from "./admin";
+import { getAdminIdentity, requireAdmin, requireOrganizationAdmin } from "./admin";
 import { safeEqual, sha256 } from "./crypto";
 import { requirePortalByEventId } from "./portal";
 
@@ -29,6 +29,57 @@ export const adminAuth = (options?: { role?: "owner" | "organizer" | "reviewer" 
   if (!eventId) throw new AppError("VALIDATION", "eventId route parameter is required");
   const session = await requireAdmin(eventId, options?.role ?? "organizer");
   return { actorId: session.userId, role: session.role };
+};
+
+/**
+ * M43 — the guard for an `/api/internal/organizations/[organizationId]/…`
+ * route. Same shape and same fail-closed default as `adminAuth` above
+ * (organizer unless a route explicitly asks for less), one level up: it reads
+ * `organization_members`, never `event_members`.
+ *
+ * It is not a substitute for `adminAuth`. An event-scoped route keeps using
+ * `adminAuth`, because organization membership is not event access — a route
+ * that wants both says both, in that order.
+ *
+ * **Known property of the default organization, stated so nobody has to
+ * rediscover it.** `drizzle/0010_organization_tenancy.sql` backfilled every
+ * pre-M43 admin into `DEFAULT_ORGANIZATION_ID` at their *strongest* event
+ * role, so an organizer of one legacy event holds organizer rights over that
+ * one shared tenant — member listing, the audit log, the org export, the CRM.
+ * That rollup is not an oversight and cannot be softened after the fact: a
+ * "reviewer floor plus explicit promotion" would have left the default
+ * organization with **zero owners**, and `requireOwnerForOwnershipChange`
+ * (`organizations/server/membership.ts`) lets only an owner grant ownership —
+ * an unrecoverable lockout needing direct database access, the very thing the
+ * last-owner guard exists to prevent.
+ *
+ * What *was* fixable has been fixed rather than argued with: the legacy
+ * `/events` list is scoped to the caller (`listEventsIn`) and new events file
+ * under the actor's own organization (`resolvePrimaryOrganization`), so the
+ * shared tenant no longer grows or leaks a fleet directory. Splitting the
+ * legacy tenant per customer is a data-migration decision with a human in the
+ * loop, not a guard default to flip here.
+ */
+export const organizationAuth = (options?: { role?: "owner" | "organizer" | "reviewer" }): HandlerGuard => async (_request, _eventId, params) => {
+  const raw = stringParam(params, "organizationId");
+  const organizationId = organizationIdSchema.safeParse(raw);
+  if (!organizationId.success) throw new AppError("VALIDATION", "organizationId route parameter is required");
+  const session = await requireOrganizationAdmin(organizationId.data, options?.role ?? "organizer");
+  return { actorId: session.userId, role: session.role };
+};
+
+/**
+ * M44 — any authenticated admin identity, no event or organization scope.
+ * For routes that resolve their own scope from something other than the URL
+ * — "which organizations am I in", "accept this invitation token", "my own
+ * sessions" — where requiring a route-param scope like `adminAuth`/
+ * `organizationAuth` do would be backwards: the whole point is the caller
+ * does not yet know (or need) the organization id.
+ */
+export const authenticatedAuth = (): HandlerGuard => async () => {
+  const identity = await getAdminIdentity();
+  if (!identity) throw new AppError("UNAUTHORIZED", "Sign in required");
+  return { actorId: identity.userId, role: "authenticated" };
 };
 
 // Shared-secret header, not a browser cookie: a cross-site page cannot forge

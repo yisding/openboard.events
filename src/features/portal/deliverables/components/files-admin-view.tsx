@@ -2,8 +2,10 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliverableRowDTO, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
+import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
@@ -11,6 +13,7 @@ import { Button, Drawer, EmptyState, PageHeader, StatusBadge } from "@/shared/ui
 import { useToast } from "@/shared/ui/toast";
 
 type State = "all" | "open" | "overdue" | "completed";
+type HasUpload = "" | "yes" | "no";
 
 function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -24,33 +27,43 @@ function statusOf(row: DeliverableRowDTO): "Completed" | "Overdue" | "Open" {
 
 /**
  * The central Files view (M52): every file-request deliverable across the
- * event, filterable by task, file request, speaker, due/completion state and
- * version, with a bulk "remind" bar over the filtered/selected rows and a
- * slide-over for a slot's version history and comment thread.
+ * event, filterable by task, file request, speaker, completion state and
+ * version, with a bulk "remind" bar over the selected rows and a slide-over
+ * for a slot's version history and comment thread.
  *
- * Filtering happens over the already-fetched full row set (`initialRows`) —
- * an event's deliverables are a bounded list, not a paginated one, so a
- * second server round trip per filter change buys nothing a `useMemo` does
- * not already give for free.
+ * Filters live in the URL, not in component state — the same discipline
+ * `AbstractsView` keeps for Abstracts. `rows` is already the server's answer
+ * to the current query string; a colleague sent the link sees the same
+ * table, and the back button behaves like it looks like it should.
  */
 export function FilesAdminView({
   eventId,
-  initialRows,
+  rows,
+  counts,
+  state,
+  taskId,
+  fileRequestId,
+  hasUpload,
+  search,
   fileRequests,
   tasks,
 }: {
   eventId: string;
-  initialRows: DeliverableRowDTO[];
+  rows: DeliverableRowDTO[];
+  counts: DeliverableStateCounts;
+  state: State;
+  taskId: string;
+  fileRequestId: string;
+  hasUpload: HasUpload;
+  search: string;
   fileRequests: Array<{ id: string; title: string }>;
   tasks: Array<{ id: string; name: string }>;
 }) {
   const { toast } = useToast();
-  const [rows, setRows] = useState(initialRows);
-  const [state, setState] = useState<State>("all");
-  const [taskId, setTaskId] = useState("");
-  const [fileRequestId, setFileRequestId] = useState("");
-  const [hasUpload, setHasUpload] = useState<"" | "yes" | "no">("");
-  const [search, setSearch] = useState("");
+  const router = useRouter();
+  const params = useSearchParams();
+  const [draftSearch, setDraftSearch] = useState(search);
+  useEffect(() => setDraftSearch(search), [search]);
   const [selected, setSelected] = useState<DeliverableRowDTO[]>([]);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [reminding, setReminding] = useState(false);
@@ -58,28 +71,42 @@ export function FilesAdminView({
   const [exportJob, setExportJob] = useState<FileExportJobDTO | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      if (state !== "all" && statusOf(row).toLowerCase() !== state) return false;
-      if (taskId && row.taskId !== taskId) return false;
-      if (fileRequestId && row.fileRequestId !== fileRequestId) return false;
-      if (hasUpload === "yes" && !row.latestVersion) return false;
-      if (hasUpload === "no" && row.latestVersion) return false;
-      if (term) {
-        const haystack = `${row.contactName} ${row.submissionTitle ?? ""} ${row.fileRequestTitle} ${row.taskName}`.toLowerCase();
-        if (!haystack.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [rows, state, taskId, fileRequestId, hasUpload, search]);
+  const onFilter = useCallback((next: Partial<{ state: State; taskId: string; fileRequestId: string; hasUpload: HasUpload; search: string }>) => {
+    const query = new URLSearchParams(params.toString());
+    if (next.state !== undefined) { if (next.state === "all") query.delete("state"); else query.set("state", next.state); }
+    if (next.taskId !== undefined) { if (next.taskId) query.set("taskId", next.taskId); else query.delete("taskId"); }
+    if (next.fileRequestId !== undefined) { if (next.fileRequestId) query.set("fileRequestId", next.fileRequestId); else query.delete("fileRequestId"); }
+    if (next.hasUpload !== undefined) {
+      if (next.hasUpload === "yes") query.set("hasUpload", "true");
+      else if (next.hasUpload === "no") query.set("hasUpload", "false");
+      else query.delete("hasUpload");
+    }
+    if (next.search !== undefined) { if (next.search) query.set("search", next.search); else query.delete("search"); }
+    router.push(`?${query.toString()}`);
+  }, [params, router]);
 
-  const counts = useMemo(() => ({
-    all: rows.length,
-    open: rows.filter((row) => !row.completed).length,
-    overdue: rows.filter((row) => row.overdue).length,
-    completed: rows.filter((row) => row.completed).length,
-  }), [rows]);
+  // The search box updates as an organizer types, but every keystroke does
+  // not need its own server round trip: debounced the same 300ms a live
+  // filter-as-you-type box elsewhere in the app would use, and a change
+  // elsewhere in the URL (a tab click) still lands immediately.
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function onSearchChange(next: string) {
+    setDraftSearch(next);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => onFilter({ search: next }), 300);
+  }
+  useEffect(() => () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); }, []);
+  function clearSearch() {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    setDraftSearch("");
+    onFilter({ search: "" });
+  }
+
+  // Local mirror of the server-filtered `rows` prop: the table renders this,
+  // not the prop directly, so an in-place comment-count bump (below) does not
+  // have to wait on a full navigation to be visible.
+  const [displayRows, setDisplayRows] = useState(rows);
+  useEffect(() => setDisplayRows(rows), [rows]);
 
   async function bulkRemind() {
     const targets = selected.filter((row) => !row.completed);
@@ -225,7 +252,7 @@ export function FilesAdminView({
             role="tab"
             aria-selected={state === option}
             className={state === option ? "active" : ""}
-            onClick={() => setState(option)}
+            onClick={() => onFilter({ state: option })}
           >
             {option === "all" ? "All" : option.charAt(0).toUpperCase() + option.slice(1)}
             <span>{counts[option]}</span>
@@ -237,23 +264,23 @@ export function FilesAdminView({
         <div className="data-toolbar">
           <label className="table-search">
             <Search size={16} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search speaker, request, or session" />
-            {search && <button type="button" onClick={() => setSearch("")}><X size={14} /></button>}
+            <input value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
+            {draftSearch && <button type="button" onClick={clearSearch}><X size={14} /></button>}
           </label>
-          <select value={fileRequestId} onChange={(event) => setFileRequestId(event.target.value)} aria-label="Filter by file request">
+          <select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
             {fileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
           </select>
-          <select value={taskId} onChange={(event) => setTaskId(event.target.value)} aria-label="Filter by task">
+          <select value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
             <option value="">All tasks</option>
             {tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
           </select>
-          <select value={hasUpload} onChange={(event) => setHasUpload(event.target.value as typeof hasUpload)} aria-label="Filter by version">
+          <select value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
             <option value="">Any version state</option>
             <option value="yes">Has a file</option>
             <option value="no">Missing a file</option>
           </select>
-          <span className="row-count">{filtered.length} shown</span>
+          <span className="row-count">{displayRows.length} shown</span>
         </div>
         {selected.length > 0 && (
           <div className="bulk-bar">
@@ -297,7 +324,7 @@ export function FilesAdminView({
         )}
         <DataTable
           columns={columns}
-          data={filtered}
+          data={displayRows}
           empty={<EmptyState icon={<FolderOpen size={28} />} title="No deliverables match" description="Adjust the filters above, or wait for speakers to complete their tasks." />}
           enableSelection
           onSelectionChange={setSelected}
@@ -313,7 +340,7 @@ export function FilesAdminView({
         row={active}
         onClose={() => setActive(null)}
         onCommentAdded={(fileRequestId2, contactId, submissionId, commentCount) => {
-          setRows((current) => current.map((row) => (
+          setDisplayRows((current) => current.map((row) => (
             row.fileRequestId === fileRequestId2 && row.contactId === contactId && row.submissionId === submissionId
               ? { ...row, commentCount }
               : row

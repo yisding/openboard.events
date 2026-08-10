@@ -100,6 +100,31 @@ describe("M24 portal form builder", () => {
     expect(headshot.fieldType).toBe("file");
   });
 
+  it("rejects setting a maps_to whose target doesn't match the form's own target_type (review finding: mis-mapped write-back)", async () => {
+    const form = await createFormIn(database, eventId, {
+      internalName: "Session Info (mismatch guard)",
+      kind: "abstract",
+      collectParticipants: false,
+      context: "portal",
+      targetType: "submission",
+    });
+    const section = required(form.sections[0], "questions section");
+    const created = await createFieldIn(database, eventId, form.id, { sectionId: section.id, label: "Email", fieldType: "email" }, form.updatedAt);
+    const field = required(created.sections.flatMap((s) => s.fields).find((f) => f.label === "Email"), "created email field");
+
+    // A submission-target portal form must never accept a contact.* mapping —
+    // that would make deriveMappedFields' unconditional contact write-back
+    // (features/portal/task-runtime/server/mutations.ts) silently overwrite a
+    // responding contact's real profile data on task completion.
+    const rejected = await updateFieldIn(database, eventId, form.id, field.id, { mapsTo: "contact.email" }, created.updatedAt).catch((error: unknown) => error);
+    expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+
+    // The field itself, and the form, are unchanged by the rejected attempt.
+    const reread = await getFormForBuilderIn(database, eventId, form.id);
+    const rereadField = required(reread.sections.flatMap((s) => s.fields).find((f) => f.id === field.id), "reread email field");
+    expect(rereadField.mapsTo).toBeNull();
+  });
+
   it("adds the Session Level dropdown with admin-authored free-text options, unbound to track/format/tag", async () => {
     const form = await createFormIn(database, eventId, {
       internalName: "Session Info",

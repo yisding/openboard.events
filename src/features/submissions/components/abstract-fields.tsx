@@ -173,7 +173,7 @@ export function AbstractFields({
       </Field>
 
       {vocabulary.tags.length > 0 && (
-        <Field label="Tags">
+        <Field label="Tags" group>
           <div className="chip-picker">
             {vocabulary.tags.map((tag) => {
               const selected = values.tagIds.includes(tag.id);

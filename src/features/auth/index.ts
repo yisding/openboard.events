@@ -1,11 +1,28 @@
 export type { AdminSession } from "./server/admin";
 export { authenticateAdmin, authorizeAdmin, getAdminSession, requireAdmin, requiredRoleForEventPath, roleSatisfies } from "./server/admin";
+// M42 — provider-agnostic additions. `requireAdmin(eventId, role?)` itself is
+// unchanged in signature and semantics; these sit beside it.
+export { clearAdminLoginThrottle, revokeAdminSessions, throttleAdminLogin } from "./server/admin";
+export { hashAdminPassword, needsRehash, verifyAdminPassword } from "./server/admin-password";
+export { upsertCredentialAccount } from "./server/credential-account";
 export type { PortalSession } from "./server/portal";
 export { ensurePortalSession, logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, startImpersonation, verifyPortalLogin } from "./server/portal";
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";
 export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-payload";
-export { adminAuth, apiKeyAuth, cronAuth, portalAuth, publicAuth } from "./server/guards";
+export type { AdminLinkPayload } from "./server/secret-payload";
+export { openAdminLinkPayload, sealAdminLinkPayload } from "./server/secret-payload";
+export type { AdminAuthTemplateKey } from "./server/admin-mail";
+export { sendAdminAuthEmail, sendAdminAuthEmailIn } from "./server/admin-mail";
+export { adminAuth, apiKeyAuth, authenticatedAuth, cronAuth, organizationAuth, portalAuth, publicAuth } from "./server/guards";
+// M43 — organization-scoped guards. `requireAdmin`/`authorizeAdmin` above are
+// unchanged; these compose the same identity, the same role ladder and the
+// same UNAUTHORIZED/FORBIDDEN split over `organization_members`.
+export type { OrganizationSession } from "./server/admin";
+export { authorizeOrganization, requireOrganizationAdmin } from "./server/admin";
 // M50 — organizer-provisioned reviewers over the existing user/membership path.
 export type { ReviewerInviteInput, ReviewerInviteResult } from "./server/reviewers";
 export { createEventReviewer, createEventReviewerIn, reviewerInviteSchema } from "./server/reviewers";
 export { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, adminCookieOptions, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "./server/fallback-session";
+// M44 — self-service admin session views over M42's revocable session store.
+export type { AdminSessionSummary } from "./server/sessions";
+export { listAdminSessions, listAdminSessionsIn, revokeAdminSessionById, revokeAdminSessionByIdIn } from "./server/sessions";

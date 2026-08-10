@@ -4,6 +4,9 @@ import {
   COMPLETION_VIAS,
   CRITERION_KINDS,
   CONFIRMATION_STATUSES,
+  CRM_ACTIVITY_KINDS,
+  CRM_CONTACT_SOURCES,
+  CRM_PIPELINE_STAGES,
   EMBED_CONTENT_TYPES,
   FIELD_TYPES,
   FILE_COMMENT_AUTHOR_ROLES,
@@ -24,6 +27,7 @@ import {
   SUBMISSION_KINDS,
   SUBMISSION_SOURCES,
   SUBMISSION_STATUSES,
+  SUBSCRIPTION_STATUSES,
   SUPPRESSION_REASONS,
   TASK_MODES,
   TASK_TARGETS,
@@ -63,3 +67,13 @@ export const suppressionReasonEnum = pgEnum("suppression_reason", SUPPRESSION_RE
 // M51 — standalone speaker roster operations (drizzle/0008_speaker_roster_operations.sql).
 export const speakerWorkflowStatusEnum = pgEnum("speaker_workflow_status", SPEAKER_WORKFLOW_STATUSES);
 export const speakerLogisticsFieldTypeEnum = pgEnum("speaker_logistics_field_type", SPEAKER_LOGISTICS_FIELD_TYPES);
+// M49 — billing scaffold (drizzle/0012_billing_scaffold.sql). `billing_plans.id`
+// is a plain `text` primary key, not an enum — see that migration's header
+// comment for why the catalog stays a table instead.
+export const subscriptionStatusEnum = pgEnum("subscription_status", SUBSCRIPTION_STATUSES);
+// M55 — organization-level speaker CRM (drizzle/0013_speaker_crm.sql).
+// Custom-field types reuse `speakerLogisticsFieldTypeEnum` above rather than
+// declaring a second identical text/select Postgres enum.
+export const crmContactSourceEnum = pgEnum("crm_contact_source", CRM_CONTACT_SOURCES);
+export const crmActivityKindEnum = pgEnum("crm_activity_kind", CRM_ACTIVITY_KINDS);
+export const crmPipelineStageEnum = pgEnum("crm_pipeline_stage", CRM_PIPELINE_STAGES);

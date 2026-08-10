@@ -5,6 +5,7 @@ import { apiErrorSchema, eventIdSchema, type EventId } from "@/shared/contracts"
 import { captureError } from "@/shared/lib/error-tracking";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
+import { assertSameOrigin } from "./csrf";
 import { checkRateLimit } from "./rate-limit";
 
 export type RouteParams = Record<string, string | string[] | undefined>;
@@ -32,32 +33,6 @@ type HandlerContext<Input> = {
 };
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-/**
- * Origin-header CSRF defense (PLAN P3-SEC): reject a state-changing request
- * whose `Origin` (or, failing that, `Referer`) names a different origin than
- * the one serving the request. A real cross-site forgery — a form or fetch
- * fired from an attacker's page against a signed-in browser's cookies —
- * always carries one of these headers naming the attacker's origin; a
- * same-origin call from this app's own client always carries one naming
- * this origin. Neither header is guaranteed from a non-browser caller (curl,
- * a test harness's HTTP client), so their total absence is allowed rather
- * than rejected — the routes this guards are cookie-session gated, and a
- * caller with no ambient browser credential to forge has nothing to steal.
- */
-function assertSameOrigin(request: NextRequest): void {
-  const declared = request.headers.get("origin") ?? request.headers.get("referer");
-  if (!declared) return;
-  let declaredOrigin: string;
-  try {
-    declaredOrigin = new URL(declared).origin;
-  } catch {
-    throw new AppError("FORBIDDEN", "Cross-origin request rejected");
-  }
-  if (declaredOrigin !== request.nextUrl.origin) {
-    throw new AppError("FORBIDDEN", "Cross-origin request rejected");
-  }
-}
 
 function queryInput(searchParams: URLSearchParams): Record<string, string | string[]> {
   const input: Record<string, string | string[]> = {};

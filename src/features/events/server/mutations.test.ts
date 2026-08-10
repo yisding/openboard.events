@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { userIdSchema, type EventId, type UserId, TEMPLATE_KEYS } from "@/shared/contracts";
+import { DEFAULT_ORGANIZATION_ID, organizationIdSchema, userIdSchema, type EventId, type UserId, TEMPLATE_KEYS } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { createEventIn, updateEventIn } from "./mutations";
 import { getEventIn, listVocabIn } from "./queries";
@@ -22,6 +22,17 @@ const migrationEmailCompliance = readFileSync(new URL("../../../../drizzle/0007_
 // M51 added `speaker_bulk_message` to `template_key`, same reasoning as the
 // migrationReviewOps comment above.
 const migrationRoster = readFileSync(new URL("../../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M42 adds the admin_password_reset / admin_email_verification template keys,
+// which `seedDefaultTemplates` inserts for every event.
+const migrationProductAuth = readFileSync(new URL("../../../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
+// M43 added `events.organization_id`. Drizzle names every mapped column on an
+// insert (`… "organization_id" … values ($1, default, …)`), so `createEventIn`
+// needs the column to exist even though this suite never asserts on it — the
+// same reason the four migrations above are applied here.
+const migrationTenancy = readFileSync(new URL("../../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+// M44 appended `organization_invited` to `template_key`, same reasoning as
+// `migrationProductAuth` above.
+const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -53,6 +64,9 @@ describe("database-backed event mutations", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationProductAuth);
+    await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationUserManagement);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);
@@ -74,6 +88,30 @@ describe("database-backed event mutations", () => {
     expect(formats.rows[0]?.n).toBe(5);
     const membership = await pglite.query<{ role: string }>("SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2", [event.id, actorUserId]);
     expect(membership.rows[0]?.role).toBe("owner");
+  });
+
+  /**
+   * M43's `events.organization_id` column DEFAULT is the migration's
+   * compatibility hinge — it is what let seeds and ~40 fixtures keep inserting
+   * events with no organization named. It was also, until this parameter
+   * existed, the *tenancy policy* for every request-driven create: the legacy
+   * hub (`POST /api/internal/events`) named no organization, so a self-serve
+   * organization's event silently landed in the shared default tenant, where
+   * its own team's organization surfaces could not see it.
+   */
+  it("files an event under the organization it is given, and under the column default when it is not", async () => {
+    const [organization] = await database.insert(schema.organizations)
+      .values({ name: "Tenant Zero", slug: "tenant-zero" })
+      .returning();
+    const organizationId = organizationIdSchema.parse(organization?.id);
+
+    const scoped = await createEventIn(database, actorUserId, baseInput({ name: "Scoped Conf", slug: "scoped-conf" }), organizationId);
+    const scopedRow = await pglite.query<{ organization_id: string }>("SELECT organization_id FROM events WHERE id=$1", [scoped.id]);
+    expect(scopedRow.rows[0]?.organization_id).toBe(organizationId);
+
+    const unscoped = await createEventIn(database, actorUserId, baseInput({ name: "Default Conf", slug: "default-conf" }));
+    const unscopedRow = await pglite.query<{ organization_id: string }>("SELECT organization_id FROM events WHERE id=$1", [unscoped.id]);
+    expect(unscopedRow.rows[0]?.organization_id).toBe(DEFAULT_ORGANIZATION_ID);
   });
 
   it("rejects a reserved slug", async () => {

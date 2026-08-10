@@ -65,6 +65,36 @@ const reviewVars = z.object({
   outstanding: z.string(),
   closes_at: z.string(),
 });
+/**
+ * M42 admin auth mail. `action_url` is the one-shot reset/verification link,
+ * `expires_in` is an already-formatted human string ("1 hour") because the
+ * renderer never does arithmetic — the same rule `reviewVars` follows.
+ */
+const adminAuthVars = z.object({
+  name: z.string(),
+  action_url: z.url(),
+  expires_in: z.string(),
+});
+const adminAuthCommonVars = {
+  event: commonVars.event,
+  speaker: commonVars.speaker,
+  unsubscribe: commonVars.unsubscribe,
+};
+/**
+ * M44 team invitations. `action_url` is the one-shot join link (minted fresh
+ * at render time, the same "no secret payload, just a bearer link" pattern
+ * `review.queue_url`/`portal.magic_link` already use — see `buildContext`'s
+ * `organization_invited` branch), `expires_at` is an already-formatted human
+ * string because the renderer never does arithmetic, the same rule
+ * `adminAuthVars.expires_in` follows.
+ */
+const organizationInviteVars = z.object({
+  organization_name: z.string(),
+  inviter_name: z.string(),
+  role: z.string(),
+  action_url: z.url(),
+  expires_at: z.string(),
+});
 const calendarVars = z.object({
   google_url: z.url(),
   outlook_url: z.url(),
@@ -89,6 +119,20 @@ export const TEMPLATE_VAR_SCHEMAS = {
   // fields every other template already exposes — no submission/task/session
   // context, because a bulk send is never scoped to one of those.
   speaker_bulk_message: z.object({ ...commonVars }),
+  // M42 — admin/organizer auth mail (Better Auth password reset and email
+  // verification), delivered through the same outbox as everything else.
+  //
+  // `portal` is deliberately absent: the recipient is signing in to the *admin*
+  // app, and minting a 30-day speaker-portal magic link for them would hand an
+  // organizer a second, longer-lived credential they never asked for
+  // (`buildContext` skips the mint for these two keys for the same reason).
+  admin_password_reset: z.object({ ...adminAuthCommonVars, admin: adminAuthVars }),
+  admin_email_verification: z.object({ ...adminAuthCommonVars, admin: adminAuthVars }),
+  // M44 — team invitations, routed through the inviting organization's home
+  // event exactly the way admin auth mail borrows one (see `adminAuthCommonVars`
+  // above). `portal` is absent for the same reason it is absent there: the
+  // recipient is joining the *admin* app, not the speaker portal.
+  organization_invited: z.object({ ...adminAuthCommonVars, invite: organizationInviteVars }),
 } as const satisfies Record<TemplateKey, z.ZodType>;
 
 export type TemplateVarsByKey = {
@@ -119,6 +163,12 @@ export const TRANSACTIONAL_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set<Tem
   "schedule_assigned",
   "schedule_changed",
   "portal_login",
+  // M42 — admin password reset and email verification are account/security
+  // mail the person just asked for by name, exactly the carve-out
+  // `portal_login` documents above. An organizer who unsubscribed from event
+  // mail must still be able to recover their own login.
+  "admin_password_reset",
+  "admin_email_verification",
 ]);
 export function isTransactionalTemplate(key: TemplateKey): boolean {
   return TRANSACTIONAL_TEMPLATE_KEYS.has(key);

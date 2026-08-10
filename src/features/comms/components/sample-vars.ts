@@ -14,6 +14,13 @@ const common = {
   unsubscribe: { url: "https://openboard.events/portal/ai-engineer/unsubscribe?token=sample" },
 };
 
+const adminCommon = { event: common.event, speaker: common.speaker, unsubscribe: common.unsubscribe };
+const adminAuth = {
+  name: "Nadia",
+  action_url: "https://openboard.events/login/reset?token=sample",
+  expires_in: "1 hour",
+};
+
 const submission = { title: "Scaling agentic workflows in production", code: "SESS-142" };
 const task = { name: "Upload your headshot", due_date: "September 1, 2026" };
 const tasks = { outstanding_list: "<ul><li>Upload your headshot — September 1, 2026</li></ul>" };
@@ -37,6 +44,13 @@ const calendar = {
   download_url: "https://openboard.events/cal/sample/session",
   buttons_html: '<p><a href="#">Add to Google Calendar</a> · <a href="#">Add to Outlook</a> · <a href="#">Download</a></p>',
 };
+const invite = {
+  organization_name: "Acme Events",
+  inviter_name: "owner@example.com",
+  role: "organizer",
+  action_url: "https://openboard.events/join?token=sample",
+  expires_at: "September 1, 2026, 5:00 PM PDT",
+};
 
 export const SAMPLE_VARS: Record<TemplateKey, TemplateVars> = {
   submission_received: { ...common, submission },
@@ -50,6 +64,13 @@ export const SAMPLE_VARS: Record<TemplateKey, TemplateVars> = {
   reviewer_invited: { ...common, review },
   review_reminder: { ...common, review },
   speaker_bulk_message: { ...common },
+  // M42 — admin auth mail has no `portal` key (see TEMPLATE_VAR_SCHEMAS): an
+  // organizer resetting their admin password is not handed a speaker-portal
+  // link.
+  admin_password_reset: { ...adminCommon, admin: adminAuth },
+  admin_email_verification: { ...adminCommon, admin: adminAuth },
+  // M44 — team invitations have no `portal` key either, for the same reason.
+  organization_invited: { ...adminCommon, invite },
 };
 
 /**

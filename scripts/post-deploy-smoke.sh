@@ -166,14 +166,28 @@ fi
 
 # 3. The embed variant must be framable: CSP allows any ancestor and the legacy
 #    header is absent. Both together is the classic blank-iframe failure.
-#    NOTE (recorded regression, status rev. 11): the M53 embed pages read their
-#    options from searchParams, which forces dynamic rendering — embeds are
-#    currently NOT edge-cached (the /e/* pages are). This check therefore does
-#    not assert s-maxage on the embed until that regression is fixed.
-if expect_status "$base_url/embed/$event_slug/agenda" 200 "embed renders"; then
+#    The M53 embed pages used to read their appearance options from
+#    searchParams, which forced dynamic rendering and lost the edge cache the
+#    /e/* pages have (status rev. 11's recorded regression). They now read
+#    style from the saved `embeds` row instead, same as filters and the kill
+#    switch already did — so this asserts s-maxage on the embed too, with the
+#    same cold-cache retry as check 2.
+embed_ok=0
+for attempt in 1 2 3 4 5; do
+  fetch "$base_url/embed/$event_slug/agenda"
+  if [[ "$last_status" == "200" ]]; then
+    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then embed_ok=1; break; fi
+  fi
+  if (( attempt < 5 )); then sleep 2; fi
+done
+if (( embed_ok )); then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
     && pass "/embed/$event_slug/agenda"
+elif [[ "$last_status" != "200" ]]; then
+  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 5 attempts, got $last_status)"
+else
+  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage after 5 attempts)"
 fi
 
 # 4. The public API answers with an envelope.

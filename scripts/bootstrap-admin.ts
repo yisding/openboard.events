@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { withTx, type TxDb } from "@/db/client";
 import { eventMembers, events, users } from "@/db/schema";
-import { hashPassword } from "@/features/auth";
-import { eventIdSchema, type EventId, type MemberRole } from "@/shared/contracts";
+import { hashPassword, upsertCredentialAccount } from "@/features/auth";
+import { eventIdSchema, type EventId, type MemberRole, type UserId } from "@/shared/contracts";
 
 const ORGANIZER_EMAIL = "organizer@openboard.dev";
 const REVIEWER_EMAIL = "reviewer@openboard.dev";
@@ -33,6 +33,9 @@ async function upsertAdmin(
     })
     .returning({ id: users.id });
   if (!user) throw new Error(`Could not create ${input.email}`);
+  // M42 — mirror the credential into `admin_accounts` so a bootstrapped
+  // account can sign in under either auth provider (credential-account.ts).
+  await upsertCredentialAccount(tx, user.id as UserId, passwordHash);
   await tx.insert(eventMembers)
     .values({ userId: user.id, eventId, role: input.role })
     .onConflictDoUpdate({

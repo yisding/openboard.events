@@ -4,6 +4,9 @@ function brandedUuid<const Brand extends string>() {
   return z.uuid().brand<Brand>();
 }
 
+// M43 — organization tenancy. `OrganizationId` sits one level above
+// `EventId`; every event belongs to exactly one organization.
+export const organizationIdSchema = brandedUuid<"OrganizationId">();
 export const eventIdSchema = brandedUuid<"EventId">();
 export const userIdSchema = brandedUuid<"UserId">();
 export const contactIdSchema = brandedUuid<"ContactId">();
@@ -37,7 +40,20 @@ export const fileExportJobIdSchema = brandedUuid<"FileExportJobId">();
 // M51 — standalone speaker roster operations.
 export const logisticsFieldIdSchema = brandedUuid<"LogisticsFieldId">();
 export const unavailabilityIdSchema = brandedUuid<"UnavailabilityId">();
+// M44 — user management.
+export const organizationInvitationIdSchema = brandedUuid<"OrganizationInvitationId">();
+export const organizationAuditLogIdSchema = brandedUuid<"OrganizationAuditLogId">();
+// M55 — organization-level speaker CRM.
+export const organizationContactIdSchema = brandedUuid<"OrganizationContactId">();
+export const crmTagIdSchema = brandedUuid<"CrmTagId">();
+export const crmCustomFieldIdSchema = brandedUuid<"CrmCustomFieldId">();
+export const crmNoteIdSchema = brandedUuid<"CrmNoteId">();
+export const crmActivityIdSchema = brandedUuid<"CrmActivityId">();
+export const crmSegmentIdSchema = brandedUuid<"CrmSegmentId">();
+export const crmMergeIdSchema = brandedUuid<"CrmMergeId">();
+export const crmPipelineIdSchema = brandedUuid<"CrmPipelineId">();
 
+export type OrganizationId = z.infer<typeof organizationIdSchema>;
 export type EventId = z.infer<typeof eventIdSchema>;
 export type UserId = z.infer<typeof userIdSchema>;
 export type ContactId = z.infer<typeof contactIdSchema>;
@@ -69,3 +85,13 @@ export type SessionContentRevisionId = z.infer<typeof sessionContentRevisionIdSc
 export type FileExportJobId = z.infer<typeof fileExportJobIdSchema>;
 export type LogisticsFieldId = z.infer<typeof logisticsFieldIdSchema>;
 export type UnavailabilityId = z.infer<typeof unavailabilityIdSchema>;
+export type OrganizationInvitationId = z.infer<typeof organizationInvitationIdSchema>;
+export type OrganizationAuditLogId = z.infer<typeof organizationAuditLogIdSchema>;
+export type OrganizationContactId = z.infer<typeof organizationContactIdSchema>;
+export type CrmTagId = z.infer<typeof crmTagIdSchema>;
+export type CrmCustomFieldId = z.infer<typeof crmCustomFieldIdSchema>;
+export type CrmNoteId = z.infer<typeof crmNoteIdSchema>;
+export type CrmActivityId = z.infer<typeof crmActivityIdSchema>;
+export type CrmSegmentId = z.infer<typeof crmSegmentIdSchema>;
+export type CrmMergeId = z.infer<typeof crmMergeIdSchema>;
+export type CrmPipelineId = z.infer<typeof crmPipelineIdSchema>;
