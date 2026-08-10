@@ -79,7 +79,7 @@ function groupsFor(sessions: readonly ScheduledSession[]): Group[] {
  * stops believing the feature.
  */
 export function detectConflicts(sessions: readonly ScheduledSession[]): ConflictDTO[] {
-  const conflicts: ConflictDTO[] = [];
+  const conflicts = new Map<string, ConflictDTO>();
 
   for (const group of groupsFor(sessions)) {
     if (group.sessions.length < 2) continue;
@@ -93,22 +93,37 @@ export function detectConflicts(sessions: readonly ScheduledSession[]): Conflict
         if ((active[index]?.endsAtMs ?? 0) <= candidate.startsAtMs) active.splice(index, 1);
       }
       for (const open of active) {
+        if (open.id === candidate.id) continue;
         if (!(open.startsAtMs < candidate.endsAtMs && candidate.startsAtMs < open.endsAtMs)) continue;
-        conflicts.push({
+        const [a, b] = open.id.localeCompare(candidate.id) <= 0
+          ? [open.id, candidate.id]
+          : [candidate.id, open.id];
+        const conflict: ConflictDTO = {
           kind: group.kind,
           // A double-booked room or a speaker in two places is a blocker; two
           // sessions of one track running at once is a programming choice.
           severity: group.kind === "track" ? "warning" : "error",
-          a: open.id,
-          b: candidate.id,
+          a,
+          b,
           subjectId: group.subjectId,
           overlapStartMs: Math.max(open.startsAtMs, candidate.startsAtMs),
           overlapEndMs: Math.min(open.endsAtMs, candidate.endsAtMs),
-        });
+        };
+        conflicts.set(JSON.stringify([conflict.kind, conflict.subjectId, conflict.a, conflict.b]), conflict);
       }
       active.push(candidate);
     }
   }
 
-  return conflicts;
+  const severityOrder: Record<ConflictDTO["severity"], number> = { error: 0, warning: 1 };
+  const kindOrder: Record<ConflictDTO["kind"], number> = { room: 0, speaker: 1, track: 2 };
+  return [...conflicts.values()].sort((left, right) =>
+    severityOrder[left.severity] - severityOrder[right.severity]
+    || left.overlapStartMs - right.overlapStartMs
+    || left.overlapEndMs - right.overlapEndMs
+    || kindOrder[left.kind] - kindOrder[right.kind]
+    || left.subjectId.localeCompare(right.subjectId)
+    || left.a.localeCompare(right.a)
+    || left.b.localeCompare(right.b),
+  );
 }

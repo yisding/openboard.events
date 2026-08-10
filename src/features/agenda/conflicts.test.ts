@@ -123,11 +123,24 @@ describe("detectConflicts", () => {
       session({ id: id("03"), startsAtMs: at(10, 45), endsAtMs: at(12), roomId: room }),
       session({ id: id("01"), startsAtMs: at(9), endsAtMs: at(10, 30), roomId: room }),
       session({ id: id("02"), startsAtMs: at(10), endsAtMs: at(11), roomId: room }),
+      session({ id: id("05"), startsAtMs: at(9), endsAtMs: at(10), roomId: otherRoom }),
+      session({ id: id("04"), startsAtMs: at(9, 30), endsAtMs: at(10, 30), roomId: otherRoom }),
     ];
     const forwards = detectConflicts(rows);
     const backwards = detectConflicts([...rows].reverse());
-    expect(forwards).toHaveLength(2);
-    expect(backwards.map((conflict) => [conflict.a, conflict.b].sort().join("/")).sort())
-      .toEqual(forwards.map((conflict) => [conflict.a, conflict.b].sort().join("/")).sort());
+    expect(forwards).toHaveLength(3);
+    expect(backwards).toEqual(forwards);
+  });
+
+  it("keeps a conflict identity stable when the chronological order changes", () => {
+    const before = detectConflicts([
+      session({ id: id("01"), startsAtMs: at(9), endsAtMs: at(11), roomId: room }),
+      session({ id: id("02"), startsAtMs: at(10), endsAtMs: at(12), roomId: room }),
+    ]);
+    const after = detectConflicts([
+      session({ id: id("01"), startsAtMs: at(10), endsAtMs: at(12), roomId: room }),
+      session({ id: id("02"), startsAtMs: at(9), endsAtMs: at(11), roomId: room }),
+    ]);
+    expect(after).toEqual(before);
   });
 });
