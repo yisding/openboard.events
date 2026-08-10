@@ -162,6 +162,20 @@ describe("abstracts queries", () => {
     expect(second.total).toBe(3);
   });
 
+  it("applies the requested global order before taking a server page", async () => {
+    const first = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 1 }));
+    const second = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 2 }));
+    expect(first.rows.map((row) => row.code)).toEqual([103, 102]);
+    expect(second.rows.map((row) => row.code)).toEqual([101]);
+
+    const titleDescending = await listSubmissionsIn(db, eventId, filters({ sort: "title_desc" }));
+    expect(titleDescending.rows.map((row) => row.title)).toEqual([
+      "Half-written idea",
+      "Evals in production",
+      "Caching at the edge",
+    ]);
+  });
+
   it("keeps one row per submission when it has ratings in two plans", async () => {
     // submission_ratings_v is per (submission, plan); a naive join shows the
     // same abstract twice and doubles the tab count.

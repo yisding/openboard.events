@@ -54,11 +54,14 @@ function whereClause(
 }
 
 const ORDER_BY = {
-  newest: sql`s.submitted_at DESC NULLS LAST, s.created_at DESC`,
-  oldest: sql`s.submitted_at ASC NULLS LAST, s.created_at ASC`,
+  newest: sql`s.submitted_at DESC NULLS LAST, s.created_at DESC, s.code ASC`,
+  oldest: sql`s.submitted_at ASC NULLS LAST, s.created_at ASC, s.code ASC`,
   code: sql`s.code ASC`,
-  title: sql`lower(s.title) ASC`,
+  code_desc: sql`s.code DESC`,
+  title: sql`lower(s.title) ASC, s.code ASC`,
+  title_desc: sql`lower(s.title) DESC, s.code ASC`,
   rating: sql`r.rating DESC NULLS LAST, s.code ASC`,
+  rating_asc: sql`r.rating ASC NULLS LAST, s.code ASC`,
 } as const;
 
 type ListRowShape = Omit<SubmissionListRow, "speakers" | "tags"> & {

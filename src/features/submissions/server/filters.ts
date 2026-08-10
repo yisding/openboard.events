@@ -15,6 +15,15 @@ export const submissionFiltersSchema = z.object({
   tagId: tagIdSchema.nullable().default(null),
   page: z.int().positive().default(1),
   pageSize: z.int().positive().max(200).default(25),
-  sort: z.enum(["newest", "oldest", "code", "title", "rating"]).default("newest"),
+  sort: z.enum([
+    "newest",
+    "oldest",
+    "code",
+    "code_desc",
+    "title",
+    "title_desc",
+    "rating",
+    "rating_asc",
+  ]).default("newest"),
 });
 export type SubmissionFilters = z.infer<typeof submissionFiltersSchema>;
