@@ -23,8 +23,10 @@ jobs:
     name: Static and generated-file gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
+        with:
+          install-ripgrep: true
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm invariants
@@ -35,7 +37,7 @@ jobs:
     name: Test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
       - run: pnpm test
 
@@ -43,7 +45,7 @@ jobs:
     name: Worker and browser artifact gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
       - run: pnpm build:worker
       # build:worker produces both .next and .open-next. Keep these consumers in
