@@ -346,6 +346,84 @@ describe("CFP submit, end to end through the server path", () => {
     expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='retry-only@example.com'")).rows[0]?.count).toBe(0);
   });
 
+  it("returns an already-submitted draft after the form changes structurally", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email='stale-retry-only@example.com'");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const created = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers(),
+    });
+    const drifted = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
+    const section = drifted.sections[0];
+    const template = section?.fields[0];
+    if (!section || !template) throw new Error("golden abstract section missing");
+    section.fields.push({
+      ...template,
+      id: "f0000000-0000-4000-8000-0000000000ab" as typeof template.id,
+      key: "retry_required",
+      required: true,
+    });
+    drifted.version = 2;
+    await pglite.query(
+      "INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,2,$3::jsonb)",
+      [eventId, formId, JSON.stringify(drifted)],
+    );
+    await pglite.query("UPDATE forms SET current_version=2 WHERE id=$1", [formId]);
+
+    const retried = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: {},
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: {} },
+        {
+          clientId: "retry-co",
+          email: "stale-retry-only@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: {},
+        },
+      ],
+    });
+
+    expect(retried).toEqual(created);
+    expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='stale-retry-only@example.com'")).rows[0]?.count).toBe(0);
+    await pglite.query("UPDATE forms SET current_version=1 WHERE id=$1", [formId]);
+    await pglite.query("DELETE FROM form_versions WHERE version=2");
+  });
+
+  it("serializes mixed draft-backed and fresh submits without deadlocking", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const settled = await Promise.allSettled([
+      submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        draftSubmissionId: draft.submissionId,
+        answers: answers(),
+      }),
+      submitCfpForm({ eventId, formId, contactId: speaker, formVersion: 1, answers: answers() }),
+    ]);
+
+    expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
+    const rows = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions");
+    // Either request may promote the one draft first; the other then either
+    // observes that committed result or creates one fresh submission.
+    expect(rows.rows[0]?.count).toBeGreaterThanOrEqual(1);
+    expect(rows.rows[0]?.count).toBeLessThanOrEqual(2);
+  }, 20_000);
+
   it("rejects a submitted draft ID that belongs to another speaker", async () => {
     await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email IN ('owner@example.com','foreign-side-effect@example.com')");

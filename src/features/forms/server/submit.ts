@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { withTx } from "@/db/client";
+import { db, withTx } from "@/db/client";
 import { contacts, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
 import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult } from "@/features/submissions";
@@ -14,6 +14,7 @@ import {
   type FormId,
   type FormSnapshot,
   type SubmissionId,
+  type SubmissionStatus,
   submissionIdSchema,
 } from "@/shared/contracts";
 import { applyRouting, cleanAnswersToRecord } from "@/shared/lib/conditions";
@@ -67,7 +68,36 @@ function answersFor(snapshot: FormSnapshot, answers: RawAnswers): RawAnswers {
   return Object.fromEntries(Object.entries(answers).filter(([fieldId]) => ids.has(fieldId)));
 }
 
+function committedResult(row: { id: string; code: number; status: SubmissionStatus }): CreateSubmissionResult {
+  return {
+    submissionId: submissionIdSchema.parse(row.id),
+    code: row.code,
+    status: row.status,
+    promotedFromDraft: true,
+  };
+}
+
 export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissionResult> {
+  if (input.draftSubmissionId) {
+    // A committed draft is the idempotency record. Bind it to all three owners
+    // before consulting mutable form state, so a lost-response retry still
+    // succeeds after an organizer publishes a new form version.
+    const [claimedDraft] = await db.select({
+      id: submissions.id,
+      formId: submissions.formId,
+      submitterContactId: submissions.submitterContactId,
+      code: submissions.code,
+      status: submissions.status,
+    }).from(submissions).where(and(
+      eq(submissions.id, input.draftSubmissionId),
+      eq(submissions.eventId, input.eventId),
+    )).limit(1);
+    if (!claimedDraft || claimedDraft.formId !== input.formId || claimedDraft.submitterContactId !== input.contactId) {
+      throw new AppError("NOT_FOUND", "Draft not found");
+    }
+    if (claimedDraft.status !== "draft") return committedResult(claimedDraft);
+  }
+
   // The version the client rendered decides which snapshot its answers mean.
   const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
   const current = await getCurrentSnapshot(input.eventId, input.formId);
@@ -142,15 +172,19 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   return withTx(async (tx) => {
+    // Every CFP submit takes the event lock before it can lock/create contacts.
+    // createSubmissionIn reuses this lock; keeping one order for draft-backed
+    // and fresh submits prevents event↔contact deadlocks under mixed traffic.
+    const lockedEvent = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
+    `);
+    if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
+
     if (input.draftSubmissionId) {
       // Serialize against createSubmissionIn's event lock before participant
       // side effects. A lost-response retry must return the committed result
       // without applying a changed payload, and a caller cannot borrow another
       // speaker's submitted UUID as an idempotency key.
-      const lockedEvent = await tx.execute<{ id: string }>(sql`
-        SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
-      `);
-      if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
       const [draft] = await tx.select({
         id: submissions.id,
         formId: submissions.formId,
@@ -165,12 +199,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
         throw new AppError("NOT_FOUND", "Draft not found");
       }
       if (draft.status !== "draft") {
-        return {
-          submissionId: submissionIdSchema.parse(draft.id),
-          code: draft.code,
-          status: draft.status,
-          promotedFromDraft: true,
-        };
+        return committedResult(draft);
       }
     }
 
