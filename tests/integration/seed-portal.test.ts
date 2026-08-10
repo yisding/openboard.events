@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
+import { formSnapshotSchema } from "@/shared/contracts";
 import { sanitize } from "@/shared/lib/sanitize";
 import { seedPortal } from "../../scripts/seed/portal";
 import { SEEDED_EMPTY_EVENT_ID, SEEDED_EVENT_ID } from "../../scripts/seed/lib/helpers";
@@ -45,10 +46,63 @@ describe("portal seed", () => {
       "SELECT completion_mode, due_at FROM portal_tasks ORDER BY sort_order",
     );
     expect(rows.rows).toHaveLength(3);
-    expect(rows.rows.some((row) => row.completion_mode === "file_request")).toBe(true);
+    expect(rows.rows.map((row) => row.completion_mode)).toEqual(["manual", "file_request", "form"]);
     // The overdue row is what keeps the overdue list non-empty and gives the
     // reminder scan something to find on its first tick.
     expect(rows.rows.filter((row) => row.due_at !== null && row.due_at < ctx.now)).toHaveLength(1);
+  });
+
+  it("seeds two renderable portal forms and attaches the form task", async () => {
+    const forms = await pglite.query<{
+      id: string;
+      internal_name: string;
+      target_type: string;
+      current_version: number;
+      snapshot: unknown;
+    }>(
+      `SELECT f.id, f.internal_name, f.target_type, f.current_version, v.snapshot
+       FROM forms f
+       JOIN form_versions v ON v.form_id = f.id AND v.version = f.current_version
+       WHERE f.context = 'portal'
+       ORDER BY f.internal_name`,
+    );
+    expect(forms.rows).toHaveLength(2);
+    expect(forms.rows.map((row) => [row.internal_name, row.target_type])).toEqual([
+      ["Profile update", "contact"],
+      ["Session information", "submission"],
+    ]);
+    for (const form of forms.rows) {
+      expect(form.current_version).toBe(1);
+      expect(formSnapshotSchema.parse(form.snapshot).formId).toBe(form.id);
+    }
+
+    const mappedFields = await pglite.query<{ maps_to: string }>(
+      `SELECT ff.maps_to FROM form_fields ff
+       JOIN forms f ON f.id = ff.form_id
+       WHERE f.context = 'portal' AND ff.deleted_at IS NULL
+       ORDER BY ff.maps_to`,
+    );
+    expect(mappedFields.rows.map((row) => row.maps_to)).toEqual([
+      "contact.bio_html",
+      "contact.company",
+      "contact.headshot_file_id",
+      "contact.job_title",
+      "contact.pronouns",
+      "submission.description_html",
+      "submission.level",
+      "submission.title",
+    ]);
+
+    const task = await pglite.query<{ form_id: string; context: string; target_type: string }>(
+      `SELECT t.form_id, f.context, f.target_type FROM portal_tasks t
+       JOIN forms f ON f.id = t.form_id
+       WHERE t.completion_mode = 'form'`,
+    );
+    expect(task.rows).toEqual([{
+      form_id: seedId("form", "profile-update"),
+      context: "portal",
+      target_type: "contact",
+    }]);
   });
 
   it("points the file-request task at a real file request", async () => {
@@ -76,12 +130,14 @@ describe("portal seed", () => {
 
   it("re-runs as a no-op rather than duplicating", async () => {
     await seedPortal(ctx);
-    const counts = await pglite.query<{ tasks: number; requests: number; pages: number }>(
+    const counts = await pglite.query<{ tasks: number; requests: number; pages: number; forms: number; versions: number }>(
       `SELECT (SELECT count(*)::int FROM portal_tasks) AS tasks,
               (SELECT count(*)::int FROM file_requests) AS requests,
-              (SELECT count(*)::int FROM resource_pages) AS pages`,
+              (SELECT count(*)::int FROM resource_pages) AS pages,
+              (SELECT count(*)::int FROM forms WHERE context = 'portal') AS forms,
+              (SELECT count(*)::int FROM form_versions) AS versions`,
     );
-    expect(counts.rows[0]).toEqual({ tasks: 3, requests: 1, pages: 2 });
+    expect(counts.rows[0]).toEqual({ tasks: 3, requests: 1, pages: 2, forms: 2, versions: 2 });
   });
 
   it("skips rather than crashing when the event has not been seeded yet", async () => {
@@ -101,12 +157,10 @@ describe("portal seed", () => {
     await empty.close();
   }, 60_000);
 
-  it("promotes the travel task to a form task once a portal form exists", async () => {
-    const formId = "d0000000-0000-4000-8000-000000000001";
-    // A portal form must declare who it targets — the schema enforces it.
+  it("repairs an existing task back to the seeded form contract", async () => {
     await pglite.query(
-      "INSERT INTO forms(id,event_id,context,internal_name,target_type) VALUES($1,$2,'portal','Travel details','contact')",
-      [formId, SEEDED_EVENT_ID],
+      "UPDATE portal_tasks SET completion_mode = 'manual', form_id = NULL WHERE id = $1",
+      [seedId("task", "travel-form")],
     );
     await seedPortal(ctx);
     const rows = await pglite.query<{ completion_mode: string; form_id: string | null }>(
@@ -114,7 +168,7 @@ describe("portal seed", () => {
       [seedId("task", "travel-form")],
     );
     expect(rows.rows[0]?.completion_mode).toBe("form");
-    expect(rows.rows[0]?.form_id).toBe(formId);
+    expect(rows.rows[0]?.form_id).toBe(seedId("form", "profile-update"));
   });
 
   it("records a completion once contacts exist, and none before", async () => {
