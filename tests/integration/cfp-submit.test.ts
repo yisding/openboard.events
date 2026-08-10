@@ -259,6 +259,47 @@ describe("CFP submit, end to end through the server path", () => {
     expect(coSpeakerAnswer.rows[0]).toEqual({ email: "grace@example.com", value: { t: "s", v: "Grace" } });
   });
 
+  it("does not let the submitter overwrite an existing co-speaker profile", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const existing = contactIdSchema.parse("f0000000-0000-4000-8000-000000000006");
+    await pglite.query(
+      `INSERT INTO contacts(id,event_id,email,first_name,last_name,company)
+       VALUES($1,$2,'existing@example.com','Existing','Speaker','Original Co')
+       ON CONFLICT (event_id,email) DO UPDATE SET first_name='Existing',last_name='Speaker',company='Original Co'`,
+      [existing, eventId],
+    );
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-existing",
+          email: "existing@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Attacker"),
+            [field("last_name").id]: text("Supplied"),
+            [field("email").id]: text("existing@example.com"),
+            [field("company").id]: text("Overwritten Co"),
+          }),
+        },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string; company: string | null }>(
+      "SELECT first_name,last_name,company FROM contacts WHERE id=$1",
+      [existing],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Existing", last_name: "Speaker", company: "Original Co" });
+  });
+
   it("rejects a primary mapped email that contradicts the authenticated identity", async () => {
     await pglite.query("DELETE FROM submissions");
     const error = await submitCfpForm({

@@ -252,7 +252,11 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
         throw new AppError("VALIDATION", "Participant email answer must match the participant email");
       }
       delete safePatch.email;
-      if (Object.keys(safePatch).length > 0) {
+      // A submitter may invite a co-speaker by email, but that does not grant
+      // permission to overwrite an existing contact's profile. Their supplied
+      // answers remain attached to this submission for later review; only the
+      // authenticated primary speaker can write through to their contact row.
+      if (participant.isPrimary && Object.keys(safePatch).length > 0) {
         await updateContactFields(tx, input.eventId, contactId, safePatch);
       }
     }
