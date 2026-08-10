@@ -1,8 +1,8 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type { EventId, PlanId, SubmissionId } from "@/shared/contracts";
+import type { EventId, PlanId, SubmissionId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import type { PlanDTO } from "../types";
+import type { PlanDTO, ReviewQueueRow } from "../types";
 
 /**
  * Evaluation's reads. Every one is event-scoped, and every aggregate is scoped
@@ -117,6 +117,66 @@ export async function getActivePlanIn(dbOrTx: DbOrTx, eventId: EventId): Promise
   return plan ?? null;
 }
 
+type QueueRow = {
+  submission_id: string; code: number; title: string; track_id: string | null; track_name: string | null;
+  my_score: string | null; my_criterion_scores: Record<string, number> | null; my_comment: string | null;
+  scored_at: string | null; avg_rating: number | null; n_scores: number;
+};
+
+/**
+ * What one reviewer has to work through in one round. The assignment row is the
+ * gate: a member with no assignment gets an empty queue rather than the whole
+ * event, and the same scope clause reappears inside `submitReview` so nobody can
+ * score past it by editing a request body.
+ */
+export async function listReviewQueueIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  reviewerUserId: UserId,
+  planId: PlanId | null,
+): Promise<{ plan: PlanDTO | null; rows: ReviewQueueRow[]; progress: { scored: number; total: number } }> {
+  const plan = planId ? await getPlanIn(dbOrTx, eventId, planId) : await getActivePlanIn(dbOrTx, eventId);
+  if (!plan) return { plan: null, rows: [], progress: { scored: 0, total: 0 } };
+
+  const result = await dbOrTx.execute<QueueRow>(sql`
+    SELECT s.id AS submission_id, s.code, s.title, s.track_id, t.name AS track_name,
+           r.overall_score AS my_score, r.criterion_scores AS my_criterion_scores,
+           r.comment AS my_comment, r.submitted_at AS scored_at,
+           v.rating AS avg_rating, COALESCE(v.n_scores, 0) AS n_scores
+    FROM reviewer_assignments a
+    JOIN evaluation_plans p ON p.id = a.plan_id AND p.event_id = a.event_id
+    JOIN submissions s ON s.event_id = p.event_id
+    LEFT JOIN tracks t ON t.id = s.track_id AND t.event_id = s.event_id
+    LEFT JOIN reviews r ON r.plan_id = p.id AND r.submission_id = s.id AND r.reviewer_user_id = a.user_id
+    LEFT JOIN submission_ratings_v v ON v.plan_id = p.id AND v.submission_id = s.id AND v.event_id = s.event_id
+    WHERE p.id = ${plan.id} AND p.event_id = ${eventId} AND a.user_id = ${reviewerUserId}
+      AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)}
+    -- Unscored first: the queue is a worklist, so what still needs a verdict
+    -- belongs at the top of it.
+    ORDER BY (r.overall_score IS NOT NULL), s.code
+  `);
+
+  const rows = (result.rows ?? []).map((row): ReviewQueueRow => ({
+    submissionId: row.submission_id as SubmissionId,
+    code: Number(row.code),
+    title: row.title,
+    trackId: row.track_id as ReviewQueueRow["trackId"],
+    trackName: row.track_name,
+    myScore: row.my_score === null ? null : Number(row.my_score),
+    myCriterionScores: row.my_criterion_scores ?? {},
+    myComment: row.my_comment,
+    scoredAt: row.scored_at ? new Date(row.scored_at).toISOString() : null,
+    avgRating: row.avg_rating === null ? null : Number(row.avg_rating),
+    nScores: Number(row.n_scores ?? 0),
+  }));
+
+  return {
+    plan,
+    rows,
+    progress: { scored: rows.filter((row) => row.myScore !== null).length, total: rows.length },
+  };
+}
+
 /**
  * One plan's ratings, straight off `submission_ratings_v`. Submissions with no
  * finished review are absent rather than zero — the caller renders them as `—`,
@@ -140,4 +200,6 @@ export async function getRatingsIn(
 export const listPlans = (eventId: EventId) => listPlansIn(db, eventId);
 export const getPlan = (eventId: EventId, planId: PlanId) => getPlanIn(db, eventId, planId);
 export const getActivePlan = (eventId: EventId) => getActivePlanIn(db, eventId);
+export const listReviewQueue = (eventId: EventId, reviewerUserId: UserId, planId: PlanId | null) =>
+  listReviewQueueIn(db, eventId, reviewerUserId, planId);
 export const getRatings = (eventId: EventId, planId: PlanId) => getRatingsIn(db, eventId, planId);

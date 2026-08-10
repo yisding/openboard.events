@@ -3,11 +3,13 @@ import {
   criterionIdSchema,
   planIdSchema,
   planStatusSchema,
+  submissionIdSchema,
   trackIdSchema,
   userIdSchema,
   type CriterionId,
   type PlanId,
   type PlanStatus,
+  type SubmissionId,
   type TrackId,
   type UserId,
 } from "@/shared/contracts";
@@ -60,6 +62,20 @@ export const reviewerAssignmentSchema = z.object({
 });
 export type ReviewerAssignmentInput = z.infer<typeof reviewerAssignmentSchema>;
 
+/**
+ * One reviewer's verdict. Every score is optional: a review saved with a comment
+ * and a blank criterion is legal and simply stays out of the average until it is
+ * finished.
+ */
+export const reviewInputSchema = z.object({
+  planId: planIdSchema,
+  submissionId: submissionIdSchema,
+  overallScore: z.number().nullable().default(null),
+  criterionScores: z.record(criterionIdSchema, z.number()).default({}),
+  comment: z.string().trim().max(2000).nullable().default(null),
+});
+export type ReviewInput = z.infer<typeof reviewInputSchema>;
+
 export type PlanDTO = {
   id: PlanId;
   name: string;
@@ -73,4 +89,18 @@ export type PlanDTO = {
   /** Plan-level progress: scored submissions over submissions in the plan's scope. */
   progress: { scored: number; total: number };
   updatedAt: string;
+};
+
+export type ReviewQueueRow = {
+  submissionId: SubmissionId;
+  code: number;
+  title: string;
+  trackId: TrackId | null;
+  trackName: string | null;
+  myScore: number | null;
+  myCriterionScores: Record<string, number>;
+  myComment: string | null;
+  scoredAt: string | null;
+  avgRating: number | null;
+  nScores: number;
 };

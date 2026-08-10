@@ -4,9 +4,9 @@
  * an opinion about a submission and nothing outside this feature should reach
  * for the tables directly.
  */
-export type { PlanDTO, PlanInput, PlanUpdate, ReviewerAssignmentInput } from "./types";
-export { planInputSchema, planUpdateSchema, reviewerAssignmentSchema } from "./types";
-export { inReviewerScope, isScorableStatus } from "./scoring";
+export type { PlanDTO, PlanInput, PlanUpdate, ReviewInput, ReviewQueueRow, ReviewerAssignmentInput } from "./types";
+export { planInputSchema, planUpdateSchema, reviewInputSchema, reviewerAssignmentSchema } from "./types";
+export { inReviewerScope, isScorableStatus, weightedOverall } from "./scoring";
 export { requestWithPathValues } from "./server/route-input";
 export {
   activePlanIdSql,
@@ -18,6 +18,8 @@ export {
   getRatingsIn,
   listPlans,
   listPlansIn,
+  listReviewQueue,
+  listReviewQueueIn,
 } from "./server/queries";
 export {
   assignReviewers,
@@ -26,4 +28,6 @@ export {
   deletePlanIn,
   savePlan,
   savePlanIn,
+  submitReview,
+  submitReviewIn,
 } from "./server/mutations";

@@ -1,8 +1,9 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type { EventId, PlanId, TrackId } from "@/shared/contracts";
+import type { EventId, PlanId, ReviewId, SubmissionId, TrackId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import type { PlanInput, ReviewerAssignmentInput } from "../types";
+import { weightedOverall } from "../scoring";
+import type { PlanInput, ReviewInput, ReviewerAssignmentInput } from "../types";
 
 /**
  * Evaluation's writes.
@@ -11,8 +12,9 @@ import type { PlanInput, ReviewerAssignmentInput } from "../types";
  * with its criteria, a plan's whole reviewer list — is atomic without a
  * transaction: `withTx` is confined to eight audited paths (PLAN's driver
  * resolution), and a data-modifying CTE gets the same all-or-nothing guarantee
- * over `neon-http`. Each statement also carries its own event scoping in the
- * `WHERE`, rather than trusting a preceding read.
+ * over `neon-http`. The statements are also self-guarding — `submitReview`'s
+ * scope and status checks live in its `WHERE`, not in a preceding read — so a
+ * round that closes mid-request cannot let one more score through.
  */
 
 const UNIQUE_NAME = "evaluation_plans_event_id_name_key";
@@ -236,8 +238,127 @@ export async function assignReviewersIn(
   }
 }
 
+type PlanShape = {
+  scale_min: number; scale_max: number;
+  criteria: Array<{ id: string; weight: number }> | null;
+};
+
+function assertInScale(score: number, plan: PlanShape, label: string): void {
+  if (!Number.isFinite(score) || score < Number(plan.scale_min) || score > Number(plan.scale_max)) {
+    throw new AppError("VALIDATION", `${label} has to be between ${plan.scale_min} and ${plan.scale_max}`);
+  }
+}
+
+/**
+ * One reviewer's verdict on one submission in one round, upserted on
+ * `(plan, submission, reviewer)`. The unique index plus `ON CONFLICT` is what
+ * makes a double-submit an update instead of a second row — no "have they
+ * already scored this?" pre-read, which is the version of this that races.
+ */
+export async function submitReviewIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  planId: PlanId,
+  submissionId: SubmissionId,
+  reviewerUserId: UserId,
+  input: Omit<ReviewInput, "planId" | "submissionId">,
+): Promise<{ reviewId: ReviewId; overallScore: number | null }> {
+  const planRows = await dbOrTx.execute<PlanShape>(sql`
+    SELECT p.scale_min, p.scale_max,
+      (SELECT json_agg(json_build_object('id', c.id, 'weight', c.weight::float8))
+       FROM evaluation_criteria c WHERE c.plan_id = p.id) AS criteria
+    FROM evaluation_plans p WHERE p.id = ${planId} AND p.event_id = ${eventId}
+  `);
+  const plan = (planRows.rows ?? [])[0];
+  if (!plan) throw new AppError("NOT_FOUND", "Evaluation plan not found");
+  const criteria = plan.criteria ?? [];
+
+  const scores: Record<string, number> = {};
+  for (const [criterionId, score] of Object.entries(input.criterionScores)) {
+    if (!criteria.some((criterion) => criterion.id === criterionId)) {
+      throw new AppError("VALIDATION", "That criterion is not part of this round");
+    }
+    assertInScale(score, plan, "Every criterion score");
+    scores[criterionId] = score;
+  }
+
+  // With criteria, the overall score is derived — the client may preview it, but
+  // the number that is stored is the one the server computed.
+  let overall: number | null;
+  if (criteria.length > 0) {
+    overall = weightedOverall(criteria.map((criterion) => ({ id: criterion.id, weight: Number(criterion.weight) })), scores);
+  } else {
+    overall = input.overallScore;
+    if (overall !== null) assertInScale(overall, plan, "The score");
+  }
+
+  const result = await dbOrTx.execute<{ id: string }>(sql`
+    INSERT INTO reviews (event_id, plan_id, submission_id, reviewer_user_id, overall_score, criterion_scores, comment, submitted_at)
+    SELECT ${eventId}, p.id, s.id, ${reviewerUserId}, ${overall}, ${JSON.stringify(scores)}::jsonb, ${input.comment}, now()
+    FROM evaluation_plans p
+    JOIN submissions s ON s.event_id = p.event_id AND s.id = ${submissionId}
+    JOIN reviewer_assignments a ON a.plan_id = p.id AND a.user_id = ${reviewerUserId}
+    WHERE p.id = ${planId} AND p.event_id = ${eventId} AND p.status = 'open'
+      AND s.status NOT IN ('draft', 'withdrawn')
+      AND (p.track_ids IS NULL OR s.track_id = ANY(p.track_ids))
+      AND (a.track_ids IS NULL OR s.track_id = ANY(a.track_ids))
+    ON CONFLICT (plan_id, submission_id, reviewer_user_id) DO UPDATE SET
+      overall_score = EXCLUDED.overall_score, criterion_scores = EXCLUDED.criterion_scores,
+      comment = EXCLUDED.comment, submitted_at = now(), updated_at = now()
+    RETURNING id
+  `);
+
+  const reviewId = (result.rows ?? [])[0]?.id;
+  if (!reviewId) throw await scoringRefusal(dbOrTx, eventId, planId, submissionId, reviewerUserId);
+  return { reviewId: reviewId as ReviewId, overallScore: overall };
+}
+
+/**
+ * Why the guarded insert matched nothing. Asked only on the failure path, so the
+ * write stays one statement and the reviewer still gets a reason rather than a
+ * silent no-op.
+ */
+async function scoringRefusal(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  planId: PlanId,
+  submissionId: SubmissionId,
+  reviewerUserId: UserId,
+): Promise<AppError> {
+  const result = await dbOrTx.execute<{
+    plan_status: string | null; submission_status: string | null; assigned: boolean; in_scope: boolean;
+  }>(sql`
+    SELECT p.status AS plan_status, s.status AS submission_status,
+      (a.user_id IS NOT NULL) AS assigned,
+      (a.user_id IS NOT NULL AND s.id IS NOT NULL
+        AND (p.track_ids IS NULL OR s.track_id = ANY(p.track_ids))
+        AND (a.track_ids IS NULL OR s.track_id = ANY(a.track_ids))) AS in_scope
+    FROM evaluation_plans p
+    LEFT JOIN submissions s ON s.event_id = p.event_id AND s.id = ${submissionId}
+    LEFT JOIN reviewer_assignments a ON a.plan_id = p.id AND a.user_id = ${reviewerUserId}
+    WHERE p.id = ${planId} AND p.event_id = ${eventId}
+  `);
+  const row = (result.rows ?? [])[0];
+  if (!row) return new AppError("NOT_FOUND", "Evaluation plan not found");
+  if (row.plan_status !== "open") return new AppError("CONFLICT", "This round is closed");
+  if (!row.submission_status) return new AppError("NOT_FOUND", "Submission not found");
+  if (row.submission_status === "draft" || row.submission_status === "withdrawn") {
+    return new AppError("CONFLICT", `A ${row.submission_status} submission cannot be scored`);
+  }
+  if (!row.assigned) return new AppError("FORBIDDEN", "You are not a reviewer on this round");
+  if (!row.in_scope) return new AppError("FORBIDDEN", "That submission is not routed to you");
+  return new AppError("INTERNAL", "The review could not be saved");
+}
+
 export const savePlan = (eventId: EventId, input: PlanInput, expectedUpdatedAt?: string) =>
   savePlanIn(db, eventId, input, expectedUpdatedAt);
 export const deletePlan = (eventId: EventId, planId: PlanId) => deletePlanIn(db, eventId, planId);
 export const assignReviewers = (eventId: EventId, planId: PlanId, assignments: readonly ReviewerAssignmentInput[]) =>
   assignReviewersIn(db, eventId, planId, assignments);
+export const submitReview = (
+  eventId: EventId,
+  planId: PlanId,
+  submissionId: SubmissionId,
+  reviewerUserId: UserId,
+  input: Omit<ReviewInput, "planId" | "submissionId">,
+) => submitReviewIn(db, eventId, planId, submissionId, reviewerUserId, input);
