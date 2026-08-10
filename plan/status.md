@@ -1,6 +1,7 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 11 — Mon Aug 10, 2026. **PR #94 merged** (§2f): the P3→P5 roadmap run landed P3 compliance hardening (CSP/HSTS on every non-embed path, a CSRF origin-check chokepoint inside `defineHandler`, and DB-backed rate limits via `drizzle/0005_rate_limits.sql`), email compliance (a signature-verified Resend bounce/complaint webhook, List-Unsubscribe headers, suppression enforcement via `drizzle/0007_email_compliance.sql`), R2 orphan sweep + backup/rollback/PITR runbooks, the forms debt cleared (M12 generalized to `context='portal'`, M13b's rules UI mounted live in the builder, M14's `upsertDraft` open-check gap closed, M24 built on the generalized engine), e2e spec fixes (three real triaged SPEC-BUGs) plus the app fixes they exposed (admin-shell/portal-context demo-store 404s, a trailing-autosave 404), and the P5 product-completeness modules M50 (partial), M51, M52 (partial), M53, M54 — landing five additive migrations, `drizzle/0004`–`0008`, applied to `sb-dev`/`sb-test`. M42–M49 remain blocked pending explicit owner re-authorization of the M42 hold (the Better Auth spike); M55 stays blocked on tenancy (M43/M44). No module is `DONE` yet under §1's rules: the deployed/browser AC queue is now the entire remaining surface.
+- **Snapshot:** rev. 12 — Mon Aug 10, 2026, afternoon. **PR #95 merged** (§2g): the P4 commercial chain complete under explicit owner authorization — M42 Better Auth + Google with revocable admin sessions and PBKDF2 rehash-on-login (migration `0009`), M43 organization tenancy with default-org backfill (`0010`), M44 user management + invitations + audit (`0011`), M45 self-serve onboarding, M47 GDPR export/erasure/retention, M49 billing scaffold (`0012`) — plus M55 Speaker CRM core (`0013`, partial), the five remaining deployed e2e failures fixed, the embed-cache regression fixed (options-from-config; embeds are ISR again), and M50/M52 finish passes (deployed-evidence remainders only). Migrations `0009`–`0014` are applied to `sb-dev`/`sb-test` after the batch-transaction fix (`8b566c0`: enum-recreate pattern in `0009`/`0011`), and `sb-test` was reseeded. The jose fallback remains shipping auth until the deployed Better Auth round-trip (S4 redo). No module is `DONE` yet under §1's rules: the deployed/browser AC queue is now the entire remaining surface.
+- **Rev. 11 headline (unchanged):** **PR #94 merged** (§2f): the P3→P5 roadmap run landed P3 compliance hardening (CSP/HSTS on every non-embed path, a CSRF origin-check chokepoint inside `defineHandler`, and DB-backed rate limits via `drizzle/0005_rate_limits.sql`), email compliance (a signature-verified Resend bounce/complaint webhook, List-Unsubscribe headers, suppression enforcement via `drizzle/0007_email_compliance.sql`), R2 orphan sweep + backup/rollback/PITR runbooks, the forms debt cleared (M12 generalized to `context='portal'`, M13b's rules UI mounted live in the builder, M14's `upsertDraft` open-check gap closed, M24 built on the generalized engine), e2e spec fixes (three real triaged SPEC-BUGs) plus the app fixes they exposed (admin-shell/portal-context demo-store 404s, a trailing-autosave 404), and the P5 product-completeness modules M50 (partial), M51, M52 (partial), M53, M54 — landing five additive migrations, `drizzle/0004`–`0008`, applied to `sb-dev`/`sb-test`. M42–M49 were blocked pending explicit owner re-authorization of the M42 hold (the Better Auth spike); M55 stayed blocked on tenancy (M43/M44) — both resolved at rev. 12.
 - **Rev. 10 headline (unchanged):** **the module-completion run landed** (§2e): a 45-agent orchestrated run implemented every code-completable remaining module — 16 complete, M13b/M14 partial, M24 blocked on an M12 scope contradiction — then merged the Jade+Ice palette (#92) and P6 plan (#91) from `main`, adapted all new surfaces to the `--accent` token family, and passed the full gate suite. All six e2e specs had real step bodies and all 17 `landed.ts` gates were flipped at that point.
 - **Rev. 7 headline (unchanged):** **The Saturday thin slice is green on the deployed preview** — a proposal submitted through the real CFP endpoint landed in Neon with its routing applied, and its confirmation email was delivered to a real Gmail inbox from the verified sending domain. The deployment evidence in §2a is from that deployment, not from PGlite.
 - **Baseline:** `main` at `c662345` (PR #94), **and the preview is deployed from it**: version `b1fdc14a` at `https://sb-web-preview.yi-ding.workers.dev` (2299 KiB gzip — inside the Workers Free budget but nearing the 2.5 MB warn line; `/api/health` returns `sha: c662345`, a live Neon `18.4` round-trip, and M48's comms-depth fields). Migrations `0000`–`0008` are applied to `sb-dev`/`sb-test`; the full demo world is seeded on `sb-test`. All 8 post-deploy smoke checks pass, zero skipped (M53 surface map). The deployed Playwright suite stands at **19 passed / 5 failed / 5 skipped** (§2f).
@@ -260,6 +261,136 @@ vitest suite — 122 files / 1077 tests, 0 failed — and `next build`) are gree
 - **M55 (blocked):** skipped outright by this run because M43/M44/M51 were not all complete; M51
   is now merged, so M55's remaining blocker is tenancy (M43/M44), i.e. the same M42 hold above.
 
+### 2g. The P4 run (added at rev. 12)
+
+The owner explicitly re-authorized the M42 hold this run, unblocking the entire P4 commercial
+chain in one orchestrated pass (auth chain lanes M42→M43→M44→M45/M47/M49 plus M55, run alongside
+an independent P5-remainders lane), which merged as **PR #95** (merge commit `7b9cf3a`). A
+follow-up commit, `8b566c0`, fixed a real migration-batch bug the merge exposed (below) and
+applied the batch for real. Per module, with its migration:
+
+- **M42 — Better Auth + Google (complete, `drizzle/0009_product_auth.sql`):** admin/organizer
+  auth now runs on Better Auth behind `ADMIN_AUTH_PROVIDER` (default still `fallback`), sharing
+  one `getAdminIdentity` switch point with `requireAdmin`/`authorizeAdmin` untouched on both
+  sides. `0009` adds `admin_accounts`/`admin_verifications`, finally populates the `admin_sessions`
+  table `0000_init` created and nothing ever wrote to, adds `users.email_verified`/`image`, and
+  backfills a `credential` account from every legacy `password_hash`. Legacy PBKDF2 hashes verify
+  through a Better Auth hook and rewrite themselves to a v2 scheme on first successful sign-in
+  (`WHERE password = <old value>` guarded, so a concurrent second sign-in is a no-op);
+  `users.password_hash` is left intact so the switch stays a clean revert. Revocation is a row
+  delete, re-read on every request (no cookie cache). Google is wired as a social provider with
+  account linking on and self-serve sign-up deliberately closed (M44 supersedes that). The
+  deployed round-trip — including the Google leg, real bundle-size measurement, and the deployed
+  revocation proof — is the S4 redo and is still outstanding; see §6.
+- **M43 — organization tenancy (complete, `drizzle/0010_organization_tenancy.sql`):** additive
+  `organizations`/`organization_members` plus `events.organization_id` (NOT NULL with a database
+  default pointing at a fixed default-organization row the migration inserts and backfills from
+  `event_members` at each admin's strongest role), so every existing event lands in the default
+  org automatically. `requireOrganizationAdmin`/`authorizeOrganization` sit beside the untouched
+  per-event guards, sharing only `getAdminIdentity`, `roleSatisfies`, and the
+  UNAUTHORIZED/FORBIDDEN split. `events` gains `UNIQUE (id, organization_id)`, extending the same
+  composite-FK pattern event-scoped child tables already use, so organization-scoped tables
+  (M47's exports, M49's plans) can pin `(event_id, organization_id)` and let Postgres reject a
+  cross-tenant row.
+- **M44 — user management (complete, `drizzle/0011_user_management.sql`):** self-serve signup
+  (`/sign-up/email`, gated by a `databaseHooks.user.create.after` hook so no account is ever
+  orphaned outside an organization), team invitations through the outbox
+  (`organization_invited`, join token minted at render time), owner-only role/removal management
+  layered on M43's DB-level last-owner guard, and self-service admin-session list/revoke over
+  M42's `admin_sessions`. `0011` adds `organization_invitations` (upserted so a resend refreshes
+  in place) and `organization_audit_log` (append-only). Ten new API routes under
+  `/api/internal/organizations/*` and `/api/internal/me/sessions/*`; new UI at `/signup`, `/join`,
+  `/organizations/[id]/team`, `/organizations/[id]/audit`, `/account/sessions`.
+- **M45 — self-serve onboarding (complete, no schema change):** a 4-step guided wizard
+  (`provisionOrganizationEventIn`, one composition over M11's `createEventIn` and M43's
+  `assignEventToOrganizationIn` — zero new INSERT statements) at `/organizations/[id]/onboarding`:
+  event basics → vocabulary/tracks → first CFP form (M12's default 12-field form, optional
+  publish) → a shareable public link. New `/organizations` and `/organizations/[id]` entry points
+  close the seam M44 documented ("`organizationHomeEventId` returns null until M45's
+  event-creation flow lands").
+- **M47 — GDPR export/erasure/retention (complete, no schema change — reads/writes existing
+  tables):** `exportContactDataIn`/`exportOrganizationDataIn` bundle a contact's or organization's
+  full record (never token/OTP hashes) behind two new GET routes; `eraseContactDataIn` deletes/
+  anonymizes a contact across ~18 tables in FK-chain order, is the 10th function on the audited
+  `withTx` list, returns a per-table deletion receipt, and purges the contact's orphaned R2 files
+  immediately rather than waiting for the daily sweep; `runDataRetentionSweepIn` purges expired
+  tokens/sessions 30 days past expiry and redacts rendered email bodies 90 days after send,
+  wired into the existing `/api/jobs/cleanup` route. Draft `docs/legal/{privacy-policy,
+  terms-of-service,dpa}.md` added, each headed DRAFT/not binding.
+- **M49 — billing scaffold (complete, `drizzle/0012_billing_scaffold.sql`):** a hand-seeded plan
+  catalog (`billing_plans`: free/pro/enterprise), one `organization_subscriptions` row per org
+  (existing orgs backfilled — the seeded default org to `enterprise`, everyone else to `free`;
+  `createOrganizationIn`'s atomic CTE now seeds a `free` row for every new org too), and
+  `organization_usage_counters`. The one real limit — events-per-org — is enforced with a live
+  `COUNT(events)` inside `provisionOrganizationEventIn` before any writes happen. A
+  `BillingProviderAdapter` seam exists with only a `StubBillingProviderAdapter` implementation:
+  checkout/portal throw `VALIDATION` rather than fabricate a working URL; webhook verification is
+  a real HMAC over the raw body, fail-closed when `BILLING_WEBHOOK_SECRET` is unset. Billing
+  settings surface at `/organizations/[id]/billing`.
+- **M55 — Speaker CRM (partial, core landed, `drizzle/0013_speaker_crm.sql`):** an
+  organization-level `organization_contacts` identity distinct from event-scoped `contacts`
+  (11 tables: links, tags, custom fields, notes, an append-only activity timeline, saved dynamic
+  segments resolved fresh on every read, an immutable merge audit table, and a three-stage
+  open/won/lost pipeline). Full server/contracts layer and 16 API routes under
+  `/api/internal/organizations/[id]/crm/**`, all `organizationAuth()`-scoped;
+  `mergeOrganizationContactsIn` is the 10th (11th, after M47's) function on the `withTx` audit
+  list. Bulk email delegates to M51's `composeBulkSpeakerEmailIn` rather than adding a second
+  sender. **No UI was built** — no directory page, merge wizard, segment builder, pipeline
+  kanban, or CSV import wizard; the server/API boundary is the deliberate stopping point for this
+  pass.
+- **E2E-FIVE (complete):** all five of rev. 11's remaining deployed Playwright failures fixed.
+  Three were the same spec bug (Playwright's substring accessible-name match hit both a page's
+  `h1` and its own empty-state `h3`, e.g. "Abstracts" matching "No abstracts yet") plus one stale
+  spec (M53 split `/schedule` into five surfaces). The builder's public-form-link failure had two
+  real causes: `<Field>` wrapping a whole choice grid in one `<label>` gave every card the same
+  accessible name (fixed with a new `group` prop rendering `role="group"`), and a save/reload
+  race. Bulk accept-and-notify was a real server bug: `submissionFiltersSchema` required bare
+  integers for `page`/`pageSize`, but every caller sends a query string — now coerced. Confirmed
+  against the deployed preview (four specs) and one local `next build && next start` session
+  against real `sb-test` (the fifth, since the preview it needed hadn't redeployed yet).
+- **EMBED-CACHE (complete):** the rev. 11 regression fixed exactly on the recorded direction —
+  options-from-config. All five `/embed/[eventSlug]/**` content routes stopped reading
+  `searchParams` and now derive `EmbedOptions` from the `embeds.style` DB column via a new
+  `resolveEmbedOptions`, each exporting `revalidate = 60` + empty `generateStaticParams` like
+  their `/e/**` twins. A new narrow `revalidatePublicEmbed` invalidates the specific embed page
+  the moment its config is saved. `next build` itself could not be run on this box (hard rule);
+  the fix is confirmed statically (no remaining `searchParams` reader, identical cache-shape to
+  the already-proven `/e/**` routes) and awaits a deployed rebuild for the `s-maxage`/
+  `x-nextjs-cache: HIT` proof.
+- **M50-FINISH (partial, no schema change):** the seed fixture and e2e spec were the real gaps,
+  not the server. `scripts/seed/forms.ts` never wrote `review_visibility` at all (every seeded
+  field defaulted to `identity`, so no seeded question was ever classified as review content);
+  the two AC-named questions (`approach`/content, `employer`/fail-closed) are now seeded and
+  answered, Round 2 now seeds a third reviewer plus a completed/recused row, and the spec gained
+  the half-open-window and answer-level-blindness assertions it lacked. `landed.ts` still keeps
+  `M50: false` — the remainder is a reseed and a deployed Playwright run, not more code.
+- **M52-FINISH (partial, no schema change):** the one concrete code-queue item — the central
+  Files view filtered client-side despite the GET route already supporting server-side filters —
+  is fixed (`deliverableFiltersSchema` shared between route and page, a new
+  `getDeliverableStateCountsIn` aggregate for tab badges, `FilesAdminView` now pushes filters into
+  the URL). `e2e/speaker-content-ops.spec.ts`'s M52 block and its `landed.ts` gate were already
+  present, uncommitted, in the shared tree and needed no changes. The remainder is the same
+  deployed-browser/real-R2 evidence the module header already named.
+- **Integration gate:** the second-pass integration gate over the whole auth-chain + remainders
+  lane is green on all five checks — `check-invariants.sh`, `tsc --noEmit`, `eslint
+  --max-warnings=0`, **141 files / 1236 tests** (`pnpm vitest run`), and `next build` (confirming
+  `/embed/[eventSlug]/agenda` now prerenders). One failure surfaced and was fixed in-gate:
+  `tests/post-deploy-smoke.test.ts`'s fake-`curl` fixture still modeled the pre-M53 URL map;
+  updated to match the script's real `/e/**`-vs-`/embed/**` probes.
+- **Migration 0014** (`drizzle/0014_email_template_backfill.sql`, additive): a separate,
+  unrelated bug the batch run surfaced — `seedDefaultTemplates` only fires at event creation, so
+  every migration that appended a `template_key` enum value left pre-existing events without a
+  row for it, and the dispatcher treats a missing template row as terminal. Backfills every
+  event's missing default-template rows for the whole enum (`ON CONFLICT DO NOTHING`), closing
+  the gap for `admin_password_reset` in particular (a recovery path that must not silently fail).
+- **The migration-batch fix (`8b566c0`):** drizzle applies a pending batch in one transaction,
+  and `ALTER TYPE … ADD VALUE` leaves the new label unusable until that transaction commits —
+  `0014`'s backfill uses the template keys `0009`/`0011` add, so a fresh `pnpm db:migrate` failed
+  outright. Both migrations were rewritten to the enum-recreate pattern (new enum, retype column,
+  rename; the `communication_logs` secret-payload CHECK dropped and re-added around the retype).
+  Proven with a full-batch single-transaction dry run against `sb-test`, then applied for real to
+  `sb-dev` and `sb-test`; `sb-test` was reseeded afterward.
+
 ## 3. Module status by evidence
 
 No module is `DONE` as of this snapshot. As of rev. 9 no module is `PR-OPEN` — every open agent
@@ -406,28 +537,27 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-Rev. 11 reconciliation: PR #94 (§2f) landed P3 compliance hardening, closed the forms debt
-(M12/M13b/M14/M24), triaged and fixed the e2e/app-bug backlog, and implemented the P5
-product-completeness modules with five additive migrations (`0004`–`0008`) applied to
-`sb-dev`/`sb-test`. Two queues remain, and neither is code-empty this time:
+Rev. 12 reconciliation: PR #95 (§2g) landed the whole P4 commercial chain (M42–M45/M47/M49) plus
+M55's CRM core under explicit owner authorization, fixed the last five deployed e2e failures and
+the embed-cache regression, and finished M50/M52 down to their deployed-evidence remainders —
+six additive migrations (`0009`–`0014`) applied to `sb-dev`/`sb-test` after the batch-transaction
+fix. Two queues remain:
 
-- **Deployed verification queue (do this first — nothing above is `DONE` without it):**
-  redeploy the preview from the merged tree (migrations `0004`–`0008` applied); run post-deploy
-  smoke; run the **full Playwright suite** against the redeployed preview (the six original specs
-  plus the new `review-operations.spec.ts`, `speaker-content-ops.spec.ts`, and the
-  `agenda-schedule.spec.ts` 'assisted placement' block — all written with real step bodies but
-  gated `landed:false` — flipping each `landed.ts` gate only once green; M53's owned
-  `public-widgets-parity.spec.ts` was never written and still needs authoring); the deployed 429
-  rate-limit, CSP/HSTS header, and Resend bounce/complaint webhook checks P3-SEC/P3-EMAIL still
-  need; then the deployed demonstrations this queue has carried since rev. 9–10
-  (accept→notify→email, reviewer scoring, portal task completion, browser R2 upload, builder
-  authoring AC) plus the new P5 ones (a blind review round, a speaker CSV import/invite/bulk-send
-  round trip, a ZIP export download, all five public widgets, and an assisted-placement apply).
-- **Code queue:** M50's and M52's partial remainders (see their module headers); the E2E/app-fix
-  leftovers each triage stage flagged as borderline (`submitCfpForm`'s stale-draft
-  retry-idempotency shortcut, the central Files list's client-side-only filtering); and the
-  M42 (Better Auth) chain — M42 itself, then M43/M44/M45/M47/M49, then M55 — once the owner
-  explicitly re-authorizes another attempt at the M42 spike.
+- **Deployed verification queue (do this first — nothing above is `DONE` without it):** redeploy
+  the preview from the merged tree (migrations `0009`–`0014` applied); run post-deploy smoke; run
+  the **full Playwright suite** against the redeployed preview — this is in flight. Then the
+  deployed demonstration queue, now including the **M42 S4 redo** (a deployed Better Auth
+  sign-in round-trip, including Google, and the deployed revocation proof) alongside the
+  carried-forward deployed 429 rate-limit and CSP/HSTS header checks (P3-SEC), plus every
+  deployed demonstration this queue has carried since rev. 9–11 (accept→notify→email, reviewer
+  scoring, portal task completion, browser R2 upload, builder authoring AC, a blind review round,
+  a speaker CSV import/invite/bulk-send round trip, a ZIP export download, all five public
+  widgets, an assisted-placement apply); then the external email evidence (Resend bounce/
+  complaint webhook, List-Unsubscribe headers, CAN-SPAM footer, all against a real inbox); then
+  production provisioning (Google OAuth redirect URI, `wrangler secret put` for
+  `BILLING_WEBHOOK_SECRET`/`UNSUBSCRIBE_SECRET`/Google credentials, `sb-prod` migration).
+- **Code queue:** M50/M52/M55 deployed-evidence remainders only (no further code — see their
+  module headers and §2g); P6 (M56–M60) is not started.
 
 ## 7. Environment and configuration truth
 
