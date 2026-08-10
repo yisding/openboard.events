@@ -79,17 +79,18 @@ Strictly ordered; do not start a later module before its predecessor's schema la
 ## Phase P5 — product-completeness operations
 
 Begin this phase only after R3 is green. M50–M53 can run in parallel across their existing feature
-owners; M54 follows the agenda foundation. These modules are required release scope under PLAN
+owners; M54 follows the agenda foundation and M51's structured speaker-availability contract. These
+modules are required release scope under PLAN
 resolution #23 and have detailed work orders in [`modules/`](modules/). They reuse the existing
 single-writer, outbox, publication-query, task-assignment, and file-storage paths.
 
 | ID | Module | Outcome | Depends on |
 |---|---|---|---|
-| M50 | Review operations depth + reviewer provisioning | Governed review rounds with typed scorecards, explicit assignments, reviewer onboarding, blind mode, recusal, progress, and reminders | M06a, M17, M19, M34, M37 |
+| M50 | Review operations depth + reviewer provisioning | Governed review rounds with typed scorecards, explicit assignments, reviewer onboarding, blind mode, recusal, progress, and reminders | M06a, M12, M17, M19, M34, M37 |
 | M51 | Standalone speaker roster operations | Manual/CSV roster management, profile/logistics edits, portal invitations, asset visibility, and personalized bulk email | M06b, M07, M22, M27, M34, M37, M41 |
 | M52 | Content and deliverables lifecycle | Versioned/commented files, central library, filtered reminders, session revision history/restore, approval, and latest-file ZIP export | M07, M22, M23, M25, M28, M34, M36 |
 | M53 | Five public widgets + embed parity | Sessions, speakers, agenda, personal itinerary, and gallery surfaces with complete, configurable embed variants | M32, M33, M35 |
-| M54 | Assisted agenda placement | Deterministic conflict-safe placement preview and apply flow for unscheduled sessions | M28, M29, M30 |
+| M54 | Assisted agenda placement | Deterministic conflict-safe placement preview and apply flow for unscheduled sessions | M04, M28, M29, M30, M51 |
 | M55 | Organization-level Speaker CRM (optional) | Cross-event directory, history, segments, merge, sourcing pipeline, event reuse, bulk contact, and metrics | M43, M44, M51, M37/M46 |
 
 M55 is deliberately separate from the required release: it needs the organization layer and turns

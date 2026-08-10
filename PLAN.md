@@ -81,7 +81,8 @@ demo polish, and each extends an existing owner instead of creating a parallel s
 | Speaker relationship management | Organization-wide directory, history, segmentation, sourcing pipeline, merge, and event reuse | M55 (optional) |
 
 **Sequencing:** finish the server-backed R2/R3 recovery spine before opening new surface area.
-Once those gates are green, M50/M51/M52 and M53 may proceed in parallel; M54 follows M30.
+Once those gates are green, M50/M51/M52 and M53 may proceed in parallel; M54 follows M30 and M51's
+structured speaker-availability contract.
 M55 follows organization tenancy and remains outside the required release. Server-backed CFP
 drafts, speaker edit-until-close, and multi-round review are foundations for this scope and are no
 longer eligible cut lines. A module is complete only when its named browser acceptance path runs
@@ -435,14 +436,25 @@ start only after the recovery gates have produced a server-backed base. They ext
 feature ownership and data paths; none may create a parallel sender, publication query, task
 assignment model, review aggregate, or file store. Detailed work orders live in `plan/modules/`.
 
-**M50 — Review operations depth + reviewer provisioning** · `src/features/{auth,submissions,evaluation,comms}/` — **post-R3, required release scope**
+**M50 — Review operations depth + reviewer provisioning** · `src/features/auth/**`,
+`src/features/forms/**` (review-visibility slice), `src/features/submissions/evaluation/**`, and
+`src/features/comms/**` — **post-R3, required release scope**
 
 Extend M06a/M19 from seeded, track-routed numeric review into a complete multi-round operation.
 Add `opens_at`, `closes_at`, and `anonymize_authors` to `evaluation_plans`; extend
-`evaluation_criteria` with `kind: numeric|select|text`, `options`, numeric range, and the existing
-weight. Text criteria do not participate in arithmetic. Add explicit
+`evaluation_criteria` with `kind: numeric|select|text`, `required`, options with nullable numeric
+scores, numeric range, and the existing weight. Evolve `reviews.criterion_scores` into discriminated
+`{kind,value|optionId}` leaves: required values determine `submitted_at`; numeric values and scored
+select options determine the weighted `overall_score`; text, unscored options, and missing optional
+values do not participate in arithmetic. Add explicit
 `(plan_id, submission_id, reviewer_user_id)` assignments and reviewer recusal state with reason and
 timestamp. Existing `reviews` and `submission_ratings_v` remain the only score and aggregate truth.
+
+Add fail-closed `form_fields.review_visibility: content|identity`, copied into immutable snapshots
+and editable in the builder. The default and all missing legacy metadata are `identity`; locked
+contact fields cannot be marked content. Blind DTOs include only answers marked `content` in the
+submission's pinned snapshot, never fields guessed safe from keys, sections, mappings, or the current
+form.
 
 The organizer can create/invite an event reviewer with a usable sign-in path, configure each
 round's dates/typed scorecard/pool/anonymization, and bulk-assign filtered submissions. Track scope
@@ -451,13 +463,15 @@ author/co-author/company/email/avatar and identity-bearing answers while organiz
 them. Progress shows assigned/completed/recused per reviewer and bulk-sends reminders through the
 existing outbox. Reviewers can recuse; organizers can audit and reassign the item.
 
-**Interface:** extended M19 plan/criteria/assignment APIs; reviewer invitation action; reminder and
-recusal mutations. **Deps:** M06a, M17, M19, M34, M37. **Size: L.**
+**Interface:** extended M19 plan/criteria/assignment APIs; review-visibility authoring/snapshot
+contract; reviewer invitation action; reminder and recusal mutations. **Deps:** M06a, M12, M17,
+M19, M34, M37. **Size: L.**
 
 **AC:** create two rounds with distinct dates, typed criteria and pools; submit numeric, dropdown and
 free-text values and reload them; assign two of three same-track submissions and prove the reviewer
 queue contains exactly those two (direct access to the third is forbidden); enable blind mode and
-prove author identity differs correctly by role; score one item and see progress update; bulk-remind
+prove an identity-default custom Employer answer is hidden while an explicitly content-safe Approach
+answer remains; score one item and see progress update; bulk-remind
 the outstanding reviewer and find the outbox/log row; recuse one assignment without deleting its
 audit history.
 
@@ -470,6 +484,11 @@ contact custom fields/values (or a deliberately small logistics JSON model) with
 organizer-defined text/select field. Add CSV import with column mapping, normalized email,
 row-level errors, and idempotent upsert by `(event_id,email)`.
 
+Own structured `contact_unavailability` blackout intervals plus organizer edit controls and export
+`listSpeakerUnavailability(eventId, contactIds)`. Intervals use composite event/contact scoping,
+store UTC, display in the event timezone, and treat zero rows as no declared blackout. M54 consumes
+this query instead of interpreting free-form logistics fields.
+
 Add an explicit Invite to portal action that issues a fresh portal-login challenge, enqueues mail,
 confirms dispatch, and logs the communication; self-requested OTP is not a substitute. Organizer
 views show speaker-uploaded assets with filename, uploader, timestamp, and view/download action.
@@ -477,14 +496,17 @@ Extend M37 with general bulk compose from selected/filtered speakers: subject/bo
 merge-field picker, per-recipient resolved preview, success count, and one log row per recipient.
 
 **Interface:** extended `listContacts`; `createSpeaker`, field-scoped `updateSpeaker`,
-`importSpeakersCsv`, `inviteSpeaker`, and `composeBulkSpeakerEmail`, all through existing contact,
-token, upload, and outbox owners. **Deps:** M06b, M07, M22, M27, M34, M37, M41. **Size: L.**
+`importSpeakersCsv`, `inviteSpeaker`, `listSpeakerUnavailability`,
+`replaceSpeakerUnavailability`, and
+`composeBulkSpeakerEmail`, all through existing contact, token, upload, and outbox owners. **Deps:**
+M06b, M07, M22, M27, M34, M37, M41. **Size: L.**
 
 **AC:** manually add two speakers and persist a profile/status edit; import a CSV with two existing
 emails plus one new speaker without duplicates; invite one speaker and verify UI confirmation, log,
 delivery, and scoped portal session; upload a headshot as speaker and view its metadata/download as
 organizer; filter and bulk-send a personalized welcome message with resolved preview and log rows;
-save/reload a logistics custom field.
+save/reload a logistics custom field; save/reload a speaker blackout and retrieve the same UTC
+interval through the exported query.
 
 **M52 — Content and deliverables lifecycle** · `src/features/{portal,agenda,comms}/` — **post-R3, required release scope**
 
@@ -545,15 +567,18 @@ export a valid calendar containing the remaining selection; compare one session 
 all surfaces and the organizer source with no mismatches; generate and render all five embeds in the
 cross-origin scratch host, then verify configured field/filter changes inside the frame.
 
-**M54 — Assisted agenda placement** · `src/features/agenda/` — **post-M30, required release scope**
+**M54 — Assisted agenda placement** · `src/features/agenda/` — **post-M30/M51, required release scope**
 
 Add a deterministic `suggestPlacements` greedy planner over unscheduled sessions, configured event
-days/rooms, speaker availability and existing placements. Preview placed/unplaced counts and reasons;
+days/rooms, M51's structured speaker-blackout query, and existing placements. A candidate interval
+that overlaps any speaker blackout is rejected; zero blackout rows means no declared restriction.
+Preview placed/unplaced counts and reasons;
 apply accepted suggestions through existing `moveSession` so CAS, notifications and conflict
 recomputation remain intact. Model-generated optimization is optional; the deterministic planner
 is the committed behavior.
 
-**Interface:** `suggestPlacements` + Auto-place preview/apply UI. **Deps:** M28, M29, M30. **Size: S.**
+**Interface:** `suggestPlacements` + Auto-place preview/apply UI; read-only consumption of M51's
+`listSpeakerUnavailability`. **Deps:** M04, M28, M29, M30, M51. **Size: S.**
 **AC:** with at least two unscheduled sessions, one click produces a preview and applying it persists
 at least one day/time/room across reload; unplaceable sessions stay in the tray with reasons and no
 room/speaker conflict is silently introduced.
@@ -762,6 +787,7 @@ graph TD
   M04 --> M40
 
   M06a --> M50
+  M12 --> M50
   M17 --> M50
   M19 --> M50
   M34 --> M50
@@ -784,8 +810,10 @@ graph TD
   M33 --> M53
   M35 --> M53
   M28 --> M54
+  M04 --> M54
   M29 --> M54
   M30 --> M54
+  M51 --> M54
   M43[M43 Organization tenancy] --> M55
   M44[M44 User management] --> M55
   M51 --> M55

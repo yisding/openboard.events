@@ -464,16 +464,17 @@ Consequence: **the only genuinely serial thing in this build is the architect's 
 
 This wave opens only after `status.md` marks R3 green. The architect first lands the additive
 schema/contracts named by the work orders, then assigns disjoint PR slices. M50–M53 may run in
-parallel; M54 starts after M30. M10's recovery specs can run earlier, but final release sign-off
+parallel; M54 starts after M30 and M51's unavailability query lands. M10's recovery specs can run
+earlier, but final release sign-off
 waits for all five deployed browser paths.
 
 | Lane | Module | First slice | Release proof |
 |---|---|---|---|
-| WS-C + WS-A/WS-F | M50 review operations | schema/auth contracts, then round and assignment UI | `e2e/review-operations.spec.ts` |
-| WS-D + WS-F | M51 speaker roster | manual edit/import, then invite/assets/bulk compose | `e2e/speaker-content-ops.spec.ts` |
+| WS-C + WS-A/WS-B/WS-F | M50 review operations | schema/auth/field-visibility contracts, then round and assignment UI | `e2e/review-operations.spec.ts` |
+| WS-D + WS-F | M51 speaker roster | manual edit/import/availability, then invite/assets/bulk compose | `e2e/speaker-content-ops.spec.ts` |
 | WS-D + WS-E/WS-F | M52 content lifecycle | file versions/library, then revisions/export | `e2e/speaker-content-ops.spec.ts` |
 | WS-E | M53 public widgets | shared DTO expansion, then five surfaces/configs | `e2e/public-widgets-parity.spec.ts` |
-| WS-E | M54 assisted placement | pure planner, then preview/apply | extended `e2e/agenda-schedule.spec.ts` |
+| WS-E | M54 assisted placement | consume M51 blackout query, pure planner, then preview/apply | extended `e2e/agenda-schedule.spec.ts` |
 
 M55 begins only after M43/M44 and never consumes capacity needed to finish this wave.
 

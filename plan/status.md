@@ -320,5 +320,6 @@ None of M50–M55 is started or evidenced by this ledger. Two companion document
 
 Rule of precedence: while the recovery gates in §5 are open, they order all work; the roadmap
 consumes effort only where it overlaps them (which its Phase P1 deliberately does — it is the
-same work as R2/R3, starting with §6's next actions). Once R3 is green, M50–M53 may run in parallel,
-M54 follows M30, and M10's final release sign-off waits for M50–M54's deployed browser AC.
+same work as R2/R3, starting with §6's next actions). Once R3 is green, M50–M53 may run in parallel;
+M54 follows M30 and M51's structured speaker-availability query, and M10's final release sign-off
+waits for M50–M54's deployed browser AC.

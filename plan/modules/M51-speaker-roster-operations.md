@@ -26,14 +26,23 @@ same event-scoped contact identity used by CFP, portal, tasks, files, and sessio
 - Organizer-authorized `createSpeaker`, field-scoped `updateSpeaker`, and `importSpeakersCsv`.
 - Editable name, normalized email, title, company, bio, social links, headshot, and workflow status.
 - Event-scoped organizer-defined text/select logistics fields and per-contact values.
+- Event-scoped `contact_unavailability` rows with `(contact_id, starts_at, ends_at, reason)`, a
+  composite event-scoped contact FK, and `ends_at > starts_at`. No rows means no declared blackout;
+  intervals are displayed and edited in the event timezone but stored as UTC. Export
+  `listSpeakerUnavailability(eventId, contactIds): SpeakerUnavailability[]` and a full-set,
+  event-scoped `replaceSpeakerUnavailability(eventId, contactId, intervals)` mutation. The mutation
+  uses one guarded CTE so add/edit/remove cannot leave a partial set. M54 consumes the read contract
+  rather than scraping logistics text or reaching around the contact owner.
 - `inviteSpeaker` issues a fresh portal-login challenge through M06b and enqueues it through M34.
 - `composeBulkSpeakerEmail` accepts selected/filtered contacts, template/body, merge data, and a
   preview recipient; it returns queued/skipped/error counts.
 
 ## Implementation sequence
 
-1. Land additive logistics-field schema/contracts and seed mixed complete/incomplete speakers.
+1. Land additive logistics-field and unavailability schema/contracts; seed mixed
+   complete/incomplete speakers and one speaker with a blackout inside an event day.
 2. Add manual create and full organizer edit through the contact single-writer API.
+   The speaker editor includes add/edit/remove controls for zero or more blackout intervals.
 3. Add CSV upload, column mapping, validation preview, row-level errors, and idempotent upsert by
    `(event_id, normalized_email)`.
 4. Add explicit portal invitation with confirmation and communication-log link.
@@ -45,6 +54,8 @@ same event-scoped contact identity used by CFP, portal, tasks, files, and sessio
 ## Acceptance criteria
 
 - Manually add two speakers and persist full profile, workflow-status, and logistics-field edits.
+- Add a speaker blackout in the event timezone, reload it unchanged, and retrieve the same UTC
+  interval through `listSpeakerUnavailability` for M54.
 - Import two existing emails plus one new row without duplicates; invalid rows remain downloadable
   with clear errors and valid rows are committed exactly once on retry.
 - Invite a speaker and verify UI confirmation, delivery/log row, and an event-scoped portal session.
@@ -61,3 +72,5 @@ same event-scoped contact identity used by CFP, portal, tasks, files, and sessio
 - Bulk messages go only through `enqueueEmail`; no direct Resend or communication-log writes.
 - Large selected/filtered sends must be chunked through the existing jobs path, not performed in a
   browser request.
+- Availability rows are event-scoped contact data owned here. M54 has read-only access through the
+  exported query and never infers availability from free-form custom-field values.

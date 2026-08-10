@@ -163,11 +163,11 @@ Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN �
 | M39 | Airtable export | [M39](modules/M39-airtable-export.md) | WS-F | WS-F | Sat PM (base provisioning) → Tue | M | M03, M08 |
 | M40 | Public API + keys | [M40](modules/M40-public-api.md) | WS-F | WS-F | Mon PM (start) → Tue | M | M32, M38, M04 |
 | M41 | Speaker submission editing (edit-until-close) | [M41](modules/M41-speaker-edit-until-close.md) | WS-D | WS-D | Tue AM | M | M21, M15, M16, M18, M14 |
-| M50 | Review operations depth + reviewer provisioning | [M50](modules/M50-review-operations.md) | WS-C / WS-A / WS-F | Architect-assigned | Post-R3 | L | M06a, M17, M19, M34, M37 |
+| M50 | Review operations depth + reviewer provisioning | [M50](modules/M50-review-operations.md) | WS-C / WS-A / WS-B / WS-F | Architect-assigned | Post-R3 | L | M06a, M12, M17, M19, M34, M37 |
 | M51 | Standalone speaker roster operations | [M51](modules/M51-speaker-roster-operations.md) | WS-D / WS-F | Architect-assigned | Post-R3 | L | M06b, M07, M22, M27, M34, M37, M41 |
 | M52 | Content and deliverables lifecycle | [M52](modules/M52-content-deliverables-lifecycle.md) | WS-D / WS-E / WS-F | Architect-assigned | Post-R3 | XL | M07, M22, M23, M25, M28, M34, M36 |
 | M53 | Five public widgets + embed parity | [M53](modules/M53-public-widgets.md) | WS-E | WS-E | Post-R3 | XL | M32, M33, M35 |
-| M54 | Assisted agenda placement | [M54](modules/M54-assisted-agenda-placement.md) | WS-E | WS-E | Post-M30 | S | M28, M29, M30 |
+| M54 | Assisted agenda placement | [M54](modules/M54-assisted-agenda-placement.md) | WS-E | WS-E | Post-M30/M51 | S | M04, M28, M29, M30, M51 |
 | M55 | Organization-level Speaker CRM | [M55](modules/M55-speaker-crm.md) | Product lane | Architect-assigned | Optional after M43/M44 | XL | M43, M44, M51, M37/M46 |
 
 The original recovery program contains 44 work orders. M50–M55 add six post-R3 product work orders;
