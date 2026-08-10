@@ -1,8 +1,8 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 8 — Sun Aug 9, 2026 (late evening). Rev. 7's deployment evidence stands unchanged; this revision adds the per-module PR ledger for #25–#52 (§2c), reconciles §7 with rev. 7's own evidence (the email and deployed-preview bullets there contradicted §2a), and adds the product overlay (§8).
+- **Snapshot:** rev. 9 — Sun Aug 9, 2026 (night). **All agents are shut down and every module claim is released** — the Status cells in `modules/*.md` now describe evidence on `main`, not assignments. This revision reconciles the ledger with `main` through PR #89 (§2d), records the DMARC header-gate pass (`DECISIONS.md`), and leaves rev. 7's deployment evidence unchanged.
 - **Rev. 7 headline (unchanged):** **The Saturday thin slice is green on the deployed preview** — a proposal submitted through the real CFP endpoint landed in Neon with its routing applied, and its confirmation email was delivered to a real Gmail inbox from the verified sending domain. The deployment evidence in §2a is from that deployment, not from PGlite.
-- **Baseline:** `main` after PR #55, deployed as version `5e809b64` at `https://sb-web-preview.yi-ding.workers.dev`.
+- **Baseline:** `main` after PR #89 (`04df486`). The preview at `https://sb-web-preview.yi-ding.workers.dev` was last redeployed at build `2794dd4` for the load test, so the deployed artifact is current only through PR #73; **#74–#89 — including the form builder (#82), the evaluation stack (#78–#85), and the task runtime (#88) — are merged but not deployed**, and none of their deployed AC can be attempted before a redeploy.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 - **Goal reframe (rev. 8):** the owner's target is now a **sellable product**, not only the judged demo. The judging bar remains the nearest milestone; the product bar beyond it lives in [`product-roadmap.md`](product-roadmap.md), and the audit that motivated it is [`../docs/product-readiness.md`](../docs/product-readiness.md).
 
@@ -26,6 +26,8 @@ Use these evidence labels in status notes:
 - **PR-OPEN** — the implementation exists only on an unmerged PR branch. Rule 1 fails, so the module cannot be `DONE` and no downstream module may treat it as a satisfied hard dependency. Added in rev. 5 for the #10–#12 stack.
 
 The rev. 4 audit remains a one-time exception to the normal "one active module per agent" claiming rule: `IN PROGRESS` in the reconciled headers records incomplete code already spread across the merged/demo stack, not 34 simultaneous active assignments. Each agent still owns only one active recovery module at a time.
+
+**Rev. 9:** all agents are shut down and every claim has been released from the module headers. `IN PROGRESS`/`IN REVIEW` here and in `modules/*.md` describe evidence on `main`, not active assignments; the claiming protocol in `plan/README.md` §2 resumes when agents are turned back on. The claim/reclaim/release commits interleaved on `main` were module-header bookkeeping only — every claim they recorded is released as of this revision.
 
 ## 2. Repository and PR baseline
 
@@ -98,10 +100,8 @@ intervening 28 PRs (~8,600 lines across 119 files) landed, so module claims can 
 | #62, #64, #66 | fixes | Submit-pipeline review follow-ups and seed hardening (reused field keys, empty event dates) |
 | #65 | M09 | **The contacts seed** (92 lines) with real uploaded headshots — **5 of 8 seed bodies are now real**; submissions, agenda, evaluation remain stubs. This also unblocks the browser R2 probe and clears the last smoke skip |
 
-**Treadmill warning:** lanes are merging PRs faster than any ledger revision can chase (four
-module-relevant merges landed while rev. 8 was being written). Before citing a "missing" claim
-from this document, verify it against `main` — and prefer citing the module work-order headers,
-which lane owners update at claim time.
+**Treadmill warning (retired at rev. 9):** with all agents shut down, `main` is static at
+`04df486`; §2c–§2d are reconciled against it and no merges are racing this document.
 
 Bookkeeping note: `e2e/helpers/landed.ts` has **all 17 modules at `landed: false`**, and — a
 rev. 8 correction to the earlier framing — that is currently *right*, not stale bookkeeping:
@@ -110,9 +110,42 @@ them would report vacuous green on the specs that define checkpoints (cfp-submit
 The real gap is M10's remaining work: implement the step bodies for the modules with deployed
 proof (M15/M16/M17/M21/M34/M40 first), then flip their gates in the same change.
 
+### 2d. PR ledger, #67–#89 (added at rev. 9)
+
+All agents were shut down after PR #89 merged; this closes the ledger over the final tranche of
+merges and direct commits since §2c:
+
+| PRs | Module | What landed |
+|---|---|---|
+| #67 | M09 | The real submissions seed body — a fresh database has abstracts to triage |
+| #68 | M18 | Draft-promotion transition enforcement and PGlite isolation hardening (the PR #34 recovery) |
+| #69 | M21 | Portal submission list/detail refresh when the tab regains focus (the PR #31 recovery) |
+| #70, #77 | M10 | Smoke cold-cache/retry-deferral fixes; load-test serialization/Hyperdrive conclusions corrected; release trackers synchronized |
+| #71 | M32 | The cached public schedule stays server-rendered (the URL-search read moved into the route). The page itself still renders the demo store |
+| #72 | M38/M27 | Dashboard review recovery: seeded event route/tab preserved, task rows routed through a real speaker list/drawer, missing-asset deep links honored; adds `getAdminSpeaker` — the first database-backed speakers-admin read |
+| #73 (direct), #74 | M16 | Answer writes batched on the submit path (p95 32713 → 27703 ms); empty-value type-check ordering fix |
+| #75 (direct) | M10 | The 50-concurrent load test recorded in `DECISIONS.md`: 50/50 `200 ok`, p95 27703 ms, zero duplicate codes — run against a **redeployed preview at build `2794dd4`** |
+| #76 | M09/M07 | `pnpm seed` uploads the real R2 headshot objects its `file_assets` rows reference |
+| #78, #80, #83, #84, #85 | M19 | **The whole evaluation stack**: plans/criteria/assignment server (single-statement CTEs, no ninth `withTx`), the reviewer queue read and self-guarding `submitReview` upsert, `scripts/seed/evaluation.ts`, the reviewer queue page (`/events/[id]/review`) sharing `<SubmissionAnswers>` with M17's drawer, and the organizer plans page. 41 new tests |
+| #79 | M17 | Server-aware pagination/sorting, all status tabs, the unfiltered empty-state total, URL sync (the PR #38 follow-ups) — and with #84's extraction, the abstracts view renders a real `<SubmissionDrawer>` |
+| #81 | design | The color-and-typography pass (`plan/design/design-system.md`, `globals.css`, root layout) |
+| #82 | M12 | **The form builder is server-backed**: authenticated form list + six-step builder over real queries/mutations — default creation, immutable snapshot versions, all eight field types, locked-field and post-submission structural guards, stale-write protection, counts, reorder — with PGlite acceptance tests |
+| #86 | plan | The product-completeness expansion recorded into PLAN/execution/module docs (M50–M54 scope; PLAN resolution #23) |
+| #87 | M16/M09 | Route-contract recovery: event ownership derived from the route form, draft metadata returned, participant client-IDs/emails resolved server-side; the portal seed gains its form-completion task |
+| #88 | M25 | **The whole portal task runtime**: `listMyTasks`/`getMyTask` over `task_assignments_v`, all three completion modes with the two audited `withTx` bodies, the three portal routes, speaker list/detail pages through the real `<FormFieldRenderer>`, and the viewers; 18+ PGlite cases (+ follow-ups `a1f577c`, `24c1949`) |
+| #89 | M29 | **The conflict engine reconciled to the frozen contract**: `detectConflicts` → `ConflictDTO[]` per-subject sweep, `toScheduledSession`, deterministic result ordering (`148931f`); the demo consumes the single engine through an adapter |
+| #58 | docs | Product-readiness gap notes, demo script, user flows, and the `landed.ts` gate annotations |
+| `a0c6265` (direct) | M01 | CI parallelized into independent gates without weakening coverage |
+
+**External evidence since rev. 8:** the delta #17 deliverability header gate passed — a probe from
+the deployed preview delivered to a real Gmail inbox with `dkim=pass` on `mail.openboard.events`,
+aligned `spf=pass`, and `dmarc=pass (p=NONE)`; recorded in `DECISIONS.md` (Sun Aug 9, 14:13 PT).
+
 ## 3. Module status by evidence
 
-No module is `DONE` as of this snapshot. Rule 1 alone keeps every `PR-OPEN` module out.
+No module is `DONE` as of this snapshot. As of rev. 9 no module is `PR-OPEN` — every open agent
+branch has merged — so what separates the merged modules from `DONE` is AC sign-off and deployed
+evidence, not merges.
 
 ### Merged, AC verification pending
 
@@ -140,6 +173,19 @@ No module is `DONE` as of this snapshot. Rule 1 alone keeps every `PR-OPEN` modu
 | M05a | PR #24 — the core primitives and the kitchen sink | Six list surfaces actually consuming `<DataTable>`; the `(admin)` route group, deliberately unclaimed |
 | M09 | PR #20 — orchestrator, ids, stubs, target verification | A run against a real database, then the eight per-feature bodies, which belong to their own lanes |
 | M10 | PRs #19, #22, #23 — spec skeleton, deepened smoke, load test, README, checklist | Specs go green only as their features land; the load test needs M16's submit endpoint |
+
+### Merged since rev. 8 (reconciled at rev. 9), AC verification pending
+
+| Modules | Evidence on `main` | Missing before `DONE` |
+|---|---|---|
+| M12 | #82 — the server-backed six-step builder (§2d) | Deployed/browser authoring AC (blocked on a redeploy) |
+| M19 | #78/#80/#83/#84/#85 — the full evaluation stack, 41 tests | The deployed AC: the seeded reviewer signs in on the preview, scores three abstracts, and the Rating column matches a hand-computed average (blocked on a redeploy) |
+| M25 | #88 — the whole task runtime, 18+ PGlite cases | The phone-width deployed run-through and the dashboard count dropping on the next poll (blocked on a redeploy) |
+| M29 | #89 — the contract-true conflict engine with deterministic ordering | The randomized property test; a real server caller (M28's `getSchedulableSessions` does not exist) |
+| M17 | #37/#61/#79/#84 — DB reads, server pagination/tabs/URL sync, the decision bar + Notify, and a wired `<SubmissionDrawer>` | `updateSubmissionFields`, manual "Add Abstract", the deployed triage AC |
+| M18 | #34/#57/#68 — creation, the transition/notify halves + routes, promotion enforcement | `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, the withdraw route; deployed lifecycle probes |
+| M21 | #29–#33/#69 — every surface DB-backed, focus refresh | Deployed evidence; the My Sessions widget waits on M28 |
+| M09 | #67/#76/#83/#87 (on top of #32/#41/#46/#65) — **seven of eight seed bodies real**, incl. real R2 headshot objects and the form-completion portal task | The agenda seed (waits on M28); a recorded full run against a real database; the judge-script AC |
 
 ### Merged partial implementation
 
@@ -170,10 +216,10 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 
 | Checkpoint | Status | Evidence |
 |---|---|---|
-| CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe, auth-throttle proof, and DMARC header evidence** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **edge cacheability proven** (`s-maxage`, `x-nextjs-cache: HIT`); delivered Gmail mail proves aligned SPF/DKIM. Missing: a browser R2 presign/CORS upload, a deployed application auth-throttle proof, and `dmarc=pass` in `Authentication-Results` |
+| CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe and auth-throttle proof** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **edge cacheability proven** (`s-maxage`, `x-nextjs-cache: HIT`); **the delta #17 header gate passed at rev. 9** — `dmarc=pass` with aligned SPF/DKIM identities on a Gmail delivery (`DECISIONS.md`, Sun Aug 9). Missing: a browser R2 presign/CORS upload and a deployed application auth-throttle proof |
 | CP1 — contracts/schema/foundation freeze | **NEARLY GREEN** | Contracts merged; the stack merged; migrations applied to `sb-dev` and `sb-test` **from the repo's own SQL**; seed loads; **admin login works on the deployed preview**; the six-spec Playwright skeleton runs; **the freeze declaration is now recorded in `DECISIONS.md`** (rev. 8). Missing: `sb-prod` and a green `Deploy` workflow run |
 | **Sat thin slice — CFP to Abstracts** | **GREEN on the server path** | A deployed submit stored a submission with routing applied and delivered its confirmation email. The Abstracts *table* reads the database; its drawer and bulk actions do not yet |
-| CP2 — golden spine | **PARTIAL** | Green: real OTP, submit, one **delivered** email, public schedule and gallery; accept/notify **server half merged** (#57: `transitionStatus`, `notifyQueues`, both routes, 11 PGlite cases). Missing: the review server (M19), decision **UI** (M17 drawer/bulk actions) plus a deployed accept→notify→email round-trip, a portal task completion and the golden-path Playwright spec. The **50-concurrent load run is done** (#73): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md` |
+| CP2 — golden spine | **PARTIAL — every server/UI half is now merged; what is missing is deployed proof** | Green: real OTP, submit, one **delivered** email, public schedule and gallery. Merged since rev. 8: the accept/notify server half (#57), the decision UI (#61 bar, #79/#84 drawer), the review server and UI (M19, #78–#85), and the portal task runtime (M25, #88). The **50-concurrent load run is done** (#73/#75): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md`. Missing: a redeploy (the preview is current only through #73), then the deployed accept→notify→email round-trip, a deployed reviewer scoring pass, a deployed portal task completion, and the golden-path Playwright spec |
 | CP3 — full judged feature surface | **NOT ATTEMPTED** | Deployed portal upload/task, scheduling/conflict, embed, ICS lifecycle, reminder scan, tracking dashboard |
 | CP4 — feature freeze/release proof | **NOT ATTEMPTED** | Six e2e specs, load/perf record, post-deploy smoke on production, security review, docs/spend and submission checklist |
 
@@ -201,10 +247,11 @@ The CP1 freeze declaration is already complete at rev. 8 and is not an open R1 i
 3. A browser R2 upload against the preview — unblocked at #65 (the contacts seed uploads real
    headshots); the probe just needs running.
 4. A deployed application-layer auth-throttle probe; unit coverage is not external evidence.
-5. A delivered-message `Authentication-Results` record with `dmarc=pass`; SPF/DKIM alone do not
-   satisfy the email header gate.
+5. ~~A delivered-message `Authentication-Results` record with `dmarc=pass`.~~ **Done at rev. 9:**
+   a preview probe delivered to Gmail with `dmarc=pass (p=NONE)` and aligned SPF/DKIM identities,
+   recorded in `DECISIONS.md` (Sun Aug 9, 14:13 PT).
 
-**Exit:** the five items above.
+**Exit:** items 1–4 above.
 
 ### R2 — Server-backed golden spine
 
@@ -240,14 +287,15 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-The next actions are the judged loop's remaining halves, in this order (**#57 landed the
-decide/notify server half, #61 its decision bar + Notify UI, and #65 the contacts seed**, so
-the queue advances again): **M17's detail drawer** (the last missing piece of the triage loop —
-bulk actions exist, reading a submission does not); **a deployed accept→notify→email
-round-trip** to turn CP2's spine green; **the submissions seed body**, so a fresh database has
-abstracts to triage (the contacts seed in #65 already cleared the headshot smoke skip and
-unblocked the browser R2 probe); then **M12's builder UI**, the last place a judge is asked to
-create something rather than read it.
+Rev. 9 reconciliation: of rev. 8's four next actions, three landed before the shutdown — M17's
+drawer (#79/#84), the submissions seed (#67), and M12's builder (#82) — and the evaluation stack
+(M19), the task runtime (M25), and the conflict engine (M29) landed besides. The queue when work
+resumes, in order: **redeploy the preview from `main`** (it is current only through #73, so every
+deployed proof below is blocked on this); **the deployed accept→notify→email round-trip** to turn
+CP2's spine green; **a deployed reviewer scoring pass and a deployed portal task completion**;
+**M28 sessions CRUD** (now unblocked — M29 merged — and itself gating M21's My Sessions widget
+and M09's agenda seed); then **M10's Playwright step bodies** over the modules with deployed
+proof, flipping their `landed.ts` gates in the same change.
 
 ## 7. Environment and configuration truth
 
@@ -290,9 +338,10 @@ sections are done):**
 - The remainder of the Resend track. *(Corrected at rev. 8 — the rev. 6 wording "nothing about
   email delivery is proven" contradicted §2a above.)* Proven at rev. 7: verified sending
   subdomain with SPF and DKIM aligned, real `EMAIL_FROM`, and Gmail delivery of
-  `submission_received` and `portal_login` from the deployed preview. Still pending: an Outlook
-  probe, calendar-invite delivery evidence, DMARC policy confirmation, a production API key, and
-  bounce handling.
+  `submission_received` and `portal_login` from the deployed preview. Proven at rev. 9: the
+  delta #17 header gate — `dmarc=pass` with aligned identities (`DECISIONS.md`; the published
+  policy is `p=NONE`, and tightening it is optional hardening, not a gate). Still pending: an
+  Outlook probe, calendar-invite delivery evidence, a production API key, and bounce handling.
 - The entire production section, including `sb-prod` migration, secrets, `EMAIL_MODE=send` with `EMAIL_FALLBACK_UI=0` and no `TEST_AUTH`, and the production health/cron confirmation.
 
 The jobs worker must receive only `APP_BASE_URL` and its environment's `CRON_SECRET`. All database, session, R2-presign, Resend, ICS, and Airtable configuration belongs to `sb-web`. A custom-domain WAF rule is optional defense-in-depth and is not applicable to a `workers.dev` hostname.

@@ -121,6 +121,27 @@
 - The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.
 - Migration generation is deliberately disabled until a complete Drizzle metadata baseline can reproduce those constraints without weakening them. The TypeScript schema remains available for query typing; schema changes are authored and reviewed directly in SQL meanwhile.
 
+## Email deliverability header gate — dmarc=pass (2026-08-09)
+
+Delta #17's header gate is satisfied on Gmail. A probe sent through Resend from the deployed
+openboard preview was delivered to a real Gmail inbox on Sun Aug 9, 2026, 14:13 PT, and its
+`Authentication-Results` (mx.google.com) read:
+
+- `dkim=pass header.i=@mail.openboard.events header.s=resend` — DKIM signed on the `EMAIL_FROM`
+  domain itself: aligned.
+- `spf=pass` for `smtp.mailfrom=…@send.mail.openboard.events` — relaxed alignment with the From
+  domain: aligned.
+- `dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=openboard.events`.
+
+A second DKIM signature from `@amazonses.com` (Resend's underlying relay) is present and does not
+affect alignment. Caveat recorded: the published DMARC policy is `p=NONE` (monitor-only). The gate
+asked for `dmarc=pass` with aligned identities, which this is; tightening the policy to
+`quarantine`/`reject` is optional hardening, not a release gate.
+
+Consequence: CP0's DMARC bullet and R1 item 5 in `plan/status.md` are green. The remaining
+Resend-track items are the Outlook probe, calendar-invite delivery evidence, a production sending
+key, and bounce handling.
+
 ## Submit load test, 50 concurrent (2026-08-09)
 
 Run against the deployed preview (`sb-web-preview`, build `2794dd4`, `sb-test` branch) with 50

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — reclaimed by Codex for the PR #38 review follow-ups: server-aware pagination and sorting, all status tabs, the unfiltered empty-state total, and URL-to-search-draft synchronization. **The database reads are merged** (#37): `listSubmissions`, `getStatusCounts`, `getSubmissionDetail`, with tabs and rows sharing one WHERE clause and the drawer returning the pinned snapshot. Eleven PGlite cases. Remaining after this recovery: `updateSubmissionFields`, the three route handlers, `scripts/seed/contacts.ts`/`submissions.ts`, and moving the table components off `useDemo()`. |
+| **Status** | IN PROGRESS — no active claim. On `main`: the database reads (#37: `listSubmissions`, `getStatusCounts`, `getSubmissionDetail`, tabs and rows sharing one WHERE clause), server-aware pagination/sorting, all status tabs, the unfiltered empty-state total and URL synchronization (#79), the decision bar with bulk queue/decide actions and a working Notify button (#61), and a wired detail drawer — `<SubmissionDrawer>` renders in the abstracts view, with `<SubmissionAnswers>` shared with the review queue since #84. The contacts and submissions seeds landed in #65/#67. Remaining: `updateSubmissionFields` and manual "Add Abstract", and the deployed triage AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat AM → Sat PM** (starts the moment CP1 lands: schema + seed + M05a). Sat-night demo bar: "abstracts table shows seeded data with working tabs". |
 | **Size** | L (~day) |

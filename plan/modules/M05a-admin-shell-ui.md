@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **the remaining core primitives (`<DataTable>`, `<ConfirmDialog>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, kitchen sink) claimed** by the agent holding M07/M09/M10 slices, all in review; it is R1 step 4 and its hard deps M01/M04 are merged. The `(admin)` route-group restructuring is **not** claimed — six lanes own route files inside it. **MERGED-PARTIAL** in PR #1 (`5ed137c`): demo admin shell, event resolution, accessible controls, stub routes, and core primitives. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL**, no active claim. PR #1 (`5ed137c`) landed the demo admin shell, event resolution, accessible controls, and stub routes; PR #24 the core primitives (`<DataTable>`, `<ConfirmDialog>`, `<Dash>`, `<TzTime>`, `<ColorChip>`, kitchen sink). Remaining: the six list surfaces actually consuming `<DataTable>`; the `(admin)` route-group restructuring stays deliberately unclaimed because six lanes own route files inside it. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Sat AM — gates CP1 (Sat noon) |
 | **Size** | M |

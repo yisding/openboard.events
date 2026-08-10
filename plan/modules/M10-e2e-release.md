@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — reclaimed by Codex for the PR #70/#75 operational review follow-ups: defer retryable smoke failures until retries are exhausted, correct the load-test serialization/Hyperdrive conclusions, and synchronize release trackers. **MERGED-PARTIAL** release docs, validation CI, smoke, license scaffolding, and the 50-concurrent preview load test exist (50/50 `200`, p95 27703 ms). Remaining after this recovery: real Playwright step bodies, production deployment, spend proof, and the release AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL**, no active claim. Release docs, validation CI, the deepened smoke, license scaffolding, and the 50-concurrent preview load test (50/50 `200`, p95 27703 ms, recorded in `DECISIONS.md`) all exist; the operational review follow-ups merged in #70/#77 (retryable smoke failures deferred until retries are exhausted, load-test serialization/Hyperdrive conclusions corrected, release trackers synchronized). Remaining: real Playwright step bodies — all 17 `e2e/helpers/landed.ts` gates are still `false` over placeholder steps — production deployment, spend proof, and the release AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect, in the integrator role after Saturday) |
 | **Scheduled** | Skeleton at CP1 (plan-Sat) → **golden-path spec green + 50-concurrent load test at CP2 (plan-Sun night)** → all 6 specs green at CP4 (Wed Aug 12, 2 PM PT) → repo public + submission that evening |
 | **Size** | M |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN REVIEW — steps 1–3 and 9 on PR #15, steps 5–8 (the four routes) stacked on PR #17. Steps 4 and the deployed AC remain open; see Notes. |
+| **Status** | IN PROGRESS — **MERGED** (#15, #17): policy table, staging→published keys, the four routes, orphan sweep, and CI grep #11. The seed now uploads real headshot objects (#65/#76), so the browser probe is unblocked. Remaining before `DONE`: a **browser** presign/PUT/CORS round-trip on the preview, the `curl -I /f/{id}` header check, production S3 credentials, and an R2 lifecycle rule on the `staging/` prefix. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (catalog note: "owner: WS-D — its biggest consumer; moved from WS-A"). This agent also builds M05b (rich UI primitives, filed under WS-A's module set) the same day — both are declared temporary cross-folder grants outside this agent's normal `features/portal` lane (PLAN.md §6). |
 | **Scheduled** | **Sat AM** — starts the hour M03's `file_assets` table lands on sb-dev (before CP1, **not** at it); presign/finalize wired Sat PM. Does **not** gate CP1. Steps 1–3 (typed signatures, kind-policy table, key scheme + filename sanitization) are unit-testable against a mocked binding and can be pulled forward to **Fri evening**. Runs in parallel with M05b, whose `<FileUpload>` internals are this module's only real consumer. |
 | **Size** | M |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — reclaimed by Codex as part of the combined remaining-review remediation tranche spanning M16 and M09. This module owns the final PR #32 seed-contract gap: the demo must contain a real form-completion portal task alongside manual and file-request tasks, with the one-per-mode invariant covered. The earlier PR #65 recovery already made `pnpm seed` create the R2 headshot objects referenced by seeded `file_assets` rows. Per-feature seed content stays with its own workstream. **MERGED-PARTIAL** until the remaining feature seeds and judge-script AC land. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL**, no active claim. The orchestrator, ids, and target verification landed in #20, and **seven of the eight per-feature seed bodies are now real**: events (#41/#66), contacts with real uploaded R2 headshot objects (#65/#76), forms (#46/#59/#64), portal — including the form-completion task alongside manual and file-request modes (#32/#87) — submissions (#67), evaluation (#83), and comms (#16). Only `scripts/seed/agenda.ts` remains a 13-line stub, waiting on M28. Remaining before `DONE`: the agenda seed, a recorded full run against a real database, and the judge-script AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect owns the **orchestrator + helpers + demo script**; each per-feature seed module is owned by that feature's workstream) |
 | **Scheduled** | Sat AM (orchestrator + core content, part of CP1) → Sun (v2: feature modules composed) → Tue (v3: matched to the walkthrough videos) |
 | **Size** | M (orchestrator + core; feature modules land with their workstreams) |
