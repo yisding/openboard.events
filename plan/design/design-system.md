@@ -189,6 +189,54 @@ and do not add new rules below it.
 - A new semantic colour needs all three of foreground, border and tint, and
   the foreground must clear 4.5:1 on both white and its own tint.
 - Font sizes come from the fifteen-step scale; weights from the five steps.
-- Dark mode is not implemented. `.embed-shell.embed-dark` overrides three
-  tokens for embedded schedule views and is the proof that the token layer can
-  carry a theme — a full dark mode is now a token swap rather than a rewrite.
+- Dark mode is not implemented. See below for what it would actually take.
+
+## Dark mode
+
+**The palette is dark-mode *shaped*. The app is not dark-mode *ready*.** Those
+are different claims and it is worth keeping them apart.
+
+What is genuinely in place: colour is fully tokenized, the semantic tokens are
+split into foreground / border / tint so a theme can redefine each role
+independently, and dark surfaces are already first-class — `--sidebar`,
+`--sidebar-2`, `--sidebar-line` and a contrast-verified `--on-dark` /
+`--on-dark-muted` / `--on-dark-faint` text ramp. Those exist because the
+sidebar, the event covers and the portal hero cards are permanently dark
+regardless of theme.
+
+What that does **not** mean is that dark mode is a token swap. The evidence is
+already in this file: `.embed-shell.embed-dark`, which themes a single
+embedded schedule view, needs **25 rules — and only 2 of them set tokens.**
+The other 23 are per-selector patches. That is the realistic ratio for the
+rest of the app, not an outlier.
+
+The specific work a real dark mode needs:
+
+1. **A second value set, not an inversion.** Semantic pairs have to swap
+   polarity: `--green` must become *lighter* and `--green-soft` *darker*. The
+   light-mode foregrounds here were deliberately darkened to clear AA on white,
+   which makes them unusable on a dark tint. Every semantic triple needs new
+   values, re-verified.
+2. **A shadow strategy.** `--shadow` and `--shadow-sm` are dark `rgba`, plus 18
+   more hardcoded `box-shadow` declarations. A dark shadow on a dark surface is
+   invisible; dark UI usually signals elevation with a lighter surface or a
+   border instead. This is a design decision, not a find-and-replace.
+3. **White-on-fill text.** 27 `#fff` literals sit on brand and semantic fills
+   (`.button-primary`, avatars, badges). If `--purple` lightens for dark mode,
+   white text on it fails contrast. These need an `--on-accent` token whose
+   value tracks the fill.
+4. **~50 remaining literals** that encode light-mode assumptions —
+   `.button-secondary` text, `.field` labels, `.landing-links`, `.rich-text`,
+   `.logo-strip`. Each needs a token before it can be themed.
+5. **Overlay colours.** 33 dark `rgba()` overlays (hover states such as
+   `rgba(50,45,75,.06)`) need light counterparts; 20 `rgba(255,255,255,…)`
+   already assume dark chrome and would need the reverse treatment.
+6. **A design answer for the already-dark surfaces.** The sidebar, `.event-cover`
+   and `.welcome-card` currently read as dark *because* the page around them is
+   light. On a dark page they lose that contrast and the hierarchy they were
+   carrying. Gradient stops are bespoke and were deliberately left untokenized.
+
+None of this is blocked — it is just real work, and step 6 is a design
+question before it is an implementation one. The honest summary is that this
+change removed the *prerequisite* obstacle (colour scattered across ~240
+literals with no role structure), not the work itself.
