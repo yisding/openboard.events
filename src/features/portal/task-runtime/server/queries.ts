@@ -2,8 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
 import { getCurrentSnapshotIn } from "@/features/forms";
+import { z } from "zod";
 import {
-  cleanAnswersSchema,
+  answerValueSchema,
   formSnapshotSchema,
   type AnswerValue,
   type ContactId,
@@ -11,6 +12,14 @@ import {
   type FormId,
   type FormSnapshot,
 } from "@/shared/contracts";
+
+/**
+ * `form_responses.answers` is a jsonb **object** keyed by field id — the shape
+ * R2's orphan sweep walks with `jsonb_each` looking for live `{t:'file'}`
+ * references. Reading it back through a schema keeps that agreement checkable
+ * rather than assumed.
+ */
+const responseAnswersSchema = z.record(z.string(), answerValueSchema);
 
 /**
  * What a speaker still owes the organizers.
@@ -243,8 +252,8 @@ export async function getTaskFormIn(
       AND submission_id IS NOT DISTINCT FROM ${submissionId}
   `)).rows?.[0];
   if (saved) {
-    for (const answer of cleanAnswersSchema.parse(saved.answers)) {
-      answers[answer.fieldId] = answer.value;
+    for (const [fieldId, value] of Object.entries(responseAnswersSchema.parse(saved.answers))) {
+      answers[fieldId] = value;
     }
   }
 
@@ -311,10 +320,10 @@ export async function listTaskCompletionsIn(
   return rows.map((row) => {
     const byField = labels.get(`${row.form_id}:${row.form_version}`);
     const answers = row.answers
-      ? cleanAnswersSchema.parse(row.answers).map((answer) => ({
-        fieldId: answer.fieldId as string,
-        label: byField?.get(answer.fieldId as string) ?? "(question removed)",
-        value: answer.value,
+      ? Object.entries(responseAnswersSchema.parse(row.answers)).map(([fieldId, value]) => ({
+        fieldId,
+        label: byField?.get(fieldId) ?? "(question removed)",
+        value,
       }))
       : [];
     return {

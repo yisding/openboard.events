@@ -5,6 +5,7 @@ import type { AnswerValue } from "@/shared/contracts";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
+import { formatCode } from "@/features/submissions/index.client";
 import type { TaskCompletionRow } from "../server/queries";
 
 /**
@@ -32,7 +33,7 @@ function Who({ row, timezone }: { row: TaskCompletionRow; timezone: string }) {
   return (
     <header>
       <b>{row.contactName}</b>
-      {row.submissionCode !== null && <span> · SESS-{row.submissionCode}</span>}
+      {row.submissionCode !== null && <span> · {formatCode(row.submissionCode)}</span>}
       <span> · <TzTime instant={row.completedAt} tz={timezone} style="long" /></span>
     </header>
   );

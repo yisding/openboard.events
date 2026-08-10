@@ -21,6 +21,7 @@ const slidesTask = "c4000000-0000-4000-8000-000000000031";
 const profileTask = "c4000000-0000-4000-8000-000000000032";
 const slidesRequest = "c4000000-0000-4000-8000-000000000040";
 const deck = "c4000000-0000-4000-8000-000000000041";
+const othersDeck = "c4000000-0000-4000-8000-000000000042";
 const formId = "c4000000-0000-4000-8000-000000000050";
 const bioField = "c4000000-0000-4000-8000-000000000051";
 const shirtField = "c4000000-0000-4000-8000-000000000052";
@@ -153,8 +154,13 @@ describe("portal task runtime", () => {
     );
 
     await pglite.query(
-      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes) VALUES($1,$2,'upload','uploads/deck.pdf','deck.pdf','application/pdf',1024)",
-      [deck, eventId],
+      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'upload','uploads/deck.pdf','deck.pdf','application/pdf',1024,$3)",
+      [deck, eventId, ada],
+    );
+    // Somebody else's private deck, for the case that must not be able to reach it.
+    await pglite.query(
+      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'upload','uploads/secret.pdf','secret.pdf','application/pdf',2048,$3)",
+      [othersDeck, eventId, grace],
     );
   }, 60_000);
 
@@ -162,7 +168,7 @@ describe("portal task runtime", () => {
     await pglite.exec("TRUNCATE task_completions, file_uploads, form_responses CASCADE");
   });
 
-  it("routes a submission task once per accepted submission and never for a pending one", async () => {
+  it("fan-out: routes a submission task once per accepted submission, never for a pending one", async () => {
     const tasks = await listMyTasks(eventId, ada);
     const slides = tasks.filter((task) => task.taskId === slidesTask);
     expect(slides.map((task) => task.submissionCode).sort()).toEqual([1, 2]);
@@ -186,7 +192,7 @@ describe("portal task runtime", () => {
     expect(tasks.filter((task) => task.submissionId !== null)).toEqual([]);
   });
 
-  it("completes the two copies of one task independently", async () => {
+  it("fan-out-independent-completion: completes the two copies of one task independently", async () => {
     await completeTaskManual(eventId, ada, headshotTask, null);
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
 
@@ -196,7 +202,7 @@ describe("portal task runtime", () => {
     expect(slides.find((task) => task.submissionId === talkTwo)?.completed).toBe(false);
   });
 
-  it("treats a double-click as one completion", async () => {
+  it("idempotent-complete: treats a double-click as one completion", async () => {
     await completeTaskManual(eventId, ada, headshotTask, null);
     await completeTaskManual(eventId, ada, headshotTask, null);
     expect(await count("task_completions")).toBe(1);
@@ -232,6 +238,26 @@ describe("portal task runtime", () => {
     expect(detail?.completed).toBe(true);
   });
 
+  it("refuses to answer a task with another speaker's file", async () => {
+    // file_uploads grants download rights, so accepting somebody else's asset
+    // here would hand this speaker a presigned URL to it.
+    const stolen = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, othersDeck)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(stolen) && stolen.code).toBe("NOT_FOUND");
+    expect(await count("file_uploads")).toBe(0);
+    expect(await count("task_completions")).toBe(0);
+  });
+
+  it("points a re-upload's completion at the newest file", async () => {
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    const first = await pglite.query<{ file_upload_id: string }>("SELECT file_upload_id FROM task_completions");
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    const second = await pglite.query<{ file_upload_id: string }>("SELECT file_upload_id FROM task_completions");
+    // Otherwise the organizer keeps being served the version the speaker replaced.
+    expect(second.rows[0]?.file_upload_id).not.toBe(first.rows[0]?.file_upload_id);
+    expect(await count("task_completions")).toBe(1);
+  });
+
   it("never records a completion with no file behind it", async () => {
     const missing = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, "c4000000-0000-4000-8000-0000000000ff")
       .catch((thrown: unknown) => thrown);
@@ -240,7 +266,7 @@ describe("portal task runtime", () => {
     expect(await count("file_uploads")).toBe(0);
   });
 
-  it("writes a form response back to only the fields it was asked about", async () => {
+  it("write-back-field-scoped: writes a form response back to only the fields it asked about", async () => {
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({
       [bioField]: { t: "s", v: "<p>Ada builds engines.</p>" },
     }));
@@ -306,6 +332,11 @@ describe("portal task runtime", () => {
   it("shows an organizer who completed a task and what they sent", async () => {
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "<p>Ada again.</p>" } }));
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+
+    // Stored as a jsonb object keyed by field id — the shape R2's orphan sweep
+    // walks for live `{t:'file'}` references.
+    const shape = await pglite.query<{ kind: string }>("SELECT jsonb_typeof(answers) AS kind FROM form_responses");
+    expect(shape.rows[0]?.kind).toBe("object");
 
     const responses = await listTaskCompletions(eventId, profileTask);
     expect(responses).toHaveLength(1);

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { getMyTask, getTaskForm, requirePortalContext } from "@/features/portal";
 import { TaskDetailView } from "@/features/portal/task-runtime/components/task-detail";
 
@@ -19,10 +20,15 @@ export default async function Page({
 }) {
   const { eventSlug, taskId } = await params;
   const query = await searchParams;
-  const submissionId = typeof query.submissionId === "string" ? query.submissionId : null;
+  // Both ids reach SQL as uuids, so a typed-in path is a 404 rather than a
+  // 22P02 crash page.
+  const parsedTaskId = z.uuid().safeParse(taskId);
+  const parsedSubmissionId = z.uuid().nullable().safeParse(typeof query.submissionId === "string" ? query.submissionId : null);
+  if (!parsedTaskId.success || !parsedSubmissionId.success) notFound();
+  const submissionId = parsedSubmissionId.data;
 
   const { event, contact } = await requirePortalContext(eventSlug);
-  const task = await getMyTask(event.id, contact.id, taskId, submissionId);
+  const task = await getMyTask(event.id, contact.id, parsedTaskId.data, submissionId);
   // A task routed to somebody else has to look exactly like one that is not there.
   if (!task) notFound();
 

@@ -95,8 +95,9 @@ export async function completeTaskManualIn(
  * one unit, and the completion is written second — a task must never read as
  * done with no file behind it.
  *
- * A second upload against a finished task adds another file and leaves the
- * completion alone, because "replace" is send-another, not delete-and-resend.
+ * A second upload against a finished task adds another file and repoints the
+ * completion at it, because "replace" is send-another, not delete-and-resend —
+ * and the organizer must be shown the version the speaker actually meant.
  */
 export async function completeTaskViaUploadIn(
   tx: TxDb,
@@ -109,12 +110,15 @@ export async function completeTaskViaUploadIn(
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
   if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
 
-  // The asset has to be this event's; the foreign key would catch it, but a
-  // typed refusal beats a constraint violation surfacing as a 500.
+  // The asset has to be this event's *and* this speaker's own upload. Without
+  // the uploader check a speaker could answer their task with another speaker's
+  // private deck — and, because `file_uploads` grants download rights, hand
+  // themselves a presigned URL to it.
   const asset = await tx.execute<{ id: string }>(sql`
-    SELECT id FROM file_assets WHERE id = ${fileAssetId} AND event_id = ${eventId}
+    SELECT id FROM file_assets
+    WHERE id = ${fileAssetId} AND event_id = ${eventId} AND uploaded_by_contact_id = ${contactId}
   `);
-  if ((asset.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "That file does not belong to this event");
+  if ((asset.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "That file is not one of your uploads");
 
   const uploaded = await tx.execute<{ id: string }>(sql`
     INSERT INTO file_uploads (event_id, file_request_id, contact_id, submission_id, file_asset_id)
@@ -124,10 +128,14 @@ export async function completeTaskViaUploadIn(
   const fileUploadId = (uploaded.rows ?? [])[0]?.id;
   if (!fileUploadId) throw new AppError("INTERNAL", "The upload could not be recorded");
 
+  // A re-upload keeps the original completion time — the task was finished
+  // then — but must repoint at the newest file, or the organizer keeps being
+  // served the version the speaker replaced.
   await tx.execute(sql`
     INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id)
     VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${fileUploadId})
-    ON CONFLICT DO NOTHING
+    ON CONFLICT (task_id, contact_id, submission_id) DO UPDATE SET
+      completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
   `);
 }
 
@@ -172,9 +180,14 @@ export async function completeTaskViaResponseIn(
     });
   }
 
+  // A jsonb **object** keyed by field id, not the CleanAnswers array: R2's
+  // orphan sweep looks for `{t:'file'}` values with `jsonb_each` over this
+  // column, and an array reads as "no file referenced" — which deletes a file
+  // the response still points at.
+  const answersObject = Object.fromEntries(pipeline.clean.map((answer) => [answer.fieldId, answer.value]));
   const response = await tx.execute<{ id: string }>(sql`
     INSERT INTO form_responses (event_id, form_id, form_version, contact_id, submission_id, answers)
-    VALUES (${eventId}, ${assignment.formId}, ${snapshot.version}, ${contactId}, ${submissionId}, ${JSON.stringify(pipeline.clean)}::jsonb)
+    VALUES (${eventId}, ${assignment.formId}, ${snapshot.version}, ${contactId}, ${submissionId}, ${JSON.stringify(answersObject)}::jsonb)
     ON CONFLICT (form_id, contact_id, submission_id) DO UPDATE SET
       answers = EXCLUDED.answers, form_version = EXCLUDED.form_version, updated_at = now()
     RETURNING id

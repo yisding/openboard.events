@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { formatCode } from "@/features/submissions/index.client";
 import type { MyTaskDTO } from "../server/queries";
 
 /**
@@ -48,7 +49,7 @@ function TaskCard({ task, eventSlug, timezone }: { task: MyTaskDTO; eventSlug: s
           )}
         </div>
         <h3>{task.taskName}</h3>
-        {task.submissionCode !== null && <p>SESS-{task.submissionCode} · {task.submissionTitle}</p>}
+        {task.submissionCode !== null && <p>{formatCode(task.submissionCode)} · {task.submissionTitle}</p>}
       </div>
       <span className="button button-secondary button-sm">{task.completed ? "View" : MODE_CTA[task.completionMode]}</span>
     </Link>
@@ -89,7 +90,7 @@ export function TaskList({
     const groups = new Map<string, { heading: string; rows: MyTaskDTO[] }>();
     for (const task of shown.filter((entry) => entry.submissionId !== null)) {
       const key = task.submissionId ?? "";
-      const heading = `SESS-${task.submissionCode} · ${task.submissionTitle ?? ""}`.trim();
+      const heading = `${task.submissionCode === null ? "" : formatCode(task.submissionCode)} · ${task.submissionTitle ?? ""}`.trim();
       const group = groups.get(key) ?? { heading, rows: [] };
       group.rows.push(task);
       groups.set(key, group);

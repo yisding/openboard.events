@@ -11,6 +11,7 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { formatCode } from "@/features/submissions/index.client";
 import type { MyTaskDetail } from "../server/queries";
 
 /**
@@ -46,11 +47,17 @@ export function TaskDetailView({
     setBusy(true);
     setFieldErrors({});
     try {
+      // A dropped connection is the normal case on a phone in a conference
+      // hall, so it has to read as "try again", not as a blank screen.
       const response = await fetch(`${path}?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ submissionId: task.submissionId, ...body }),
-      });
+      }).catch(() => null);
+      if (!response) {
+        toast("That did not reach us — check your connection and try again");
+        return false;
+      }
       const payload = await response.json().catch(() => null) as {
         error?: { message?: string; data?: { fieldErrors?: Record<string, string> } };
       } | null;
@@ -92,7 +99,7 @@ export function TaskDetailView({
           {task.dueAt && <span className="due-label">Due <TzTime instant={task.dueAt} tz={timezone} style="long" /></span>}
         </div>
         <h1>{task.taskName}</h1>
-        {task.submissionCode !== null && <p>SESS-{task.submissionCode} · {task.submissionTitle}</p>}
+        {task.submissionCode !== null && <p>{formatCode(task.submissionCode)} · {task.submissionTitle}</p>}
       </header>
 
       {task.descriptionHtml && <div className="portal-panel"><RichTextView html={task.descriptionHtml} /></div>}
