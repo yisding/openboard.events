@@ -196,6 +196,9 @@ and do not add new rules below it.
   the foreground must clear 4.5:1 on both white and its own tint.
 - Font sizes come from the fifteen-step scale; weights from the five steps.
 - Dark mode is not implemented. See below for what it would actually take.
+- Interaction patterns, per-surface density intent, and the experience-polish
+  catalog live in [`experience-design.md`](experience-design.md); this
+  document stays scoped to colour and typography.
 
 ## Dark mode
 

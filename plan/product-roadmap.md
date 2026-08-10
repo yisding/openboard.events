@@ -103,6 +103,34 @@ status the speaker never set); and white-labeling. Edit-until-close, server-side
 multi-round review are now required foundations under resolution #23. Drag-and-drop scheduling,
 the reminder ladder, and the keyed API retain the reduced forms defined by §9.
 
+## Phase P6 — experience layer: fewer steps, surfaced answers, delight
+
+Principles and full item descriptions live in
+[`design/experience-design.md`](design/experience-design.md); that document binds new UI work
+the way `design-system.md` binds colour. The organizing law: every screen computes the user's
+next action, puts it first, and lets everything else recede — with emphasis reweighted by the
+event lifecycle phase.
+
+Sequencing: P6 items ship only as thin layers over **server-backed** surfaces — never onto
+`useDemo()` components (see "Contain the demo fork"), and never before the touched surface's P1
+wiring closes. No new runtime dependencies without a `pnpm worker:size` check; motion is
+CSS-only. M56 and M57 establish the two patterns (attention queue, slide-over + bulk bar) that
+M58–M60 assume, so they lead. They are mutually independent and may land in either order:
+until M57 exists, M56's attention-queue links open the plain pre-filtered lists, and the
+bulk-bar pre-arming on those entry points is the integration shipped by whichever of the two
+lands second.
+
+| ID | Module | Scope sketch | Depends on |
+|---|---|---|---|
+| M56 | Attention-first dashboard | Dashboard leads with a ranked, clickable attention queue (each row opens the pre-filtered view); KPI tiles demoted below the fold; phase-aware reordering by event lifecycle; sidebar count badges fed by real *actionable* counts (replacing the hardcoded `count: 12`); reviewer-load mini-bars in evaluation | M23, M30, M36, M38 |
+| M57 | Flow-through lists | Slide-over detail panels with keyboard next/prev on abstracts, speakers, and tasks (list stays visible behind); one reusable checkbox-selection + sticky bulk-action bar ("Accept 12 · Assign reviewer · Send reminder") shared across those lists, driving existing decision/assignment/reminder mutations | M17, M18, M23, M27, M37 |
+| M58 | Command palette | Wire the shell's decorative ⌘K trigger: entity jump (speaker/submission/session by name or code) plus verb entries ("assign reviewers…", "email overdue speakers…") that open the target surface with the bulk bar pre-armed | M56, M57 |
+| M59 | Speaker moments | Acceptance celebration on first post-decision portal visit + OG-tagged "I'm speaking!" share page (headshot from R2, composed from the accepted submission and contact data — not `published_speakers_v`, which is empty until a session is scheduled and published; tokenized, speaker-submitted content only until publication); portal-home hero card carrying the single most urgent next step; submission status timeline; CFP draft resume banner (countdown to the form's `closes_at` in the event tz, omitted when null); add-to-calendar on My Sessions via the existing `/cal/[token]` feed and deeplinks | M07, M20, M21–M25, M32, M35 |
+| M60 | Public liveness & organizer milestones | "Happening now / up next" highlight on the public schedule during event days (event-tz math); guided empty states fleet-wide ("No sessions yet — Promote accepted submissions →"); helpful 404/unpublished pages; dashboard milestone acknowledgments (CFP closed, all decisions sent, zero conflicts); "ready to announce" bundle on schedule publish (embed snippet, URLs, M59's per-speaker share cards, announcement copy) | M32, M33, M53, M59 |
+
+Attendee personal itinerary stays inside **M53** and assisted conflict-safe placement stays
+**M54** — P6 references them rather than duplicating them.
+
 ## Explicitly still deferred
 
 Airtable export, embed configurator polish, week/track/room views, dashboard extras, AI review —
