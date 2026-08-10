@@ -68,12 +68,18 @@ async function assertCriteriaInPlan(
     throw new AppError("VALIDATION", "A criterion can only appear once in an evaluation plan");
   }
   if (!planId) throw new AppError("VALIDATION", "Existing criteria can only be reused by their evaluation plan");
-  const result = await dbOrTx.execute<{ n: number }>(sql`
-    SELECT count(*)::int AS n FROM evaluation_criteria
-    WHERE event_id = ${eventId} AND plan_id = ${planId}
-      AND id IN (${sql.join(criterionIds.map((id) => sql`${id}`), sql`, `)})
+  const result = await dbOrTx.execute<{ plan_found: boolean; matching: number; existing: number }>(sql`
+    SELECT
+      EXISTS (SELECT 1 FROM evaluation_plans WHERE id = ${planId} AND event_id = ${eventId}) AS plan_found,
+      (SELECT count(*)::int FROM evaluation_criteria
+       WHERE event_id = ${eventId} AND plan_id = ${planId}
+         AND id IN (${sql.join(criterionIds.map((id) => sql`${id}`), sql`, `)})) AS matching,
+      (SELECT count(*)::int FROM evaluation_criteria
+       WHERE id IN (${sql.join(criterionIds.map((id) => sql`${id}`), sql`, `)})) AS existing
   `);
-  if (Number((result.rows ?? [])[0]?.n ?? 0) !== criterionIds.length) {
+  const summary = (result.rows ?? [])[0];
+  if (!summary?.plan_found && Number(summary?.existing ?? 0) === 0) return;
+  if (!summary?.plan_found || Number(summary.matching) !== criterionIds.length) {
     throw new AppError("VALIDATION", "Every criterion id must belong to this evaluation plan");
   }
 }

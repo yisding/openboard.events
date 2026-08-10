@@ -1,13 +1,152 @@
+import { sql } from "drizzle-orm";
+import {
+  assignReviewersIn,
+  planInputSchema,
+  savePlanIn,
+  submitReviewIn,
+} from "@/features/submissions";
+import type { PlanId, SubmissionId, TrackId, UserId } from "@/shared/contracts";
 import type { SeedCtx } from "./lib/helpers";
 
 /**
  * Owned by M19 (WS-C).
  *
- * Seeds one plan, three criteria, the seeded reviewer's assignment and partial scores.
+ * One open round, two criteria, both seeded members assigned, and a *partial*
+ * set of scores. The partiality is the point: the Rating column has to show
+ * numbers, an em dash, and nulls sorting last on the same screen, or nobody
+ * finds out which of the three is broken.
  *
- * Typed no-op until its owner fills it in: the orchestrator composes whatever
- * exists, so a missing feature module is a skipped line, never a crash.
+ * Every row is written through the real server functions — `savePlanIn`,
+ * `assignReviewersIn`, `submitReviewIn` — so the seed exercises the scope rule
+ * and the weighted mean rather than a private copy of them. An existing seeded
+ * round is left completely alone, so a non-wipe rerun cannot reopen it, reset
+ * its criteria or assignments, or overwrite a walkthrough verdict.
  */
+
+const CRITERIA = [
+  { key: "relevance", label: "Relevance", weight: 2 },
+  { key: "quality", label: "Quality", weight: 1 },
+];
+
+/** The reviewer sees two of the four tracks — the demo's routing evidence. */
+const REVIEWER_TRACKS = ["agents", "platforms"];
+
+/** Deterministic and uneven, so the Rating column is a spread rather than a row of 4s. */
+const REVIEWER_SCORES = [
+  { relevance: 5, quality: 4 },
+  { relevance: 4, quality: 5 },
+  { relevance: 3, quality: 3 },
+  { relevance: 5, quality: 5 },
+  { relevance: 2, quality: 3 },
+  { relevance: 4, quality: 2 },
+];
+const ORGANIZER_SCORES = [{ relevance: 3, quality: 4 }, { relevance: 5, quality: 3 }];
+
+async function userIdFor(ctx: SeedCtx, email: string): Promise<UserId | null> {
+  const [row] = (await ctx.tx.execute<{ id: string }>(sql`
+    SELECT u.id FROM users u
+    JOIN event_members m ON m.user_id = u.id AND m.event_id = ${ctx.eventId}
+    WHERE u.email = ${email}
+  `)).rows ?? [];
+  return (row?.id as UserId) ?? null;
+}
+
 export async function seedEvaluation(ctx: SeedCtx): Promise<void> {
-  ctx.log("skipped — not implemented");
+  const { tx, eventId } = ctx;
+
+  const reviewerId = await userIdFor(ctx, "reviewer@openboard.dev");
+  const organizerId = await userIdFor(ctx, "organizer@openboard.dev");
+  if (!reviewerId || !organizerId) {
+    ctx.log("skipped — needs the seeded members (events.ts)");
+    return;
+  }
+
+  const planId = ctx.id("plan", "round-1") as PlanId;
+  const [existing] = (await tx.execute<{ id: string; status: string; reviews: number }>(sql`
+    SELECT p.id, p.status, count(r.id)::int AS reviews
+    FROM evaluation_plans p
+    LEFT JOIN reviews r ON r.plan_id = p.id
+    WHERE p.id = ${planId} AND p.event_id = ${eventId}
+    GROUP BY p.id
+  `)).rows ?? [];
+  if (existing) {
+    ctx.log(`Round 1 already exists (${existing.status}, ${Number(existing.reviews)} reviews) — left organizer changes alone`);
+    return;
+  }
+
+  await savePlanIn(tx, eventId, planInputSchema.parse({
+    planId,
+    name: "Round 1",
+    round: 1,
+    scaleMin: 1,
+    scaleMax: 5,
+    status: "open",
+    // The round itself is open to every track; the routing that matters for the
+    // demo is the reviewer's own, below.
+    trackIds: null,
+    criteria: CRITERIA.map((criterion) => ({
+      id: ctx.id("criterion", `round-1-${criterion.key}`),
+      label: criterion.label,
+      weight: criterion.weight,
+    })),
+  }));
+
+  const reviewerTrackIds = REVIEWER_TRACKS.map((key) => ctx.id("track", key) as TrackId);
+  await assignReviewersIn(tx, eventId, planId, [
+    { userId: reviewerId, trackIds: reviewerTrackIds },
+    { userId: organizerId, trackIds: null },
+  ]);
+
+  const criterionScores = (scores: { relevance: number; quality: number }) => ({
+    [ctx.id("criterion", "round-1-relevance")]: scores.relevance,
+    [ctx.id("criterion", "round-1-quality")]: scores.quality,
+  });
+
+  // Only what the reviewer's own scope routes to them: scoring outside it is
+  // exactly what `submitReview` refuses, and a seed must not model an
+  // impossible state.
+  const inScope = (await tx.execute<{ id: string }>(sql`
+    SELECT s.id FROM submissions s
+    WHERE s.event_id = ${eventId} AND s.status NOT IN ('draft', 'withdrawn')
+      AND s.track_id = ANY(${sql`ARRAY[${sql.join(reviewerTrackIds.map((id) => sql`${id}::uuid`), sql`, `)}]`})
+    ORDER BY s.code
+  `)).rows ?? [];
+
+  const alreadyScored = new Set(((await tx.execute<{ submission_id: string; reviewer_user_id: string }>(sql`
+    SELECT submission_id, reviewer_user_id FROM reviews WHERE plan_id = ${planId}
+  `)).rows ?? []).map((row) => `${row.submission_id}:${row.reviewer_user_id}`));
+
+  let written = 0;
+  const score = async (submissionId: SubmissionId, userId: UserId, scores: { relevance: number; quality: number }, comment: string) => {
+    if (alreadyScored.has(`${submissionId}:${userId}`)) return;
+    await submitReviewIn(tx, eventId, planId, submissionId, userId, {
+      overallScore: null,
+      criterionScores: criterionScores(scores),
+      comment,
+    });
+    written += 1;
+  };
+
+  for (const [index, scores] of REVIEWER_SCORES.entries()) {
+    const submissionId = inScope[index]?.id as SubmissionId | undefined;
+    if (!submissionId) break;
+    await score(submissionId, reviewerId, scores, "Clear framing and a concrete demo; would attend.");
+  }
+  // The organizer scores from the far end of the same list, so a handful of
+  // abstracts carry two verdicts and the rest carry one or none.
+  for (const [index, scores] of ORGANIZER_SCORES.entries()) {
+    const submissionId = inScope.at(-(index + 1))?.id as SubmissionId | undefined;
+    if (!submissionId) break;
+    await score(submissionId, organizerId, scores, "Strong, but overlaps another accepted talk.");
+  }
+
+  if (inScope.length === 0) {
+    ctx.log(`seeded Round 1 (1–5, ${CRITERIA.length} criteria) and 2 reviewers — no abstracts are routed to the reviewer yet`);
+  } else {
+    ctx.log(
+      written > 0
+        ? `seeded Round 1 (1–5, ${CRITERIA.length} criteria), 2 reviewers, ${written} scores across ${inScope.length} in-scope abstracts`
+        : `Round 1 is already scored — left ${alreadyScored.size} existing reviews alone`,
+    );
+  }
 }

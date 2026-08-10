@@ -3,9 +3,8 @@
 `pnpm seed` fills a database with the demo world in one idempotent run, so every
 judged surface renders non-empty within ten minutes of a fresh deploy.
 
-**Today this is infrastructure, not data.** Seven of the eight feature modules
-are still typed no-ops, so a run prints their skipped lines, creates nothing, and
-says so instead of printing credentials that would not work.
+**`agenda.ts` is the last typed no-op.** A run prints its skipped line and seeds
+everything else; sessions and the named conflict pairs arrive with M28.
 
 ```bash
 APP_ENV=local pnpm seed            # upsert: organic judge-created data survives
@@ -37,14 +36,14 @@ that owns the feature:
 | `contacts.ts` | M17 (WS-C) | 12 speakers and their headshot `file_assets` |
 | `forms.ts` | M12 (WS-B1) | form A (open) and form B (closed), snapshots via `compileFormSnapshot` |
 | `submissions.ts` | M17 (WS-C) | ~25 submissions across all 7 statuses, plus the null and XSS probes |
-| `evaluation.ts` | M19 (WS-C) | one plan, three criteria, the reviewer's assignment, partial scores |
+| `evaluation.ts` | M19 (WS-C) | Round 1 (1–5, two weighted criteria), both members assigned — the reviewer to two tracks — and partial scores |
 | `agenda.ts` | M28 (WS-E) | ~15 sessions, the named conflict pairs, one back-to-back pair |
 | `portal.ts` | M21 (WS-D) | three tasks (one overdue), a file request, portal forms, resource pages |
 | `comms.ts` | M34 (WS-F) | `seedDefaultTemplates`, reminder rules, a pre-populated log |
 
-Each is a typed no-op until its owner fills it in. The orchestrator composes
-whatever exists, so a missing module prints `skipped — not implemented` and the
-run still exits 0.
+A module stays a typed no-op until its owner fills it in. The orchestrator
+composes whatever exists, so a missing module prints `skipped — not implemented`
+and the run still exits 0.
 
 ## The two rules a seed module must not break
 
