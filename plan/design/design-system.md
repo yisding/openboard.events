@@ -42,9 +42,12 @@ and why the borders carry a faint sea-glass cast.
 | `--muted` | `#5c706b` | 5.27 | 5.01 |
 | `--subtle` | `#778a84` | 3.65 | 3.47 |
 
-`--ink` and `--muted` are the only two tokens permitted for real text. There is
-no third text weight: hierarchy below `--muted` is expressed with size and
-weight, not with a lighter grey.
+`--ink` and `--muted` are the only *neutral* tokens permitted for real text.
+There is no third text weight: hierarchy below `--muted` is expressed with
+size and weight, not with a lighter grey. (`--accent-dark`, `--accent-bright`
+and the semantic foregrounds are also text colours, but only in their
+documented roles — links, labels, badges, dark chrome — never as a grey
+substitute.)
 
 `--subtle` is **not a text token.** It is for placeholders and decorative
 glyphs — content that is duplicated by a visible label and is not required to
@@ -98,10 +101,14 @@ The rule of thumb: `background: var(--accent)` always pairs with
 `color: var(--on-accent)`; `color: var(--accent-dark)` is for text on light
 surfaces; on the sidebar and other dark chrome use `--accent-bright`.
 
-Embeds override `--accent` and `--accent-dark` with the event's stored accent
-colour, which preserves the pre-jade behaviour where one variable recoloured
-the whole embed. An arbitrary customer colour used as text is an AA hazard
-the embed settings UI does not police; that hazard predates this palette.
+Embeds override `--accent` with the event's stored accent colour so fills and
+indicators follow the customer's brand. The text side splits by theme: light
+embeds derive `--accent-dark` through `accentTextShade()` in
+`public-event-shell.tsx`, which darkens any accent below 4.5:1 on white
+(compositing alpha over the white ground first), while dark embeds pass the
+raw accent through, since a vivid accent is the better text shade on dark
+chrome. The embed settings UI itself still accepts any hex without warning
+about contrast; the derivation is the safety net.
 
 ### Ice
 

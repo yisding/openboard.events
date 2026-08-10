@@ -16,12 +16,22 @@ function channelLuminance(channel: number): number {
   return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
 export function accentTextShade(accent: string): string {
-  const match = /^#([0-9a-fA-F]{6})$/.exec(accent.trim());
+  // Accept everything the embed query parser does: #RGB, #RGBA, #RRGGBB and
+  // #RRGGBBAA. Alpha channels are composited over the white embed ground so
+  // the contrast check sees the colour as rendered.
+  const match = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.exec(accent.trim());
   if (!match?.[1]) return accent;
-  const hex = match[1];
-  let r = parseInt(hex.slice(0, 2), 16);
-  let g = parseInt(hex.slice(2, 4), 16);
-  let b = parseInt(hex.slice(4, 6), 16);
+  const short = match[1].length <= 4;
+  const digits = short ? [...match[1]].map((d) => d + d).join("") : match[1];
+  let r = parseInt(digits.slice(0, 2), 16);
+  let g = parseInt(digits.slice(2, 4), 16);
+  let b = parseInt(digits.slice(4, 6), 16);
+  if (digits.length === 8) {
+    const alpha = parseInt(digits.slice(6, 8), 16) / 255;
+    r = Math.round(r * alpha + 255 * (1 - alpha));
+    g = Math.round(g * alpha + 255 * (1 - alpha));
+    b = Math.round(b * alpha + 255 * (1 - alpha));
+  }
   const contrastOnWhite = () => 1.05 / (0.2126 * channelLuminance(r) + 0.7152 * channelLuminance(g) + 0.0722 * channelLuminance(b) + 0.05);
   for (let step = 0; step < 24 && contrastOnWhite() < 4.5; step += 1) {
     r = Math.floor(r * 0.92); g = Math.floor(g * 0.92); b = Math.floor(b * 0.92);

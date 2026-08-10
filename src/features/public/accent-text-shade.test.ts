@@ -24,9 +24,16 @@ describe("accentTextShade", () => {
     expect(accentTextShade("#2a6486")).toBe("#2a6486");
   });
 
+  it("normalizes every hex format the embed query parser accepts", () => {
+    // #0a8 expands to #00aa88 (2.86:1 on white) and must darken.
+    expect(contrastOnWhite(accentTextShade("#0a8"))).toBeGreaterThanOrEqual(4.5);
+    // Alpha composites over the white embed ground before the check.
+    expect(contrastOnWhite(accentTextShade("#00a878cc"))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastOnWhite(accentTextShade("#0a8c"))).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("passes through values it cannot parse", () => {
     expect(accentTextShade("rebeccapurple")).toBe("rebeccapurple");
-    expect(accentTextShade("#0a8")).toBe("#0a8");
   });
 
   it("terminates on the worst case", () => {
