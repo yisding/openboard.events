@@ -138,31 +138,42 @@ fi
 #    all until the cache settles, which is a legitimate transient rather than a
 #    broken contract. So it is retried, and only a page that never becomes
 #    cacheable fails.
+#    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
+#    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
 for attempt in 1 2 3 4 5; do
   # Retryable probes use fetch directly: expect_status records a permanent
   # failure, which would make a transient 503 fail the whole run even when a
   # later attempt succeeds.
-  fetch "$base_url/e/$event_slug/schedule"
+  fetch "$base_url/e/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
     if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then schedule_ok=1; break; fi
   fi
   if (( attempt < 5 )); then sleep 2; fi
 done
 if (( schedule_ok )); then
-  pass "/e/$event_slug/schedule"
+  pass "/e/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/schedule" "public schedule renders (expected 200 after 5 attempts, got $last_status)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 5 attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/schedule" "public schedule is edge-cached (no s-maxage after 5 attempts)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage after 5 attempts)"
+fi
+
+# 2b. The legacy public URL redirects rather than 404s.
+if expect_status "$base_url/e/$event_slug/schedule" 307 "legacy /schedule redirects to the M53 surface"; then
+  pass "/e/$event_slug/schedule (307 legacy redirect)"
 fi
 
 # 3. The embed variant must be framable: CSP allows any ancestor and the legacy
 #    header is absent. Both together is the classic blank-iframe failure.
-if expect_status "$base_url/embed/$event_slug/schedule" 200 "embed renders"; then
+#    NOTE (recorded regression, status rev. 11): the M53 embed pages read their
+#    options from searchParams, which forces dynamic rendering — embeds are
+#    currently NOT edge-cached (the /e/* pages are). This check therefore does
+#    not assert s-maxage on the embed until that regression is fixed.
+if expect_status "$base_url/embed/$event_slug/agenda" 200 "embed renders"; then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
-    && pass "/embed/$event_slug/schedule"
+    && pass "/embed/$event_slug/agenda"
 fi
 
 # 4. The public API answers with an envelope.
