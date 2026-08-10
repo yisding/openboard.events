@@ -87,11 +87,15 @@ export function TaskList({
   // Submission tasks are grouped by the session they belong to, because "upload
   // your slides" twice with no context is indistinguishable from a bug.
   const grouped = useMemo(() => {
-    const groups = new Map<string, { heading: string; rows: MyTaskDTO[] }>();
+    const groups = new Map<string, { submissionId: string; heading: string; rows: MyTaskDTO[] }>();
     for (const task of shown.filter((entry) => entry.submissionId !== null)) {
       const key = task.submissionId ?? "";
-      const heading = `${task.submissionCode === null ? "" : formatCode(task.submissionCode)} · ${task.submissionTitle ?? ""}`.trim();
-      const group = groups.get(key) ?? { heading, rows: [] };
+      // Headed by code and title, but keyed by id: two submissions with neither
+      // would collapse to the same heading and React would reuse the wrong
+      // section.
+      const heading = [task.submissionCode === null ? "" : formatCode(task.submissionCode), task.submissionTitle ?? ""]
+        .filter(Boolean).join(" · ") || "Session";
+      const group = groups.get(key) ?? { submissionId: key, heading, rows: [] };
       group.rows.push(task);
       groups.set(key, group);
     }
@@ -110,20 +114,26 @@ export function TaskList({
         <ProgressBar value={counts.all === 0 ? 100 : Math.round((counts.done / counts.all) * 100)} tone="green" />
       </div>
 
-      <div className="abstract-status-tabs" role="tablist">
-        {([["all", `All ${counts.all}`], ["mine", `My tasks ${counts.mine}`], ["submissions", `Sessions ${counts.submissions}`]] as const)
-          .map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className={tab === id ? "active" : ""}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
+      <div className="abstract-status-tabs">
+        {/* Only tabs may live inside a tablist, so the filter sits beside it
+            rather than in it, and each tab names the panel it controls. */}
+        <div className="tab-row" role="tablist" aria-label="Task groups">
+          {([["all", `All ${counts.all}`], ["mine", `My tasks ${counts.mine}`], ["submissions", `Sessions ${counts.submissions}`]] as const)
+            .map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`task-tab-${id}`}
+                aria-controls="task-panel"
+                aria-selected={tab === id}
+                className={tab === id ? "active" : ""}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+        </div>
         <label className="table-search">
           <span className="sr-only">Filter tasks</span>
           <select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} aria-label="Filter tasks">
@@ -135,6 +145,7 @@ export function TaskList({
         </label>
       </div>
 
+      <div id="task-panel" role="tabpanel" aria-labelledby={`task-tab-${tab}`}>
       {shown.length === 0 ? (
         <div className="empty-state">
           <ClipboardCheck size={28} />
@@ -154,7 +165,7 @@ export function TaskList({
             </section>
           )}
           {grouped.map((group) => (
-            <section key={group.heading}>
+            <section key={group.submissionId}>
               <h2>{group.heading} <span>{group.rows.length}</span></h2>
               {group.rows.map((task) => (
                 <TaskCard key={`${task.taskId}:${task.submissionId}`} task={task} eventSlug={eventSlug} timezone={timezone} />
@@ -163,6 +174,7 @@ export function TaskList({
           ))}
         </div>
       )}
+      </div>
     </>
   );
 }

@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
 import { getCurrentSnapshotIn } from "@/features/forms";
+import { log } from "@/shared/lib/log";
 import { z } from "zod";
 import {
   answerValueSchema,
@@ -142,13 +143,28 @@ export async function getMyTaskIn(
   let fileRequest: MyTaskDetail["fileRequest"] = null;
   let uploads: MyTaskDetail["uploads"] = [];
   if (row.file_request_id) {
-    const requestRows = await dbOrTx.execute<{
-      id: string; title: string; instructions_html: string | null;
-      accepted_extensions: string[]; max_size_mb: number;
-    }>(sql`
-      SELECT id, title, nullif(instructions_html, '') AS instructions_html, accepted_extensions, max_size_mb
-      FROM file_requests WHERE id = ${row.file_request_id} AND event_id = ${eventId}
-    `);
+    // Independent reads, so they cost one round trip rather than two on a page
+    // a speaker opens from a phone.
+    const [requestRows, uploadRows] = await Promise.all([
+      dbOrTx.execute<{
+        id: string; title: string; instructions_html: string | null;
+        accepted_extensions: string[]; max_size_mb: number;
+      }>(sql`
+        SELECT id, title, nullif(instructions_html, '') AS instructions_html, accepted_extensions, max_size_mb
+        FROM file_requests WHERE id = ${row.file_request_id} AND event_id = ${eventId}
+      `),
+      // Every upload is kept and the latest is shown; "replace" means send
+      // another one, so a speaker can never destroy the file the organizers
+      // already have.
+      dbOrTx.execute<{ id: string; file_asset_id: string; filename: string; created_at: string }>(sql`
+        SELECT u.id, u.file_asset_id, f.filename, u.created_at
+        FROM file_uploads u
+        JOIN file_assets f ON f.id = u.file_asset_id AND f.event_id = u.event_id
+        WHERE u.event_id = ${eventId} AND u.file_request_id = ${row.file_request_id}
+          AND u.contact_id = ${contactId} AND u.submission_id IS NOT DISTINCT FROM ${submissionId}
+        ORDER BY u.created_at DESC
+      `),
+    ]);
     const request = (requestRows.rows ?? [])[0];
     if (request) {
       fileRequest = {
@@ -160,16 +176,6 @@ export async function getMyTaskIn(
       };
     }
 
-    // Every upload is kept and the latest is shown; "replace" means send another
-    // one, so a speaker can never destroy the file the organizers already have.
-    const uploadRows = await dbOrTx.execute<{ id: string; file_asset_id: string; filename: string; created_at: string }>(sql`
-      SELECT u.id, u.file_asset_id, f.filename, u.created_at
-      FROM file_uploads u
-      JOIN file_assets f ON f.id = u.file_asset_id AND f.event_id = u.event_id
-      WHERE u.event_id = ${eventId} AND u.file_request_id = ${row.file_request_id}
-        AND u.contact_id = ${contactId} AND u.submission_id IS NOT DISTINCT FROM ${submissionId}
-      ORDER BY u.created_at DESC
-    `);
     uploads = (uploadRows.rows ?? []).map((upload) => ({
       fileUploadId: upload.id,
       fileAssetId: upload.file_asset_id,
@@ -252,8 +258,14 @@ export async function getTaskFormIn(
       AND submission_id IS NOT DISTINCT FROM ${submissionId}
   `)).rows?.[0];
   if (saved) {
-    for (const [fieldId, value] of Object.entries(responseAnswersSchema.parse(saved.answers))) {
-      answers[fieldId] = value;
+    // A stored row that has drifted from the answer contract cannot be fixed by
+    // the reader, so the prefill degrades to the mapped columns rather than
+    // failing the page. The log is how the drift stops being silent.
+    const parsed = responseAnswersSchema.safeParse(saved.answers);
+    if (parsed.success) {
+      for (const [fieldId, value] of Object.entries(parsed.data)) answers[fieldId] = value;
+    } else {
+      log({ level: "warn", msg: "portal.task.response_unreadable", requestId: formId, feature: "portal", eventId });
     }
   }
 
@@ -303,24 +315,41 @@ export async function listTaskCompletionsIn(
 
   const rows = result.rows ?? [];
   // Labels come from the version each response was written against, so a
-  // question renamed later still reads the way its answerer saw it.
-  const labels = new Map<string, Map<string, string>>();
+  // question renamed later still reads the way its answerer saw it. Every
+  // version needed is fetched in one statement: a form edited three times while
+  // speakers answered would otherwise cost a round trip per version, repeated
+  // for every row once a version is missing.
+  const wanted = new Map<string, { formId: string; version: number }>();
   for (const row of rows) {
-    const key = `${row.form_id}:${row.form_version}`;
-    if (!row.form_id || row.form_version === null || labels.has(key)) continue;
-    const snapshotRow = (await dbOrTx.execute<{ snapshot: unknown }>(sql`
-      SELECT snapshot FROM form_versions
-      WHERE event_id = ${eventId} AND form_id = ${row.form_id} AND version = ${row.form_version}
-    `)).rows?.[0];
-    if (!snapshotRow) continue;
-    const snapshot = formSnapshotSchema.parse(snapshotRow.snapshot);
-    labels.set(key, new Map(snapshot.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])));
+    if (!row.form_id || row.form_version === null) continue;
+    wanted.set(`${row.form_id}:${row.form_version}`, { formId: row.form_id, version: Number(row.form_version) });
+  }
+  const labels = new Map<string, Map<string, string>>();
+  if (wanted.size > 0) {
+    const pairs = [...wanted.values()].map((entry) => sql`(${entry.formId}::uuid, ${entry.version}::int)`);
+    const snapshots = await dbOrTx.execute<{ form_id: string; version: number; snapshot: unknown }>(sql`
+      SELECT form_id, version, snapshot FROM form_versions
+      WHERE event_id = ${eventId} AND (form_id, version) IN (${sql.join(pairs, sql`, `)})
+    `);
+    for (const row of snapshots.rows ?? []) {
+      const snapshot = formSnapshotSchema.parse(row.snapshot);
+      labels.set(
+        `${row.form_id}:${row.version}`,
+        new Map(snapshot.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])),
+      );
+    }
   }
 
   return rows.map((row) => {
     const byField = labels.get(`${row.form_id}:${row.form_version}`);
-    const answers = row.answers
-      ? Object.entries(responseAnswersSchema.parse(row.answers)).map(([fieldId, value]) => ({
+    // Same reasoning as the prefill: a drifted row costs its own answers, not
+    // the organizer's whole view of who has completed the task.
+    const stored = row.answers ? responseAnswersSchema.safeParse(row.answers) : null;
+    if (row.answers && stored && !stored.success) {
+      log({ level: "warn", msg: "portal.task.response_unreadable", requestId: taskId, feature: "portal", eventId });
+    }
+    const answers = stored?.success
+      ? Object.entries(stored.data).map(([fieldId, value]) => ({
         fieldId,
         label: byField?.get(fieldId) ?? "(question removed)",
         value,

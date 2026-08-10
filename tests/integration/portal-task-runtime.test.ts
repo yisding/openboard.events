@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { contactIdSchema, eventIdSchema, formSnapshotSchema, submissionIdSchema } from "@/shared/contracts";
@@ -189,6 +189,13 @@ describe("portal task runtime", () => {
     await pglite.exec("TRUNCATE task_completions, file_uploads, form_responses CASCADE");
   });
 
+  // Write-back mutates contacts, so it is reset here rather than at the end of
+  // the cases that do it: an inline cleanup never runs when an assertion above
+  // it fails, and the leaked value then decides a later test's result.
+  afterEach(async () => {
+    await pglite.query("UPDATE contacts SET bio_html = NULL WHERE event_id = $1", [eventId]);
+  });
+
   it("fan-out: routes a submission task once per accepted submission, never for a pending one", async () => {
     const tasks = await listMyTasks(eventId, ada);
     const slides = tasks.filter((task) => task.taskId === slidesTask);
@@ -330,7 +337,7 @@ describe("portal task runtime", () => {
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "<p>Second answer</p>" } }));
     expect(await count("form_responses")).toBe(1);
     expect(await count("task_completions")).toBe(1);
-    const stored = await pglite.query<{ answers: Array<{ value: { v: string } }> }>("SELECT answers FROM form_responses");
+    const stored = await pglite.query<{ answers: Record<string, { v: string }> }>("SELECT answers FROM form_responses");
     expect(JSON.stringify(stored.rows[0]?.answers)).toContain("Second answer");
   });
 
@@ -367,6 +374,17 @@ describe("portal task runtime", () => {
     expect(stored.rows[0]?.answers).not.toContain("no longer exists");
   });
 
+  it("still shows a completion whose stored answers have drifted", async () => {
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers());
+    // A row the reader cannot fix must not take the organizer's whole view of
+    // who completed the task down with it.
+    await pglite.query(`UPDATE form_responses SET answers = '{"broken": 42}'::jsonb`);
+    const rows = await listTaskCompletions(eventId, profileTask);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.answers).toEqual([]);
+    expect(rows[0]?.contactName).toBe("Ada Lovelace");
+  });
+
   it("prefills a form from the columns its questions map to", async () => {
     await pglite.query("UPDATE contacts SET bio_html = '<p>On file already.</p>' WHERE id = $1", [ada]);
     const form = await getTaskForm(eventId, ada, formId, null);
@@ -374,7 +392,6 @@ describe("portal task runtime", () => {
     expect(form.answers[bioField]).toEqual({ t: "s", v: "<p>On file already.</p>" });
     // Nothing to prefill an unmapped question with, so it starts empty.
     expect(form.answers[shirtField]).toBeUndefined();
-    await pglite.query("UPDATE contacts SET bio_html = NULL WHERE id = $1", [ada]);
   });
 
   it("shows a saved answer over the column it was derived from", async () => {
@@ -384,7 +401,6 @@ describe("portal task runtime", () => {
     expect(form.answers[bioField]).toEqual({ t: "s", v: "<p>Fresher.</p>" });
     // The shirt size is not on any column, so only the saved response has it.
     expect(form.answers[shirtField]).toEqual({ t: "opt", v: "m" });
-    await pglite.query("UPDATE contacts SET bio_html = NULL WHERE id = $1", [ada]);
   });
 
   it("shows an organizer who completed a task and what they sent", async () => {

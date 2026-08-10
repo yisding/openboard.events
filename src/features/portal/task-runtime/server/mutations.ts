@@ -272,14 +272,29 @@ export async function completeTaskViaResponseIn(
   if (Object.keys(mapped.contact).length > 0) {
     await updateContactFields(tx, eventId, contactId, mapped.contact);
   }
-  const submissionPatch = Object.entries(mapped.submission).filter(([, value]) => value !== undefined);
+  // The allowlist enforces itself rather than being asserted into: a key it does
+  // not define would build `undefined = $n` and fail the UPDATE with a syntax
+  // error inside the transaction, costing the speaker their whole response.
+  const submissionPatch = Object.entries(mapped.submission).flatMap(([column, value]) => {
+    if (value === undefined) return [];
+    const target = Object.hasOwn(SUBMISSION_COLUMNS, column)
+      ? SUBMISSION_COLUMNS[column as keyof typeof SUBMISSION_COLUMNS]
+      : null;
+    if (!target) {
+      log({ level: "warn", msg: "portal.task.unmapped_submission_column", requestId: taskId, feature: "portal", eventId, code: column });
+      return [];
+    }
+    return [sql`${target} = ${value ?? null}`];
+  });
   if (submissionPatch.length > 0 && submissionId) {
-    const assignments = submissionPatch.map(([column, value]) =>
-      sql`${SUBMISSION_COLUMNS[column as keyof typeof SUBMISSION_COLUMNS]} = ${value ?? null}`);
     await tx.execute(sql`
-      UPDATE submissions SET ${sql.join(assignments, sql`, `)}, updated_at = now()
+      UPDATE submissions SET ${sql.join(submissionPatch, sql`, `)}, updated_at = now()
       WHERE id = ${submissionId} AND event_id = ${eventId}
     `);
+  } else if (submissionPatch.length > 0) {
+    // A contact-targeted task cannot write submission columns — there is no
+    // submission in scope. Say so, rather than discarding the answers silently.
+    log({ level: "warn", msg: "portal.task.submission_writeback_skipped", requestId: taskId, feature: "portal", eventId });
   }
 
   await tx.execute(sql`

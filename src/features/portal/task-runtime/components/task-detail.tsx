@@ -148,6 +148,14 @@ export function TaskDetailView({
         </div>
       )}
 
+      {task.completionMode === "form" && !form && (
+        <div className="portal-panel">
+          <p className="portal-note" role="alert">
+            This task&rsquo;s form is not ready yet. Nothing is needed from you until the organizers publish it.
+          </p>
+        </div>
+      )}
+
       {task.completionMode === "form" && form && (
         <div className="portal-panel">
           {/* A file question inside the renderer reads its event scope from this

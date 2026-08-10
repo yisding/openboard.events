@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { isAppError } from "@/shared/lib/errors";
 import { getMyTask, getTaskForm, requirePortalContext } from "@/features/portal";
 import { TaskDetailView } from "@/features/portal/task-runtime/components/task-detail";
 
@@ -32,8 +33,15 @@ export default async function Page({
   // A task routed to somebody else has to look exactly like one that is not there.
   if (!task) notFound();
 
+  // A form task whose form has never been published throws out of
+  // `getCurrentSnapshot`. That is a page the speaker can still read — the task,
+  // its instructions, its due date — so it renders with an explanation rather
+  // than as an error page or, worse, a panel with no fields and no button.
   const form = task.completionMode === "form" && task.formId
-    ? await getTaskForm(event.id, contact.id, task.formId, submissionId)
+    ? await getTaskForm(event.id, contact.id, task.formId, submissionId).catch((error: unknown) => {
+      if (isAppError(error) && error.code === "NOT_FOUND") return null;
+      throw error;
+    })
     : null;
 
   return (
