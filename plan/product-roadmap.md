@@ -115,7 +115,10 @@ Sequencing: P6 items ship only as thin layers over **server-backed** surfaces �
 `useDemo()` components (see "Contain the demo fork"), and never before the touched surface's P1
 wiring closes. No new runtime dependencies without a `pnpm worker:size` check; motion is
 CSS-only. M56 and M57 establish the two patterns (attention queue, slide-over + bulk bar) that
-M58–M60 assume, so they lead.
+M58–M60 assume, so they lead. They are mutually independent and may land in either order:
+until M57 exists, M56's attention-queue links open the plain pre-filtered lists, and the
+bulk-bar pre-arming on those entry points is the integration shipped by whichever of the two
+lands second.
 
 | ID | Module | Scope sketch | Depends on |
 |---|---|---|---|

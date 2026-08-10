@@ -57,7 +57,9 @@ is how the product feels like it knows where you are without any inference machi
 1. **The dashboard is an attention queue, not a report.** Lead with the ranked list of what is
    blocking the event now ("5 abstracts unreviewed 7+ days · 3 accepted speakers missing
    headshots · 2 room conflicts Thursday"), each item linking to the pre-filtered view with the
-   bulk bar ready. KPI tiles and the donut move below the fold. The test for every dashboard
+   bulk bar pre-armed — the pre-arming is M57's deliverable; until M57 lands each link opens
+   the plain filtered list, so M56 and M57 stay independently shippable. KPI tiles and the
+   donut move below the fold. The test for every dashboard
    element: *can the user click it and act?* If not, demote it. (M56; extends M38's
    attention-strip intent.)
 2. **Phase-aware emphasis.** During CFP, submission velocity leads; during review, reviewer
@@ -144,8 +146,11 @@ that is the selection criterion, not a coincidence.
 - **Zero-account personal itinerary** is already scoped inside **M53** (star sessions,
   localStorage, ICS export) and stays there.
 - **"Happening now / up next."** During event days the public schedule auto-highlights the
-  current slot using event-timezone math (`formatInZone`/`eventDayKey`). Sites that do this
-  feel alive; ones that don't feel like PDFs. (M60)
+  current slot using event-timezone math (`formatInZone`/`eventDayKey`). The highlight is
+  computed **client-side with a periodic (~minutely) refresh** against the event's IANA
+  timezone — never baked into server-rendered markup, because the page is edge-cached
+  (`s-maxage`) and cached HTML would serve a stale slot. Sites that do this feel alive; ones
+  that don't feel like PDFs. (M60)
 - **Delightful empty and error states.** The 404, "schedule not yet published", empty search —
   a helpful redirect ("The schedule drops March 3 — here's the speaker gallery meanwhile")
   reads as craft. (M60)
