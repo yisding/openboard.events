@@ -105,7 +105,14 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
   // authenticated surface to anyone with the link.
   if (form.context !== "cfp") throw new AppError("NOT_FOUND", "Form not found");
 
-  const snapshot = await getCurrentSnapshotIn(dbOrTx, event.id as Parameters<typeof getCurrentSnapshotIn>[1], formId);
+  const storedSnapshot = await getCurrentSnapshotIn(dbOrTx, event.id as Parameters<typeof getCurrentSnapshotIn>[1], formId);
+  // Locked identity fields remain in every immutable authoring snapshot so the
+  // builder can safely turn participant collection back on before submissions.
+  // The public runtime, however, must render the collection mode stored on the
+  // form rather than exposing a participant step whose fields happen to exist.
+  const snapshot = form.collectParticipants
+    ? storedSnapshot
+    : { ...storedSnapshot, sections: storedSnapshot.sections.filter((section) => section.key !== "participant") };
 
   return {
     event: {

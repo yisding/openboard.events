@@ -191,7 +191,9 @@ export function deriveMappedFields(snapshot: FormSnapshot, clean: CleanAnswers):
       case "submission.description_html": submission.descriptionHtml = text; break;
       case "submission.track_id": submission.trackId = chosen?.trackId ?? null; break;
       case "submission.format_id": submission.formatId = chosen?.formatId ?? null; break;
-      case "submission.level": submission.level = text; break;
+      // Option ids are immutable authoring identities, not semantic values for
+      // the typed submission column. Store the organizer-facing level label.
+      case "submission.level": submission.level = chosen?.label ?? text; break;
       case "contact.first_name": contact.firstName = text; break;
       case "contact.last_name": contact.lastName = text; break;
       case "contact.email": contact.email = text; break;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
-import { saveWithRetry, serializeAutosaves, stepForErrors, type AutosaveState } from "./components/cfp-steps";
+import { cfpFlowSteps, saveWithRetry, serializeAutosaves, stepForErrors, type AutosaveState } from "./components/cfp-steps";
 
 const fieldId = (key: string) => {
   const field = GOLDEN_SNAPSHOT.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === key);
@@ -9,6 +9,11 @@ const fieldId = (key: string) => {
 };
 
 describe("CFP validation routing", () => {
+  it("omits the speaker step when participant collection is disabled", () => {
+    expect(cfpFlowSteps(false)).toEqual(["account", "submission", "review"]);
+    expect(cfpFlowSteps(true)).toContain("speaker");
+  });
+
   it("returns participant errors to the speaker step", () => {
     expect(stepForErrors(GOLDEN_SNAPSHOT, { [fieldId("first_name")]: "First name is required" })).toBe("speaker");
   });

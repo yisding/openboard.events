@@ -241,6 +241,17 @@ describe("deriveMappedFields", () => {
     expect(deriveMappedFields(GOLDEN_SNAPSHOT, clean).submission.title).toHaveLength(255);
   });
 
+  it("stores a dropdown level's semantic label instead of its option id", () => {
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT) as FormSnapshot;
+    const notes = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "notes");
+    if (!notes) throw new Error("notes field missing");
+    notes.type = "dropdown";
+    notes.options = [{ id: "level-beginner", label: "Beginner" }];
+    notes.mapsTo = "submission.level";
+    const clean = cleanAnswersSchema.parse([{ fieldId: notes.id, participantId: null, value: { t: "opt", v: "level-beginner" } }]);
+    expect(deriveMappedFields(snapshot, clean).submission.level).toBe("Beginner");
+  });
+
   it("rejects an over-long title through the pipeline, before it reaches a column", () => {
     const result = runSubmitPipeline(GOLDEN_SNAPSHOT, { ...completeAnswers(), [TITLE.id]: text("a".repeat(300)) }, { requireRequired: false });
     expect(result.ok).toBe(false);

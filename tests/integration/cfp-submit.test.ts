@@ -179,6 +179,25 @@ describe("CFP submit, end to end through the server path", () => {
     expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
   });
 
+  it("does not require or store participant answers when collection is disabled", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("UPDATE forms SET collect_participants=false WHERE id=$1", [formId]);
+    const abstractOnly = answers();
+    for (const key of ["first_name", "last_name", "email"]) delete abstractOnly[field(key).id];
+
+    const result = await submitCfpForm({ eventId, formId, contactId: speaker, formVersion: 1, answers: abstractOnly });
+    const participantAnswers = await pglite.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+       FROM submission_answers answer
+       JOIN form_fields field ON field.id=answer.field_id
+       JOIN form_sections section ON section.id=field.section_id
+       WHERE answer.submission_id=$1 AND section.key='participant'`,
+      [result.submissionId],
+    );
+    expect(participantAnswers.rows[0]?.count).toBe(0);
+    await pglite.query("UPDATE forms SET collect_participants=true WHERE id=$1", [formId]);
+  });
+
   it("rejects participant identities other than the signed-in speaker", async () => {
     await pglite.query("DELETE FROM submissions");
     const otherContact = contactIdSchema.parse("f0000000-0000-4000-8000-000000000004");

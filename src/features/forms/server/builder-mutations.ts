@@ -324,13 +324,52 @@ export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
   return getFormForBuilderIn(dbOrTx, eventId, formId);
 }
 
-function reconcileOptions(field: BuilderField, labels: string[]): BuilderField["options"] {
+function reconcileFreeformOptions(field: BuilderField, labels: string[]): BuilderField["options"] {
   const clean = labels.map((label) => label.trim()).filter(Boolean);
   const unused = [...field.options];
   return clean.map((label) => {
     const exact = unused.findIndex((option) => option.label === label);
     const picked = exact >= 0 ? unused.splice(exact, 1)[0] : unused.shift();
     return picked ? { ...picked, label } : { id: crypto.randomUUID(), label };
+  });
+}
+
+async function reconcileOptions(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  field: BuilderField,
+  labels: string[],
+  mapsTo: BuilderField["mapsTo"],
+  fieldType: BuilderField["fieldType"],
+): Promise<BuilderField["options"]> {
+  if (mapsTo !== "submission.track_id" && mapsTo !== "submission.format_id") {
+    return reconcileFreeformOptions(field, labels);
+  }
+  if (fieldType !== "dropdown") {
+    throw new AppError("VALIDATION", `${mapsTo} must use a dropdown field`);
+  }
+
+  const vocabulary = mapsTo === "submission.track_id"
+    ? await dbOrTx.select({ id: tracks.id, name: tracks.name }).from(tracks).where(eq(tracks.eventId, eventId))
+    : await dbOrTx.select({ id: sessionFormats.id, name: sessionFormats.name }).from(sessionFormats).where(eq(sessionFormats.eventId, eventId));
+  const byLabel = new Map(vocabulary.map((row) => [row.name.trim().toLocaleLowerCase(), row]));
+  const seenBindings = new Set<string>();
+
+  return labels.map((label) => label.trim()).filter(Boolean).map((label) => {
+    const row = byLabel.get(label.toLocaleLowerCase());
+    if (!row) {
+      const kind = mapsTo === "submission.track_id" ? "track" : "session format";
+      throw new AppError("VALIDATION", `“${label}” is not an event ${kind}. Choose an existing ${kind} before saving.`);
+    }
+    if (seenBindings.has(row.id)) {
+      throw new AppError("VALIDATION", `Each mapped option must reference a different ${mapsTo === "submission.track_id" ? "track" : "session format"}.`);
+    }
+    seenBindings.add(row.id);
+    const existing = field.options.find((option) => mapsTo === "submission.track_id" ? option.trackId === row.id : option.formatId === row.id)
+      ?? field.options.find((option) => option.label.trim().toLocaleLowerCase() === row.name.trim().toLocaleLowerCase());
+    return mapsTo === "submission.track_id"
+      ? { id: existing?.id ?? crypto.randomUUID(), label: row.name, trackId: trackIdSchema.parse(row.id) }
+      : { id: existing?.id ?? crypto.randomUUID(), label: row.name, formatId: formatIdSchema.parse(row.id) };
   });
 }
 
@@ -348,6 +387,9 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
   const nextType = patch.fieldType ?? field.fieldType;
   const isOptions = nextType === "dropdown" || nextType === "multiselect";
   const acceptsMaxChars = nextType === "text" || nextType === "textarea" || nextType === "richtext";
+  const nextOptions = isOptions && (patch.optionLabels !== undefined || nextMapsTo === "submission.track_id" || nextMapsTo === "submission.format_id")
+    ? await reconcileOptions(dbOrTx, eventId, field, patch.optionLabels ?? field.options.map((option) => option.label), nextMapsTo, nextType)
+    : isOptions ? field.options : [];
   const updated: BuilderField = {
     ...field,
     key: nextKey,
@@ -358,7 +400,7 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     helpText: patch.helpText ?? field.helpText,
     visibility: patch.visibility === undefined ? field.visibility : patch.visibility,
     mapsTo: nextMapsTo,
-    options: isOptions ? (patch.optionLabels ? reconcileOptions(field, patch.optionLabels) : field.options) : [],
+    options: nextOptions,
   };
   const hypothetical = {
     ...form,

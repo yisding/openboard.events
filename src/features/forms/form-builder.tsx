@@ -22,7 +22,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { FieldType, MapsToTarget, VisibilityRule } from "@/shared/contracts";
 import { COMMITTED_FIELD_TYPES, CONDITION_OPS, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
@@ -31,6 +31,7 @@ import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
+import { mergeUnsavedBuilderEdits, type BuilderDirtyTarget } from "./form-builder-state";
 
 const stepMeta = [
   { id: "setup", label: "Setup", icon: Settings2 },
@@ -83,7 +84,13 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [newLabel, setNewLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
+
+  function markDirty(target: BuilderDirtyTarget) {
+    dirtyRevisions.current.set(target, (dirtyRevisions.current.get(target) ?? 0) + 1);
+    setDirty(true);
+  }
 
   function setStep(next: BuilderStep) {
     const params = new URLSearchParams(searchParams.toString());
@@ -94,12 +101,12 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
 
   function applyLocal(patch: FormPatch) {
     setForm((current) => ({ ...current, ...patch }) as BuilderForm);
-    setDirty(true);
+    markDirty(`step:${step}`);
   }
 
   function applySection(sectionId: string, patch: Partial<BuilderSection>) {
     setForm((current) => ({ ...current, sections: current.sections.map((section) => section.id === sectionId ? { ...section, ...patch } : section) }));
-    setDirty(true);
+    markDirty(`section:${sectionId}`);
   }
 
   function applyField(fieldId: string, patch: Partial<BuilderField>) {
@@ -107,16 +114,21 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       ...current,
       sections: current.sections.map((section) => ({ ...section, fields: section.fields.map((field) => field.id === fieldId ? { ...field, ...patch } : field) })),
     }));
-    setDirty(true);
+    markDirty(`field:${fieldId}`);
   }
 
-  async function run(action: () => Promise<BuilderForm>, success: string) {
+  async function run(action: () => Promise<BuilderForm>, success: string, savedTargets: BuilderDirtyTarget[] = []) {
     if (busy) return;
+    const savedRevisions = new Map(savedTargets.map((target) => [target, dirtyRevisions.current.get(target)]));
     setBusy(true);
     try {
       const next = await action();
-      setForm(next);
-      setDirty(false);
+      for (const [target, revision] of savedRevisions) {
+        if (dirtyRevisions.current.get(target) === revision) dirtyRevisions.current.delete(target);
+      }
+      const remaining = new Set(dirtyRevisions.current.keys());
+      setForm((current) => mergeUnsavedBuilderEdits(next, current, remaining));
+      setDirty(remaining.size > 0);
       toast(success);
       router.refresh();
     } catch (error) {
@@ -141,7 +153,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
           expectedUpdatedAt: current.updatedAt,
           patch: { title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml },
         }));
-      }, `${step === "abstract" ? "Abstract" : "Participant"} step saved`);
+      }, `${step === "abstract" ? "Abstract" : "Participant"} step saved`, [
+        `section:${section.id}`,
+        ...(step === "participant" ? [`step:participant` as const] : []),
+      ]);
       return;
     }
     const patch: FormPatch = step === "setup" ? {
@@ -166,7 +181,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       confirmationSubject: form.confirmationSubject,
       confirmationBodyHtml: form.confirmationBodyHtml,
     };
-    await run(() => patchForm(patch), `${stepMeta.find((item) => item.id === step)?.label} step saved`);
+    await run(() => patchForm(patch), `${stepMeta.find((item) => item.id === step)?.label} step saved`, [`step:${step}`]);
   }
 
   async function saveField(field: BuilderField) {
@@ -181,7 +196,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
       expectedUpdatedAt: form.updatedAt,
       patch: { label: field.label, helpText: field.helpText, maxChars: field.maxChars, ...structural },
-    })), "Question saved");
+    })), "Question saved", [`field:${field.id}`]);
   }
 
   async function addField() {
@@ -198,7 +213,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function deleteField(field: BuilderField) {
-    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("DELETE", { expectedUpdatedAt: form.updatedAt })), "Question removed");
+    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("DELETE", { expectedUpdatedAt: form.updatedAt })), "Question removed", [`field:${field.id}`]);
     setSelected(null);
   }
 
@@ -294,7 +309,7 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
     <Field label="Help text"><textarea value={field.helpText} onChange={(current) => onChange({ helpText: current.target.value })} /></Field>
     {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
     <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><button disabled={field.locked || lockedStructure} className={`switch ${field.required ? "on" : ""}`} onClick={() => onChange({ required: !field.required })}><i /></button></div>
-    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
+    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
     {!field.locked && <Field label="Maps to"><select disabled={lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}><option value="">No system mapping</option>{MAPS_TO_TARGETS.map((target) => <option key={target} value={target}>{target}</option>)}</select></Field>}
     {!field.locked && <div className="condition-card"><div><b>Conditional visibility</b><small>Conditions may reference only earlier questions.</small></div><button disabled={lockedStructure || earlier.length === 0} className={`switch ${field.visibility ? "on" : ""}`} onClick={() => visibility(!field.visibility)}><i /></button>{condition && <div className="condition-editor"><span>Show when</span><select disabled={lockedStructure} value={condition.sourceFieldId} onChange={(current) => updateCondition({ sourceFieldId: current.target.value as BuilderField["id"] })}>{earlier.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.label}</option>)}</select><select disabled={lockedStructure} value={condition.op} onChange={(current) => { const op = current.target.value as (typeof CONDITION_OPS)[number]; updateCondition({ op, value: op === "answered" || op === "empty" ? undefined : condition.value ?? "" }); }}>{CONDITION_OPS.map((op) => <option key={op} value={op}>{op === "in" ? "contains option" : op.replaceAll("_", " ")}</option>)}</select>{!["answered", "empty"].includes(condition.op) && <input disabled={lockedStructure} value={typeof condition.value === "string" ? condition.value : ""} onChange={(current) => updateCondition({ value: current.target.value })} placeholder="Value or option id" />}</div>}</div>}
     <Button disabled={busy} onClick={onSave}><Save size={15} /> Save question</Button>

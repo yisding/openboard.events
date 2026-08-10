@@ -12,6 +12,7 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import type { BuilderEvent, BuilderField, BuilderForm, BuilderSection, FormListRow } from "../builder-types";
+import { decideOpenState } from "./public-form";
 
 const participantRolesSchema = z.array(z.object({
   role: z.enum(["speaker", "co_speaker", "moderator", "panelist"]),
@@ -41,6 +42,7 @@ export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<For
     status: forms.status,
     kind: forms.kind,
     collectParticipants: forms.collectParticipants,
+    opensAt: forms.opensAt,
     closesAt: forms.closesAt,
     createdAt: forms.createdAt,
     submissionCount: sql<number>`count(${submissions.id}) filter (where ${submissions.status} <> 'draft')::int`,
@@ -54,15 +56,23 @@ export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<For
     .groupBy(forms.id)
     .orderBy(asc(forms.createdAt), asc(forms.id));
 
-  return rows.map((row) => ({
-    ...row,
-    id: formIdSchema.parse(row.id),
-    closesAt: row.closesAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    submissionCount: Number(row.submissionCount),
-    draftCount: Number(row.draftCount),
-    pendingCount: Number(row.pendingCount),
-  }));
+  const now = new Date();
+  return rows.map((row) => {
+    const { opensAt, ...visible } = row;
+    const effectiveStatus = row.status === "open" && !decideOpenState({ status: row.status, opensAt, closesAt: row.closesAt }, now).open
+      ? "closed"
+      : row.status;
+    return {
+      ...visible,
+      status: effectiveStatus,
+      id: formIdSchema.parse(row.id),
+      closesAt: row.closesAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+      submissionCount: Number(row.submissionCount),
+      draftCount: Number(row.draftCount),
+      pendingCount: Number(row.pendingCount),
+    };
+  });
 }
 
 export function listForms(eventId: EventId): Promise<FormListRow[]> {

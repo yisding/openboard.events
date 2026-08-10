@@ -1,4 +1,6 @@
-import { withTx } from "@/db/client";
+import { and, eq } from "drizzle-orm";
+import { db, withTx } from "@/db/client";
+import { forms } from "@/db/schema";
 import { updateContactFields } from "@/features/portal";
 import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions";
 import {
@@ -59,8 +61,16 @@ function answersFor(snapshot: FormSnapshot, answers: RawAnswers): RawAnswers {
 
 export async function submitCfpForm(input: SubmitInput) {
   // The version the client rendered decides which snapshot its answers mean.
-  const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
-  const current = await getCurrentSnapshot(input.eventId, input.formId);
+  const [rendered, current, formRows] = await Promise.all([
+    getPinnedSnapshot(input.eventId, input.formId, input.formVersion),
+    getCurrentSnapshot(input.eventId, input.formId),
+    db.select({ collectParticipants: forms.collectParticipants })
+      .from(forms)
+      .where(and(eq(forms.eventId, input.eventId), eq(forms.id, input.formId)))
+      .limit(1),
+  ]);
+  const form = formRows[0];
+  if (!form) throw new AppError("NOT_FOUND", "Form not found");
 
   // Structural drift is the client's problem to recover from, so the fresh
   // snapshot travels with the error rather than making them fetch it.
@@ -90,16 +100,18 @@ export async function submitCfpForm(input: SubmitInput) {
   let profilePatch: ReturnType<typeof deriveMappedFields>["contact"] = {};
   const abstractContext = answersFor(abstractSnapshot, input.answers);
   const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
-  for (const participant of submittedParticipants) {
-    const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
-    // Keep the full snapshot while evaluating participant fields: their
-    // visibility may depend on an abstract answer from an earlier section.
-    // Only participant answers are retained after that evaluation.
-    const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.contactId, requireRequired: true });
-    if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
-    const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
-    perParticipant.push(participantClean);
-    if (participant.isPrimary) profilePatch = deriveMappedFields(participantSnapshot, participantClean).contact;
+  if (form.collectParticipants) {
+    for (const participant of submittedParticipants) {
+      const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
+      // Keep the full snapshot while evaluating participant fields: their
+      // visibility may depend on an abstract answer from an earlier section.
+      // Only participant answers are retained after that evaluation.
+      const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.contactId, requireRequired: true });
+      if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
+      const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
+      perParticipant.push(participantClean);
+      if (participant.isPrimary) profilePatch = deriveMappedFields(participantSnapshot, participantClean).contact;
+    }
   }
   const answers = cleanAnswersSchema.parse([...abstract.clean, ...perParticipant.flat()]);
 

@@ -78,6 +78,13 @@ describe("database-backed form builder", () => {
     expect(versions.rows.map((row) => row.version)).toEqual([1, 2, 3]);
   });
 
+  it("reports date-gated open forms as effectively closed", async () => {
+    const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
+    await pglite.query("UPDATE forms SET status='open', closes_at=now() - interval '1 minute' WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId)).toMatchObject([{ id: formId, status: "closed" }]);
+    await pglite.query("UPDATE forms SET status='draft', closes_at=NULL WHERE id=$1", [formId]);
+  });
+
   it("supports all eight committed types and preserves option ids while labels change", async () => {
     const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
     let form = await getFormForBuilderIn(database, eventId, formId);
@@ -85,12 +92,29 @@ describe("database-backed form builder", () => {
     for (const [label, fieldType] of [["Long answer", "textarea"], ["Website", "url"], ["Slides", "file"]] as const) {
       form = await createFieldIn(database, eventId, formId, { sectionId: section.id, label, fieldType }, form.updatedAt);
     }
-    const optionField = required(required(form.sections[0], "abstract section").fields.find((field) => field.fieldType === "dropdown" && !field.locked), "option field");
+    const optionField = required(required(form.sections[0], "abstract section").fields.find((field) => field.key === "level"), "option field");
     const optionIds = optionField.options.map((option) => option.id);
     form = await updateFieldIn(database, eventId, formId, optionField.id, { optionLabels: optionField.options.map((option) => `${option.label} updated`) }, form.updatedAt);
     expect(form.sections.flatMap((candidate) => candidate.fields).find((field) => field.id === optionField.id)?.options.map((option) => option.id)).toEqual(optionIds);
     const types = new Set(form.sections.flatMap((candidate) => candidate.fields).map((field) => field.fieldType));
     expect([...types].sort()).toEqual(["dropdown", "email", "file", "multiselect", "richtext", "text", "textarea", "url"]);
+  });
+
+  it("binds mapped dropdown options to event vocabulary and rejects unknown labels", async () => {
+    const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
+    let form = await getFormForBuilderIn(database, eventId, formId);
+    const track = required(form.sections.flatMap((section) => section.fields).find((field) => field.key === "track"), "track field");
+    const invalid = await updateFieldIn(database, eventId, formId, track.id, { optionLabels: ["Not an event track"] }, form.updatedAt)
+      .catch((error: unknown) => error);
+    expect(isAppError(invalid) && invalid.code).toBe("VALIDATION");
+
+    const inserted = await pglite.query<{ id: string }>(
+      "INSERT INTO tracks(event_id,name,sort_order) VALUES($1,'Platform Engineering',1) RETURNING id",
+      [eventId],
+    );
+    form = await updateFieldIn(database, eventId, formId, track.id, { optionLabels: ["AI Agents", "Platform Engineering"] }, form.updatedAt);
+    const saved = required(form.sections.flatMap((section) => section.fields).find((field) => field.id === track.id), "saved track field");
+    expect(saved.options[1]).toMatchObject({ label: "Platform Engineering", trackId: inserted.rows[0]?.id });
   });
 
   it("rejects locked-field weakening and stale writes without publishing a version", async () => {
