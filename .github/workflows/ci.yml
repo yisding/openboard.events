@@ -1,29 +1,54 @@
 name: CI
+
 on:
   pull_request:
   push:
     branches: [main]
+
+# A newer commit supersedes an older validation run for the same branch. This
+# keeps rapid PR and main iteration from consuming runners on checks that can no
+# longer be merged; the newest main commit still validates the complete tree.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
-  check:
+  static:
+    name: Static and generated-file gates
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      NEXT_PUBLIC_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 11.8.0 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
-      # check-invariants.sh fails closed when ripgrep is missing.
-      - run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      # Two independent budgets. The browser bundle and the compressed Worker are
-      # different artifacts: the editor is client-only, so it must move the first
-      # number and must not move the second.
-      - run: pnpm bundle:client
-      # Wrangler resolves the self-service binding against the generated OpenNext entrypoint.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-node
+        with:
+          install-ripgrep: true
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm invariants
+
+  tests:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-node
+      - run: pnpm test
+
+  artifacts:
+    name: Worker and browser artifact gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup-node
+      - run: pnpm build:worker
+      # build:worker produces both .next and .open-next. Keep these consumers in
+      # the same job so the expensive build runs once and no artifact upload or
+      # download is needed.
       - run: pnpm cf-typegen:check
+      - run: pnpm bundle:client
       - run: pnpm worker:size
