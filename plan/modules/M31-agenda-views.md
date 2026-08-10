@@ -1,7 +1,7 @@
 # M31 — Week/Track/Room/Conflicts views
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged fixture-backed **STACK-DEMO** Week/Track/Room/Conflicts views lack server data, required interactions, accessibility, and AC and remain paused behind the minimum loop. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. All four read-only projections now render real server-supplied `AgendaViewProps`: `conflicts-view.tsx` (severity-colored, errors-before-warnings), a new shared `grouped-agenda-list.tsx` powering `track-view.tsx`/`room-view.tsx` (one lane per vocabulary entry plus a trailing Uncategorized/Unassigned lane), and `week-view.tsx` (one column per event day). Zero new server calls, zero mutations; 18 new vitest cases pin the bucketing/sorting rules. Remaining before `DONE`: the Playwright agenda-schedule badge assertion (M10-owned) and deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Split: Conflicts tab lands Monday (same day as ./M30-day-grid-dnd.md); Week/Track/Room land Tuesday AM |
 | **Size** | M |

@@ -1,7 +1,7 @@
 # M33 — Embed shells + snippet + admin
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged **STACK-DEMO** embed shells/configurator lack deployed `frame-ancestors`, resize messaging, published-data isolation, cross-origin framing, and AC. **Remaining M33 work is gated on the hard dependency below: it does not resume until [M32](./M32-public-schedule-gallery.md)'s published-view queries, leakage tests, and deployed AC are green — an embed must never be treated as ready before its source data is leak-proof.** See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. M32's published-view queries landed, closing the gate this module was paused behind. New `embed-config-types.ts`/`server/embed-config-queries.ts` (`isEmbedEnabled`, absence-of-row = enabled by default) and `embed-config-mutations.ts` (`updateEmbedConfig`) now back a real per-content-type kill switch: both bare-shell pages check `isEmbedEnabled` before calling `getPublishedSchedule`/`getPublishedSpeakers`, and `embeds-admin-page.tsx` is a real card UI over two new `adminAuth` routes. 6 new PGlite tests cover default-enabled, idempotent create, and cross-event IDOR. Remaining before `DONE`: deployed AC (frame-ancestors header on the live preview, XFO DENY elsewhere). See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Monday |
 | **Size** | M |

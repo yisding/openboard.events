@@ -1,0 +1,174 @@
+"use client";
+
+import { useState } from "react";
+import { FileText, Plus, Upload } from "lucide-react";
+import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
+import { useToast } from "@/shared/ui/toast";
+import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
+import type { FileRequestDTO } from "../server/queries";
+
+type Draft = {
+  id?: string;
+  title: string;
+  targetType: "contact" | "submission";
+  instructionsHtml: string;
+  acceptedExtensions: string;
+  maxSizeMb: number;
+};
+
+function draftFromRequest(request: FileRequestDTO | null): Draft {
+  if (!request) {
+    return { title: "", targetType: "contact", instructionsHtml: "", acceptedExtensions: DEFAULT_ACCEPTED_EXTENSIONS.join(", "), maxSizeMb: 100 };
+  }
+  return {
+    id: request.id, title: request.title, targetType: request.targetType,
+    instructionsHtml: request.instructionsHtml, acceptedExtensions: request.acceptedExtensions.join(", "), maxSizeMb: request.maxSizeMb,
+  };
+}
+
+/**
+ * File Requests: title/type/instructions/extensions/max size, wired to
+ * `saveFileRequest`. The list itself is owned by `TasksAdminView`, not this
+ * component — a request created here has to be immediately selectable in the
+ * task editor's "File request" dropdown (step 9's done-when), which is only
+ * true if both read the same in-memory list rather than each keeping a copy
+ * that goes stale the moment the other one writes.
+ */
+export function FileRequestsView({
+  eventId,
+  requests,
+  onChanged,
+}: {
+  eventId: string;
+  requests: FileRequestDTO[];
+  onChanged: () => void | Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState<FileRequestDTO | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<Draft>(() => draftFromRequest(null));
+  const [saving, setSaving] = useState(false);
+
+  const open = creating || editing !== null;
+
+  function startCreate() {
+    setDraft(draftFromRequest(null));
+    setCreating(true);
+  }
+  function startEdit(request: FileRequestDTO) {
+    setDraft(draftFromRequest(request));
+    setEditing(request);
+  }
+  function closeEditor() {
+    setCreating(false);
+    setEditing(null);
+  }
+
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await fetch(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
+        method: draft.id ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: draft.title,
+          targetType: draft.targetType,
+          instructionsHtml: draft.instructionsHtml,
+          acceptedExtensions: draft.acceptedExtensions.split(",").map((extension) => extension.trim()).filter(Boolean),
+          maxSizeMb: draft.maxSizeMb,
+        }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!response.ok) {
+        toast(payload?.error?.message ?? "That file request could not be saved");
+        return;
+      }
+      toast(draft.id ? "File request updated" : "File request created");
+      closeEditor();
+      await onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(request: FileRequestDTO) {
+    const response = await fetch(`/api/internal/file-requests/${request.id}?eventId=${eventId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    // A RESTRICT constraint refusal reads as this friendly message, never a raw 500.
+    toast(response.ok ? `${request.title} deleted` : payload?.error?.message ?? "That file request could not be deleted");
+    if (response.ok) await onChanged();
+  }
+
+  return (
+    <section className="panel">
+      <header className="panel-header">
+        <div><h2>File requests</h2><p>Reusable upload requests any task can point at</p></div>
+        <Button size="sm" onClick={startCreate}><Plus size={14} /> Add file request</Button>
+      </header>
+
+      {requests.length === 0 && (
+        <EmptyState
+          icon={<Upload size={20} />}
+          title="No file requests yet"
+          description="Create one to collect slides, headshots, or any other document from speakers."
+          action={<Button onClick={startCreate}>Add file request</Button>}
+        />
+      )}
+
+      {requests.map((request) => (
+        <article className="admin-task-row" key={request.id}>
+          <span className="task-mode-icon file_request"><FileText size={18} /></span>
+          <div className="admin-task-main">
+            <div><h3>{request.title}</h3></div>
+            <p>{request.acceptedExtensions.join(", ").toUpperCase()} · up to {request.maxSizeMb} MB</p>
+            <div><span>{request.targetType === "contact" ? "Accepted speakers" : "Accepted submissions"}</span></div>
+          </div>
+          <span className="row-actions">
+            <Button size="sm" variant="secondary" onClick={() => startEdit(request)}>Edit</Button>
+            <Button size="sm" variant="ghost" onClick={() => remove(request)}>Delete</Button>
+          </span>
+        </article>
+      ))}
+
+      <Modal
+        open={open}
+        onClose={closeEditor}
+        title={draft.id ? "Edit file request" : "Create a file request"}
+        wide
+        footer={<>
+          <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
+          <Button disabled={!draft.title.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create file request"}</Button>
+        </>}
+      >
+        <div className="form-stack">
+          <Field label="Title" required>
+            <input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
+          </Field>
+          <Field label="Type">
+            <div className="choice-cards compact">
+              {(["contact", "submission"] as const).map((type) => (
+                <button type="button" key={type} className={draft.targetType === type ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, targetType: type }))}>
+                  <b>{type === "contact" ? "Speakers" : "Submissions"}</b>
+                  <small>{type === "contact" ? "Once per accepted speaker" : "Once per accepted submission"}</small>
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Instructions">
+            <RichTextEditor value={draft.instructionsHtml} onChange={(html) => setDraft((current) => ({ ...current, instructionsHtml: html }))} placeholder="What should speakers upload?" />
+          </Field>
+          <div className="form-grid">
+            <Field label="Accepted extensions" hint="Comma separated, no dots">
+              <input value={draft.acceptedExtensions} onChange={(event) => setDraft((current) => ({ ...current, acceptedExtensions: event.target.value }))} placeholder="pdf, ppt, pptx" />
+            </Field>
+            <Field label="Max size (MB)">
+              <input type="number" min={1} max={5000} value={draft.maxSizeMb} onChange={(event) => setDraft((current) => ({ ...current, maxSizeMb: Number(event.target.value) || 1 }))} />
+            </Field>
+          </div>
+        </div>
+      </Modal>
+    </section>
+  );
+}

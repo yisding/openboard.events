@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged localStorage **STACK-DEMO** profile lacks authorized server writes, field-scoped contacts, real R2 headshot upload, and deployed AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. `server/queries.ts`'s `getSpeakerProfile(In)` and `mutations.ts`'s `updateProfile(In)` now do field-scoped writes on top of M21's `updateContactFields` (5000-char sanitized bio, four link URLs, real headshot upload through M07's presign/finalize and M05b's `<FileUpload>`), wired through a real `profile-form.tsx`, a `PATCH`/`GET` `/api/internal/portal/profile` route, and `src/app/portal/[eventSlug]/profile/page.tsx` reading server-side. 8 new PGlite tests cover bio-limit boundaries, sanitizer stripping, and field-scoped writes. Remaining before `DONE`: deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal`). |
 | **Scheduled** | Sun, alongside M25's manual+file modes, per WS-D's order (`M22 + M25 manual/file modes (Sun)`). |
 | **Size** | M |

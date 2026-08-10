@@ -22,7 +22,14 @@ const participantRolesSchema = z.array(z.object({
 }));
 
 export async function getBuilderEventIn(dbOrTx: DbOrTx, eventId: EventId): Promise<BuilderEvent> {
-  const [event] = await dbOrTx.select({ id: events.id, name: events.name, slug: events.slug, timezone: events.timezone })
+  const [event] = await dbOrTx.select({
+    id: events.id,
+    name: events.name,
+    slug: events.slug,
+    timezone: events.timezone,
+    // M14: the Submission capacity card's "Event max: N" fallback chip.
+    submissionCapPerUser: events.submissionCapPerUser,
+  })
     .from(events)
     .where(eq(events.id, eventId))
     .limit(1);

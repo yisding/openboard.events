@@ -5,7 +5,7 @@ import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { AbstractsPage } from "@/features/submissions/abstracts-page";
 import { AbstractsView } from "@/features/submissions/components/abstracts-view";
-import { getStatusCounts, listSubmissions, submissionFiltersSchema } from "@/features/submissions";
+import { getStatusCounts, getSubmissionVocabulary, listSubmissions, submissionFiltersSchema } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
@@ -27,7 +27,10 @@ export default async function Page({
   const eventId = eventIdSchema.parse(rawEventId);
   // Any member may read the submissions they are reviewing, so no role is
   // required here — the layout's guard has already established membership.
-  await requireAdmin(eventId);
+  // Changing one is an organizer's job, and the routes enforce that too: a
+  // reviewer who forges the request still gets 403.
+  const session = await requireAdmin(eventId);
+  const canEdit = session.role === "owner" || session.role === "organizer";
 
   const query = await searchParams;
   const filters = submissionFiltersSchema.parse({
@@ -45,13 +48,14 @@ export default async function Page({
 
   // Rows and counts come from the same filters, which is what keeps the tab
   // numbers honest about the table under them.
-  const [list, counts, unfiltered] = await Promise.all([
+  const [list, counts, unfiltered, vocabulary] = await Promise.all([
     listSubmissions(eventId, filters),
     getStatusCounts(eventId, { search: filters.search, trackId: filters.trackId, tagId: filters.tagId, pageSize: filters.pageSize, sort: filters.sort }),
     // Notify finalizes both queues for the whole event, so the number on its
     // button has to be the whole event's — a search must not make it look like
     // fewer speakers are about to be emailed than actually are.
     getStatusCounts(eventId, { search: "", trackId: null, tagId: null, pageSize: filters.pageSize, sort: filters.sort }),
+    getSubmissionVocabulary(eventId),
   ]);
 
   return (
@@ -68,6 +72,8 @@ export default async function Page({
       sort={filters.sort}
       queued={unfiltered.accept_queue + unfiltered.decline_queue}
       timezone={event?.timezone ?? "America/Los_Angeles"}
+      vocabulary={vocabulary}
+      canEdit={canEdit}
     />
   );
 }

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged fixture-backed **STACK-DEMO** admin/portal pages lack database CRUD, authorized render, rev. 3 wide-sanitizer spec, embed policy, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. `src/features/portal/resources/server/{queries,mutations}.ts` now provide `listResourcePages`/`getResourcePage`/`saveResourcePage`/`deleteResourcePage`/`reorderResourcePages` (slugify + reserved-word rejection, `sanitize(html,{profile:'wide'})`, STALE_WRITE on write conflicts), a real admin `<DataTable>` CRUD UI at `/events/[eventId]/resources`, and portal list/detail pages that gate on `publishedOnly` with `notFound()` on an unpublished/nonexistent slug. `scripts/seed/resources.ts` adds 3 seeded pages including an iframe/script/onerror probe. Remaining before `DONE`: running the seed script against a live database and deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review — **executing agent differs from the feature folder**: WS-C owns `features/portal/resources/**` by declared temporary file-ownership on Monday (PLAN §4/§6). WS-D owns the rest of `features/portal`. |
 | **Scheduled** | **Mon** (CP3 demo bar: "resources page with iframe embed"). |
 | **Size** | S (~2h) |

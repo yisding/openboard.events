@@ -62,7 +62,7 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const contactRows = (await tx.execute<{ id: string }>(sql`
     SELECT id FROM contacts
     WHERE event_id = ${eventId} AND id IN (${sql.join(seededContactIds.map((id) => sql`${id}`), sql`, `)})
-    ORDER BY created_at
+    ORDER BY created_at, email
   `)).rows ?? [];
   if (!form || contactRows.length === 0) {
     ctx.log("skipped — needs the seeded form and contacts (forms.ts, contacts.ts)");

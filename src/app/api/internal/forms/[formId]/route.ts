@@ -10,6 +10,7 @@ import {
 import { updateFormIn } from "@/features/forms/server/builder-mutations";
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
+import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
 import { db } from "@/db/client";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -44,7 +45,17 @@ const get = defineHandler({
 const update = defineHandler({
   auth: formBuilderAuth(),
   input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
-  handler: async ({ eventId, input, params }) => updateFormIn(db, eventIdSchema.parse(eventId), routeInput.parse(params).formId, input.patch, input.expectedUpdatedAt),
+  // M14: the Settings/Notifications steps' own validation (submission-limit
+  // range, confirmation-template variables — R2 boundary #6, checked at save
+  // time) runs here too, since every builder step's save reaches the
+  // database through this one generic route.
+  handler: async ({ eventId, input, params }) => {
+    const parsedEventId = eventIdSchema.parse(eventId);
+    const formId = routeInput.parse(params).formId;
+    assertValidSubmissionLimit(input.patch.submissionLimit);
+    await assertValidConfirmationTemplate(db, parsedEventId, formId, input.patch);
+    return updateFormIn(db, parsedEventId, formId, input.patch, input.expectedUpdatedAt);
+  },
 });
 
 type Route = { params: Promise<{ formId: string }> };

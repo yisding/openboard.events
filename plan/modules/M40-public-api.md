@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged fixture-backed public API scaffolding remains **STACK-DEMO**; unsafe global-key private routes now fail closed until hashed event-scoped database keys exist, and bonus completion is paused behind R3. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. The keyed half is real: four routes under `src/app/api/v1/events/[slug]/{submissions,speakers/outstanding-tasks,stats,comms-log}` authenticate via M06a's `apiKeyAuth()` guard over hashed event-scoped keys in `api_keys`, with `src/app/api/v1/server/queries.ts` holding testable query functions and full key lifecycle CRUD in `src/features/dashboard/server/api-keys.ts` plus an `ApiKeysPanel` admin UI. `docs/api.md` was rewritten with a full endpoint table and curl examples. 14 new PGlite tests cover draft exclusion, event scoping, cursor pagination, and key-lifecycle IDOR. Remaining before `DONE`: deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — routes `app/api/v1/**`, plus the two declared files inside `features/dashboard` for stats/key reuse. |
 | **Scheduled** | **May start Mon PM** ([M32](./M32-public-schedule-gallery.md) landed Sunday, [M38](./M38-dashboard.md) lands Monday); **finishes Tuesday** (CP4). |
 | **Size** | M (≈half-day) |

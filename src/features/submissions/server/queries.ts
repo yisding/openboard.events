@@ -312,3 +312,36 @@ export function getStatusCounts(eventId: EventId, filters: Omit<SubmissionFilter
 export function getSubmissionDetail(eventId: EventId, submissionId: SubmissionId) {
   return getSubmissionDetailIn(db, eventId, submissionId);
 }
+
+/**
+ * The event's tracks, formats and tags — what the Abstracts drawer and the
+ * manual "Add abstract" form offer as choices. One round trip rather than three
+ * page-level queries, and event-scoped like everything else here, so an
+ * organizer can never be offered another event's vocabulary.
+ */
+export type SubmissionVocabulary = {
+  tracks: Array<{ id: string; name: string; color: string }>;
+  formats: Array<{ id: string; name: string }>;
+  tags: Array<{ id: string; name: string }>;
+};
+
+export async function getSubmissionVocabularyIn(dbOrTx: DbOrTx, eventId: EventId): Promise<SubmissionVocabulary> {
+  const result = await dbOrTx.execute<{ kind: string; id: string; name: string; color: string }>(sql`
+    SELECT 'track' AS kind, id, name, color, sort_order FROM tracks WHERE event_id = ${eventId}
+    UNION ALL
+    SELECT 'format' AS kind, id, name, '' AS color, sort_order FROM session_formats WHERE event_id = ${eventId}
+    UNION ALL
+    SELECT 'tag' AS kind, id, name, color, 0 AS sort_order FROM tags WHERE event_id = ${eventId}
+    ORDER BY kind, sort_order, name
+  `);
+  const rows = result.rows ?? [];
+  return {
+    tracks: rows.filter((row) => row.kind === "track").map((row) => ({ id: row.id, name: row.name, color: row.color })),
+    formats: rows.filter((row) => row.kind === "format").map((row) => ({ id: row.id, name: row.name })),
+    tags: rows.filter((row) => row.kind === "tag").map((row) => ({ id: row.id, name: row.name })),
+  };
+}
+
+export function getSubmissionVocabulary(eventId: EventId): Promise<SubmissionVocabulary> {
+  return getSubmissionVocabularyIn(db, eventId);
+}

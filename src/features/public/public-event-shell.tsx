@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, MapPin } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { useEffect } from "react";
-import type { EventRecord } from "@/shared/demo/types";
+import { formatInZone } from "@/shared/lib/time";
 
 export type EmbedOptions = { theme: "light" | "dark"; header: boolean; accent: string };
 export const DEFAULT_EMBED_OPTIONS: EmbedOptions = { theme: "light", header: true, accent: "#00a878" };
@@ -39,6 +39,10 @@ export function accentTextShade(accent: string): string {
   return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** The event branding this shell needs — `PublishedScheduleDTO["event"]` and
+ * `PublishedSpeakersDTO["event"]` both satisfy this shape verbatim. */
+export type PublicEventInfo = { name: string; timezone: string; accentColor: string | null } & Partial<{ startsAt: string; endsAt: string }>;
+
 // Posts the document height to the parent frame so /public/embed.js can size
 // the iframe. Runs only when embedded.
 function EmbedResizer() {
@@ -53,12 +57,86 @@ function EmbedResizer() {
   return null;
 }
 
-export function PublicEventShell({ children, active, event, embed = false, embedOptions = DEFAULT_EMBED_OPTIONS }: { children: React.ReactNode; active: "schedule" | "speakers"; event: EventRecord; embed?: boolean; embedOptions?: EmbedOptions }) {
-  if (embed) return <div className={`embed-shell ${embedOptions.theme === "dark" ? "embed-dark" : ""}`} style={{ "--accent": embedOptions.accent, "--accent-dark": embedOptions.theme === "dark" ? embedOptions.accent : accentTextShade(embedOptions.accent) } as React.CSSProperties}><EmbedResizer />{embedOptions.header && <header className="embed-header"><b>{event.name}</b><span>Sep 15–16, 2026 · {event.city}</span></header>}{children}<footer>Powered by <b>openboard</b></footer></div>;
-  return <div className="public-event">
-    <header className="public-event-header"><div className="public-event-container"><span className="public-event-logo">AI<span>.engineer</span></span><nav aria-label="Event navigation"><Link className={active === "schedule" ? "active" : ""} href={`/e/${event.slug}/schedule`}>Schedule</Link><Link className={active === "speakers" ? "active" : ""} href={`/e/${event.slug}/speakers`}>Speakers</Link><Link href={`/submit/${event.slug}/technical-talks`}>Call for speakers</Link></nav><Link className="button public-cta" href={`/portal/${event.slug}`}>Speaker portal</Link></div></header>
-    <section className="public-event-hero"><div className="public-event-container"><span className="public-eyebrow">SEPTEMBER 15–16, 2026</span><h1>AI Engineer<br /><b>World’s Fair</b></h1><div><span><MapPin size={16} /> {event.venue} · {event.city}</span><span><CalendarDays size={16} /> Two days · 80+ speakers</span></div></div></section>
-    {children}
-    <footer className="public-event-footer"><div className="public-event-container"><span className="public-event-logo">AI<span>.engineer</span></span><p>The global gathering for people building the future of AI engineering.</p><nav aria-label="Footer navigation"><a href="mailto:hello@ai.engineer">Contact</a><a href="#">Code of conduct</a><span>Powered by Openboard</span></nav></div></footer>
-  </div>;
+function dateRange(event: PublicEventInfo): string | null {
+  if (!event.startsAt || !event.endsAt) return null;
+  const start = formatInZone(event.startsAt, event.timezone, { month: "short", day: "numeric" });
+  const end = formatInZone(event.endsAt, event.timezone, { month: "short", day: "numeric", year: "numeric" });
+  return `${start} – ${end}`;
+}
+
+export function PublicEventShell({
+  children,
+  active,
+  eventSlug,
+  event,
+  embed = false,
+  embedOptions = DEFAULT_EMBED_OPTIONS,
+}: {
+  children: React.ReactNode;
+  active: "schedule" | "speakers";
+  eventSlug: string;
+  event: PublicEventInfo;
+  embed?: boolean;
+  embedOptions?: EmbedOptions;
+}) {
+  // The accent CSS variable pair per event, light mode only — an organizer's
+  // brand color overrides the product jade for every descendant that reads
+  // `var(--accent)`, with `--accent-dark` darkened until it is legal as text
+  // (accentTextShade), and never touches dark mode.
+  const accent = embed ? embedOptions.accent : event.accentColor;
+  const accentStyle = {
+    "--accent": accent ?? undefined,
+    "--accent-dark": accent
+      ? (embed && embedOptions.theme === "dark" ? accent : accentTextShade(accent))
+      : undefined,
+  } as React.CSSProperties;
+  const range = dateRange(event);
+
+  if (embed) {
+    return (
+      <div className={`embed-shell ${embedOptions.theme === "dark" ? "embed-dark" : ""}`} style={accentStyle}>
+        <EmbedResizer />
+        {embedOptions.header && (
+          <header className="embed-header">
+            <b>{event.name}</b>
+            {range && <span>{range}</span>}
+          </header>
+        )}
+        {children}
+        <footer>Powered by <b>openboard</b></footer>
+      </div>
+    );
+  }
+
+  return (
+    <div className="public-event" style={accentStyle}>
+      <header className="public-event-header">
+        <div className="public-event-container">
+          <span className="public-event-logo">{event.name}</span>
+          <nav aria-label="Event navigation">
+            <Link className={active === "schedule" ? "active" : ""} href={`/e/${eventSlug}/schedule`}>Schedule</Link>
+            <Link className={active === "speakers" ? "active" : ""} href={`/e/${eventSlug}/speakers`}>Speakers</Link>
+          </nav>
+          <Link className="button public-cta" href={`/portal/${eventSlug}`}>Speaker portal</Link>
+        </div>
+      </header>
+      <section className="public-event-hero">
+        <div className="public-event-container">
+          {range && <span className="public-eyebrow">{range.toUpperCase()}</span>}
+          <h1>{event.name}</h1>
+          <div>
+            {range && <span><CalendarDays size={16} /> {range}</span>}
+          </div>
+        </div>
+      </section>
+      {children}
+      <footer className="public-event-footer">
+        <div className="public-event-container">
+          <span className="public-event-logo">{event.name}</span>
+          <p>Built and run on openboard — schedule updates automatically as the program changes.</p>
+          <nav aria-label="Footer navigation"><span>Powered by Openboard</span></nav>
+        </div>
+      </footer>
+    </div>
+  );
 }

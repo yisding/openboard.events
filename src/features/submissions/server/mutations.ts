@@ -1,10 +1,13 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
 import { forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
+  acceptedForSchedulingRowSchema,
   answerValueSchema,
+  formIdSchema,
   idem,
+  type AcceptedForSchedulingRow,
   type AnswerValue,
   type CleanAnswers,
   type ContactId,
@@ -15,10 +18,16 @@ import {
   type SubmissionStatus,
 } from "@/shared/contracts";
 import { updateContactFields } from "@/features/portal";
+// Deep imports rather than the `@/features/forms` barrel: that barrel re-exports
+// the submit pipeline, which imports this file's `createSubmissionIn`, and a
+// cycle through two feature barrels is a debugging expense nobody needs.
+import { deriveMappedFields } from "@/features/forms/server/pipeline";
+import { getPinnedSnapshotIn } from "@/features/forms/server/snapshots";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { assertTransition } from "./guards";
+import type { SubmissionFieldPatch } from "./filters";
 export { formatCode } from "./guards";
 
 /**
@@ -135,7 +144,16 @@ async function replaceAnswers(
   // Draft saves and final submit are snapshots, not patches. Removing rows first
   // also discards an answer to a question that has since become hidden.
   await tx.delete(submissionAnswers).where(eq(submissionAnswers.submissionId, submissionId));
+  await insertAnswers(tx, eventId, submissionId, answers, participantIds);
+}
 
+async function insertAnswers(
+  tx: TxDb,
+  eventId: EventId,
+  submissionId: string,
+  answers: CleanAnswers,
+  participantIds: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
   // One statement, not one per answer. This runs inside the transaction holding
   // the event row's FOR UPDATE lock, over a per-transaction WebSocket pool, so
   // every extra round trip here is time no other submit on this event can use.
@@ -537,4 +555,242 @@ export async function notifyQueues(eventId: EventId): Promise<NotifyResult> {
       skippedNoRecipient,
     };
   });
+}
+
+/**
+ * The speaker's own edit, until the form closes — M41's path and the third of
+ * this module's four audited `withTx` compositions.
+ *
+ * Ownership is the *submitter* alone. A co-speaker is on the submission and can
+ * read it in the portal, but only the person who submitted may change it: two
+ * people editing one proposal from two browsers, with no locking between them,
+ * silently loses one of their edits. A caller who is not the submitter gets
+ * `NOT_FOUND` rather than `FORBIDDEN`, so probing ids reveals nothing about
+ * which submissions exist.
+ */
+export async function updateSubmissionFromCfp(
+  eventId: EventId,
+  contactId: ContactId,
+  submissionId: SubmissionId,
+  answers: CleanAnswers,
+): Promise<{ rowVersion: number }> {
+  return withTx(async (tx) => {
+    const submission = (await tx.execute<{
+      id: string; form_id: string | null; form_version: number | null; status: SubmissionStatus;
+    }>(sql`
+      SELECT id, form_id, form_version, status FROM submissions
+      WHERE id = ${submissionId} AND event_id = ${eventId} AND submitter_contact_id = ${contactId}
+      FOR UPDATE
+    `)).rows?.[0];
+    if (!submission) throw new AppError("NOT_FOUND", "Submission not found");
+
+    // A decided submission is what the programme was built on. Editing it after
+    // the fact would change the talk an organizer accepted without telling them.
+    if (submission.status !== "draft" && submission.status !== "pending") {
+      throw new AppError("STALE_STATUS", "This submission can no longer be edited");
+    }
+    if (!submission.form_id || submission.form_version === null) {
+      throw new AppError("NOT_FOUND", "This submission has no form to edit against");
+    }
+
+    // Sessionboard's deadline closes new *and updated* submissions, and it is the
+    // database clock that decides — never a timestamp the client sent.
+    const formId = formIdSchema.parse(submission.form_id);
+    await assertFormOpen(tx, formId);
+
+    // The *pinned* version. An edit means "these are my answers to the form I
+    // filled in", not "to the form as the organizer has since rewritten it".
+    const formVersion = Number(submission.form_version);
+    const snapshot = await getPinnedSnapshotIn(tx, eventId, formId, formVersion);
+    if (!snapshot) throw new AppError("NOT_FOUND", "The form version this submission was written against is missing");
+
+    const fieldIds = snapshot.sections.flatMap((section) => section.fields.map((field) => field.id));
+    const known = new Set<string>(fieldIds);
+    for (const answer of answers) {
+      // Fail loudly: an answer to a field this form version never had is a
+      // client bug, and writing it would make the drawer render an orphan.
+      if (!known.has(answer.fieldId)) {
+        throw new AppError("VALIDATION", "An answer does not belong to this form version");
+      }
+    }
+
+    const participants = await tx
+      .select({ id: submissionParticipants.id, contactId: submissionParticipants.contactId })
+      .from(submissionParticipants)
+      .where(and(eq(submissionParticipants.submissionId, submissionId), eq(submissionParticipants.eventId, eventId)));
+    const participantIds = new Map(participants.map((participant) => [participant.contactId, participant.id]));
+
+    // Scoped replace rather than a blind delete-all: a question that has since
+    // left the form keeps its answer for the organizer's "no longer on this
+    // form" group, while a field the speaker just cleared really does empty.
+    if (fieldIds.length > 0) {
+      await tx.execute(sql`
+        DELETE FROM submission_answers
+        WHERE submission_id = ${submissionId} AND event_id = ${eventId}
+          AND field_id IN (${sql.join(fieldIds.map((fieldId) => sql`${fieldId}`), sql`, `)})
+      `);
+    }
+    await insertAnswers(tx, eventId, submissionId, answers, participantIds);
+
+    // `maps_to` only, and only the columns this form actually maps — never a
+    // whole-row write. Routing is *not* re-run (guardrail): an organizer who
+    // re-routed this submission by hand must not have it undone by a typo fix.
+    const mapped = deriveMappedFields(snapshot, answers).submission;
+    const set: SQL[] = [sql`row_version = row_version + 1`, sql`updated_at = now()`];
+    if (mapped.title !== undefined) set.push(sql`title = ${mapped.title.slice(0, LIMITS.TITLE)}`);
+    if (mapped.descriptionHtml !== undefined) set.push(sql`description_html = ${sanitize(mapped.descriptionHtml)}`);
+    if (mapped.level !== undefined) set.push(sql`level = ${mapped.level}`);
+    // A mapped choice that resolves to no vocabulary id means "this option is not
+    // tied to a track" — it is not an instruction to clear the track the routing
+    // rules stamped, so only a real id is written here.
+    if (mapped.trackId) set.push(sql`track_id = ${mapped.trackId}`);
+    if (mapped.formatId) set.push(sql`format_id = ${mapped.formatId}`);
+
+    const updated = (await tx.execute<{ row_version: number }>(sql`
+      UPDATE submissions SET ${sql.join(set, sql`, `)}
+      WHERE id = ${submissionId} AND event_id = ${eventId}
+      RETURNING row_version
+    `)).rows?.[0];
+    if (!updated) throw new AppError("INTERNAL", "Could not save the submission");
+    return { rowVersion: Number(updated.row_version) };
+  });
+}
+
+/**
+ * Speaker-initiated withdrawal. A speaker may only ever cause `draft→pending`
+ * (by submitting) and `*→withdrawn`; that rule lives here rather than in the
+ * portal UI, because a UI that hides a button has not prevented the request.
+ *
+ * `declined` is deliberately absent from the guard — the transition matrix has
+ * no `declined→withdrawn` edge, and a speaker withdrawing a rejected proposal
+ * would erase the decision an organizer already sent them.
+ *
+ * A row that has moved on, belongs to somebody else, or does not exist all read
+ * the same: `NOT_FOUND`.
+ */
+export async function withdraw(eventId: EventId, contactId: ContactId, submissionId: SubmissionId): Promise<void> {
+  const updated = await db.execute<{ id: string }>(sql`
+    UPDATE submissions SET
+      status = 'withdrawn',
+      row_version = row_version + 1,
+      updated_at = now(),
+      notified_at = CASE WHEN status IN ('accepted','declined') THEN NULL ELSE notified_at END,
+      notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') THEN 1 ELSE 0 END
+    WHERE event_id = ${eventId} AND id = ${submissionId} AND submitter_contact_id = ${contactId}
+      AND status IN ('draft','pending','accept_queue','decline_queue','accepted')
+    RETURNING id
+  `);
+  if ((updated.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Submission not found");
+}
+
+/**
+ * What the agenda promotes from. `alreadyPromoted` is what stops a second click
+ * turning one accepted abstract into two sessions — the `sessions.submission_id`
+ * unique constraint is the backstop, this is the affordance.
+ *
+ * A single statement on `neon-http`: reads never open one of the eight audited
+ * transactions.
+ */
+export async function getAcceptedForScheduling(eventId: EventId): Promise<AcceptedForSchedulingRow[]> {
+  const result = await db.execute<Record<string, unknown>>(sql`
+    SELECT
+      s.id AS "submissionId",
+      s.code::int AS code,
+      s.title,
+      s.description_html AS "descriptionHtml",
+      s.track_id AS "trackId",
+      s.format_id AS "formatId",
+      EXISTS (SELECT 1 FROM sessions ss WHERE ss.submission_id = s.id AND ss.event_id = s.event_id) AS "alreadyPromoted",
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'contactId', sp.contact_id,
+          'name', btrim(c.first_name || ' ' || c.last_name),
+          'role', sp.role,
+          'isPrimary', sp.is_primary
+        ) ORDER BY sp.is_primary DESC, sp.sort_order, c.email)
+        FROM submission_participants sp
+        JOIN contacts c ON c.id = sp.contact_id AND c.event_id = sp.event_id
+        WHERE sp.submission_id = s.id AND sp.event_id = s.event_id
+      ), '[]'::json) AS speakers
+    FROM submissions s
+    WHERE s.event_id = ${eventId} AND s.status = 'accepted'
+    ORDER BY s.code
+  `);
+  return (result.rows ?? []).map((row) => acceptedForSchedulingRowSchema.parse(row));
+}
+
+/**
+ * The organizer's drawer save (M17). It lives here rather than beside the reads
+ * because every write that touches `submissions` / `submission_tags` from a
+ * create or edit path belongs to this module's single writer (resolution #8).
+ *
+ * `expectedRowVersion` is the whole point: a save composed against what the
+ * drawer showed must not resurrect a title over a status somebody else changed
+ * in the meantime. Zero rows matched means the row moved — 409 `STALE_WRITE` —
+ * and the caller refetches rather than being told the save worked.
+ *
+ * The tag reconciliation rides in the same statement as the update through
+ * data-modifying CTEs, so tags can never be written for a save that lost the
+ * `row_version` race. That is also why this needs no ninth `withTx`.
+ */
+export async function updateSubmissionFields(
+  eventId: EventId,
+  submissionId: SubmissionId,
+  patch: SubmissionFieldPatch,
+  expectedRowVersion: number,
+): Promise<{ rowVersion: number }> {
+  const set: SQL[] = [sql`row_version = row_version + 1`, sql`updated_at = now()`];
+  if (patch.title !== undefined) {
+    // 255 is the column, the contract and the counter. The counter is not the
+    // enforcement, so a longer title is refused rather than silently truncated.
+    if (patch.title.length > LIMITS.TITLE) throw new AppError("VALIDATION", `A title may be at most ${LIMITS.TITLE} characters`);
+    set.push(sql`title = ${patch.title}`);
+  }
+  if (patch.descriptionHtml !== undefined) {
+    // Public attacker-controlled HTML rendered in the admin panel: sanitized on
+    // write, so every reader of the column can trust it.
+    set.push(sql`description_html = ${patch.descriptionHtml === null ? null : sanitize(patch.descriptionHtml)}`);
+  }
+  if (patch.trackId !== undefined) set.push(sql`track_id = ${patch.trackId}::uuid`);
+  if (patch.formatId !== undefined) set.push(sql`format_id = ${patch.formatId}::uuid`);
+  if (patch.level !== undefined) set.push(sql`level = ${patch.level}`);
+  if (patch.language !== undefined) set.push(sql`language = ${patch.language}`);
+  if (patch.capacity !== undefined) set.push(sql`capacity = ${patch.capacity}::int`);
+  if (patch.clientSessionId !== undefined) set.push(sql`client_session_id = ${patch.clientSessionId}`);
+  if (patch.startsAt !== undefined) set.push(sql`starts_at = ${patch.startsAt?.toISOString() ?? null}::timestamptz`);
+  if (patch.endsAt !== undefined) set.push(sql`ends_at = ${patch.endsAt?.toISOString() ?? null}::timestamptz`);
+
+  // Absent means "leave the tags alone"; an empty array means "remove them all".
+  const tagIds = patch.tagIds === undefined ? null : JSON.stringify(patch.tagIds);
+  const reconcileTags = tagIds === null ? sql.empty() : sql`,
+    cleared AS (
+      DELETE FROM submission_tags st USING updated u
+      WHERE st.submission_id = u.id
+        AND st.tag_id NOT IN (SELECT t.value::uuid FROM jsonb_array_elements_text(${tagIds}::jsonb) AS t(value))
+    ),
+    added AS (
+      INSERT INTO submission_tags (event_id, submission_id, tag_id)
+      SELECT ${eventId}::uuid, u.id, t.value::uuid
+      FROM updated u, jsonb_array_elements_text(${tagIds}::jsonb) AS t(value)
+      ON CONFLICT DO NOTHING
+    )`;
+
+  const result = await db.execute<{ row_version: number }>(sql`
+    WITH updated AS (
+      UPDATE submissions SET ${sql.join(set, sql`, `)}
+      WHERE event_id = ${eventId} AND id = ${submissionId} AND row_version = ${expectedRowVersion}
+      RETURNING id, row_version
+    )${reconcileTags}
+    SELECT id, row_version FROM updated
+  `);
+
+  const row = (result.rows ?? [])[0];
+  if (!row) {
+    const existing = await db.execute<{ id: string }>(sql`
+      SELECT id FROM submissions WHERE id = ${submissionId} AND event_id = ${eventId}
+    `);
+    if ((existing.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Submission not found");
+    throw new AppError("STALE_WRITE", "This submission changed since you opened it");
+  }
+  return { rowVersion: Number(row.row_version) };
 }

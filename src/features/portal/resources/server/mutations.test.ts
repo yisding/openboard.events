@@ -1,0 +1,178 @@
+import { readFileSync } from "node:fs";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { DbOrTx } from "@/db/client";
+import * as schema from "@/db/schema";
+import { eventIdSchema } from "@/shared/contracts";
+import { isAppError } from "@/shared/lib/errors";
+import {
+  deleteResourcePageIn,
+  reorderResourcePagesIn,
+  saveResourcePageIn,
+  saveResourcePageInputSchema,
+} from "./mutations";
+import { getResourcePageByIdIn, getResourcePageIn, listResourcePagesIn } from "./queries";
+
+const migration0 = readFileSync(new URL("../../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
+const migration1 = readFileSync(new URL("../../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+
+const eventId = eventIdSchema.parse("d6000000-0000-4000-8000-000000000001");
+const otherEventId = eventIdSchema.parse("d6000000-0000-4000-8000-000000000002");
+
+let pglite: PGlite;
+let db: DbOrTx;
+
+const pageInput = (overrides: Record<string, unknown> = {}) =>
+  saveResourcePageInputSchema.parse({ title: "Speaker Guide", bodyHtml: "<p>Hi</p>", published: true, ...overrides });
+
+describe("resource pages: database CRUD, the wide-sanitize-on-save law, and event isolation", () => {
+  beforeAll(async () => {
+    pglite = new PGlite();
+    await pglite.exec(migration0);
+    await pglite.exec(migration1);
+    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Resources Event','resources-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z','America/Los_Angeles')",
+      [eventId],
+    );
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Other Event','other-event','2026-10-01T16:00:00Z','2026-10-02T01:00:00Z','America/Los_Angeles')",
+      [otherEventId],
+    );
+  }, 60_000);
+
+  it("creates a page, deriving the slug from the title, assigning the next sort_order, and computing a plaintext summary", async () => {
+    const { pageId } = await saveResourcePageIn(db, eventId, pageInput({
+      title: "First Page",
+      bodyHtml: "<h2>Welcome</h2><p>Check in at the Speaker Lounge.</p><script>alert(1)</script>",
+    }));
+    const page = await getResourcePageByIdIn(db, eventId, pageId);
+    expect(page?.slug).toBe("first-page");
+    expect(page?.sortOrder).toBe(0);
+    expect(page?.published).toBe(true);
+    // The excerpt is computed off the sanitized body, so a stripped script's
+    // text content never leaks into it either.
+    expect(page?.summary).toBe("Welcome Check in at the Speaker Lounge.");
+  });
+
+  it("slug uniqueness is scoped per event: the same slug is rejected within an event but allowed in another", async () => {
+    await saveResourcePageIn(db, eventId, pageInput({ title: "Venue & Travel", slug: "venue-travel" }));
+
+    const dup = await saveResourcePageIn(db, eventId, pageInput({ title: "Venue and Travel (again)", slug: "venue-travel" }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(dup) && dup.code).toBe("VALIDATION");
+    expect(isAppError(dup) && dup.message).toBe("That URL is already used");
+    expect(isAppError(dup) && (dup.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBe("That URL is already used");
+
+    // A different event can use the identical slug — the unique constraint is
+    // (event_id, slug), never slug alone.
+    await expect(saveResourcePageIn(db, otherEventId, pageInput({ title: "Venue & Travel", slug: "venue-travel" })))
+      .resolves.toMatchObject({ pageId: expect.any(String) as string });
+  });
+
+  it("a reserved word is rejected as a slug", async () => {
+    const rejected = await saveResourcePageIn(db, eventId, pageInput({ title: "Admin", slug: "admin" }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+    expect(isAppError(rejected) && (rejected.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBeTruthy();
+  });
+
+  it("sanitizes on save through the wide profile: an allowlisted iframe survives, a script and an onerror handler do not", async () => {
+    const dirty = '<h2>Venue</h2><iframe src="https://www.youtube.com/embed/abc123" allowfullscreen></iframe>'
+      + "<script>alert(1)</script>"
+      + '<img src="x" onerror="alert(1)">'
+      + '<iframe src="https://evil.example/embed"></iframe>';
+    const { pageId } = await saveResourcePageIn(db, eventId, pageInput({ title: "Sanitize Probe", bodyHtml: dirty }));
+    const stored = await pglite.query<{ body_html: string }>("SELECT body_html FROM resource_pages WHERE id = $1", [pageId]);
+    const bodyHtml = stored.rows[0]?.body_html ?? "";
+    expect(bodyHtml).toContain("www.youtube.com");
+    expect(bodyHtml).not.toContain("<script");
+    expect(bodyHtml).not.toContain("onerror");
+    expect(bodyHtml).not.toContain("evil.example");
+  });
+
+  it("publishedOnly hides drafts from the list and from a direct slug lookup, without distinguishing a draft from a slug that never existed", async () => {
+    await saveResourcePageIn(db, eventId, pageInput({ title: "Published One", slug: "published-one", published: true }));
+    await saveResourcePageIn(db, eventId, pageInput({ title: "Internal Notes", slug: "internal-notes-test", published: false }));
+
+    const publishedOnly = await listResourcePagesIn(db, eventId, { publishedOnly: true });
+    expect(publishedOnly.some((page) => page.slug === "internal-notes-test")).toBe(false);
+    expect(publishedOnly.some((page) => page.slug === "published-one")).toBe(true);
+
+    const everything = await listResourcePagesIn(db, eventId, { publishedOnly: false });
+    expect(everything.some((page) => page.slug === "internal-notes-test")).toBe(true);
+
+    const draftLookup = await getResourcePageIn(db, eventId, "internal-notes-test", { publishedOnly: true });
+    const missingLookup = await getResourcePageIn(db, eventId, "does-not-exist", { publishedOnly: true });
+    expect(draftLookup).toBeNull();
+    expect(missingLookup).toBeNull();
+  });
+
+  it("cross-event isolation: a page in one event is invisible from another, even by exact slug", async () => {
+    await saveResourcePageIn(db, otherEventId, pageInput({ title: "Only In Other Event", slug: "only-in-other-event" }));
+    const fromWrongEvent = await getResourcePageIn(db, eventId, "only-in-other-event");
+    expect(fromWrongEvent).toBeNull();
+    const list = await listResourcePagesIn(db, eventId);
+    expect(list.some((page) => page.slug === "only-in-other-event")).toBe(false);
+  });
+
+  it("R11: a stale expectedUpdatedAt produces a friendly 409, never a silent overwrite", async () => {
+    const { pageId } = await saveResourcePageIn(db, eventId, pageInput({ title: "Stale Write Target", slug: "stale-write-target" }));
+    const loaded = await getResourcePageByIdIn(db, eventId, pageId);
+    expect(loaded).not.toBeNull();
+
+    // Somebody else's save lands first.
+    await saveResourcePageIn(db, eventId, pageInput({ id: pageId, title: "Changed By Someone Else", slug: "stale-write-target" }));
+
+    const stale = await saveResourcePageIn(
+      db,
+      eventId,
+      pageInput({ id: pageId, title: "My Overwrite", slug: "stale-write-target" }),
+      loaded?.updatedAt,
+    ).catch((thrown: unknown) => thrown);
+    expect(isAppError(stale) && stale.code).toBe("STALE_WRITE");
+
+    const untouched = await getResourcePageByIdIn(db, eventId, pageId);
+    expect(untouched?.title).toBe("Changed By Someone Else");
+  });
+
+  it("a save without expectedUpdatedAt never raises STALE_WRITE, even against a row that has since changed", async () => {
+    const { pageId } = await saveResourcePageIn(db, eventId, pageInput({ title: "No Guard", slug: "no-guard" }));
+    await saveResourcePageIn(db, eventId, pageInput({ id: pageId, title: "No Guard, Changed", slug: "no-guard" }));
+    const saved = await saveResourcePageIn(db, eventId, pageInput({ id: pageId, title: "No Guard, Changed Again", slug: "no-guard" }));
+    expect(saved.pageId).toBe(pageId);
+  });
+
+  it("reorder renumbers the whole list and rejects a set that does not match the event's current pages exactly", async () => {
+    const freshEventId = eventIdSchema.parse("d6000000-0000-4000-8000-000000000009");
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Reorder Event','reorder-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z','America/Los_Angeles')",
+      [freshEventId],
+    );
+    const a = await saveResourcePageIn(db, freshEventId, pageInput({ title: "A", slug: "a" }));
+    const b = await saveResourcePageIn(db, freshEventId, pageInput({ title: "B", slug: "b" }));
+    const c = await saveResourcePageIn(db, freshEventId, pageInput({ title: "C", slug: "c" }));
+
+    await reorderResourcePagesIn(db, freshEventId, [c.pageId, a.pageId, b.pageId]);
+    const ordered = await listResourcePagesIn(db, freshEventId);
+    expect(ordered.map((page) => page.slug)).toEqual(["c", "a", "b"]);
+
+    const rejected = await reorderResourcePagesIn(db, freshEventId, [a.pageId, b.pageId]).catch((thrown: unknown) => thrown);
+    expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+  });
+
+  it("delete removes the row and 404s on a page that does not belong to the event", async () => {
+    const { pageId } = await saveResourcePageIn(db, eventId, pageInput({ title: "Deletable", slug: "deletable" }));
+    await deleteResourcePageIn(db, eventId, pageId);
+    expect(await getResourcePageByIdIn(db, eventId, pageId)).toBeNull();
+
+    const notFound = await deleteResourcePageIn(db, eventId, pageId).catch((thrown: unknown) => thrown);
+    expect(isAppError(notFound) && notFound.code).toBe("NOT_FOUND");
+
+    const { pageId: otherPageId } = await saveResourcePageIn(db, otherEventId, pageInput({ title: "Belongs To Other", slug: "belongs-to-other" }));
+    const wrongEventDelete = await deleteResourcePageIn(db, eventId, otherPageId).catch((thrown: unknown) => thrown);
+    expect(isAppError(wrongEventDelete) && wrongEventDelete.code).toBe("NOT_FOUND");
+  });
+});

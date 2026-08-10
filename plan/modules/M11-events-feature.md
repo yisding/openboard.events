@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — no active claim. The event seed is real (#41) and its follow-up merged in #66 (the deterministic empty event refreshes its relative start/end dates on non-wipe reruns). Settings/forms UI exists in the PR #2/#5 **STACK-DEMO**; event CRUD, vocabulary persistence, auth, default-template integration, and server AC remain a **SERVER-GAP**. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. Real event CRUD (`createEvent`/`updateEvent` in `src/features/events/server/mutations.ts`, optimistic concurrency on `rowVersion`, orphan self-heal on slug-collision retry) plus vocab CRUD/reorder and the tabbed Details/Tracks/Rooms/Formats/Tags settings hub now read/write Neon via `requireAdmin`/`eventsHubAuth`, with `createEvent` seeding 8 email templates and 5 default session formats. 10 new PGlite tests cover reserved/duplicate slugs, date validation, orphan repair and vocab reorder. Remaining before `DONE`: deployed/browser AC (create/edit an event with branding, uploads, and drag reorder against the real preview). See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14") — no executor deviation. B2 never edits any file in this module. |
 | **Scheduled** | **Sat AM** (server half, against M03 schema alone — dashed edges on M05a/M06a/M07) → **Sat PM** (UI half). On the Sat-night demo bar: "create/edit an event with branding". |
 | **Size** | L (≈1 day) |

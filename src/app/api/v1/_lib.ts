@@ -1,11 +1,16 @@
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
+import { apiErrorSchema } from "@/shared/contracts";
 import { initialDemoState } from "@/shared/demo/seed";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 
-// Public DTO responses are shared-cacheable; private responses must never enter
-// a shared cache and retain CORS headers for the future scoped-key integration.
+// Public DTO responses are shared-cacheable; private (keyed) responses must
+// never enter a shared cache. Both carry permissive CORS — `/api/v1/*` is the
+// one surface in this app meant to be called from another origin (embeds,
+// judge scripts); `/api/internal/*` never gets this treatment.
 export const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
 export const privateHeaders = { "access-control-allow-origin": "*", "cache-control": "private, no-store" };
 
@@ -16,14 +21,41 @@ export function corsPreflight() {
 export function data<T>(value: T, meta?: Record<string, unknown>) {
   return Response.json({ data: value, ...(meta ? { meta } : {}) }, { headers: publicHeaders });
 }
-export function privateApiUnavailable() {
-  return Response.json(
-    { error: { code: "FEATURE_UNAVAILABLE", message: "Private API access is not enabled" } },
-    { status: 503, headers: privateHeaders },
-  );
+export function privateData<T>(value: T, meta?: Record<string, unknown>) {
+  return Response.json({ data: value, ...(meta ? { meta } : {}) }, { headers: privateHeaders });
 }
 export function notFoundResponse() {
   return Response.json({ error: { code: "NOT_FOUND", message: "Event not found" } }, { status: 404, headers: privateHeaders });
+}
+
+/**
+ * The four keyed routes are built on `defineHandler` (shared guard/validation/
+ * error-envelope machinery), which always answers `{ data }` with no headers
+ * of its own. This stamps the CORS + `private, no-store` headers `/api/v1`
+ * promises on top of that response, after the fact, without forking
+ * `defineHandler` itself (owned elsewhere) just for two header lines.
+ */
+export function withV1PrivateHeaders(response: Response): Response {
+  for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+  return response;
+}
+
+/**
+ * `/submissions` needs a bare-array `data` *and* a sibling `meta.nextCursor` —
+ * a shape `defineHandler` cannot express (it only ever answers `{ data }`).
+ * This mirrors `defineHandler`'s own catch block (same error envelope, same
+ * status mapping) for the one route that has to construct its response by
+ * hand, the same justified exception `export.csv/route.ts` documents for its
+ * own non-JSON body.
+ */
+export function apiV1ErrorResponse(error: unknown): Response {
+  const appError = isAppError(error)
+    ? error
+    : error instanceof z.ZodError
+      ? new AppError("VALIDATION", "Request validation failed")
+      : new AppError("INTERNAL", "Unexpected server error");
+  const envelope = apiErrorSchema.parse({ error: { code: appError.code, message: appError.message, data: appError.details } });
+  return Response.json(envelope, { status: toHttp(appError.code), headers: privateHeaders });
 }
 export function resolveEvent(slug: string) {
   return initialDemoState.events.find((item) => item.slug === slug);

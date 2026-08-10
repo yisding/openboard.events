@@ -58,6 +58,11 @@ export async function seedContacts(ctx: SeedCtx): Promise<void> {
       }).onConflictDoUpdate({ target: fileAssets.id, set: { filename: `${speaker.key}.png` } });
     }
 
+    // Speakers with a complete profile mirror the post-notify auto-confirm
+    // state (resolution #15) — without any confirmed contact,
+    // published_speakers_v is empty and the public gallery renders bare on a
+    // fresh seed.
+    const confirmationStatus = speaker.bio && speaker.headshot ? ("confirmed" as const) : ("unconfirmed" as const);
     await tx.insert(contacts).values({
       id: ctx.id("contact", speaker.key),
       eventId,
@@ -70,6 +75,7 @@ export async function seedContacts(ctx: SeedCtx): Promise<void> {
         ? `<p>${speaker.first} works on ${speaker.company.toLowerCase()} and has been shipping since before it was fashionable.</p>`
         : null,
       headshotFileId,
+      confirmationStatus,
     }).onConflictDoUpdate({
       target: contacts.id,
       set: {
@@ -78,6 +84,7 @@ export async function seedContacts(ctx: SeedCtx): Promise<void> {
         company: speaker.company,
         jobTitle: speaker.title,
         headshotFileId,
+        confirmationStatus,
         updatedAt: new Date(),
       },
     });
