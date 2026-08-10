@@ -63,6 +63,12 @@ Note that selectors in this file are written flat — `.nav-group a`, not
 those rules render on a dark surface. If you add a rule inside the sidebar,
 pick the `--on-dark-*` token explicitly.
 
+The converse also happens: a rule inside the sidebar may paint its own *light*
+background, and its text then needs a dark token. `.sidebar-user > span` is the
+one instance — a light purple avatar chip carrying `--purple-dark` initials.
+Region membership does not decide the text colour; the nearest painted
+background does.
+
 ### Brand
 
 `--purple` `#6958d7` is the only accent used for identity: primary buttons,
@@ -71,7 +77,7 @@ active nav, links, focus rings.
 | Token | Value | Use |
 | --- | --- | --- |
 | `--purple` | `#6958d7` | brand, 5.28 on white |
-| `--purple-dark` | `#5544bd` | hover; text on `--purple-border` (5.19) |
+| `--purple-dark` | `#5544bd` | hover; brand text on a purple tint — 5.19 on `--purple-border`, 6.09 on `--purple-soft` |
 | `--purple-light` | `#8d7feb` | brand on dark surfaces, 5.41 on `--sidebar` |
 | `--purple-border` | `#ded8fa` | borders on tinted purple |
 | `--purple-soft` | `#eeebff` | tinted background |
