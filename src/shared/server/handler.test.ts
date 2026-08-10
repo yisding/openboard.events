@@ -64,9 +64,9 @@ describe("defineHandler", () => {
         return { actorId: "api-key", role: "api_key", eventId };
       },
       input: z.object({}),
-      handler: async ({ eventId: resolvedEventId }) => ({ eventId: resolvedEventId }),
+      handler: async ({ eventId: resolvedEventId, params }) => ({ eventId: resolvedEventId, slug: params.slug }),
     });
     const response = await route(new NextRequest("https://example.test/resource"), { params: Promise.resolve({ slug: "auth-a" }) });
-    expect(await response.json()).toEqual({ data: { eventId } });
+    expect(await response.json()).toEqual({ data: { eventId, slug: "auth-a" } });
   });
 });

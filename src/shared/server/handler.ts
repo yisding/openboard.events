@@ -13,6 +13,7 @@ type HandlerContext<Input> = {
   eventId: EventId | null;
   session: AuthSession;
   input: Input;
+  params: RouteParams;
   req: NextRequest;
   requestId: string;
 };
@@ -62,7 +63,7 @@ export function defineHandler<Input, Output>(options: {
         ? queryInput(request.nextUrl.searchParams)
         : await bodyInput(request);
       const input = options.input.parse(rawInput);
-      const data = await options.handler({ eventId, session, input, req: request, requestId });
+      const data = await options.handler({ eventId, session, input, params, req: request, requestId });
       log({ level: "info", msg: "request.complete", requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
       return NextResponse.json({ data });
     } catch (error) {

@@ -179,7 +179,7 @@ describe("CFP submit, end to end through the server path", () => {
     expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
   });
 
-  it("rejects participant identities other than the signed-in speaker", async () => {
+  it("rejects a primary participant email other than the signed-in speaker", async () => {
     await pglite.query("DELETE FROM submissions");
     const otherContact = contactIdSchema.parse("f0000000-0000-4000-8000-000000000004");
     await pglite.query(
@@ -193,12 +193,70 @@ describe("CFP submit, end to end through the server path", () => {
       contactId: speaker,
       formVersion: 1,
       answers: answers(),
-      participants: [{ contactId: otherContact, role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() }],
+      participants: [{ clientId: "primary", email: "other@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() }],
     }).catch((thrown: unknown) => thrown);
 
     expect(isAppError(error) && error.code).toBe("FORBIDDEN");
     const rows = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions");
     expect(rows.rows[0]?.count).toBe(0);
+  });
+
+  it("resolves co-speaker emails and remaps their answers to stored participants", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+
+    const result = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        {
+          clientId: "primary",
+          email: "ada@example.com",
+          role: "speaker",
+          isPrimary: true,
+          sortOrder: 0,
+          answers: answers(),
+        },
+        {
+          clientId: "co-1",
+          email: " Grace@Example.com ",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Grace"),
+            [field("last_name").id]: text("Hopper"),
+            [field("email").id]: text("grace@example.com"),
+          }),
+        },
+      ],
+    });
+
+    const participants = await pglite.query<{ email: string; role: string; is_primary: boolean }>(
+      `SELECT c.email, p.role, p.is_primary
+       FROM submission_participants p
+       JOIN contacts c ON c.id=p.contact_id
+       WHERE p.submission_id=$1
+       ORDER BY p.sort_order`,
+      [result.submissionId],
+    );
+    expect(participants.rows).toEqual([
+      { email: "ada@example.com", role: "speaker", is_primary: true },
+      { email: "grace@example.com", role: "co_speaker", is_primary: false },
+    ]);
+
+    const coSpeakerAnswer = await pglite.query<{ email: string; value: { t: string; v: string } }>(
+      `SELECT c.email, a.value
+       FROM submission_answers a
+       JOIN submission_participants p ON p.id=a.participant_id
+       JOIN contacts c ON c.id=p.contact_id
+       WHERE a.submission_id=$1 AND a.field_id=$2 AND c.email='grace@example.com'`,
+      [result.submissionId, field("first_name").id],
+    );
+    expect(coSpeakerAnswer.rows[0]).toEqual({ email: "grace@example.com", value: { t: "s", v: "Grace" } });
   });
 
   it("uses abstract answers when evaluating participant field visibility", async () => {

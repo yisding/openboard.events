@@ -1,22 +1,21 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { portalAuth } from "@/features/auth";
 import { submitCfpForm } from "@/features/forms/server/submit";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { formPortalAuth } from "../_lib";
 
 export const dynamic = "force-dynamic";
 
 const rawAnswers = z.record(z.string(), answerValueSchema);
 
 const inputSchema = z.object({
-  eventId: eventIdSchema,
-  formId: formIdSchema,
   formVersion: z.int().positive(),
   draftSubmissionId: submissionIdSchema.nullable().optional(),
   answers: rawAnswers,
   participants: z.array(z.object({
-    contactId: contactIdSchema,
+    clientId: z.string().trim().min(1).max(100),
+    email: z.string().trim().pipe(z.email()).transform((email) => email.toLowerCase()),
     role: z.enum(["speaker", "co_speaker"]),
     isPrimary: z.boolean(),
     sortOrder: z.int().nonnegative(),
@@ -30,15 +29,11 @@ const inputSchema = z.object({
  * how one speaker submits as another.
  */
 const submit = defineHandler({
-  auth: async (request, _eventId, params) => {
-    const eventId = eventIdSchema.parse(new URL(request.url).searchParams.get("eventId"));
-    const session = await portalAuth()(request, eventId, params);
-    return session ? { ...session, eventId } : null;
-  },
+  auth: formPortalAuth,
   input: inputSchema,
-  handler: async ({ input, session }) => submitCfpForm({
-    eventId: input.eventId,
-    formId: input.formId,
+  handler: async ({ eventId, input, params, session }) => submitCfpForm({
+    eventId: eventIdSchema.parse(eventId),
+    formId: formIdSchema.parse(params.formId),
     contactId: contactIdSchema.parse(session?.actorId),
     formVersion: input.formVersion,
     ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
@@ -46,7 +41,8 @@ const submit = defineHandler({
     ...(input.participants
       ? {
         participants: input.participants.map((participant) => ({
-          contactId: participant.contactId,
+          clientId: participant.clientId,
+          email: participant.email,
           role: participant.role,
           isPrimary: participant.isPrimary,
           sortOrder: participant.sortOrder,
@@ -58,9 +54,5 @@ const submit = defineHandler({
 });
 
 export async function POST(request: NextRequest, route: { params: Promise<{ formId: string }> }): Promise<Response> {
-  const { formId } = await route.params;
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const url = new URL(request.url);
-  url.searchParams.set("eventId", String(body.eventId ?? ""));
-  return submit(new NextRequest(url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...body, formId }) }));
+  return submit(request, route);
 }
