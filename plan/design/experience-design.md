@@ -108,14 +108,21 @@ that is the selection criterion, not a coincidence.
 - **The acceptance moment.** Celebratory first post-acceptance portal visit, and an
   auto-generated **"I'm speaking!" share card** — speaker headshot from R2, talk title, event
   branding — as an OG-tagged share page. Speakers want to announce; handing them the asset is
-  pure delight and free marketing for the organizer. Composes from `published_speakers_v`. (M59)
+  pure delight and free marketing for the organizer. The card composes from the **accepted
+  submission and contact data**, not `published_speakers_v` — that view joins through scheduled,
+  published sessions and has no row at accept time. The share page is minted per speaker under
+  an unguessable token and shows only speaker-submitted content (name, headshot, talk title);
+  schedule details appear on it only once the session is published. (M59)
 - **Calendar where they look.** My Sessions offers one-click add-to-calendar via the existing
   `/cal/[token]` feed and Google/Outlook deeplinks — M35 machinery, resurfaced. (M59)
 - **Progress as momentum.** "2 of 5 done — your speaker page goes live when your bio and
   headshot are in" — the dashboard already computes this per speaker; show them their own
   slice. (M59)
 - **Kind draft resurrection.** "Welcome back — you were on step 3, the deadline is in 4 days"
-  on the CFP wizard, using the persisted draft and `daysToEvent`. (M59)
+  on the CFP wizard, using the persisted draft. The countdown is the calendar-day distance to
+  the **form's `closes_at`** in the event timezone (not `daysToEvent`, which counts to the
+  event start and would overstate how long submissions stay open); omit it when `closes_at` is
+  null. (M59)
 - **A "what happens next" timeline.** Submitted ✓ → In review → Decisions by ⟨date⟩ on the
   portal, killing the #1 source of anxious speaker email. (M59)
 
