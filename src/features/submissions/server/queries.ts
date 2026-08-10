@@ -11,6 +11,7 @@ import {
   type SubmissionStatus,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { activePlanIdSql } from "../evaluation/server/queries";
 import type { SubmissionFilters } from "./filters";
 
 /**
@@ -54,11 +55,14 @@ function whereClause(
 }
 
 const ORDER_BY = {
-  newest: sql`s.submitted_at DESC NULLS LAST, s.created_at DESC`,
-  oldest: sql`s.submitted_at ASC NULLS LAST, s.created_at ASC`,
+  newest: sql`s.submitted_at DESC NULLS LAST, s.created_at DESC, s.code ASC`,
+  oldest: sql`s.submitted_at ASC NULLS LAST, s.created_at ASC, s.code ASC`,
   code: sql`s.code ASC`,
-  title: sql`lower(s.title) ASC`,
+  code_desc: sql`s.code DESC`,
+  title: sql`lower(s.title) ASC, s.code ASC`,
+  title_desc: sql`lower(s.title) DESC, s.code ASC`,
   rating: sql`r.rating DESC NULLS LAST, s.code ASC`,
+  rating_asc: sql`r.rating ASC NULLS LAST, s.code ASC`,
 } as const;
 
 type ListRowShape = Omit<SubmissionListRow, "speakers" | "tags"> & {
@@ -72,6 +76,7 @@ const ALL_FILTERS: SubmissionFilters = {
 
 async function selectRows(
   dbOrTx: DbOrTx,
+  eventId: EventId,
   where: ReturnType<typeof whereClause>,
   order: (typeof ORDER_BY)[keyof typeof ORDER_BY],
   limit: number,
@@ -112,10 +117,13 @@ async function selectRows(
       -- submission_ratings_v is one row per (submission, plan). Joining it
       -- directly multiplies a submission that has reviews in two plans, which
       -- shows the same abstract twice in the table and doubles the tab count.
-      -- One number per submission, which is what the Rating column means.
-      SELECT avg(v.rating) AS rating, COALESCE(sum(v.n_scores), 0)::int AS n_scores
+      -- Scoping to the active round also keeps the number meaningful: Round 1
+      -- and Round 2 are independent verdicts, and their mean is a score no
+      -- reviewer ever gave.
+      SELECT v.rating, v.n_scores
       FROM submission_ratings_v v
       WHERE v.submission_id = s.id AND v.event_id = s.event_id
+        AND v.plan_id = ${activePlanIdSql(eventId)}
     ) r ON TRUE
     WHERE ${where}
     ORDER BY ${order}
@@ -143,7 +151,7 @@ export async function listSubmissionsIn(
   filters: SubmissionFilters,
 ): Promise<{ rows: SubmissionListRow[]; total: number; page: number; pageSize: number }> {
   const where = whereClause(eventId, filters);
-  const raw = await selectRows(dbOrTx, where, ORDER_BY[filters.sort], filters.pageSize, (filters.page - 1) * filters.pageSize);
+  const raw = await selectRows(dbOrTx, eventId, where, ORDER_BY[filters.sort], filters.pageSize, (filters.page - 1) * filters.pageSize);
 
   // The window count rides on the returned rows, so a page past the end reports
   // zero — and a table that has just been filtered would show "no results" with
@@ -203,7 +211,7 @@ export async function getSubmissionDetailIn(
   eventId: EventId,
   submissionId: SubmissionId,
 ): Promise<SubmissionDetailDTO> {
-  const [listRow] = await selectRows(dbOrTx, whereClause(eventId, ALL_FILTERS, false, submissionId), ORDER_BY.code, 1, 0);
+  const [listRow] = await selectRows(dbOrTx, eventId, whereClause(eventId, ALL_FILTERS, false, submissionId), ORDER_BY.code, 1, 0);
   if (!listRow) throw new AppError("NOT_FOUND", "Submission not found");
 
   const detail = (await dbOrTx.execute<{

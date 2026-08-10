@@ -162,9 +162,25 @@ describe("abstracts queries", () => {
     expect(second.total).toBe(3);
   });
 
+  it("applies the requested global order before taking a server page", async () => {
+    const first = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 1 }));
+    const second = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 2 }));
+    expect(first.rows.map((row) => row.code)).toEqual([103, 102]);
+    expect(second.rows.map((row) => row.code)).toEqual([101]);
+
+    const titleDescending = await listSubmissionsIn(db, eventId, filters({ sort: "title_desc" }));
+    expect(titleDescending.rows.map((row) => row.title)).toEqual([
+      "Half-written idea",
+      "Evals in production",
+      "Caching at the edge",
+    ]);
+  });
+
   it("keeps one row per submission when it has ratings in two plans", async () => {
     // submission_ratings_v is per (submission, plan); a naive join shows the
-    // same abstract twice and doubles the tab count.
+    // same abstract twice and doubles the tab count. The Rating column reads the
+    // *active* round — Round 1 here — because two rounds are two independent
+    // verdicts and their mean is a score nobody gave.
     const reviewer = "a1000000-0000-4000-8000-000000000040";
     await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'reviewer@example.com','Reviewer')", [reviewer]);
     for (const [index, planId] of [
@@ -181,8 +197,8 @@ describe("abstracts queries", () => {
     const result = await listSubmissionsIn(db, eventId, filters({ search: "caching" }));
     expect(result.rows).toHaveLength(1);
     expect(result.total).toBe(1);
-    expect(result.rows[0]?.nScores).toBe(2);
-    expect(result.rows[0]?.rating).toBeCloseTo(4.5);
+    expect(result.rows[0]?.nScores).toBe(1);
+    expect(result.rows[0]?.rating).toBeCloseTo(4);
   });
 
   it("still reports the total when the page is past the end", async () => {

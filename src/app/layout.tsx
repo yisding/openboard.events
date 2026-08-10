@@ -1,7 +1,19 @@
 import type { Metadata } from "next";
+import { Archivo } from "next/font/google";
 import "./globals.css";
 import { DemoProvider } from "@/shared/demo/demo-provider";
 import { ToastProvider } from "@/shared/ui/toast";
+
+// Archivo ships a 100-900 weight axis, which the type scale in globals.css
+// relies on: without a variable face every intermediate weight snaps to the
+// nearest one the system font happens to have. next/font self-hosts the file
+// at build time, so there is no request to a font CDN at runtime and no CSP
+// entry to maintain.
+const archivo = Archivo({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-sans",
+});
 
 export const metadata: Metadata = {
   title: { default: "Openboard", template: "%s · Openboard" },
@@ -10,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={archivo.variable}>
       <body>
         <DemoProvider>
           <ToastProvider>{children}</ToastProvider>

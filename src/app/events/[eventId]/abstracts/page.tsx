@@ -34,6 +34,7 @@ export default async function Page({
     ...(typeof query.status === "string" ? { status: query.status } : {}),
     ...(typeof query.search === "string" ? { search: query.search } : {}),
     ...(typeof query.page === "string" ? { page: Number(query.page) } : {}),
+    ...(typeof query.sort === "string" ? { sort: query.sort } : {}),
   });
 
   const [event] = await db
@@ -60,7 +61,11 @@ export default async function Page({
       counts={counts}
       status={filters.status}
       search={filters.search}
-      total={counts.all}
+      total={unfiltered.all}
+      filteredTotal={list.total}
+      page={list.page}
+      pageSize={list.pageSize}
+      sort={filters.sort}
       queued={unfiltered.accept_queue + unfiltered.decline_queue}
       timezone={event?.timezone ?? "America/Los_Angeles"}
     />

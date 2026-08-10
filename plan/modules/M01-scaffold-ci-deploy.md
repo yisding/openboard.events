@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL**. The preview Worker is live at `https://sb-web-preview.yi-ding.workers.dev` with a real Neon `/api/health` round-trip and a measured 1206.45 KiB gzip artifact inside the Workers Free budget. Remaining: Resend DNS/header probe, browser R2 presign/CORS, revalidate-60, `frame-ancestors`, a deployed auth-throttle proof, and a green `Deploy` workflow run from `main`. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **MERGED-PARTIAL**. The preview Worker is live at `https://sb-web-preview.yi-ding.workers.dev` with a real Neon `/api/health` round-trip and a measured 1206.45 KiB gzip artifact inside the Workers Free budget. Remaining: Resend DNS/header probe, browser R2 presign/CORS, revalidate-60, `frame-ancestors`, a deployed auth-throttle proof, and a green `Deploy` workflow run from `main`. **Claimed by Codex on main for the larger CI-performance tranche:** profile the serial workflow, split independent gates without weakening coverage, and preserve artifact-specific checks. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect) |
 | **Scheduled** | Fri Aug 8, evening (Phase 0) — first module of the build; CP0 gate at Fri midnight |
 | **Size** | L |

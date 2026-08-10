@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | NOT STARTED |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "form builder" sub-area). |
-| **Scheduled** | Monday, alongside M23 and M25's form-mode, per WS-D's order (`M23 + M24 + M25 form-mode (Mon)`). This is a **named cut-line entry (§9 #13)**: if the Mon-noon micro-checkpoint (M25's real-snapshot render) misses, this module's UI is cut in favor of 2 seeded portal forms edited only via `pnpm seed`; the runtime (M25) stays intact regardless. |
+| **Scheduled** | Monday, alongside M23 and M25's form-mode, per WS-D's order (`M23 + M24 + M25 form-mode (Mon)`). This is a **named cut-line entry (§9 #10)**: if the Mon-noon micro-checkpoint (M25's real-snapshot render) misses, this module's UI is cut in favor of 2 seeded portal forms edited only via `pnpm seed`; the runtime (M25) stays intact regardless. |
 | **Size** | M |
 | **Paths owned** | `src/features/portal/form-builder/components/**`; `src/app/(admin)/events/[eventId]/tasks/forms/page.tsx`, `src/app/(admin)/events/[eventId]/tasks/forms/[formId]/page.tsx`; (append-only: one export block in `src/features/portal/index.ts`) |
 
@@ -80,7 +80,7 @@ Copied verbatim from the catalog (PLAN.md §4, M24), plus verification commands:
 ## Guardrails
 
 - **This module adds no new server logic.** Every mutation is M12's. If a step here seems to need a new endpoint, that is a signal to re-check whether M12 already exposes it generically — resist building a parallel portal-only form-save path; the whole point of the shared engine (data-model.md §3.4/§5.1) is one producer.
-- **Cut-line #13 is real and dated — and Step 1 makes firing it free.** The 2 seeded portal forms **are** cut-line #13's reduced form. Building them first means that if the Mon-noon micro-checkpoint (M25 rendering WS-B's real snapshot end-to-end) misses, the cut is a **no-op**: this module's UI is dropped *that day*, not deferred to Tuesday, and the runtime keeps working against forms that already exist. Do not keep polishing this UI past that checkpoint if it's missed; move to M25/M41 work instead.
+- **Cut-line #10 is real and dated — and Step 1 makes firing it free.** The 2 seeded portal forms **are** cut-line #10's reduced form. Building them first means that if the Mon-noon micro-checkpoint (M25 rendering WS-B's real snapshot end-to-end) misses, the cut is a **no-op**: this module's UI is dropped *that day*, not deferred to Tuesday, and the runtime keeps working against forms that already exist. Do not keep polishing this UI past that checkpoint if it's missed; move to M25/M41 work instead.
 - **field_type naming (step 5):** re-read the naming-gotcha note before writing the field-type dropdown options — a stray `'wysiwyg'` string anywhere here will fail the DB enum insert.
 - **maps_to is a closed allowlist enforced server-side** (data-model.md §3.4) — this builder must never let an admin type an arbitrary `maps_to` string; it is always chosen from the standard-field library's fixed dropdown or left `null` for custom fields.
 - **No visibility/routing UI here, ever** — a portal form that accidentally inherits CFP wizard chrome (deadline banners, participant-role pickers, routing rules panel) is a review-blocker; this is a single-page, linear-forms-only surface.

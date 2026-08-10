@@ -1,7 +1,7 @@
 # M28 — Sessions CRUD, list view, tray, promotion
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged localStorage **STACK-DEMO** session create/edit/place/publish behavior lacks database CRUD, accepted promotion, authorization, and AC. See [`../status.md`](../status.md). |
+| **Status** | NOT STARTED — **claim released.** Claude claimed the whole module (server, routes, List view/tray/toolbar/dialog, `scripts/seed/agenda.ts`) at `3dd69ea` and stopped before writing any of it; **no M28 code exists on any branch.** What the claim did produce is its blocking dependency: [M29](./M29-conflict-engine.md)'s reconciliation is in [draft PR #89](https://github.com/yisding/symmetrical-happiness/pull/89), so the gate in *Scheduled* below is satisfied the moment that merges. The merged localStorage **STACK-DEMO** session create/edit/place/publish behavior still lacks database CRUD, accepted promotion, authorization and AC. The next claimant starts at Step 1 with nothing to unpick. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Original target: Sat AM → Sun AM. Independent CRUD scaffolding may proceed, but `getSchedulableSessions`, authoritative conflict recompute, and downstream conflict consumers remain blocked until M29 is reconciled with frozen contracts and its full property/acceptance suite is green. |
 | **Size** | M |

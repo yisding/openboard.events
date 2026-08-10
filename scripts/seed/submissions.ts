@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { createSubmissionIn } from "@/features/submissions";
-import { cleanAnswersSchema, type ContactId, type FieldId, type FormId, type SubmissionStatus } from "@/shared/contracts";
+import { cleanAnswersSchema, type ContactId, type FieldId, type FormId, type FormatId, type SubmissionStatus, type TrackId } from "@/shared/contracts";
 import type { SeedCtx } from "./lib/helpers";
 
 /**
@@ -46,6 +46,8 @@ const SPREAD: Array<{ key: string; title: string; status: SubmissionStatus }> = 
 
 /** Mirrors contacts.ts, which owns these people. */
 const SPEAKER_KEYS = ["ada", "grace", "alan", "katherine", "margaret", "barbara", "tim", "radia", "linus", "sophie", "james", "shafi"];
+const TRACK_KEYS = ["agents", "platforms", "security", "community"] as const;
+const FORMAT_KEYS = ["talk", "workshop", "panel", "keynote"] as const;
 
 export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const { tx, eventId } = ctx;
@@ -75,8 +77,8 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
   const answersFor = (title: string, index: number) => cleanAnswersSchema.parse([
     { fieldId: field("title"), participantId: null, value: { t: "s", v: title } },
     { fieldId: field("description"), participantId: null, value: { t: "s", v: `<p>A talk about ${title.toLowerCase().slice(0, 60)}.</p>` } },
-    { fieldId: field("track"), participantId: null, value: { t: "opt", v: ["agents", "platforms", "security", "community"][index % 4] ?? "agents" } },
-    { fieldId: field("format"), participantId: null, value: { t: "opt", v: ["talk", "workshop", "panel", "keynote"][index % 4] ?? "talk" } },
+    { fieldId: field("track"), participantId: null, value: { t: "opt", v: TRACK_KEYS[index % TRACK_KEYS.length] ?? "agents" } },
+    { fieldId: field("format"), participantId: null, value: { t: "opt", v: FORMAT_KEYS[index % FORMAT_KEYS.length] ?? "talk" } },
   ]);
 
   const create = async (key: string, title: string, status: SubmissionStatus, index: number) => {
@@ -104,6 +106,8 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
       fields: {
         title,
         clientSessionId: seedKey,
+        trackId: ctx.id("track", TRACK_KEYS[index % TRACK_KEYS.length] ?? "agents") as TrackId,
+        formatId: ctx.id("format", FORMAT_KEYS[index % FORMAT_KEYS.length] ?? "talk") as FormatId,
         descriptionHtml: key === "xss"
           // The standing probe, in rich text as well as in a title.
           ? '<p>Before: <img src=x onerror=alert(1)><script>alert(2)</script> after.</p>'

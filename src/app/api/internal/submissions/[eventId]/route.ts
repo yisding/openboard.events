@@ -7,11 +7,11 @@ import { defineHandler } from "@/shared/server/handler";
 export const dynamic = "force-dynamic";
 
 /**
- * The Abstracts table's rows. Admin auth with no role requirement: a reviewer
- * has to be able to read the submissions they are reviewing.
+ * The organizer Abstracts table's rows. Reviewers use the evaluation queue,
+ * whose server query applies their plan and assignment scope.
  */
 const list = defineHandler({
-  auth: adminAuth(),
+  auth: adminAuth({ role: "organizer" }),
   input: submissionFiltersSchema,
   handler: async ({ eventId, input }) => listSubmissions(eventIdSchema.parse(eventId), input),
 });

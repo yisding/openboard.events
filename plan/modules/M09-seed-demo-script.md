@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — reclaimed by Codex for the PR #65 follow-up that makes `pnpm seed` create the R2 headshot objects referenced by seeded `file_assets` rows. Steps 1–2 and the contact seed are merged; this recovery joins the existing uploader to the orchestrator so a clean seed cannot leave broken public files. Per-feature seed content stays with its own workstream. **MERGED-PARTIAL** until the remaining feature seeds and judge-script AC land. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — reclaimed by Codex as part of the combined remaining-review remediation tranche spanning M16 and M09. This module owns the final PR #32 seed-contract gap: the demo must contain a real form-completion portal task alongside manual and file-request tasks, with the one-per-mode invariant covered. The earlier PR #65 recovery already made `pnpm seed` create the R2 headshot objects referenced by seeded `file_assets` rows. Per-feature seed content stays with its own workstream. **MERGED-PARTIAL** until the remaining feature seeds and judge-script AC land. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-A Platform & Foundation (architect owns the **orchestrator + helpers + demo script**; each per-feature seed module is owned by that feature's workstream) |
 | **Scheduled** | Sat AM (orchestrator + core content, part of CP1) → Sun (v2: feature modules composed) → Tue (v3: matched to the walkthrough videos) |
 | **Size** | M (orchestrator + core; feature modules land with their workstreams) |
@@ -106,7 +106,7 @@ portal-login challenge; production sends it to the team-owned inbox, while the i
 preview may expose it only through the explicitly enabled fallback diagnostics.
 
 ### 7. `docs/demo-script.md`
-One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, preview-only email-diagnostics instructions, and any honest deviations (e.g. if cut-line #5 fired, "portal submission detail is read-only — deliberate, see README").
+One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, preview-only email-diagnostics instructions, and any active reduced forms from PLAN §9. Speaker submission editing is required and must not be described as a cut-line deviation.
 This file doubles as the Wed bug-bash checklist and as the judges' unassisted path.
 - **Done when:** someone who did not build the feature walks all nine rows on the deployed preview using only this file, in under 15 minutes, without asking a question — including logging in as the **reviewer** and scoring one abstract.
 

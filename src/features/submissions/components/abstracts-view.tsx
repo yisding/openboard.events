@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useState } from "react";
+import type { SubmissionFilters } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
@@ -21,6 +22,10 @@ export function AbstractsView({
   search,
   timezone,
   total,
+  filteredTotal,
+  page,
+  pageSize,
+  sort,
   queued,
 }: {
   eventId: string;
@@ -29,7 +34,13 @@ export function AbstractsView({
   status: SubmissionStatus | "all";
   search: string;
   timezone: string;
+  /** Event-wide total, excluding the active search and status. */
   total: number;
+  /** Total matching the active filters, including status. */
+  filteredTotal: number;
+  page: number;
+  pageSize: number;
+  sort: SubmissionFilters["sort"];
   /** Event-wide, because Notify is event-wide. */
   queued: number;
 }) {
@@ -58,6 +69,22 @@ export function AbstractsView({
     router.push(`?${query.toString()}`);
   }, [params, router]);
 
+  const onPageChange = useCallback((page: number) => {
+    const query = new URLSearchParams(params.toString());
+    if (page > 1) query.set("page", String(page));
+    else query.delete("page");
+    router.push(`?${query.toString()}`);
+  }, [params, router]);
+
+  const onSortChange = useCallback((next: SubmissionFilters["sort"]) => {
+    const query = new URLSearchParams(params.toString());
+    if (next === "newest") query.delete("sort");
+    else query.set("sort", next);
+    // A new global order starts on its first server page.
+    query.delete("page");
+    router.push(`?${query.toString()}`);
+  }, [params, router]);
+
   return (
     <main className="page">
       <PageHeader
@@ -78,7 +105,13 @@ export function AbstractsView({
         search={search}
         timezone={timezone}
         total={total}
+        filteredTotal={filteredTotal}
+        page={page}
+        pageSize={pageSize}
+        sort={sort}
         onFilter={onFilter}
+        onPageChange={onPageChange}
+        onSortChange={onSortChange}
         selectionEpoch={selectionEpoch}
         onSelectionChange={setSelected}
         onRowClick={(row) => setOpenId(row.submissionId)}

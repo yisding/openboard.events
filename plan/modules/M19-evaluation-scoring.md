@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **claimed by Claude** for the server half (steps 1–2, 4, 6–8): `evaluation/index.ts` types, plans CRUD, reviewer assignment with the effective-scope rule, the `submitReview` upsert with server-side re-scoping, `getRatings` over `submission_ratings_v`, the five route handlers, and the PGlite suite. The merged **STACK-DEMO** queue/plan modal/scoring UI stays untouched until the server lands; the plans page, reviewer queue (steps 3, 5, 9) and `scripts/seed/evaluation.ts` (step 11) follow in their own PRs. See [`../status.md`](../status.md). |
+| **Status** | IN REVIEW — **PR-OPEN** as a five-PR stack by Claude, steps 1–9 and 11 complete: [#78](https://github.com/yisding/symmetrical-happiness/pull/78) plans/criteria/assignment server (single-statement CTEs, no ninth `withTx`) + the Abstracts Rating column rescoped to the *active* round; [#80](https://github.com/yisding/symmetrical-happiness/pull/80) the reviewer queue read and the self-guarding `submitReview` upsert; [#83](https://github.com/yisding/symmetrical-happiness/pull/83) `scripts/seed/evaluation.ts`; [#84](https://github.com/yisding/symmetrical-happiness/pull/84) the reviewer queue page (`/events/[id]/review`, previously a 404 the shell nav pointed at) with `<SubmissionAnswers>` extracted from M17's drawer rather than copied; [#85](https://github.com/yisding/symmetrical-happiness/pull/85) the organizer plans page. 41 new tests. **Blocking `DONE`:** merge, then the deployed AC — the seeded reviewer signing in on the preview, scoring three abstracts, and the Rating column matching a hand-computed average. Step 12 (AI review) is cut-line #1 and deliberately absent. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sun PM → Mon** (start after M18 completes; done Mon per PLAN §7. Subject to the **Sun-noon swarm check** — see *If blocked*.) The AI-review button is a post-CP4 COULD (Tue+) and cut-line #1. |
 | **Size** | L (~day) |
@@ -140,7 +140,7 @@ Verification:
 - **Role separation:** a `reviewer` sees `/events/[id]/review` and read-only submission data only; the evaluation admin page and all mutations except `submitReview` require `organizer`/`owner`. Verify by logging in as the seeded reviewer and hitting `/events/[id]/evaluation` → friendly 403, not a crash.
 - **Comments are plaintext.** Do not introduce rich text here — no new sanitizer surface, no new `dangerouslySetInnerHTML`.
 - **Empty states** (trap 7): plan with 0 criteria, reviewer with 0 assignments, plan with 0 in-scope submissions, submission with 0 scores. All four are demoable on the empty second event.
-- **Cut line #7** is above this module: if Monday is tight, ship a single plan + the Rating column and drop the multi-round UI (schema keeps rounds). Cut line #1 (AI review) goes first of all.
+- **Multi-round review is a foundation for M50.** It may land incrementally behind the single-plan recovery path, but it cannot be removed from the release scope. Cut line #1 still permits dropping the unrelated AI-assisted review button.
 
 ## If blocked
 

@@ -12,6 +12,7 @@ export {
 export { assertTransition, toPortalStatus } from "./server/guards";
 export type { SubmissionFilters } from "./server/filters";
 export { submissionFiltersSchema } from "./server/filters";
+export * from "./evaluation/index";
 export {
   getStatusCounts,
   getStatusCountsIn,
