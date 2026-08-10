@@ -10,6 +10,7 @@ import {
   getActivePlanIn,
   getPlanIn,
   getRatingsIn,
+  listEventMembersIn,
   listPlansIn,
   listSubmissionsIn,
   planInputSchema,
@@ -322,6 +323,15 @@ describe("evaluation plans and reviewer routing", () => {
     const empty = await savePlanIn(db, eventId, planInput({ name: "Round 2", round: 2 }));
     await deletePlanIn(db, eventId, empty.planId);
     expect((await listPlansIn(db, eventId)).map((plan) => plan.id)).toEqual([planId]);
+  });
+
+  it("offers every member of the event as a possible reviewer", async () => {
+    // Organizers review their own events, so the picker is members rather than
+    // members-with-role-reviewer.
+    const members = await listEventMembersIn(db, eventId);
+    expect(members.map((member) => member.email)).toEqual(["ada@example.com", "grace@example.com"]);
+    expect(members.every((member) => member.role === "reviewer")).toBe(true);
+    expect(await listEventMembersIn(db, otherEventId)).toEqual([]);
   });
 
   it("will not touch a plan through another event's id", async () => {

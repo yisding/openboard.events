@@ -217,6 +217,29 @@ export async function assertReviewerCanReadSubmissionIn(
 }
 
 /**
+ * Who an organizer may put on a round: this event's members, reviewers and
+ * organizers alike (an organizer scoring their own event is normal). The plans
+ * page renders it as the assignment picker.
+ */
+export async function listEventMembersIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+): Promise<Array<{ userId: UserId; name: string; email: string; role: string }>> {
+  const result = await dbOrTx.execute<{ user_id: string; name: string; email: string; role: string }>(sql`
+    SELECT m.user_id, u.name, u.email, m.role
+    FROM event_members m JOIN users u ON u.id = m.user_id
+    WHERE m.event_id = ${eventId}
+    ORDER BY lower(u.name), u.email
+  `);
+  return (result.rows ?? []).map((row) => ({
+    userId: row.user_id as UserId,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+  }));
+}
+
+/**
  * One plan's ratings, straight off `submission_ratings_v`. Submissions with no
  * finished review are absent rather than zero — the caller renders them as `—`,
  * and a missing verdict never drags an average down.
@@ -248,3 +271,4 @@ export const assertReviewerCanReadSubmission = (
   reviewerUserId: UserId,
 ) => assertReviewerCanReadSubmissionIn(db, eventId, planId, submissionId, reviewerUserId);
 export const getRatings = (eventId: EventId, planId: PlanId) => getRatingsIn(db, eventId, planId);
+export const listEventMembers = (eventId: EventId) => listEventMembersIn(db, eventId);
