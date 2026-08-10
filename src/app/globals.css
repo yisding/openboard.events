@@ -229,7 +229,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .sidebar-bottom > a { height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 9px; border-radius: 7px; color: var(--on-dark-faint); font-size: 11px; }
 .sidebar-bottom > a:hover { color: #fff; background: rgba(255,255,255,.05); }
 .sidebar-user { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.07); padding: 12px 7px 2px; display: grid; grid-template-columns: 32px 1fr 20px; align-items: center; gap: 8px; }
-.sidebar-user > span { width: 32px; height: 32px; border-radius: 50%; background: var(--purple-soft); color: var(--purple-light); display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+/* Light chip inside the dark sidebar, so the text is dark purple, not the
+   --purple-light used elsewhere on the sidebar's own dark surface. */
+.sidebar-user > span { width: 32px; height: 32px; border-radius: 50%; background: var(--purple-soft); color: var(--purple-dark); display: grid; place-items: center; font-size: 10px; font-weight: 800; }
 .sidebar-user b, .sidebar-user small { display: block; }
 .sidebar-user b { color: var(--on-dark); font-size: 11px; }
 .sidebar-user small { font-size: 9px; color: var(--on-dark-faint); margin-top: 2px; }
