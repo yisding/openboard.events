@@ -60,4 +60,17 @@ CREATE INDEX organization_audit_log_org_created_idx ON organization_audit_log(or
 -- template key. Appended, never reordered — `template_key` is a Postgres
 -- enum whose existing labels are already stored (same discipline as every
 -- earlier `ALTER TYPE` in this journal).
-ALTER TYPE template_key ADD VALUE IF NOT EXISTS 'organization_invited';
+-- `ALTER TYPE … ADD VALUE` makes a value unusable until the transaction that
+-- added it commits — and drizzle applies a pending migration batch in ONE
+-- transaction, so 0014's backfill (which inserts rows with these keys) would
+-- fail with "unsafe use of new value of enum type". Recreate the enum instead:
+-- transaction-safe and the labels are usable immediately.
+-- The stored CHECK pins the enum with an explicit cast ('portal_login'::template_key),
+-- which would compare old-type against new-type mid-ALTER. Drop and re-add around it.
+ALTER TABLE communication_logs DROP CONSTRAINT communication_logs_secret_payload_check;
+CREATE TYPE template_key_v11 AS ENUM ('submission_received','submission_accepted','submission_declined','task_assigned','task_reminder','schedule_assigned','schedule_changed','portal_login','reviewer_invited','review_reminder','speaker_bulk_message','admin_password_reset','admin_email_verification','organization_invited');
+ALTER TABLE email_templates ALTER COLUMN key TYPE template_key_v11 USING key::text::template_key_v11;
+ALTER TABLE communication_logs ALTER COLUMN template_key TYPE template_key_v11 USING template_key::text::template_key_v11;
+DROP TYPE template_key;
+ALTER TYPE template_key_v11 RENAME TO template_key;
+ALTER TABLE communication_logs ADD CONSTRAINT communication_logs_secret_payload_check CHECK ((template_key = 'portal_login') OR (secret_payload_ciphertext IS NULL));

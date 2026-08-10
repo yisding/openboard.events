@@ -89,8 +89,20 @@ ON CONFLICT (provider_id, account_id) DO NOTHING;
 -- Admin auth mail rides the existing outbox (`enqueueEmail`), so it needs
 -- template keys. Both are transactional/security mail: see
 -- `TRANSACTIONAL_TEMPLATE_KEYS` in `src/shared/contracts/comms.ts`.
-ALTER TYPE template_key ADD VALUE IF NOT EXISTS 'admin_password_reset';
-ALTER TYPE template_key ADD VALUE IF NOT EXISTS 'admin_email_verification';
+-- `ALTER TYPE … ADD VALUE` makes a value unusable until the transaction that
+-- added it commits — and drizzle applies a pending migration batch in ONE
+-- transaction, so 0014's backfill (which inserts rows with these keys) would
+-- fail with "unsafe use of new value of enum type". Recreate the enum instead:
+-- transaction-safe and the labels are usable immediately.
+-- The stored CHECK pins the enum with an explicit cast ('portal_login'::template_key),
+-- which would compare old-type against new-type mid-ALTER. Drop and re-add around it.
+ALTER TABLE communication_logs DROP CONSTRAINT communication_logs_check;
+CREATE TYPE template_key_v09 AS ENUM ('submission_received','submission_accepted','submission_declined','task_assigned','task_reminder','schedule_assigned','schedule_changed','portal_login','reviewer_invited','review_reminder','speaker_bulk_message','admin_password_reset','admin_email_verification');
+ALTER TABLE email_templates ALTER COLUMN key TYPE template_key_v09 USING key::text::template_key_v09;
+ALTER TABLE communication_logs ALTER COLUMN template_key TYPE template_key_v09 USING template_key::text::template_key_v09;
+DROP TYPE template_key;
+ALTER TYPE template_key_v09 RENAME TO template_key;
+ALTER TABLE communication_logs ADD CONSTRAINT communication_logs_check CHECK ((template_key = 'portal_login') OR (secret_payload_ciphertext IS NULL));
 
 -- Both new templates carry a one-shot credential (the reset / verification
 -- URL), so they need the same sealed-payload channel `portal_login` uses. The
