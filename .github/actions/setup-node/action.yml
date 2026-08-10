@@ -1,0 +1,20 @@
+name: Set up Node and pnpm
+description: Install the pinned toolchain and frozen dependencies for a CI job
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.8.0
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    # check-invariants.sh fails closed when ripgrep is missing.
+    - name: Install ripgrep
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
