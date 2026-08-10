@@ -52,7 +52,7 @@ export function useCfpDraft(formId: FormId): DraftHandle;                       
 Routes provided: `/submit/[eventSlug]/[formId]` (the wizard, `?step=`), `/submit/[eventSlug]/[formId]/done` (success page).
 
 Consumed by:
-- [M25](./M25-task-runtime.md) — **the critical consumer.** Portal form tasks render `<FormFieldRenderer>` as a black box. WS-D builds against the Phase-0 props + golden fixture from Sunday; the real import swaps at the **Mon-noon micro-checkpoint** (a miss fires cut-line #13 that day).
+- [M25](./M25-task-runtime.md) — **the critical consumer.** Portal form tasks render `<FormFieldRenderer>` as a black box. WS-D builds against the Phase-0 props + golden fixture from Sunday; the real import swaps at the **Mon-noon micro-checkpoint** (a miss fires cut-line #10 that day).
 - [M41](./M41-speaker-edit-until-close.md) — speaker submission editing reuses the renderer prefilled from `submission_answers` against the **pinned** snapshot.
 - [M13b](./M13b-rules-ui.md) — builder preview renders through it (admin-side).
 - [M10](./M10-e2e-release.md) — `cfp-submit.spec` drives this surface.
