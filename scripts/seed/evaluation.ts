@@ -18,9 +18,9 @@ import type { SeedCtx } from "./lib/helpers";
  *
  * Every row is written through the real server functions — `savePlanIn`,
  * `assignReviewersIn`, `submitReviewIn` — so the seed exercises the scope rule
- * and the weighted mean rather than a private copy of them. Scores are only
- * written where none exist, so a re-run never overwrites a verdict a judge just
- * gave during a walkthrough.
+ * and the weighted mean rather than a private copy of them. An existing seeded
+ * round is left completely alone, so a non-wipe rerun cannot reopen it, reset
+ * its criteria or assignments, or overwrite a walkthrough verdict.
  */
 
 const CRITERIA = [
@@ -62,6 +62,18 @@ export async function seedEvaluation(ctx: SeedCtx): Promise<void> {
   }
 
   const planId = ctx.id("plan", "round-1") as PlanId;
+  const [existing] = (await tx.execute<{ id: string; status: string; reviews: number }>(sql`
+    SELECT p.id, p.status, count(r.id)::int AS reviews
+    FROM evaluation_plans p
+    LEFT JOIN reviews r ON r.plan_id = p.id
+    WHERE p.id = ${planId} AND p.event_id = ${eventId}
+    GROUP BY p.id
+  `)).rows ?? [];
+  if (existing) {
+    ctx.log(`Round 1 already exists (${existing.status}, ${Number(existing.reviews)} reviews) — left organizer changes alone`);
+    return;
+  }
+
   await savePlanIn(tx, eventId, planInputSchema.parse({
     planId,
     name: "Round 1",

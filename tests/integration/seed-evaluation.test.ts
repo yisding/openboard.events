@@ -4,9 +4,13 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
+import { seedContacts } from "../../scripts/seed/contacts";
 import { seedEvaluation } from "../../scripts/seed/evaluation";
+import { seedEvents } from "../../scripts/seed/events";
+import { seedForms } from "../../scripts/seed/forms";
 import { SEEDED_EMPTY_EVENT_ID, SEEDED_EVENT_ID } from "../../scripts/seed/lib/helpers";
 import { seedId } from "../../scripts/seed/lib/ids";
+import { seedSubmissions } from "../../scripts/seed/submissions";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -127,10 +131,16 @@ describe("evaluation seed", () => {
     }
   });
 
-  it("is a no-op on a re-run and keeps a score given in between", async () => {
+  it("is a no-op on a re-run and preserves organizer changes", async () => {
     const before = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM reviews");
     const [first] = (await pglite.query<{ id: string }>("SELECT id FROM reviews ORDER BY submitted_at LIMIT 1")).rows;
     await pglite.query("UPDATE reviews SET overall_score = 1.25 WHERE id = $1", [first?.id]);
+    await pglite.query("UPDATE evaluation_plans SET status = 'closed' WHERE id = $1", [seedId("plan", "round-1")]);
+    await pglite.query("UPDATE evaluation_criteria SET label = 'Organizer label' WHERE id = $1", [seedId("criterion", "round-1-relevance")]);
+    await pglite.query("DELETE FROM reviewer_assignments WHERE user_id = $1", [seedId("user", "organizer")]);
+    await pglite.query("UPDATE reviewer_assignments SET track_ids = ARRAY[$2]::uuid[] WHERE user_id = $1", [
+      seedId("user", "reviewer"), seedId("track", "security"),
+    ]);
 
     await seedEvaluation(ctx);
 
@@ -140,5 +150,41 @@ describe("evaluation seed", () => {
     const kept = await pglite.query<{ overall_score: string }>("SELECT overall_score FROM reviews WHERE id = $1", [first?.id]);
     expect(Number(kept.rows[0]?.overall_score)).toBe(1.25);
     expect((await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM evaluation_plans")).rows[0]?.n).toBe(1);
+    expect((await pglite.query<{ status: string }>("SELECT status FROM evaluation_plans")).rows[0]?.status).toBe("closed");
+    expect((await pglite.query<{ label: string }>("SELECT label FROM evaluation_criteria WHERE id=$1", [
+      seedId("criterion", "round-1-relevance"),
+    ])).rows[0]?.label).toBe("Organizer label");
+    const assignments = await pglite.query<{ user_id: string; track_ids: string[] | null }>(
+      "SELECT user_id,track_ids FROM reviewer_assignments ORDER BY user_id",
+    );
+    expect(assignments.rows).toEqual([{ user_id: seedId("user", "reviewer"), track_ids: [seedId("track", "security")] }]);
   });
+
+  it("scores submissions created by the real seed pipeline", async () => {
+    const seededDb = new PGlite();
+    try {
+      await seededDb.exec(migration0);
+      await seededDb.exec(migration1);
+      const seededCtx = {
+        ...ctx,
+        tx: drizzle(seededDb, { schema }) as unknown as TxDb,
+        log: () => undefined,
+      };
+      await seedEvents(seededCtx);
+      await seedContacts(seededCtx);
+      await seedForms(seededCtx);
+      await seedSubmissions(seededCtx);
+      await seedEvaluation(seededCtx);
+
+      const routed = await seededDb.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM submissions
+         WHERE client_session_id LIKE 'seed:submission:%' AND track_id IS NOT NULL AND format_id IS NOT NULL`,
+      );
+      const reviews = await seededDb.query<{ n: number }>("SELECT count(*)::int AS n FROM reviews");
+      expect(routed.rows[0]?.n).toBeGreaterThan(0);
+      expect(reviews.rows[0]?.n).toBeGreaterThan(0);
+    } finally {
+      await seededDb.close();
+    }
+  }, 60_000);
 });
