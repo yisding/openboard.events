@@ -8,7 +8,10 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type PaginationState,
   type Row as TableRow,
+  type SortingState,
+  type Updater,
   type VisibilityState,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
@@ -54,6 +57,21 @@ export type DataTableProps<Row> = {
   getRowId?: (row: Row, index: number) => string;
   /** Change this to clear the selection — the table owns that state, not the caller. */
   selectionEpoch?: number;
+  /**
+   * Opt into server pagination when `data` is already one page. Other tables
+   * retain the local pagination behavior by leaving this absent.
+   */
+  serverPagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    onPageChange: (page: number) => void;
+  };
+  /** Opt into server sorting when the query, rather than this page, orders rows. */
+  serverSorting?: {
+    state: SortingState;
+    onChange: (state: SortingState) => void;
+  };
 };
 
 /**
@@ -111,12 +129,34 @@ export function DataTable<Row>({
   pageSize = 25,
   getRowId,
   selectionEpoch,
+  serverPagination,
+  serverSorting,
 }: DataTableProps<Row>) {
-  const [sorting, setSorting] = useState<Array<{ id: string; desc: boolean }>>([]);
+  const [localSorting, setLocalSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize });
+  const [localPagination, setLocalPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const sorting = serverSorting?.state ?? localSorting;
+  const pagination = serverPagination
+    ? { pageIndex: Math.max(0, serverPagination.page - 1), pageSize: serverPagination.pageSize }
+    : localPagination;
+  const requestServerPage = serverPagination?.onPageChange;
+
+  const updateSorting = (updater: Updater<SortingState>) => {
+    const next = typeof updater === "function" ? updater(sorting) : updater;
+    if (serverSorting) serverSorting.onChange(next);
+    else setLocalSorting(next);
+  };
+
+  const updatePagination = (updater: Updater<PaginationState>) => {
+    const next = typeof updater === "function" ? updater(pagination) : updater;
+    if (requestServerPage) {
+      if (next.pageIndex !== pagination.pageIndex) requestServerPage(next.pageIndex + 1);
+    } else {
+      setLocalPagination(next);
+    }
+  };
 
   // Read on mount rather than during render: the server has no localStorage, and
   // a mismatch between the two passes is a hydration error.
@@ -149,11 +189,16 @@ export function DataTable<Row>({
       cell: ({ getValue }) => <Dash value={getValue()} />,
     },
     state: { sorting, rowSelection, columnVisibility, pagination },
-    onSortingChange: setSorting,
+    onSortingChange: updateSorting,
     onRowSelectionChange: setRowSelection,
     onColumnVisibilityChange: setColumnVisibility,
-    onPaginationChange: setPagination,
+    onPaginationChange: updatePagination,
     enableRowSelection: enableSelection,
+    manualSorting: Boolean(serverSorting),
+    manualPagination: Boolean(serverPagination),
+    ...(serverPagination
+      ? { pageCount: Math.ceil(serverPagination.total / serverPagination.pageSize) }
+      : {}),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -170,9 +215,10 @@ export function DataTable<Row>({
   // exists — the table would render empty while the data is fine.
   useEffect(() => {
     if (pageCount > 0 && pagination.pageIndex > pageCount - 1) {
-      setPagination((current) => ({ ...current, pageIndex: pageCount - 1 }));
+      if (requestServerPage) requestServerPage(pageCount);
+      else setLocalPagination((current) => ({ ...current, pageIndex: pageCount - 1 }));
     }
-  }, [pageCount, pagination.pageIndex]);
+  }, [pageCount, pagination.pageIndex, requestServerPage]);
 
   const rows = table.getRowModel().rows;
   // Page-local means hidden selections do not merely disappear from the count:

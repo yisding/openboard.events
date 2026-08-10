@@ -1,9 +1,10 @@
 "use client";
 
 import { Inbox } from "lucide-react";
-import { useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { formatCode } from "@/features/submissions/index.client";
+import type { SubmissionFilters } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
@@ -18,12 +19,35 @@ import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
  */
 const TABS: Array<{ id: SubmissionStatus | "all"; label: string }> = [
   { id: "all", label: "All" },
-  { id: "pending", label: "Pending" },
-  { id: "accept_queue", label: "Accept queue" },
   { id: "accepted", label: "Accepted" },
+  { id: "accept_queue", label: "Accept queue" },
+  { id: "pending", label: "Pending" },
+  { id: "decline_queue", label: "Decline queue" },
   { id: "declined", label: "Declined" },
+  { id: "withdrawn", label: "Withdrawn" },
   { id: "draft", label: "Drafts" },
 ];
+
+const SORTING_BY_QUERY: Record<SubmissionFilters["sort"], SortingState[number]> = {
+  newest: { id: "submitted", desc: true },
+  oldest: { id: "submitted", desc: false },
+  code: { id: "code", desc: false },
+  code_desc: { id: "code", desc: true },
+  title: { id: "title", desc: false },
+  title_desc: { id: "title", desc: true },
+  rating: { id: "rating", desc: true },
+  rating_asc: { id: "rating", desc: false },
+};
+
+function submissionSortFromTable(state: SortingState): SubmissionFilters["sort"] {
+  const [sort] = state;
+  if (!sort) return "newest";
+  if (sort.id === "submitted") return sort.desc ? "newest" : "oldest";
+  if (sort.id === "code") return sort.desc ? "code_desc" : "code";
+  if (sort.id === "title") return sort.desc ? "title_desc" : "title";
+  if (sort.id === "rating") return sort.desc ? "rating" : "rating_asc";
+  return "newest";
+}
 
 export function AbstractsTable({
   rows,
@@ -32,7 +56,13 @@ export function AbstractsTable({
   search,
   timezone,
   total,
+  filteredTotal,
+  page,
+  pageSize,
+  sort,
   onFilter,
+  onPageChange,
+  onSortChange,
   onSelectionChange,
   onRowClick,
   selectionEpoch,
@@ -42,13 +72,22 @@ export function AbstractsTable({
   status: SubmissionStatus | "all";
   search: string;
   timezone: string;
+  /** Event-wide total used to explain an empty search result. */
   total: number;
+  /** Active-filter total used by the server pager. */
+  filteredTotal: number;
+  page: number;
+  pageSize: number;
+  sort: SubmissionFilters["sort"];
   onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
+  onPageChange: (page: number) => void;
+  onSortChange: (sort: SubmissionFilters["sort"]) => void;
   onSelectionChange?: (rows: SubmissionListRow[]) => void;
   onRowClick?: (row: SubmissionListRow) => void;
   selectionEpoch?: number;
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
+  useEffect(() => setDraftSearch(search), [search]);
 
   const columns = useMemo<Array<ColumnDef<SubmissionListRow, unknown>>>(() => [
     {
@@ -74,16 +113,18 @@ export function AbstractsTable({
       id: "speakers",
       header: "Speakers",
       accessorFn: (row) => row.speakers[0]?.name ?? null,
+      enableSorting: false,
       sortingFn: nullsLast,
       cell: ({ row }) => <Dash value={row.original.speakers[0]?.name}>
         <span>{row.original.speakers.map((speaker) => speaker.name).join(", ")}</span>
       </Dash>,
     },
-    { id: "status", header: "Status", accessorKey: "status", cell: ({ row }) => <StatusBadge value={row.original.status} /> },
+    { id: "status", header: "Status", accessorKey: "status", enableSorting: false, cell: ({ row }) => <StatusBadge value={row.original.status} /> },
     {
       id: "track",
       header: "Track",
       accessorFn: (row) => row.trackName,
+      enableSorting: false,
       sortingFn: nullsLast,
       cell: ({ row }) => row.original.trackName
         ? <ColorChip label={row.original.trackName} color={row.original.trackColor} />
@@ -93,6 +134,7 @@ export function AbstractsTable({
       id: "rating",
       header: "Rating",
       accessorFn: (row) => row.rating,
+      sortDescFirst: true,
       sortingFn: nullsLast,
       cell: ({ row }) => <Dash value={row.original.rating}>
         <span className="rating">{row.original.rating?.toFixed(1)} <small>({row.original.nScores})</small></span>
@@ -102,6 +144,7 @@ export function AbstractsTable({
       id: "submitted",
       header: "Submitted",
       accessorFn: (row) => row.submittedAt,
+      sortDescFirst: true,
       sortingFn: nullsLast,
       cell: ({ row }) => <TzTime instant={row.original.submittedAt} tz={timezone} style="date" secondary="time" />,
     },
@@ -133,6 +176,11 @@ export function AbstractsTable({
         getRowId={(row) => row.submissionId}
         {...(onSelectionChange ? { onSelectionChange } : {})}
         {...(onRowClick ? { onRowClick } : {})}
+        serverPagination={{ page, pageSize, total: filteredTotal, onPageChange }}
+        serverSorting={{
+          state: [SORTING_BY_QUERY[sort]],
+          onChange: (state) => onSortChange(submissionSortFromTable(state)),
+        }}
         toolbar={
           <form
             className="table-search"
