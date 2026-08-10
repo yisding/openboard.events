@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — the merged fixture-backed **STACK-DEMO** speaker admin/impersonation surface lacks server queries/writes, real impersonation auth, comm-log integration, and AC. Exception: #72 added `getAdminSpeaker`, the first database-backed speakers-admin read, used to resolve the dashboard's speaker deep links; the list itself remains fixture-backed. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. `src/features/portal/server/admin-speakers.ts` now has `listContacts(In)` (filters over `accepted_speakers_v`/`missing_assets_v`/`speaker_outstanding_v`) and `getSpeakerDetail(In)` (profile, submissions, tasks, real comms history via M34's `listLogIn`), plus `admin-speakers-mutations.ts`'s `updateSpeakerEmail`/`setConfirmationStatus`, real `<DataTable>`-based list/detail pages, and real impersonation through M06b's `/api/internal/auth/portal/impersonate`. Remaining before `DONE`: deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review — **executing agent differs from the feature folder**: WS-C owns `features/portal/admin/**` by declared temporary file-ownership on Monday (PLAN §4/§6). WS-D owns the rest of `features/portal`. |
 | **Scheduled** | **Mon** (CP3: dashboard deep-links land the same night; comms history uses fixture rows until [M37](./M37-comms-admin-ui.md) lands Tue). |
 | **Size** | M (~half-day) |

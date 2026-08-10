@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged client-only **STACK-DEMO** submission editing lacks portal ownership, server pipeline reuse, close/status guards, version handling, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. The edit-until-close flow is real, reusing M16's `runSubmitPipeline` and M18's `updateSubmissionFromCfp`: `getEditableSubmission(In)` scopes strictly to the submitter, re-derives openness via `is_form_open()`, and loads the pinned form-version snapshot; `applySubmissionEdit` re-checks the gate, throws `FORM_VERSION_STALE` on a stale post, preserves co-speaker answers untouched, and calls M18's mutation as the sole write. A new portal edit page and route are wired in, plus a conditional Edit CTA on M21's detail page. 17 new PGlite tests cover all blocked branches and the write path. Remaining before `DONE`: deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "submissions edit" sub-area). |
 | **Scheduled** | Tuesday AM recovery target; required before the product-completeness modules begin. Resolution #23 removes this module from the cut list because M51 relies on a complete speaker-managed submission lifecycle. |
 | **Size** | M |

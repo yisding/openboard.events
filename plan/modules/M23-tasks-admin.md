@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged fixture-backed **STACK-DEMO** task administration lacks database CRUD, assignment-view counting law, form/file integration, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. `src/features/portal/tasks-admin/server/{queries,mutations}.ts` now provide `listTasks`/`getTaskTabCounts`/`getTaskCompletionMatrix`/`listFileRequests`/`saveTask`/`deleteTask`/`reopenCompletion`/`saveFileRequest`/`deleteFileRequest` over real `portal_tasks`/`file_requests` rows, with every count read from `task_assignments_v`, mode-lock CHECK-mirroring in zod, and `endOfDayInTz` due-date conversion, behind new API routes and a real admin UI (`TasksAdminView`/`TaskEditor`/`TaskMatrixDrawer`/`FileRequestsView`) at `src/app/events/[eventId]/tasks/page.tsx`. 11 new PGlite tests cover fan-out, reopen, mode-lock, and the RESTRICT delete guard. Remaining before `DONE`: deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "admin tasks" sub-area; distinct from WS-C's Monday-declared `features/portal/{resources,admin}/**` grant for M26/M27 — this module owns `features/portal/tasks-admin/**`, not `features/portal/admin/**`). |
 | **Scheduled** | Monday, alongside M24 and M25's form-mode, per WS-D's order (`M23 + M24 + M25 form-mode (Mon)`). |
 | **Size** | M |

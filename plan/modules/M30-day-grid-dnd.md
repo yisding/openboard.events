@@ -1,7 +1,7 @@
 # M30 — Day-grid drag & drop
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. The Day view's full DnD scheduling surface is built: `day-view/slots.ts` (15-minute snap grid math), `day-view/day-grid.tsx` + `session-card.tsx` + `resize-handles.tsx`, a hand-rolled Context+`useSyncExternalStore` client store, `unscheduled-panel.tsx` as a second drag source, and `hooks/use-move-session.ts` (optimistic TanStack mutation, STALE_WRITE toast + rollback + refetch). Conflicts are recomputed only via M29's `detectConflicts`/`toScheduledSession`, never reimplemented. Remaining before `DONE`: Playwright DnD coverage is explicitly excluded by quality strategy; the two-tab concurrent-drag and phone-width manual checks, and deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Monday |
 | **Size** | L |

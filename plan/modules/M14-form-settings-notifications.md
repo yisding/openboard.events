@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged **STACK-DEMO** settings behavior lacks server open/close enforcement, draft/edit guards, confirmation outbox control, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run), partial**, no active claim. `lib/form-open.ts` (pure `formOpenState`/`effectiveLimit` twin of the SQL `is_form_open()` predicate, 17 tests incl. DST boundaries), `server/settings-mutations.ts` (`saveSettingsStep`/`saveNotificationsStep`, `assertValidSubmissionLimit`, `assertValidConfirmationTemplate`), and the dedicated `close-date-card`/`success-page-card`/`settings-step`/`notifications-step` components now replace M12's inline settings implementation in `form-builder.tsx`, with the new validation guards wired into the shared `PATCH /api/internal/forms/[formId]` route. Remaining before `DONE`: a genuine, previously-undetected cross-module gap filed as an `it.fails` case in `tests/integration/form-close.test.ts` — `upsertDraft` in `submissions/server/mutations.ts` (owned by M18/WS-C, outside this module's paths) never calls `is_form_open()`, so a visitor can still start/refresh a draft on a closed form — plus deployed/browser AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-B · **agent B1 (builder)**. Matches the catalog (PLAN §4 WS-B; §6 "B1: M11 → M12 → M13b → M14"). B2 consumes the results only through [M12](./M12-form-builder-core.md)'s `getPublicForm` DTO — B2 never imports a file from this module. |
 | **Scheduled** | **Sun PM** (after M12 + M13b). Its close-date guard is on the CP2 spine (deadline enforcement) and is the door [M41](./M41-speaker-edit-until-close.md) walks through on Tuesday. |
 | **Size** | M (≈half day) |

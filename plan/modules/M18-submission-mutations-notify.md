@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — **MERGED-PARTIAL**, no active claim. Creation (#34), the transition/notify server half with both routes (#57), and the promotion-transition enforcement plus PGlite isolation hardening (#68) are merged, and M17's decision bar + Notify UI consumes them (#61). Remaining: `updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, the withdraw route (none exist in `src/` yet), and deployed lifecycle/notification probes. |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. The audited remainder now exists in the single-writer `src/features/submissions/server/mutations.ts`: `updateSubmissionFromCfp` (submitter-only ownership, status restricted to draft/pending, `is_form_open` against the DB clock, snapshot-scoped answer replace), `withdraw` and `getAcceptedForScheduling` (single neon-http statements), plus the portal-guarded `POST /api/internal/submissions/[eventId]/[submissionId]/withdraw` route. Remaining before `DONE`: deployed lifecycle/notification probes. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Sat PM** — the `nextSubmissionCode` + `createSubmission` slice (powers the Sat-night thin-slice integration). **Sun** — complete (`notifyDecisions` w/ `notify_revision` + auto-confirm + submitter-only recipient, `updateSubmissionFromCfp`, `upsertDraft`, withdraw, `getAcceptedForScheduling`). |
 | **Size** | L (~day; grew by absorbing the mutations — WS-C has the slack) |

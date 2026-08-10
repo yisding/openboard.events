@@ -1,6 +1,6 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 9 — Sun Aug 9, 2026 (night). **All agents are shut down and every module claim is released** — the Status cells in `modules/*.md` now describe evidence on `main`, not assignments. This revision reconciles the ledger with `main` through PR #89 (§2d), records the DMARC header-gate pass (`DECISIONS.md`), and leaves rev. 7's deployment evidence unchanged.
+- **Snapshot:** rev. 10 — Sun Aug 10, 2026 (early morning). **The module-completion run landed** (§2e): a 45-agent orchestrated run implemented every code-completable remaining module — 16 complete, M13b/M14 partial, M24 blocked on an M12 scope contradiction — then merged the Jade+Ice palette (#92) and P6 plan (#91) from `main`, adapted all new surfaces to the `--accent` token family, and passed the full gate suite. All six e2e specs have real step bodies and **all 17 `landed.ts` gates are flipped**. No module is `DONE` yet: the evidence rules still require deployed/browser AC, which is the remaining work.
 - **Rev. 7 headline (unchanged):** **The Saturday thin slice is green on the deployed preview** — a proposal submitted through the real CFP endpoint landed in Neon with its routing applied, and its confirmation email was delivered to a real Gmail inbox from the verified sending domain. The deployment evidence in §2a is from that deployment, not from PGlite.
 - **Baseline:** `main` at `673eac6` (the rev. 9 ledger commit on top of PR #89), **and the preview is deployed from it**: version `1da1951d` at `https://sb-web-preview.yi-ding.workers.dev` (1860 KiB gzip, 26 ms startup, inside the Workers Free budget; `/api/health` returns `sha: 673eac6` with a live Neon `18.4` round-trip). **All 7 post-deploy smoke checks pass with zero skipped — the first zero-skip run**; the `/f/` check is M07's header contract (image content-type, immutable cache, nosniff) served from a real seeded R2 object. The form builder (#82), evaluation stack (#78–#85), and task runtime (#88) are live on the preview, so their deployed AC can now be attempted.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
@@ -140,6 +140,34 @@ merges and direct commits since §2c:
 **External evidence since rev. 8:** the delta #17 deliverability header gate passed — a probe from
 the deployed preview delivered to a real Gmail inbox with `dkim=pass` on `mail.openboard.events`,
 aligned `spf=pass`, and `dmarc=pass (p=NONE)`; recorded in `DECISIONS.md` (Sun Aug 9, 14:13 PT).
+
+### 2e. The module-completion run (added at rev. 10)
+
+One orchestrated run (45 agents: 6 parallel lanes with sequential modules, adversarial per-module
+review, per-lane fixes, an integration gate, then M10's spec bodies) implemented the remaining
+code across ~255 files / ~25k lines, followed by the `main` merge (#91 P6 plan, #92 Jade+Ice
+palette) and the palette adaptation of every new surface to the `--accent` family:
+
+- **Complete (code-level):** M11 events CRUD+vocab, M17/M18's audited remainder
+  (`updateSubmissionFromCfp`, `withdraw`, `getAcceptedForScheduling`, `updateSubmissionFields`,
+  manual create, withdraw route), M20 CSV, M22 profile + real headshot upload, M23 tasks admin,
+  M26 resources, M27 speakers admin, M28 sessions CRUD + `moveSession` + `getMySessions` +
+  the agenda seed, M30 day-grid DnD, M31 agenda views, M32 public pages over the published
+  views, M33 embeds, M36 reminder scan (**the delta-20 gate flipped**: `/api/jobs/reminders`
+  now runs `scanReminders` behind its green 15-case PGlite AC suite), M37 comms admin,
+  M40 keyed API, M41 edit-until-close.
+- **Partial:** M13b (rules UI landed; see its header for the remainder), M14 (settings steps
+  landed; see its header).
+- **Blocked:** M24 — M12's merged builder engine hardcodes `context='cfp'` in
+  `getFormForBuilderIn`/`listFormsIn`/`createFormIn`, contradicting M12's own work-order promise
+  that M24 saves through the same path; unblocking needs an M12-owned change.
+- **M10:** all six specs' placeholder steps replaced with real bodies; all 17 `landed.ts`
+  gates flipped in the same change, honoring the vacuous-green rule.
+- **Gates:** invariants, `tsc`, `eslint --max-warnings=0`, full vitest (92 files / 831+ tests),
+  `next build` — green before and after the palette merge.
+
+Under §1's rules **none of this is `DONE`**: every named deployed/browser AC (and the external
+email evidence) remains, and is now the entire remaining judged-bar surface.
 
 ## 3. Module status by evidence
 
@@ -290,12 +318,15 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 Rev. 9 reconciliation: of rev. 8's four next actions, three landed before the shutdown — M17's
 drawer (#79/#84), the submissions seed (#67), and M12's builder (#82) — and the evaluation stack
 (M19), the task runtime (M25), and the conflict engine (M29) landed besides. The queue when work
-resumes, in order (**the redeploy is done** — version `1da1951d` from `673eac6`, all 7 smoke
-checks green with zero skips): **the deployed accept→notify→email round-trip** to turn
-CP2's spine green; **a deployed reviewer scoring pass and a deployed portal task completion**;
-**M28 sessions CRUD** (now unblocked — M29 merged — and itself gating M21's My Sessions widget
-and M09's agenda seed); then **M10's Playwright step bodies** over the modules with deployed
-proof, flipping their `landed.ts` gates in the same change.
+resumes (rev. 10: the code queue is empty — M28, the seeds, the spec bodies and the demo-store
+replacements all landed in §2e): **migrate `sb-test`/`sb-dev` through `0003` and re-seed** (the
+new agenda/resources/submissions/evaluation seed bodies have never run against a real branch);
+**redeploy the preview** from the merged tree; **run the six Playwright specs against `sb-test`**
+— the first-ever full run of the golden-path suite with real bodies; then the deployed
+demonstrations (accept→notify→email, reviewer scoring, portal task completion on a phone,
+browser R2 upload via the new profile page, builder authoring AC); the external email evidence
+(Outlook probe, calendar invite); and the production provisioning track. The only remaining
+code items are M13b/M14's partial remainders and M24's M12-owned unblock.
 
 ## 7. Environment and configuration truth
 

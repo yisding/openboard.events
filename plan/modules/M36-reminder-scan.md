@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. M36's whole scope is implemented: `src/features/comms/server/reminders.ts` holds both passes of the burst-safe scan (task-assigned enqueue, then a single rung CTE firing only the latest elapsed rung and batch-retiring the rest as `status='skipped'`), `triggers.ts` holds `nudgeOutbox`, and `reminders.test.ts` is a 15-case PGlite suite. The gate flipped: `/api/jobs/reminders` now calls `scanReminders()` instead of M08's stub. Remaining before `DONE`: `nudgeOutbox`'s consumer call sites in other lanes' files (M28's `notifySchedule` had no nudge as of this run), the deployed jobs-tail/reset-preview-seed/CP3 evidence, and deployed AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-F (Comms + Dashboard + Airtable + API) — feature folder `comms`. |
 | **Scheduled** | **Sun** (with [M35](./M35-ics-calendar-invites.md)). Live on cron by Mon; CP3 verifies the seeded overdue task fires **exactly one** email. |
 | **Size** | M (≈half-day) |

@@ -195,7 +195,7 @@ export function PublicSchedule({
                   <div key={session.id}>
                     <article onClick={() => toggleExpanded(session.id)} role="button" tabIndex={0}
                       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleExpanded(session.id)}>
-                      <i className="session-stripe" style={{ background: session.track?.color ?? "var(--purple)" }} />
+                      <i className="session-stripe" style={{ background: session.track?.color ?? "var(--accent)" }} />
                       <div className="public-session-main">
                         <span>{session.track?.name ?? "General session"}</span>
                         <h3>{session.title}</h3>

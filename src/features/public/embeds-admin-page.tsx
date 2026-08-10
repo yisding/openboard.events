@@ -99,7 +99,7 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
           const Icon = meta.icon;
           return (
             <article className="panel embed-card" key={config.id}>
-              <span className="summary-icon purple"><Icon size={20} /></span>
+              <span className="summary-icon accent"><Icon size={20} /></span>
               <div>
                 <h2>{meta.label}</h2>
                 <p>{meta.description}</p>

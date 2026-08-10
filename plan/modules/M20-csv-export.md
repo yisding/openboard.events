@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | IN PROGRESS — PR #2 includes a **STACK-DEMO** CSV path and injection guard; the dedicated serializer contract/test matrix and database-backed export AC require reconciliation. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **IMPLEMENTED on branch (rev. 10 run)**, no active claim. The database-backed export is real: `src/features/submissions/export/csv.ts`'s pure `toCsv` (RFC-4180, CSV-injection guard), a per-event `submissionCsvColumns(timezone)` set, and `exportSubmissionsCsv(In)` walking M17's `listSubmissionsIn` page-by-page up to a 5000-row cap, served by `GET /api/internal/submissions/[eventId]/export.csv` (hand-rolled around `defineHandler`'s JSON-only envelope, matching the `.ics` precedent) and an "Export .CSV" link on the Abstracts page. The 'Decided At' column is always empty since `decidedAt` isn't exposed by the frozen `SubmissionListRow`. Remaining before `DONE`: the manual spreadsheet-screenshot AC (no browser available to this run) and deployed AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C · Submissions Review (single agent; catalog section WS-C, PLAN §6) |
 | **Scheduled** | **Tue** (moved to Tue in PLAN §4/§7; nothing gates on it). |
 | **Size** | S (~2h) |

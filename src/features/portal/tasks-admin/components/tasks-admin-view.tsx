@@ -144,7 +144,7 @@ export function TasksAdminView({
                   </div>
                   <div className="admin-task-progress">
                     <div><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
-                    <ProgressBar value={progress} tone={progress > 75 ? "green" : "purple"} />
+                    <ProgressBar value={progress} tone={progress > 75 ? "green" : "accent"} />
                   </div>
                   <TaskRowMenu task={task} onView={() => setMatrixTask(task)} onEdit={() => setEditing(task)} onDelete={() => setPendingDelete(task)} />
                 </article>

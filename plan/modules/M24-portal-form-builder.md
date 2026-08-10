@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED |
+| **Status** | NOT STARTED — **BLOCKED (rev. 10 run)**, no active claim, no code added. M12's merged builder engine (PR #82) hardcodes `context='cfp'` — `getFormForBuilderIn` throws `NOT_FOUND` for non-cfp, `listFormsIn`'s WHERE hardcodes `context = "cfp"`, and `createFormIn` hardcodes `context: "cfp"` on insert — contradicting M12's own work-order promise that "M24's portal-form saves through the same `saveFormStep` path." Every entry point this module was supposed to reuse (list, create, get-for-builder, save-step, duplicate, delete) is unusable for `context='portal'`. Unblocking requires an M12-owned change inside `src/features/forms/server/**`/`src/app/api/internal/forms/**`, which are outside this module's owned paths. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "form builder" sub-area). |
 | **Scheduled** | Monday, alongside M23 and M25's form-mode, per WS-D's order (`M23 + M24 + M25 form-mode (Mon)`). This is a **named cut-line entry (§9 #10)**: if the Mon-noon micro-checkpoint (M25's real-snapshot render) misses, this module's UI is cut in favor of 2 seeded portal forms edited only via `pnpm seed`; the runtime (M25) stays intact regardless. |
 | **Size** | M |
