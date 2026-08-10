@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import {
   assignReviewersIn,
   getActivePlanIn,
+  getPlanIn,
   getRatingsIn,
   listReviewQueueIn,
   planInputSchema,
@@ -117,6 +118,17 @@ describe("reviewer queue and scoring", () => {
     expect(queue.rows).toHaveLength(3);
   });
 
+  it("defaults to an open round assigned to this reviewer", async () => {
+    const roundOne = await seedPlan({ name: "Round 1", round: 1 });
+    const roundTwo = await savePlanIn(db, eventId, planInput({ name: "Round 2", round: 2 }));
+    await assignReviewersIn(db, eventId, roundOne, [{ userId: grace, trackIds: null }]);
+    await assignReviewersIn(db, eventId, roundTwo.planId, [{ userId: ada, trackIds: [agents] }]);
+
+    const queue = await listReviewQueueIn(db, eventId, ada, null);
+    expect(queue.plan?.id).toBe(roundTwo.planId);
+    expect(queue.rows.map((row) => row.submissionId)).toEqual([agentsTalk]);
+  });
+
   it("gives an unassigned member an empty queue rather than the whole event", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
@@ -174,6 +186,33 @@ describe("reviewer queue and scoring", () => {
     // It is still saved, so the reviewer picks up where they left off.
     const queue = await listReviewQueueIn(db, eventId, ada, planId);
     expect(queue.rows.find((row) => row.submissionId === agentsTalk)?.myCriterionScores).toEqual({ [relevance]: 4 });
+  });
+
+  it("locks the scoring formula after the first review without locking labels", async () => {
+    const planId = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
+    await submitReviewIn(db, eventId, planId, platformsTalk, ada, verdict({
+      criterionScores: { [criterion?.id ?? ""]: 4 },
+    }));
+
+    for (const override of [
+      { criteria: [{ id: criterion?.id, label: "Relevance", weight: 2 }] },
+      { criteria: [] },
+      { scaleMax: 10, criteria: [{ id: criterion?.id, label: "Relevance", weight: 1 }] },
+    ]) {
+      const error = await savePlanIn(db, eventId, planInput({ planId, ...override }))
+        .catch((thrown: unknown) => thrown);
+      expect(isAppError(error) && error.code).toBe("CONFLICT");
+    }
+
+    await savePlanIn(db, eventId, planInput({
+      planId,
+      criteria: [{ id: criterion?.id, label: "Track relevance", weight: 1 }],
+    }));
+    const plan = await getPlanIn(db, eventId, planId);
+    expect(plan.criteria[0]?.label).toBe("Track relevance");
+    expect((await getRatingsIn(db, eventId, planId)).get(platformsTalk)?.rating).toBe(4);
   });
 
   it("rejects a score outside the round's scale", async () => {

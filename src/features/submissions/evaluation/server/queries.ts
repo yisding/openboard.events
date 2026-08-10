@@ -117,6 +117,21 @@ export async function getActivePlanIn(dbOrTx: DbOrTx, eventId: EventId): Promise
   return plan ?? null;
 }
 
+async function getReviewerDefaultPlanIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  reviewerUserId: UserId,
+): Promise<PlanDTO | null> {
+  const [plan] = await selectPlans(dbOrTx, eventId, sql`p.id = (
+    SELECT assigned.id FROM evaluation_plans assigned
+    JOIN reviewer_assignments a ON a.plan_id = assigned.id AND a.event_id = assigned.event_id
+    WHERE assigned.event_id = ${eventId} AND a.user_id = ${reviewerUserId}
+    ORDER BY (assigned.status = 'open') DESC, assigned.round ASC, assigned.created_at ASC
+    LIMIT 1
+  )`);
+  return plan ?? null;
+}
+
 type QueueRow = {
   submission_id: string; code: number; title: string; track_id: string | null; track_name: string | null;
   my_score: string | null; my_criterion_scores: Record<string, number> | null; my_comment: string | null;
@@ -135,7 +150,9 @@ export async function listReviewQueueIn(
   reviewerUserId: UserId,
   planId: PlanId | null,
 ): Promise<{ plan: PlanDTO | null; rows: ReviewQueueRow[]; progress: { scored: number; total: number } }> {
-  const plan = planId ? await getPlanIn(dbOrTx, eventId, planId) : await getActivePlanIn(dbOrTx, eventId);
+  const plan = planId
+    ? await getPlanIn(dbOrTx, eventId, planId)
+    : await getReviewerDefaultPlanIn(dbOrTx, eventId, reviewerUserId);
   if (!plan) return { plan: null, rows: [], progress: { scored: 0, total: 0 } };
 
   const result = await dbOrTx.execute<QueueRow>(sql`

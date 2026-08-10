@@ -78,6 +78,43 @@ async function assertCriteriaInPlan(
   }
 }
 
+type PersistedScoringShape = {
+  scale_min: number;
+  scale_max: number;
+  has_reviews: boolean;
+  criteria: Array<{ id: string; weight: number }>;
+};
+
+async function assertScoringShapeEditable(dbOrTx: DbOrTx, eventId: EventId, input: PlanInput): Promise<void> {
+  if (!input.planId) return;
+  const result = await dbOrTx.execute<PersistedScoringShape>(sql`
+    SELECT p.scale_min, p.scale_max,
+      EXISTS (SELECT 1 FROM reviews r WHERE r.plan_id = p.id) AS has_reviews,
+      COALESCE((
+        SELECT json_agg(json_build_object('id', c.id, 'weight', c.weight::float8) ORDER BY c.id)
+        FROM evaluation_criteria c WHERE c.plan_id = p.id AND c.event_id = p.event_id
+      ), '[]'::json) AS criteria
+    FROM evaluation_plans p
+    WHERE p.id = ${input.planId} AND p.event_id = ${eventId}
+  `);
+  const current = (result.rows ?? [])[0];
+  if (!current?.has_reviews) return;
+
+  const incoming = new Map<string, number>(input.criteria.flatMap((criterion) =>
+    criterion.id ? [[criterion.id, Number(criterion.weight)] as const] : []));
+  const formulaIsUnchanged = Number(current.scale_min) === input.scaleMin
+    && Number(current.scale_max) === input.scaleMax
+    && incoming.size === input.criteria.length
+    && incoming.size === current.criteria.length
+    && current.criteria.every((criterion) => incoming.get(criterion.id) === Number(criterion.weight));
+  if (!formulaIsUnchanged) {
+    throw new AppError(
+      "CONFLICT",
+      "This round already has reviews. Create a new round to change its scale, criteria, or criterion weights.",
+    );
+  }
+}
+
 /**
  * Create or update a round together with its criteria, in one statement.
  * Criteria are matched by id rather than wiped and re-created: a review's
@@ -101,6 +138,7 @@ export async function savePlanIn(
   }));
   const keepIds = criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
   await assertCriteriaInPlan(dbOrTx, eventId, input.planId, keepIds);
+  await assertScoringShapeEditable(dbOrTx, eventId, input);
 
   let rows: Array<{ id: string }>;
   try {
