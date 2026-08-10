@@ -1,6 +1,6 @@
-import { defineJobRoute, stubCleanup } from "../_lib";
+import { cleanupOrphans } from "@/shared/server/r2";
+import { defineJobRoute } from "../_lib";
 
 export const dynamic = "force-dynamic";
 
-// swap: import { cleanupOrphans } from '@/shared/server/r2'
-export const { POST } = defineJobRoute("cleanup", stubCleanup);
+export const { POST } = defineJobRoute("cleanup", () => cleanupOrphans());

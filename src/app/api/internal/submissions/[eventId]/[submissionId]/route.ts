@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import {
-  assertReviewerCanReadSubmission,
+  getReviewerSubmissionDetail,
   getSubmissionDetail,
   submissionFieldPatchSchema,
   updateSubmissionFields,
@@ -19,13 +19,19 @@ export const dynamic = "force-dynamic";
  * round and pass the same assignment/scope check as the queue.
  */
 const detail = defineHandler({
-  auth: adminAuth(),
+  // Explicitly open to the reviewer role — `adminAuth` is organizer-only by
+  // default, and this is one of the three routes a reviewer's own screen calls.
+  auth: adminAuth({ role: "reviewer" }),
   input: z.object({ submissionId: submissionIdSchema, planId: planIdSchema.optional() }),
   handler: async ({ eventId, input, session }) => {
     const event = eventIdSchema.parse(eventId);
     if (session?.role === "reviewer") {
       if (!input.planId) throw new AppError("FORBIDDEN", "A review round is required to open this submission");
-      await assertReviewerCanReadSubmission(event, input.planId, input.submissionId, userIdSchema.parse(session.actorId));
+      // Authorization *and* blindness are settled inside this call, on the
+      // server: the reviewer's DTO is built anonymized where the round says so,
+      // so there is no un-anonymized object here for a route to leak by
+      // forgetting to redact it.
+      return getReviewerSubmissionDetail(event, input.planId, input.submissionId, userIdSchema.parse(session.actorId));
     }
     return getSubmissionDetail(event, input.submissionId);
   },

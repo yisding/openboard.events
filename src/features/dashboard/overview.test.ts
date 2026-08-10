@@ -7,6 +7,9 @@ import { getOverviewIn } from "./server/overview";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const EMPTY_EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
@@ -27,6 +30,7 @@ describe("dashboard overview", () => {
     pg = new PGlite();
     await pg.exec(migration0);
     await pg.exec(migration1);
+pg.exec(migrationReviewOps);
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES
         ($1,'DashboardConf','dashboard-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),

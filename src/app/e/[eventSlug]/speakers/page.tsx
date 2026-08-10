@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PublicSpeakers } from "@/features/public/public-speakers";
+import { PublicSpeakersList } from "@/features/public/public-speakers-list";
 import { getPublishedSpeakers } from "@/features/public/server/public-queries";
 
-export const metadata: Metadata = { title: "Event speakers" };
+export const metadata: Metadata = { title: "Speakers" };
 
-/** Same cache contract as the schedule page. */
+/** Same cache contract as every other public surface. */
 export const revalidate = 60;
 
 /**
@@ -21,5 +21,5 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   const { eventSlug } = await params;
   const speakers = await getPublishedSpeakers(eventSlug);
   if (!speakers) notFound();
-  return <PublicSpeakers eventSlug={eventSlug} speakers={speakers} />;
+  return <PublicSpeakersList eventSlug={eventSlug} speakers={speakers} />;
 }

@@ -51,7 +51,19 @@ export const publishedSessionDtoSchema = z.object({
   track: z.object({ id: trackIdSchema, name: z.string(), color: z.string() }).nullable(),
   room: z.object({ id: roomIdSchema, name: z.string() }).nullable(),
   format: z.object({ id: formatIdSchema, name: z.string() }).nullable(),
-  speakers: z.array(z.object({ contactId: contactIdSchema, name: z.string(), headshotUrl: z.string().nullable() })),
+  // M53: full speaker identity on every session reference — job title and
+  // company travel with the session so the sessions list and agenda never
+  // need a second round trip through the speakers surface to show who's
+  // presenting. Profile link is derived client-side from `contactId` +
+  // `eventSlug` (same convention every public surface already used before
+  // this DTO carried these fields).
+  speakers: z.array(z.object({
+    contactId: contactIdSchema,
+    name: z.string(),
+    jobTitle: z.string().nullable(),
+    company: z.string().nullable(),
+    headshotUrl: z.string().nullable(),
+  })),
 });
 export const publishedScheduleDtoSchema = z.object({
   event: z.object({
@@ -74,12 +86,21 @@ export const publishedSpeakerDtoSchema = z.object({
   linkedinUrl: z.string().nullable(),
   twitterUrl: z.string().nullable(),
   websiteUrl: z.string().nullable(),
+  // M53: a speaker's session references carry the same time/room/track/format
+  // identity the sessions list and agenda render, so the speakers list and
+  // gallery can show "when and where" without a second published-schedule
+  // fetch, and so the three surfaces can never disagree about a shared
+  // session's facts.
   sessions: z.array(z.object({
     id: sessionIdSchema,
     slug: z.string(),
     title: z.string(),
     startsAt: z.iso.datetime(),
+    endsAt: z.iso.datetime(),
     dayKey: z.string(),
+    room: z.object({ id: roomIdSchema, name: z.string() }).nullable(),
+    track: z.object({ id: trackIdSchema, name: z.string(), color: z.string() }).nullable(),
+    format: z.object({ id: formatIdSchema, name: z.string() }).nullable(),
   })),
 });
 export const publishedSpeakersDtoSchema = z.object({

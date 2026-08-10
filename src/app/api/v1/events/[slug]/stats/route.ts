@@ -4,7 +4,7 @@ import { apiKeyAuth } from "@/features/auth";
 import { getOverview } from "@/features/dashboard";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-import { corsPreflight, withV1PrivateHeaders } from "../../../_lib";
+import { corsPreflight, v1RateLimit, withV1PrivateHeaders } from "../../../_lib";
 import { toPublicStats } from "../../../server/queries";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ export function OPTIONS() { return corsPreflight(); }
 const stats = defineHandler({
   auth: apiKeyAuth(),
   input: z.object({}),
+  rateLimit: v1RateLimit("stats"),
   handler: async ({ eventId }) => {
     if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
     const overview = await getOverview(eventId);

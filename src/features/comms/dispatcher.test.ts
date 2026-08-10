@@ -12,18 +12,27 @@ import {
   sessionIdSchema,
   submissionIdSchema,
   taskIdSchema,
-  tokenIdSchema,
-} from "@/shared/contracts";
+  tokenIdSchema, TEMPLATE_KEYS } from "@/shared/contracts";
 import { parseEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
 import type { EmailMessage } from "./server/resend";
+import { recordSuppressionIn } from "./server/suppression";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// P3-EMAIL: comm_status bounced/complained, contacts suppression columns,
+// events.physical_address.
+const migrationEmailCompliance = readFileSync(new URL("../../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M51 appended `speaker_bulk_message` to `template_key`; `seedDefaultTemplates`
+// needs every migration that ever appended a label, in order.
+const migrationRoster = readFileSync(new URL("../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const emptyEventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
 const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
@@ -37,6 +46,9 @@ const logEnv = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: secret,
+  // M46 — dedicated key for unsubscribe token signing, distinct from
+  // SESSION_SECRET; every non-essential send in this file needs it.
+  UNSUBSCRIBE_SECRET: secret,
   EMAIL_MODE: "log",
   EMAIL_FALLBACK_UI: "1",
 });
@@ -44,6 +56,7 @@ const sendEnv = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: secret,
+  UNSUBSCRIBE_SECRET: secret,
   EMAIL_MODE: "send",
   EMAIL_FALLBACK_UI: "0",
   EMAIL_FROM: "mail@example.com",
@@ -69,6 +82,9 @@ describe("communications outbox dispatcher", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationRoster);
     await pglite.query("INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Empty','empty','Online','UTC','2026-10-01T09:00:00Z','2026-10-01T17:00:00Z')", [eventId, emptyEventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);
@@ -85,6 +101,8 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("DELETE FROM calendar_invites");
     await pglite.query("DELETE FROM portal_tokens");
     await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1", [contactId]);
+    await pglite.query("DELETE FROM contact_suppressions WHERE contact_id=$1", [contactId]);
+    await pglite.query("UPDATE events SET physical_address=NULL WHERE id=$1", [eventId]);
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
     await pglite.query("UPDATE sessions SET starts_at='2026-09-15T18:00:00Z',ends_at='2026-09-15T18:30:00Z',status='published',schedule_revision=0 WHERE id=$1", [sessionId]);
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [eventId, sessionId, contactId]);
@@ -92,12 +110,15 @@ describe("communications outbox dispatcher", () => {
 
   afterAll(async () => pglite.close());
 
-  it("seeds exactly eight templates and three reminder rungs idempotently", async () => {
+  // M50 appended `reviewer_invited` and `review_reminder` to TEMPLATE_KEYS, so
+  // the fixed set is ten: the count is asserted against the contract rather than
+  // a literal, which is what made it a useful guard in the first place.
+  it("seeds exactly one template per key and three reminder rungs idempotently", async () => {
     await seedDefaultTemplates(tx, eventId);
     await seedDefaultTemplates(tx, eventId);
     const templates = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM email_templates WHERE event_id=$1", [eventId]);
     const reminders = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM reminder_rules WHERE event_id=$1", [eventId]);
-    expect(templates.rows[0]?.n).toBe(8);
+    expect(templates.rows[0]?.n).toBe(TEMPLATE_KEYS.length);
     expect(reminders.rows[0]?.n).toBe(3);
   });
 
@@ -337,6 +358,84 @@ describe("communications outbox dispatcher", () => {
     await expect(unsubscribeFromRemindersIn(tx, "ai-engineer", token, secret)).resolves.toBe(true);
     const contact = await pglite.query<{ unsubscribed: boolean }>("SELECT unsubscribed_at IS NOT NULL AS unsubscribed FROM contacts WHERE id=$1", [contactId]);
     expect(contact.rows[0]?.unsubscribed).toBe(true);
+  });
+
+  it("honors contacts.unsubscribed_at fleet-wide, exempting only decision/schedule/portal-login mail", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await pglite.query("UPDATE contacts SET unsubscribed_at=now() WHERE id=$1", [contactId]);
+    const tokenId = tokenIdSchema.parse("c0000000-0000-4000-8000-000000000021");
+    const secretPayloadCiphertext = await sealPortalLoginPayload(
+      { otp: "111111", magicLink: "http://localhost:3000/portal/ai-engineer/verify?token=x" },
+      { eventId, contactId, tokenId },
+      secret,
+    );
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:unsub:received`, refs: { submissionId: receivedId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "task_assigned", idempotencyKey: `${eventId}:unsub:task`, refs: { taskId: reminderTaskId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_accepted", idempotencyKey: `${eventId}:unsub:decision`, refs: { submissionId: decisionId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:unsub:schedule`, refs: { sessionId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "portal_login", idempotencyKey: idem.portalLogin(eventId, contactId, tokenId), secretPayloadCiphertext });
+
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toEqual({ claimed: 5, sent: 3, skipped: 2, failed: 0, retried: 0 });
+    const rows = await pglite.query<{ idempotency_key: string; status: string; error: string | null }>(
+      "SELECT idempotency_key,status,error FROM communication_logs ORDER BY idempotency_key",
+    );
+    const byKey = Object.fromEntries(rows.rows.map((row) => [row.idempotency_key, row]));
+    expect(byKey[`${eventId}:unsub:received`]).toMatchObject({ status: "skipped", error: "contact unsubscribed from non-essential email" });
+    expect(byKey[`${eventId}:unsub:task`]).toMatchObject({ status: "skipped", error: "contact unsubscribed from non-essential email" });
+    expect(byKey[`${eventId}:unsub:decision`]).toMatchObject({ status: "sent" });
+    expect(byKey[`${eventId}:unsub:schedule`]).toMatchObject({ status: "sent" });
+    expect(byKey[idem.portalLogin(eventId, contactId, tokenId)]).toMatchObject({ status: "sent" });
+  });
+
+  it("suppresses a contact fleet-wide after a bounce/complaint webhook, including decision/schedule/portal-login mail", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:bounce:seed`, refs: { submissionId: receivedId } });
+    const sender = vi.fn(async () => "resend-bounce-id");
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+
+    const target = await recordSuppressionIn(tx, { providerMessageId: "resend-bounce-id", reason: "bounce" });
+    expect(target).toEqual({ eventId, contactId });
+    const suppression = await pglite.query<{ reason: string }>(
+      "SELECT reason FROM contact_suppressions WHERE contact_id=$1", [contactId],
+    );
+    expect(suppression.rows[0]).toEqual({ reason: "bounce" });
+    const seedLog = await pglite.query<{ status: string }>("SELECT status FROM communication_logs WHERE idempotency_key=$1", [`${eventId}:bounce:seed`]);
+    expect(seedLog.rows[0]?.status).toBe("bounced");
+
+    // Redelivery of the same webhook event (Resend/Svix retries on non-2xx)
+    // must not error and must not fight the already-'bounced' log row.
+    await expect(recordSuppressionIn(tx, { providerMessageId: "resend-bounce-id", reason: "bounce" })).resolves.toEqual({ eventId, contactId });
+
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_accepted", idempotencyKey: `${eventId}:bounce:decision`, refs: { submissionId: decisionId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:bounce:schedule`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toEqual({ claimed: 2, sent: 0, skipped: 2, failed: 0, retried: 0 });
+    const rows = await pglite.query<{ error: string }>("SELECT error FROM communication_logs WHERE idempotency_key IN ($1,$2)", [`${eventId}:bounce:decision`, `${eventId}:bounce:schedule`]);
+    expect(rows.rows.every((row) => row.error === "contact suppressed (bounce)")).toBe(true);
+  });
+
+  it("attaches List-Unsubscribe only to non-essential sends and renders the CAN-SPAM address in the footer", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await pglite.query("UPDATE events SET physical_address='123 Main St, Suite 100, San Francisco, CA 94105' WHERE id=$1", [eventId]);
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:headers:non-essential`, refs: { submissionId: receivedId } });
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_accepted", idempotencyKey: `${eventId}:headers:essential`, refs: { submissionId: decisionId } });
+    const messages: EmailMessage[] = [];
+    const sender = vi.fn(async (message: EmailMessage) => { messages.push(message); return `sent-${messages.length}`; });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 2 });
+
+    const nonEssential = messages.find((message) => message.idempotencyKey === `${eventId}:headers:non-essential`);
+    const essential = messages.find((message) => message.idempotencyKey === `${eventId}:headers:essential`);
+    expect(nonEssential?.headers?.["List-Unsubscribe"]).toMatch(/^<http:\/\/localhost:3000\/portal\/ai-engineer\/unsubscribe\?token=.+>$/u);
+    expect(essential?.headers).toBeUndefined();
+
+    const rows = await pglite.query<{ idempotency_key: string; body: string }>(
+      "SELECT idempotency_key,body_rendered_html AS body FROM communication_logs WHERE idempotency_key IN ($1,$2)",
+      [`${eventId}:headers:non-essential`, `${eventId}:headers:essential`],
+    );
+    for (const row of rows.rows) expect(row.body).toContain("123 Main St, Suite 100, San Francisco, CA 94105");
+    const nonEssentialRow = rows.rows.find((row) => row.idempotency_key === `${eventId}:headers:non-essential`);
+    const essentialRow = rows.rows.find((row) => row.idempotency_key === `${eventId}:headers:essential`);
+    expect(nonEssentialRow?.body).toContain("Unsubscribe");
+    expect(essentialRow?.body).not.toContain("Unsubscribe");
   });
 
   it("claims concurrent batches without overlap", async () => {

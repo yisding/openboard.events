@@ -26,6 +26,9 @@ import { isAppError } from "@/shared/lib/errors";
  */
 const migration0 = readFileSync(new URL("../../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e1000000-0000-4000-8000-000000000002");
@@ -52,11 +55,11 @@ const snapshot: FormSnapshot = {
       fields: [
         {
           id: titleField, key: "title", label: "Title", type: "text", required: true, locked: false,
-          maxChars: null, helpText: "", options: [], visibility: null, mapsTo: "submission.title",
+          maxChars: null, helpText: "", options: [], visibility: null, mapsTo: "submission.title", reviewVisibility: "identity",
         },
         {
           id: trackField, key: "track", label: "Track", type: "dropdown", required: false, locked: false,
-          maxChars: null, helpText: "", visibility: null, mapsTo: "submission.track_id",
+          maxChars: null, helpText: "", visibility: null, mapsTo: "submission.track_id", reviewVisibility: "identity",
           options: [
             { id: "opt-a", label: "Track A", trackId: trackA },
             { id: "opt-b", label: "Track B", trackId: trackB },
@@ -73,7 +76,7 @@ const snapshot: FormSnapshot = {
       fields: [
         {
           id: bioField, key: "bio", label: "Bio", type: "richtext", required: false, locked: false,
-          maxChars: null, helpText: "", options: [], visibility: null, mapsTo: "contact.bio_html",
+          maxChars: null, helpText: "", options: [], visibility: null, mapsTo: "contact.bio_html", reviewVisibility: "identity",
         },
       ],
     },
@@ -153,6 +156,7 @@ beforeAll(async () => {
   pglite = new PGlite();
   await pglite.exec(migration0);
   await pglite.exec(migration1);
+  await pglite.exec(migrationReviewOps);
   testDb = createTestDb(pglite);
 
   await pglite.query(

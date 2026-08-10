@@ -5,4 +5,7 @@ export { ensurePortalSession, logoutPortal, portalCookieName, requestPortalLogin
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";
 export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-payload";
 export { adminAuth, apiKeyAuth, cronAuth, portalAuth, publicAuth } from "./server/guards";
+// M50 — organizer-provisioned reviewers over the existing user/membership path.
+export type { ReviewerInviteInput, ReviewerInviteResult } from "./server/reviewers";
+export { createEventReviewer, createEventReviewerIn, reviewerInviteSchema } from "./server/reviewers";
 export { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, adminCookieOptions, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "./server/fallback-session";

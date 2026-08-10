@@ -1,9 +1,9 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { AwsClient } from "aws4fetch";
-import { eq, sql } from "drizzle-orm";
-import { db } from "@/db/client";
+import { eq, inArray, sql } from "drizzle-orm";
+import { db, type DbOrTx } from "@/db/client";
 import { fileAssets } from "@/db/schema";
-import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type MemberRole } from "@/shared/contracts";
+import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type JobStats, type MemberRole } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -579,10 +579,6 @@ async function linkedContacts(eventId: EventId, fileId: FileId): Promise<string[
 }
 
 /**
- * Best-effort daily sweep, wired to M08's cleanup cron slot. One pass is the
- * entire budget — no retry or backfill machinery.
- */
-/**
  * Every owning reference that makes a file_assets row live — the four owning
  * columns plus the two answer stores that hold a `{t:'file'}` value (a CFP answer
  * row and a portal form response's answers object). Exported so the runtime sweep
@@ -606,6 +602,10 @@ export const ORPHAN_PREDICATE_SQL = `
   )
 `;
 
+/**
+ * Best-effort daily sweep, wired to M08's cleanup cron slot (via `cleanupOrphans`
+ * below). One pass is the entire budget — no retry or backfill machinery.
+ */
 export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ deleted: number }> {
   const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
   const deleted = await db.execute<{ r2_key: string }>(sql`
@@ -625,4 +625,219 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
     }
   }
   return { deleted: keys.length };
+}
+
+// ---------------------------------------------------------------------------
+// P3-OPS — R2 orphan-staging-object sweep. cleanupOrphanUploads (above) can
+// only ever find garbage by walking file_assets rows, so it is blind to a
+// staging object whose row is already gone — the finalize path deletes the
+// stray staging object best-effort (see `finalizeUpload`) and a failed delete
+// there is a genuine, permanent orphan with no row left to retry from. This
+// sweep finds those the other way around: list what actually exists in R2 via
+// the S3 API (the same aws4fetch client `presign`/`copyObject` already use —
+// this file stays the only module touching R2 or the S3 wire format), then
+// keep whatever staging-prefixed key is (a) older than the TTL and (b) not
+// the current r2_key of any file_assets row.
+// ---------------------------------------------------------------------------
+
+const STAGING_SEGMENT = "/staging/";
+const LIST_TIMEOUT_MS = 20_000;
+/** Bounds one cron tick to ~5,000 listed objects — a budget, not a promise of completeness. */
+const ORPHAN_SWEEP_MAX_PAGES = 5;
+
+export type ListedObject = { key: string; lastModified: Date };
+export type ListObjectsPage = { objects: ListedObject[]; nextToken: string | null };
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Minimal ListObjectsV2 XML reader: no XML parser is available in the Workers
+ * runtime and this repo does not add one for four fields. Exported so its
+ * correctness can be pinned directly against a captured S3/R2 response body,
+ * independent of network access.
+ */
+export function parseListObjectsXml(xml: string): ListObjectsPage {
+  const objects: ListedObject[] = [];
+  const contentsPattern = /<Contents>([\s\S]*?)<\/Contents>/g;
+  let match: RegExpExecArray | null;
+  while ((match = contentsPattern.exec(xml)) !== null) {
+    const block = match[1] ?? "";
+    const key = /<Key>([\s\S]*?)<\/Key>/.exec(block)?.[1];
+    const lastModified = /<LastModified>([\s\S]*?)<\/LastModified>/.exec(block)?.[1];
+    if (key && lastModified) objects.push({ key: decodeXmlEntities(key), lastModified: new Date(lastModified) });
+  }
+  const nextToken = /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1];
+  return { objects, nextToken: nextToken ? decodeXmlEntities(nextToken) : null };
+}
+
+async function listObjectsPage(continuationToken?: string): Promise<ListObjectsPage> {
+  const config = r2Config();
+  const url = new URL(`https://${config.accountId}.r2.cloudflarestorage.com/${config.bucket}`);
+  url.searchParams.set("list-type", "2");
+  url.searchParams.set("max-keys", "1000");
+  if (continuationToken) url.searchParams.set("continuation-token", continuationToken);
+  const response = await awsClient(config).fetch(url.toString(), {
+    method: "GET",
+    signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new AppError("INTERNAL", `Could not list storage objects (${response.status})`);
+  return parseListObjectsXml(await response.text());
+}
+
+async function deleteObjectViaS3(key: string): Promise<boolean> {
+  const config = r2Config();
+  // A 404 here means the object is already gone, which is the outcome this
+  // delete wants — not a failure to report or retry.
+  const response = await awsClient(config).fetch(objectUrl(config, key).toString(), {
+    method: "DELETE",
+    signal: AbortSignal.timeout(COPY_TIMEOUT_MS),
+  });
+  return response.ok || response.status === 404;
+}
+
+function hasR2Credentials(): boolean {
+  const env = getEnv();
+  return Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET_NAME);
+}
+
+export type OrphanSweepStats = JobStats & { deletedRows: number; deletedStagingObjects: number; scannedObjects: number; skippedNoCredentials: number };
+
+/**
+ * The staging-object half of the sweep, dependency-injectable so the
+ * candidate/ownership logic can run against PGlite without live R2 or S3
+ * network access. `hasCredentials`/`listPage`/`deleteKey` default to the real
+ * R2-backed implementations; `cleanupOrphans` below is what the cron calls.
+ */
+export async function sweepOrphanStagingObjectsIn(
+  dbOrTx: DbOrTx,
+  olderThanHours: number,
+  options?: {
+    hasCredentials?: () => boolean;
+    listPage?: (continuationToken?: string) => Promise<ListObjectsPage>;
+    deleteKey?: (key: string) => Promise<boolean>;
+  },
+): Promise<{ deleted: number; scanned: number; skipped: boolean }> {
+  const hasCredentials = options?.hasCredentials ?? hasR2Credentials;
+  if (!hasCredentials()) {
+    // Degrade gracefully: a local/dev environment with no S3 credentials must
+    // not fail the cron tick over a sweep it cannot perform.
+    log({ level: "info", msg: "r2.orphan_sweep.skipped_no_credentials", requestId: "cron", feature: "uploads" });
+    return { deleted: 0, scanned: 0, skipped: true };
+  }
+  const listPage = options?.listPage ?? listObjectsPage;
+  const deleteKey = options?.deleteKey ?? deleteObjectViaS3;
+
+  const cutoffMs = Date.now() - olderThanHours * 60 * 60 * 1000;
+  const candidates: string[] = [];
+  let scanned = 0;
+  let token: string | undefined;
+  let pages = 0;
+  do {
+    const page = await listPage(token);
+    pages += 1;
+    for (const object of page.objects) {
+      scanned += 1;
+      if (object.key.includes(STAGING_SEGMENT) && object.lastModified.getTime() < cutoffMs) candidates.push(object.key);
+    }
+    token = page.nextToken ?? undefined;
+  } while (token && pages < ORPHAN_SWEEP_MAX_PAGES);
+
+  if (candidates.length === 0) return { deleted: 0, scanned, skipped: false };
+
+  // A staging key still current on some row is mid-upload, not orphaned — it
+  // is cleanupOrphanUploads's job (age-gated on the row, not the object) to
+  // ever reclaim it. Only a key no row points to at all belongs to this sweep.
+  const owned = await dbOrTx.select({ r2Key: fileAssets.r2Key }).from(fileAssets).where(inArray(fileAssets.r2Key, candidates));
+  const ownedKeys = new Set(owned.map((row) => row.r2Key));
+  const orphanKeys = candidates.filter((key) => !ownedKeys.has(key));
+  if (orphanKeys.length === 0) return { deleted: 0, scanned, skipped: false };
+
+  const results = await Promise.allSettled(orphanKeys.map((key) => deleteKey(key)));
+  const stranded = orphanKeys.filter((_key, index) => {
+    const result = results[index];
+    return !result || result.status === "rejected" || result.value === false;
+  });
+  if (stranded.length > 0) {
+    log({ level: "warn", msg: "r2.orphan_sweep.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
+  }
+  return { deleted: orphanKeys.length - stranded.length, scanned, skipped: false };
+}
+
+/**
+ * The cleanup cron's actual entry point: the DB-row sweep (deletes an
+ * unreferenced file_assets row and its object) plus the R2-listing sweep
+ * (deletes a dangling staging object no row points to). The two cover
+ * different failure shapes of the same debt and share nothing but the
+ * bucket, so a credentials gap in the second never blocks the first.
+ */
+export async function cleanupOrphans(olderThanHours = 24): Promise<OrphanSweepStats> {
+  const rows = await cleanupOrphanUploads(olderThanHours);
+  const staging = await sweepOrphanStagingObjectsIn(db, olderThanHours);
+  return {
+    deletedRows: rows.deleted,
+    deletedStagingObjects: staging.deleted,
+    scannedObjects: staging.scanned,
+    skippedNoCredentials: staging.skipped ? 1 : 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// M52 — latest-file ZIP export. The one deliberate exception to "file bytes
+// never pass through the Worker": there is no R2-side operation that
+// combines several objects into one archive, so building the ZIP has to read
+// each source object's bytes into the Worker and write the result back out.
+// Confined here, behind two functions, and only ever called by
+// `deliverables/server/export.ts`'s job processor — never from a request
+// handler on the upload path.
+// ---------------------------------------------------------------------------
+
+/** Every byte of an already-published object. Null if it does not exist. */
+export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
+  const object = await filesBucket().get(key);
+  if (!object?.body) return null;
+  return new Uint8Array(await object.arrayBuffer());
+}
+
+/**
+ * Best-effort bulk delete, independent per key — the same discipline
+ * `cleanupOrphanUploads` already uses for its own object deletes. Callers
+ * that already dropped the owning row cannot retry a failed delete from
+ * anywhere, so a stranded key comes back to be logged rather than thrown.
+ */
+export async function deleteObjects(keys: readonly string[]): Promise<{ stranded: string[] }> {
+  if (keys.length === 0) return { stranded: [] };
+  const bucket = filesBucket();
+  const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
+  return { stranded: keys.filter((_key, index) => results[index]?.status === "rejected") };
+}
+
+/**
+ * Publishes a server-generated ZIP as a new, already-ready `file_assets` row
+ * (kind='attachment', private) — there is no staging/finalize step because
+ * nothing here is a client's unverified upload; the Worker built these bytes
+ * itself. The key is `buildObjectKey`'s own scheme, keyed on the job id, so
+ * it is collision-safe by construction the same way every other file id is.
+ */
+export async function putExportZip(eventId: EventId, jobId: string, bytes: Uint8Array): Promise<{ fileId: FileId; r2Key: string }> {
+  const fileId = fileIdSchema.parse(crypto.randomUUID());
+  const filename = sanitizeFilename(`deliverables-export-${jobId}.zip`);
+  const key = buildObjectKey({ eventId, kind: "attachment", fileId, filename });
+  await filesBucket().put(key, bytes, { httpMetadata: { contentType: "application/zip" } });
+  await db.insert(fileAssets).values({
+    id: fileId,
+    eventId,
+    kind: "attachment",
+    r2Key: key,
+    filename,
+    mime: "application/zip",
+    sizeBytes: bytes.length,
+  });
+  return { fileId, r2Key: key };
 }

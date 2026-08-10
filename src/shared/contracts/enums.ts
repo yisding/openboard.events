@@ -16,12 +16,40 @@ export const COMPLETION_VIAS = ["manual", "form_response", "file_upload", "admin
 export const SESSION_STATUSES = ["draft", "published"] as const;
 export const PLAN_STATUSES = ["open", "closed"] as const;
 export const EMBED_CONTENT_TYPES = ["agenda", "session_list", "schedule_itinerary", "speaker_list", "speaker_gallery"] as const;
-export const TEMPLATE_KEYS = ["submission_received", "submission_accepted", "submission_declined", "task_assigned", "task_reminder", "schedule_assigned", "schedule_changed", "portal_login"] as const;
-export const COMM_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
+// M50 adds the two review-operations keys, M51 the bulk-speaker-message key.
+// They are appended, never reordered: `template_key` is a Postgres enum and
+// its existing labels are already stored.
+export const TEMPLATE_KEYS = ["submission_received", "submission_accepted", "submission_declined", "task_assigned", "task_reminder", "schedule_assigned", "schedule_changed", "portal_login", "reviewer_invited", "review_reminder", "speaker_bulk_message"] as const;
+// P3-EMAIL: `bounced`/`complained` record a Resend delivery-failure webhook
+// against the log row that was actually sent (`sent` -> `bounced`/`complained`).
+// Appended, never reordered — `comm_status` is a Postgres enum whose existing
+// labels are already stored (same discipline as `TEMPLATE_KEYS` above).
+export const COMM_STATUSES = ["queued", "sent", "failed", "skipped", "bounced", "complained"] as const;
+// P3-EMAIL: why a contact is suppressed from ALL future sends (distinct from
+// `unsubscribed_at`, which is the contact's own preference and only blocks
+// non-essential mail — see `TRANSACTIONAL_TEMPLATE_KEYS` in `./comms`).
+export const SUPPRESSION_REASONS = ["bounce", "complaint"] as const;
 export const ICS_METHODS = ["request", "cancel"] as const;
 export const TOKEN_PURPOSES = ["magic_link", "ics_download", "impersonation"] as const;
 export const FILE_KINDS = ["logo", "background", "headshot", "attachment", "slide", "upload"] as const;
 export const CONDITION_OPS = ["eq", "neq", "in", "not_in", "answered", "empty"] as const;
+// M52 — content and deliverables lifecycle.
+export const FILE_COMMENT_AUTHOR_ROLES = ["organizer", "speaker"] as const;
+export const FILE_EXPORT_STATUSES = ["pending", "processing", "completed", "failed"] as const;
+export const FILE_EXPORT_GROUP_BYS = ["none", "session", "speaker"] as const;
+// M50 review operations. `REVIEW_VISIBILITIES` classifies a form field for blind
+// review; `identity` is the fail-closed default, so a field nobody classified is
+// withheld rather than leaked.
+export const CRITERION_KINDS = ["numeric", "select", "text"] as const;
+export const REVIEW_VISIBILITIES = ["content", "identity"] as const;
+export const REVIEW_ASSIGNMENT_STATUSES = ["assigned", "recused"] as const;
+// M51 — standalone speaker roster operations. `workflow_status` is pure
+// organizer pipeline bookkeeping, deliberately distinct from
+// `confirmation_status` (publication gate, resolution #15's auto-confirm) —
+// see drizzle/0008's header comment. `speaker_logistics_field` types mirror
+// the two kinds an organizer can define on an event-scoped custom field.
+export const SPEAKER_WORKFLOW_STATUSES = ["new", "contacted", "invited", "confirmed", "declined", "withdrawn"] as const;
+export const SPEAKER_LOGISTICS_FIELD_TYPES = ["text", "select"] as const;
 
 export const submissionStatusSchema = z.enum(SUBMISSION_STATUSES);
 export const submissionKindSchema = z.enum(SUBMISSION_KINDS);
@@ -44,6 +72,15 @@ export const icsMethodSchema = z.enum(ICS_METHODS);
 export const tokenPurposeSchema = z.enum(TOKEN_PURPOSES);
 export const fileKindSchema = z.enum(FILE_KINDS);
 export const conditionOpSchema = z.enum(CONDITION_OPS);
+export const fileCommentAuthorRoleSchema = z.enum(FILE_COMMENT_AUTHOR_ROLES);
+export const fileExportStatusSchema = z.enum(FILE_EXPORT_STATUSES);
+export const fileExportGroupBySchema = z.enum(FILE_EXPORT_GROUP_BYS);
+export const criterionKindSchema = z.enum(CRITERION_KINDS);
+export const reviewVisibilitySchema = z.enum(REVIEW_VISIBILITIES);
+export const reviewAssignmentStatusSchema = z.enum(REVIEW_ASSIGNMENT_STATUSES);
+export const suppressionReasonSchema = z.enum(SUPPRESSION_REASONS);
+export const speakerWorkflowStatusSchema = z.enum(SPEAKER_WORKFLOW_STATUSES);
+export const speakerLogisticsFieldTypeSchema = z.enum(SPEAKER_LOGISTICS_FIELD_TYPES);
 
 export type SubmissionStatus = z.infer<typeof submissionStatusSchema>;
 export type SubmissionKind = z.infer<typeof submissionKindSchema>;
@@ -66,6 +103,15 @@ export type IcsMethod = z.infer<typeof icsMethodSchema>;
 export type TokenPurpose = z.infer<typeof tokenPurposeSchema>;
 export type FileKind = z.infer<typeof fileKindSchema>;
 export type ConditionOp = z.infer<typeof conditionOpSchema>;
+export type SuppressionReason = z.infer<typeof suppressionReasonSchema>;
+export type FileCommentAuthorRole = z.infer<typeof fileCommentAuthorRoleSchema>;
+export type FileExportStatus = z.infer<typeof fileExportStatusSchema>;
+export type FileExportGroupBy = z.infer<typeof fileExportGroupBySchema>;
+export type CriterionKind = z.infer<typeof criterionKindSchema>;
+export type ReviewVisibility = z.infer<typeof reviewVisibilitySchema>;
+export type ReviewAssignmentStatus = z.infer<typeof reviewAssignmentStatusSchema>;
+export type SpeakerWorkflowStatus = z.infer<typeof speakerWorkflowStatusSchema>;
+export type SpeakerLogisticsFieldType = z.infer<typeof speakerLogisticsFieldTypeSchema>;
 
 // Temporary name retained for the merged demo adapter while server consumers
 // use the canonical CONDITION_OPS name.

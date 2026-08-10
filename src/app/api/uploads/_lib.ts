@@ -29,11 +29,16 @@ export function asRequester(uploader: Uploader): FileRequester {
  * uploading their own headshot hit the same endpoints. Admin is tried first, and
  * an admin who is not a member of this event falls through to the portal check
  * rather than being rejected outright: the same person may hold both sessions.
+ *
+ * The guard asks for the *lowest* admin rank on purpose: this establishes which
+ * member is uploading, and `assertMayUpload` below is what decides what that
+ * member's role may upload. Spelling the rank out keeps that policy where it is
+ * readable instead of inheriting `adminAuth`'s organizer-only default.
  */
 export async function requireUploader(request: NextRequest, eventId: EventId): Promise<Uploader> {
   if (await getAdminSession()) {
     try {
-      const session = await adminAuth()(request, eventId, {});
+      const session = await adminAuth({ role: "reviewer" })(request, eventId, {});
       if (session) return { kind: "admin", userId: session.actorId as UserId, role: session.role as MemberRole };
     } catch (error) {
       if (!isAppError(error) || error.code !== "FORBIDDEN") throw error;

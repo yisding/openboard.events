@@ -42,6 +42,7 @@ export default async function Page({
       plans={[...plans].sort((left, right) => Number(right.status === "open") - Number(left.status === "open") || left.round - right.round)}
       rows={queue.rows}
       progress={queue.progress}
+      window={queue.window}
     />
   );
 }

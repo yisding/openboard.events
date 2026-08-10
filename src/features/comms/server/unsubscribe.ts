@@ -17,9 +17,14 @@ const unsubscribeClaimsSchema = z.object({
 
 type UnsubscribeClaims = z.infer<typeof unsubscribeClaimsSchema>;
 
+// M46 — signed with the dedicated `UNSUBSCRIBE_SECRET`, not `SESSION_SECRET`
+// (see that env var's schema comment): an unsubscribe token's lifecycle
+// (365-day expiry, handed to a third-party inbox) has nothing to do with an
+// admin session's, and sharing a key meant the two could never rotate
+// independently.
 function configuredSecret(): string {
-  const secret = getEnv().SESSION_SECRET;
-  if (!secret) throw new AppError("INTERNAL", "SESSION_SECRET is required for unsubscribe links");
+  const secret = getEnv().UNSUBSCRIBE_SECRET;
+  if (!secret) throw new AppError("INTERNAL", "UNSUBSCRIBE_SECRET is required for unsubscribe links");
   return secret;
 }
 
@@ -65,6 +70,12 @@ async function unsubscribeTargetIn(
   return event ? { eventId: claims.eventId, contactId: claims.contactId } : null;
 }
 
+// P3-EMAIL: this token/flag now gates every non-essential template, not only
+// `task_reminder` — see `isTransactionalTemplate` in shared/contracts/comms.ts
+// for the fleet-wide policy `buildContext` enforces. Names below are kept as
+// `…FromReminders` (the JWT `purpose` claim stays `task_reminder_unsubscribe`
+// too) to avoid an unrelated rename churning this module; the behavior, not
+// the name, is what widened.
 export function canUnsubscribeFromReminders(eventSlug: string, token: string): Promise<boolean> {
   return unsubscribeTargetIn(db, eventSlug, token).then(Boolean);
 }

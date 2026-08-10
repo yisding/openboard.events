@@ -43,6 +43,7 @@ export const createEventInputSchema = z.object({
   startsAt: z.iso.datetime({ message: "Starts At must be a valid date/time" }),
   endsAt: z.iso.datetime({ message: "Ends At must be a valid date/time" }),
   theme: themeText.optional(),
+  physicalAddress: optionalText(500),
 }).refine((value) => new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(), {
   message: "Ends At must be after Starts At",
   path: ["endsAt"],
@@ -64,6 +65,7 @@ export const eventDetailsPatchSchema = z.object({
   startsAt: z.iso.datetime({ message: "Starts At must be a valid date/time" }).optional(),
   endsAt: z.iso.datetime({ message: "Ends At must be a valid date/time" }).optional(),
   theme: themeText.nullable().optional(),
+  physicalAddress: optionalText(500),
   logoFileId: z.uuid().nullable().optional(),
   backgroundFileId: z.uuid().nullable().optional(),
 }).refine((value) => !(value.startsAt && value.endsAt) || new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(), {

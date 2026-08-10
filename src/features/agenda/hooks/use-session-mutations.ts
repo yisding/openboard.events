@@ -71,5 +71,13 @@ export function useSessionMutations(eventId: EventId) {
     onSuccess: settle,
   });
 
-  return { save, remove, setPublished, promote };
+  // M52 — restore an earlier content revision as the session's current
+  // title/description. Same settle rule as every other write here.
+  const restoreContent = useMutation({
+    mutationFn: ({ id, revisionId }: { id: SessionId; revisionId: string }) =>
+      api(`agenda/sessions/${id}/revisions?eventId=${eventId}`, savedSchema, { method: "POST", body: { revisionId } }),
+    onSuccess: settle,
+  });
+
+  return { save, remove, setPublished, promote, restoreContent };
 }

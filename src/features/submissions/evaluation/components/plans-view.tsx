@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCheck, Plus } from "lucide-react";
+import { ClipboardCheck, Plus, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -10,7 +10,9 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
+import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
+import { ReviewerInviteDialog } from "./reviewer-invite-dialog";
 
 export type TrackOption = { id: string; name: string; color: string | null };
 export type EventMember = { userId: string; name: string; email: string; role: string };
@@ -39,6 +41,8 @@ export function PlansView({
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PlanDTO | null>(null);
+  const [assigning, setAssigning] = useState<PlanDTO | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     const refreshProgress = () => router.refresh();
@@ -48,6 +52,35 @@ export function PlansView({
 
   const trackName = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
   const nextRound = plans.reduce((highest, plan) => Math.max(highest, plan.round), 0) + 1;
+
+  /**
+   * The bulk nudge. It reaches only reviewers who still have outstanding work
+   * in an open window — the server refuses the rest — and every row it writes
+   * lands in the communication log like any other message.
+   */
+  async function remind(plan: PlanDTO) {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/reminders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewerUserIds: null }),
+      });
+      const payload = await response.json().catch(() => null) as { data?: { enqueued: number; skipped: number }; error?: { message?: string } } | null;
+      if (!response.ok || !payload?.data) {
+        toast(payload?.error?.message ?? "Those reminders did not send");
+        return;
+      }
+      toast(payload.data.enqueued === 0
+        ? "Nobody on this round has outstanding work"
+        : `Reminded ${payload.data.enqueued} reviewer${payload.data.enqueued === 1 ? "" : "s"}${payload.data.skipped > 0 ? ` · ${payload.data.skipped} had no contact record` : ""}`);
+      router.refresh();
+    } catch {
+      toast("Those reminders did not send");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function remove(plan: PlanDTO) {
     setBusy(true);
@@ -87,6 +120,22 @@ export function PlansView({
           </span>,
     },
     {
+      id: "window",
+      header: "Window",
+      enableSorting: false,
+      accessorFn: (plan) => plan.opensAt ?? "",
+      cell: ({ row }) => (
+        <div className="plan-window">
+          <span>
+            {row.original.opensAt ? new Date(row.original.opensAt).toLocaleString() : "Open now"}
+            {" → "}
+            {row.original.closesAt ? new Date(row.original.closesAt).toLocaleString() : "No close date"}
+          </span>
+          {row.original.anonymizeAuthors && <small>Blind review</small>}
+        </div>
+      ),
+    },
+    {
       id: "reviewers",
       header: "Reviewers",
       accessorFn: (plan) => plan.reviewers.length,
@@ -95,7 +144,11 @@ export function PlansView({
           {row.original.reviewers.length === 0 && <li>Nobody assigned</li>}
           {row.original.reviewers.map((reviewer) => (
             <li key={reviewer.userId}>
-              {reviewer.name || reviewer.email} <small>{reviewer.scored}/{reviewer.assigned}</small>
+              {reviewer.name || reviewer.email}{" "}
+              <small>
+                {reviewer.completed}/{reviewer.assigned}
+                {reviewer.recused > 0 && ` · ${reviewer.recused} recused`}
+              </small>
             </li>
           ))}
         </ul>
@@ -119,11 +172,16 @@ export function PlansView({
       enableSorting: false,
       cell: ({ row }) => (
         <span className="row-actions">
+          <Button size="sm" variant="secondary" onClick={() => setAssigning(row.original)}>Assign</Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => remind(row.original)}>Remind</Button>
           <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
         </span>
       ),
     },
+  // `remind` is stable enough for the row actions; the columns only need to be
+  // rebuilt when the vocabulary or the busy flag changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [trackName, busy]);
 
   return (
@@ -132,7 +190,12 @@ export function PlansView({
         eyebrow="REVIEW"
         title="Evaluation"
         description="Scoring rounds, who reviews which tracks, and how far each round has got."
-        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>}
+        actions={
+          <span className="row-actions">
+            <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer</Button>
+            <Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>
+          </span>
+        }
       />
 
       <DataTable
@@ -160,6 +223,9 @@ export function PlansView({
           onClose={() => { setCreating(false); setEditing(null); }}
         />
       )}
+
+      {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigning(null)} />}
+      {inviting && <ReviewerInviteDialog eventId={eventId} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog
         open={pendingDelete !== null}

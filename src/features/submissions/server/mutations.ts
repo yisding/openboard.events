@@ -348,6 +348,10 @@ export async function upsertDraft(
     // this event — without this a caller could start a draft against another
     // event's form and the row would look legitimate.
     await loadForm(tx, eventId, formId);
+    // Starting (or resuming) a draft is itself a write against the form, so it
+    // must agree with the other three call sites: the database clock decides,
+    // via the same is_form_open() predicate, never a JS comparison (S2).
+    await assertFormOpen(tx, formId);
 
     const existing = (await tx.execute<{ id: string; code: number }>(sql`
       SELECT id, code FROM submissions
@@ -398,14 +402,24 @@ export async function upsertDraft(
   });
 }
 
-/** Replace an authenticated speaker's incomplete draft answers. */
+/**
+ * Replace an authenticated speaker's incomplete draft answers.
+ *
+ * `saved: false` is the already-submitted case. Submit promotes the draft row
+ * in place, so the wizard's last debounced autosave can arrive after the
+ * promotion has happened — a race the client also guards, but which the network
+ * can produce on its own. That is not a failure to report to a speaker who has
+ * just seen their confirmation code: the answers being written are the ones
+ * already committed, so this reports the promoted row and writes nothing. A
+ * speaker with no submission at all for this form still gets `NOT_FOUND`.
+ */
 export async function saveDraftAnswers(
   eventId: EventId,
   contactId: ContactId,
   formId: FormId,
   formVersion: number,
   answers: CleanAnswers,
-): Promise<{ submissionId: SubmissionId }> {
+): Promise<{ submissionId: SubmissionId; saved: boolean }> {
   return withTx(async (tx) => {
     const draft = (await tx.execute<{ id: string }>(sql`
       SELECT id FROM submissions
@@ -413,12 +427,26 @@ export async function saveDraftAnswers(
         AND submitter_contact_id = ${contactId} AND status = 'draft'
       FOR UPDATE
     `)).rows?.[0];
-    if (!draft) throw new AppError("NOT_FOUND", "Draft not found");
+    if (!draft) {
+      const committed = (await tx.execute<{ id: string }>(sql`
+        SELECT id FROM submissions
+        WHERE event_id = ${eventId} AND form_id = ${formId}
+          AND submitter_contact_id = ${contactId} AND status <> 'draft'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `)).rows?.[0];
+      if (!committed) throw new AppError("NOT_FOUND", "Draft not found");
+      return { submissionId: committed.id as SubmissionId, saved: false };
+    }
+    // Same is_form_open() predicate as the other three write paths (S2):
+    // a draft that is still open when the speaker loaded the page can go
+    // stale mid-edit, and the autosave must stop writing once it does.
+    await assertFormOpen(tx, formId);
     await replaceAnswers(tx, eventId, draft.id, answers);
     await tx.update(submissions)
       .set({ formVersion, updatedAt: new Date() })
       .where(eq(submissions.id, draft.id));
-    return { submissionId: draft.id as SubmissionId };
+    return { submissionId: draft.id as SubmissionId, saved: true };
   });
 }
 

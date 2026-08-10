@@ -9,6 +9,9 @@ import { enqueueEmail } from "@/shared/server/enqueue-email";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 let pglite: PGlite;
 let tx: TxDb;
@@ -22,6 +25,7 @@ describe("enqueueEmail", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Email event','email-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [contactId, eventId]);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;

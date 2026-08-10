@@ -6,6 +6,7 @@ import {
   fieldIdSchema,
   formIdSchema,
   mapsToTargetSchema,
+  reviewVisibilitySchema,
   visibilityRuleSchema,
 } from "@/shared/contracts";
 import { db } from "@/db/client";
@@ -24,6 +25,9 @@ const patchSchema = z.object({
   optionLabels: z.array(z.string().trim().min(1).max(255)).max(100).optional(),
   visibility: visibilityRuleSchema.nullable().optional(),
   mapsTo: mapsToTargetSchema.nullable().optional(),
+  // M50 blind review. Not structural: it governs what a future anonymized
+  // reviewer sees, never the answers a pinned snapshot already carries.
+  reviewVisibility: reviewVisibilitySchema.optional(),
 }).refine((patch) => Object.keys(patch).length > 0, "Patch must change at least one field");
 
 const update = defineHandler({

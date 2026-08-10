@@ -9,6 +9,8 @@ export const eventDtoSchema = z.object({
   eventType: z.string(),
   websiteUrl: z.url().nullable(),
   location: z.string().nullable(),
+  // P3-EMAIL / CAN-SPAM: rendered in the email layout footer when set.
+  physicalAddress: z.string().nullable(),
   timezone: z.string(),
   startsAt: iso,
   endsAt: iso,

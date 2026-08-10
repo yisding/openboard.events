@@ -1,11 +1,12 @@
 import { sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
-import type { ContactId, EventId, FileKind, FormId } from "@/shared/contracts";
+import type { ContactId, EventId, FileCommentDTO, FileKind, FormId, SubmissionId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
 import { updateContactFields } from "../../server/contacts";
+import { addFileCommentIn } from "../../server/deliverable-slot";
 
 /**
  * The three ways a speaker finishes a task.
@@ -183,9 +184,23 @@ export async function completeTaskViaUploadIn(
   // download rights, hand themselves a presigned URL to it.
   await requireFinishedUpload(tx, eventId, contactId, fileAssetId, assignment.policy);
 
+  // M52: numbered, server-derived versions. The prior latest row (if any) is
+  // flipped off in the same statement that inserts the new one — a client
+  // never supplies `version`/`isLatest` (the module's own "latest is
+  // server-derived" guardrail), and there is no window where the slot has
+  // zero or two latest rows for a concurrent reader to observe.
   const uploaded = await tx.execute<{ id: string }>(sql`
-    INSERT INTO file_uploads (event_id, file_request_id, contact_id, submission_id, file_asset_id)
-    VALUES (${eventId}, ${assignment.fileRequestId}, ${contactId}, ${submissionId}, ${fileAssetId})
+    WITH prev AS (
+      UPDATE file_uploads SET is_latest = false
+      WHERE event_id = ${eventId} AND file_request_id = ${assignment.fileRequestId}
+        AND contact_id = ${contactId} AND submission_id IS NOT DISTINCT FROM ${submissionId} AND is_latest
+      RETURNING version
+    )
+    INSERT INTO file_uploads (event_id, file_request_id, contact_id, submission_id, file_asset_id, version, is_latest)
+    VALUES (
+      ${eventId}, ${assignment.fileRequestId}, ${contactId}, ${submissionId}, ${fileAssetId},
+      coalesce((SELECT max(version) + 1 FROM prev), 1), true
+    )
     RETURNING id
   `);
   const fileUploadId = (uploaded.rows ?? [])[0]?.id;
@@ -201,6 +216,32 @@ export async function completeTaskViaUploadIn(
       completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
   `);
 }
+
+/**
+ * M52 — a speaker's comment on their own file-request deliverable. The task
+ * is resolved into its `fileRequestId` the same way `completeTaskViaUpload`
+ * does (`requireAssignment`, mode-checked), so a comment can never be pinned
+ * to a task that is not this speaker's or is not a file request in the first
+ * place — the same authorization boundary as the upload itself.
+ */
+export async function addTaskCommentIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+  body: string,
+): Promise<FileCommentDTO> {
+  const assignment = await requireAssignment(dbOrTx, eventId, contactId, taskId, submissionId, "file_request");
+  if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
+  return addFileCommentIn(
+    dbOrTx, eventId, assignment.fileRequestId, contactId, submissionId as SubmissionId | null,
+    { role: "speaker", contactId }, body,
+  );
+}
+
+export const addTaskComment = (eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, body: string) =>
+  addTaskCommentIn(db, eventId, contactId, taskId, submissionId, body);
 
 /** The submission columns a portal form is allowed to write, and their SQL names. */
 const SUBMISSION_COLUMNS = {

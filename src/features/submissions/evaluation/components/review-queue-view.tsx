@@ -1,35 +1,48 @@
 "use client";
 
-import { ClipboardCheck, Star } from "lucide-react";
+import { ClipboardCheck, Lock, ShieldOff, Star } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SubmissionDetailDTO } from "@/shared/contracts";
+import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, SubmissionDetailDTO } from "@/shared/contracts";
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { nextCriterionToScore, nextUnscored } from "../queue";
-import { weightedOverall } from "../scoring";
+import { nextUnscored } from "../queue";
+import { isReviewComplete, weightedMean } from "../scoring";
 import type { PlanDTO, ReviewQueueRow } from "../types";
 
 /**
  * One reviewer, one round, one proposal at a time.
  *
  * The reviewer reads the answers through the same renderer the organizer's
- * drawer uses, scores against the round's own scale, and moves on. Everything
- * the server decides — which proposals are here at all, and what a set of
- * criterion scores adds up to — is re-decided on save; this component only
- * shows it.
+ * drawer uses, answers the round's own scorecard, and moves on. Everything the
+ * server decides — which proposals are here at all, whether the window is open,
+ * and what a set of answers adds up to — is re-decided on save; this component
+ * only shows it, so a disabled button here is a courtesy, never the control.
  */
 
-type Draft = { criterion: Record<string, number>; overall: number | null; comment: string };
+type Draft = { values: CriterionValues; overall: number | null; comment: string };
 
 function draftFrom(row: ReviewQueueRow | undefined): Draft {
   return {
-    criterion: row?.myCriterionScores ?? {},
+    values: row?.myCriterionValues ?? {},
     overall: row?.myScore ?? null,
     comment: row?.myComment ?? "",
   };
+}
+
+/** The plan's criteria as the pure grader sees them — the same shape the server grades with. */
+function specsOf(plan: PlanDTO): CriterionSpec[] {
+  return plan.criteria.map((criterion) => ({
+    id: criterion.id,
+    kind: criterion.kind,
+    weight: criterion.weight,
+    required: criterion.required,
+    options: criterion.options,
+    minValue: criterion.minValue,
+    maxValue: criterion.maxValue,
+  }));
 }
 
 /**
@@ -37,8 +50,21 @@ function draftFrom(row: ReviewQueueRow | undefined): Draft {
  * server scores with, so the number on screen cannot disagree with the number
  * that gets stored.
  */
-function previewOverall(plan: PlanDTO, draft: Draft): number | null {
-  return plan.criteria.length === 0 ? draft.overall : weightedOverall(plan.criteria, draft.criterion);
+function previewOverall(plan: PlanDTO, specs: CriterionSpec[], draft: Draft): number | null {
+  return plan.criteria.length === 0 ? draft.overall : weightedMean(specs, draft.values);
+}
+
+function windowNotice(window: ReviewWindow | null, plan: PlanDTO): string | null {
+  if (!window) return null;
+  if (window.state === "before_open") {
+    return `This round opens ${window.opensAt ? new Date(window.opensAt).toLocaleString() : "later"}. Nothing is readable until then.`;
+  }
+  if (window.state === "closed" || !window.canSave) {
+    return plan.status === "closed"
+      ? "This round is closed. Your reviews stay readable, but scores can no longer change."
+      : `This round closed ${window.closesAt ? new Date(window.closesAt).toLocaleString() : ""}. Your reviews stay readable, but scores can no longer change.`;
+  }
+  return window.closesAt ? `Open until ${new Date(window.closesAt).toLocaleString()}.` : null;
 }
 
 export function ReviewQueueView({
@@ -47,6 +73,7 @@ export function ReviewQueueView({
   plans,
   rows,
   progress,
+  window: reviewWindow,
 }: {
   eventId: string;
   plan: PlanDTO | null;
@@ -54,6 +81,7 @@ export function ReviewQueueView({
   plans: PlanDTO[];
   rows: ReviewQueueRow[];
   progress: { scored: number; total: number };
+  window: ReviewWindow | null;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -62,24 +90,39 @@ export function ReviewQueueView({
   const [detailError, setDetailError] = useState("");
   const [draft, setDraft] = useState<Draft>(() => draftFrom(rows[0]));
   const [saving, setSaving] = useState(false);
+  const [recusing, setRecusing] = useState(false);
+  const [recusalReason, setRecusalReason] = useState("");
 
   const active = useMemo(() => rows.find((row) => row.submissionId === activeId), [rows, activeId]);
+  const specs = useMemo(() => plan ? specsOf(plan) : [], [plan]);
   const scale = useMemo(
     () => plan ? Array.from({ length: plan.scaleMax - plan.scaleMin + 1 }, (_, index) => plan.scaleMin + index) : [],
     [plan],
   );
+  const canSave = reviewWindow?.canSave ?? false;
 
   const open = useCallback((submissionId: string) => {
     setActiveId(submissionId);
     setDraft(draftFrom(rows.find((row) => row.submissionId === submissionId)));
+    setRecusing(false);
+    setRecusalReason("");
   }, [rows]);
 
+  const setValue = useCallback((criterionId: string, value: CriterionValue | undefined) => {
+    setDraft((current) => {
+      const values = { ...current.values } as Record<string, CriterionValue>;
+      if (value === undefined) delete values[criterionId];
+      else values[criterionId] = value;
+      return { ...current, values: values as CriterionValues };
+    });
+  }, []);
+
   useEffect(() => {
-    if (!activeId) return;
+    if (!activeId || !plan) return;
     let cancelled = false;
     setDetail(null);
     setDetailError("");
-    fetch(`/api/internal/submissions/${eventId}/${activeId}?planId=${plan?.id ?? ""}`)
+    fetch(`/api/internal/submissions/${eventId}/${activeId}?planId=${plan.id}`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: SubmissionDetailDTO; error?: { message?: string } } | null;
         if (cancelled) return;
@@ -90,7 +133,7 @@ export function ReviewQueueView({
     // A reviewer moving quickly down the list must not have a late response for
     // one they have passed replace what they are reading now.
     return () => { cancelled = true; };
-  }, [eventId, activeId, plan?.id]);
+  }, [eventId, activeId, plan]);
 
   const save = useCallback(async () => {
     if (!plan || !active) return;
@@ -103,19 +146,21 @@ export function ReviewQueueView({
           planId: plan.id,
           submissionId: active.submissionId,
           overallScore: plan.criteria.length > 0 ? null : draft.overall,
-          criterionScores: plan.criteria.length > 0 ? draft.criterion : {},
+          criterionScores: plan.criteria.length > 0 ? draft.values : {},
           comment: draft.comment.trim() === "" ? null : draft.comment,
         }),
       });
-      const payload = await response.json().catch(() => null) as { data?: { overallScore: number | null }; error?: { message?: string } } | null;
+      const payload = await response.json().catch(() => null) as { data?: { overallScore: number | null; complete: boolean }; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {
         toast(payload?.error?.message ?? "That score did not save");
         return;
       }
-      toast(payload.data.overallScore === null
+      toast(!payload.data.complete
         // Saying so is the difference between "still to finish" and "lost".
-        ? `${formatCode(active.code)} saved — still unscored until every criterion has a number`
-        : `${formatCode(active.code)} scored ${payload.data.overallScore}`);
+        ? `${formatCode(active.code)} saved — still unfinished until every required answer is in`
+        : payload.data.overallScore === null
+          ? `${formatCode(active.code)} submitted — this round's answers do not produce a score`
+          : `${formatCode(active.code)} scored ${payload.data.overallScore}`);
 
       const next = nextUnscored(rows, active.submissionId);
       if (next) open(next.submissionId);
@@ -124,6 +169,29 @@ export function ReviewQueueView({
       setSaving(false);
     }
   }, [plan, active, eventId, draft, rows, open, router, toast]);
+
+  const recuse = useCallback(async () => {
+    if (!plan || !active || recusalReason.trim() === "") return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/recusals`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ submissionId: active.submissionId, reason: recusalReason }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      toast(response.ok
+        ? `${formatCode(active.code)} recused — it has left your queue and the reason is on the record`
+        : payload?.error?.message ?? "That recusal did not save");
+      if (response.ok) {
+        setRecusing(false);
+        setRecusalReason("");
+        router.refresh();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [plan, active, eventId, recusalReason, router, toast]);
 
   // 1–5 scores and `n` advances: a reviewer working through a queue should not
   // have to reach for the mouse between proposals.
@@ -141,16 +209,20 @@ export function ReviewQueueView({
       }
       const value = Number(event.key);
       if (!Number.isInteger(value) || !scale.includes(value)) return;
-      // With criteria the keys fill the first unanswered one, so the shortcut
-      // still means "this is my score" on both shapes of round.
+      // With criteria the keys fill the first unanswered *numeric* one, so the
+      // shortcut still means "this is my score" on both shapes of round and
+      // never guesses at a choice or a written answer.
       setDraft((current) => {
         if (plan.criteria.length === 0) return { ...current, overall: value };
-        const next = nextCriterionToScore(plan.criteria, current.criterion);
-        return next ? { ...current, criterion: { ...current.criterion, [next.id]: value } } : current;
+        const numeric = plan.criteria.filter((criterion) => criterion.kind === "numeric");
+        const next = numeric.find((criterion) => current.values[criterion.id]?.kind !== "numeric") ?? numeric[0];
+        return next
+          ? { ...current, values: { ...current.values, [next.id]: { kind: "numeric", value } } as CriterionValues }
+          : current;
       });
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, [plan, active, rows, scale, open]);
 
   if (!plan) {
@@ -160,42 +232,61 @@ export function ReviewQueueView({
         <EmptyState
           icon={<ClipboardCheck size={20} />}
           title="No review round is open"
-          description="An organizer creates a scoring round and assigns reviewers to it before anything appears here."
+          description="An organizer creates a scoring round and assigns you submissions before anything appears here."
         />
       </main>
     );
   }
 
-  const preview = previewOverall(plan, draft);
+  const notice = windowNotice(reviewWindow, plan);
+  const preview = previewOverall(plan, specs, draft);
+  const complete = isReviewComplete(specs, draft.values, plan.criteria.length > 0 ? preview : draft.overall, { min: plan.scaleMin, max: plan.scaleMax });
+
+  const roundSwitcher = plans.length > 1 ? {
+    actions: (
+      <Field label="Round">
+        <select
+          value={plan.id}
+          onChange={(event) => router.push(`?planId=${event.target.value}`)}
+          aria-label="Review round"
+        >
+          {plans.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}{option.status === "closed" ? " (closed)" : ""}
+            </option>
+          ))}
+        </select>
+      </Field>
+    ),
+  } : {};
+
+  if (reviewWindow?.state === "before_open") {
+    return (
+      <main className="page">
+        <PageHeader eyebrow="REVIEW" title={plan.name} {...roundSwitcher} />
+        <EmptyState
+          icon={<Lock size={20} />}
+          title="This round has not opened yet"
+          description={notice ?? "Your assignments become readable when the round opens."}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="page">
       <PageHeader
         eyebrow="REVIEW"
         title={plan.name}
-        description={`Scoring ${plan.scaleMin}–${plan.scaleMax}${plan.criteria.length > 0 ? ` across ${plan.criteria.length} criteria` : ""}.`}
-        {...(plans.length > 1 ? {
-          actions: (
-            <Field label="Round">
-              <select
-                value={plan.id}
-                onChange={(event) => router.push(`?planId=${event.target.value}`)}
-                aria-label="Review round"
-              >
-                {plans.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}{option.status === "closed" ? " (closed)" : ""}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ),
-        } : {})}
+        description={`Scoring ${plan.scaleMin}–${plan.scaleMax}${plan.criteria.length > 0 ? ` across ${plan.criteria.length} criteria` : ""}.${plan.anonymizeAuthors ? " Authors are hidden in this round." : ""}`}
+        {...roundSwitcher}
       />
+
+      {notice && <p className="portal-note" role="status">{notice}</p>}
 
       <div className="evaluation-summary">
         <article>
-          <div><span>Your progress</span><b>Scored {progress.scored} of {progress.total}</b></div>
+          <div><span>Your progress</span><b>Finished {progress.scored} of {progress.total}</b></div>
           <ProgressBar value={progress.total === 0 ? 0 : Math.round((progress.scored / progress.total) * 100)} />
         </article>
       </div>
@@ -203,8 +294,8 @@ export function ReviewQueueView({
       {rows.length === 0 ? (
         <EmptyState
           icon={<ClipboardCheck size={20} />}
-          title="No abstracts routed to you yet"
-          description="An organizer assigns reviewers to tracks; when yours has proposals in it, they appear here."
+          title="Nothing is assigned to you yet"
+          description="An organizer assigns submissions to reviewers; when yours arrive, they appear here."
         />
       ) : (
         <section className="review-workspace">
@@ -212,7 +303,7 @@ export function ReviewQueueView({
             <header>
               <div>
                 <h2>Your review queue</h2>
-                <span>{rows.filter((row) => row.myScore === null).length} still to score</span>
+                <span>{rows.filter((row) => row.scoredAt === null).length} still to finish</span>
               </div>
             </header>
             <div>
@@ -225,10 +316,10 @@ export function ReviewQueueView({
                 >
                   <div>
                     <span>{formatCode(row.code)}</span>
-                    {row.myScore !== null && <em><Star size={11} fill="currentColor" />{row.myScore}</em>}
+                    {row.scoredAt !== null && <em><Star size={11} fill="currentColor" />{row.myScore ?? "done"}</em>}
                   </div>
                   <b>{row.title}</b>
-                  <small>{row.trackName ?? "Uncategorized"}</small>
+                  <small>{plan.anonymizeAuthors ? "Author hidden" : row.trackName ?? "Uncategorized"}</small>
                 </button>
               ))}
             </div>
@@ -242,7 +333,7 @@ export function ReviewQueueView({
                   {detail && <StatusBadge value={detail.status} />}
                   <h1>{active.title}</h1>
                   <p>
-                    {active.trackName ?? "Uncategorized"}
+                    {plan.anonymizeAuthors ? "Blind review" : active.trackName ?? "Uncategorized"}
                     {active.nScores > 0 && ` · round average ${active.avgRating?.toFixed(1)} from ${active.nScores}`}
                   </p>
                 </div>
@@ -285,30 +376,62 @@ export function ReviewQueueView({
                   </div>
                 ) : (
                   <>
-                    {plan.criteria.map((criterion) => (
-                      <Field key={criterion.id} label={criterion.label} {...(criterion.weight === 1 ? {} : { hint: `Weight ${criterion.weight}` })}>
-                        <div className="score-buttons">
-                          {scale.map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              aria-pressed={draft.criterion[criterion.id] === value}
-                              className={draft.criterion[criterion.id] === value ? "active" : ""}
-                              onClick={() => setDraft((current) => ({
-                                ...current,
-                                criterion: { ...current.criterion, [criterion.id]: value },
-                              }))}
+                    {plan.criteria.map((criterion) => {
+                      const value = draft.values[criterion.id];
+                      const hint = [
+                        criterion.weight === 1 || criterion.kind === "text" ? "" : `Weight ${criterion.weight}`,
+                        criterion.required ? "Required" : "Optional",
+                      ].filter(Boolean).join(" · ");
+                      return (
+                        <Field key={criterion.id} label={criterion.label} hint={hint}>
+                          {criterion.kind === "numeric" && (
+                            <div className="score-buttons">
+                              {Array.from(
+                                { length: (criterion.maxValue ?? plan.scaleMax) - (criterion.minValue ?? plan.scaleMin) + 1 },
+                                (_, index) => (criterion.minValue ?? plan.scaleMin) + index,
+                              ).map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  aria-pressed={value?.kind === "numeric" && value.value === option}
+                                  className={value?.kind === "numeric" && value.value === option ? "active" : ""}
+                                  onClick={() => setValue(criterion.id, { kind: "numeric", value: option })}
+                                >
+                                  <span>{option}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {criterion.kind === "select" && (
+                            <select
+                              value={value?.kind === "select" ? value.optionId : ""}
+                              onChange={(event) => setValue(criterion.id, event.target.value === "" ? undefined : { kind: "select", optionId: event.target.value })}
                             >
-                              <span>{value}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </Field>
-                    ))}
+                              <option value="">No answer yet</option>
+                              {criterion.options.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}{option.score === null ? " (not scored)" : ` (${option.score})`}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {criterion.kind === "text" && (
+                            <textarea
+                              value={value?.kind === "text" ? value.value : ""}
+                              maxLength={2000}
+                              onChange={(event) => setValue(criterion.id, event.target.value === "" ? undefined : { kind: "text", value: event.target.value })}
+                              placeholder="Your written answer"
+                            />
+                          )}
+                        </Field>
+                      );
+                    })}
                     <p className="pinned-note">
-                      {preview === null
-                        ? "Overall score appears once every criterion has a number."
-                        : `Overall ${preview} — the weighted mean, recomputed on the server when you save.`}
+                      {!complete
+                        ? "This review stays unfinished until every required criterion is answered."
+                        : preview === null
+                          ? "Finished — this round's answers do not produce a numeric score."
+                          : `Overall ${preview} — the weighted mean, recomputed on the server when you save.`}
                     </p>
                   </>
                 )}
@@ -322,10 +445,31 @@ export function ReviewQueueView({
                   />
                 </Field>
 
-                <Button disabled={saving || plan.status === "closed"} onClick={save}>
+                <Button disabled={saving || !canSave} onClick={save}>
                   {saving ? "Saving…" : "Save & next"}
                 </Button>
-                {plan.status === "closed" && <small className="keyboard-hint">This round is closed, so scores can no longer change.</small>}
+                {!canSave && <small className="keyboard-hint">{notice}</small>}
+
+                {recusing ? (
+                  <Field label="Why are you recusing yourself?" hint="Recorded with your name and the time, and visible to organizers.">
+                    <textarea
+                      value={recusalReason}
+                      maxLength={500}
+                      autoFocus
+                      onChange={(event) => setRecusalReason(event.target.value)}
+                      placeholder="e.g. I work with one of the authors"
+                    />
+                    <span className="row-actions">
+                      <Button size="sm" disabled={saving || recusalReason.trim() === ""} onClick={recuse}>Confirm recusal</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRecusing(false)}>Cancel</Button>
+                    </span>
+                  </Field>
+                ) : (
+                  <Button variant="ghost" size="sm" disabled={saving || !canSave} onClick={() => setRecusing(true)}>
+                    <ShieldOff size={15} /> Recuse myself
+                  </Button>
+                )}
+
                 <small className="keyboard-hint">Press {plan.scaleMin}–{plan.scaleMax} to score, n for the next proposal.</small>
               </aside>
             </article>

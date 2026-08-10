@@ -10,9 +10,13 @@ import {
   type AnswerValue,
   type ContactId,
   type EventId,
+  type FileCommentDTO,
+  type FileVersionDTO,
   type FormId,
   type FormSnapshot,
+  type SubmissionId,
 } from "@/shared/contracts";
+import { listFileCommentsIn, listFileVersionsIn } from "../../server/deliverable-slot";
 
 /**
  * `form_responses.answers` is a jsonb **object** keyed by field id — the shape
@@ -68,7 +72,9 @@ export type MyTaskDetail = MyTaskDTO & {
     acceptedExtensions: string[];
     maxSizeMb: number;
   } | null;
-  uploads: Array<{ fileUploadId: string; fileAssetId: string; filename: string; createdAt: string }>;
+  /** Newest first; `isLatest` marks the one version this task actually completed with. */
+  uploads: FileVersionDTO[];
+  comments: FileCommentDTO[];
 };
 
 type TaskRow = {
@@ -142,10 +148,14 @@ export async function getMyTaskIn(
 
   let fileRequest: MyTaskDetail["fileRequest"] = null;
   let uploads: MyTaskDetail["uploads"] = [];
+  let comments: MyTaskDetail["comments"] = [];
   if (row.file_request_id) {
-    // Independent reads, so they cost one round trip rather than two on a page
-    // a speaker opens from a phone.
-    const [requestRows, uploadRows] = await Promise.all([
+    // Independent reads, so they cost one round trip rather than several on a
+    // page a speaker opens from a phone. Versions and comments come off the
+    // same `deliverable-slot` module the organizer's central Files view and
+    // tasks-admin panel read, so a speaker and an organizer can never see a
+    // different version count or comment thread for the same slot.
+    const [requestRows, versionRows, commentRows] = await Promise.all([
       dbOrTx.execute<{
         id: string; title: string; instructions_html: string | null;
         accepted_extensions: string[]; max_size_mb: number;
@@ -153,17 +163,8 @@ export async function getMyTaskIn(
         SELECT id, title, nullif(instructions_html, '') AS instructions_html, accepted_extensions, max_size_mb
         FROM file_requests WHERE id = ${row.file_request_id} AND event_id = ${eventId}
       `),
-      // Every upload is kept and the latest is shown; "replace" means send
-      // another one, so a speaker can never destroy the file the organizers
-      // already have.
-      dbOrTx.execute<{ id: string; file_asset_id: string; filename: string; created_at: string }>(sql`
-        SELECT u.id, u.file_asset_id, f.filename, u.created_at
-        FROM file_uploads u
-        JOIN file_assets f ON f.id = u.file_asset_id AND f.event_id = u.event_id
-        WHERE u.event_id = ${eventId} AND u.file_request_id = ${row.file_request_id}
-          AND u.contact_id = ${contactId} AND u.submission_id IS NOT DISTINCT FROM ${submissionId}
-        ORDER BY u.created_at DESC
-      `),
+      listFileVersionsIn(dbOrTx, eventId, row.file_request_id, contactId, submissionId as SubmissionId | null),
+      listFileCommentsIn(dbOrTx, eventId, row.file_request_id, contactId, submissionId as SubmissionId | null),
     ]);
     const request = (requestRows.rows ?? [])[0];
     if (request) {
@@ -176,15 +177,11 @@ export async function getMyTaskIn(
       };
     }
 
-    uploads = (uploadRows.rows ?? []).map((upload) => ({
-      fileUploadId: upload.id,
-      fileAssetId: upload.file_asset_id,
-      filename: upload.filename,
-      createdAt: new Date(upload.created_at).toISOString(),
-    }));
+    uploads = versionRows;
+    comments = commentRows;
   }
 
-  return { ...toTask(row), formId: row.form_id, fileRequest, uploads };
+  return { ...toTask(row), formId: row.form_id, fileRequest, uploads, comments };
 }
 
 /**

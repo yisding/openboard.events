@@ -17,6 +17,11 @@ export {
   createFormIn,
   createFieldIn,
   deleteFieldIn,
+  // M24: generic duplicate/delete (plan/modules/M24-portal-form-builder.md §7).
+  deleteForm,
+  deleteFormIn,
+  duplicateForm,
+  duplicateFormIn,
   reorderFieldsIn,
   saveFormStep,
   updateFieldIn,

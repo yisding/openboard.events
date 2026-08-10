@@ -13,6 +13,9 @@ function required<T>(value: T | null | undefined, message: string): T {
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = "a1000000-0000-4000-8000-000000000001";
 const otherEventId = "a1000000-0000-4000-8000-000000000002";
@@ -29,6 +32,9 @@ const sessionDeclinedSpeaker = "a1000000-0000-4000-8000-000000000033";
 const sessionOtherEvent = "a1000000-0000-4000-8000-000000000040";
 
 const headshotFileId = "a1000000-0000-4000-8000-000000000050";
+const roomId = "a1000000-0000-4000-8000-000000000060";
+const trackId = "a1000000-0000-4000-8000-000000000061";
+const formatId = "a1000000-0000-4000-8000-000000000062";
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -38,6 +44,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     // PDT (UTC-7) in September: a session starting 2026-09-16T05:30:00Z is
@@ -53,6 +60,10 @@ describe("public schedule + speaker gallery published-view queries", () => {
     );
 
     await pglite.query("INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime) VALUES($1,$2,'headshot','staging/headshot.jpg','ada.jpg','image/jpeg')", [headshotFileId, eventId]);
+
+    await pglite.query("INSERT INTO rooms(id,event_id,name) VALUES($1,$2,'Main Hall')", [roomId, eventId]);
+    await pglite.query("INSERT INTO tracks(id,event_id,name,color) VALUES($1,$2,'AI Agents','#00a878')", [trackId, eventId]);
+    await pglite.query("INSERT INTO session_formats(id,event_id,name) VALUES($1,$2,'Talk')", [formatId, eventId]);
 
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name,confirmation_status,headshot_file_id) VALUES($1,$2,'confirmed@example.com','Ada','Lovelace','confirmed',$3)",
@@ -72,8 +83,8 @@ describe("public schedule + speaker gallery published-view queries", () => {
       [sessionDraft, eventId],
     );
     await pglite.query(
-      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status) VALUES($1,$2,'Published Talk','published-talk','<p>published</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published')",
-      [sessionPublished, eventId],
+      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,room_id,track_id,format_id) VALUES($1,$2,'Published Talk','published-talk','<p>published</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published',$3,$4,$5)",
+      [sessionPublished, eventId, roomId, trackId, formatId],
     );
     await pglite.query(
       "INSERT INTO sessions(id,event_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,'Unconfirmed-only Talk','unconfirmed-talk','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published')",
@@ -136,7 +147,9 @@ describe("public schedule + speaker gallery published-view queries", () => {
   it("resolves a confirmed speaker's headshot through the public /f/ path", async () => {
     const schedule = required(await getPublishedScheduleIn(db, eventSlug), "expected a schedule");
     const session = schedule.sessions.find((s) => s.id === sessionPublished);
-    expect(session?.speakers).toEqual([{ contactId: speakerConfirmed, name: "Ada Lovelace", headshotUrl: `/f/${headshotFileId}` }]);
+    expect(session?.speakers).toEqual([{
+      contactId: speakerConfirmed, name: "Ada Lovelace", jobTitle: null, company: null, headshotUrl: `/f/${headshotFileId}`,
+    }]);
   });
 
   it("getPublishedSpeakers never returns an unconfirmed or declined contact, even when they sit on a published session", async () => {
@@ -151,6 +164,26 @@ describe("public schedule + speaker gallery published-view queries", () => {
   it("scopes a confirmed speaker's sessions[] to their own published talks", async () => {
     const speakers = required(await getPublishedSpeakersIn(db, eventSlug), "expected speakers");
     const ada = speakers.speakers.find((s) => s.contactId === speakerConfirmed);
-    expect(ada?.sessions).toEqual([{ id: sessionPublished, slug: "published-talk", title: "Published Talk", startsAt: "2026-09-16T05:30:00.000Z", dayKey: "2026-09-15" }]);
+    expect(ada?.sessions).toEqual([{
+      id: sessionPublished, slug: "published-talk", title: "Published Talk",
+      startsAt: "2026-09-16T05:30:00.000Z", endsAt: "2026-09-16T06:00:00.000Z", dayKey: "2026-09-15",
+      room: { id: roomId, name: "Main Hall" },
+      track: { id: trackId, name: "AI Agents", color: "#00a878" },
+      format: { id: formatId, name: "Talk" },
+    }]);
+  });
+
+  it("carries job title/company on session speaker references, and room/track/format on speaker session references", async () => {
+    await pglite.query("UPDATE contacts SET job_title = 'Mathematician', company = 'Royal Society' WHERE id = $1", [speakerConfirmed]);
+    const schedule = required(await getPublishedScheduleIn(db, eventSlug), "expected a schedule");
+    const session = schedule.sessions.find((s) => s.id === sessionPublished);
+    expect(session?.speakers[0]).toMatchObject({ jobTitle: "Mathematician", company: "Royal Society" });
+    expect(session?.room).toEqual({ id: roomId, name: "Main Hall" });
+    expect(session?.track).toEqual({ id: trackId, name: "AI Agents", color: "#00a878" });
+    expect(session?.format).toEqual({ id: formatId, name: "Talk" });
+
+    const speakers = required(await getPublishedSpeakersIn(db, eventSlug), "expected speakers");
+    const ada = speakers.speakers.find((s) => s.contactId === speakerConfirmed);
+    expect(ada?.sessions[0]).toMatchObject({ endsAt: "2026-09-16T06:00:00.000Z", room: { id: roomId, name: "Main Hall" } });
   });
 });

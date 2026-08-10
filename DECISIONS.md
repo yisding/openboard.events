@@ -189,3 +189,32 @@ including its sequential checks and writes while the event lock is held. It ther
 per-event serialization ceiling, but not that Hyperdrive is the remedy. Reducing lock-held work
 raises per-event throughput; adopting Hyperdrive first requires handshake timing instrumentation
 or an otherwise-equivalent A/B run with pooling enabled.
+
+## M48 observability & ops (2026-08-10)
+
+Implemented per `plan/product-roadmap.md`'s M48 line: `/api/health` deepened with outbox
+observability, alerting thresholds documented, a non-deploying curl-based uptime-check workflow,
+R2 lifecycle-rule documentation, and a Neon PITR rehearsal runbook. Details and cross-links live
+in `docs/runbooks/alerting.md`, `docs/runbooks/r2-lifecycle.md`, and
+`docs/runbooks/pitr-rehearsal.md`; recorded here is the one finding worth pinning independently of
+those docs, since it corrects an assumption an earlier module's own status note made.
+
+**Finding: no single static R2 lifecycle rule can target only staging objects today.**
+`plan/modules/M07-r2-storage.md` names "an R2 lifecycle rule expiring the `staging/` prefix" as
+its outstanding follow-up. Verified against the actual key scheme
+(`src/shared/server/r2.ts::buildStagingKey`) and against R2's lifecycle API (mirrors S3's
+`PutBucketLifecycleConfiguration` — a rule's `Prefix` filter matches only keys that *begin with*
+that literal string): every object in `sb-files-preview`/`sb-files`, staging and published alike,
+is keyed `evt_<eventId>/...` — `staging` is the bucket's *second* path segment, appearing after a
+per-event id that doesn't exist until the event is created. `Prefix: "staging/"` therefore matches
+zero objects in either bucket today; `Prefix: "evt_"` matches every object, staging and published
+alike, and would silently expire published headshots and attachments. No prefix rule authored
+once, before all events exist, can isolate "any event's staging objects" under this key scheme.
+
+This is not fixed in this change — the fix is hoisting the `staging/` segment to the bucket root
+in `buildStagingKey` (and the orphan-sweep predicate that parses it), which is `src/shared/server/r2.ts`,
+squarely M07's owned path, and deserves that module's own review rather than a drive-by edit from
+an ops task. `docs/runbooks/r2-lifecycle.md` documents the finding in full, the app-level
+`cleanupOrphans` sweep that already covers this gap today (daily cron, already deployed), and the
+exact wrangler/dashboard steps for the rule that becomes correct once the key-scheme follow-up
+lands. Filed as a scoped follow-up for M07's owner, not a blocker for M48.

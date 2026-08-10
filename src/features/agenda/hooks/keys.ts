@@ -10,4 +10,6 @@ export const agendaKeys = {
     filters ? qk("agenda", eventId, "sessions", filters) : qk("agenda", eventId, "sessions"),
   /** The prefix every session read shares; what a write invalidates. */
   allSessions: (eventId: EventId) => qk("agenda", eventId, "sessions"),
+  /** M52 — a session's content revision history. */
+  revisions: (eventId: EventId, sessionId: string) => qk("agenda", eventId, "sessions", sessionId, "revisions"),
 } as const;

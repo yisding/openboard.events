@@ -30,6 +30,9 @@ import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; these suites exercise the columns
+// and the assignment table it adds.
+const migration4 = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000002");
@@ -72,6 +75,7 @@ describe("evaluation plans and reviewer routing", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migration4);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug] of [[eventId, "eval-event"], [otherEventId, "eval-other"]] as const) {

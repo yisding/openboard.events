@@ -36,6 +36,8 @@ seed changes only.
 - [ ] `bash scripts/post-deploy-smoke.sh <prod> --production` exits 0 — including that
       `/api/test/login` 404s, which is what proves `TEST_AUTH` is absent from the production build
 - [ ] `wrangler rollback` rehearsed against production at least once, and the command written down
+- [ ] Neon PITR rehearsed against `sb-dev` at least once (`docs/runbooks/pitr-rehearsal.md`), with
+      the run recorded in `DECISIONS.md`
 - [ ] Cron tick observed in the production tail
 - [ ] Communications log clean: no failed rows, no duplicate sends
 - [ ] Final seed reset run (`pnpm seed --wipe` with `SEED_ALLOW_PROD=1`) — after the last rehearsal,

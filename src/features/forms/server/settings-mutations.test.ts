@@ -11,6 +11,9 @@ import { saveNotificationsStepIn, saveSettingsStepIn } from "./settings-mutation
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("ae000000-0000-4000-8000-000000000002");
 
 describe("settings-mutations — Settings/Notifications steps (M14)", () => {
@@ -22,6 +25,7 @@ describe("settings-mutations — Settings/Notifications steps (M14)", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Settings Conf','settings-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",

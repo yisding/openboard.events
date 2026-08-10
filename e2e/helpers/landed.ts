@@ -31,6 +31,20 @@ export const MODULES = {
   M33: { landed: true, what: "embed shells (frame-ancestors, no X-Frame-Options)" },
   M34: { landed: true, what: "comms outbox dispatcher (one log row per submission)" },
   M40: { landed: true, what: "public API (published-only rows matching the page)" },
+  // M50's code is merged, but this gate is about *deployed* evidence: the spec
+  // signs a reviewer in on the preview and asserts on a blind payload, so it
+  // flips only once the preview runs a build that carries migration 0004.
+  M50: { landed: false, what: "review operations — needs a preview deployed with drizzle/0004" },
+  // M51's code is merged, but this gate is about *deployed* evidence: the
+  // spec adds/imports/invites/uploads/bulk-emails against the real preview
+  // and reads communication_logs back, so it flips only once the preview
+  // runs a build that carries migration 0008.
+  M51: { landed: false, what: "speaker roster operations — needs a preview deployed with drizzle/0008" },
+  // M54's code is merged and its PGlite suite is green, but this gate is
+  // about *deployed* evidence too: the spec previews and applies a real
+  // placement against the preview's own schedule and blackout rows, so it
+  // flips once that run is confirmed against a deployed preview.
+  M54: { landed: false, what: "assisted agenda placement — needs deployed preview/apply evidence" },
 } as const;
 
 export type ModuleId = keyof typeof MODULES;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { submitCfpForm } from "@/features/forms/server/submit";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { clientIp } from "@/shared/server/rate-limit";
 import { formPortalAuth } from "../_lib";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,16 @@ const inputSchema = z.object({
 const submit = defineHandler({
   auth: formPortalAuth,
   input: inputSchema,
+  // Public submit path (PLAN P3-SEC): the speaker is portal-authed, but
+  // final-submit still triggers routing, an email, and a code allocation, so
+  // it stays capped per speaker+form independent of the account-wide login
+  // throttle in requestPortalLoginIn. Falls back to IP only in the
+  // unreachable case where formPortalAuth resolves without a session.
+  rateLimit: {
+    limit: 30,
+    windowMs: 10 * 60 * 1000,
+    key: ({ request, params, session }) => `submit:${params.formId}:${session?.actorId ?? clientIp(request)}`,
+  },
   handler: async ({ eventId, input, params, session }) => submitCfpForm({
     eventId: eventIdSchema.parse(eventId),
     formId: formIdSchema.parse(params.formId),

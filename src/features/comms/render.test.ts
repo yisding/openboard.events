@@ -40,4 +40,25 @@ describe("communications template renderer", () => {
     const rendered = renderTemplate("task_reminder", vars);
     expect(rendered.html).toContain("<ul><li>Upload slides</li></ul>");
   });
+
+  // P3-EMAIL: `isTransactionalTemplate` decides both the fleet-wide unsubscribe
+  // skip (dispatcher.test.ts, PGlite) and this footer link — covered here as a
+  // pure render test since the layout wrapper needs no database.
+  it("shows the footer unsubscribe link only for non-essential templates, and the CAN-SPAM address on both", () => {
+    const vars = {
+      ...common,
+      task: { name: "Upload slides", due_date: "September 1, 2026 PDT" },
+      tasks: { outstanding_list: "<ul></ul>" },
+    } as TemplateVars;
+    const layoutMeta = { unsubscribeUrl: "https://example.com/portal/event/unsubscribe?token=abc", physicalAddress: "123 Main St, San Francisco, CA" };
+
+    const nonEssential = renderTemplateContent("task_assigned", "New task", "<p>{{task.name}}</p>", vars, layoutMeta);
+    expect(nonEssential.html).toContain("https://example.com/portal/event/unsubscribe?token=abc");
+    expect(nonEssential.html).toContain("123 Main St, San Francisco, CA");
+
+    const decisionVars = { ...common, submission: { title: "A talk", code: "SESS-1" } } as TemplateVars;
+    const essential = renderTemplateContent("submission_accepted", "Accepted", "<p>{{submission.title}}</p>", decisionVars, layoutMeta);
+    expect(essential.html).not.toContain("unsubscribe?token=abc");
+    expect(essential.html).toContain("123 Main St, San Francisco, CA");
+  });
 });

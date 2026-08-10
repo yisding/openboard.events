@@ -1,5 +1,17 @@
 export type { ContactPatch } from "./server/contacts";
 export { getOrCreateContact, updateContactFields } from "./server/contacts";
+// M52 — the shared deliverable-slot module: file versions and their plaintext
+// comment thread, read/written by both the speaker's task detail and the
+// organizer's tasks-admin / central Files surfaces.
+export type { CommentAuthor } from "./server/deliverable-slot";
+export {
+  addFileComment,
+  addFileCommentIn,
+  listFileComments,
+  listFileCommentsIn,
+  listFileVersions,
+  listFileVersionsIn,
+} from "./server/deliverable-slot";
 export * from "./task-runtime/index";
 export type { PortalContext } from "./server/guards";
 export { requirePortalContext } from "./server/guards";
@@ -68,7 +80,16 @@ export {
 // through `updateContactFields` above (resolution #13).
 export type { ContactFilters, ContactListRow, SpeakerDetailDTO } from "./server/admin-speakers";
 export { getAdminSpeaker, getAdminSpeakerIn, getOutstandingTasksView, getOutstandingTasksViewIn, getSpeakerDetail, getSpeakerDetailIn, listContacts, listContactsIn } from "./server/admin-speakers";
-export { setConfirmationStatus, setConfirmationStatusIn, updateSpeakerEmail, updateSpeakerEmailIn } from "./server/admin-speakers-mutations";
+export {
+  setConfirmationStatus,
+  setConfirmationStatusIn,
+  updateSpeakerBio,
+  updateSpeakerBioIn,
+  updateSpeakerEmail,
+  updateSpeakerEmailIn,
+  updateSpeakerHeadshot,
+  updateSpeakerHeadshotIn,
+} from "./server/admin-speakers-mutations";
 
 // M41 — speaker edit-until-close. `getEditableSubmission` is the read gate a
 // page uses to decide whether to offer the Edit CTA and what to render once
@@ -77,3 +98,43 @@ export { setConfirmationStatus, setConfirmationStatusIn, updateSpeakerEmail, upd
 // allowed to persist an edit stays M18's `updateSubmissionFromCfp`.
 export type { EditableSubmissionSummary, GetEditableSubmissionResult } from "./submissions-edit/server/queries";
 export { getEditableSubmission } from "./submissions-edit/server/queries";
+
+// M24 — portal form builder. UI-only: no new server functions of its own,
+// just the list/single-page builder wrapping M12's generalized engine
+// (context='portal' forms) — see plan/modules/M24-portal-form-builder.md.
+export { PortalFormsPage } from "./form-builder/components/portal-forms-page";
+export { PortalFormBuilder } from "./form-builder/components/portal-form-builder";
+
+// M51 — standalone speaker roster operations. Reads: logistics fields,
+// per-contact logistics values, declared unavailability (the M54 read
+// contract) and organizer-visible uploaded assets. Writes go through
+// `createSpeakerIn`/`updateSpeakerProfileIn` — both of which call
+// `getOrCreateContact`/`updateContactFields` above — plus the CSV importer
+// and the one-CTE unavailability replace.
+export type { SpeakerRosterExtras } from "./server/speaker-roster-queries";
+export {
+  getSpeakerRosterExtras,
+  getSpeakerRosterExtrasIn,
+  listLogisticsFields,
+  listLogisticsFieldsIn,
+  listSpeakerLogisticsValues,
+  listSpeakerLogisticsValuesIn,
+  listSpeakerUnavailability,
+  listSpeakerUnavailabilityIn,
+  listSpeakerUploads,
+  listSpeakerUploadsIn,
+} from "./server/speaker-roster-queries";
+export {
+  createLogisticsField,
+  createLogisticsFieldIn,
+  createSpeaker,
+  createSpeakerIn,
+  deleteLogisticsField,
+  deleteLogisticsFieldIn,
+  importSpeakersCsv,
+  importSpeakersCsvIn,
+  replaceSpeakerUnavailability,
+  replaceSpeakerUnavailabilityIn,
+  updateSpeakerProfile,
+  updateSpeakerProfileIn,
+} from "./server/speaker-roster-mutations";

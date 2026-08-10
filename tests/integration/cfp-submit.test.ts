@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -8,8 +9,22 @@ import { GOLDEN_AUTHORING_ROWS, GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-s
 import { contactIdSchema, eventIdSchema, formIdSchema, type AnswerValue } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
-const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+/**
+ * The *whole* migration chain, in order, rather than a hand-picked subset.
+ *
+ * The repository modules this file exercises read columns from across the
+ * chain — `submitCfpForm`'s promotion path reads `contacts.workflow_status`,
+ * which arrives in 0008 — and a subset that stops short of one of them fails
+ * every test in the file with `column … does not exist`, which reads like a
+ * broken fixture rather than a missing migration. Enumerating the directory
+ * means the next migration is picked up by existing, not by remembering to
+ * add a line here.
+ */
+const MIGRATIONS_DIR = fileURLToPath(new URL("../../drizzle/", import.meta.url));
+const migrations = readdirSync(MIGRATIONS_DIR)
+  .filter((name) => name.endsWith(".sql"))
+  .sort()
+  .map((name) => readFileSync(`${MIGRATIONS_DIR}${name}`, "utf8"));
 
 const eventId = eventIdSchema.parse("f0000000-0000-4000-8000-000000000001");
 const formId = formIdSchema.parse(GOLDEN_SNAPSHOT.formId);
@@ -69,8 +84,7 @@ function answers(overrides: Record<string, AnswerValue> = {}): Record<string, An
 describe("CFP submit, end to end through the server path", () => {
   beforeAll(async () => {
     pglite = new PGlite();
-    await pglite.exec(migration0);
-    await pglite.exec(migration1);
+    for (const migration of migrations) await pglite.exec(migration);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
 
     await pglite.query(
@@ -594,6 +608,51 @@ describe("CFP submit, end to end through the server path", () => {
 
     const resumed = await upsertDraft(eventId, speaker, formId, 1);
     expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
+  });
+
+  // The wizard debounces autosave, so its last PATCH can be in flight when
+  // submit promotes the draft row in place. Reporting that as NOT_FOUND put a
+  // 404 in the console of a speaker who had just been given their SESS code.
+  it("treats an autosave that lands after submit as a no-op on the promoted row", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const created = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers(),
+    });
+
+    const late = await saveCfpDraft({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: { [field("title").id]: text("A keystroke after the deadline") },
+    });
+
+    expect(late).toEqual({ submissionId: created.submissionId, saved: false });
+    // The committed answers are untouched — a no-op, not a late edit.
+    const stored = await pglite.query<{ value: AnswerValue }>(
+      "SELECT value FROM submission_answers WHERE submission_id=$1 AND field_id=$2",
+      [created.submissionId, field("title").id],
+    );
+    expect(stored.rows[0]?.value).toEqual(text("Caching at the edge"));
+  });
+
+  it("still refuses an autosave from a speaker with no submission for the form", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const failure = await saveCfpDraft({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: { [field("title").id]: text("Nothing to write to") },
+    }).catch((error: unknown) => error);
+
+    expect(isAppError(failure) && failure.code).toBe("NOT_FOUND");
   });
 
   it("never stores an answer to a question the speaker could not see", async () => {

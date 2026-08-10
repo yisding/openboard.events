@@ -4,7 +4,7 @@ import { Mail, Search, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TEMPLATE_KEYS, type CommLogId, type CommLogRow, type CommStatus, type ContactId, type EventId, type TemplateKey } from "@/shared/contracts";
+import { COMM_STATUSES, TEMPLATE_KEYS, type CommLogId, type CommLogRow, type CommStatus, type ContactId, type EventId, type TemplateKey } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
@@ -13,7 +13,9 @@ import { useCommLog } from "../hooks/use-comm-log";
 import { LogDetailSheet } from "./log-detail-sheet";
 import { SendReminderDialog } from "./send-reminder-dialog";
 
-const STATUSES: CommStatus[] = ["queued", "sent", "failed", "skipped"];
+// P3-EMAIL added `bounced`/`complained` (Resend webhook) to `COMM_STATUSES`;
+// sourced from the contract so this filter can never drift from it again.
+const STATUSES: readonly CommStatus[] = COMM_STATUSES;
 
 function humanizeKey(key: TemplateKey): string {
   return key.replaceAll("_", " ");

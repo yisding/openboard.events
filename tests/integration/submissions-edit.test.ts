@@ -26,6 +26,12 @@ import { isAppError } from "@/shared/lib/errors";
  */
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M51 added `contacts.workflow_status`; contact writes on the edit path have
+// an unqualified `.returning()` that now selects it.
+const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("f0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000002");
@@ -58,6 +64,8 @@ function field(id: ReturnType<typeof fieldIdSchema.parse>, key: string, override
     options: [],
     visibility: null,
     mapsTo: null,
+    // M50: snapshots pin each question's blind-review classification.
+    reviewVisibility: "identity" as const,
     ...overrides,
   };
 }
@@ -166,6 +174,8 @@ beforeAll(async () => {
   pglite = new PGlite();
   await pglite.exec(migration0);
   await pglite.exec(migration1);
+  await pglite.exec(migrationReviewOps);
+  await pglite.exec(migrationRoster);
   testDb = createTestDb(pglite);
 
   await pglite.query(

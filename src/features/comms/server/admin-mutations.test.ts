@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, taskIdSchema, type CommLogId } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, taskIdSchema, TEMPLATE_KEYS, type CommLogId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import {
   getLogDetailIn,
@@ -19,6 +19,12 @@ import { seedDefaultTemplates } from "./templates";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M51 appended `speaker_bulk_message` to `template_key`; `seedDefaultTemplates`
+// needs every migration that ever appended a label, in order.
+const migrationRoster = readFileSync(new URL("../../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const speakerId = contactIdSchema.parse("e0000000-0000-4000-8000-000000000010");
@@ -43,6 +49,8 @@ describe("comms admin mutations", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationRoster);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   });
 
@@ -57,12 +65,13 @@ describe("comms admin mutations", () => {
   });
 
   describe("listTemplates / saveTemplate", () => {
-    it("returns the 8 template keys in enum order, never DB order", async () => {
+    // M50/M51 appended keys after this test was first written; asserted
+    // against the contract's own enum order (never a hand-copied literal
+    // list, which is exactly what went stale before) — see contracts.test.ts
+    // for the length guard.
+    it("returns every template key in enum order, never DB order", async () => {
       const rows = await listTemplatesIn(tx, eventId);
-      expect(rows.map((row) => row.key)).toEqual([
-        "submission_received", "submission_accepted", "submission_declined",
-        "task_assigned", "task_reminder", "schedule_assigned", "schedule_changed", "portal_login",
-      ]);
+      expect(rows.map((row) => row.key)).toEqual([...TEMPLATE_KEYS]);
     });
 
     it("rejects an unknown template variable with the offending token named", async () => {

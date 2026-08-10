@@ -13,12 +13,19 @@ import {
   type SubmissionId,
 } from "@/shared/contracts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
-import { scanRemindersIn, sendReminderNowIn } from "./server/reminders";
+import { scanRemindersIn, sendReminderNowIn, sendRemindersNowIn } from "./server/reminders";
 import { seedDefaultTemplates } from "./server/templates";
 import { nudgeOutbox } from "./server/triggers";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M51 appended `speaker_bulk_message` to `template_key`; `seedDefaultTemplates`
+// inserts a row per `TEMPLATE_KEYS` entry, so the enum needs every label a
+// migration ever appended, in order, or the very first insert 22P02s.
+const migrationRoster = readFileSync(new URL("../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000002");
@@ -39,6 +46,8 @@ describe("reminder + assignment scan", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationRoster);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   });
 
@@ -361,6 +370,43 @@ describe("reminder + assignment scan", () => {
       expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, null)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, secondTaskId, speakerId, null)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, submissionId as SubmissionId)).toEqual({ enqueued: false });
+      expect(await logs("task_reminder")).toHaveLength(0);
+    });
+  });
+
+  // M52 — the central Files view's bulk bar.
+  describe("sendRemindersNow (bulk)", () => {
+    beforeEach(async () => {
+      // Contact-targeted tasks assign only to `accepted_speakers_v` — both
+      // targets need an accepted submission behind them (co-speaker counts).
+      await insertSubmission("accepted", { coSpeaker: true, decidedAt: "2026-01-01T00:00:00Z" });
+      await insertTask(taskId);
+      await insertTask(secondTaskId);
+    });
+
+    it("reminds every still-open target and reports enqueued vs total", async () => {
+      const result = await sendRemindersNowIn(tx, eventId, [
+        { taskId, contactId: speakerId, submissionId: null },
+        { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
+      ]);
+      expect(result).toEqual({ enqueued: 2, total: 2 });
+      expect(await logs("task_reminder")).toHaveLength(2);
+    });
+
+    it("skips an already-completed target without failing the rest of the batch", async () => {
+      await pglite.query("INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')", [eventId, taskId, speakerId]);
+      const result = await sendRemindersNowIn(tx, eventId, [
+        { taskId, contactId: speakerId, submissionId: null },
+        { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
+      ]);
+      expect(result).toEqual({ enqueued: 1, total: 2 });
+      const rows = await logs("task_reminder");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.contact_id).toBe(coSpeakerId);
+    });
+
+    it("is the identity mapping over an empty selection", async () => {
+      expect(await sendRemindersNowIn(tx, eventId, [])).toEqual({ enqueued: 0, total: 0 });
       expect(await logs("task_reminder")).toHaveLength(0);
     });
   });

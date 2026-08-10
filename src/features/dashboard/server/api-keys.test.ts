@@ -9,6 +9,9 @@ import { createApiKeyIn, listApiKeysIn, revokeApiKeyIn } from "./api-keys";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const EVENT_A = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const EVENT_B = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
@@ -21,6 +24,7 @@ describe("api key lifecycle", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       `INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES

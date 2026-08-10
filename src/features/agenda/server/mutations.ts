@@ -17,6 +17,7 @@ import {
   type SessionStatus,
   type SubmissionId,
   type TemplateKey,
+  type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -237,12 +238,14 @@ async function insertSession(
   slug: string,
   descriptionHtml: string,
   speakers: readonly ContactId[],
+  actorUserId: UserId | null,
 ): Promise<SessionRowShape> {
   // A session created already published and already timed has a schedule its
   // speakers have never seen, so it starts at revision 1 — otherwise the
   // notify below reads "nothing changed" and nobody is told.
   const initialRevision = input.status === "published" && input.startsAt !== null ? 1 : 0;
-  // One statement: the row and its speakers land together or not at all.
+  // One statement: the row, its speakers and its first content revision (M52)
+  // land together or not at all.
   const result = await dbOrTx.execute<SessionRowShape>(sql`
     WITH created AS (
       INSERT INTO sessions (event_id, title, slug, description_html, format_id, track_id, room_id, starts_at, ends_at, status, schedule_revision)
@@ -254,6 +257,10 @@ async function insertSession(
       SELECT ${eventId}, created.id, x.contact_id, (CASE WHEN x.ord = 1 THEN 'speaker' ELSE 'co_speaker' END)::participant_role, (x.ord - 1)::int
       FROM created, unnest(${uuidArraySql(speakers)}) WITH ORDINALITY AS x(contact_id, ord)
       RETURNING contact_id
+    ), revision_ins AS (
+      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id)
+      SELECT ${eventId}, created.id, created.title, created.description_html, ${actorUserId}
+      FROM created
     )
     SELECT ${RETURNED_COLUMNS} FROM created
   `);
@@ -271,6 +278,7 @@ export async function saveSessionIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   rawInput: unknown,
+  actorUserId: UserId | null = null,
 ): Promise<ScheduledSessionDTO> {
   const input = saveSessionInputSchema.parse(rawInput);
   // Never trust the editor's output: resolution #2 puts `sanitize()` on every
@@ -287,7 +295,7 @@ export async function saveSessionIn(
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
-        const row = await insertSession(dbOrTx, eventId, input, slug, descriptionHtml, speakers);
+        const row = await insertSession(dbOrTx, eventId, input, slug, descriptionHtml, speakers, actorUserId);
         await notifySchedule(
           dbOrTx, eventId, row.id as SessionId,
           { status: "draft", startsAt: null, scheduleRevision: 0 },
@@ -311,9 +319,9 @@ export async function saveSessionIn(
   // `session_speakers` re-read that could pick up a concurrent edit.
   const before = await dbOrTx.execute<{
     status: SessionStatus; starts_at: string | Date | null; schedule_revision: number; row_version: number;
-    speaker_ids: string[] | null;
+    title: string; description_html: string | null; speaker_ids: string[] | null;
   }>(sql`
-    SELECT s.status, s.starts_at, s.schedule_revision, s.row_version,
+    SELECT s.status, s.starts_at, s.schedule_revision, s.row_version, s.title, s.description_html,
       (
         SELECT coalesce(array_agg(ss.contact_id), '{}')
         FROM session_speakers ss
@@ -372,6 +380,16 @@ export async function saveSessionIn(
       FROM updated u, unnest(${speakerArray}) WITH ORDINALITY AS x(contact_id, ord)
       ON CONFLICT (session_id, contact_id) DO UPDATE SET role = EXCLUDED.role, sort_order = EXCLUDED.sort_order
       RETURNING contact_id
+    ), revision_ins AS (
+      -- M52: a revision lands only when the update actually happened (a
+      -- version conflict leaves the updated CTE empty) and only when title or
+      -- description actually changed — a schedule-only save (drag, room
+      -- swap) must not spam the history panel with identical content.
+      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id)
+      SELECT ${eventId}, updated.id, updated.title, updated.description_html, ${actorUserId}
+      FROM updated
+      WHERE updated.title IS DISTINCT FROM ${prior.title}
+         OR updated.description_html IS DISTINCT FROM ${prior.description_html}
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
   `);
@@ -402,7 +420,59 @@ export async function saveSessionIn(
   return toDto(row, speakers);
 }
 
-export const saveSession = (eventId: EventId, input: unknown) => saveSessionIn(db, eventId, input);
+export const saveSession = (eventId: EventId, input: unknown, actorUserId: UserId | null = null) =>
+  saveSessionIn(db, eventId, input, actorUserId);
+
+/**
+ * M52 — restore an earlier revision as the session's current content. One
+ * statement/CTE on the plain `neon-http` handle (the module's own guardrail:
+ * do not add a ninth `withTx` path for this): the source revision is read,
+ * a **new** revision recording the restore is inserted, and the session's
+ * title/description are updated together, so a crash between them is
+ * impossible rather than merely unlikely. Publication status is untouched —
+ * restoring content is never itself a publish, matching the module's
+ * "preserve draft/published as the public approval gate" guardrail.
+ */
+export async function restoreSessionContentIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+  revisionId: string,
+  actorUserId: UserId | null,
+): Promise<ScheduledSessionDTO> {
+  const result = await dbOrTx.execute<SessionRowShape>(sql`
+    WITH source AS (
+      SELECT title, description_html FROM session_content_revisions
+      WHERE id = ${revisionId} AND event_id = ${eventId} AND session_id = ${sessionId}
+    ), new_revision AS (
+      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id, restored_from_revision_id)
+      SELECT ${eventId}, ${sessionId}, source.title, source.description_html, ${actorUserId}, ${revisionId}
+      FROM source
+      RETURNING title, description_html
+    ), updated AS (
+      UPDATE sessions SET
+        title = new_revision.title,
+        description_html = new_revision.description_html,
+        row_version = row_version + 1,
+        updated_at = now()
+      FROM new_revision
+      WHERE sessions.id = ${sessionId} AND sessions.event_id = ${eventId}
+      RETURNING sessions.*
+    )
+    SELECT ${RETURNED_COLUMNS} FROM updated
+  `);
+  const row = (result.rows ?? [])[0];
+  if (!row) throw new AppError("NOT_FOUND", "That revision could not be found");
+
+  const speakerRows = await dbOrTx.execute<{ contact_id: string }>(sql`
+    SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
+  `);
+  const speakerIds = (speakerRows.rows ?? []).map((speaker) => speaker.contact_id as ContactId);
+  return toDto(row, speakerIds);
+}
+
+export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, actorUserId: UserId | null = null) =>
+  restoreSessionContentIn(db, eventId, sessionId, revisionId, actorUserId);
 
 export async function deleteSessionIn(
   dbOrTx: DbOrTx,

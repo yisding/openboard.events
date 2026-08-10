@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { getEnv } from "@/shared/lib/env";
+import { commsHealth } from "./comms-health";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ export async function GET() {
     const sql = neon(env.DATABASE_URL);
     const rows = await sql`select current_setting('server_version') as version`;
     const version = typeof rows[0]?.version === "string" ? rows[0].version : "unknown";
+    const comms = await commsHealth(sql);
 
     return Response.json({
       ok: true,
@@ -22,6 +24,7 @@ export async function GET() {
       sha: env.NEXT_PUBLIC_BUILD_SHA ?? "local",
       env: appEnv,
       db: { ok: true, version },
+      comms,
       ms: Math.round(performance.now() - started),
     });
   } catch (error) {

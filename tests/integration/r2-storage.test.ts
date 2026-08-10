@@ -5,6 +5,9 @@ import { ORPHAN_PREDICATE_SQL } from "@/shared/server/r2";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const EVENT_ID = "44444444-4444-4444-8444-444444444441";
 const CONTACT_ID = "44444444-4444-4444-8444-444444444442";
@@ -35,6 +38,7 @@ describe("orphan upload sweep", () => {
     db = new PGlite();
     await db.exec(migration0);
     await db.exec(migration1);
+db.exec(migrationReviewOps);
     await db.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'R2 Event','r2-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
       [EVENT_ID],

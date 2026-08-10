@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Users, X } from "lucide-react";
+import { Mail, Plus, Search, Upload, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
@@ -9,8 +9,11 @@ import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
-import { EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
+import { SpeakerCreateDialog } from "./speaker-create-dialog";
 import { SpeakerHeadshot } from "./speaker-headshot";
+import { SpeakerImportDialog } from "./speaker-import-dialog";
 
 type Sort = NonNullable<ContactFilters["sort"]>;
 type Dir = NonNullable<ContactFilters["dir"]>;
@@ -63,6 +66,11 @@ export function SpeakersAdminView({
   const params = useSearchParams();
   const [draftSearch, setDraftSearch] = useState(q);
   useEffect(() => setDraftSearch(q), [q]);
+  const [selected, setSelected] = useState<ContactListRow[]>([]);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
 
   const setParams = (patch: Record<string, string | null>, resetPage = true) => {
     const query = new URLSearchParams(params.toString());
@@ -131,7 +139,19 @@ export function SpeakersAdminView({
         eyebrow="PEOPLE"
         title="Speakers"
         description="Every contact for this event, with confirmation, profile and onboarding status."
+        actions={<>
+          <Button variant="secondary" onClick={() => setImportOpen(true)}><Upload size={15} /> Import CSV</Button>
+          <Button onClick={() => setCreateOpen(true)}><Plus size={15} /> Add speaker</Button>
+        </>}
       />
+
+      {selected.length > 0 && (
+        <div className="bulk-bar">
+          <span>{selected.length} selected</span>
+          <Button size="sm" onClick={() => setBulkEmailOpen(true)}><Mail size={14} /> Email selected</Button>
+          <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
+        </div>
+      )}
 
       <div className="abstract-status-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={!accepted} className={!accepted ? "active" : ""} onClick={() => setParams({ accepted: null })}>All</button>
@@ -147,6 +167,9 @@ export function SpeakersAdminView({
         columnVisibilityKey={`speakers:${eventId}`}
         getRowId={(row) => row.contactId}
         onRowClick={(row) => router.push(`/events/${eventId}/speakers/${row.contactId}`)}
+        enableSelection
+        onSelectionChange={setSelected}
+        selectionEpoch={selectionEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
         serverSorting={{
           state: [{ id: SORT_TO_STATE[sort], desc: dir === "desc" }],
@@ -190,6 +213,17 @@ export function SpeakersAdminView({
           />
         }
       />
+
+      <SpeakerCreateDialog eventId={eventId} open={createOpen} onClose={() => { setCreateOpen(false); router.refresh(); }} />
+      <SpeakerImportDialog eventId={eventId} open={importOpen} onClose={() => setImportOpen(false)} />
+      {bulkEmailOpen && (
+        <SpeakerBulkEmailDialog
+          eventId={eventId}
+          open={bulkEmailOpen}
+          selected={selected}
+          onClose={() => { setBulkEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
+        />
+      )}
     </main>
   );
 }

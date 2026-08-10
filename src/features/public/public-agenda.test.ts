@@ -3,13 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { publishedScheduleDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { PUBLISHED_SCHEDULE_FIXTURE } from "@/shared/fixtures/sessions";
-import { PublicSchedule } from "./public-schedule";
+import { PublicAgenda } from "./public-agenda";
 
 Object.assign(globalThis, { React });
 
-describe("PublicSchedule", () => {
-  it("renders the fetched schedule into server markup", () => {
-    const html = renderToStaticMarkup(React.createElement(PublicSchedule, {
+describe("PublicAgenda", () => {
+  it("renders the fetched schedule into server markup with day/time/room structure", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
       eventSlug: "openboard-summit",
       schedule: PUBLISHED_SCHEDULE_FIXTURE,
     }));
@@ -17,17 +17,7 @@ describe("PublicSchedule", () => {
     expect(html).toContain(PUBLISHED_SCHEDULE_FIXTURE.event.name);
     expect(html).toContain("Agents");
     expect(html).toContain("Ada Lovelace");
-  });
-
-  it("uses initialSearch for the markup sent before hydration, matching the PR #71 cache contract", () => {
-    const html = renderToStaticMarkup(React.createElement(PublicSchedule, {
-      eventSlug: "openboard-summit",
-      schedule: PUBLISHED_SCHEDULE_FIXTURE,
-      initialSearch: "no-such-session",
-    }));
-
-    expect(html).not.toContain("<h3>Agents</h3>");
-    expect(html).toContain("No sessions match those filters");
+    expect(html).toContain("Main Hall");
   });
 
   it("jumps the active day tab to a deep-linked session on a later day (?session=<id>)", () => {
@@ -46,7 +36,7 @@ describe("PublicSchedule", () => {
       sessions: [...PUBLISHED_SCHEDULE_FIXTURE.sessions, daySession],
     });
 
-    const html = renderToStaticMarkup(React.createElement(PublicSchedule, {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
       eventSlug: "openboard-summit",
       schedule: twoDaySchedule,
       initialExpandedSessionId: sessionIdSchema.parse(daySession.id),
@@ -59,8 +49,18 @@ describe("PublicSchedule", () => {
 
   it("shows the coming-soon empty state when the event has no published days", () => {
     const empty = { ...PUBLISHED_SCHEDULE_FIXTURE, days: [], sessions: [] };
-    const html = renderToStaticMarkup(React.createElement(PublicSchedule, { eventSlug: "openboard-summit", schedule: empty }));
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, { eventSlug: "openboard-summit", schedule: empty }));
 
-    expect(html).toContain("Schedule coming soon");
+    expect(html).toContain("Agenda coming soon");
+  });
+
+  it("applies an embed room filter, excluding a session in a different room", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+      filters: { roomIds: ["00000000-0000-4000-8000-000000000999"] },
+    }));
+
+    expect(html).not.toContain("<h3>Agents</h3>");
   });
 });

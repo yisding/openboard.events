@@ -64,6 +64,16 @@ function dateRange(event: PublicEventInfo): string | null {
   return `${start} – ${end}`;
 }
 
+export type PublicSurface = "sessions" | "agenda" | "itinerary" | "speakers" | "gallery";
+
+const NAV_ITEMS: Array<{ key: PublicSurface; label: string }> = [
+  { key: "sessions", label: "Sessions" },
+  { key: "agenda", label: "Agenda" },
+  { key: "itinerary", label: "My schedule" },
+  { key: "speakers", label: "Speakers" },
+  { key: "gallery", label: "Gallery" },
+];
+
 export function PublicEventShell({
   children,
   active,
@@ -73,7 +83,7 @@ export function PublicEventShell({
   embedOptions = DEFAULT_EMBED_OPTIONS,
 }: {
   children: React.ReactNode;
-  active: "schedule" | "speakers";
+  active: PublicSurface;
   eventSlug: string;
   event: PublicEventInfo;
   embed?: boolean;
@@ -114,8 +124,9 @@ export function PublicEventShell({
         <div className="public-event-container">
           <span className="public-event-logo">{event.name}</span>
           <nav aria-label="Event navigation">
-            <Link className={active === "schedule" ? "active" : ""} href={`/e/${eventSlug}/schedule`}>Schedule</Link>
-            <Link className={active === "speakers" ? "active" : ""} href={`/e/${eventSlug}/speakers`}>Speakers</Link>
+            {NAV_ITEMS.map((item) => (
+              <Link key={item.key} className={active === item.key ? "active" : ""} href={`/e/${eventSlug}/${item.key}`}>{item.label}</Link>
+            ))}
           </nav>
           <Link className="button public-cta" href={`/portal/${eventSlug}`}>Speaker portal</Link>
         </div>

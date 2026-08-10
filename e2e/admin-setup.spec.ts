@@ -59,20 +59,19 @@ test.describe("admin-setup", () => {
 
       await test.step("an end before the start is refused inline", async () => {
         // The form must reject it, not the database, and the message must appear
-        // next to the field.
-        //
-        // Deviation recorded rather than softened: the merged form surfaces the
-        // server's envelope message ("Request validation failed") in its
-        // `.field-error` paragraph, because `api()` drops the zod `fieldErrors`
-        // map that carries "Ends At must be after Starts At". What is asserted
-        // here is the behaviour that must hold either way — the event is not
-        // created and the organizer is told so on the page they are on.
+        // next to the field. The earlier deviation note here — that `api()`
+        // dropped the zod `fieldErrors` map, so the page could only show the
+        // envelope's "Request validation failed" — no longer holds: the client
+        // carries the map and the form renders one message, under the offending
+        // input, instead of a summary paragraph as well. So the real wording is
+        // asserted, and `.field-error` resolving to a single node is part of the
+        // claim rather than an accident.
         await page.getByLabel("Event name").fill("E2E backwards dates");
         await page.getByLabel("Event slug").fill(uniqueSlug("e2e-backwards"));
         await page.getByLabel("Starts At").fill(localInput(30, "09:00"));
         await page.getByLabel("Ends At").fill(localInput(30, "08:00"));
         await page.getByRole("button", { name: /create event/i }).click();
-        await expect(page.locator(".field-error")).toBeVisible();
+        await expect(page.locator(".field-error")).toHaveText(/ends at must be after starts at/i);
         await expect(page).toHaveURL(/\/events\/new/);
       });
 
@@ -85,10 +84,11 @@ test.describe("admin-setup", () => {
         await expect(page).toHaveURL(/\/events\/new/);
       });
 
-      await test.step("the new event's settings show 8 default email templates", async () => {
-        // 7 domain keys + portal_login. This is what proves M11 called
+      await test.step("the new event's settings show every default email template", async () => {
+        // 7 domain keys + portal_login + M50's two review keys + M51's
+        // speaker_bulk_message. This is what proves M11 called
         // seedDefaultTemplates rather than creating the event bare.
-        expect(TEMPLATE_KEYS_PER_EVENT).toBe(8);
+        expect(TEMPLATE_KEYS_PER_EVENT).toBe(11);
         const slug = uniqueSlug("e2e-event");
         await page.getByLabel("Event name").fill("E2E created event");
         await page.getByLabel("Event slug").fill(slug);

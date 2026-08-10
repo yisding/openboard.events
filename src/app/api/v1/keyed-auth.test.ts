@@ -20,6 +20,13 @@ import { eventIdSchema } from "@/shared/contracts";
  */
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// The stats route is wired through `defineHandler`'s `rateLimit` option
+// (PLAN P3-SEC), which hits `rate_limit_buckets` on every request; without
+// this migration every call 500s before the auth assertions below ever run.
+const migrationRateLimits = readFileSync(new URL("../../../../drizzle/0005_rate_limits.sql", import.meta.url), "utf8");
 
 const EVENT_A = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const EVENT_B = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
@@ -57,6 +64,8 @@ describe("api/v1 keyed routes — API key event scoping", () => {
   beforeAll(async () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationRateLimits);
     await pglite.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES
         ($1,'Keyed A',$3,'America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),

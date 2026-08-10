@@ -52,6 +52,14 @@ describe("parseEnv", () => {
   it("requires Airtable credentials only when its cron is enabled", () => {
     expect(() => parseEnv({ AIRTABLE_CRON: "1" })).toThrow(/AIRTABLE/);
   });
+
+  it("leaves UNSUBSCRIBE_SECRET optional but enforces the same hygiene floor as SESSION_SECRET when set", () => {
+    expect(parseEnv({}).UNSUBSCRIBE_SECRET).toBeUndefined();
+    expect(() => parseEnv({ ...deployed, APP_ENV: "production", R2_BUCKET_NAME: "sb-files", EMAIL_MODE: "send", EMAIL_FALLBACK_UI: "0", RESEND_API_KEY: "resend", EMAIL_FROM: "events@example.com" }))
+      .not.toThrow(); // still deployable without it — additive, not required
+    expect(() => parseEnv({ UNSUBSCRIBE_SECRET: "too-short" })).toThrow(/UNSUBSCRIBE_SECRET/);
+    expect(parseEnv({ UNSUBSCRIBE_SECRET: "u".repeat(32) }).UNSUBSCRIBE_SECRET).toBe("u".repeat(32));
+  });
 });
 
 describe("EMAIL_FROM", () => {

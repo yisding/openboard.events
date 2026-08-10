@@ -1,9 +1,9 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
-import { calendarInvites, communicationLogs, contacts, events, forms, portalTasks, rooms, sessions, sessionSpeakers, submissions, tracks } from "@/db/schema";
+import { calendarInvites, communicationLogs, contacts, contactSuppressions, events, forms, portalTasks, rooms, sessions, sessionSpeakers, speakerBulkMessages, submissions, tracks } from "@/db/schema";
 import { issuePortalToken, openPortalLoginPayload } from "@/features/auth";
-import { tokenIdSchema, type ContactId, type EventId, type TemplateVars } from "@/shared/contracts";
+import { isTransactionalTemplate, tokenIdSchema, type ContactId, type EventId, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";
@@ -26,6 +26,7 @@ export type BuiltContext = {
   eventName: string;
   logoUrl?: string;
   unsubscribeUrl: string;
+  physicalAddress?: string;
   calendarDownloadUrl?: string;
   templateOverride?: { subject?: string; bodyHtml?: string };
 };
@@ -92,6 +93,51 @@ export function applyCalendarInvite(
   };
 }
 
+/**
+ * M50 review mail. The reviewer is a `users` row, so the plan and the reviewer
+ * are recovered from the idempotency key — the same trick `portal_login` uses
+ * for its token id, and the reason both key recipes are pinned in `contracts`.
+ *
+ * `outstanding` is counted at render time rather than at enqueue time: a
+ * reviewer who finished between the click and the send is told nothing at all,
+ * rather than being nagged about work they have already done.
+ */
+async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) {
+  const segments = row.idempotencyKey.split(":");
+  const isReminder = row.templateKey === "review_reminder";
+  const planId = isReminder ? segments[2] : null;
+  const reviewerUserId = isReminder ? segments[3] : segments[2];
+  if (!reviewerUserId) throw new AppError("VALIDATION", "review reminder idempotency key is malformed");
+
+  const planResult = await dbOrTx.execute(sql`
+    SELECT p.name, p.closes_at,
+      (SELECT count(*) FROM review_assignments ra
+       LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
+         AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
+       WHERE ra.plan_id = p.id AND ra.reviewer_user_id = ${reviewerUserId}
+         AND ra.status = 'assigned' AND r.id IS NULL)::int AS outstanding
+    FROM evaluation_plans p
+    WHERE p.event_id = ${row.eventId}
+      AND (${planId}::uuid IS NULL OR p.id = ${planId}::uuid)
+      AND EXISTS (SELECT 1 FROM reviewer_assignments a WHERE a.plan_id = p.id AND a.user_id = ${reviewerUserId})
+    ORDER BY (p.status = 'open') DESC, p.round ASC, p.created_at ASC
+    LIMIT 1
+  `);
+  const [plan] = rowsOf<{ name: string; closes_at: Date | string | null; outstanding: number }>(planResult);
+  if (!plan) throw new SkipEmail("reviewer is no longer on a review round");
+  const outstanding = Number(plan.outstanding ?? 0);
+  if (isReminder && outstanding === 0) throw new SkipEmail("reviewer has nothing outstanding");
+
+  const [event] = await dbOrTx.select({ timezone: events.timezone }).from(events)
+    .where(eq(events.id, row.eventId)).limit(1);
+  return {
+    round: plan.name,
+    queue_url: `${env.APP_BASE_URL}/events/${encodeURIComponent(row.eventId)}/review${planId ? `?planId=${encodeURIComponent(planId)}` : ""}`,
+    outstanding: String(outstanding),
+    closes_at: plan.closes_at ? formatInZone(plan.closes_at, event?.timezone ?? "UTC", "dateTime") : "when the organizers close it",
+  };
+}
+
 export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
   const [base] = await dbOrTx.select({
     eventName: events.name,
@@ -100,23 +146,37 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     eventStartsAt: events.startsAt,
     eventEndsAt: events.endsAt,
     eventLocation: events.location,
+    eventPhysicalAddress: events.physicalAddress,
     logoFileId: events.logoFileId,
     email: contacts.email,
     firstName: contacts.firstName,
     lastName: contacts.lastName,
     unsubscribedAt: contacts.unsubscribedAt,
+    suppressedAt: contactSuppressions.suppressedAt,
+    suppressionReason: contactSuppressions.reason,
   }).from(events).innerJoin(contacts, and(eq(contacts.eventId, events.id), eq(contacts.id, row.contactId)))
+    .leftJoin(contactSuppressions, eq(contactSuppressions.contactId, contacts.id))
     .where(eq(events.id, row.eventId)).limit(1);
   if (!base) throw new SkipEmail("contact no longer exists");
   if (!allowlisted(base.email, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
-  if (row.templateKey === "task_reminder" && base.unsubscribedAt) throw new SkipEmail("contact unsubscribed from reminders");
+  // P3-EMAIL: a hard bounce/complaint (Resend webhook, `suppressedAt`) blocks
+  // EVERY send, including decision/schedule/portal-login — the address is
+  // provider-confirmed undeliverable or has reported the sender as spam, so
+  // there is no "essential" mail worth risking reputation to still send.
+  if (base.suppressedAt) throw new SkipEmail(`contact suppressed (${base.suppressionReason ?? "unknown"})`);
+  // The contact's own opt-out only withholds non-essential mail — see
+  // `isTransactionalTemplate` for the fleet-wide policy this now applies to
+  // every key, not just `task_reminder` (PLAN roadmap P3-EMAIL).
+  if (base.unsubscribedAt && !isTransactionalTemplate(row.templateKey)) throw new SkipEmail("contact unsubscribed from non-essential email");
 
   const contactId = row.contactId as ContactId;
   const eventId = row.eventId as EventId;
   let unsubscribeUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/unsubscribe`;
-  if (row.templateKey === "task_reminder") {
-    if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for unsubscribe links");
-    const unsubscribeToken = await signUnsubscribeToken({ eventId, contactId }, env.SESSION_SECRET);
+  if (!isTransactionalTemplate(row.templateKey)) {
+    // M46 — dedicated key, not SESSION_SECRET (see UNSUBSCRIBE_SECRET's env.ts
+    // comment and unsubscribe.ts's configuredSecret()).
+    if (!env.UNSUBSCRIBE_SECRET) throw new AppError("INTERNAL", "UNSUBSCRIBE_SECRET is required for unsubscribe links");
+    const unsubscribeToken = await signUnsubscribeToken({ eventId, contactId }, env.UNSUBSCRIBE_SECRET);
     unsubscribeUrl += `?token=${encodeURIComponent(unsubscribeToken)}`;
   }
   let magicLink = "";
@@ -249,6 +309,21 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
       },
       calendar: buildCalendarLinks({ title: session.title, startsAt, endsAt, location: session.room ?? base.eventLocation ?? "", downloadUrl }),
     } as TemplateVars;
+  } else if (row.templateKey === "reviewer_invited" || row.templateKey === "review_reminder") {
+    vars = { ...common, review: await buildReviewVars(row, dbOrTx, env) } as TemplateVars;
+  } else if (row.templateKey === "speaker_bulk_message") {
+    // M51 — the organizer-typed subject/body for this one recipient, keyed by
+    // the exact idempotency key this outbox row carries (one row per
+    // `composeBulkSpeakerEmailIn` call, resolution #4: no ninth `withTx`, so
+    // the content is written by a single-statement insert at compose time and
+    // only ever read back here).
+    const [message] = await dbOrTx.select({ subject: speakerBulkMessages.subject, bodyHtml: speakerBulkMessages.bodyHtml })
+      .from(speakerBulkMessages)
+      .where(and(eq(speakerBulkMessages.eventId, row.eventId), eq(speakerBulkMessages.idempotencyKey, row.idempotencyKey)))
+      .limit(1);
+    if (!message) throw new SkipEmail("bulk message content is no longer available");
+    templateOverride = { subject: message.subject, bodyHtml: message.bodyHtml };
+    vars = { ...common } as TemplateVars;
   } else {
     vars = { ...common, otp: { code: otpCode } } as TemplateVars;
   }
@@ -266,6 +341,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     unsubscribeUrl,
     ...(calendarDownloadUrl ? { calendarDownloadUrl } : {}),
     ...(base.logoFileId ? { logoUrl: `${env.APP_BASE_URL}/f/${base.logoFileId}` } : {}),
+    ...(base.eventPhysicalAddress ? { physicalAddress: base.eventPhysicalAddress } : {}),
     ...(templateOverride ? { templateOverride } : {}),
   };
 }

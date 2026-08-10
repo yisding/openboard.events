@@ -32,6 +32,7 @@ function toEventDto(row: typeof events.$inferSelect): EventDTO {
     eventType: row.eventType,
     websiteUrl: row.websiteUrl,
     location: row.location,
+    physicalAddress: row.physicalAddress,
     timezone: row.timezone,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),

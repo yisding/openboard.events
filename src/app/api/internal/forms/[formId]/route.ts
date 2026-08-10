@@ -7,7 +7,7 @@ import {
   participantRoleSchema,
   submissionKindSchema,
 } from "@/shared/contracts";
-import { updateFormIn } from "@/features/forms/server/builder-mutations";
+import { deleteFormIn, updateFormIn } from "@/features/forms/server/builder-mutations";
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
@@ -39,9 +39,20 @@ const patchSchema = z.object({
 const get = defineHandler({
   auth: formBuilderAuth(),
   input: z.object({}),
-  handler: async ({ eventId, params }) => getFormForBuilder(eventIdSchema.parse(eventId), routeInput.parse(params).formId),
+  // Pinned to `context='cfp'`: this route has no portal caller (the portal
+  // builder's page.tsx loads its form via a direct `getFormForBuilder(...,
+  // "portal")` server-component call, never this GET), so a portal form id
+  // must 404 here rather than load into the CFP-only builder response shape.
+  handler: async ({ eventId, params }) => getFormForBuilder(eventIdSchema.parse(eventId), routeInput.parse(params).formId, "cfp"),
 });
 
+// Unlike GET above, PATCH is deliberately left context-generic: the portal
+// form builder (src/features/portal/form-builder/components/portal-form-
+// builder.tsx) saves through this same route, so pinning it to "cfp" would
+// 404 every portal-form save. The client already knows the form id it is
+// editing — there is no context-confusion path here, only the (harmless,
+// same-organizer, same-event) ability to PATCH a form of either context by
+// id, which `updateFormIn`'s own event scoping still bounds.
 const update = defineHandler({
   auth: formBuilderAuth(),
   input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
@@ -58,6 +69,20 @@ const update = defineHandler({
   },
 });
 
+// M24 §7: generic delete, RESTRICT-guarded by `deleteFormIn` itself (a form
+// referenced by a task surfaces the same CONFLICT copy M23's file-request
+// delete shows, not a raw FK 500). Also context-generic like PATCH above —
+// the portal forms list (portal-forms-page.tsx) deletes through this same
+// route, so this stays unpinned on purpose.
+const remove = defineHandler({
+  auth: formBuilderAuth(),
+  input: z.object({}),
+  handler: async ({ eventId, params }) => {
+    await deleteFormIn(db, eventIdSchema.parse(eventId), routeInput.parse(params).formId);
+    return { deleted: true };
+  },
+});
+
 type Route = { params: Promise<{ formId: string }> };
 
 export function GET(request: NextRequest, route: Route): Promise<Response> {
@@ -66,4 +91,8 @@ export function GET(request: NextRequest, route: Route): Promise<Response> {
 
 export function PATCH(request: NextRequest, route: Route): Promise<Response> {
   return update(request, route);
+}
+
+export function DELETE(request: NextRequest, route: Route): Promise<Response> {
+  return remove(request, route);
 }

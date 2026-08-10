@@ -2,7 +2,14 @@ import { sql } from "drizzle-orm";
 import { boolean, check, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, fileAssets, users } from "./core";
-import { completionViaEnum, taskModeEnum, taskTargetEnum } from "./enums";
+import {
+  completionViaEnum,
+  fileCommentAuthorRoleEnum,
+  fileExportGroupByEnum,
+  fileExportStatusEnum,
+  taskModeEnum,
+  taskTargetEnum,
+} from "./enums";
 import { forms } from "./forms";
 import { submissions } from "./submissions";
 
@@ -41,6 +48,42 @@ export const fileUploads = pgTable("file_uploads", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), fileRequestId: uuid("file_request_id").notNull().references(() => fileRequests.id, { onDelete: "cascade" }),
   contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }), submissionId: uuid("submission_id").references(() => submissions.id, { onDelete: "cascade" }),
   fileAssetId: uuid("file_asset_id").notNull().references(() => fileAssets.id, { onDelete: "cascade" }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  // M52: numbered per (fileRequestId, contactId, submissionId) slot, with
+  // exactly one `isLatest` row per slot enforced by a partial unique index
+  // (drizzle/0006). Set inside the same statement that inserts the row —
+  // never by a client, per the module's "latest is server-derived" guardrail.
+  version: integer("version").notNull().default(1),
+  isLatest: boolean("is_latest").notNull().default(true),
+}, (table) => [unique().on(table.id, table.eventId)]);
+
+// M52 — plaintext comments on a file-request slot (request × contact ×
+// submission), surviving a re-upload rather than pinning to one version.
+export const fileComments = pgTable("file_comments", {
+  id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  fileRequestId: uuid("file_request_id").notNull().references(() => fileRequests.id, { onDelete: "cascade" }),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  submissionId: uuid("submission_id").references(() => submissions.id, { onDelete: "cascade" }),
+  authorRole: fileCommentAuthorRoleEnum("author_role").notNull(),
+  authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+  authorContactId: uuid("author_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [unique().on(table.id, table.eventId)]);
+
+// M52 — asynchronous latest-file ZIP export jobs.
+export const fileExportJobs = pgTable("file_export_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  status: fileExportStatusEnum("status").notNull().default("pending"),
+  groupBy: fileExportGroupByEnum("group_by").notNull().default("none"),
+  fileUploadIds: uuid("file_upload_ids").array().notNull().default([]),
+  entryCount: integer("entry_count").notNull().default(0),
+  resultFileId: uuid("result_file_id").references(() => fileAssets.id, { onDelete: "set null" }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
 }, (table) => [unique().on(table.id, table.eventId)]);
 export const resourcePages = pgTable("resource_pages", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

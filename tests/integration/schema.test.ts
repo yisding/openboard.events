@@ -5,6 +5,9 @@ import { SUBMISSION_STATUSES, canTransition } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 let db: PGlite;
 
@@ -21,6 +24,7 @@ describe("database invariants", () => {
     db = new PGlite();
     await db.exec(migration0);
     await db.exec(migration1);
+db.exec(migrationReviewOps);
   }, 30_000);
 
   afterAll(async () => {

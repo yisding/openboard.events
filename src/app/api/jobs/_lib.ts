@@ -1,5 +1,6 @@
 import type { JobName, JobStats } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
+import { captureError } from "@/shared/lib/error-tracking";
 
 export type JobResult = { job: JobName; ok: boolean; stats: JobStats; ms: number; error?: string };
 
@@ -25,6 +26,9 @@ export function defineJobRoute(job: JobName, run: () => Promise<JobStats>) {
       console.log(JSON.stringify(result));
       return Response.json(result);
     } catch (error) {
+      // Same seam as defineHandler's INTERNAL branch (PLAN P3-OPS): capture
+      // the raw error before it is flattened to a string for the job log.
+      captureError(error, { requestId: "cron", feature: "jobs", code: job });
       const result: JobResult = { job, ok: false, stats: {}, ms: Date.now() - started, error: String(error) };
       console.log(JSON.stringify(result));
       return Response.json(result, { status: 500 });

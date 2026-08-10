@@ -4,7 +4,7 @@ import { apiKeyAuth } from "@/features/auth";
 import { listLog } from "@/features/comms";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-import { corsPreflight, withV1PrivateHeaders } from "../../../_lib";
+import { corsPreflight, v1RateLimit, withV1PrivateHeaders } from "../../../_lib";
 import { toPublicCommLogRow } from "../../../server/queries";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,7 @@ const commsLog = defineHandler({
   input: z.object({
     limit: z.coerce.number().int().positive().optional(),
   }),
+  rateLimit: v1RateLimit("comms-log"),
   handler: async ({ eventId, input }) => {
     if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
     const limit = Math.min(input.limit ?? 50, 200);

@@ -141,6 +141,18 @@ export function AbstractsTable({
       </Dash>,
     },
     {
+      // M10 §4: the organizer has to be able to see, in the queue itself,
+      // which decisions have already been sent. `notifiedAt` is set by the
+      // notify run and cleared when a decision is undone, so an em dash here
+      // means "this speaker has not been told".
+      id: "notified",
+      header: "Notified",
+      accessorFn: (row) => row.notifiedAt,
+      enableSorting: false,
+      sortingFn: nullsLast,
+      cell: ({ row }) => <TzTime instant={row.original.notifiedAt} tz={timezone} style="date" secondary="time" />,
+    },
+    {
       id: "submitted",
       header: "Submitted",
       accessorFn: (row) => row.submittedAt,

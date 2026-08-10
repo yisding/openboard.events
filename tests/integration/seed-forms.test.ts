@@ -12,6 +12,13 @@ import { seedId } from "../../scripts/seed/lib/ids";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// P3-EMAIL added `events.physical_address`; the seed writes events through
+// Drizzle, which names every mapped column, so the fixture needs the column
+// to exist even though this suite never asserts on it.
+const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
 
 describe("forms seed", () => {
   let pglite: PGlite;
@@ -21,6 +28,8 @@ describe("forms seed", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationEmailCompliance);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
       now: new Date("2026-08-09T12:00:00.000Z"),

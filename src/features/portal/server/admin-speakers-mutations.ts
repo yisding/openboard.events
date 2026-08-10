@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
-import type { ConfirmationStatus, ContactId, EventId } from "@/shared/contracts";
+import { LIMITS, plainTextLength, type ConfirmationStatus, type ContactId, type EventId, type FileId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { sanitize } from "@/shared/lib/sanitize";
 import { updateContactFields } from "./contacts";
 
 /**
@@ -76,4 +77,36 @@ export async function setConfirmationStatusIn(
 
 export function setConfirmationStatus(eventId: EventId, contactId: ContactId, status: ConfirmationStatus): Promise<void> {
   return setConfirmationStatusIn(db, eventId, contactId, status);
+}
+
+/**
+ * M52 — an organizer edits a speaker's bio or headshot from the Speakers
+ * admin detail view, through the same `updateContactFields` writer the
+ * speaker's own portal profile uses (resolution #13, one contacts writer).
+ * `sanitize()` runs here at the write boundary, same discipline as the
+ * portal's own `updateProfileIn` — bio_html is rendered on the public
+ * gallery either way.
+ */
+export async function updateSpeakerBioIn(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId, bioHtml: string): Promise<void> {
+  if (plainTextLength(bioHtml) > LIMITS.BIO) {
+    throw new AppError("VALIDATION", `Keep the biography under ${LIMITS.BIO} characters`);
+  }
+  await updateContactFields(dbOrTx, eventId, contactId, { bioHtml: sanitize(bioHtml) });
+}
+
+export function updateSpeakerBio(eventId: EventId, contactId: ContactId, bioHtml: string): Promise<void> {
+  return updateSpeakerBioIn(db, eventId, contactId, bioHtml);
+}
+
+/**
+ * The uploaded file is only ever a fileId the organizer's own upload flow
+ * returned from `finalizeUpload` (kind=headshot) — never trusted as
+ * arbitrary input beyond that shape check.
+ */
+export async function updateSpeakerHeadshotIn(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId, headshotFileId: FileId | null): Promise<void> {
+  await updateContactFields(dbOrTx, eventId, contactId, { headshotFileId });
+}
+
+export function updateSpeakerHeadshot(eventId: EventId, contactId: ContactId, headshotFileId: FileId | null): Promise<void> {
+  return updateSpeakerHeadshotIn(db, eventId, contactId, headshotFileId);
 }

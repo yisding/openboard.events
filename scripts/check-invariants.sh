@@ -39,6 +39,18 @@ check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
 check_forbidden "['\"]aws4fetch['\"]" src --glob '!src/shared/server/r2.ts'
 check_forbidden "\\bFILES\\b" src --glob '!src/shared/server/r2.ts'
 check_forbidden "OPENBOARD_API_KEY" src docs/api.md .dev.vars.example
+# M50: the reviewer-reachable admin surface is a closed list. `adminAuth` is
+# organizer-only by default, and every route that lowers the bar to a reviewer
+# is named here — a reviewer who can read an organizer surface (the speaker
+# roster above all) can join names back to codes and titles and de-anonymize a
+# blind round. Adding a route to this list is a deliberate, reviewed act.
+check_forbidden "adminAuth\\(\\{[[:space:]]*role:[[:space:]]*['\"]reviewer" src \
+  --glob '!src/app/api/internal/submissions/*/*/route.ts' \
+  --glob '!src/app/api/internal/evaluation/*/queue/route.ts' \
+  --glob '!src/app/api/internal/evaluation/*/reviews/route.ts' \
+  --glob '!src/app/api/internal/evaluation/*/plans/*/recusals/route.ts' \
+  --glob '!src/app/api/uploads/_lib.ts' \
+  --glob '!src/features/auth/server/guards.test.ts'
 check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
 
 if [[ "$fail" -ne 0 ]]; then

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { DbOrTx, TxDb } from "@/db/client";
 import { contacts } from "@/db/schema";
-import type { ContactId, EventId } from "@/shared/contracts";
+import type { ContactId, EventId, SpeakerWorkflowStatus } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 
 export type ContactPatch = Partial<{
@@ -23,6 +23,9 @@ export type ContactPatch = Partial<{
   // Written by M18's auto-confirm on acceptance and by M27's organizer override.
   // There is no speaker-facing confirm button, so this is only ever set for them.
   confirmationStatus: "unconfirmed" | "confirmed" | "declined";
+  // M51 — pure organizer pipeline bookkeeping (drizzle/0008's header comment);
+  // never read by publication or notification logic.
+  workflowStatus: SpeakerWorkflowStatus;
 }>;
 
 export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId> {

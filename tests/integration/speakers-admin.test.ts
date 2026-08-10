@@ -9,12 +9,27 @@ import {
   getSpeakerDetailIn,
   listContactsIn,
 } from "@/features/portal/server/admin-speakers";
-import { setConfirmationStatusIn, updateSpeakerEmailIn } from "@/features/portal/server/admin-speakers-mutations";
-import { contactIdSchema, eventIdSchema, outstandingTasksRowSchema, submissionIdSchema } from "@/shared/contracts";
+import {
+  setConfirmationStatusIn,
+  updateSpeakerBioIn,
+  updateSpeakerEmailIn,
+  updateSpeakerHeadshotIn,
+} from "@/features/portal/server/admin-speakers-mutations";
+import { contactIdSchema, eventIdSchema, fileIdSchema, outstandingTasksRowSchema, submissionIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// P3-EMAIL added columns to the Drizzle `contacts` schema; any bare
+// `db.update(contacts)....returning()` (Drizzle selects every mapped column)
+// now needs them to exist, even in a suite that never exercises suppression.
+const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M51 added `contacts.workflow_status` — same blast radius as the P3-EMAIL
+// comment above: any bare `.returning()` off `contacts` now selects it.
+const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000002");
@@ -50,6 +65,9 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationRoster);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -262,6 +280,35 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
       });
       const raw = await pglite.query<{ email: string }>("SELECT email FROM contacts WHERE id = $1", [morgan]);
       expect(raw.rows[0]?.email).toBe("morgan@example.com");
+    });
+  });
+
+  describe("M52: updateSpeakerBio / updateSpeakerHeadshot — organizer edits through the contact/file paths", () => {
+    it("sanitizes and writes only the bio column", async () => {
+      await updateSpeakerBioIn(db, eventId, neverSubmitted, '<p>Hello <script>alert(1)</script>world</p>');
+      const detail = await getSpeakerDetailIn(db, eventId, neverSubmitted);
+      expect(detail?.contact.bioHtml).toContain("Hello");
+      expect(detail?.contact.bioHtml).not.toContain("<script");
+      // Untouched by a bio-only write — whatever the email already is (earlier
+      // tests in this file run against the same shared database, no per-test
+      // reset) is exactly what it still is afterward.
+      const before = await pglite.query<{ email: string }>("SELECT email FROM contacts WHERE id = $1", [neverSubmitted]);
+      await updateSpeakerBioIn(db, eventId, neverSubmitted, "<p>Second edit</p>");
+      const after = await pglite.query<{ email: string }>("SELECT email FROM contacts WHERE id = $1", [neverSubmitted]);
+      expect(after.rows[0]?.email).toBe(before.rows[0]?.email);
+    });
+
+    it("rejects a biography over the shared BIO limit", async () => {
+      await expect(updateSpeakerBioIn(db, eventId, neverSubmitted, `<p>${"x".repeat(6000)}</p>`))
+        .rejects.toSatisfy((error: unknown) => isAppError(error) && error.code === "VALIDATION");
+    });
+
+    it("writes only the headshot column, and clears it with null", async () => {
+      const fileId = fileIdSchema.parse(headshotFileId);
+      await updateSpeakerHeadshotIn(db, eventId, morgan, fileId);
+      expect((await getSpeakerDetailIn(db, eventId, morgan))?.contact.headshotFileId).toBe(headshotFileId);
+      await updateSpeakerHeadshotIn(db, eventId, morgan, null);
+      expect((await getSpeakerDetailIn(db, eventId, morgan))?.contact.headshotFileId).toBeNull();
     });
   });
 

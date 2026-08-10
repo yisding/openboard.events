@@ -14,6 +14,8 @@ export {
   listTaskCompletionsIn,
 } from "./server/queries";
 export {
+  addTaskComment,
+  addTaskCommentIn,
   completeTaskManual,
   completeTaskManualIn,
   completeTaskViaResponse,

@@ -12,11 +12,22 @@ import {
   sessionIdSchema,
   submissionIdSchema,
   trackIdSchema,
+  userIdSchema,
+  type UserId,
 } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M52's content-revisions table. Independent of 0002–0005 (auth/review/rate-limit).
+const migration6 = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
+// P3-EMAIL added columns to the Drizzle `contacts` schema; any bare
+// `db.update(contacts)....returning()` (Drizzle selects every mapped column)
+// now needs them to exist, even in a suite that never exercises suppression.
+const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000002");
@@ -28,6 +39,7 @@ const studio = roomIdSchema.parse("a8000000-0000-4000-8000-000000000021");
 const agentsTrack = trackIdSchema.parse("a8000000-0000-4000-8000-000000000030");
 const acceptedTalk = submissionIdSchema.parse("a8000000-0000-4000-8000-000000000040");
 const pendingTalk = submissionIdSchema.parse("a8000000-0000-4000-8000-000000000041");
+const organizer = userIdSchema.parse("a8000000-0000-4000-8000-000000000050");
 
 // The event runs 9am–6pm PT on 2026-09-15/16. Times below are written as UTC
 // instants for the fixture's benefit; the day-key assertions are what prove the
@@ -56,7 +68,8 @@ vi.mock("@/db/client", async (importOriginal) => {
 
 const {
   bulkSetPublished, deleteSession, detectConflicts, getMySessions, getSchedulableSessions,
-  listAgendaVocabulary, listSessions, moveSession, promoteSubmission, saveSession,
+  listAgendaVocabulary, listSessionContentRevisions, listSessions, moveSession, promoteSubmission,
+  restoreSessionContent, saveSession,
 } = await import("@/features/agenda");
 // The promotion picker is M18's read; the tray consumes it unchanged.
 const { getAcceptedForScheduling } = await import("@/features/submissions");
@@ -69,7 +82,7 @@ async function count(table: string, where = "TRUE"): Promise<number> {
 async function createSession(overrides: Partial<{
   title: string; startsAt: string | null; endsAt: string | null; roomId: string | null;
   trackId: string | null; status: "draft" | "published"; speakerContactIds: string[];
-}> = {}) {
+}> = {}, actorUserId: UserId | null = null) {
   return saveSession(eventId, {
     title: "A session",
     descriptionHtml: "<p>Hello</p>",
@@ -81,7 +94,7 @@ async function createSession(overrides: Partial<{
     speakerContactIds: [],
     status: "draft",
     ...overrides,
-  });
+  }, actorUserId);
 }
 
 describe("agenda sessions", () => {
@@ -89,8 +102,15 @@ describe("agenda sessions", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migration6);
+    await pglite.exec(migrationEmailCompliance);
     testDb = createTestDb(pglite);
 
+    await pglite.query(
+      "INSERT INTO users(id,email,name) VALUES($1,'maya@example.com','Maya Lin')",
+      [organizer],
+    );
     for (const [id, slug] of [[eventId, "agenda-event"], [otherEventId, "other-event"]] as const) {
       await pglite.query(
         "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,$2,$3,'America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -127,7 +147,7 @@ describe("agenda sessions", () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs CASCADE");
+    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, session_content_revisions CASCADE");
   });
 
   it("creates a session with its speakers in one round trip, and lists it back", async () => {
@@ -155,6 +175,68 @@ describe("agenda sessions", () => {
     });
     expect(updated.descriptionHtml).not.toContain("onerror");
     expect(updated.descriptionHtml).not.toContain("<script");
+  });
+
+  it("M52: records an attributed content revision on create and on each content edit", async () => {
+    const created = await createSession({ title: "Keynote v1" }, organizer);
+    const firstHistory = await listSessionContentRevisions(eventId, created.id);
+    expect(firstHistory).toHaveLength(1);
+    expect(firstHistory[0]?.title).toBe("Keynote v1");
+    expect(firstHistory[0]?.editedByName).toBe("Maya Lin");
+    expect(firstHistory[0]?.restoredFromRevisionId).toBeNull();
+
+    const updated = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Keynote v2",
+      descriptionHtml: "<p>v2</p>", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [], status: "draft",
+    }, organizer);
+
+    const history = await listSessionContentRevisions(eventId, updated.id);
+    // Newest first.
+    expect(history.map((entry) => entry.title)).toEqual(["Keynote v2", "Keynote v1"]);
+  });
+
+  it("M52: a schedule-only save does not add a content revision", async () => {
+    const created = await createSession({ title: "Stable title", roomId: null });
+    await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Stable title",
+      descriptionHtml: "<p>Hello</p>", formatId: null, trackId: null, roomId: mainStage,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [], status: "draft",
+    });
+    const history = await listSessionContentRevisions(eventId, created.id);
+    // Just the one revision from creation — the room/time-only save added none.
+    expect(history).toHaveLength(1);
+  });
+
+  it("M52: restores an earlier revision as a new revision, preserving publish status", async () => {
+    const created = await createSession({
+      title: "Original title", status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    }, organizer);
+    const edited = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Edited title",
+      descriptionHtml: "<p>Edited</p>", formatId: null, trackId: null, roomId: null,
+      startsAt: created.startsAt, endsAt: created.endsAt, speakerContactIds: [], status: "published",
+    });
+    const history = await listSessionContentRevisions(eventId, edited.id);
+    expect(history).toHaveLength(2);
+    const originalRevisionId = history[1]?.id;
+    expect(history[1]?.title).toBe("Original title");
+    if (!originalRevisionId) throw new Error("expected an original revision to restore from");
+
+    const restored = await restoreSessionContent(eventId, edited.id, originalRevisionId, organizer);
+    expect(restored.title).toBe("Original title");
+    expect(restored.descriptionHtml).toBe("<p>Hello</p>");
+    // Publication is untouched by a content restore (the module's own
+    // draft/published gate guardrail) — still published, no leaked draft.
+    expect(restored.status).toBe("published");
+
+    const finalHistory = await listSessionContentRevisions(eventId, edited.id);
+    expect(finalHistory).toHaveLength(3);
+    expect(finalHistory[0]?.title).toBe("Original title");
+    expect(finalHistory[0]?.restoredFromRevisionId).toBe(originalRevisionId);
+    expect(finalHistory[0]?.editedByName).toBe("Maya Lin");
   });
 
   it("collapses a duplicated speaker id into one row", async () => {

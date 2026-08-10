@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
-import { getSpeakerDetail } from "@/features/portal";
+import { getSpeakerDetail, getSpeakerRosterExtras } from "@/features/portal";
 import { SpeakerDetailView } from "@/features/portal/components/speakers-admin/speaker-detail-view";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
@@ -28,11 +28,19 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
 
   await requireAdmin(eventId);
 
-  const [[event], detail] = await Promise.all([
+  const [[event], detail, extras] = await Promise.all([
     db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1),
     getSpeakerDetail(eventId, contactId),
+    getSpeakerRosterExtras(eventId, contactId),
   ]);
-  if (!detail) notFound();
+  if (!detail || !extras) notFound();
 
-  return <SpeakerDetailView eventId={eventId} timezone={event?.timezone ?? "America/Los_Angeles"} initialDetail={detail} />;
+  return (
+    <SpeakerDetailView
+      eventId={eventId}
+      timezone={event?.timezone ?? "America/Los_Angeles"}
+      initialDetail={detail}
+      initialExtras={extras}
+    />
+  );
 }

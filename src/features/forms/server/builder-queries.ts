@@ -8,6 +8,7 @@ import {
   mapsToTargetSchema,
   visibilityRuleSchema,
   type EventId,
+  type FormContext,
   type FormId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -41,13 +42,18 @@ export function getBuilderEvent(eventId: EventId): Promise<BuilderEvent> {
   return getBuilderEventIn(db, eventId);
 }
 
-export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<FormListRow[]> {
+// M12-GENERALIZE: `context` defaults to "cfp" so every pre-existing caller
+// (the CFP forms list page/route) is unaffected; M24's portal forms list
+// passes context="portal" to get the disjoint set — never both, per the
+// module's "never both on one list" invariant (M24 §3).
+export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId, context: FormContext = "cfp"): Promise<FormListRow[]> {
   const rows = await dbOrTx.select({
     id: forms.id,
     internalName: forms.internalName,
     externalTitle: forms.externalTitle,
     status: forms.status,
     kind: forms.kind,
+    targetType: forms.targetType,
     collectParticipants: forms.collectParticipants,
     opensAt: forms.opensAt,
     closesAt: forms.closesAt,
@@ -59,7 +65,7 @@ export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<For
   })
     .from(forms)
     .leftJoin(submissions, and(eq(submissions.eventId, forms.eventId), eq(submissions.formId, forms.id)))
-    .where(and(eq(forms.eventId, eventId), eq(forms.context, "cfp")))
+    .where(and(eq(forms.eventId, eventId), eq(forms.context, context)))
     .groupBy(forms.id)
     .orderBy(asc(forms.createdAt), asc(forms.id));
 
@@ -82,8 +88,8 @@ export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<For
   });
 }
 
-export function listForms(eventId: EventId): Promise<FormListRow[]> {
-  return listFormsIn(db, eventId);
+export function listForms(eventId: EventId, context: FormContext = "cfp"): Promise<FormListRow[]> {
+  return listFormsIn(db, eventId, context);
 }
 
 export async function hasNonDraftSubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId): Promise<boolean> {
@@ -94,11 +100,18 @@ export async function hasNonDraftSubmissionsIn(dbOrTx: DbOrTx, eventId: EventId,
   return Boolean(row);
 }
 
-export async function getFormForBuilderIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId): Promise<BuilderForm> {
+// M12-GENERALIZE: `context` is optional and, unlike `listForms`, defaults to
+// undefined ("accept any context") rather than "cfp". A form id already
+// scopes the lookup uniquely together with `eventId` (the DB carries a
+// `unique(id, event_id)` constraint) — rejecting a portal form here was a
+// bug, not a feature, and is exactly what blocked M24's own `saveFormStep`
+// reuse (see plan/modules/M24-portal-form-builder.md). Callers that must
+// pin a context (e.g. a future cfp-only route guard) can still pass one.
+export async function getFormForBuilderIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId, context?: FormContext): Promise<BuilderForm> {
   const [form] = await dbOrTx.select().from(forms)
     .where(and(eq(forms.eventId, eventId), eq(forms.id, formId)))
     .limit(1);
-  if (!form || form.context !== "cfp") throw new AppError("NOT_FOUND", "Form not found");
+  if (!form || (context !== undefined && form.context !== context)) throw new AppError("NOT_FOUND", "Form not found");
 
   const [sectionRows, fieldRows, hasNonDraftSubmissions] = await Promise.all([
     dbOrTx.select().from(formSections)
@@ -123,6 +136,9 @@ export async function getFormForBuilderIn(dbOrTx: DbOrTx, eventId: EventId, form
     options: z.array(formOptionSchema).parse(field.options ?? []),
     visibility: field.visibility === null ? null : visibilityRuleSchema.parse(field.visibility),
     mapsTo: field.mapsTo === null ? null : mapsToTargetSchema.parse(field.mapsTo),
+    // Locked contact fields are identity whatever the row says: the column has
+    // a default, but the invariant is the code's, not the schema's.
+    reviewVisibility: field.locked ? "identity" : field.reviewVisibility ?? "identity",
     sortOrder: field.sortOrder,
   }));
   const sections = sectionRows.map((section): BuilderSection => ({
@@ -140,6 +156,7 @@ export async function getFormForBuilderIn(dbOrTx: DbOrTx, eventId: EventId, form
     id: formIdSchema.parse(form.id),
     eventId: form.eventId,
     context: form.context,
+    targetType: form.targetType,
     internalName: form.internalName,
     externalTitle: form.externalTitle,
     pageHeading: form.pageHeading,
@@ -164,6 +181,6 @@ export async function getFormForBuilderIn(dbOrTx: DbOrTx, eventId: EventId, form
   };
 }
 
-export function getFormForBuilder(eventId: EventId, formId: FormId): Promise<BuilderForm> {
-  return getFormForBuilderIn(db, eventId, formId);
+export function getFormForBuilder(eventId: EventId, formId: FormId, context?: FormContext): Promise<BuilderForm> {
+  return getFormForBuilderIn(db, eventId, formId, context);
 }
