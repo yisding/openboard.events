@@ -6,6 +6,7 @@ import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { contactIdSchema, eventIdSchema, formSnapshotSchema, submissionIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
+import { buildObjectKey, buildStagingKey } from "@/shared/server/r2";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -22,10 +23,14 @@ const profileTask = "c4000000-0000-4000-8000-000000000032";
 const slidesRequest = "c4000000-0000-4000-8000-000000000040";
 const deck = "c4000000-0000-4000-8000-000000000041";
 const othersDeck = "c4000000-0000-4000-8000-000000000042";
+const stagedDeck = "c4000000-0000-4000-8000-000000000043";
+const wrongType = "c4000000-0000-4000-8000-000000000044";
+const oversized = "c4000000-0000-4000-8000-000000000045";
 const formId = "c4000000-0000-4000-8000-000000000050";
 const bioField = "c4000000-0000-4000-8000-000000000051";
 const shirtField = "c4000000-0000-4000-8000-000000000052";
 const talkTitleField = "c4000000-0000-4000-8000-000000000053";
+const fileField = "c4000000-0000-4000-8000-000000000054";
 
 /**
  * A portal task form, not a CFP one: a couple of questions that write back to
@@ -58,6 +63,10 @@ const PORTAL_SNAPSHOT = formSnapshotSchema.parse({
       {
         id: talkTitleField, key: "talk_title", label: "Talk title", type: "text", required: false, locked: false,
         maxChars: 255, helpText: "", options: [], visibility: null, mapsTo: "submission.title",
+      },
+      {
+        id: fileField, key: "handout", label: "Handout", type: "file", required: false, locked: false,
+        maxChars: null, helpText: "", options: [], visibility: null, mapsTo: null,
       },
     ],
   }],
@@ -153,15 +162,27 @@ describe("portal task runtime", () => {
       [profileTask, eventId, formId],
     );
 
-    await pglite.query(
-      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'upload','uploads/deck.pdf','deck.pdf','application/pdf',1024,$3)",
-      [deck, eventId, ada],
-    );
+    // `r2_key` is the readiness marker: finalize repoints a row from its staging
+    // key to the immutable published one, so the fixtures have to be built the
+    // same way rather than with an invented path.
+    const asset = async (
+      id: string, owner: string, filename: string, mime: string, size: number,
+      state: "ready" | "staged" = "ready",
+    ) => {
+      const key = state === "ready"
+        ? buildObjectKey({ eventId, kind: "upload", fileId: id, filename })
+        : buildStagingKey({ eventId, kind: "upload", fileId: id, filename });
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'upload',$3,$4,$5,$6,$7)",
+        [id, eventId, key, filename, mime, size, owner],
+      );
+    };
+    await asset(deck, ada, "deck.pdf", "application/pdf", 1024);
     // Somebody else's private deck, for the case that must not be able to reach it.
-    await pglite.query(
-      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'upload','uploads/secret.pdf','secret.pdf','application/pdf',2048,$3)",
-      [othersDeck, eventId, grace],
-    );
+    await asset(othersDeck, grace, "secret.pdf", "application/pdf", 2048);
+    await asset(stagedDeck, ada, "half-sent.pdf", "application/pdf", 4096, "staged");
+    await asset(wrongType, ada, "notes.txt", "text/plain", 512);
+    await asset(oversized, ada, "huge.pdf", "application/pdf", 40 * 1024 * 1024);
   }, 60_000);
 
   beforeEach(async () => {
@@ -248,6 +269,27 @@ describe("portal task runtime", () => {
     expect(await count("task_completions")).toBe(0);
   });
 
+  it("refuses an upload that never finished", async () => {
+    // A row still on its staging key is a presign nobody completed; accepting it
+    // marks the task done with evidence that was never stored.
+    const staged = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, stagedDeck)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(staged) && staged.code).toBe("VALIDATION");
+    expect(await count("task_completions")).toBe(0);
+  });
+
+  it("holds a file request's own accepted types and size cap", async () => {
+    // file_assets does not record which request minted it, so a file presigned
+    // under a laxer one would otherwise answer this request.
+    const wrong = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, wrongType)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(wrong) && wrong.code).toBe("VALIDATION");
+    const big = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, oversized)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(big) && big.code).toBe("VALIDATION");
+    expect(await count("file_uploads")).toBe(0);
+  });
+
   it("points a re-upload's completion at the newest file", async () => {
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
     const first = await pglite.query<{ file_upload_id: string }>("SELECT file_upload_id FROM task_completions");
@@ -290,6 +332,22 @@ describe("portal task runtime", () => {
     expect(await count("task_completions")).toBe(1);
     const stored = await pglite.query<{ answers: Array<{ value: { v: string } }> }>("SELECT answers FROM form_responses");
     expect(JSON.stringify(stored.rows[0]?.answers)).toContain("Second answer");
+  });
+
+  it("rejects a file answer that is not a finished upload of the speaker's own", async () => {
+    // The pipeline validates an answer's shape, so without this a required
+    // upload is satisfied by any syntactically valid uuid.
+    for (const fileId of [othersDeck, stagedDeck, "c4000000-0000-4000-8000-0000000000bb"]) {
+      const refused = await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({
+        [fileField]: { t: "file", v: fileId },
+      })).catch((thrown: unknown) => thrown);
+      expect(isAppError(refused)).toBe(true);
+    }
+    expect(await count("form_responses")).toBe(0);
+    expect(await count("task_completions")).toBe(0);
+
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [fileField]: { t: "file", v: deck } }));
+    expect(await count("task_completions")).toBe(1);
   });
 
   it("rejects an answer the form would reject, and writes nothing", async () => {

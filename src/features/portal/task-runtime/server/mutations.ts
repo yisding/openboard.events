@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
-import type { ContactId, EventId, FormId } from "@/shared/contracts";
+import type { ContactId, EventId, FileKind, FormId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
+import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
 import { updateContactFields } from "../../server/contacts";
 
 /**
@@ -23,7 +24,16 @@ import { updateContactFields } from "../../server/contacts";
 
 type Mode = "manual" | "form" | "file_request";
 
-type Assignment = { taskId: string; submissionId: string | null; formId: string | null; fileRequestId: string | null };
+type UploadPolicy = { extensions: string[]; maxSizeMb: number };
+
+type Assignment = {
+  taskId: string;
+  submissionId: string | null;
+  formId: string | null;
+  fileRequestId: string | null;
+  /** The organizer's accepted types and size cap for this request, when there is one. */
+  policy: UploadPolicy | null;
+};
 
 /**
  * The assignment as the database sees it, or a refusal. Used only where the
@@ -38,10 +48,14 @@ async function requireAssignment(
   submissionId: string | null,
   mode: Mode,
 ): Promise<Assignment> {
-  const result = await dbOrTx.execute<{ completion_mode: Mode; form_id: string | null; file_request_id: string | null }>(sql`
-    SELECT t.completion_mode, t.form_id, t.file_request_id
+  const result = await dbOrTx.execute<{
+    completion_mode: Mode; form_id: string | null; file_request_id: string | null;
+    accepted_extensions: string[] | null; max_size_mb: number | null;
+  }>(sql`
+    SELECT t.completion_mode, t.form_id, t.file_request_id, r.accepted_extensions, r.max_size_mb
     FROM task_assignments_v v
     JOIN portal_tasks t ON t.id = v.task_id AND t.event_id = v.event_id
+    LEFT JOIN file_requests r ON r.id = t.file_request_id AND r.event_id = t.event_id
     WHERE v.event_id = ${eventId} AND v.contact_id = ${contactId} AND v.task_id = ${taskId}
       AND v.submission_id IS NOT DISTINCT FROM ${submissionId}
   `);
@@ -51,7 +65,61 @@ async function requireAssignment(
   if (row.completion_mode !== mode) {
     throw new AppError("VALIDATION", `This task is completed by ${row.completion_mode.replace("_", " ")}, not by ${mode.replace("_", " ")}`);
   }
-  return { taskId, submissionId, formId: row.form_id, fileRequestId: row.file_request_id };
+  return {
+    taskId,
+    submissionId,
+    formId: row.form_id,
+    fileRequestId: row.file_request_id,
+    policy: row.accepted_extensions && row.max_size_mb !== null
+      ? { extensions: row.accepted_extensions, maxSizeMb: Number(row.max_size_mb) }
+      : null,
+  };
+}
+
+/**
+ * The file behind a completion has to actually exist, belong to this speaker,
+ * and have finished uploading — and, for a file request, satisfy the policy the
+ * organizer set on it.
+ *
+ * Ownership alone is not enough. `finalizeUpload` publishes an object under its
+ * immutable key and only then points the row at it, so a row still holding its
+ * staging key is a presign nobody completed: accepting one marks a task done
+ * with evidence that was never stored. And because `file_assets` does not record
+ * which request minted it, the accepted types and size cap have to be re-checked
+ * here or a file presigned under a laxer request answers this one.
+ */
+async function requireFinishedUpload(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  fileAssetId: string,
+  policy: UploadPolicy | null,
+): Promise<void> {
+  const result = await dbOrTx.execute<{
+    id: string; kind: string; filename: string; mime: string; size_bytes: string | number; r2_key: string;
+  }>(sql`
+    SELECT id, kind, filename, mime, size_bytes, r2_key FROM file_assets
+    WHERE id = ${fileAssetId} AND event_id = ${eventId} AND uploaded_by_contact_id = ${contactId}
+  `);
+  const asset = (result.rows ?? [])[0];
+  if (!asset) throw new AppError("NOT_FOUND", "That file is not one of your uploads");
+
+  const published = buildObjectKey({ eventId, kind: asset.kind as FileKind, fileId: asset.id, filename: asset.filename });
+  if (asset.r2_key !== published) {
+    throw new AppError("VALIDATION", "That upload did not finish — send the file again");
+  }
+
+  if (!policy) return;
+  // Kind is the other half of the same question: a headshot is not an answer to
+  // a slides request, whatever its extension says.
+  if (asset.kind !== "upload") throw new AppError("VALIDATION", "That file was not uploaded for this request");
+  assertUploadAllowed({
+    kind: "upload",
+    filename: asset.filename,
+    mime: asset.mime,
+    sizeBytes: Number(asset.size_bytes),
+    policyOverride: policy,
+  });
 }
 
 /**
@@ -110,15 +178,10 @@ export async function completeTaskViaUploadIn(
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
   if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
 
-  // The asset has to be this event's *and* this speaker's own upload. Without
-  // the uploader check a speaker could answer their task with another speaker's
-  // private deck — and, because `file_uploads` grants download rights, hand
-  // themselves a presigned URL to it.
-  const asset = await tx.execute<{ id: string }>(sql`
-    SELECT id FROM file_assets
-    WHERE id = ${fileAssetId} AND event_id = ${eventId} AND uploaded_by_contact_id = ${contactId}
-  `);
-  if ((asset.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "That file is not one of your uploads");
+  // Without the ownership half of this check a speaker could answer their task
+  // with another speaker's private deck — and, because `file_uploads` grants
+  // download rights, hand themselves a presigned URL to it.
+  await requireFinishedUpload(tx, eventId, contactId, fileAssetId, assignment.policy);
 
   const uploaded = await tx.execute<{ id: string }>(sql`
     INSERT INTO file_uploads (event_id, file_request_id, contact_id, submission_id, file_asset_id)
@@ -184,6 +247,13 @@ export async function completeTaskViaResponseIn(
   // orphan sweep looks for `{t:'file'}` values with `jsonb_each` over this
   // column, and an array reads as "no file referenced" — which deletes a file
   // the response still points at.
+  // The pipeline validates an answer's *shape*, so `{t:'file'}` carrying any
+  // syntactically valid uuid would otherwise satisfy a required upload with
+  // evidence that does not exist or belongs to somebody else.
+  for (const answer of pipeline.clean) {
+    if (answer.value.t === "file") await requireFinishedUpload(tx, eventId, contactId, answer.value.v, null);
+  }
+
   const answersObject = Object.fromEntries(pipeline.clean.map((answer) => [answer.fieldId, answer.value]));
   const response = await tx.execute<{ id: string }>(sql`
     INSERT INTO form_responses (event_id, form_id, form_version, contact_id, submission_id, answers)

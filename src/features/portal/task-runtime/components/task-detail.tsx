@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
 import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
 import { FileUpload } from "@/shared/ui/app/file-upload";
+import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, StatusBadge } from "@/shared/ui/ui-kit";
@@ -149,13 +150,19 @@ export function TaskDetailView({
 
       {task.completionMode === "form" && form && (
         <div className="portal-panel">
-          <FormFieldRenderer
-            snapshot={form.snapshot}
-            answers={answers}
-            onChange={(fieldId, value) => setAnswers((current) => ({ ...current, [fieldId]: value }))}
-            mode="edit"
-            errors={fieldErrors}
-          />
+          {/* A file question inside the renderer reads its event scope from this
+              provider; without it the field renders "File uploads are
+              unavailable here" and a required upload makes the task impossible
+              to finish from the portal. */}
+          <FormUploadProvider eventId={eventId}>
+            <FormFieldRenderer
+              snapshot={form.snapshot}
+              answers={answers}
+              onChange={(fieldId, value) => setAnswers((current) => ({ ...current, [fieldId]: value }))}
+              mode="edit"
+              errors={fieldErrors}
+            />
+          </FormUploadProvider>
           <Button disabled={busy} onClick={() => complete({ answers })}>
             {busy ? "Saving…" : task.completed ? "Save changes" : "Submit & complete"}
           </Button>
