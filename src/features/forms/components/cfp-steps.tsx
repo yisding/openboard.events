@@ -22,6 +22,12 @@ type Answers = Record<string, AnswerValue | undefined>;
 export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
 
+export function cfpFlowSteps(collectParticipants: boolean): Array<Exclude<Step, "done">> {
+  return collectParticipants
+    ? ["account", "submission", "speaker", "review"]
+    : ["account", "submission", "review"];
+}
+
 async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
   let response: Response;
   try {
@@ -89,6 +95,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
+  const flowSteps = cfpFlowSteps(form.collectParticipants);
   const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotAnswers) => saveWithRetry(
     () => request(`/api/internal/forms/${form.id}/draft`, {
@@ -198,7 +205,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     <FormUploadProvider eventId={event.id}>
     <section className="cfp-step">
       <ol className="cfp-progress">
-        {(["account", "submission", "speaker", "review"] as const).map((name) => (
+        {flowSteps.map((name) => (
           <li key={name} className={step === name ? "active" : ""}>{name}</li>
         ))}
       </ol>
@@ -229,12 +236,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         <>
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["abstract"]} errors={errors} />
           <div className="cfp-actions">
-            <Button onClick={() => setStep("speaker")}>Continue</Button>
+            <Button onClick={() => setStep(form.collectParticipants ? "speaker" : "review")}>Continue</Button>
           </div>
         </>
       )}
 
-      {step === "speaker" && (
+      {form.collectParticipants && step === "speaker" && (
         <>
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["participant"]} errors={errors} />
           <div className="cfp-actions">
@@ -250,7 +257,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
               which is also where a stale hidden answer would be conspicuous. */}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="review" />
           <div className="cfp-actions">
-            <Button variant="secondary" onClick={() => setStep("speaker")}>Back</Button>
+            <Button variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
             <Button onClick={submit} disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
           </div>
         </>

@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, withTx } from "@/db/client";
-import { contacts, submissions } from "@/db/schema";
+import { contacts, forms, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
 import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult } from "@/features/submissions";
 import {
@@ -99,8 +99,16 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
   }
 
   // The version the client rendered decides which snapshot its answers mean.
-  const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
-  const current = await getCurrentSnapshot(input.eventId, input.formId);
+  const [rendered, current, formRows] = await Promise.all([
+    getPinnedSnapshot(input.eventId, input.formId, input.formVersion),
+    getCurrentSnapshot(input.eventId, input.formId),
+    db.select({ collectParticipants: forms.collectParticipants })
+      .from(forms)
+      .where(and(eq(forms.eventId, input.eventId), eq(forms.id, input.formId)))
+      .limit(1),
+  ]);
+  const form = formRows[0];
+  if (!form) throw new AppError("NOT_FOUND", "Form not found");
 
   // Structural drift is the client's problem to recover from, so the fresh
   // snapshot travels with the error rather than making them fetch it.
@@ -127,7 +135,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
     role: "speaker" | "co_speaker";
     isPrimary: boolean;
     sortOrder: number;
-  }> = input.participants?.length
+  }> = form.collectParticipants && input.participants?.length
     ? input.participants.map((participant) => ({ ...participant, email: participant.email.trim().toLowerCase(), contactId: null }))
     : [{ clientId: input.contactId, email: null, contactId: input.contactId, role: "speaker", isPrimary: true, sortOrder: 0, answers: topLevelParticipantAnswers }];
 
@@ -150,19 +158,28 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
   const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
   const participantEmailFieldIds = new Set(participantSnapshot.sections.flatMap((section) =>
     section.fields.filter((field) => field.mapsTo === "contact.email").map((field) => field.id)));
-  for (const participant of submittedParticipants) {
-    const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
-    // Keep the full snapshot while evaluating participant fields: their
-    // visibility may depend on an abstract answer from an earlier section.
-    // Only participant answers are retained after that evaluation.
-    const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.clientId, requireRequired: true });
-    if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
-    const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
-    preparedParticipants.push({
+  if (form.collectParticipants) {
+    for (const participant of submittedParticipants) {
+      const raw = answersFor(participantSnapshot, participant.answers ?? (participant.isPrimary ? topLevelParticipantAnswers : {}));
+      // Keep the full snapshot while evaluating participant fields: their
+      // visibility may depend on an abstract answer from an earlier section.
+      // Only participant answers are retained after that evaluation.
+      const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.clientId, requireRequired: true });
+      if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
+      const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
+      preparedParticipants.push({
+        ...participant,
+        clean: participantClean,
+        profilePatch: deriveMappedFields(participantSnapshot, participantClean).contact,
+      });
+    }
+  } else {
+    const noAnswers = cleanAnswersSchema.parse([]);
+    preparedParticipants.push(...submittedParticipants.map((participant) => ({
       ...participant,
-      clean: participantClean,
-      profilePatch: deriveMappedFields(participantSnapshot, participantClean).contact,
-    });
+      clean: noAnswers,
+      profilePatch: {},
+    })));
   }
   const clientAnswers = cleanAnswersSchema.parse([...abstract.clean, ...preparedParticipants.flatMap((participant) => participant.clean)]);
 

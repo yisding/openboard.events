@@ -92,6 +92,14 @@ describe("getPublicForm", () => {
     await pglite.query("UPDATE forms SET submission_limit=2 WHERE id=$1", [cfpForm]);
   });
 
+  it("omits the participant section when participant collection is disabled", async () => {
+    await pglite.query("UPDATE forms SET collect_participants=false WHERE id=$1", [cfpForm]);
+    const result = await getPublicFormIn(db, "ai-engineer", cfpForm);
+    expect(result.form.collectParticipants).toBe(false);
+    expect(result.snapshot.sections.map((section) => section.key)).not.toContain("participant");
+    await pglite.query("UPDATE forms SET collect_participants=true WHERE id=$1", [cfpForm]);
+  });
+
   it("refuses a form from another event even with the right slug", async () => {
     const error = await getPublicFormIn(db, "ai-engineer", otherEventForm).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("NOT_FOUND");
