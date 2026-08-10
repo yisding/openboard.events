@@ -10,6 +10,8 @@ export { inReviewerScope, isScorableStatus, weightedOverall } from "./scoring";
 export { requestWithPathValues } from "./server/route-input";
 export {
   activePlanIdSql,
+  assertReviewerCanReadSubmission,
+  assertReviewerCanReadSubmissionIn,
   getActivePlan,
   getActivePlanIn,
   getPlan,
