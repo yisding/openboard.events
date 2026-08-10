@@ -172,6 +172,21 @@ email evidence) remains, and is now the entire remaining judged-bar surface.
 
 ### 2f. The P3→P5 run (added at rev. 11)
 
+**Deployed e2e state (rev. 11 deploy, build `c662345`):** the full Playwright suite went
+from 16 failures (first-ever run) to **19 passed / 5 failed / 5 skipped**. The five:
+`abstracts-decide` bulk-notify idempotency, the builder public-form-link 200, and three
+empty-event empty-state specs (`abstracts-decide`, `admin-setup`, `public-embeds`) that
+likely share one root cause. These are the E2E leftovers in §6's code queue.
+
+**Known regression (found at the rev. 11 deploy):** M53's new `/embed/*` pages read their
+options from `searchParams`, which forces dynamic rendering — **embeds are no longer
+edge-cached** (`private, no-cache`), while the `/e/*` pages keep `revalidate = 60` and
+`x-nextjs-cache: HIT`. The old M33 shell's cacheability was CP0-adjacent evidence. Fix
+direction: options-from-config (the `embeds` table row) rather than URL, or explicit
+cache headers on the embed routes. The post-deploy smoke deliberately does not assert
+`s-maxage` on embeds until this is fixed. Legacy `/e/<slug>/schedule` and
+`/embed/<slug>/schedule` URLs 307 to the new surfaces (deliberate, documented in the route).
+
 One orchestrated run (a P3-SEC/P3-EMAIL/P3-OPS compliance lane, a forms-debt lane, an e2e-triage
 lane, and five P5 product-completeness lanes, followed by an integration gate) landed as PR #94
 (merge commit `c662345`). Five additive migrations were added to the journal — `drizzle/0004_review_operations.sql`,
