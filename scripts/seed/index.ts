@@ -7,6 +7,7 @@ import { seedEvaluation } from "./evaluation";
 import { seedEvents } from "./events";
 import { seedForms } from "./forms";
 import { seedPortal } from "./portal";
+import { seedResources } from "./resources";
 import { seedSubmissions } from "./submissions";
 import { resolveSeedHeadshotTarget, uploadSeedHeadshots } from "./upload-headshots";
 import { seedId } from "./lib/ids";
@@ -27,6 +28,11 @@ const MODULES: Array<{ name: string; run: SeedModule }> = [
   { name: "evaluation", run: seedEvaluation },
   { name: "agenda", run: seedAgenda },
   { name: "portal", run: seedPortal },
+  // M26 owns `resource_pages` CRUD and therefore the seeded page set: it runs
+  // after `portal.ts` and reconciles to its own three pages (both sanitizer
+  // probes plus the unpublished 404 case), retiring the two near-duplicate
+  // pages `portal.ts` seeded before this module existed.
+  { name: "resources", run: seedResources },
   { name: "comms", run: seedComms },
 ];
 

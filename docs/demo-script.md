@@ -24,6 +24,9 @@ land):
 3. *(both — the deployed path is proven end-to-end)* Open the CFP link and submit a proposal.
    Browser demo: any email + OTP `424242`. Deployed: a real emailed OTP, server draft, and
    server submit. Choose **Yes** for the live-demo question to reveal its conditional follow-up.
+   *(Deployed: back in the portal's Submissions list, open the new pending proposal and choose
+   **Edit your proposal** to change an answer before the form closes — M41. The CTA disappears
+   once the submission is decided or the form closes.)*
 4. *(browser demo for the full loop)* In **Abstracts**, open the new proposal, inspect
    **Answers**, score it in **Evaluation**, accept it, and click **Notify accepted speakers**.
    *(Deployed: the abstracts table reads the database; the decide/notify server routes are

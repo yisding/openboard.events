@@ -1,7 +1,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
-import { assertReviewerCanReadSubmission, getSubmissionDetail } from "@/features/submissions";
+import {
+  assertReviewerCanReadSubmission,
+  getSubmissionDetail,
+  submissionFieldPatchSchema,
+  updateSubmissionFields,
+} from "@/features/submissions";
 import { eventIdSchema, planIdSchema, submissionIdSchema, userIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
@@ -26,9 +31,35 @@ const detail = defineHandler({
   },
 });
 
+/**
+ * The drawer's save. `expectedRowVersion` is what the organizer's copy showed:
+ * a save composed against a stale copy is refused with 409 `STALE_WRITE` rather
+ * than quietly overwriting whatever a colleague changed in the meantime.
+ *
+ * The submission id comes from the path, never from the body — `/…/A` may not
+ * edit submission B because a request said so.
+ */
+const update = defineHandler({
+  auth: adminAuth({ role: "organizer" }),
+  input: z.object({
+    expectedRowVersion: z.int().positive(),
+    patch: submissionFieldPatchSchema,
+  }),
+  handler: async ({ eventId, input, params }) => updateSubmissionFields(
+    eventIdSchema.parse(eventId),
+    submissionIdSchema.parse(params.submissionId),
+    input.patch,
+    input.expectedRowVersion,
+  ),
+});
+
 export async function GET(request: NextRequest, route: { params: Promise<{ eventId: string; submissionId: string }> }): Promise<Response> {
   const { submissionId } = await route.params;
   const url = new URL(request.url);
   url.searchParams.set("submissionId", submissionId);
   return detail(new NextRequest(url, request), route);
+}
+
+export async function PATCH(request: NextRequest, route: { params: Promise<{ eventId: string; submissionId: string }> }): Promise<Response> {
+  return update(request, route);
 }

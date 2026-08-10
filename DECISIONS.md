@@ -115,6 +115,11 @@
   `requireAdmin` authorization semantics, an isolated revocable admin session store, and a
   deployed revocation proof — are recorded in `plan/product-roadmap.md` ("The product auth
   decision").
+- **Provisioned (2026-08-09, work not started):** local Google OAuth credentials exist —
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `BETTER_AUTH_URL` are set in the untracked
+  `.dev.vars` (values held outside the repository, local-dev only so far). When M42 starts,
+  the preview/production halves go in as worker secrets per `plan/environments.md`, never as
+  committed vars.
 
 ## Migration authorship
 

@@ -7,18 +7,23 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { StatusBadge } from "@/shared/ui/ui-kit";
 
 /**
- * Read-only by design. Editing a submission until its form closes is M41; until
- * that lands a speaker who needs a change asks the organizers, which is what the
- * copy says rather than showing a control that does nothing.
+ * Read-only, plus an Edit entry point M41 adds: offered only when the caller's
+ * own `getEditableSubmission` gate already passed (open form, pending/draft
+ * status, the submitter — never a co-speaker). A speaker who needs a change
+ * outside that window asks the organizers, which is what the fallback copy says
+ * rather than showing a control that does nothing.
  */
 export function SubmissionDetail({
   submission,
   eventSlug,
   timezone,
+  editable = false,
 }: {
   submission: PortalSubmissionDetail;
   eventSlug: string;
   timezone: string;
+  /** M41: true only when `getEditableSubmission` did not return a blocked result. */
+  editable?: boolean;
 }) {
   return (
     <article className="portal-submission-detail">
@@ -60,9 +65,15 @@ export function SubmissionDetail({
         </ul>
       </section>
 
-      <p className="portal-note">
-        Need a change? Reply to any message from the organizers — proposals are read-only here.
-      </p>
+      {editable ? (
+        <Link className="button button-primary" href={`/portal/${encodeURIComponent(eventSlug)}/submissions/${encodeURIComponent(submission.submissionId)}/edit`}>
+          Edit your proposal
+        </Link>
+      ) : (
+        <p className="portal-note">
+          Need a change? Reply to any message from the organizers — proposals are read-only here.
+        </p>
+      )}
     </article>
   );
 }

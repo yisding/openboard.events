@@ -1,0 +1,55 @@
+/**
+ * The pure TS twin of `is_form_open(form_id uuid)` (drizzle/0001_views_triggers.sql).
+ * Used for banners, the forms-list status pill, and friendly pre-checks — the
+ * SQL function inside the submit transaction remains the only authority (S2:
+ * deadline enforcement is SQL, not JS). This file exists so both sides agree on
+ * the boundary; it is exercised against a seeded closed form in Step 1's
+ * "Done when" alongside a direct `is_form_open()` call.
+ *
+ * Isomorphic and side-effect free: takes `nowIso` rather than reading the
+ * clock, and compares raw instants only — no timezone conversion happens here
+ * (that already happened when `opensAt`/`closesAt` were written as UTC
+ * instants), so nothing in this file needs `time.ts` or a date library.
+ */
+export type FormOpenReason = "ok" | "not_open_yet" | "closed_by_date" | "closed_by_admin";
+
+export type FormOpenStatus = "draft" | "open" | "closed";
+
+export function formOpenState(
+  form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
+  nowIso: string,
+): { open: boolean; reason: FormOpenReason } {
+  // The status column stores admin intent and outranks the dates in the
+  // closing direction: a draft or admin-closed form never reads as open, no
+  // matter what opens_at/closes_at say. This mirrors is_form_open's
+  // `status = 'open' AND ...` short-circuit.
+  if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
+
+  const now = new Date(nowIso).getTime();
+
+  // opens_at <= now() in SQL — equality already counts as open.
+  if (form.opensAt !== null && now < new Date(form.opensAt).getTime()) {
+    return { open: false, reason: "not_open_yet" };
+  }
+
+  // closes_at > now() in SQL — equality already counts as closed, so the
+  // comparison here is intentionally >= rather than >.
+  if (form.closesAt !== null && now >= new Date(form.closesAt).getTime()) {
+    return { open: false, reason: "closed_by_date" };
+  }
+
+  return { open: true, reason: "ok" };
+}
+
+/**
+ * The form's own limit wins; the event's per-user cap is what it falls back to
+ * when the organizer never set a form-level limit. Drafts never count toward
+ * either number — that rule lives at the call site that counts submissions,
+ * not here.
+ */
+export function effectiveLimit(
+  form: { submissionLimit: number | null },
+  event: { submissionCapPerUser: number },
+): number {
+  return form.submissionLimit ?? event.submissionCapPerUser;
+}

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { PublicSchedule } from "@/features/public/public-schedule";
+import { getPublishedSchedule } from "@/features/public/server/public-queries";
 
 export const metadata: Metadata = { title: "Event schedule" };
 
@@ -7,7 +9,8 @@ export const metadata: Metadata = { title: "Event schedule" };
  * CP0's revalidate-60 item, and the header `scripts/post-deploy-smoke.sh`
  * asserts: a public page must be edge-cacheable, or every visitor during a
  * keynote rush becomes an origin request. The client view reads URL filters
- * after hydration, so its complete default schedule remains in the cached HTML.
+ * after hydration, so its complete default schedule remains in the cached HTML
+ * — this route never reads `searchParams`, which is what keeps it static.
  */
 export const revalidate = 60;
 
@@ -22,5 +25,7 @@ export async function generateStaticParams(): Promise<Array<{ eventSlug: string 
 
 export default async function Page({ params }: { params: Promise<{ eventSlug: string }> }) {
   const { eventSlug } = await params;
-  return <PublicSchedule eventSlug={eventSlug} />;
+  const schedule = await getPublishedSchedule(eventSlug);
+  if (!schedule) notFound();
+  return <PublicSchedule eventSlug={eventSlug} schedule={schedule} />;
 }

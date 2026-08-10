@@ -246,6 +246,15 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       // Two days past due: the overdue list must never be empty for a demo, and
       // the reminder scan needs something to find on its first run.
       dueAt: eventLocal(ctx.now, -2, "17:00"),
+      // Backdated on purpose. M36's ladder suppresses every rung that predates
+      // `greatest(task.created_at, accepted_at)`, so a task whose `created_at`
+      // defaults to the seed run's `now()` has all three of its elapsed rungs
+      // (−7/−1/+1 of a due date two days ago) retired as pre-materialization
+      // and sends nothing. Thirty days old is what makes the CP3 fixture what
+      // M36's guardrail promises: exactly one queued row + two skipped rows on
+      // the first tick. It is also the only temporally coherent shape — a task
+      // that went overdue two days ago cannot have been created this instant.
+      createdAt: eventLocal(ctx.now, -30, "09:00"),
       sortOrder: 0,
       fileRequestId: null,
       formId: null,
@@ -256,6 +265,7 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       descriptionHtml: "<p>We collect decks a week ahead so the AV team can test every laptop.</p>",
       completionMode: "file_request" as const,
       dueAt: eventLocal(ctx.now, 30, "17:00"),
+      createdAt: eventLocal(ctx.now, -29, "09:00"),
       sortOrder: 1,
       fileRequestId: slidesRequestId,
       formId: null,
@@ -266,6 +276,7 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       descriptionHtml: "<p>Review your bio, headshot, pronouns, company, and job title.</p>",
       completionMode: "form" as const,
       dueAt: eventLocal(ctx.now, 45, "17:00"),
+      createdAt: eventLocal(ctx.now, -28, "09:00"),
       sortOrder: 2,
       fileRequestId: null,
       formId: profileForm.rows.form.id,
@@ -281,6 +292,7 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       targetType: "contact",
       completionMode: task.completionMode,
       dueAt: task.dueAt,
+      createdAt: task.createdAt,
       sortOrder: task.sortOrder,
       ...(task.fileRequestId ? { fileRequestId: task.fileRequestId } : {}),
       ...(task.formId ? { formId: task.formId } : {}),
@@ -291,6 +303,11 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
         descriptionHtml: task.descriptionHtml,
         targetType: "contact",
         dueAt: task.dueAt,
+        // Re-seeding an already-seeded database must land the same fixture a
+        // wiped one does, or a preview that was seeded before this backdate
+        // keeps a `created_at` of "whenever the first seed ran" and the
+        // reminder ladder stays silent on it forever.
+        createdAt: task.createdAt,
         completionMode: task.completionMode,
         formId: task.formId,
         fileRequestId: task.fileRequestId,

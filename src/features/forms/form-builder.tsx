@@ -29,9 +29,13 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, type BuilderDirtyTarget } from "./form-builder-state";
+// M14: the Settings/Notifications steps are owned by that module — see
+// components/builder/settings-step.tsx and notifications-step.tsx for the
+// hardened deadline/capacity/confirmation-template implementations.
+import { NotificationsStep } from "./components/builder/notifications-step";
+import { SettingsStep } from "./components/builder/settings-step";
 
 const stepMeta = [
   { id: "setup", label: "Setup", icon: Settings2 },
@@ -62,12 +66,6 @@ async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
 
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
-}
-
-function localInputValue(value: string | null, timezone: string): string {
-  if (!value) return "";
-  const { hour, minute } = hourMinuteInZone(value, timezone);
-  return `${eventDayKey(value, timezone)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initialForm: BuilderForm }) {
@@ -277,14 +275,6 @@ function FieldsStep({ section, participant, form, selected, onSelect, onSectionC
 
 function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
   return <div className="builder-card"><h3>Participant roles</h3><div className="toggle-list">{form.participantRoles.map((role) => <div key={role.role}><div><b>{role.role.replaceAll("_", "-")}</b><p>Allow this role on submitted proposals.</p></div><button className={`switch ${role.enabled ? "on" : ""}`} onClick={() => onChange({ participantRoles: form.participantRoles.map((candidate) => candidate.role === role.role ? { ...candidate, enabled: !candidate.enabled } : candidate) })}><i /></button></div>)}</div></div>;
-}
-
-function SettingsStep({ event, form, onChange }: { event: BuilderEvent; form: BuilderForm; onChange: (patch: FormPatch) => void }) {
-  return <section className="builder-step"><header><div className="step-number">5</div><div><h2>Form settings</h2><p>Control availability, limits, and the completion experience.</p></div></header><div className="builder-card"><h3>Dates and availability</h3><div className="form-grid"><Field label="Opens"><input type="datetime-local" value={localInputValue(form.opensAt, event.timezone)} onChange={(current) => onChange({ opensAt: current.target.value ? zonedInputToUtc(current.target.value, event.timezone).toISOString() : null })} /></Field><Field label="Closes"><input type="datetime-local" value={localInputValue(form.closesAt, event.timezone)} onChange={(current) => onChange({ closesAt: current.target.value ? zonedInputToUtc(current.target.value, event.timezone).toISOString() : null })} /></Field></div><div className="timezone-note">All dates use {event.timezone}.</div></div><div className="builder-card form-stack"><Field label="Submission limit"><input type="number" min={1} max={100000} value={form.submissionLimit ?? ""} onChange={(current) => onChange({ submissionLimit: current.target.value ? Number(current.target.value) : null })} /></Field><Field label="Success message"><RichTextEditor value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} /></Field><div className="inline-setting"><div><b>Redirect to speaker portal</b><small>Open the portal after a successful submission.</small></div><button className={`switch ${form.autoRedirectToPortal ? "on" : ""}`} onClick={() => onChange({ autoRedirectToPortal: !form.autoRedirectToPortal })}><i /></button></div></div></section>;
-}
-
-function NotificationsStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
-  return <section className="builder-step"><header><div className="step-number">6</div><div><h2>Notifications</h2><p>Configure the receipt sent after a proposal arrives.</p></div></header><div className="builder-card form-stack"><div className="inline-setting"><div><b>Send confirmation to the speaker</b><small>Queued through the transactional outbox.</small></div><button className={`switch ${form.sendConfirmation ? "on" : ""}`} onClick={() => onChange({ sendConfirmation: !form.sendConfirmation })}><i /></button></div><Field label="Subject"><input maxLength={255} value={form.confirmationSubject} onChange={(current) => onChange({ confirmationSubject: current.target.value })} placeholder="We received your proposal" /></Field><Field label="Email body"><RichTextEditor value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} maxChars={5000} /></Field></div></section>;
 }
 
 function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { field: BuilderField; form: BuilderForm; onChange: (patch: Partial<BuilderField>) => void; onSave: () => void; onDelete: () => void; busy: boolean }) {

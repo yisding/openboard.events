@@ -1,13 +1,19 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { USERS } from "./seeded";
 
 /**
  * Admin sign-in for specs. `/api/test/login` 404s unless `TEST_AUTH=1` at build
  * time, so it exists on preview and cannot exist in production. There is no
  * seeded bearer token: this is the only machine path into an admin session.
+ *
+ * Accepts either a `Page` (the browser gets the cookie) or a bare
+ * `APIRequestContext` (a separate cookie jar, for the arrange/assert calls a
+ * speaker-facing spec makes as an organizer without signing the browser in as
+ * one).
  */
-export async function loginAsAdmin(page: Page, email: string = USERS.organizer): Promise<void> {
-  const response = await page.request.post("/api/test/login", { data: { email } });
+export async function loginAsAdmin(target: Page | APIRequestContext, email: string = USERS.organizer): Promise<void> {
+  const request = "request" in target ? target.request : target;
+  const response = await request.post("/api/test/login", { data: { email } });
   if (!response.ok()) {
     throw new Error(
       `/api/test/login returned ${response.status()} for ${email}. `
@@ -35,6 +41,26 @@ export async function loginAsSpeaker(page: Page, eventSlug: string, email: strin
   await page.getByLabel(/code/i).fill(otp);
   await page.getByRole("button", { name: /verify|sign in|continue/i }).click();
   await expect(page).toHaveURL(new RegExp(`/portal/${eventSlug}(?!/login)`));
+}
+
+/**
+ * The `{ data }` envelope every internal route answers with, unwrapped once so a
+ * spec asserting on a payload does not re-implement the error handling.
+ */
+export async function apiData<T>(
+  request: APIRequestContext,
+  path: string,
+  init: { method?: "GET" | "POST" | "PATCH" | "DELETE"; data?: unknown } = {},
+): Promise<T> {
+  const response = await request.fetch(path, {
+    method: init.method ?? "GET",
+    ...(init.data === undefined ? {} : { data: init.data }),
+  });
+  const body = await response.json().catch(() => null) as { data?: T; error?: { code?: string; message?: string } } | null;
+  if (!response.ok() || body?.data === undefined) {
+    throw new Error(`${init.method ?? "GET"} ${path} → ${response.status()} ${body?.error?.code ?? ""} ${body?.error?.message ?? ""}`.trim());
+  }
+  return body.data;
 }
 
 /**

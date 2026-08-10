@@ -3,30 +3,34 @@
  *
  * Every unlanded step in the six specs is gated on an entry here. Flip an entry
  * to `true` when its module merges to `main` **and** the spec steps it gates
- * have real bodies — most steps are still placeholder `async () => {}` stubs
- * (M10's remaining work), and flipping a gate over empty steps reports vacuous
- * green on specs that define checkpoints (cfp-submit *is* CP2's bar). Nothing
- * else in the suite hard-codes a module name, so this table is the single
- * place the schedule can go stale.
+ * have real bodies — flipping a gate over an empty `async () => {}` step reports
+ * vacuous green on specs that define checkpoints (cfp-submit *is* CP2's bar).
+ * Nothing else in the suite hard-codes a module name, so this table is the
+ * single place the schedule can go stale.
+ *
+ * All 17 are `true` as of the change that replaced the last placeholder step
+ * body. Every entry below names the steps it now gates; a module whose feature
+ * regresses out of the tree goes back to `false` *together with* the steps that
+ * assert on it, never on its own.
  */
 export const MODULES = {
-  M09: { landed: false, what: "seed orchestrator" },
-  M11: { landed: false, what: "events + vocab" },
-  M12: { landed: false, what: "form builder core" },
-  M15: { landed: false, what: "public CFP wizard (merged+deployed; spec steps unimplemented)" },
-  M16: { landed: false, what: "submit pipeline (merged+deployed; spec steps unimplemented)" },
-  M17: { landed: false, what: "abstracts table (reads merged; spec steps unimplemented)" },
-  M18: { landed: false, what: "submission decide/notify UI (server half merged in #57)" },
-  M21: { landed: false, what: "portal shell (merged; spec steps unimplemented)" },
-  M22: { landed: false, what: "speaker profile" },
-  M25: { landed: false, what: "task runtime" },
-  M28: { landed: false, what: "sessions CRUD" },
-  M29: { landed: false, what: "conflict engine" },
-  M31: { landed: false, what: "agenda views" },
-  M32: { landed: false, what: "public schedule + gallery" },
-  M33: { landed: false, what: "embed shells" },
-  M34: { landed: false, what: "comms outbox dispatcher (merged+proven; spec steps unimplemented)" },
-  M40: { landed: false, what: "public API (deployed; spec steps unimplemented)" },
+  M09: { landed: true, what: "seed orchestrator — all eight per-feature bodies real" },
+  M11: { landed: true, what: "events + vocab (create/validate/vocabulary steps)" },
+  M12: { landed: true, what: "form builder core (builder → public link steps)" },
+  M15: { landed: true, what: "public CFP wizard (whole cfp-submit spine)" },
+  M16: { landed: true, what: "submit pipeline (draft, hidden-answer strip, LIMIT_REACHED)" },
+  M17: { landed: true, what: "abstracts table (tab counts, drawer answers)" },
+  M18: { landed: true, what: "submission decide/notify (queue + notify steps)" },
+  M21: { landed: true, what: "portal shell (portal login, home counts)" },
+  M22: { landed: true, what: "speaker profile (bio counter + server refusal)" },
+  M25: { landed: true, what: "task runtime (manual + file-request completion)" },
+  M28: { landed: true, what: "sessions CRUD (edit-dialog placement, publish)" },
+  M29: { landed: true, what: "conflict engine (badge delta, half-open intervals)" },
+  M31: { landed: true, what: "agenda views (all six views over one conflict array)" },
+  M32: { landed: true, what: "public schedule + gallery (render + leakage steps)" },
+  M33: { landed: true, what: "embed shells (frame-ancestors, no X-Frame-Options)" },
+  M34: { landed: true, what: "comms outbox dispatcher (one log row per submission)" },
+  M40: { landed: true, what: "public API (published-only rows matching the page)" },
 } as const;
 
 export type ModuleId = keyof typeof MODULES;

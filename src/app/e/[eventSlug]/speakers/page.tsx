@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import { notFound } from "next/navigation";
 import { PublicSpeakers } from "@/features/public/public-speakers";
+import { getPublishedSpeakers } from "@/features/public/server/public-queries";
 
 export const metadata: Metadata = { title: "Event speakers" };
 
@@ -18,9 +19,7 @@ export async function generateStaticParams(): Promise<Array<{ eventSlug: string 
 
 export default async function Page({ params }: { params: Promise<{ eventSlug: string }> }) {
   const { eventSlug } = await params;
-  return (
-    <Suspense>
-      <PublicSpeakers eventSlug={eventSlug} />
-    </Suspense>
-  );
+  const speakers = await getPublishedSpeakers(eventSlug);
+  if (!speakers) notFound();
+  return <PublicSpeakers eventSlug={eventSlug} speakers={speakers} />;
 }

@@ -18,6 +18,8 @@ export type BuilderEvent = {
   name: string;
   slug: string;
   timezone: string;
+  // M14: the "Event max: N" fallback chip on the Submission capacity card.
+  submissionCapPerUser: number;
 };
 
 export type BuilderField = {
