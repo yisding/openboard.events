@@ -1,119 +1,312 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Bell, Check, ChevronRight, CircleCheck, Eye, FileText, GripVertical, LockKeyhole, MessageSquareText, MoreHorizontal, Plus, Rocket, Settings2, SlidersHorizontal, Trash2, Users } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Bell,
+  Check,
+  CircleCheck,
+  Copy,
+  Eye,
+  FileText,
+  LockKeyhole,
+  MessageSquareText,
+  Plus,
+  Rocket,
+  Save,
+  Settings2,
+  SlidersHorizontal,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useMemo, useState } from "react";
-import { useDemo } from "@/shared/demo/demo-provider";
+import type { FieldType, MapsToTarget, VisibilityRule } from "@/shared/contracts";
+import { COMMITTED_FIELD_TYPES, CONDITION_OPS, MAPS_TO_TARGETS } from "@/shared/contracts";
+import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import type { FieldType } from "@/shared/contracts";
-import type { FormFieldRecord, FormRecord } from "@/shared/demo/types";
+import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 
-const steps = [
-  { id: "setup", label: "Setup", icon: Settings2 }, { id: "welcome", label: "Welcome", icon: MessageSquareText },
-  { id: "abstract", label: "Abstract", icon: FileText }, { id: "participant", label: "Participant", icon: Users },
-  { id: "settings", label: "Settings", icon: SlidersHorizontal }, { id: "notifications", label: "Notifications", icon: Bell },
+const stepMeta = [
+  { id: "setup", label: "Setup", icon: Settings2 },
+  { id: "welcome", label: "Welcome", icon: MessageSquareText },
+  { id: "abstract", label: "Abstract", icon: FileText },
+  { id: "participant", label: "Participant", icon: Users },
+  { id: "settings", label: "Settings", icon: SlidersHorizontal },
+  { id: "notifications", label: "Notifications", icon: Bell },
 ] as const;
-type BuilderStep = (typeof steps)[number]["id"];
 
-const addableTypes: Array<{ type: FieldType; label: string; description: string }> = [
-  { type: "text", label: "Short text", description: "A single line response" }, { type: "textarea", label: "Long text", description: "A paragraph response" },
-  { type: "richtext", label: "Rich text", description: "Formatted long-form answer" }, { type: "dropdown", label: "Dropdown", description: "Choose one option" },
-  { type: "multiselect", label: "Multi-select", description: "Choose several options" }, { type: "email", label: "Email", description: "Validated email address" },
-  { type: "url", label: "Website", description: "Validated web address" }, { type: "file", label: "File upload", description: "PDF, slides, or document" },
+const addableTypes: Array<{ type: (typeof COMMITTED_FIELD_TYPES)[number]; label: string; description: string }> = [
+  { type: "text", label: "Short text", description: "A single line response" },
+  { type: "textarea", label: "Long text", description: "A paragraph response" },
+  { type: "richtext", label: "Rich text", description: "Formatted long-form answer" },
+  { type: "dropdown", label: "Dropdown", description: "Choose one option" },
+  { type: "multiselect", label: "Multi-select", description: "Choose several options" },
+  { type: "email", label: "Email", description: "Validated email address" },
+  { type: "url", label: "Website", description: "Validated web address" },
+  { type: "file", label: "File upload", description: "PDF, slides, or document" },
 ];
 
-export function FormBuilder({ eventId, formId }: { eventId: string; formId: string }) {
-  const { state, dispatch } = useDemo();
+async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  const payload = await response.json() as { data?: T; error?: { message?: string } };
+  if (!response.ok || payload.data === undefined) throw new Error(payload.error?.message ?? "The form could not be saved");
+  return payload.data;
+}
+
+function json(method: string, body: unknown): RequestInit {
+  return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+function localInputValue(value: string | null, timezone: string): string {
+  if (!value) return "";
+  const { hour, minute } = hourMinuteInZone(value, timezone);
+  return `${eventDayKey(value, timezone)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initialForm: BuilderForm }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
-  const event = state.events.find((item) => item.id === eventId);
-  const form = state.forms.find((item) => item.id === formId && item.eventId === eventId);
-  const [step, setStep] = useState<BuilderStep>("abstract");
+  const requestedStep = searchParams.get("step");
+  const step: BuilderStep = BUILDER_STEPS.includes(requestedStep as BuilderStep) ? requestedStep as BuilderStep : "abstract";
+  const [form, setForm] = useState(initialForm);
   const [selected, setSelected] = useState<{ sectionId: string; fieldId: string } | null>(null);
   const [adding, setAdding] = useState(false);
-  const [newType, setNewType] = useState<FieldType>("text");
+  const [newType, setNewType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
   const [newLabel, setNewLabel] = useState("");
-  const [saved, setSaved] = useState(true);
-  const structuralLocked = (form?.submissions ?? 0) > 0;
-  const selectedField = useMemo(() => form?.sections.find((section) => section.id === selected?.sectionId)?.fields.find((field) => field.id === selected?.fieldId), [form, selected]);
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
 
-  if (!form || !event) return <div className="empty-state"><h3>Form not found</h3><Link className="button button-secondary" href="/events">Back to events</Link></div>;
-  const currentForm = form;
+  function setStep(next: BuilderStep) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("step", next);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    setSelected(null);
+  }
 
-  function updateForm(patch: Partial<FormRecord>) {
-    dispatch({ type: "UPDATE_FORM", formId: currentForm.id, patch }); setSaved(false); window.setTimeout(() => setSaved(true), 500);
+  function applyLocal(patch: FormPatch) {
+    setForm((current) => ({ ...current, ...patch }) as BuilderForm);
+    setDirty(true);
   }
-  function updateField(patch: Partial<FormFieldRecord>) {
-    if (!selected) return; dispatch({ type: "UPDATE_FIELD", formId: currentForm.id, sectionId: selected.sectionId, fieldId: selected.fieldId, patch }); setSaved(false); window.setTimeout(() => setSaved(true), 500);
+
+  function applySection(sectionId: string, patch: Partial<BuilderSection>) {
+    setForm((current) => ({ ...current, sections: current.sections.map((section) => section.id === sectionId ? { ...section, ...patch } : section) }));
+    setDirty(true);
   }
-  function addField() {
-    const section = currentForm.sections.find((item) => step === "participant" ? item.id.includes("speaker") : !item.id.includes("speaker")) ?? currentForm.sections[0];
+
+  function applyField(fieldId: string, patch: Partial<BuilderField>) {
+    setForm((current) => ({
+      ...current,
+      sections: current.sections.map((section) => ({ ...section, fields: section.fields.map((field) => field.id === fieldId ? { ...field, ...patch } : field) })),
+    }));
+    setDirty(true);
+  }
+
+  async function run(action: () => Promise<BuilderForm>, success: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const next = await action();
+      setForm(next);
+      setDirty(false);
+      toast(success);
+      router.refresh();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "The form could not be saved");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function patchForm(patch: FormPatch, source = form): Promise<BuilderForm> {
+    return requestData(`/api/internal/forms/${form.id}?eventId=${event.id}`, json("PATCH", { expectedUpdatedAt: source.updatedAt, patch }));
+  }
+
+  async function saveStep() {
+    if (step === "abstract" || step === "participant") {
+      const section = form.sections.find((candidate) => candidate.key === step);
+      if (!section) return;
+      await run(async () => {
+        let current = form;
+        if (step === "participant") current = await patchForm({ participantRoles: form.participantRoles }, current);
+        return requestData(`/api/internal/forms/${form.id}/sections/${section.id}?eventId=${event.id}`, json("PATCH", {
+          expectedUpdatedAt: current.updatedAt,
+          patch: { title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml },
+        }));
+      }, `${step === "abstract" ? "Abstract" : "Participant"} step saved`);
+      return;
+    }
+    const patch: FormPatch = step === "setup" ? {
+      internalName: form.internalName,
+      kind: form.kind,
+      collectParticipants: form.collectParticipants,
+    } : step === "welcome" ? {
+      internalName: form.internalName,
+      externalTitle: form.externalTitle,
+      pageHeading: form.pageHeading,
+      showWelcome: form.showWelcome,
+      welcomeHtml: form.welcomeHtml,
+    } : step === "settings" ? {
+      status: form.status,
+      opensAt: form.opensAt,
+      closesAt: form.closesAt,
+      submissionLimit: form.submissionLimit,
+      successHtml: form.successHtml,
+      autoRedirectToPortal: form.autoRedirectToPortal,
+    } : {
+      sendConfirmation: form.sendConfirmation,
+      confirmationSubject: form.confirmationSubject,
+      confirmationBodyHtml: form.confirmationBodyHtml,
+    };
+    await run(() => patchForm(patch), `${stepMeta.find((item) => item.id === step)?.label} step saved`);
+  }
+
+  async function saveField(field: BuilderField) {
+    const structural = form.hasNonDraftSubmissions || field.locked ? {} : {
+      key: field.key,
+      fieldType: field.fieldType,
+      required: field.required,
+      optionLabels: field.options.map((option) => option.label),
+      visibility: field.visibility,
+      mapsTo: field.mapsTo,
+    };
+    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
+      expectedUpdatedAt: form.updatedAt,
+      patch: { label: field.label, helpText: field.helpText, maxChars: field.maxChars, ...structural },
+    })), "Question saved");
+  }
+
+  async function addField() {
+    const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
     if (!section || !newLabel.trim()) return;
-    // Answer keys must be unique across the form: answers are stored by key,
-    // so a collision would make two questions overwrite each other.
-    const existingKeys = new Set(currentForm.sections.flatMap((item) => item.fields).map((item) => item.key));
-    const base = newLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "question";
-    let key = base;
-    for (let suffix = 2; existingKeys.has(key); suffix += 1) key = `${base}_${suffix}`;
-    const field: FormFieldRecord = { id: `fld_${Date.now()}`, key, label: newLabel.trim(), type: newType, required: false, locked: false, helpText: "", placeholder: "", maxChars: ["text", "textarea", "richtext"].includes(newType) ? 500 : null, options: ["dropdown", "multiselect"].includes(newType) ? ["Option 1", "Option 2"] : [] };
-    dispatch({ type: "ADD_FIELD", formId: currentForm.id, sectionId: section.id, field }); setAdding(false); setNewLabel(""); setSelected({ sectionId: section.id, fieldId: field.id }); toast("Question added");
+    await run(() => requestData(`/api/internal/forms/${form.id}/fields?eventId=${event.id}`, json("POST", {
+      expectedUpdatedAt: form.updatedAt,
+      sectionId: section.id,
+      label: newLabel,
+      fieldType: newType,
+    })), "Question added");
+    setAdding(false);
+    setNewLabel("");
   }
-  function publish() { updateForm({ status: currentForm.status === "open" ? "draft" : "open" }); toast(currentForm.status === "open" ? "Form moved to draft" : "Form is live and accepting submissions"); }
 
+  async function deleteField(field: BuilderField) {
+    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("DELETE", { expectedUpdatedAt: form.updatedAt })), "Question removed");
+    setSelected(null);
+  }
+
+  async function moveField(section: BuilderSection, fieldId: string, delta: -1 | 1) {
+    const current = section.fields.findIndex((field) => field.id === fieldId);
+    const target = current + delta;
+    if (current < 0 || target < 0 || target >= section.fields.length) return;
+    const ordered = section.fields.map((field) => field.id);
+    const currentId = ordered[current];
+    const targetId = ordered[target];
+    if (!currentId || !targetId) return;
+    ordered[current] = targetId;
+    ordered[target] = currentId;
+    await run(() => requestData(`/api/internal/forms/${form.id}/fields/reorder?eventId=${event.id}`, json("POST", {
+      expectedUpdatedAt: form.updatedAt,
+      sectionId: section.id,
+      orderedFieldIds: ordered,
+    })), "Question order saved");
+  }
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(`${window.location.origin}/submit/${event.slug}/${form.id}`);
+    toast("Public form link copied");
+  }
+
+  const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
   return <div className="builder-wrap">
-    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.name}</h1><StatusBadge value={form.status} /></div><span>Version {form.version} · <i className={saved ? "saved" : "saving"}>{saved ? "All changes saved" : "Saving…"}</i></span></div></div><div className="builder-actions"><Link className="button button-secondary" target="_blank" href={`/submit/${event.slug}/${form.id}`}><Eye size={16} /> Preview</Link><Button onClick={publish}>{form.status === "open" ? "Unpublish" : <><Rocket size={16} /> Publish form</>}</Button></div></header>
-    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{steps.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => { setStep(item.id); setSelected(null); }}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{index < 2 && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Form readiness</span><b>86%</b></div><div className="progress-track"><i style={{ width: "86%" }} /></div><small>Add a close date to finish setup.</small></div></aside>
-      <main className="builder-canvas">{structuralLocked && (step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, and copy. Duplicate this form to change questions.</span></div></div>}
-        {step === "setup" && <SetupStep name={form.name} status={form.status} onUpdate={updateForm} />}
-        {step === "welcome" && <WelcomeStep title={form.welcomeTitle} body={form.welcomeBody} onUpdate={updateForm} />}
-        {(step === "abstract" || step === "participant") && <FieldsStep form={form} participant={step === "participant"} selected={selected?.fieldId ?? null} onSelect={(sectionId, fieldId) => setSelected({ sectionId, fieldId })} onAdd={() => setAdding(true)} locked={structuralLocked} />}
-        {step === "settings" && <SettingsStep form={form} onUpdate={updateForm} />}
-        {step === "notifications" && <NotificationsStep />}
+    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={form.status} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
+      <button className="button button-secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy link</button>
+      <Link className="button button-secondary" target="_blank" href={`/submit/${event.slug}/${form.id}`}><Eye size={16} /> View form</Link>
+      <Button disabled={busy} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
+      <Button variant={form.status === "open" ? "secondary" : "primary"} disabled={busy} onClick={() => void run(() => patchForm({ status: form.status === "open" ? "closed" : "open" }), form.status === "open" ? "Form closed" : "Form is open")}><Rocket size={16} /> {form.status === "open" ? "Close" : "Open form"}</Button>
+    </div></header>
+    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
+      <main className="builder-canvas">
+        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. Duplicate the form to change its structure.</span></div></div>}
+        {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
+        {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
+        {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} />}
+        {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
+        {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
+        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </main>
-      <aside className="builder-inspector">{selectedField && selected ? <FieldInspector field={selectedField} form={form} onChange={updateField} onDelete={() => { dispatch({ type: "DELETE_FIELD", formId: form.id, sectionId: selected.sectionId, fieldId: selected.fieldId }); setSelected(null); toast("Question removed"); }} locked={structuralLocked} /> : <BuilderPreview form={form} step={step} />}</aside>
+      <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => void deleteField(selectedField)} busy={busy} /> : <BuilderPreview form={form} step={step} />}</aside>
     </div>
-    <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose the response type, then customize it in the inspector." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim()} onClick={addField}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus value={newLabel} onChange={(event) => setNewLabel(event.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type"><div className="type-grid">{addableTypes.map((item) => <button key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type"><div className="type-grid">{addableTypes.map((item) => <button key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
   </div>;
 }
 
-function SetupStep({ name, status, onUpdate }: { name: string; status: string; onUpdate: (patch: { name?: string; status?: "draft" | "open" | "closed" }) => void }) {
-  return <section className="builder-step"><header><div className="step-number">1</div><div><h2>Form setup</h2><p>Name your form and choose how it will be used.</p></div></header><div className="builder-card form-stack"><Field label="Form name" required><input value={name} onChange={(event) => onUpdate({ name: event.target.value })} /></Field><Field label="Form status"><select value={status} onChange={(event) => onUpdate({ status: event.target.value as "draft" | "open" | "closed" })}><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select></Field><div className="setting-note"><FileText size={18} /><div><b>Call for speakers</b><p>This form includes submission, participant, and review steps. Payments are not needed for this event.</p></div></div></div></section>;
+function SetupStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <section className="builder-step"><header><div className="step-number">1</div><div><h2>Submission setup</h2><p>Choose the submission type and whether to collect participant details.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="Submission type"><div className="choice-cards"><button disabled={form.hasNonDraftSubmissions} className={form.kind === "abstract" ? "active" : ""} onClick={() => onChange({ kind: "abstract" })}><FileText size={20} /><b>Abstracts</b><small>Proposals reviewed before scheduling</small></button><button disabled={form.hasNonDraftSubmissions} className={form.kind === "session" ? "active" : ""} onClick={() => onChange({ kind: "session" })}><Users size={20} /><b>Sessions</b><small>Complete session submissions</small></button></div></Field><div className="inline-setting"><div><b>Collect participant information</b><small>Speaker identity fields remain protected.</small></div><button disabled={form.hasNonDraftSubmissions} className={`switch ${form.collectParticipants ? "on" : ""}`} onClick={() => onChange({ collectParticipants: !form.collectParticipants })}><i /></button></div><div className="setting-note"><FileText size={18} /><div><b>No payments step</b><p>Payments are outside this form’s scope.</p></div></div></div></section>;
 }
-function WelcomeStep({ title, body, onUpdate }: { title: string; body: string; onUpdate: (patch: { welcomeTitle?: string; welcomeBody?: string }) => void }) {
-  return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome</h2><p>Set the tone and tell speakers what you’re looking for.</p></div></header><div className="builder-card form-stack"><Field label="Headline" required><input value={title} onChange={(event) => onUpdate({ welcomeTitle: event.target.value })} /></Field><Field label="Introduction" hint="Keep this concise. You can add submission guidance below."><textarea value={body} onChange={(event) => onUpdate({ welcomeBody: event.target.value })} /></Field><Field label="Guidance link"><input placeholder="https://your-event.com/speaker-guide" /></Field></div></section>;
+
+function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome screen</h2><p>Set the public title, heading, and opening message.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="External form title" required hint={`${form.externalTitle.length}/255`}><input maxLength={255} value={form.externalTitle} onChange={(current) => onChange({ externalTitle: current.target.value })} /></Field><Field label="Page heading" required hint={`${form.pageHeading.length}/15`}><input maxLength={15} value={form.pageHeading} onChange={(current) => onChange({ pageHeading: current.target.value })} /></Field><div className="inline-setting"><div><b>Show welcome message</b><small>Speakers see this before starting.</small></div><button className={`switch ${form.showWelcome ? "on" : ""}`} onClick={() => onChange({ showWelcome: !form.showWelcome })}><i /></button></div>{form.showWelcome && <Field label="Welcome message"><RichTextEditor value={form.welcomeHtml} onChange={(welcomeHtml) => onChange({ welcomeHtml })} maxChars={5000} /></Field>}</div></section>;
 }
-function FieldsStep({ form, participant, selected, onSelect, onAdd, locked }: { form: import("@/shared/demo/types").FormRecord; participant: boolean; selected: string | null; onSelect: (sectionId: string, fieldId: string) => void; onAdd: () => void; locked: boolean }) {
-  const sections = form.sections.filter((section) => participant ? section.id.includes("speaker") : !section.id.includes("speaker"));
-  const displayed = sections.length ? sections : form.sections;
-  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant details" : "Abstract questions"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header>{displayed.map((section) => <div className="builder-card field-section" key={section.id}><div className="section-heading"><div><input defaultValue={section.title} aria-label="Section title" /><p>{section.description}</p></div><button className="icon-button"><MoreHorizontal size={17} /></button></div><div className="builder-fields">{section.fields.map((field) => <button key={field.id} className={selected === field.id ? "selected" : ""} onClick={() => onSelect(section.id, field.id)}><GripVertical size={16} className="drag-handle"/><span className="field-type-icon">{typeIcon(field.type)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.type)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}<ChevronRight size={16} /></button>)}</div><Button variant="ghost" className="add-question" disabled={locked} onClick={onAdd}><Plus size={16} /> Add question</Button></div>)}</section>;
+
+function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void }) {
+  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Abstract information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>{!participant && <div className="setting-note"><SlidersHorizontal size={18} /><div><b>Routing rules</b><p>Existing routing rules continue to run against field ids. Rule authoring is completed in the Routing Rules module.</p></div></div>}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
 }
-function SettingsStep({ form, onUpdate }: { form: import("@/shared/demo/types").FormRecord; onUpdate: (patch: Partial<import("@/shared/demo/types").FormRecord>) => void }) {
-  return <section className="builder-step"><header><div className="step-number">5</div><div><h2>Submission settings</h2><p>Control dates, capacity, and the completion experience.</p></div></header><div className="builder-card"><h3>Dates & availability</h3><div className="form-grid"><Field label="Opens"><input type="datetime-local" value={form.opensAt ? form.opensAt.slice(0,16) : ""} onChange={(event) => onUpdate({ opensAt: event.target.value ? new Date(event.target.value).toISOString() : "" })} /></Field><Field label="Closes"><input type="datetime-local" value={form.closesAt ? form.closesAt.slice(0,16) : ""} onChange={(event) => onUpdate({ closesAt: event.target.value ? new Date(event.target.value).toISOString() : "" })} /></Field></div><div className="timezone-note">All dates use America/Los_Angeles (PDT).</div></div><div className="builder-card"><h3>Submission capacity</h3><div className="form-grid"><Field label="Total submissions"><input type="number" value={form.submissionLimit} onChange={(event) => onUpdate({ submissionLimit: Number(event.target.value) })} /></Field><Field label="Per speaker"><input type="number" value={form.maxPerSpeaker} onChange={(event) => onUpdate({ maxPerSpeaker: Number(event.target.value) })} /></Field></div></div><div className="builder-card form-stack"><h3>After submission</h3><Field label="Success headline"><input value={form.successTitle} onChange={(event) => onUpdate({ successTitle: event.target.value })} /></Field><Field label="Success message"><textarea value={form.successBody} onChange={(event) => onUpdate({ successBody: event.target.value })} /></Field></div></section>;
+
+function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <div className="builder-card"><h3>Participant roles</h3><div className="toggle-list">{form.participantRoles.map((role) => <div key={role.role}><div><b>{role.role.replaceAll("_", "-")}</b><p>Allow this role on submitted proposals.</p></div><button className={`switch ${role.enabled ? "on" : ""}`} onClick={() => onChange({ participantRoles: form.participantRoles.map((candidate) => candidate.role === role.role ? { ...candidate, enabled: !candidate.enabled } : candidate) })}><i /></button></div>)}</div></div>;
 }
-function NotificationsStep() {
-  const [receipt, setReceipt] = useState(true); const [team, setTeam] = useState(true);
-  return <section className="builder-step"><header><div className="step-number">6</div><div><h2>Notifications</h2><p>Choose what is sent when a proposal arrives.</p></div></header><div className="builder-card toggle-list"><div><span className="metric-icon purple"><Bell size={18} /></span><div><b>Send a confirmation to the speaker</b><p>Uses the “Submission received” template.</p></div><button className={`switch ${receipt ? "on" : ""}`} onClick={() => setReceipt(!receipt)}><i /></button></div><div><span className="metric-icon blue"><Users size={18} /></span><div><b>Notify the organizing team</b><p>Sends a concise proposal summary to event owners.</p></div><button className={`switch ${team ? "on" : ""}`} onClick={() => setTeam(!team)}><i /></button></div></div><div className="builder-card"><h3>Email preview</h3><div className="email-preview"><small>SUBJECT</small><b>We received your proposal, {"{{contact.first_name}}"}</b><p>Thanks for submitting <strong>{"{{submission.title}}"}</strong> to AI Engineer World’s Fair. We’ll be in touch after the review period closes.</p></div></div></section>;
+
+function SettingsStep({ event, form, onChange }: { event: BuilderEvent; form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <section className="builder-step"><header><div className="step-number">5</div><div><h2>Form settings</h2><p>Control availability, limits, and the completion experience.</p></div></header><div className="builder-card"><h3>Dates and availability</h3><div className="form-grid"><Field label="Opens"><input type="datetime-local" value={localInputValue(form.opensAt, event.timezone)} onChange={(current) => onChange({ opensAt: current.target.value ? zonedInputToUtc(current.target.value, event.timezone).toISOString() : null })} /></Field><Field label="Closes"><input type="datetime-local" value={localInputValue(form.closesAt, event.timezone)} onChange={(current) => onChange({ closesAt: current.target.value ? zonedInputToUtc(current.target.value, event.timezone).toISOString() : null })} /></Field></div><div className="timezone-note">All dates use {event.timezone}.</div></div><div className="builder-card form-stack"><Field label="Submission limit"><input type="number" min={1} max={100000} value={form.submissionLimit ?? ""} onChange={(current) => onChange({ submissionLimit: current.target.value ? Number(current.target.value) : null })} /></Field><Field label="Success message"><RichTextEditor value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} /></Field><div className="inline-setting"><div><b>Redirect to speaker portal</b><small>Open the portal after a successful submission.</small></div><button className={`switch ${form.autoRedirectToPortal ? "on" : ""}`} onClick={() => onChange({ autoRedirectToPortal: !form.autoRedirectToPortal })}><i /></button></div></div></section>;
 }
-function FieldInspector({ field, form, onChange, onDelete, locked }: { field: FormFieldRecord; form: FormRecord; onChange: (patch: Partial<FormFieldRecord>) => void; onDelete: () => void; locked: boolean }) {
-  const earlier = form.sections.flatMap((section) => section.fields).filter((item) => item.id !== field.id);
-  const visibility = field.visibility;
-  return <div className="inspector-content">
-    <header><div><span>QUESTION</span><h3>Edit field</h3></div>{field.locked && <StatusBadge value="Locked" />}</header>
-    <div className="form-stack">
-      <Field label="Label"><input value={field.label} onChange={(event) => onChange({ label: event.target.value })} /></Field>
-      <Field label="Help text"><textarea value={field.helpText} onChange={(event) => onChange({ helpText: event.target.value })} /></Field>
-      <Field label="Placeholder"><input value={field.placeholder} onChange={(event) => onChange({ placeholder: event.target.value })} /></Field>
-      <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question</small></div><button className={`switch ${field.required ? "on" : ""}`} onClick={() => !field.locked && onChange({ required: !field.required })}><i /></button></div>
-      {field.options.length > 0 && <Field label="Options" hint={locked ? "Options are locked while the form has submissions — saved answers reference them." : "One option per line"}><textarea disabled={locked} value={field.options.join("\n")} onChange={(event) => { if (locked) return; onChange({ options: event.target.value.split("\n").filter(Boolean) }); }} /></Field>}
-      <div className="condition-card"><div><b>Conditional visibility</b><small>{field.locked ? "Locked identity fields are always visible." : locked ? "Visibility rules are locked while the form has submissions." : "Show this question based on an earlier answer."}</small></div><button disabled={field.locked || locked} className={`switch ${visibility ? "on" : ""}`} onClick={() => { if (field.locked || locked) return; onChange({ visibility: visibility ? null : { fieldId: earlier[0]?.id ?? "", operator: "eq", value: "Yes" } }); }}><i /></button>
-        {visibility && !field.locked && <div className="condition-editor"><span>Show when</span><select disabled={locked} value={visibility.fieldId} onChange={(event) => onChange({ visibility: { ...visibility, fieldId: event.target.value } })}>{earlier.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><select disabled={locked} value={visibility.operator} onChange={(event) => onChange({ visibility: { ...visibility, operator: event.target.value as "eq" | "neq" | "answered" | "empty" } })}><option value="eq">is</option><option value="neq">is not</option><option value="answered">is answered</option><option value="empty">is empty</option></select>{["eq", "neq"].includes(visibility.operator) && <input disabled={locked} value={visibility.value ?? ""} onChange={(event) => onChange({ visibility: { ...visibility, value: event.target.value } })} placeholder="Value" />}</div>}
-      </div>
-      {!field.locked && <Button variant="ghost" disabled={locked} className="delete-field" onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
-    </div>
-  </div>;
+
+function NotificationsStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <section className="builder-step"><header><div className="step-number">6</div><div><h2>Notifications</h2><p>Configure the receipt sent after a proposal arrives.</p></div></header><div className="builder-card form-stack"><div className="inline-setting"><div><b>Send confirmation to the speaker</b><small>Queued through the transactional outbox.</small></div><button className={`switch ${form.sendConfirmation ? "on" : ""}`} onClick={() => onChange({ sendConfirmation: !form.sendConfirmation })}><i /></button></div><Field label="Subject"><input maxLength={255} value={form.confirmationSubject} onChange={(current) => onChange({ confirmationSubject: current.target.value })} placeholder="We received your proposal" /></Field><Field label="Email body"><RichTextEditor value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} maxChars={5000} /></Field></div></section>;
 }
-function BuilderPreview({ form, step }: { form: import("@/shared/demo/types").FormRecord; step: BuilderStep }) {
-  return <div className="preview-pane"><header><span>LIVE PREVIEW</span><b>Desktop</b></header><div className="mini-browser"><div className="mini-browser-top"><i/><i/><i/></div><div className="mini-public"><span className="mini-event-logo">AI.engineer</span>{step === "welcome" ? <><small>CALL FOR SPEAKERS</small><h3>{form.welcomeTitle}</h3><p>{form.welcomeBody}</p><button>Get started</button></> : <><div className="mini-stepper"><i className="done"/><i className="active"/><i/><i/></div><small>{step === "settings" ? "REVIEW & SUBMIT" : "YOUR SESSION"}</small><h3>{step === "participant" ? "Tell us about you" : "Share your idea"}</h3>{form.sections[0]?.fields.slice(0, 3).map((field) => <label key={field.id}><span>{field.label}</span><i>{field.placeholder || "Your answer"}</i></label>)}</>}</div></div><p className="preview-hint"><Eye size={14}/> Preview updates as you edit.</p></div>;
+
+function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { field: BuilderField; form: BuilderForm; onChange: (patch: Partial<BuilderField>) => void; onSave: () => void; onDelete: () => void; busy: boolean }) {
+  const flattened = form.sections.flatMap((section) => section.fields);
+  const position = flattened.findIndex((candidate) => candidate.id === field.id);
+  const earlier = flattened.slice(0, position);
+  const lockedStructure = form.hasNonDraftSubmissions;
+  function visibility(enabled: boolean) {
+    if (!enabled) return onChange({ visibility: null });
+    const source = earlier[0];
+    if (source) onChange({ visibility: { match: "all", conditions: [{ sourceFieldId: source.id, op: "eq", value: source.options[0]?.id ?? "Yes" }] } });
+  }
+  const condition = field.visibility?.conditions[0];
+  function updateCondition(patch: Partial<NonNullable<VisibilityRule>["conditions"][number]>) {
+    if (!condition) return;
+    onChange({ visibility: { match: field.visibility?.match ?? "all", conditions: [{ ...condition, ...patch }] } });
+  }
+  return <div className="inspector-content"><header><div><span>QUESTION</span><h3>Edit field</h3></div>{field.locked && <StatusBadge value="Locked" />}</header><div className="form-stack">
+    <Field label="Label"><input maxLength={255} value={field.label} onChange={(current) => onChange({ label: current.target.value })} /></Field>
+    <Field label="Key" hint={field.locked || lockedStructure ? "Keys are immutable for this field." : "Used by integrations and stays stable when labels change."}><input disabled={field.locked || lockedStructure} value={field.key} onChange={(current) => onChange({ key: current.target.value })} /></Field>
+    <Field label="Response type"><select disabled={field.locked || lockedStructure} value={field.fieldType} onChange={(current) => onChange({ fieldType: current.target.value as FieldType })}>{addableTypes.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}</select></Field>
+    <Field label="Help text"><textarea value={field.helpText} onChange={(current) => onChange({ helpText: current.target.value })} /></Field>
+    {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
+    <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><button disabled={field.locked || lockedStructure} className={`switch ${field.required ? "on" : ""}`} onClick={() => onChange({ required: !field.required })}><i /></button></div>
+    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
+    {!field.locked && <Field label="Maps to"><select disabled={lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}><option value="">No system mapping</option>{MAPS_TO_TARGETS.map((target) => <option key={target} value={target}>{target}</option>)}</select></Field>}
+    {!field.locked && <div className="condition-card"><div><b>Conditional visibility</b><small>Conditions may reference only earlier questions.</small></div><button disabled={lockedStructure || earlier.length === 0} className={`switch ${field.visibility ? "on" : ""}`} onClick={() => visibility(!field.visibility)}><i /></button>{condition && <div className="condition-editor"><span>Show when</span><select disabled={lockedStructure} value={condition.sourceFieldId} onChange={(current) => updateCondition({ sourceFieldId: current.target.value as BuilderField["id"] })}>{earlier.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.label}</option>)}</select><select disabled={lockedStructure} value={condition.op} onChange={(current) => { const op = current.target.value as (typeof CONDITION_OPS)[number]; updateCondition({ op, value: op === "answered" || op === "empty" ? undefined : condition.value ?? "" }); }}>{CONDITION_OPS.map((op) => <option key={op} value={op}>{op === "in" ? "contains option" : op.replaceAll("_", " ")}</option>)}</select>{!["answered", "empty"].includes(condition.op) && <input disabled={lockedStructure} value={typeof condition.value === "string" ? condition.value : ""} onChange={(current) => updateCondition({ value: current.target.value })} placeholder="Value or option id" />}</div>}</div>}
+    <Button disabled={busy} onClick={onSave}><Save size={15} /> Save question</Button>
+    {!field.locked && <Button variant="ghost" disabled={busy || lockedStructure} className="delete-field" onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
+  </div></div>;
 }
+
+function BuilderPreview({ form, step }: { form: BuilderForm; step: BuilderStep }) {
+  const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
+  return <div className="preview-pane"><header><span>LIVE PREVIEW</span><b>Desktop</b></header><div className="mini-browser"><div className="mini-browser-top"><i /><i /><i /></div><div className="mini-public"><span className="mini-event-logo">Openboard</span>{step === "welcome" ? <><small>CALL FOR SPEAKERS</small><h3>{form.pageHeading}</h3><RichTextView html={form.welcomeHtml} /><button>Get started</button></> : <><div className="mini-stepper"><i className="done" /><i className="active" /><i /><i /></div><small>{step === "settings" ? "REVIEW & SUBMIT" : "YOUR SESSION"}</small><h3>{section?.pageHeading ?? form.externalTitle}</h3>{section?.fields.slice(0, 3).map((field) => <label key={field.id}><span>{field.label}</span><i>{field.helpText || "Your answer"}</i></label>)}</>}</div></div><p className="preview-hint"><Eye size={14} /> Preview updates as you edit.</p></div>;
+}
+
+function busyLock(form: BuilderForm) { return form.sections.length === 0; }
 function typeLabel(type: FieldType) { return addableTypes.find((item) => item.type === type)?.label ?? type; }
 function typeIcon(type: FieldType) { const labels: Record<string, string> = { text: "T", textarea: "¶", richtext: "Aa", dropdown: "⌄", multiselect: "☷", email: "@", url: "↗", file: "↑" }; return labels[type] ?? "T"; }

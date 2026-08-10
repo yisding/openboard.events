@@ -604,3 +604,11 @@ input::placeholder, textarea::placeholder { color: #aba8b5; }
 .choice{display:flex;align-items:center;gap:7px;font-size:10px}
 .drawer-participant-answers{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
 .drawer-participant-answers h4{margin:0 0 8px;font-size:10px}
+
+/* M12 database-backed form builder. */
+.list-toolbar{gap:14px;justify-content:space-between}.list-toolbar>input{width:min(260px,36vw);height:34px}
+.builder-field-row{display:grid;grid-template-columns:1fr 30px 30px;gap:5px;align-items:center;border:1px solid #e6e3eb;border-radius:8px;background:#fff;padding:5px}
+.builder-field-row.selected,.builder-field-row:hover{border-color:#9e91eb;box-shadow:0 0 0 2px rgba(105,88,215,.07)}
+.field-row-main{min-height:46px;display:grid;grid-template-columns:34px 1fr 16px;gap:10px;align-items:center;border:0;background:transparent;text-align:left;cursor:pointer}
+.builder-footer{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:18px;padding-top:15px;border-top:1px solid var(--line)}
+.builder-card+.builder-card{margin-top:12px}
