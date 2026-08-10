@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — begins after M32/M33 are server-backed and leak-proof. |
+| **Status** | IN PROGRESS — **MERGED (rev. 11 / PR #94)**, no active claim. All five public/embed surfaces are implemented over M32/M33's published-view queries — Sessions List, Agenda, Schedule Itinerary (anonymous localStorage star/My-Schedule + selected-session ICS export reusing M35's `buildFeed`), Speakers List, and Speaker Gallery — each with a direct `/e/[eventSlug]/**` route and a parity `/embed/[eventSlug]/**` route sharing the same component/query (no second publication predicate); `embeds.filters` widened to all five content types and read live from the DB on every request; the embeds admin page extended with filter/field-visibility controls per surface. No new migration — both `embeds.filters` and the 5-value `embed_content_type` enum pre-existed. Remaining before `DONE`: every named AC is a deployed/browser check not yet performed (search/filter/day/detail interactions, the star/reload/remove/ICS-download round trip through a real browser and calendar client, genuine cross-origin iframe embedding, phone/keyboard passes), and `e2e/public-widgets-parity.spec.ts` (an owned path) was not created. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds). |
 | **Scheduled** | Post-R3 product-completeness wave. |
 | **Size** | XL; split shared data contracts from surfaces/configurator. |

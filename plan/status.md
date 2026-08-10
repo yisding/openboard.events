@@ -1,6 +1,7 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 10 — Sun Aug 10, 2026 (early morning). **The module-completion run landed** (§2e): a 45-agent orchestrated run implemented every code-completable remaining module — 16 complete, M13b/M14 partial, M24 blocked on an M12 scope contradiction — then merged the Jade+Ice palette (#92) and P6 plan (#91) from `main`, adapted all new surfaces to the `--accent` token family, and passed the full gate suite. All six e2e specs have real step bodies and **all 17 `landed.ts` gates are flipped**. No module is `DONE` yet: the evidence rules still require deployed/browser AC, which is the remaining work.
+- **Snapshot:** rev. 11 — Mon Aug 10, 2026. **PR #94 merged** (§2f): the P3→P5 roadmap run landed P3 compliance hardening (CSP/HSTS on every non-embed path, a CSRF origin-check chokepoint inside `defineHandler`, and DB-backed rate limits via `drizzle/0005_rate_limits.sql`), email compliance (a signature-verified Resend bounce/complaint webhook, List-Unsubscribe headers, suppression enforcement via `drizzle/0007_email_compliance.sql`), R2 orphan sweep + backup/rollback/PITR runbooks, the forms debt cleared (M12 generalized to `context='portal'`, M13b's rules UI mounted live in the builder, M14's `upsertDraft` open-check gap closed, M24 built on the generalized engine), e2e spec fixes (three real triaged SPEC-BUGs) plus the app fixes they exposed (admin-shell/portal-context demo-store 404s, a trailing-autosave 404), and the P5 product-completeness modules M50 (partial), M51, M52 (partial), M53, M54 — landing five additive migrations, `drizzle/0004`–`0008`, applied to `sb-dev`/`sb-test`. M42–M49 remain blocked pending explicit owner re-authorization of the M42 hold (the Better Auth spike); M55 stays blocked on tenancy (M43/M44). No module is `DONE` yet under §1's rules: the deployed/browser AC queue is now the entire remaining surface.
+- **Rev. 10 headline (unchanged):** **the module-completion run landed** (§2e): a 45-agent orchestrated run implemented every code-completable remaining module — 16 complete, M13b/M14 partial, M24 blocked on an M12 scope contradiction — then merged the Jade+Ice palette (#92) and P6 plan (#91) from `main`, adapted all new surfaces to the `--accent` token family, and passed the full gate suite. All six e2e specs had real step bodies and all 17 `landed.ts` gates were flipped at that point.
 - **Rev. 7 headline (unchanged):** **The Saturday thin slice is green on the deployed preview** — a proposal submitted through the real CFP endpoint landed in Neon with its routing applied, and its confirmation email was delivered to a real Gmail inbox from the verified sending domain. The deployment evidence in §2a is from that deployment, not from PGlite.
 - **Baseline:** `main` at `673eac6` (the rev. 9 ledger commit on top of PR #89), **and the preview is deployed from it**: version `1da1951d` at `https://sb-web-preview.yi-ding.workers.dev` (1860 KiB gzip, 26 ms startup, inside the Workers Free budget; `/api/health` returns `sha: 673eac6` with a live Neon `18.4` round-trip). **All 7 post-deploy smoke checks pass with zero skipped — the first zero-skip run**; the `/f/` check is M07's header contract (image content-type, immutable cache, nosniff) served from a real seeded R2 object. The form builder (#82), evaluation stack (#78–#85), and task runtime (#88) are live on the preview, so their deployed AC can now be attempted.
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
@@ -169,6 +170,81 @@ palette) and the palette adaptation of every new surface to the `--accent` famil
 Under §1's rules **none of this is `DONE`**: every named deployed/browser AC (and the external
 email evidence) remains, and is now the entire remaining judged-bar surface.
 
+### 2f. The P3→P5 run (added at rev. 11)
+
+One orchestrated run (a P3-SEC/P3-EMAIL/P3-OPS compliance lane, a forms-debt lane, an e2e-triage
+lane, and five P5 product-completeness lanes, followed by an integration gate) landed as PR #94
+(merge commit `c662345`). Five additive migrations were added to the journal — `drizzle/0004_review_operations.sql`,
+`drizzle/0005_rate_limits.sql`, `drizzle/0006_content_deliverables.sql`,
+`drizzle/0007_email_compliance.sql`, `drizzle/0008_speaker_roster_operations.sql` — applied to
+`sb-dev`/`sb-test`; no applied migration was edited and the journal audit (sequential idx 0–8,
+strictly ascending `when`, tags matching the nine `.sql` files on disk) is clean. All five
+integration gates (`check-invariants.sh`, `tsc --noEmit`, `eslint --max-warnings=0`, the full
+vitest suite — 122 files / 1077 tests, 0 failed — and `next build`) are green on the merged tree.
+
+- **P3-SEC:** a real CSP (`default-src 'self'` plus the R2 upload host) and HSTS on every
+  non-embed path; a CSRF origin/referer check inside `defineHandler` (the single chokepoint),
+  with `csrfExempt` on the cron/API-key guards; a DB-backed fixed-window rate limiter
+  (`rate_limit_buckets`, migration 0005) applied to the public submit/draft path, portal-login
+  request (by IP, closing the per-contact-throttle cycling gap), and all `/api/v1` routes.
+- **P3-EMAIL:** a signature-verified Resend bounce/complaint webhook writing to a new
+  `contact_suppressions` table (migration 0007) rather than columns on `contacts`, to avoid
+  breaking `getOrCreateContact`/`updateContactFields`'s bare `.returning()` call sites;
+  RFC 2369 List-Unsubscribe headers on non-essential sends; `events.physical_address` rendered
+  in the email footer; `unsubscribed_at`/suppression now honored fleet-wide via a new
+  `isTransactionalTemplate` classification.
+- **P3-OPS:** the R2 orphan sweep is wired live (`cleanupOrphans` composes the
+  previously-dead-code `cleanupOrphanUploads` with a new staging-object S3 sweep); a
+  console-only `captureError` seam is wired into `defineHandler`'s and the job routes' catch
+  blocks; `docs/runbooks/backup-restore.md` and `docs/runbooks/rollback.md` were written and
+  their CLI syntax verified against the installed `wrangler`/`neonctl`.
+- **M12-GENERALIZE / M13b / M14-GAP / M24 (forms debt):** M12's builder engine now accepts
+  `context`/`targetType` generically instead of hardcoding `'cfp'`; M13b's `VisibilityRuleEditor`/
+  `RoutingRulesPanel`/`BuilderPreview` are mounted live in `form-builder.tsx`; M14's `upsertDraft`
+  gap (a closed form's draft could still be started/resumed) is closed via the same
+  `assertFormOpen` helper the other write paths use; M24's portal form builder (list/duplicate/
+  delete, single-page builder, standard-field library) is built on the generalized engine. See
+  each module's own header for what remains.
+- **E2E-TRIAGE / APP-FIXES:** all 16 Playwright failures on the deployed build were triaged —
+  3 were spec bugs (fixed directly in `e2e/**`) and 13 were two real app bugs: `admin-shell` and
+  `portal-context` both resolve the current event from the browser demo-store fixture and
+  `notFound()` when a real seeded id isn't in it, so every real admin/portal surface 404s in a
+  browser despite healthy server data; a third bug is a trailing debounced draft-autosave firing
+  ~450 ms after a successful submit and 404ing. All three are fixed: the admin/portal layouts now
+  pass their real server-read event/contact down instead of relying on the demo store, and the
+  autosave is cancelled the moment submit is in flight (with a server-side no-op fallback).
+- **M50 (partial):** round windows, `anonymize_authors`, typed criteria (numeric/select/text),
+  explicit `review_assignments` (assignment authority + recusal), reviewer provisioning and
+  reminders — landed on M19's evaluation stack via migration 0004. Deployed browser AC (a
+  redeploy + reseed carrying Round 2) is the remainder.
+- **M51:** speaker create/update, logistics fields, timezone-correct unavailability, CSV import,
+  invite-via-M06b, and bulk email compose/send — landed via migration 0008. Deployed browser AC
+  is the remainder.
+- **M52 (partial):** file versions + comment threads, a central Files view with filtered bulk
+  reminders, session content history/restore, organizer bio/headshot edit, and a ZIP export job
+  pipeline — landed via migration 0006. Its owned e2e spec was not written and no surface has
+  browser/real-R2 verification; both are the remainder.
+- **M53:** all five public/embed surfaces (Sessions List, Agenda, Schedule Itinerary with ICS
+  export, Speakers List, Speaker Gallery) over M32/M33's published views, with `/e/` and `/embed/`
+  parity routes — no new migration needed. Deployed/browser AC across every surface is the
+  remainder.
+- **M54:** a pure deterministic greedy placement planner plus an Apply flow that preflights
+  through the same legality check and writes only through the audited `moveSession` — no schema
+  change. Deployed browser AC (gated on M51's migration too) is the remainder.
+- **M46 / M48 (product-roadmap, not on the release critical path):** M46 built the admin surface
+  (suppression list + reinstate, per-domain deliverability, segmented bulk send with preview, a
+  dedicated `UNSUBSCRIBE_SECRET`) over P3-EMAIL's tables — no schema change. M48 deepened
+  `/api/health` with a `comms` block, documented alerting thresholds, added a scheduled uptime
+  GitHub Action, and wrote the R2-lifecycle and Neon-PITR-rehearsal runbooks — also no schema
+  change. Both are complete at code level; both still need their deployed-preview evidence.
+- **M42–M49 (blocked):** M42 (Better Auth + Google admin auth) was not completed by this run
+  ("agent died or skipped"); M43 (org tenancy), M44 (user management), M45, M47, and M49 all
+  hard-depend on M42 and were not attempted. Per `DECISIONS.md`'s "Product auth direction," M42
+  is the unknown-risk gate for the whole P4 chain and stays on hold until the owner explicitly
+  re-authorizes another attempt.
+- **M55 (blocked):** skipped outright by this run because M43/M44/M51 were not all complete; M51
+  is now merged, so M55's remaining blocker is tenancy (M43/M44), i.e. the same M42 hold above.
+
 ## 3. Module status by evidence
 
 No module is `DONE` as of this snapshot. As of rev. 9 no module is `PR-OPEN` — every open agent
@@ -315,18 +391,28 @@ Bonus work and cosmetic expansion stay paused until R3 exits:
 - M31 Week/Track/Room views, M37 communications polish, Today-dashboard polish, and additional field types do not block the judging bar.
 - Do not add new seed-only behavior to claim progress on a server AC.
 
-Rev. 9 reconciliation: of rev. 8's four next actions, three landed before the shutdown — M17's
-drawer (#79/#84), the submissions seed (#67), and M12's builder (#82) — and the evaluation stack
-(M19), the task runtime (M25), and the conflict engine (M29) landed besides. The queue when work
-resumes (rev. 10: the code queue is empty — M28, the seeds, the spec bodies and the demo-store
-replacements all landed in §2e): **migrate `sb-test`/`sb-dev` through `0003` and re-seed** (the
-new agenda/resources/submissions/evaluation seed bodies have never run against a real branch);
-**redeploy the preview** from the merged tree; **run the six Playwright specs against `sb-test`**
-— the first-ever full run of the golden-path suite with real bodies; then the deployed
-demonstrations (accept→notify→email, reviewer scoring, portal task completion on a phone,
-browser R2 upload via the new profile page, builder authoring AC); the external email evidence
-(Outlook probe, calendar invite); and the production provisioning track. The only remaining
-code items are M13b/M14's partial remainders and M24's M12-owned unblock.
+Rev. 11 reconciliation: PR #94 (§2f) landed P3 compliance hardening, closed the forms debt
+(M12/M13b/M14/M24), triaged and fixed the e2e/app-bug backlog, and implemented the P5
+product-completeness modules with five additive migrations (`0004`–`0008`) applied to
+`sb-dev`/`sb-test`. Two queues remain, and neither is code-empty this time:
+
+- **Deployed verification queue (do this first — nothing above is `DONE` without it):**
+  redeploy the preview from the merged tree (migrations `0004`–`0008` applied); run post-deploy
+  smoke; run the **full Playwright suite** against the redeployed preview (the six original specs
+  plus the new `review-operations.spec.ts`, `speaker-content-ops.spec.ts`, and the
+  `agenda-schedule.spec.ts` 'assisted placement' block — all written with real step bodies but
+  gated `landed:false` — flipping each `landed.ts` gate only once green; M53's owned
+  `public-widgets-parity.spec.ts` was never written and still needs authoring); the deployed 429
+  rate-limit, CSP/HSTS header, and Resend bounce/complaint webhook checks P3-SEC/P3-EMAIL still
+  need; then the deployed demonstrations this queue has carried since rev. 9–10
+  (accept→notify→email, reviewer scoring, portal task completion, browser R2 upload, builder
+  authoring AC) plus the new P5 ones (a blind review round, a speaker CSV import/invite/bulk-send
+  round trip, a ZIP export download, all five public widgets, and an assisted-placement apply).
+- **Code queue:** M50's and M52's partial remainders (see their module headers); the E2E/app-fix
+  leftovers each triage stage flagged as borderline (`submitCfpForm`'s stale-draft
+  retry-idempotency shortcut, the central Files list's client-side-only filtering); and the
+  M42 (Better Auth) chain — M42 itself, then M43/M44/M45/M47/M49, then M55 — once the owner
+  explicitly re-authorizes another attempt at the M42 spike.
 
 ## 7. Environment and configuration truth
 

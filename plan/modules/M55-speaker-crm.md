@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — optional commercial expansion; never blocks the core release. |
+| **Status** | NOT STARTED — **BLOCKED on tenancy (rev. 11)**, no active claim, no code added. The rev. 11 run (PR #94) skipped M55 outright ("M43/M44/M51 not all complete"); M51 is now merged, so the remaining blocker is organization tenancy — M43 (org tenancy schema) and M44 (user management) — which are themselves blocked on M42's Better Auth spike, currently on hold pending explicit owner re-authorization (see [`../status.md`](../status.md) §2f). Optional commercial expansion; never blocks the core release. |
 | **Workstream / executing agent** | Product lane assigned after organization tenancy and M51. |
 | **Scheduled** | After M43, M44, and M51. |
 | **Size** | XL; split directory/merge, history/segments, pipeline, and communication/metrics. |

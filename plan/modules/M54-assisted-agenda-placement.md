@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — begins after M30 and M51 are green. |
+| **Status** | IN PROGRESS — **MERGED (rev. 11 / PR #94)**, no active claim. A pure, deterministic greedy placement planner (`suggest-placements.ts`: fewest-legal-slots-first sort, 15-minute grid, M29's `detectConflicts` for room/speaker legality, M04's `overlaps` for M51 blackout rejection), a server composition layer, and an Apply flow that preflights every accepted row through the same legality check and writes exclusively through the existing audited `moveSession` (folding each applied row into the preflight pool so two accepted rows can never collide within one batch) are implemented, plus a new `AutoPlaceDialog` wired into `UnscheduledTray`. No schema change — reads existing tables only. Remaining before `DONE`: the extended `e2e/agenda-schedule.spec.ts` 'assisted placement' block is gated `landed:false` in `landed.ts` until a preview deployment carries this code and M51's migration 0008; `check-worker-size.sh`/`check-client-bundle.ts` unrun. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda). |
 | **Scheduled** | Post-M30/M51 product-completeness wave. |
 | **Size** | S |

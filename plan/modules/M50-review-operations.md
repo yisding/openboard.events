@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — begins only after R3 is green. |
+| **Status** | IN PROGRESS — **MERGED (rev. 11 / PR #94), partial**, no active claim. Implemented on M19's merged evaluation stack (no second score store): round windows, `anonymize_authors`, typed criteria (numeric/select/text), `review_assignments` (explicit assignment authority + recusal), and reviewer provisioning/reminders land via additive migration `drizzle/0004_review_operations.sql`; blindness is built into the reviewer DTO (`identity` fail-closed default via `form_fields.review_visibility`), and the typed scorecard's arithmetic is shared by server/client/tests. UI: round windows + blind toggle + typed criteria in the plan editor, an assignment drawer, an invite dialog, and a queue rendering all three criterion kinds. Remaining before `DONE`: the deployed browser path — `e2e/review-operations.spec.ts` has real step bodies but `landed.ts` keeps `M50: false` until the preview is redeployed with migration 0004 applied and reseeded (Round 2 — blind, windowed, typed — a third reviewer, assigned/completed/outstanding/recused rows); `reviewer_invited`/`review_reminder` Resend delivery is also unverified. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-C leads review UI/server work; WS-A owns auth and additive schema; WS-B owns the form-field review-visibility control; WS-F owns reminder/template wiring. Architect assigns the split before claim. |
 | **Scheduled** | Post-R3 product-completeness wave. |
 | **Size** | L; split schema/auth, review operations, and reminders into separate PRs. |

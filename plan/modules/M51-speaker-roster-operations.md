@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — begins only after R3 and M41 are green. |
+| **Status** | IN PROGRESS — **MERGED (rev. 11 / PR #94)**, no active claim. Implemented end to end on the contacts single-writer API (`getOrCreateContact`/`updateContactFields`) and the M34 outbox, via additive migration `drizzle/0008_speaker_roster_operations.sql` (`contacts.workflow_status`, `speaker_logistics_fields`/`speaker_logistics_values`, `contact_unavailability`, `speaker_bulk_messages`): `createSpeaker`/`updateSpeakerProfile`, logistics fields, `replaceSpeakerUnavailability` (event-timezone in/out, atomic full-set replace), `importSpeakersCsvIn` (dependency-free RFC-4180 parser, preview/commit share one diff pass), speaker invite composed through M06b's `requestPortalLogin`, and `composeBulkSpeakerEmailIn`. UI: Add-speaker/Import-CSV dialogs, page-local bulk selection with compose/preview, and `<SpeakerRosterPanels>` (pipeline status, logistics, unavailability editor, uploaded-files panel) on the speaker detail page. Remaining before `DONE`: the deployed browser path — `e2e/speaker-content-ops.spec.ts` has real step bodies but `landed.ts` keeps `M51: false` until the preview is redeployed with migration 0008 applied; real Resend delivery of `speaker_bulk_message` and bundle-size impact are also unverified. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D leads roster/profile/assets; WS-F owns bulk compose/logging; WS-A reviews additive schema. |
 | **Scheduled** | Post-R3 product-completeness wave, parallel with M50/M52/M53. |
 | **Size** | L; split roster/import from invitations/bulk communication. |

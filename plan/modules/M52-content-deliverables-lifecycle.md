@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT STARTED — begins only after R3 is green. |
+| **Status** | IN PROGRESS — **MERGED (rev. 11 / PR #94), partial**, no active claim. Implemented via additive migration `drizzle/0006_content_deliverables.sql` (`file_uploads.version`/`is_latest`, `file_comments`, `session_content_revisions`, `file_export_jobs`): file versions + a shared `deliverable-slot.ts` comment thread module used by both the speaker task detail and the organizer's central Files view (`src/app/events/[eventId]/files`, filterable, bulk-remind via `sendRemindersNow`); session content history/restore inside the existing single-statement `saveSessionIn`; organizer speaker bio/headshot edit through the existing `updateContactFields`; and a dependency-free STORE-method ZIP export job pipeline (`createFileExportJobIn`/`processFileExportJobIn`, always resolves completed/failed, fired via `ctx.waitUntil`). 115 PGlite tests passing. Remaining before `DONE`: `e2e/speaker-content-ops.spec.ts`'s owned deliverables coverage was not written (out of budget), no browser/real-R2-binding verification of any surface (the ZIP's actual object-read/build/write round trip has no fake R2 binding in this harness), the Workers Free CPU budget for a synchronous ZIP build is an open architectural risk, and the central Files list still filters client-side rather than the GET route's server-side filters. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D leads files/deliverables; WS-E owns session revisions/publication; WS-F owns reminders/export jobs. |
 | **Scheduled** | Post-R3 product-completeness wave, parallel with M50/M51/M53. |
 | **Size** | XL; split M52a files/deliverables and M52b session revisions/export. |
