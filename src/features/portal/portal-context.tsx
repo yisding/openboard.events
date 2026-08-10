@@ -39,7 +39,7 @@ export function PortalProvider({ eventSlug, session, children }: { eventSlug: st
         website: "",
         linkedin: "",
         avatar: normalizedEmail.slice(0, 2).toUpperCase() || "SP",
-        avatarColor: "#6958d7",
+        avatarColor: "#007454",
         confirmation: "confirmed",
         profileCompletion: 0,
         tags: [],

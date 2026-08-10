@@ -11,7 +11,7 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
     timezone: "America/Los_Angeles",
     startsAt: "2026-09-15T15:00:00.000Z",
     endsAt: "2026-09-16T01:00:00.000Z",
-    accentColor: "#4f46e5",
+    accentColor: "#00a878",
   },
   days: ["2026-09-15"],
   sessions: [{
@@ -22,7 +22,7 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
     startsAt: "2026-09-15T16:00:00.000Z",
     endsAt: "2026-09-15T16:30:00.000Z",
     dayKey: "2026-09-15",
-    track: { id: "00000000-0000-4000-8000-000000000200", name: "AI Agents", color: "#4f46e5" },
+    track: { id: "00000000-0000-4000-8000-000000000200", name: "AI Agents", color: "#00a878" },
     room: { id: "00000000-0000-4000-8000-000000000205", name: "Main Hall" },
     format: { id: "00000000-0000-4000-8000-000000000210", name: "Talk" },
     speakers: [{ contactId: "00000000-0000-4000-8000-000000000401", name: "Ada Lovelace", headshotUrl: null }],
@@ -30,7 +30,7 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
 });
 
 export const PUBLISHED_SPEAKERS_FIXTURE = publishedSpeakersDtoSchema.parse({
-  event: { name: "OpenBoard Summit", timezone: "America/Los_Angeles", accentColor: "#4f46e5" },
+  event: { name: "OpenBoard Summit", timezone: "America/Los_Angeles", accentColor: "#00a878" },
   speakers: [{
     contactId: "00000000-0000-4000-8000-000000000401",
     name: "Ada Lovelace",

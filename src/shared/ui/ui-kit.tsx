@@ -13,11 +13,11 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#6958d7", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
+export function Avatar({ initials, color = "#007454", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
   return <span className={`person-avatar person-avatar-${size}`} style={{ background: color }}>{initials}</span>;
 }
 
-export function ProgressBar({ value, tone = "purple" }: { value: number; tone?: "purple" | "green" | "amber" }) {
+export function ProgressBar({ value, tone = "accent" }: { value: number; tone?: "accent" | "green" | "amber" }) {
   return <div className={`progress-track progress-${tone}`}><i style={{ width: `${Math.max(0, Math.min(value, 100))}%` }} /></div>;
 }
 

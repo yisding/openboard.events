@@ -38,7 +38,7 @@ export function contactSpeakerRecord(row: ContactSpeakerRow): SpeakerRecord {
     website: row.websiteUrl ?? "",
     linkedin: row.linkedinUrl ?? "",
     avatar: `${firstInitial}${lastInitial}`.toUpperCase() || "?",
-    avatarColor: "#6958d7",
+    avatarColor: "#007454",
     hasHeadshot: row.headshotFileId !== null,
     confirmation: row.confirmation,
     profileCompletion: Math.round((completed / 6) * 100),

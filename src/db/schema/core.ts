@@ -60,7 +60,7 @@ export const fileAssets = pgTable("file_assets", {
 
 export const tracks = pgTable("tracks", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), color: text("color").notNull().default("#6366f1"), description: text("description"), sortOrder: integer("sort_order").notNull().default(0),
+  name: text("name").notNull(), color: text("color").notNull().default("#00a878"), description: text("description"), sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.name), unique().on(table.id, table.eventId)]);
 export const rooms = pgTable("rooms", {
@@ -75,6 +75,6 @@ export const sessionFormats = pgTable("session_formats", {
 }, (table) => [unique().on(table.eventId, table.name), unique().on(table.id, table.eventId)]);
 export const tags = pgTable("tags", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), color: text("color").notNull().default("#6366f1"),
+  name: text("name").notNull(), color: text("color").notNull().default("#00a878"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.name), unique().on(table.id, table.eventId)]);
