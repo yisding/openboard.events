@@ -79,7 +79,7 @@ export function ReviewQueueView({
     let cancelled = false;
     setDetail(null);
     setDetailError("");
-    fetch(`/api/internal/submissions/${eventId}/${activeId}`)
+    fetch(`/api/internal/submissions/${eventId}/${activeId}?planId=${plan?.id ?? ""}`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: SubmissionDetailDTO; error?: { message?: string } } | null;
         if (cancelled) return;
@@ -90,7 +90,7 @@ export function ReviewQueueView({
     // A reviewer moving quickly down the list must not have a late response for
     // one they have passed replace what they are reading now.
     return () => { cancelled = true; };
-  }, [eventId, activeId]);
+  }, [eventId, activeId, plan?.id]);
 
   const save = useCallback(async () => {
     if (!plan || !active) return;

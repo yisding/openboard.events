@@ -194,6 +194,28 @@ export async function listReviewQueueIn(
   };
 }
 
+export async function assertReviewerCanReadSubmissionIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  planId: PlanId,
+  submissionId: SubmissionId,
+  reviewerUserId: UserId,
+): Promise<void> {
+  const result = await dbOrTx.execute<{ allowed: boolean }>(sql`
+    SELECT true AS allowed
+    FROM evaluation_plans p
+    JOIN reviewer_assignments a
+      ON a.plan_id = p.id AND a.event_id = p.event_id AND a.user_id = ${reviewerUserId}
+    JOIN submissions s ON s.event_id = p.event_id AND s.id = ${submissionId}
+    WHERE p.id = ${planId} AND p.event_id = ${eventId}
+      AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)}
+    LIMIT 1
+  `);
+  if (!(result.rows ?? [])[0]?.allowed) {
+    throw new AppError("FORBIDDEN", "That submission is not routed to you in this review round");
+  }
+}
+
 /**
  * One plan's ratings, straight off `submission_ratings_v`. Submissions with no
  * finished review are absent rather than zero — the caller renders them as `—`,
@@ -219,4 +241,10 @@ export const getPlan = (eventId: EventId, planId: PlanId) => getPlanIn(db, event
 export const getActivePlan = (eventId: EventId) => getActivePlanIn(db, eventId);
 export const listReviewQueue = (eventId: EventId, reviewerUserId: UserId, planId: PlanId | null) =>
   listReviewQueueIn(db, eventId, reviewerUserId, planId);
+export const assertReviewerCanReadSubmission = (
+  eventId: EventId,
+  planId: PlanId,
+  submissionId: SubmissionId,
+  reviewerUserId: UserId,
+) => assertReviewerCanReadSubmissionIn(db, eventId, planId, submissionId, reviewerUserId);
 export const getRatings = (eventId: EventId, planId: PlanId) => getRatingsIn(db, eventId, planId);

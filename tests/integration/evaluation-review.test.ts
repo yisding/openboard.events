@@ -6,6 +6,7 @@ import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import {
   assignReviewersIn,
+  assertReviewerCanReadSubmissionIn,
   getActivePlanIn,
   getPlanIn,
   getRatingsIn,
@@ -108,6 +109,19 @@ describe("reviewer queue and scoring", () => {
     const openQueue = await listReviewQueueIn(db, eventId, ada, planId);
     // Only an unscoped assignment reaches the proposal that has no track.
     expect(openQueue.rows.map((row) => row.submissionId).sort()).toEqual([platformsTalk, agentsTalk, untracked].sort());
+  });
+
+  it("applies queue scope to reviewer detail access", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [platforms] }]);
+
+    await expect(assertReviewerCanReadSubmissionIn(db, eventId, planId, platformsTalk, ada)).resolves.toBeUndefined();
+    const outOfTrack = await assertReviewerCanReadSubmissionIn(db, eventId, planId, agentsTalk, ada)
+      .catch((thrown: unknown) => thrown);
+    const unassigned = await assertReviewerCanReadSubmissionIn(db, eventId, planId, platformsTalk, grace)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(outOfTrack) && outOfTrack.code).toBe("FORBIDDEN");
+    expect(isAppError(unassigned) && unassigned.code).toBe("FORBIDDEN");
   });
 
   it("falls back to the active round when no plan is named", async () => {

@@ -24,15 +24,17 @@ export default async function Page({
   const session = await requireAdmin(eventId, "reviewer");
 
   const query = await searchParams;
-  const planId = typeof query.planId === "string" ? planIdSchema.parse(query.planId) : null;
+  const requestedPlanId = typeof query.planId === "string" ? planIdSchema.parse(query.planId) : null;
+  const reviewerId = userIdSchema.parse(session.userId);
+  const allPlans = await listPlans(eventId);
+  const plans = allPlans.filter((plan) => plan.reviewers.some((reviewer) => reviewer.userId === reviewerId));
+  const planId = requestedPlanId && plans.some((plan) => plan.id === requestedPlanId) ? requestedPlanId : null;
 
-  const [queue, plans] = await Promise.all([
-    listReviewQueue(eventId, userIdSchema.parse(session.userId), planId),
-    listPlans(eventId),
-  ]);
+  const queue = await listReviewQueue(eventId, reviewerId, planId);
 
   return (
     <ReviewQueueView
+      key={queue.plan?.id ?? "no-review-round"}
       eventId={eventId}
       plan={queue.plan}
       // Open rounds first: switching to a closed one is deliberate, not the
