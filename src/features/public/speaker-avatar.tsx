@@ -21,5 +21,5 @@ export function SpeakerAvatar({ name, headshotUrl, size = "sm", color }: { name:
     const px = SIZE_PX[size];
     return <Image src={headshotUrl} alt={name} width={px} height={px} className={className} style={{ objectFit: "cover" }} unoptimized />;
   }
-  return <span className={className} style={{ background: color ?? "var(--purple)" }}>{initialsOf(name)}</span>;
+  return <span className={className} style={{ background: color ?? "var(--accent-dark)" }}>{initialsOf(name)}</span>;
 }

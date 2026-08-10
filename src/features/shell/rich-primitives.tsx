@@ -99,12 +99,12 @@ export function RichPrimitives() {
         <h2 className="section-title">Donut</h2>
         <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
           <Donut segments={[
-            { label: "Confirmed", value: 18, color: "#2f8f5b" },
-            { label: "Pending", value: 7, color: "#b6742a" },
+            { label: "Confirmed", value: 18, color: "#00a878" },
+            { label: "Pending", value: 7, color: "#d98324" },
             { label: "Declined", value: 2, color: "#c04b4b" },
           ]} />
           {/* The empty event hits this on first paint. */}
-          <Donut segments={[{ label: "Confirmed", value: 0, color: "#2f8f5b" }]} />
+          <Donut segments={[{ label: "Confirmed", value: 0, color: "#00a878" }]} />
         </div>
       </section>
     </main>

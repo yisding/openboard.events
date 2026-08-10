@@ -66,7 +66,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Create form</Button>}
     />
     <section className="summary-row">
-      <article><span className="summary-icon purple"><FileText size={19} /></span><div><strong>{forms.length}</strong><small>Total forms</small></div></article>
+      <article><span className="summary-icon accent"><FileText size={19} /></span><div><strong>{forms.length}</strong><small>Total forms</small></div></article>
       <article><span className="summary-icon green"><Send size={19} /></span><div><strong>{forms.filter((form) => form.status === "open").length}</strong><small>Currently open</small></div></article>
       <article><span className="summary-icon blue"><Users size={19} /></span><div><strong>{totalSubmissions}</strong><small>Submissions</small></div></article>
       <article><span className="summary-icon amber"><CalendarClock size={19} /></span><div><strong>{totalDrafts}</strong><small>Speaker drafts</small></div></article>

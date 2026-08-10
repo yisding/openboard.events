@@ -31,7 +31,7 @@ export function Donut({ segments, size = SIZE, total: totalOverride }: { segment
     <figure className="donut">
       <svg width={size} height={size} viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${total} total`} style={{ transform: `scale(${scale / scale})` }}>
         <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
-          <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="#eceaf1" strokeWidth={STROKE} />
+          <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="#e9f1ee" strokeWidth={STROKE} />
           {arcs.map((arc) => (
             <circle
               key={arc.label}

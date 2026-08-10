@@ -98,7 +98,7 @@ export function CfpWizard({ eventSlug, formId }: { eventSlug: string; formId: st
     if (ownSubmissions >= currentForm.maxPerSpeaker) { setErrors({ submit: `This form allows up to ${currentForm.maxPerSpeaker} proposals per speaker.` }); return; }
     const speakerId = existingSpeaker?.id ?? `spk_${Date.now()}`;
     if (!existingSpeaker) {
-      const speaker: SpeakerRecord = { id: speakerId, eventId: currentEvent.id, firstName: firstName.trim(), lastName: lastName.trim(), email, company, title: jobTitle, bio: "", location: "", website: "", linkedin: "", avatar: `${firstName[0] ?? "?"}${lastName[0] ?? ""}`.toUpperCase(), avatarColor: "#6958d7", confirmation: "unconfirmed", profileCompletion: 35, tags: [] };
+      const speaker: SpeakerRecord = { id: speakerId, eventId: currentEvent.id, firstName: firstName.trim(), lastName: lastName.trim(), email, company, title: jobTitle, bio: "", location: "", website: "", linkedin: "", avatar: `${firstName[0] ?? "?"}${lastName[0] ?? ""}`.toUpperCase(), avatarColor: "#007454", confirmation: "unconfirmed", profileCompletion: 35, tags: [] };
       dispatch({ type: "ADD_SPEAKER", speaker });
     }
     const speakerIds = [speakerId];

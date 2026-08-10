@@ -261,7 +261,7 @@ export function ReviewQueueView({
 
               <aside className="score-panel">
                 <div className="score-heading">
-                  <span className="metric-icon purple"><Star size={19} /></span>
+                  <span className="metric-icon accent"><Star size={19} /></span>
                   <div>
                     <h2>Your score</h2>
                     <p>{plan.name} · {plan.scaleMin}–{plan.scaleMax}</p>

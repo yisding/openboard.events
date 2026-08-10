@@ -6,7 +6,38 @@ import { useEffect } from "react";
 import { formatInZone } from "@/shared/lib/time";
 
 export type EmbedOptions = { theme: "light" | "dark"; header: boolean; accent: string };
-export const DEFAULT_EMBED_OPTIONS: EmbedOptions = { theme: "light", header: true, accent: "#6958d7" };
+export const DEFAULT_EMBED_OPTIONS: EmbedOptions = { theme: "light", header: true, accent: "#00a878" };
+
+// Embed styles use --accent for fills and --accent-dark for small text, so a
+// custom accent that is too luminous for text (the default jade included, at
+// 3.06:1 on white) must be darkened before it lands in --accent-dark.
+function channelLuminance(channel: number): number {
+  const c = channel / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+export function accentTextShade(accent: string): string {
+  // Accept everything the embed query parser does: #RGB, #RGBA, #RRGGBB and
+  // #RRGGBBAA. Alpha channels are composited over the white embed ground so
+  // the contrast check sees the colour as rendered.
+  const match = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.exec(accent.trim());
+  if (!match?.[1]) return accent;
+  const short = match[1].length <= 4;
+  const digits = short ? [...match[1]].map((d) => d + d).join("") : match[1];
+  let r = parseInt(digits.slice(0, 2), 16);
+  let g = parseInt(digits.slice(2, 4), 16);
+  let b = parseInt(digits.slice(4, 6), 16);
+  if (digits.length === 8) {
+    const alpha = parseInt(digits.slice(6, 8), 16) / 255;
+    r = Math.round(r * alpha + 255 * (1 - alpha));
+    g = Math.round(g * alpha + 255 * (1 - alpha));
+    b = Math.round(b * alpha + 255 * (1 - alpha));
+  }
+  const contrastOnWhite = () => 1.05 / (0.2126 * channelLuminance(r) + 0.7152 * channelLuminance(g) + 0.0722 * channelLuminance(b) + 0.05);
+  for (let step = 0; step < 24 && contrastOnWhite() < 4.5; step += 1) {
+    r = Math.floor(r * 0.92); g = Math.floor(g * 0.92); b = Math.floor(b * 0.92);
+  }
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
 
 /** The event branding this shell needs — `PublishedScheduleDTO["event"]` and
  * `PublishedSpeakersDTO["event"]` both satisfy this shape verbatim. */
@@ -48,10 +79,17 @@ export function PublicEventShell({
   embed?: boolean;
   embedOptions?: EmbedOptions;
 }) {
-  // The one accent CSS variable per event, light mode only — an organizer's
-  // brand color overrides the product default for every descendant that reads
-  // `var(--purple)`, and never touches dark mode.
-  const accentStyle = { "--purple": embed ? embedOptions.accent : (event.accentColor ?? undefined) } as React.CSSProperties;
+  // The accent CSS variable pair per event, light mode only — an organizer's
+  // brand color overrides the product jade for every descendant that reads
+  // `var(--accent)`, with `--accent-dark` darkened until it is legal as text
+  // (accentTextShade), and never touches dark mode.
+  const accent = embed ? embedOptions.accent : event.accentColor;
+  const accentStyle = {
+    "--accent": accent ?? undefined,
+    "--accent-dark": accent
+      ? (embed && embedOptions.theme === "dark" ? accent : accentTextShade(accent))
+      : undefined,
+  } as React.CSSProperties;
   const range = dateRange(event);
 
   if (embed) {

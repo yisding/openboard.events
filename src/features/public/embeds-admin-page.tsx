@@ -8,7 +8,7 @@ import { useToast } from "@/shared/ui/toast";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedStyle } from "./embed-config-types";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
-const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: "#6958d7", theme: "light", showHeader: true };
+const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: "#00a878", theme: "light", showHeader: true };
 
 const TYPE_META: Record<CanonicalEmbedContentType, { label: string; route: "schedule" | "speakers"; description: string; icon: typeof MonitorSmartphone }> = {
   schedule_itinerary: { label: "Schedule itinerary", route: "schedule", description: "Mobile-friendly agenda with live filters and calendar links.", icon: MonitorSmartphone },

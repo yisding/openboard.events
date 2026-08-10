@@ -36,7 +36,7 @@ export function LoginForm() {
   }
 
   return <form onSubmit={submit}>
-    <span className="metric-icon purple"><LockKeyhole size={20} /></span>
+    <span className="metric-icon accent"><LockKeyhole size={20} /></span>
     <h1>Welcome back</h1>
     <p>Sign in to your Openboard workspace.</p>
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
