@@ -6,11 +6,11 @@ on:
     branches: [main]
 
 # A newer commit supersedes an older validation run for the same branch. This
-# keeps rapid PR iteration from consuming runners on checks that can no longer
-# be merged, while every main push still gets its own complete run.
+# keeps rapid PR and main iteration from consuming runners on checks that can no
+# longer be merged; the newest main commit still validates the complete tree.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
