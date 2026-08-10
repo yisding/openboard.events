@@ -1,0 +1,159 @@
+"use client";
+
+import { ArrowLeft, Paperclip } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
+import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
+import { FileUpload } from "@/shared/ui/app/file-upload";
+import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { TzTime } from "@/shared/ui/app/tz-time";
+import { Button, StatusBadge } from "@/shared/ui/ui-kit";
+import { useToast } from "@/shared/ui/toast";
+import type { MyTaskDetail } from "../server/queries";
+
+/**
+ * One task, and the one thing it asks for.
+ *
+ * All three modes end in the same place: a POST that the server re-authorizes
+ * against `task_assignments_v`. Nothing here decides whether a completion is
+ * allowed — this component decides only what to show while asking.
+ */
+export function TaskDetailView({
+  eventId,
+  eventSlug,
+  timezone,
+  task,
+  form,
+}: {
+  eventId: string;
+  eventSlug: string;
+  timezone: string;
+  task: MyTaskDetail;
+  /** Present only for form-mode tasks. */
+  form: { snapshot: FormSnapshot; answers: Record<string, AnswerValue> } | null;
+}) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [answers, setAnswers] = useState<Record<string, AnswerValue | undefined>>(form?.answers ?? {});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
+
+  async function post(path: string, body: Record<string, unknown>): Promise<boolean> {
+    setBusy(true);
+    setFieldErrors({});
+    try {
+      const response = await fetch(`${path}?eventId=${encodeURIComponent(eventId)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ submissionId: task.submissionId, ...body }),
+      });
+      const payload = await response.json().catch(() => null) as {
+        error?: { message?: string; data?: { fieldErrors?: Record<string, string> } };
+      } | null;
+      if (!response.ok) {
+        // Field errors belong beside their questions; anything else is a
+        // sentence, not a form state.
+        const errors = payload?.error?.data?.fieldErrors;
+        if (errors) setFieldErrors(errors);
+        toast(errors ? "Some answers need fixing" : payload?.error?.message ?? "That did not go through");
+        return false;
+      }
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function complete(body: Record<string, unknown> = {}) {
+    if (!await post(`/api/internal/portal/tasks/${task.taskId}/complete`, body)) return;
+    toast("Task complete — your organizer can see it now");
+    router.push(backHref);
+    router.refresh();
+  }
+
+  async function attach(fileId: string) {
+    if (!await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId })) return;
+    toast("File received — task complete");
+    router.refresh();
+  }
+
+  return (
+    <div className="portal-container portal-page">
+      <Link className="portal-back" href={backHref}><ArrowLeft size={15} /> All tasks</Link>
+
+      <header className="portal-page-header">
+        <div className="portal-task-meta">
+          <StatusBadge value={task.completed ? "Complete" : task.completionMode.replace("_", " ")} />
+          {task.overdue && <StatusBadge value="Overdue" />}
+          {task.dueAt && <span className="due-label">Due <TzTime instant={task.dueAt} tz={timezone} style="long" /></span>}
+        </div>
+        <h1>{task.taskName}</h1>
+        {task.submissionCode !== null && <p>SESS-{task.submissionCode} · {task.submissionTitle}</p>}
+      </header>
+
+      {task.descriptionHtml && <div className="portal-panel"><RichTextView html={task.descriptionHtml} /></div>}
+
+      {task.completionMode === "manual" && (
+        <div className="portal-panel">
+          {task.completed ? (
+            <p className="portal-note">
+              Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
+            </p>
+          ) : (
+            <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+          )}
+        </div>
+      )}
+
+      {task.completionMode === "file_request" && task.fileRequest && (
+        <div className="portal-panel">
+          {task.fileRequest.instructionsHtml && <RichTextView html={task.fileRequest.instructionsHtml} />}
+          <p className="portal-note">
+            {task.fileRequest.acceptedExtensions.join(", ")} · up to {task.fileRequest.maxSizeMb} MB
+          </p>
+          <FileUpload
+            eventId={eventId}
+            kind="upload"
+            fileRequestId={task.fileRequest.id}
+            maxSizeMb={task.fileRequest.maxSizeMb}
+            accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
+            label={task.uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
+            onUploaded={(fileId) => { void attach(fileId); }}
+          />
+          {task.uploads.length > 0 && (
+            <ul className="portal-uploads">
+              {task.uploads.map((upload, index) => (
+                <li key={upload.fileUploadId}>
+                  <Paperclip size={15} />
+                  <span>{upload.filename}</span>
+                  <TzTime instant={upload.createdAt} tz={timezone} style="date" />
+                  {/* Nothing is deleted, so the newest is simply the one on top. */}
+                  {index === 0 && <em>Latest</em>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {task.completionMode === "form" && form && (
+        <div className="portal-panel">
+          <FormFieldRenderer
+            snapshot={form.snapshot}
+            answers={answers}
+            onChange={(fieldId, value) => setAnswers((current) => ({ ...current, [fieldId]: value }))}
+            mode="edit"
+            errors={fieldErrors}
+          />
+          <Button disabled={busy} onClick={() => complete({ answers })}>
+            {busy ? "Saving…" : task.completed ? "Save changes" : "Submit & complete"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

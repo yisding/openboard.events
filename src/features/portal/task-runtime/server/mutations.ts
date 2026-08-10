@@ -1,0 +1,218 @@
+import { sql } from "drizzle-orm";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
+import type { ContactId, EventId, FormId } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
+import { updateContactFields } from "../../server/contacts";
+
+/**
+ * The three ways a speaker finishes a task.
+ *
+ * All three are authorized the same way: the insert selects its own row out of
+ * `task_assignments_v`, so a task that is not routed to this contact simply
+ * matches nothing. There is no separate "is this mine?" read to fall out of step
+ * with the insert that follows it.
+ *
+ * `ON CONFLICT DO NOTHING` on `(task_id, contact_id, submission_id)` is what
+ * makes a double-click one completion instead of an error. Two of these —
+ * `completeTaskViaResponse` and `completeTaskViaUpload` — are audited `withTx`
+ * paths, because the evidence row and the completion row have to land together:
+ * a task marked done with no file behind it is worse than one still open.
+ */
+
+type Mode = "manual" | "form" | "file_request";
+
+type Assignment = { taskId: string; submissionId: string | null; formId: string | null; fileRequestId: string | null };
+
+/**
+ * The assignment as the database sees it, or a refusal. Used only where the
+ * insert itself cannot carry the lookup — form mode needs the form id before it
+ * can validate anything.
+ */
+async function requireAssignment(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+  mode: Mode,
+): Promise<Assignment> {
+  const result = await dbOrTx.execute<{ completion_mode: Mode; form_id: string | null; file_request_id: string | null }>(sql`
+    SELECT t.completion_mode, t.form_id, t.file_request_id
+    FROM task_assignments_v v
+    JOIN portal_tasks t ON t.id = v.task_id AND t.event_id = v.event_id
+    WHERE v.event_id = ${eventId} AND v.contact_id = ${contactId} AND v.task_id = ${taskId}
+      AND v.submission_id IS NOT DISTINCT FROM ${submissionId}
+  `);
+  const row = (result.rows ?? [])[0];
+  // A task belonging to someone else reads exactly like one that does not exist.
+  if (!row) throw new AppError("NOT_FOUND", "Task not found");
+  if (row.completion_mode !== mode) {
+    throw new AppError("VALIDATION", `This task is completed by ${row.completion_mode.replace("_", " ")}, not by ${mode.replace("_", " ")}`);
+  }
+  return { taskId, submissionId, formId: row.form_id, fileRequestId: row.file_request_id };
+}
+
+/**
+ * Manual mode: one guarded statement, no transaction. There is nothing else to
+ * write atomically with it, and `withTx` is confined to the eight audited paths.
+ */
+export async function completeTaskManualIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+): Promise<void> {
+  const result = await dbOrTx.execute<{ id: string }>(sql`
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via)
+    SELECT v.event_id, v.task_id, v.contact_id, v.submission_id, 'manual'
+    FROM task_assignments_v v
+    JOIN portal_tasks t ON t.id = v.task_id AND t.event_id = v.event_id
+    WHERE v.event_id = ${eventId} AND v.contact_id = ${contactId} AND v.task_id = ${taskId}
+      AND v.submission_id IS NOT DISTINCT FROM ${submissionId}
+      AND t.completion_mode = 'manual'
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `);
+  if ((result.rows ?? []).length > 0) return;
+
+  // Nothing was written: either it was already done — the double-click this
+  // guard exists for — or the task is not this speaker's.
+  const existing = await dbOrTx.execute<{ id: string }>(sql`
+    SELECT id FROM task_completions
+    WHERE event_id = ${eventId} AND task_id = ${taskId} AND contact_id = ${contactId}
+      AND submission_id IS NOT DISTINCT FROM ${submissionId}
+  `);
+  if ((existing.rows ?? []).length > 0) return;
+  await requireAssignment(dbOrTx, eventId, contactId, taskId, submissionId, "manual");
+  throw new AppError("INTERNAL", "The task could not be completed");
+}
+
+/**
+ * File mode. Audited `withTx` path #6: the upload row and the completion row are
+ * one unit, and the completion is written second — a task must never read as
+ * done with no file behind it.
+ *
+ * A second upload against a finished task adds another file and leaves the
+ * completion alone, because "replace" is send-another, not delete-and-resend.
+ */
+export async function completeTaskViaUploadIn(
+  tx: TxDb,
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+  fileAssetId: string,
+): Promise<void> {
+  const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
+  if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
+
+  // The asset has to be this event's; the foreign key would catch it, but a
+  // typed refusal beats a constraint violation surfacing as a 500.
+  const asset = await tx.execute<{ id: string }>(sql`
+    SELECT id FROM file_assets WHERE id = ${fileAssetId} AND event_id = ${eventId}
+  `);
+  if ((asset.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "That file does not belong to this event");
+
+  const uploaded = await tx.execute<{ id: string }>(sql`
+    INSERT INTO file_uploads (event_id, file_request_id, contact_id, submission_id, file_asset_id)
+    VALUES (${eventId}, ${assignment.fileRequestId}, ${contactId}, ${submissionId}, ${fileAssetId})
+    RETURNING id
+  `);
+  const fileUploadId = (uploaded.rows ?? [])[0]?.id;
+  if (!fileUploadId) throw new AppError("INTERNAL", "The upload could not be recorded");
+
+  await tx.execute(sql`
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id)
+    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${fileUploadId})
+    ON CONFLICT DO NOTHING
+  `);
+}
+
+/** The submission columns a portal form is allowed to write, and their SQL names. */
+const SUBMISSION_COLUMNS = {
+  title: sql`title`,
+  descriptionHtml: sql`description_html`,
+  trackId: sql`track_id`,
+  formatId: sql`format_id`,
+  level: sql`level`,
+} as const;
+
+/**
+ * Form mode. Audited `withTx` path #7: the response, the write-back and the
+ * completion are one unit.
+ *
+ * The snapshot is re-fetched here rather than trusted from the client — an
+ * organizer may have edited the form between render and submit — and the same
+ * `runSubmitPipeline` the public CFP uses does the parsing, stripping and
+ * validation, so there is one definition of a valid answer in the repository.
+ */
+export async function completeTaskViaResponseIn(
+  tx: TxDb,
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+  answers: RawAnswers,
+): Promise<void> {
+  const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "form");
+  if (!assignment.formId) throw new AppError("VALIDATION", "This task has no form attached");
+
+  const snapshot = await getCurrentSnapshotIn(tx, eventId, assignment.formId as FormId);
+  const pipeline = runSubmitPipeline(snapshot, answers, { participantId: null, requireRequired: true });
+  if (!pipeline.ok) throw new AppError("VALIDATION", "Some answers need fixing", { fieldErrors: pipeline.fieldErrors });
+  if (pipeline.discarded.length > 0) {
+    // A field the organizer removed after this page rendered is dropped, not a
+    // 500 in the speaker's face.
+    log({
+      level: "info", msg: "portal.task.answers_discarded", requestId: taskId, feature: "portal",
+      eventId, code: pipeline.discarded.join(","),
+    });
+  }
+
+  const response = await tx.execute<{ id: string }>(sql`
+    INSERT INTO form_responses (event_id, form_id, form_version, contact_id, submission_id, answers)
+    VALUES (${eventId}, ${assignment.formId}, ${snapshot.version}, ${contactId}, ${submissionId}, ${JSON.stringify(pipeline.clean)}::jsonb)
+    ON CONFLICT (form_id, contact_id, submission_id) DO UPDATE SET
+      answers = EXCLUDED.answers, form_version = EXCLUDED.form_version, updated_at = now()
+    RETURNING id
+  `);
+  const responseId = (response.rows ?? [])[0]?.id;
+  if (!responseId) throw new AppError("INTERNAL", "The response could not be saved");
+
+  // Write-back is field-scoped in both directions: a portal form that asks for a
+  // bio must not overwrite the company someone edited on the Profile page a
+  // minute ago. `deriveMappedFields` is the one place `mapsTo` is interpreted.
+  const mapped = deriveMappedFields(snapshot, pipeline.clean);
+  if (Object.keys(mapped.contact).length > 0) {
+    await updateContactFields(tx, eventId, contactId, mapped.contact);
+  }
+  const submissionPatch = Object.entries(mapped.submission).filter(([, value]) => value !== undefined);
+  if (submissionPatch.length > 0 && submissionId) {
+    const assignments = submissionPatch.map(([column, value]) =>
+      sql`${SUBMISSION_COLUMNS[column as keyof typeof SUBMISSION_COLUMNS]} = ${value ?? null}`);
+    await tx.execute(sql`
+      UPDATE submissions SET ${sql.join(assignments, sql`, `)}, updated_at = now()
+      WHERE id = ${submissionId} AND event_id = ${eventId}
+    `);
+  }
+
+  await tx.execute(sql`
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, form_response_id)
+    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'form_response', ${responseId})
+    ON CONFLICT DO NOTHING
+  `);
+}
+
+export const completeTaskManual = (eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null) =>
+  completeTaskManualIn(db, eventId, contactId, taskId, submissionId);
+
+export const completeTaskViaUpload = (
+  eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, fileAssetId: string,
+) => withTx((tx) => completeTaskViaUploadIn(tx, eventId, contactId, taskId, submissionId, fileAssetId));
+
+export const completeTaskViaResponse = (
+  eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, answers: RawAnswers,
+) => withTx((tx) => completeTaskViaResponseIn(tx, eventId, contactId, taskId, submissionId, answers));
