@@ -18,6 +18,8 @@ export {
   getPlanIn,
   getRatings,
   getRatingsIn,
+  listEventMembers,
+  listEventMembersIn,
   listPlans,
   listPlansIn,
   listReviewQueue,
