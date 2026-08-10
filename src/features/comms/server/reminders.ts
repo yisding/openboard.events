@@ -316,3 +316,32 @@ export async function sendReminderNow(
 ): Promise<{ enqueued: boolean }> {
   return sendReminderNowIn(db, eventId, taskId, contactId, submissionId);
 }
+
+/**
+ * M52's central Files view "remind the visible selection" bar. A thin loop
+ * over the same single-target `sendReminderNowIn` this module already proves
+ * idempotent — not a second enqueue path — capped by the route's own zod
+ * schema (200) so a bulk click never spends more of the Workers Free
+ * subrequest budget than `notifySchedule`'s per-recipient loop already does
+ * for a published session.
+ */
+export async function sendRemindersNowIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  targets: readonly { taskId: TaskId; contactId: ContactId; submissionId: SubmissionId | null }[],
+  now: number = Date.now(),
+): Promise<{ enqueued: number; total: number }> {
+  let enqueued = 0;
+  for (const target of targets) {
+    const result = await sendReminderNowIn(dbOrTx, eventId, target.taskId, target.contactId, target.submissionId, now);
+    if (result.enqueued) enqueued += 1;
+  }
+  return { enqueued, total: targets.length };
+}
+
+export function sendRemindersNow(
+  eventId: EventId,
+  targets: readonly { taskId: TaskId; contactId: ContactId; submissionId: SubmissionId | null }[],
+): Promise<{ enqueued: number; total: number }> {
+  return sendRemindersNowIn(db, eventId, targets);
+}

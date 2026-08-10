@@ -10,6 +10,8 @@ export type EmailMessage = {
   text: string;
   idempotencyKey: string;
   attachments?: Array<{ filename: string; content: string; content_type: string }>;
+  /** P3-EMAIL: `List-Unsubscribe` on non-transactional sends — see `isTransactionalTemplate`. */
+  headers?: Record<string, string>;
 };
 
 export async function sendViaResend(message: EmailMessage, fetcher: typeof fetch = fetch): Promise<string> {
@@ -28,6 +30,7 @@ export async function sendViaResend(message: EmailMessage, fetcher: typeof fetch
       html: message.html,
       text: message.text,
       ...(message.attachments ? { attachments: message.attachments } : {}),
+      ...(message.headers ? { headers: message.headers } : {}),
     }),
   });
   const body = await response.text();

@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { initialDemoState } from "@/shared/demo/seed";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
-import { corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
+import { apiV1ErrorResponse, checkV1RateLimit, corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,16 @@ export function OPTIONS() { return corsPreflight(); }
  * A declined or unconfirmed speaker showing up here is the one leak that cannot
  * be walked back after judging.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  try {
+    return await handleGet(request, params);
+  } catch (error) {
+    return apiV1ErrorResponse(error);
+  }
+}
+
+async function handleGet(request: Request, params: Promise<{ slug: string }>) {
+  await checkV1RateLimit("speakers", request);
   const { slug } = await params;
   const event = await resolvePublicEvent(slug);
   if (!event) return notFoundResponse();

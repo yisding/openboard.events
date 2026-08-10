@@ -7,7 +7,7 @@
  * every name below, so the server barrel's surface is unchanged.
  */
 import { z } from "zod";
-import { commLogDetailSchema, submissionIdSchema, taskIdSchema, templateKeySchema, type TemplateKey } from "@/shared/contracts";
+import { commLogDetailSchema, contactIdSchema, submissionIdSchema, suppressionReasonSchema, taskIdSchema, templateKeySchema, type TemplateKey } from "@/shared/contracts";
 
 /**
  * The organizer-facing mirror of one `email_templates` row. This UI **updates**
@@ -75,4 +75,64 @@ export const openAssignmentRowSchema = z.object({
   dueAt: z.iso.datetime().nullable(),
   submissionId: submissionIdSchema.nullable(),
   submissionCode: z.string().nullable(),
+});
+
+// --- M46: suppression list admin UI -----------------------------------
+
+/**
+ * One `contact_suppressions` row, joined out to a displayable
+ * recipient. Presence in the underlying table means suppressed — see the
+ * table's own migration comment — so this row's mere existence in the list
+ * is the signal; there is no "active"/"inactive" flag to read.
+ */
+export type SuppressionRow = {
+  contactId: z.infer<typeof contactIdSchema>;
+  email: string;
+  name: string;
+  reason: z.infer<typeof suppressionReasonSchema>;
+  suppressedAt: string;
+};
+
+export const suppressionRowSchema = z.object({
+  contactId: contactIdSchema,
+  email: z.email(),
+  name: z.string(),
+  reason: suppressionReasonSchema,
+  suppressedAt: z.iso.datetime(),
+});
+
+// --- M46: per-domain deliverability -------------------------------------
+
+/**
+ * One row per recipient email domain, aggregated from `communication_logs`
+ * for the event. `total` is every attempt regardless of outcome; the six
+ * per-status counts sum to it. The two rate fields are percentages
+ * (0–100, one decimal) computed against `sent + bounced + complained` — the
+ * set of sends that reached a definitive provider outcome — so a domain
+ * that is still mostly `queued` does not show a misleadingly low rate.
+ */
+export type DomainDeliverabilityRow = {
+  domain: string;
+  total: number;
+  queued: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  bounced: number;
+  complained: number;
+  bounceRatePct: number;
+  complaintRatePct: number;
+};
+
+export const domainDeliverabilityRowSchema = z.object({
+  domain: z.string(),
+  total: z.number().int().nonnegative(),
+  queued: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  bounced: z.number().int().nonnegative(),
+  complained: z.number().int().nonnegative(),
+  bounceRatePct: z.number().nonnegative(),
+  complaintRatePct: z.number().nonnegative(),
 });

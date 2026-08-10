@@ -1,7 +1,7 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { events, tracks, users } from "./core";
-import { fieldTypeEnum, formContextEnum, formStatusEnum, submissionKindEnum, taskTargetEnum } from "./enums";
+import { fieldTypeEnum, formContextEnum, formStatusEnum, reviewVisibilityEnum, submissionKindEnum, taskTargetEnum } from "./enums";
 
 export const forms = pgTable("forms", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
@@ -26,6 +26,9 @@ export const formFields = pgTable("form_fields", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), formId: uuid("form_id").notNull(), sectionId: uuid("section_id").notNull(),
   key: text("key").notNull(), label: text("label").notNull(), fieldType: fieldTypeEnum("field_type").notNull(), required: boolean("required").notNull().default(false),
   locked: boolean("locked").notNull().default(false), maxChars: integer("max_chars"), helpText: text("help_text"), options: jsonb("options"), visibility: jsonb("visibility"), mapsTo: text("maps_to"),
+  // M50 blind review: `identity` is the fail-closed default, so an unclassified
+  // question is withheld from an anonymized reviewer rather than leaked to one.
+  reviewVisibility: reviewVisibilityEnum("review_visibility").notNull().default("identity"),
   sortOrder: integer("sort_order").notNull().default(0), deletedAt: timestamp("deleted_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.id, table.eventId), uniqueIndex("form_fields_key_live_uq").on(table.formId, table.key).where(sql`deleted_at IS NULL`)]);
 

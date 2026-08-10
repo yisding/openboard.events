@@ -32,6 +32,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
   const [eventType, setEventType] = useState<EventType>(event.eventType as EventType);
   const [websiteUrl, setWebsiteUrl] = useState(event.websiteUrl ?? "");
   const [location, setLocation] = useState(event.location ?? "");
+  const [physicalAddress, setPhysicalAddress] = useState(event.physicalAddress ?? "");
   const [timezone, setTimezone] = useState(event.timezone);
   const [startsAt, setStartsAt] = useState<string | null>(event.startsAt);
   const [endsAt, setEndsAt] = useState<string | null>(event.endsAt);
@@ -61,6 +62,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
             eventType,
             websiteUrl: websiteUrl.trim(),
             location: location.trim(),
+            physicalAddress: physicalAddress.trim(),
             timezone,
             startsAt,
             endsAt,
@@ -132,6 +134,9 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
         </div>
         <Field label="Theme" hint={`${themeCount} / ${LIMITS.THEME}`}>
           <textarea rows={4} value={theme} onChange={(e) => setTheme(e.target.value)} className={themeOverLimit ? "has-error" : ""} />
+        </Field>
+        <Field label="Physical mailing address" hint="Required by CAN-SPAM on every marketing email; shown in the footer of non-essential speaker emails.">
+          <input value={physicalAddress} onChange={(e) => setPhysicalAddress(e.target.value)} placeholder="123 Main St, Suite 100, San Francisco, CA 94105" />
         </Field>
         {error && <p className="field-error">{error}</p>}
         <footer>

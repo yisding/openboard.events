@@ -23,14 +23,19 @@ import {
   Users,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import type { FieldType, MapsToTarget, VisibilityRule } from "@/shared/contracts";
-import { COMMITTED_FIELD_TYPES, CONDITION_OPS, MAPS_TO_TARGETS } from "@/shared/contracts";
+import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contracts";
+import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
-import { mergeUnsavedBuilderEdits, type BuilderDirtyTarget } from "./form-builder-state";
+import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
+// M13b: the visibility editor, live preview, and routing panel are that
+// module's — this file only mounts them at the right point in the wizard.
+import { BuilderPreview as LiveBuilderPreview } from "./components/builder/builder-preview";
+import { RoutingRulesPanel } from "./components/builder/routing-rules-panel";
+import { VisibilityRuleEditor } from "./components/builder/visibility-rule-editor";
 // M14: the Settings/Notifications steps are owned by that module — see
 // components/builder/settings-step.tsx and notifications-step.tsx for the
 // hardened deadline/capacity/confirmation-template implementations.
@@ -84,6 +89,11 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [dirty, setDirty] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
+  // M13b's live preview compiles a snapshot from the in-memory (possibly
+  // unsaved) draft, so a conditional field visibly appears/disappears as the
+  // organizer edits it — no save round trip. Falls back to the mock preview
+  // if the draft is momentarily uncompilable mid-edit.
+  const liveSnapshot = useMemo(() => tryCompileBuilderSnapshot(form), [form]);
 
   function markDirty(target: BuilderDirtyTarget) {
     dirtyRevisions.current.set(target, (dirtyRevisions.current.get(target) ?? 0) + 1);
@@ -193,7 +203,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     };
     await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
       expectedUpdatedAt: form.updatedAt,
-      patch: { label: field.label, helpText: field.helpText, maxChars: field.maxChars, ...structural },
+      // `reviewVisibility` is not structural: it changes what a *future* blind
+      // reviewer sees, never the answers already pinned to a snapshot, so it
+      // stays editable after the form locks.
+      patch: { label: field.label, helpText: field.helpText, maxChars: field.maxChars, reviewVisibility: field.reviewVisibility, ...structural },
     })), "Question saved", [`field:${field.id}`]);
   }
 
@@ -255,7 +268,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
         <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </main>
-      <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => void deleteField(selectedField)} busy={busy} /> : <BuilderPreview form={form} step={step} />}</aside>
+      <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => void deleteField(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
     <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type"><div className="type-grid">{addableTypes.map((item) => <button key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
   </div>;
@@ -270,7 +283,11 @@ function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: 
 }
 
 function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void }) {
-  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Abstract information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>{!participant && <div className="setting-note"><SlidersHorizontal size={18} /><div><b>Routing rules</b><p>Existing routing rules continue to run against field ids. Rule authoring is completed in the Routing Rules module.</p></div></div>}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
+  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Abstract information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>
+  {/* M13b/M24: routing rules stamp a Track/Tags on submit, which only means
+      something for a CFP submission — portal forms (context='portal') never
+      show this panel (plan/modules/M13b-rules-ui.md "Portal forms" guardrail). */}
+  {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
 }
 
 function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
@@ -282,16 +299,6 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
   const position = flattened.findIndex((candidate) => candidate.id === field.id);
   const earlier = flattened.slice(0, position);
   const lockedStructure = form.hasNonDraftSubmissions;
-  function visibility(enabled: boolean) {
-    if (!enabled) return onChange({ visibility: null });
-    const source = earlier[0];
-    if (source) onChange({ visibility: { match: "all", conditions: [{ sourceFieldId: source.id, op: "eq", value: source.options[0]?.id ?? "Yes" }] } });
-  }
-  const condition = field.visibility?.conditions[0];
-  function updateCondition(patch: Partial<NonNullable<VisibilityRule>["conditions"][number]>) {
-    if (!condition) return;
-    onChange({ visibility: { match: field.visibility?.match ?? "all", conditions: [{ ...condition, ...patch }] } });
-  }
   return <div className="inspector-content"><header><div><span>QUESTION</span><h3>Edit field</h3></div>{field.locked && <StatusBadge value="Locked" />}</header><div className="form-stack">
     <Field label="Label"><input maxLength={255} value={field.label} onChange={(current) => onChange({ label: current.target.value })} /></Field>
     <Field label="Key" hint={field.locked || lockedStructure ? "Keys are immutable for this field." : "Used by integrations and stays stable when labels change."}><input disabled={field.locked || lockedStructure} value={field.key} onChange={(current) => onChange({ key: current.target.value })} /></Field>
@@ -299,15 +306,21 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
     <Field label="Help text"><textarea value={field.helpText} onChange={(current) => onChange({ helpText: current.target.value })} /></Field>
     {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
     <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><button disabled={field.locked || lockedStructure} className={`switch ${field.required ? "on" : ""}`} onClick={() => onChange({ required: !field.required })}><i /></button></div>
+    <Field label="Blind review" hint={field.locked ? "Locked identity fields are always hidden from anonymized reviewers." : "Anonymized rounds show only the answers marked as proposal content. Anything left as identity is withheld."}><select disabled={field.locked} value={field.reviewVisibility} onChange={(current) => onChange({ reviewVisibility: current.target.value as ReviewVisibility })}><option value="identity">Identity — hide from anonymized reviewers</option><option value="content">Proposal content — show to anonymized reviewers</option></select></Field>
     {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
     {!field.locked && <Field label="Maps to"><select disabled={lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}><option value="">No system mapping</option>{MAPS_TO_TARGETS.map((target) => <option key={target} value={target}>{target}</option>)}</select></Field>}
-    {!field.locked && <div className="condition-card"><div><b>Conditional visibility</b><small>Conditions may reference only earlier questions.</small></div><button disabled={lockedStructure || earlier.length === 0} className={`switch ${field.visibility ? "on" : ""}`} onClick={() => visibility(!field.visibility)}><i /></button>{condition && <div className="condition-editor"><span>Show when</span><select disabled={lockedStructure} value={condition.sourceFieldId} onChange={(current) => updateCondition({ sourceFieldId: current.target.value as BuilderField["id"] })}>{earlier.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.label}</option>)}</select><select disabled={lockedStructure} value={condition.op} onChange={(current) => { const op = current.target.value as (typeof CONDITION_OPS)[number]; updateCondition({ op, value: op === "answered" || op === "empty" ? undefined : condition.value ?? "" }); }}>{CONDITION_OPS.map((op) => <option key={op} value={op}>{op === "in" ? "contains option" : op.replaceAll("_", " ")}</option>)}</select>{!["answered", "empty"].includes(condition.op) && <input disabled={lockedStructure} value={typeof condition.value === "string" ? condition.value : ""} onChange={(current) => updateCondition({ value: current.target.value })} placeholder="Value or option id" />}</div>}</div>}
+    {/* Visibility is a structural change (guards.ts `fieldPatchIsStructural`)
+        and is rejected server-side once the form has non-draft submissions —
+        matching the locked hint already used above for Options. */}
+    {!field.locked && (lockedStructure
+      ? <div className="condition-card"><div><b>Conditional visibility</b><small>Visibility is locked after the first submission.</small></div></div>
+      : <VisibilityRuleEditor field={field} earlierFields={earlier} value={field.visibility} onChange={(visibility) => onChange({ visibility })} />)}
     <Button disabled={busy} onClick={onSave}><Save size={15} /> Save question</Button>
     {!field.locked && <Button variant="ghost" disabled={busy || lockedStructure} className="delete-field" onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
   </div></div>;
 }
 
-function BuilderPreview({ form, step }: { form: BuilderForm; step: BuilderStep }) {
+function MockBuilderPreview({ form, step }: { form: BuilderForm; step: BuilderStep }) {
   const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
   return <div className="preview-pane"><header><span>LIVE PREVIEW</span><b>Desktop</b></header><div className="mini-browser"><div className="mini-browser-top"><i /><i /><i /></div><div className="mini-public"><span className="mini-event-logo">Openboard</span>{step === "welcome" ? <><small>CALL FOR SPEAKERS</small><h3>{form.pageHeading}</h3><RichTextView html={form.welcomeHtml} /><button>Get started</button></> : <><div className="mini-stepper"><i className="done" /><i className="active" /><i /><i /></div><small>{step === "settings" ? "REVIEW & SUBMIT" : "YOUR SESSION"}</small><h3>{section?.pageHeading ?? form.externalTitle}</h3>{section?.fields.slice(0, 3).map((field) => <label key={field.id}><span>{field.label}</span><i>{field.helpText || "Your answer"}</i></label>)}</>}</div></div><p className="preview-hint"><Eye size={14} /> Preview updates as you edit.</p></div>;
 }

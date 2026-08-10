@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { db } from "@/db/client";
 import { apiKeyAuth } from "@/features/auth";
 import { submissionStatusSchema, type SubmissionStatus } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { checkRateLimit } from "@/shared/server/rate-limit";
 import { apiV1ErrorResponse, corsPreflight, privateData } from "../../../_lib";
 import { listPublicSubmissions } from "../../../server/queries";
 
@@ -44,6 +46,7 @@ export async function GET(request: NextRequest, route: { params: Promise<{ slug:
     const session = await apiKeyAuth()(request, null, params);
     const eventId = session?.eventId;
     if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
+    await checkRateLimit(db, { key: `v1:submissions:${session.actorId}`, limit: 300, windowMs: 5 * 60 * 1000 });
 
     const searchParams = request.nextUrl.searchParams;
     const status = parseStatus(searchParams.get("status"));

@@ -20,10 +20,12 @@ describe("nextCriterionToScore", () => {
 });
 
 describe("nextUnscored", () => {
+  // Finished-ness is `scoredAt`: a review of a text-only round is complete
+  // without ever producing a number.
   const rows = [
-    { submissionId: "a", myScore: 4 },
-    { submissionId: "b", myScore: null },
-    { submissionId: "c", myScore: null },
+    { submissionId: "a", scoredAt: "2026-08-09T10:00:00.000Z" },
+    { submissionId: "b", scoredAt: null },
+    { submissionId: "c", scoredAt: null },
   ];
 
   it("moves to the next proposal that still needs a verdict", () => {
@@ -35,6 +37,6 @@ describe("nextUnscored", () => {
   });
 
   it("stops when the queue is done", () => {
-    expect(nextUnscored([{ submissionId: "a", myScore: 5 }], "a")).toBeUndefined();
+    expect(nextUnscored([{ submissionId: "a", scoredAt: "2026-08-09T10:00:00.000Z" }], "a")).toBeUndefined();
   });
 });

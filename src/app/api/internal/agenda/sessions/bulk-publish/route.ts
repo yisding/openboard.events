@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agendaAuth, bulkSetPublished } from "@/features/agenda";
 import { eventIdSchema, sessionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
 import { nudgeAfterEnqueue } from "../../nudge";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +19,13 @@ const bulkPublish = defineHandler({
     ids: z.array(sessionIdSchema).min(1).max(200),
     published: z.boolean(),
   }),
-  handler: async ({ eventId, input }) => {
-    const result = await bulkSetPublished(eventIdSchema.parse(eventId), input.ids, input.published);
+  handler: async ({ eventId, input, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const result = await bulkSetPublished(scopedEventId, input.ids, input.published);
     if (result.emailsQueued > 0) nudgeAfterEnqueue();
+    // Publishing is exactly the write an organizer checks on the public page
+    // straight afterwards, so it does not wait out the 60s ISR window.
+    if (result.changed > 0) await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     return result;
   },
 });

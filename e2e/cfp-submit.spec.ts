@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { apiData, expectNoConsoleErrors, loginAsAdmin, PORTAL_CODE_REFUSAL_CAUSES } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, FORMS, uniqueEmail } from "./helpers/seeded";
@@ -18,16 +18,54 @@ type AnswerMap = Record<string, { t: string; v: unknown }>;
 type StatusCounts = Record<string, number>;
 
 /**
+ * A dropdown question, by its accessible name rather than by `getByLabel`.
+ *
+ * `getByLabel` matches on a substring by default, and the description field's
+ * rich-text editor puts a `role="toolbar" aria-label="Formatting"` on the same
+ * step — so `getByLabel("Format")` resolves to two elements and every wizard
+ * spec dies in strict mode. Both names are the app's to choose; addressing the
+ * `<select>` by role and exact name is the spec's job.
+ */
+function dropdown(page: Page, name: string): Locator {
+  return page.getByRole("combobox", { name, exact: true });
+}
+
+/**
  * The account step, through the real OTP challenge — there is no shortcut into
  * a portal session and inventing one would stop testing the path a judge uses.
  * Returns once the submission step is on screen.
+ *
+ * This is the suite's highest-traffic login path (six calls a run), so it gets
+ * the same refusal handling `loginAsSpeaker` has: a refused code request leaves
+ * `codeRequested` false, so the OTP input and the fallback panel never render
+ * and the step reports itself only through `.cfp-notice`. Waiting on the panel
+ * alone would time out blaming `EMAIL_FALLBACK_UI` for what is really a
+ * throttle — the wrong env knob, on the wrong machine, for half an hour.
  */
 async function signInAtAccountStep(page: Page, email: string): Promise<void> {
   await page.getByLabel("Email address").fill(email);
   await page.getByRole("button", { name: /send me a code/i }).click();
+
   const issued = page.locator(".demo-code code");
+  const otpInput = page.getByLabel(/six-digit code/i);
+  const notice = page.locator(".cfp-notice");
+  // A successful request renders the notice *and* the OTP input in the same
+  // commit, so "a notice with no input" is unambiguously the refusal.
+  const answered = async () => (await issued.count()) > 0
+    ? "issued"
+    : (await notice.count()) > 0 && (await otpInput.count()) === 0 ? "refused" : "pending";
+  await expect
+    .poll(answered, { message: "the account step should answer the code request", timeout: 20_000 })
+    .not.toEqual("pending");
+  if (await answered() === "refused") {
+    throw new Error(
+      `the account step could not get a code for ${email}: "${(await notice.first().innerText()).trim()}". `
+      + PORTAL_CODE_REFUSAL_CAUSES,
+    );
+  }
+
   await expect(issued, "preview renders the issued code (EMAIL_FALLBACK_UI=1); production never does").toBeVisible();
-  await page.getByLabel(/six-digit code/i).fill((await issued.textContent())?.trim() ?? "");
+  await otpInput.fill((await issued.textContent())?.trim() ?? "");
   await page.getByRole("button", { name: /^continue$/i }).click();
   await expect(page.getByLabel("Title")).toBeVisible();
 }
@@ -117,7 +155,7 @@ test.describe("cfp-submit", () => {
 
       await test.step(`the conditional field appears only when Format = ${FORMS.open.conditionalOn}`, async () => {
         await expect(page.getByLabel(FORMS.open.conditionalField)).toHaveCount(0);
-        await page.getByLabel("Format").selectOption({ label: FORMS.open.conditionalOn });
+        await dropdown(page, "Format").selectOption({ label: FORMS.open.conditionalOn });
         await expect(page.getByLabel(FORMS.open.conditionalField)).toBeVisible();
       });
 
@@ -125,13 +163,13 @@ test.describe("cfp-submit", () => {
         // Answer it, then switch the format back: the stale answer must be gone,
         // not merely invisible.
         await page.getByLabel(FORMS.open.conditionalField).fill("90 minutes, hands on");
-        await page.getByLabel("Format").selectOption({ label: "Talk" });
+        await dropdown(page, "Format").selectOption({ label: "Talk" });
         await expect(page.getByLabel(FORMS.open.conditionalField)).toHaveCount(0);
       });
 
       await test.step("participant, review and submit reach the success page", async () => {
         await page.getByLabel("Title").fill(title);
-        await page.getByLabel("Track").selectOption({ label: "Platforms" });
+        await dropdown(page, "Track").selectOption({ label: "Platforms" });
         await page.getByLabel("Rich text editor").click();
         await page.keyboard.type("Everything we learned shipping this.");
         await page.getByRole("button", { name: /^continue$/i }).click();
@@ -183,12 +221,23 @@ test.describe("cfp-submit", () => {
           const response = await submitThroughApi(page.request, email, `E2E limit filler ${index} ${Date.now()}`);
           expect(response.status(), "a submit inside the limit must succeed").toBe(200);
         }
+        // The first filler promoted the draft the account step had just created
+        // (`createSubmission` promotes any open draft for this speaker+form), so
+        // the wizard is still holding a `draftSubmissionId` that is now
+        // committed. Submitting on it is a *retry* of that filler by the
+        // server's own idempotency rule — `submitCfpForm` replays the committed
+        // result before it ever reaches the limit check, and the speaker would
+        // see the filler's SESS code as a success. Restarting the wizard gives
+        // it a fresh draft, which is what a speaker starting a fourth proposal
+        // actually has.
+        await page.goto(FORM_PATH);
+        await signInAtAccountStep(page, email);
       });
 
-      await test.step("a second submit past the seeded limit shows LIMIT_REACHED, not a 500", async () => {
+      await test.step("a fourth submit past the seeded limit shows LIMIT_REACHED, not a 500", async () => {
         await page.getByLabel("Title").fill(`E2E over the limit ${Date.now()}`);
-        await page.getByLabel("Track").selectOption({ label: "Platforms" });
-        await page.getByLabel("Format").selectOption({ label: "Talk" });
+        await dropdown(page, "Track").selectOption({ label: "Platforms" });
+        await dropdown(page, "Format").selectOption({ label: "Talk" });
         await page.getByLabel("Rich text editor").click();
         await page.keyboard.type("One more than allowed.");
         await page.getByRole("button", { name: /^continue$/i }).click();
@@ -279,8 +328,8 @@ test.describe("cfp-submit on a phone", () => {
       expect(await overflows(), "the submission step must not scroll sideways at 390px").toBe(false);
 
       await page.getByLabel("Title").fill(`E2E phone ${Date.now()}`);
-      await page.getByLabel("Track").selectOption({ label: "Platforms" });
-      await page.getByLabel("Format").selectOption({ label: "Talk" });
+      await dropdown(page, "Track").selectOption({ label: "Platforms" });
+      await dropdown(page, "Format").selectOption({ label: "Talk" });
       await page.getByLabel("Rich text editor").click();
       await page.keyboard.type("Submitted from a phone.");
       await page.getByRole("button", { name: /^continue$/i }).click();

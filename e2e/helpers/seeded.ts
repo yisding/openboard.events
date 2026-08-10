@@ -113,7 +113,9 @@ export const TASKS = {
   form: { id: seedId("task", "update-profile"), name: "Update your profile" },
 } as const;
 
-export const TEMPLATE_KEYS_PER_EVENT = 8; // 7 domain templates + portal_login
+// 7 domain templates + portal_login + M50's reviewer_invited and
+// review_reminder + M51's speaker_bulk_message.
+export const TEMPLATE_KEYS_PER_EVENT = 11;
 
 /**
  * Every seeded address is on a domain the project owns, and so is every address

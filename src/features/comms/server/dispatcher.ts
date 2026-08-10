@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { communicationLogs, emailTemplates } from "@/db/schema";
-import type { JobStats } from "@/shared/contracts";
+import { isTransactionalTemplate, type JobStats } from "@/shared/contracts";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { applyCalendarInvite, buildContext, SkipEmail, type OutboxRow } from "./context";
@@ -120,6 +120,7 @@ async function processRow(
   const rendered = renderTemplateContent(row.templateKey, subjectTemplate, bodyTemplate, context.vars, {
     ...(context.logoUrl ? { logoUrl: context.logoUrl } : {}),
     unsubscribeUrl: context.unsubscribeUrl,
+    ...(context.physicalAddress ? { physicalAddress: context.physicalAddress } : {}),
   });
   const storedHtml = persistedHtml(row, rendered.html, env);
   await dbOrTx.update(communicationLogs).set({
@@ -132,6 +133,17 @@ async function processRow(
   let providerMessageId = "log-mode";
   if (env.EMAIL_MODE === "send") {
     if (!env.RESEND_API_KEY || !env.EMAIL_FROM) throw new Error("email sending is not configured");
+    // P3-EMAIL: `List-Unsubscribe` (RFC 2369) on every non-essential send —
+    // the same `isTransactionalTemplate` policy that decides whether
+    // `context.unsubscribeUrl` even carries a working token (context.ts).
+    // Deliberately just the header, not `List-Unsubscribe-Post`/RFC 8058
+    // one-click: the confirm route expects a `token` form field, not the
+    // bare `List-Unsubscribe=One-Click` body a client sends for one-click,
+    // so advertising one-click without implementing it would silently fail
+    // against a real mail provider.
+    const unsubscribeHeaders = !isTransactionalTemplate(row.templateKey)
+      ? { "List-Unsubscribe": `<${context.unsubscribeUrl}>` }
+      : undefined;
     providerMessageId = await sender({
       apiKey: env.RESEND_API_KEY,
       from: env.EMAIL_FROM,
@@ -141,6 +153,7 @@ async function processRow(
       text: rendered.text,
       idempotencyKey: row.idempotencyKey,
       ...(invite ? { attachments: [{ filename: invite.filename, content: base64(invite.ics), content_type: invite.contentType }] } : {}),
+      ...(unsubscribeHeaders ? { headers: unsubscribeHeaders } : {}),
     });
   }
   await dbOrTx.update(communicationLogs).set({

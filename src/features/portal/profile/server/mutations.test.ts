@@ -10,6 +10,12 @@ import { profilePatchSchema, updateProfileIn } from "./mutations";
 
 const migration0 = readFileSync(new URL("../../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M51 added `contacts.workflow_status`; `updateProfileIn`'s unqualified
+// `.returning()` (every declared column) needs it to exist.
+const migrationRoster = readFileSync(new URL("../../../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("c2000000-0000-4000-8000-000000000001");
 const freshContact = contactIdSchema.parse("c2000000-0000-4000-8000-000000000010");
@@ -23,6 +29,8 @@ describe("speaker profile", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationRoster);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

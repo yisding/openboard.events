@@ -1,0 +1,57 @@
+name: Uptime
+
+# M48 — curl-based uptime/health check against the already-deployed preview and
+# production origins. Deliberately non-deploying: no checkout of application
+# code to build, no `wrangler deploy`, no migration. It only reads
+# `scripts/uptime-check.sh` (small enough to fetch on its own) and polls
+# `/api/health` over the network, so a bad or stuck deploy can never make this
+# workflow itself the thing that's broken. Thresholds are documented in
+# docs/runbooks/alerting.md and must stay in sync with the constants at the top
+# of `scripts/uptime-check.sh` — update both in the same change.
+#
+# Today's alert *is* a failed scheduled run: GitHub notifies the repository's
+# default recipients (see Settings → Notifications) whenever a scheduled
+# workflow's conclusion is failure. Wiring a Slack/PagerDuty webhook is a
+# single extra step appended to the `check` job below — nothing else here
+# would need to change.
+
+on:
+  schedule:
+    # Every 15 minutes. Loose enough to stay well inside GitHub Actions' free
+    # scheduled-workflow minutes for a two-origin check; tight enough that the
+    # 1-hour "page" threshold on comms.oldestQueuedAgeSeconds (alerting.md)
+    # still gets several chances to fire before it's an hour stale itself.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # A run every 15 minutes should never queue up behind a slow prior run —
+  # superseding is correct here, unlike CI/Deploy where in-progress work
+  # matters.
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: preview
+            url: https://sb-web-preview.yi-ding.workers.dev
+          - environment: production
+            url: https://sb-web.yi-ding.workers.dev
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/uptime-check.sh
+          sparse-checkout-cone-mode: false
+      - name: Poll /api/health
+        run: bash scripts/uptime-check.sh "${{ matrix.url }}"

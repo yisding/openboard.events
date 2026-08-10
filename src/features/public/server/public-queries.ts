@@ -68,7 +68,7 @@ type ScheduleSessionRow = {
   room_name: string | null;
   format_id: string | null;
   format_name: string | null;
-  speakers: Array<{ contactId: string; name: string; headshotFileId: string | null }> | null;
+  speakers: Array<{ contactId: string; name: string; jobTitle: string | null; company: string | null; headshotFileId: string | null }> | null;
 };
 
 /**
@@ -91,6 +91,8 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
       SELECT json_agg(json_build_object(
         'contactId', p.contact_id,
         'name', coalesce(nullif(btrim(concat_ws(' ', p.first_name, p.last_name)), ''), 'Unnamed speaker'),
+        'jobTitle', p.job_title,
+        'company', p.company,
         'headshotFileId', p.headshot_file_id
       ) ORDER BY ss.sort_order, p.first_name, p.last_name) AS speakers
       -- Both sides of this bridge are already leak-filtered: ss.session_id is
@@ -119,6 +121,8 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
     speakers: (row.speakers ?? []).map((speaker) => ({
       contactId: speaker.contactId,
       name: speaker.name,
+      jobTitle: speaker.jobTitle,
+      company: speaker.company,
       headshotUrl: headshotUrl(speaker.headshotFileId),
     })),
   }));
@@ -153,7 +157,12 @@ type SpeakerRow = {
   linkedin_url: string | null;
   twitter_url: string | null;
   website_url: string | null;
-  sessions: Array<{ id: string; slug: string; title: string; startsAt: string }> | null;
+  sessions: Array<{
+    id: string; slug: string; title: string; startsAt: string; endsAt: string;
+    roomId: string | null; roomName: string | null;
+    trackId: string | null; trackName: string | null; trackColor: string | null;
+    formatId: string | null; formatName: string | null;
+  }> | null;
 };
 
 /**
@@ -172,7 +181,13 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
            COALESCE(sess.sessions, '[]'::json) AS sessions
     FROM published_speakers_v p
     LEFT JOIN LATERAL (
-      SELECT json_agg(json_build_object('id', v.id, 'slug', v.slug, 'title', v.title, 'startsAt', v.starts_at) ORDER BY v.starts_at) AS sessions
+      SELECT json_agg(json_build_object(
+        'id', v.id, 'slug', v.slug, 'title', v.title,
+        'startsAt', v.starts_at, 'endsAt', coalesce(v.ends_at, v.starts_at),
+        'roomId', v.room_id, 'roomName', v.room_name,
+        'trackId', v.track_id, 'trackName', v.track_name, 'trackColor', v.track_color,
+        'formatId', v.format_id, 'formatName', v.format_name
+      ) ORDER BY v.starts_at) AS sessions
       FROM session_speakers ss
       JOIN published_sessions_v v ON v.id = ss.session_id AND v.event_id = ss.event_id
       WHERE ss.contact_id = p.contact_id AND ss.event_id = p.event_id
@@ -196,7 +211,11 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
       slug: session.slug,
       title: session.title,
       startsAt: new Date(session.startsAt).toISOString(),
+      endsAt: new Date(session.endsAt).toISOString(),
       dayKey: eventDayKey(session.startsAt, event.timezone),
+      room: session.roomId ? { id: session.roomId, name: session.roomName ?? "" } : null,
+      track: session.trackId ? { id: session.trackId, name: session.trackName ?? "", color: session.trackColor ?? "#6366f1" } : null,
+      format: session.formatId ? { id: session.formatId, name: session.formatName ?? "" } : null,
     })),
   }));
 

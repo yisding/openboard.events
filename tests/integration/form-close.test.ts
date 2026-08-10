@@ -10,19 +10,33 @@ import { isAppError } from "@/shared/lib/errors";
 /**
  * M14 Step 6 — "the guard everywhere it must bite": all four call sites that
  * can create or change a submission against a form must share the SQL
- * `is_form_open()` predicate, never a JS clock comparison (S2). Three of
- * WS-C's four functions already do (verified below). `upsertDraft` does not
- * yet — see the skipped case at the bottom of this file, which documents the
- * gap for WS-C/M18 rather than silently passing.
+ * `is_form_open()` predicate, never a JS clock comparison (S2). All four of
+ * WS-C's functions now do, `upsertDraft` included (see the case below that
+ * used to be `it.fails` and is now a normal, passing case).
  */
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M51 added `contacts.workflow_status`; contact creation (`getOrCreateContact`,
+// used by `createSubmission`/`upsertDraft` for the submitter) has an
+// unqualified `.returning()` that now selects it.
+const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("f0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000002");
 const closedForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000003");
 const speaker = contactIdSchema.parse("f0000000-0000-4000-8000-000000000004");
 const pendingOnClosedForm = submissionIdSchema.parse("f0000000-0000-4000-8000-000000000005");
+// A still-open draft (status='draft', never promoted) sitting on the closed
+// form, for the "autosave keeps writing after close" case — M14-GAP.
+const draftOnClosedForm = submissionIdSchema.parse("f0000000-0000-4000-8000-000000000007");
+// Boundary-instant form: closes_at is stamped from SQL `now()` at insert time
+// rather than a JS-computed timestamp, so it sits right on is_form_open's
+// edge (`closes_at > now()`, i.e. equality already reads closed) instead of
+// comfortably in the past like `closedForm` above.
+const boundaryForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000006");
 
 let pglite: PGlite;
 function createTestDb(client: PGlite) {
@@ -43,7 +57,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { createSubmission, updateSubmissionFromCfp, upsertDraft } = await import("@/features/submissions");
+const { createSubmission, updateSubmissionFromCfp, upsertDraft, saveDraftAnswers } = await import("@/features/submissions");
 
 function cfpInput(overrides: Partial<CreateSubmissionInput> = {}): CreateSubmissionInput {
   return {
@@ -63,6 +77,8 @@ beforeAll(async () => {
   pglite = new PGlite();
   await pglite.exec(migration0);
   await pglite.exec(migration1);
+  await pglite.exec(migrationReviewOps);
+  await pglite.exec(migrationRoster);
   testDb = createTestDb(pglite);
 
   await pglite.query(
@@ -78,6 +94,17 @@ beforeAll(async () => {
     "INSERT INTO forms(id,event_id,context,internal_name,status,closes_at) VALUES($1,$2,'cfp','Closed CFP','open', now() - interval '1 day')",
     [closedForm, eventId],
   );
+  // Boundary instant: closes_at = now() at the moment of this INSERT. Every
+  // later statement in this suite runs after that instant, so by the time
+  // upsertDraft's own `SELECT is_form_open(...)` executes, `closes_at` is
+  // equal to or (by however many microseconds elapsed) just past `now()` —
+  // exactly the edge `is_form_open` treats as closed (`closes_at > now()`,
+  // so equality already fails open), never comfortably in the past like
+  // `closedForm` above.
+  await pglite.query(
+    "INSERT INTO forms(id,event_id,context,internal_name,status,closes_at) VALUES($1,$2,'cfp','Boundary CFP','open', now())",
+    [boundaryForm, eventId],
+  );
   await pglite.query(
     "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Test','Speaker')",
     [speaker, eventId],
@@ -89,6 +116,14 @@ beforeAll(async () => {
     `INSERT INTO submissions(id,event_id,form_id,form_version,code,kind,status,source,submitter_contact_id,title)
      VALUES($1,$2,$3,1,9001,'abstract','pending','cfp',$4,'Already submitted')`,
     [pendingOnClosedForm, eventId, closedForm, speaker],
+  );
+  // A draft that was started before the deadline and never promoted — the
+  // autosave path (`saveDraftAnswers`) must refuse to keep writing to it
+  // once the form has closed, same as every other write path.
+  await pglite.query(
+    `INSERT INTO submissions(id,event_id,form_id,form_version,code,kind,status,source,submitter_contact_id,title)
+     VALUES($1,$2,$3,1,9002,'abstract','draft','cfp',$4,'')`,
+    [draftOnClosedForm, eventId, closedForm, speaker],
   );
 }, 60_000);
 
@@ -114,20 +149,39 @@ describe("form-close guard: the four write paths that must agree with is_form_op
   });
 
   /**
-   * KNOWN GAP, tracked here rather than silently green: `upsertDraft`
-   * (features/submissions/server/mutations.ts) never calls the SQL
-   * `is_form_open()` predicate before creating or refreshing a draft, so a
-   * visitor who reaches the CFP Account step on a closed form can still start
-   * (or keep editing) a draft — only the later `createSubmission` promotion
-   * is actually blocked. Per M14's work order Step 6 ("If any of 2-5 is
-   * missing ... file the one-line requirement with the owning lane the same
-   * hour and add the failing PGlite case"): this is that filed requirement.
-   * `it.fails` keeps the suite green while making the regression visible the
-   * moment WS-C adds the guard (the test will then fail *because it started
-   * passing*, which is exactly the signal to flip this to a normal `it`).
+   * M14-GAP: `upsertDraft` (features/submissions/server/mutations.ts) now
+   * calls the same `assertFormOpen` helper — the SQL `is_form_open()`
+   * predicate — that `createSubmissionIn`/`updateSubmissionFromCfp` already
+   * used, before creating or refreshing a draft. A visitor who reaches the
+   * CFP Account step on a closed form can no longer start (or keep editing)
+   * a draft. This used to be a documented `it.fails` gap (M14's work order
+   * Step 6); it is now a normal, passing case.
    */
-  it.fails("upsertDraft on a closed form -> FORM_CLOSED (not yet enforced — see comment above)", async () => {
+  it("upsertDraft on a closed form -> FORM_CLOSED", async () => {
     const error = await upsertDraft(eventId, speaker, closedForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
+  });
+
+  it("upsertDraft on a form closing at exactly this instant -> FORM_CLOSED (the boundary is closed, not open)", async () => {
+    const error = await upsertDraft(eventId, speaker, boundaryForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
+  });
+
+  it("upsertDraft on an open form succeeds (control case: the guard only fires when it should)", async () => {
+    const result = await upsertDraft(eventId, speaker, openForm, 1);
+    expect(result.code).toBeGreaterThan(0);
+  });
+
+  /**
+   * M14-GAP: `saveDraftAnswers` (the PATCH /api/internal/forms/[formId]/draft
+   * autosave path) now shares the same `assertFormOpen` guard as the other
+   * three write paths. Before this fix a speaker who already had a draft
+   * could keep writing new answers to it indefinitely after `closes_at` had
+   * passed — this is the case that makes that true.
+   */
+  it("saveDraftAnswers on a closed form -> FORM_CLOSED (autosave stops once the form closes, not just upsertDraft)", async () => {
+    const error = await saveDraftAnswers(eventId, speaker, closedForm, 1, cleanAnswersSchema.parse([]))
+      .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
   });
 });

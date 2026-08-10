@@ -1,14 +1,26 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type { EventId, PlanId, SubmissionId, UserId } from "@/shared/contracts";
+import type { CriterionSpec, EventId, PlanId, SubmissionId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import type { PlanDTO, ReviewQueueRow } from "../types";
+import { normalizeCriterionValues, reviewWindow } from "../scoring";
+import type {
+  AssignableSubmission,
+  CriterionDTO,
+  PlanDTO,
+  ReviewQueueDTO,
+  ReviewQueueRow,
+  ReviewerProgress,
+} from "../types";
 
 /**
  * Evaluation's reads. Every one is event-scoped, and every aggregate is scoped
  * to a single plan: two rounds over the same abstract are two independent
  * verdicts, and averaging them together would report a number no reviewer ever
  * gave.
+ *
+ * M50 moves the queue's authority from track scope to `review_assignments`.
+ * Track scope still decides who is a plausible *candidate*; the assignment row
+ * is what a reviewer may open, and it is re-checked on every read and write.
  */
 
 /**
@@ -26,9 +38,9 @@ export function activePlanIdSql(eventId: EventId): SQL {
 }
 
 /**
- * The effective scope rule in SQL — the same predicate as `inReviewerScope`,
- * expressed over the columns. `planTracks`/`assignmentTracks` are the track
- * arrays to test against; `NULL` on either means "every track".
+ * The candidate-scope rule in SQL — the same predicate as `inReviewerScope`,
+ * expressed over the columns. It is what an organizer's bulk-assign dialog
+ * filters by; it is no longer what authorizes a read.
  */
 function scopeClause(planTracks: SQL, assignmentTracks: SQL): SQL {
   return sql`s.status NOT IN ('draft', 'withdrawn')
@@ -36,12 +48,52 @@ function scopeClause(planTracks: SQL, assignmentTracks: SQL): SQL {
     AND (${assignmentTracks} IS NULL OR s.track_id = ANY(${assignmentTracks}))`;
 }
 
+/** A live assignment: recusals stay on the row for the audit trail but stop being work. */
+const LIVE = sql`ra.status = 'assigned'`;
+
 type PlanRow = {
   id: string; name: string; round: number; scale_min: number; scale_max: number;
   status: PlanDTO["status"]; track_ids: string[] | null;
-  criteria: PlanDTO["criteria"] | null; reviewers: PlanDTO["reviewers"] | null;
+  opens_at: string | null; closes_at: string | null; anonymize_authors: boolean;
+  criteria: Array<Record<string, unknown>> | null; reviewers: Array<Record<string, unknown>> | null;
   scored: number; total: number; updated_at: string;
 };
+
+function toCriterion(raw: Record<string, unknown>): CriterionDTO {
+  return {
+    id: raw.id as CriterionDTO["id"],
+    label: String(raw.label),
+    weight: Number(raw.weight),
+    sortOrder: Number(raw.sortOrder),
+    kind: (raw.kind ?? "numeric") as CriterionDTO["kind"],
+    required: raw.required !== false,
+    options: Array.isArray(raw.options)
+      ? (raw.options as Array<Record<string, unknown>>).map((option) => ({
+        id: String(option.id),
+        label: String(option.label),
+        score: option.score === null || option.score === undefined ? null : Number(option.score),
+      }))
+      : [],
+    minValue: raw.minValue === null || raw.minValue === undefined ? null : Number(raw.minValue),
+    maxValue: raw.maxValue === null || raw.maxValue === undefined ? null : Number(raw.maxValue),
+  };
+}
+
+function toReviewer(raw: Record<string, unknown>): ReviewerProgress {
+  const assigned = Number(raw.assigned ?? 0);
+  const completed = Number(raw.completed ?? 0);
+  return {
+    userId: raw.userId as ReviewerProgress["userId"],
+    name: String(raw.name ?? ""),
+    email: String(raw.email ?? ""),
+    trackIds: (raw.trackIds ?? null) as ReviewerProgress["trackIds"],
+    assigned,
+    completed,
+    recused: Number(raw.recused ?? 0),
+    outstanding: Math.max(assigned - completed, 0),
+    scored: completed,
+  };
+}
 
 function toPlan(row: PlanRow): PlanDTO {
   return {
@@ -52,13 +104,11 @@ function toPlan(row: PlanRow): PlanDTO {
     scaleMax: Number(row.scale_max),
     status: row.status,
     trackIds: (row.track_ids ?? null) as PlanDTO["trackIds"],
-    criteria: (row.criteria ?? []).map((criterion) => ({ ...criterion, weight: Number(criterion.weight), sortOrder: Number(criterion.sortOrder) })),
-    reviewers: (row.reviewers ?? []).map((reviewer) => ({
-      ...reviewer,
-      trackIds: reviewer.trackIds ?? null,
-      scored: Number(reviewer.scored),
-      assigned: Number(reviewer.assigned),
-    })),
+    opensAt: row.opens_at ? new Date(row.opens_at).toISOString() : null,
+    closesAt: row.closes_at ? new Date(row.closes_at).toISOString() : null,
+    anonymizeAuthors: row.anonymize_authors === true,
+    criteria: (row.criteria ?? []).map(toCriterion),
+    reviewers: (row.reviewers ?? []).map(toReviewer),
     progress: { scored: Number(row.scored), total: Number(row.total) },
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -67,33 +117,42 @@ function toPlan(row: PlanRow): PlanDTO {
 async function selectPlans(dbOrTx: DbOrTx, eventId: EventId, only?: SQL): Promise<PlanDTO[]> {
   const result = await dbOrTx.execute<PlanRow>(sql`
     SELECT p.id, p.name, p.round, p.scale_min, p.scale_max, p.status, p.track_ids, p.updated_at,
+      p.opens_at, p.closes_at, p.anonymize_authors,
       COALESCE((
-        SELECT json_agg(json_build_object('id', c.id, 'label', c.label, 'weight', c.weight::float8, 'sortOrder', c.sort_order)
+        SELECT json_agg(json_build_object(
+                 'id', c.id, 'label', c.label, 'weight', c.weight::float8, 'sortOrder', c.sort_order,
+                 'kind', c.kind, 'required', c.required, 'options', c.options,
+                 'minValue', c.min_value::float8, 'maxValue', c.max_value::float8)
                         ORDER BY c.sort_order, c.label)
         FROM evaluation_criteria c WHERE c.plan_id = p.id AND c.event_id = p.event_id
       ), '[]'::json) AS criteria,
       COALESCE((
         SELECT json_agg(json_build_object(
                  'userId', a.user_id, 'name', u.name, 'email', u.email, 'trackIds', a.track_ids,
-                 -- Progress is per reviewer over *their* slice of the round, not
-                 -- over the whole round: a reviewer scoped to one track has
-                 -- finished when that track is done.
-                 'assigned', (SELECT count(*) FROM submissions s
-                              WHERE s.event_id = p.event_id AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)}),
-                 'scored', (SELECT count(*) FROM reviews r
-                            JOIN submissions s ON s.id = r.submission_id AND s.event_id = r.event_id
-                            WHERE r.plan_id = p.id AND r.reviewer_user_id = a.user_id AND r.overall_score IS NOT NULL
-                              AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)})
+                 -- Progress is per reviewer over *their own* assigned work, not
+                 -- over the whole round: a reviewer given six abstracts has
+                 -- finished when those six are done.
+                 'assigned', (SELECT count(*) FROM review_assignments ra
+                              WHERE ra.plan_id = p.id AND ra.reviewer_user_id = a.user_id AND ${LIVE}),
+                 'completed', (SELECT count(*) FROM review_assignments ra
+                               JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
+                                 AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
+                               WHERE ra.plan_id = p.id AND ra.reviewer_user_id = a.user_id AND ${LIVE}),
+                 'recused', (SELECT count(*) FROM review_assignments ra
+                             WHERE ra.plan_id = p.id AND ra.reviewer_user_id = a.user_id AND ra.status = 'recused')
                ) ORDER BY lower(u.name), u.email)
         FROM reviewer_assignments a
         JOIN users u ON u.id = a.user_id
         WHERE a.plan_id = p.id AND a.event_id = p.event_id
       ), '[]'::json) AS reviewers,
+      -- Plan-level progress stays what M19 meant by it: how much of the round's
+      -- own scope has a verdict. Completion is submitted_at, so a finished
+      -- review of a text-only criterion counts even though it has no number.
       (SELECT count(*)::int FROM submissions s
        WHERE s.event_id = p.event_id AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS total,
       (SELECT count(DISTINCT r.submission_id)::int FROM reviews r
        JOIN submissions s ON s.id = r.submission_id AND s.event_id = r.event_id
-       WHERE r.plan_id = p.id AND r.event_id = p.event_id AND r.overall_score IS NOT NULL
+       WHERE r.plan_id = p.id AND r.event_id = p.event_id AND r.submitted_at IS NOT NULL
          AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS scored
     FROM evaluation_plans p
     WHERE p.event_id = ${eventId} ${only ? sql`AND ${only}` : sql``}
@@ -117,6 +176,19 @@ export async function getActivePlanIn(dbOrTx: DbOrTx, eventId: EventId): Promise
   return plan ?? null;
 }
 
+/** The specs `submitReview` grades against — the DTO's criteria, minus presentation. */
+export function criterionSpecs(plan: PlanDTO): CriterionSpec[] {
+  return plan.criteria.map((criterion) => ({
+    id: criterion.id,
+    kind: criterion.kind,
+    weight: criterion.weight,
+    required: criterion.required,
+    options: criterion.options,
+    minValue: criterion.minValue,
+    maxValue: criterion.maxValue,
+  }));
+}
+
 async function getReviewerDefaultPlanIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -134,85 +206,126 @@ async function getReviewerDefaultPlanIn(
 
 type QueueRow = {
   submission_id: string; code: number; title: string; track_id: string | null; track_name: string | null;
-  my_score: string | null; my_criterion_scores: Record<string, number> | null; my_comment: string | null;
+  my_score: string | null; my_criterion_scores: unknown; my_comment: string | null;
   scored_at: string | null; avg_rating: number | null; n_scores: number;
+  assignment_status: ReviewQueueRow["assignmentStatus"]; recusal_reason: string | null;
 };
 
 /**
- * What one reviewer has to work through in one round. The assignment row is the
- * gate: a member with no assignment gets an empty queue rather than the whole
- * event, and the same scope clause reappears inside `submitReview` so nobody can
- * score past it by editing a request body.
+ * What one reviewer has to work through in one round.
+ *
+ * The assignment row is the gate: a member with no assignment gets an empty
+ * queue rather than the whole event, and the same join reappears inside
+ * `submitReview` so nobody can score past it by editing a request body.
+ *
+ * Before the round opens the queue is deliberately empty rather than
+ * title-only. A proposal's title is content, and "cannot read item content
+ * before the window" has to mean the payload, not the styling.
  */
 export async function listReviewQueueIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   reviewerUserId: UserId,
   planId: PlanId | null,
-): Promise<{ plan: PlanDTO | null; rows: ReviewQueueRow[]; progress: { scored: number; total: number } }> {
+  now: Date = new Date(),
+): Promise<ReviewQueueDTO> {
   const plan = planId
     ? await getPlanIn(dbOrTx, eventId, planId)
     : await getReviewerDefaultPlanIn(dbOrTx, eventId, reviewerUserId);
-  if (!plan) return { plan: null, rows: [], progress: { scored: 0, total: 0 } };
+  if (!plan) return { plan: null, rows: [], progress: { scored: 0, total: 0 }, window: null };
+
+  const window = reviewWindow(plan, now);
+  if (!window.canRead) return { plan, rows: [], progress: { scored: 0, total: 0 }, window };
 
   const result = await dbOrTx.execute<QueueRow>(sql`
     SELECT s.id AS submission_id, s.code, s.title, s.track_id, t.name AS track_name,
            r.overall_score AS my_score, r.criterion_scores AS my_criterion_scores,
            r.comment AS my_comment, r.submitted_at AS scored_at,
-           v.rating AS avg_rating, COALESCE(v.n_scores, 0) AS n_scores
-    FROM reviewer_assignments a
-    JOIN evaluation_plans p ON p.id = a.plan_id AND p.event_id = a.event_id
-    JOIN submissions s ON s.event_id = p.event_id
+           v.rating AS avg_rating, COALESCE(v.n_scores, 0) AS n_scores,
+           ra.status AS assignment_status, ra.recusal_reason
+    FROM review_assignments ra
+    JOIN evaluation_plans p ON p.id = ra.plan_id AND p.event_id = ra.event_id
+    JOIN submissions s ON s.id = ra.submission_id AND s.event_id = ra.event_id
     LEFT JOIN tracks t ON t.id = s.track_id AND t.event_id = s.event_id
-    LEFT JOIN reviews r ON r.plan_id = p.id AND r.submission_id = s.id AND r.reviewer_user_id = a.user_id
+    LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
+      AND r.reviewer_user_id = ra.reviewer_user_id
     LEFT JOIN submission_ratings_v v ON v.plan_id = p.id AND v.submission_id = s.id AND v.event_id = s.event_id
-    WHERE p.id = ${plan.id} AND p.event_id = ${eventId} AND a.user_id = ${reviewerUserId}
-      AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)}
-    -- Unscored first: the queue is a worklist, so what still needs a verdict
+    WHERE ra.plan_id = ${plan.id} AND ra.event_id = ${eventId} AND ra.reviewer_user_id = ${reviewerUserId}
+      AND ${LIVE}
+      AND s.status NOT IN ('draft', 'withdrawn')
+    -- Unfinished first: the queue is a worklist, so what still needs a verdict
     -- belongs at the top of it.
-    ORDER BY (r.overall_score IS NOT NULL), s.code
+    ORDER BY (r.submitted_at IS NOT NULL), s.code
   `);
 
-  const rows = (result.rows ?? []).map((row): ReviewQueueRow => ({
-    submissionId: row.submission_id as SubmissionId,
-    code: Number(row.code),
-    title: row.title,
-    trackId: row.track_id as ReviewQueueRow["trackId"],
-    trackName: row.track_name,
-    myScore: row.my_score === null ? null : Number(row.my_score),
-    myCriterionScores: row.my_criterion_scores ?? {},
-    myComment: row.my_comment,
-    scoredAt: row.scored_at ? new Date(row.scored_at).toISOString() : null,
-    avgRating: row.avg_rating === null ? null : Number(row.avg_rating),
-    nScores: Number(row.n_scores ?? 0),
-  }));
+  const rows = (result.rows ?? []).map((row): ReviewQueueRow => {
+    const values = normalizeCriterionValues(row.my_criterion_scores);
+    return {
+      submissionId: row.submission_id as SubmissionId,
+      code: Number(row.code),
+      title: row.title,
+      trackId: row.track_id as ReviewQueueRow["trackId"],
+      trackName: row.track_name,
+      myScore: row.my_score === null ? null : Number(row.my_score),
+      myCriterionScores: Object.fromEntries(Object.entries(values)
+        .flatMap(([id, value]) => value?.kind === "numeric" ? [[id, value.value] as const] : [])),
+      myCriterionValues: values,
+      myComment: row.my_comment,
+      scoredAt: row.scored_at ? new Date(row.scored_at).toISOString() : null,
+      avgRating: row.avg_rating === null ? null : Number(row.avg_rating),
+      nScores: Number(row.n_scores ?? 0),
+      assignmentStatus: row.assignment_status,
+      recusalReason: row.recusal_reason,
+    };
+  });
 
   return {
     plan,
     rows,
-    progress: { scored: rows.filter((row) => row.myScore !== null).length, total: rows.length },
+    // Completion is `submitted_at`, not "has a number": a finished review of a
+    // round with only text criteria still counts as done.
+    progress: { scored: rows.filter((row) => row.scoredAt !== null).length, total: rows.length },
+    window,
   };
 }
 
+/**
+ * Whether this reviewer may open this submission in this round, as one
+ * statement. Refusal is deliberately shaped like "not routed to you" rather
+ * than "does not exist here": the reviewer needs to know it is not their work,
+ * and does not need to learn anything else about it.
+ */
 export async function assertReviewerCanReadSubmissionIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   planId: PlanId,
   submissionId: SubmissionId,
   reviewerUserId: UserId,
+  now: Date = new Date(),
 ): Promise<void> {
-  const result = await dbOrTx.execute<{ allowed: boolean }>(sql`
-    SELECT true AS allowed
+  const result = await dbOrTx.execute<{
+    allowed: boolean; status: PlanDTO["status"]; opens_at: string | null; closes_at: string | null;
+  }>(sql`
+    SELECT (ra.id IS NOT NULL) AS allowed, p.status, p.opens_at, p.closes_at
     FROM evaluation_plans p
-    JOIN reviewer_assignments a
-      ON a.plan_id = p.id AND a.event_id = p.event_id AND a.user_id = ${reviewerUserId}
-    JOIN submissions s ON s.event_id = p.event_id AND s.id = ${submissionId}
+    LEFT JOIN review_assignments ra
+      ON ra.plan_id = p.id AND ra.event_id = p.event_id
+      AND ra.submission_id = ${submissionId} AND ra.reviewer_user_id = ${reviewerUserId}
+      AND ra.status = 'assigned'
     WHERE p.id = ${planId} AND p.event_id = ${eventId}
-      AND ${scopeClause(sql`p.track_ids`, sql`a.track_ids`)}
     LIMIT 1
   `);
-  if (!(result.rows ?? [])[0]?.allowed) {
-    throw new AppError("FORBIDDEN", "That submission is not routed to you in this review round");
+  const row = (result.rows ?? [])[0];
+  if (!row?.allowed) {
+    throw new AppError("FORBIDDEN", "That submission is not assigned to you in this review round");
+  }
+  const window = reviewWindow({
+    status: row.status,
+    opensAt: row.opens_at ? new Date(row.opens_at).toISOString() : null,
+    closesAt: row.closes_at ? new Date(row.closes_at).toISOString() : null,
+  }, now);
+  if (!window.canRead) {
+    throw new AppError("FORBIDDEN", "This review round has not opened yet");
   }
 }
 
@@ -236,6 +349,43 @@ export async function listEventMembersIn(
     name: row.name,
     email: row.email,
     role: row.role,
+  }));
+}
+
+/**
+ * The submissions an organizer can hand out in this round, with who already has
+ * each. Track scope narrows the candidates — that is what it is for now — while
+ * the assignment rows below it are the authority.
+ */
+export async function listAssignableSubmissionsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  planId: PlanId,
+): Promise<AssignableSubmission[]> {
+  const result = await dbOrTx.execute<{
+    submission_id: string; code: number; title: string; track_id: string | null; track_name: string | null;
+    assigned_to: string[] | null;
+  }>(sql`
+    SELECT s.id AS submission_id, s.code, s.title, s.track_id, t.name AS track_name,
+      COALESCE((
+        SELECT array_agg(ra.reviewer_user_id ORDER BY ra.reviewer_user_id)
+        FROM review_assignments ra
+        WHERE ra.plan_id = p.id AND ra.submission_id = s.id AND ra.status = 'assigned'
+      ), ARRAY[]::uuid[]) AS assigned_to
+    FROM evaluation_plans p
+    JOIN submissions s ON s.event_id = p.event_id
+    LEFT JOIN tracks t ON t.id = s.track_id AND t.event_id = s.event_id
+    WHERE p.id = ${planId} AND p.event_id = ${eventId}
+      AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}
+    ORDER BY s.code
+  `);
+  return (result.rows ?? []).map((row) => ({
+    submissionId: row.submission_id as SubmissionId,
+    code: Number(row.code),
+    title: row.title,
+    trackId: row.track_id as AssignableSubmission["trackId"],
+    trackName: row.track_name,
+    assignedTo: (row.assigned_to ?? []) as UserId[],
   }));
 }
 
@@ -272,3 +422,5 @@ export const assertReviewerCanReadSubmission = (
 ) => assertReviewerCanReadSubmissionIn(db, eventId, planId, submissionId, reviewerUserId);
 export const getRatings = (eventId: EventId, planId: PlanId) => getRatingsIn(db, eventId, planId);
 export const listEventMembers = (eventId: EventId) => listEventMembersIn(db, eventId);
+export const listAssignableSubmissions = (eventId: EventId, planId: PlanId) =>
+  listAssignableSubmissionsIn(db, eventId, planId);

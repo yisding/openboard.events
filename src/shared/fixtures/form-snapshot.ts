@@ -120,6 +120,9 @@ export const GOLDEN_SNAPSHOT = formSnapshotSchema.parse({
         options: field.options,
         visibility: field.visibility,
         mapsTo: field.mapsTo,
+        // Mirrors `compileFormSnapshot`'s fail-closed rule: unclassified and
+        // locked fields alike compile to `identity`.
+        reviewVisibility: field.locked ? "identity" : field.reviewVisibility ?? "identity",
       })),
   })),
 });

@@ -17,6 +17,10 @@ export const events = pgTable("events", {
   eventType: text("event_type").notNull().default("conference"),
   websiteUrl: text("website_url"),
   location: text("location"),
+  // P3-EMAIL / CAN-SPAM: the postal address every commercial email must carry.
+  // Nullable — an event that has not set one yet does not block on this
+  // migration; the layout footer simply omits the line until it is set.
+  physicalAddress: text("physical_address"),
   timezone: text("timezone").notNull().default("America/Los_Angeles"),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
@@ -42,6 +46,17 @@ export const adminLoginAttempts = pgTable("admin_login_attempts", {
   attempts: integer("attempts").notNull().default(1),
   windowStartedAt: timestamp("window_started_at", { withTimezone: true }).defaultNow().notNull(),
   blockedUntil: timestamp("blocked_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Generic fixed-window rate-limit counter (drizzle/0005_rate_limits.sql).
+// One row per hashed caller-supplied key, upserted with the same CASE-based
+// single-statement pattern as adminLoginAttempts above; used by
+// `@/shared/server/rate-limit` for the public submit path and `/api/v1`.
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  keyHash: text("key_hash").primaryKey(),
+  count: integer("count").notNull().default(1),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

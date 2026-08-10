@@ -15,6 +15,10 @@ export const dynamic = "force-dynamic";
 const draft = defineHandler({
   auth: formPortalAuth,
   input: z.object({ formVersion: z.int().positive() }),
+  // Public submit path (PLAN P3-SEC): one draft-create per speaker+form is
+  // the normal case, so this cap is generous — it exists to bound a scripted
+  // loop, not a legitimate retry.
+  rateLimit: { limit: 30, windowMs: 10 * 60 * 1000, key: ({ params, session }) => `form-draft:${params.formId}:${session?.actorId ?? "anon"}` },
   handler: async ({ eventId, input, params, session }) => {
     const result = await upsertDraft(
       eventIdSchema.parse(eventId),
@@ -32,6 +36,9 @@ const save = defineHandler({
     formVersion: z.int().positive(),
     answers: z.record(z.string(), answerValueSchema),
   }),
+  // Autosave is debounced client-side and fires far more often than submit,
+  // so its bucket is wider — still enough to stop a scripted flood.
+  rateLimit: { limit: 120, windowMs: 10 * 60 * 1000, key: ({ params, session }) => `form-draft-save:${params.formId}:${session?.actorId ?? "anon"}` },
   handler: async ({ eventId, input, params, session }) => saveCfpDraft({
     eventId: eventIdSchema.parse(eventId),
     formId: formIdSchema.parse(params.formId),

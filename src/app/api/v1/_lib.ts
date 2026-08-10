@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
@@ -6,6 +7,8 @@ import { apiErrorSchema } from "@/shared/contracts";
 import { initialDemoState } from "@/shared/demo/seed";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
+import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
+import type { AuthSession } from "@/shared/server/handler";
 
 // Public DTO responses are shared-cacheable; private (keyed) responses must
 // never enter a shared cache. Both carry permissive CORS — `/api/v1/*` is the
@@ -16,6 +19,32 @@ export const privateHeaders = { "access-control-allow-origin": "*", "cache-contr
 
 export function corsPreflight() {
   return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "86400" } });
+}
+
+/**
+ * `/api/v1` rate-limit config (PLAN P3-SEC), one bucket per route so a burst
+ * on one endpoint cannot starve another's budget. Keyed on the resolved API
+ * key id when the route is keyed (`apiKeyAuth`'s `session.actorId`); falls
+ * back to the caller's IP for the three unauthenticated public DTO routes
+ * (`events/[slug]`, `schedule`, `speakers`), which have no key to key on.
+ */
+export function v1RateLimit(bucket: string) {
+  return {
+    limit: 300,
+    windowMs: 5 * 60 * 1000,
+    key: ({ session, request }: { session: AuthSession; request: NextRequest }) => `v1:${bucket}:${session?.actorId ?? clientIp(request)}`,
+  };
+}
+
+/**
+ * Manual call for the three `/api/v1` routes built without `defineHandler`
+ * (unauthenticated public DTOs). A no-op under `isCredentialFreeLocalDemo()`
+ * — that mode's whole point is answering from the in-memory fixture with no
+ * `DATABASE_URL` at all, and `checkRateLimit` unconditionally queries `db`.
+ */
+export function checkV1RateLimit(bucket: string, request: NextRequest | Request): Promise<void> {
+  if (isCredentialFreeLocalDemo()) return Promise.resolve();
+  return checkRateLimit(db, { key: `v1:${bucket}:${clientIp(request)}`, limit: 300, windowMs: 5 * 60 * 1000 });
 }
 
 export function data<T>(value: T, meta?: Record<string, unknown>) {

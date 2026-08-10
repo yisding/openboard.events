@@ -8,6 +8,27 @@
 export { detectConflicts, toScheduledSession } from "./conflicts";
 export type { Conflict, ScheduledSession } from "./conflicts";
 
+// M54 — the pure placement planner and its server composition.
+export {
+  isCandidateLegal,
+  suggestPlacements,
+} from "./lib/suggest-placements";
+export type {
+  LegalityVerdict,
+  PlacedSuggestion,
+  PlacementCandidate,
+  PlannerBlackout,
+  PlannerDayWindow,
+  PlannerRoom,
+  PlannerSession,
+  RejectionCounts,
+  SuggestPlacementsInput,
+  SuggestPlacementsResult,
+  UnplacedReason,
+  UnplacedSuggestion,
+} from "./lib/suggest-placements";
+export { applyPlacements, applyPlacementsIn, previewPlacements, previewPlacementsIn } from "./server/placements";
+
 export type { AgendaVocabulary, SessionFilters, SpeakerOption } from "./server/queries";
 export {
   getMySessions,
@@ -18,6 +39,8 @@ export {
   getSessionIn,
   listAgendaVocabulary,
   listAgendaVocabularyIn,
+  listSessionContentRevisions,
+  listSessionContentRevisionsIn,
   listSessions,
   listSessionsIn,
 } from "./server/queries";
@@ -34,6 +57,8 @@ export {
   notifySchedule,
   promoteSubmission,
   promoteSubmissionIn,
+  restoreSessionContent,
+  restoreSessionContentIn,
   saveSession,
   saveSessionInputSchema,
   saveSessionIn,

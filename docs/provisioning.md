@@ -50,6 +50,12 @@ issuing R2 credentials, is separate from upgrading the Workers plan.
 - [ ] Generate an independent production `SESSION_SECRET` of at least 32 random characters.
 - [x] Generate an independent preview `CRON_SECRET` of at least 32 random characters.
 - [ ] Generate an independent production `CRON_SECRET` of at least 32 random characters.
+- [ ] Generate an independent preview `UNSUBSCRIBE_SECRET` of at least 32 random characters
+  (M46 — signs unsubscribe tokens; kept separate from `SESSION_SECRET` so the two can rotate
+  independently). Optional/additive: until it is set, non-essential email that needs to mint an
+  unsubscribe link fails closed with a clear `INTERNAL` error rather than the environment
+  refusing to parse.
+- [ ] Generate an independent production `UNSUBSCRIBE_SECRET` of at least 32 random characters.
 - [ ] Store the values in a password manager; do not commit them or paste them into issue or
   PR comments.
 
@@ -117,6 +123,12 @@ The `FILES` and `NEXT_INC_CACHE_R2_BUCKET` bindings are already mapped to the ma
 bucket in `wrangler.jsonc`. `R2_BUCKET_NAME` is validated at runtime so a cross-environment
 bucket mix-up fails closed.
 
+- [ ] Provision the R2 lifecycle rule(s) described in
+  [`runbooks/r2-lifecycle.md`](./runbooks/r2-lifecycle.md) on both buckets — defense in depth
+  behind the app-level orphan-staging sweep (`cleanupOrphans`, already running on the daily
+  cleanup cron), not a substitute for it. That doc also records a real key-scheme finding
+  (M07-owned follow-up) that limits what a single static rule can cover today.
+
 ## 5. Create the Cloudflare deployment token
 
 - [ ] Create a least-privilege Cloudflare API token that can deploy Workers and use the
@@ -152,6 +164,7 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   | `DATABASE_URL` | `sb-test` pooled Neon URL |
   | `SESSION_SECRET` | preview session secret |
   | `CRON_SECRET` | preview cron secret |
+  | `UNSUBSCRIBE_SECRET` | preview unsubscribe-token secret (M46; optional but recommended — see §2) |
   | `R2_ACCESS_KEY_ID` | preview bucket credential |
   | `R2_SECRET_ACCESS_KEY` | preview bucket credential |
   | `RESEND_API_KEY` | domain-scoped sending key (preview runs `EMAIL_MODE=send` behind a one-address allowlist since #50) |
@@ -160,6 +173,7 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   pnpm exec wrangler secret put DATABASE_URL --env preview
   pnpm exec wrangler secret put SESSION_SECRET --env preview
   pnpm exec wrangler secret put CRON_SECRET --env preview
+  pnpm exec wrangler secret put UNSUBSCRIBE_SECRET --env preview
   pnpm exec wrangler secret put R2_ACCESS_KEY_ID --env preview
   pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --env preview
   pnpm exec wrangler secret put RESEND_API_KEY --env preview
@@ -297,6 +311,7 @@ Production web secrets are:
 | `DATABASE_URL` (pooled `sb-prod` URL) | yes |
 | `SESSION_SECRET` | yes |
 | `CRON_SECRET` | yes |
+| `UNSUBSCRIBE_SECRET` | recommended, not enforced (M46 — additive; unset only degrades non-essential-email unsubscribe links, not the whole environment) |
 | `R2_ACCESS_KEY_ID` | yes |
 | `R2_SECRET_ACCESS_KEY` | yes |
 | `RESEND_API_KEY` | yes |

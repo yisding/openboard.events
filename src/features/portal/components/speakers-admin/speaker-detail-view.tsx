@@ -3,13 +3,16 @@
 import { AlertTriangle, CheckCircle2, ExternalLink, Facebook, Globe, Linkedin, Pencil, Twitter } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import type { SpeakerDetailDTO } from "@/features/portal";
-import type { ConfirmationStatus, TemplateKey } from "@/shared/contracts";
+import type { SpeakerDetailDTO, SpeakerRosterExtras } from "@/features/portal";
+import { LIMITS, plainTextLength, type ConfirmationStatus, type TemplateKey } from "@/shared/contracts";
+import { FileUpload } from "@/shared/ui/app/file-upload";
+import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Field, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerHeadshot } from "./speaker-headshot";
+import { SpeakerRosterPanels } from "./speaker-roster-panels";
 
 /** One map, beside the timeline it labels — never reimplemented per row. */
 const TEMPLATE_LABELS: Record<TemplateKey, string> = {
@@ -21,6 +24,9 @@ const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   schedule_assigned: "Schedule assigned",
   schedule_changed: "Schedule changed",
   portal_login: "Portal sign-in",
+  reviewer_invited: "Reviewer invited",
+  review_reminder: "Review reminder",
+  speaker_bulk_message: "Message",
 };
 
 const CONFIRMATION_OPTIONS: ConfirmationStatus[] = ["unconfirmed", "confirmed", "declined"];
@@ -125,7 +131,82 @@ function EmailField({ eventId, contactId, email, onSaved }: { eventId: string; c
   );
 }
 
-export function SpeakerDetailView({ eventId, timezone, initialDetail }: { eventId: string; timezone: string; initialDetail: SpeakerDetailDTO }) {
+/**
+ * M52 — organizer-uploaded headshot. Presigns as an admin upload (kind is
+ * fixed and public regardless of who uploads it), finalizes, then patches
+ * only `headshotFileId` — never touches bio/links in the same write.
+ */
+function HeadshotField({ eventId, contactId, headshotFileId, onSaved }: {
+  eventId: string; contactId: string; headshotFileId: string | null; onSaved: (detail: SpeakerDetailDTO) => void;
+}) {
+  const { toast } = useToast();
+  async function onUploaded(fileId: string) {
+    try {
+      const detail = await patchSpeaker(eventId, contactId, { headshotFileId: fileId });
+      onSaved(detail);
+      toast("Photo updated");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not save that photo");
+    }
+  }
+  return (
+    <Field label="Headshot">
+      <FileUpload eventId={eventId} kind="headshot" currentFileId={headshotFileId} onUploaded={(fileId) => { void onUploaded(fileId); }} label="Upload new photo" />
+    </Field>
+  );
+}
+
+/** M52 — organizer-edited biography, sanitized server-side on save. */
+function BioField({ eventId, contactId, bioHtml, onSaved }: {
+  eventId: string; contactId: string; bioHtml: string | null; onSaved: (detail: SpeakerDetailDTO) => void;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(bioHtml ?? "");
+  const [saving, setSaving] = useState(false);
+  const bioLength = plainTextLength(draft);
+  const overLimit = bioLength > LIMITS.BIO;
+
+  if (!editing) {
+    return (
+      <div>
+        {bioHtml ? <RichTextView html={bioHtml} /> : <p className="long-copy">No biography submitted yet.</p>}
+        <button type="button" className="icon-button" aria-label="Edit biography" onClick={() => { setDraft(bioHtml ?? ""); setEditing(true); }}>
+          <Pencil size={14} />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <RichTextEditor value={draft} onChange={setDraft} maxChars={LIMITS.BIO} placeholder="Tell attendees about this speaker…" />
+      <div className="speaker-email-row" style={{ marginTop: 8 }}>
+        <Button
+          size="sm"
+          disabled={saving || overLimit}
+          onClick={async () => {
+            setSaving(true);
+            try {
+              const detail = await patchSpeaker(eventId, contactId, { bioHtml: draft });
+              onSaved(detail);
+              setEditing(false);
+              toast("Biography updated");
+            } catch (error) {
+              toast(error instanceof Error ? error.message : "Could not save that change");
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          Save
+        </Button>
+        <button type="button" className="icon-button" aria-label="Cancel" onClick={() => setEditing(false)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExtras }: { eventId: string; timezone: string; initialDetail: SpeakerDetailDTO; initialExtras?: SpeakerRosterExtras }) {
   const { toast } = useToast();
   const [detail, setDetail] = useState(initialDetail);
   const [savingConfirmation, setSavingConfirmation] = useState(false);
@@ -176,6 +257,9 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail }: { eventI
             </div>
             <StatusBadge value={contact.confirmationStatus} />
           </div>
+          {/* M52 — organizer-edited headshot, through the same presign/finalize
+              flow (kind=headshot) the speaker's own profile page uses. */}
+          <HeadshotField eventId={eventId} contactId={contact.contactId} headshotFileId={contact.headshotFileId} onSaved={setDetail} />
           <Field label="Email"><EmailField eventId={eventId} contactId={contact.contactId} email={contact.email} onSaved={setDetail} /></Field>
           <h3>Links</h3>
           <div className="chip-picker">
@@ -186,7 +270,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail }: { eventI
             {!contact.links.linkedin && !contact.links.twitter && !contact.links.facebook && !contact.links.website && <span className="dash">—</span>}
           </div>
           <h3>Biography</h3>
-          {contact.bioHtml ? <RichTextView html={contact.bioHtml} /> : <p className="long-copy">No biography submitted yet.</p>}
+          <BioField eventId={eventId} contactId={contact.contactId} bioHtml={contact.bioHtml} onSaved={setDetail} />
         </div>
       </section>
 
@@ -231,6 +315,8 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail }: { eventI
           ))}
         </div>
       </section>
+
+      {initialExtras && <SpeakerRosterPanels eventId={eventId} contactId={contact.contactId} timezone={timezone} initialExtras={initialExtras} />}
 
       <section className="panel">
         <header className="panel-header"><div><h2>Communications</h2><p>Every message sent to this speaker.</p></div></header>

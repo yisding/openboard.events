@@ -25,6 +25,12 @@ const session = {
   room: "Bayview",
   track: "AI Agents",
 };
+const review = {
+  round: "Round 1 — first read",
+  queue_url: "https://openboard.events/events/sample/review",
+  outstanding: "6",
+  closes_at: "September 1, 2026, 5:00 PM PDT",
+};
 const calendar = {
   google_url: "https://calendar.google.com/calendar/render?action=TEMPLATE",
   outlook_url: "https://outlook.live.com/calendar/0/deeplink/compose",
@@ -41,6 +47,9 @@ export const SAMPLE_VARS: Record<TemplateKey, TemplateVars> = {
   schedule_assigned: { ...common, session, calendar },
   schedule_changed: { ...common, session, calendar },
   portal_login: { ...common, otp: { code: "482913" } },
+  reviewer_invited: { ...common, review },
+  review_reminder: { ...common, review },
+  speaker_bulk_message: { ...common },
 };
 
 /**

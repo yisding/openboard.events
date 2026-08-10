@@ -9,45 +9,36 @@ import type { EventRecord, SpeakerRecord } from "@/shared/demo/types";
 
 // Demo-mode portal session: the signed-in speaker defaults to the seeded demo
 // speaker; "Open portal as" from the admin speakers page stores an
-// impersonation id here. Real OTP portal auth arrives with M06b.
+// impersonation id here. A real OTP session arrives as `serverShell` below.
 export const PORTAL_SPEAKER_KEY = "openboard-portal-speaker";
+
+/**
+ * The portal chrome's own data, read from the database by the portal layout.
+ *
+ * Without it this provider resolved the event out of the browser demo fixture
+ * by slug and `notFound()`ed when it was absent — which is every real event —
+ * so a genuinely signed-in speaker saw the 404 page on every portal surface
+ * while the page underneath had already loaded their real data.
+ */
+export type PortalShellData = { event: EventRecord; speaker: SpeakerRecord };
 
 type PortalContextValue = { event: EventRecord; speaker: SpeakerRecord; impersonated: boolean; exitImpersonation: () => void };
 const PortalContext = createContext<PortalContextValue | null>(null);
 
-export function PortalProvider({ eventSlug, session, children }: { eventSlug: string; session: PortalSession | null; children: React.ReactNode }) {
+export function PortalProvider({ eventSlug, session, serverShell, children }: { eventSlug: string; session: PortalSession | null; serverShell?: PortalShellData; children: React.ReactNode }) {
   const { state, hydrated } = useDemo();
   const [impersonatedId, setImpersonatedId] = useState<string | null>(null);
   useEffect(() => {
     if (!session) setImpersonatedId(window.localStorage.getItem(PORTAL_SPEAKER_KEY));
   }, [session]);
-  const event = state.events.find((item) => item.slug === eventSlug);
+  const demoEvent = state.events.find((item) => item.slug === eventSlug);
+  const event = serverShell?.event ?? demoEvent;
   const speaker = useMemo(() => {
+    if (serverShell) return serverShell.speaker;
     if (!event) return undefined;
-    if (session) {
-      const normalizedEmail = session.email.trim().toLowerCase();
-      return state.speakers.find((item) => item.eventId === event.id && (item.id === session.contactId || item.email.trim().toLowerCase() === normalizedEmail)) ?? {
-        id: session.contactId,
-        eventId: event.id,
-        firstName: normalizedEmail.split("@", 1)[0] || "Speaker",
-        lastName: "",
-        email: session.email,
-        company: "",
-        title: "",
-        bio: "",
-        location: "",
-        website: "",
-        linkedin: "",
-        avatar: normalizedEmail.slice(0, 2).toUpperCase() || "SP",
-        avatarColor: "#007454",
-        confirmation: "confirmed",
-        profileCompletion: 0,
-        tags: [],
-      } satisfies SpeakerRecord;
-    }
     const requested = impersonatedId ? state.speakers.find((item) => item.id === impersonatedId && item.eventId === event.id) : undefined;
     return requested ?? state.speakers.find((item) => item.id === DEMO_SPEAKER_ID && item.eventId === event.id) ?? state.speakers.find((item) => item.eventId === event.id);
-  }, [event, impersonatedId, session, state.speakers]);
+  }, [event, impersonatedId, serverShell, state.speakers]);
   if (!event || !speaker) {
     if (!hydrated) return null;
     notFound();

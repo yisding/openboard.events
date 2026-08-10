@@ -25,7 +25,13 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
     track: { id: "00000000-0000-4000-8000-000000000200", name: "AI Agents", color: "#00a878" },
     room: { id: "00000000-0000-4000-8000-000000000205", name: "Main Hall" },
     format: { id: "00000000-0000-4000-8000-000000000210", name: "Talk" },
-    speakers: [{ contactId: "00000000-0000-4000-8000-000000000401", name: "Ada Lovelace", headshotUrl: null }],
+    speakers: [{
+      contactId: "00000000-0000-4000-8000-000000000401",
+      name: "Ada Lovelace",
+      jobTitle: "Principal Engineer",
+      company: "Analytical Engines",
+      headshotUrl: null,
+    }],
   }],
 });
 
@@ -41,6 +47,16 @@ export const PUBLISHED_SPEAKERS_FIXTURE = publishedSpeakersDtoSchema.parse({
     linkedinUrl: null,
     twitterUrl: null,
     websiteUrl: "https://example.com/ada",
-    sessions: [{ id: "00000000-0000-4000-8000-000000000601", slug: "agents", title: "Agents", startsAt: "2026-09-15T16:00:00.000Z", dayKey: "2026-09-15" }],
+    sessions: [{
+      id: "00000000-0000-4000-8000-000000000601",
+      slug: "agents",
+      title: "Agents",
+      startsAt: "2026-09-15T16:00:00.000Z",
+      endsAt: "2026-09-15T16:30:00.000Z",
+      dayKey: "2026-09-15",
+      room: { id: "00000000-0000-4000-8000-000000000205", name: "Main Hall" },
+      track: { id: "00000000-0000-4000-8000-000000000200", name: "AI Agents", color: "#00a878" },
+      format: { id: "00000000-0000-4000-8000-000000000210", name: "Talk" },
+    }],
   }],
 });

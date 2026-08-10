@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { agendaAuth, deleteSession, saveSession, saveSessionInputSchema } from "@/features/agenda";
-import { eventIdSchema, sessionIdSchema } from "@/shared/contracts";
+import { eventIdSchema, sessionIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
 import { nudgeAfterEnqueue } from "../../nudge";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,15 @@ const update = defineHandler({
   // The route's id wins over any `id` in the body — a body cannot redirect a
   // write at another session.
   input: saveSessionInputSchema,
-  handler: async ({ eventId, input, params }) => {
+  handler: async ({ eventId, input, params, requestId, session: authSession }) => {
     const { sessionId } = paramsSchema.parse(params);
-    const session = await saveSession(eventIdSchema.parse(eventId), { ...input, id: sessionId });
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
+    const session = await saveSession(scopedEventId, { ...input, id: sessionId }, actorUserId);
     if (session.status === "published" && session.startsAt !== null) nudgeAfterEnqueue();
+    // A save that lands on (or leaves) `published` changes the public schedule,
+    // so it does not wait out the 60s ISR window.
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     return session;
   },
 });

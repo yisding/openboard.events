@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { AdminShell } from "@/features/shell/admin-shell";
+import { AdminShell, type AdminShellEvent } from "@/features/shell/admin-shell";
+import { shortEventName } from "@/shared/lib/event-label";
 import { requireAdmin, requiredRoleForEventPath, type AdminSession } from "@/features/auth";
+import { getEvent } from "@/features/events";
 import { resolveLocalDashboardEventId } from "@/features/dashboard/lib/dashboard-tab";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { eventIdSchema, type EventId } from "@/shared/contracts";
@@ -22,6 +24,11 @@ export default async function EventLayout({ children, params }: { children: Reac
   const eventId = resolvedEventId as EventId;
   const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"));
   let session: AdminSession | null = null;
+  // The shell's own event data comes from this server read, never from the
+  // browser demo fixture: a real event id is never in that fixture, so a
+  // client-side lookup 404s every authenticated admin surface (and renders an
+  // empty SSR body on the way there).
+  let shellEvent: AdminShellEvent | undefined;
   if (!localDemo) {
     try {
       session = await requireAdmin(eventId, requiredRoleForEventPath(eventId, requestPath));
@@ -35,6 +42,11 @@ export default async function EventLayout({ children, params }: { children: Reac
       }
       throw error;
     }
+    // Read after the guard, so an unauthorized caller never learns whether the
+    // event exists.
+    const record = await getEvent(eventId);
+    if (!record) notFound();
+    shellEvent = { id: record.id, slug: record.slug, name: record.name, shortName: shortEventName(record.name) };
   }
-  return <AdminShell eventId={eventId} role={session?.role ?? "owner"}>{children}</AdminShell>;
+  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} {...(shellEvent ? { event: shellEvent } : {})}>{children}</AdminShell>;
 }

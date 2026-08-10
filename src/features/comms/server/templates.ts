@@ -35,6 +35,26 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml:
     subject: "Your sign-in code for {{event.name}}",
     bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>Your sign-in code is <strong>{{otp.code}}</strong>.</p><p>Or use this one-tap link: <a href=\"{{portal.magic_link}}\">Sign in to your portal</a>.</p>",
   },
+  // M50. Reviewers work in the admin app, so both of these point at the review
+  // queue rather than the speaker portal, and neither carries a credential.
+  reviewer_invited: {
+    subject: "You're reviewing for {{event.name}}",
+    bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>You have been added as a reviewer for <strong>{{event.name}}</strong> on the round “{{review.round}}”.</p><p><a href=\"{{review.queue_url}}\">Open your review queue</a> to sign in and start scoring.</p>",
+  },
+  review_reminder: {
+    subject: "{{review.outstanding}} still to review for {{event.name}}",
+    bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>You have <strong>{{review.outstanding}}</strong> still to score in “{{review.round}}”. The round closes {{review.closes_at}}.</p><p><a href=\"{{review.queue_url}}\">Open your review queue</a>.</p>",
+  },
+  // M51. This row exists only so `email_templates.enabled` has something to
+  // gate and the dispatcher's `SELECT ... FROM email_templates` finds a row —
+  // the subject/body it names are never rendered: `composeBulkSpeakerEmailIn`
+  // always writes a `speaker_bulk_messages` row and `buildContext` always
+  // overrides with it (comms/server/context.ts), the same
+  // `templateOverride` mechanism the form-confirmation email already uses.
+  speaker_bulk_message: {
+    subject: "A message about {{event.name}}",
+    bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>(This default is never sent — every send overrides it.)</p>",
+  },
 };
 
 export async function seedDefaultTemplates(dbOrTx: DbOrTx, eventId: EventId): Promise<void> {

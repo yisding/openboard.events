@@ -12,7 +12,10 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
   await requireAdmin(parsedEventId, "organizer");
   const [event, form] = await Promise.all([
     getBuilderEvent(parsedEventId),
-    getFormForBuilder(parsedEventId, parsedFormId),
+    // Pinned to `context='cfp'` — a portal form id pasted into this URL is a
+    // 404 here, not the CFP FormBuilder rendering portal-only state (mirrors
+    // the guard tasks/forms/[formId]/page.tsx already pins to 'portal').
+    getFormForBuilder(parsedEventId, parsedFormId, "cfp"),
   ]);
   return <FormBuilder event={event} initialForm={form} />;
 }

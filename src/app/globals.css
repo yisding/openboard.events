@@ -117,8 +117,25 @@ button { color: inherit; }
 .icon-button:hover { background: var(--fill); border-color: var(--line); }
 
 .field { display: grid; gap: 7px; color: #33473f; font-weight: 600; font-size: 13px; }
+/* DateTimePicker draws the border on its own wrapper and zeroes the inner
+   input's, so a child combinator alone leaves "Ends At must be after Starts At"
+   with an unmarked control. `.field-invalid .datetime-picker` (0-2-0) beats
+   `.datetime-picker` (0-1-0). */
+.field-invalid > input, .field-invalid > select, .field-invalid > textarea, .field-invalid .datetime-picker { border-color: var(--red); }
 .field small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
+/* Must out-specify `.field small` (0-1-1) above, or the error renders in the
+   hint's grey at the hint's size and reads as advice rather than a rejection —
+   the bare `.field-error` rule is only 0-1-0 and loses. */
+.field > small.field-error { color: var(--red); font-size: 9px; margin-top: 0; }
 .required { color: var(--red); }
+/* M46 — per-domain deliverability (comms admin, Deliverability tab). */
+.deliverability-rate-warn { color: var(--red); font-weight: 700; }
+.deliverability-footnote { margin-top: 16px; color: var(--muted); }
+/* M46 — bulk segmented sends (comms admin, Bulk send tab). */
+.bulk-send-tab { display: grid; gap: 20px; }
+.bulk-send-body { padding: 20px; }
+.bulk-send-checkboxes { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.bulk-send-actions { display: flex; gap: 10px; }
 input, textarea, select { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 10px 11px; outline: none; transition: border .15s, box-shadow .15s; }
 input { height: 40px; }
 textarea { min-height: 110px; resize: vertical; line-height: 1.55; }
@@ -359,7 +376,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .status-badge i { width: 5px; height: 5px; border-radius: 50%; background: currentcolor; }
 .status-live, .status-open, .status-accepted, .status-confirmed, .status-sent, .status-published, .status-complete, .status-ready { background: var(--green-soft); color: var(--green); }
 .status-pending, .status-unconfirmed, .status-skipped, .status-1-task, .status-2-tasks, .status-3-tasks, .status-4-tasks { background: var(--amber-soft); color: var(--amber); }
-.status-declined, .status-failed, .status-overdue, .status-closed { background: var(--red-soft); color: var(--red); }
+.status-declined, .status-failed, .status-overdue, .status-closed, .status-bounced, .status-complained { background: var(--red-soft); color: var(--red); }
 .status-draft, .status-withdrawn, .status-queued { background: var(--fill); color: var(--muted); }
 .status-accept-queue { background: var(--accent-soft); color:var(--accent-dark); }
 
@@ -802,3 +819,107 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .speaker-email-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .speaker-email-row span{font-size:10px}
 .speaker-email-row input{width:auto;min-width:220px;flex:1 1 220px}
+
+/* M50 — review operations: round windows, per-reviewer progress, assignment pickers */
+.plan-window{display:grid;gap:3px}
+.plan-window span{font-size:8px;color:var(--muted)}
+.plan-window small{justify-self:start;font-size:8px;font-weight:700;color:var(--accent-dark);background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:5px;padding:2px 5px}
+.plan-progress{display:grid;gap:5px;min-width:96px}
+.plan-progress span{font-size:8px;color:var(--muted)}
+.reviewer-progress{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.reviewer-progress li{font-size:9px}
+.reviewer-progress small{color:var(--muted);font-size:8px}
+.reviewer-assignment{display:block;padding:7px 0;border-bottom:1px solid var(--fill);font-size:9px}
+.reviewer-assignment:last-child{border-bottom:0}
+.reviewer-assignment input[type="checkbox"]{margin-right:7px}
+.reviewer-assignment small{color:var(--muted);font-size:8px}
+
+/* M53 — five public widgets: sessions list, agenda, itinerary, speakers list, speaker gallery */
+.sessions-filters{display:flex;flex-wrap:wrap;gap:8px;padding:14px;border:1px solid var(--line);border-radius:10px 10px 0 0;background:var(--surface-raised)}
+.sessions-filters>label{flex:1 1 260px;height:37px;border:1px solid var(--line);background:var(--surface);border-radius:7px;display:flex;align-items:center;gap:7px;padding:0 9px;color:var(--muted)}
+.sessions-filters>label input{border:0;box-shadow:none;height:34px;font-size:9px}
+.sessions-filters>label button{border:0;background:transparent;color:var(--muted)}
+.sessions-filters>select{height:37px;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:0 9px;font-size:9px;color:var(--ink)}
+.sessions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;padding:14px}
+.session-card{border:1px solid var(--line);border-radius:9px;display:grid;grid-template-columns:4px 1fr;overflow:hidden;background:var(--surface);position:relative}
+.session-card:hover{box-shadow:var(--shadow-sm);border-color:#b8ded1}
+.session-card-body{padding:14px 40px 15px 15px}
+.session-card-eyebrow{display:block;font-size:8px;color:var(--accent-dark);font-weight:800;text-transform:uppercase;letter-spacing:.5px}
+.session-card h3{font-size:13px;margin:7px 0 9px}
+.session-card-meta{display:flex;gap:12px;color:var(--muted);font-size:8px;margin-bottom:10px}
+.session-card-speakers{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:7px}
+.session-card-speakers li{display:flex;align-items:center;gap:7px}
+.session-card-speakers a{font-size:9px;font-weight:700;color:var(--accent-dark);display:block}
+.session-card-speakers small{display:block;color:var(--muted);font-size:8px;font-weight:400}
+.session-card-desc{color:var(--muted);font-size:9px;line-height:1.55}
+.session-card-desc.truncated{max-height:38px;overflow:hidden;position:relative}
+.session-card-desc.truncated::after{content:"";position:absolute;inset:auto 0 0 0;height:18px;background:linear-gradient(to bottom,transparent,var(--surface))}
+.session-card-toggle{border:0;background:transparent;color:var(--accent-dark);font-size:8px;font-weight:700;display:flex;align-items:center;gap:3px;padding:6px 0 0}
+.session-card-toggle svg{transition:transform .15s}
+.session-card-toggle svg.flipped{transform:rotate(180deg)}
+.session-card-cal{position:absolute;right:12px;top:12px;width:29px;height:29px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--accent-dark);display:grid;place-items:center}
+
+.itinerary-toolbar{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--accent-border);background:var(--accent-faint);border-radius:10px;margin-bottom:18px;flex-wrap:wrap}
+.itinerary-my-schedule{display:flex;align-items:center;gap:6px;height:34px;padding:0 13px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font-size:9px;font-weight:700}
+.itinerary-my-schedule.active{border-color:var(--accent);color:var(--accent-dark);background:var(--accent-soft)}
+.itinerary-export{margin-left:auto;display:flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:7px;background:var(--accent);color:var(--on-accent);font-size:9px;font-weight:700}
+.itinerary-export:hover{background:var(--accent-hover)}
+.itinerary-export.disabled{background:var(--fill);color:var(--muted)}
+.itinerary-day{margin-bottom:24px}
+.itinerary-day h3{font-size:14px;margin:0 0 11px;display:flex;align-items:baseline;gap:8px}
+.itinerary-day h3 span{font-size:9px;color:var(--muted);font-weight:400}
+.itinerary-sessions{display:grid;gap:8px}
+.itinerary-sessions article{border:1px solid var(--line);border-radius:9px;display:grid;grid-template-columns:44px 1fr;background:var(--surface)}
+.itinerary-sessions article.starred{border-color:var(--accent-border);background:var(--accent-faint)}
+.itinerary-star{border:0;border-right:1px solid var(--line);background:transparent;color:var(--muted);display:grid;place-items:center}
+.itinerary-sessions article.starred .itinerary-star{color:var(--accent-dark);border-color:var(--accent-border)}
+.itinerary-sessions article>div{padding:12px 15px}
+.itinerary-time{display:block;font-size:8px;color:var(--muted);font-weight:700}
+.itinerary-sessions h4{font-size:12px;margin:5px 0 8px}
+.itinerary-desc{color:var(--muted);font-size:9px;margin-top:8px}
+
+.speakers-list{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.speakers-list>li{border-bottom:1px solid var(--line)}
+.speakers-list>li:last-child{border-bottom:0}
+.speaker-row{width:100%;min-height:64px;border:0;background:var(--surface);display:grid;grid-template-columns:34px 1fr 16px;gap:12px;align-items:center;padding:11px 16px;text-align:left}
+.speakers-list>li.expanded .speaker-row{background:var(--accent-faint)}
+.speaker-row-name{display:block}
+.speaker-row-name b{display:block;font-size:11px}
+.speaker-row-name small{display:block;color:var(--muted);font-size:8px;margin-top:2px}
+.speaker-row svg.flipped{transform:rotate(180deg)}
+.speaker-row-detail{padding:0 16px 20px 62px}
+.speaker-row-detail .speaker-detail-links{margin-top:0;margin-bottom:14px}
+
+.embed-filter-group{border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin:0}
+.embed-filter-group legend{font-size:8px;font-weight:700;color:var(--muted);padding:0 4px}
+.embed-filter-group label{display:flex;align-items:center;gap:6px;font-size:9px;padding:3px 0}
+.embed-filter-group input[type="checkbox"]{margin:0}
+
+.embed-shell.embed-dark .sessions-filters,.embed-shell.embed-dark .sessions-grid{background:var(--sidebar);border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .sessions-filters>label,.embed-shell.embed-dark .sessions-filters>select{background:var(--sidebar-2);border-color:var(--sidebar-line);color:var(--on-dark)}
+.embed-shell.embed-dark .session-card{background:var(--sidebar);border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .session-card h3{color:var(--on-dark)}
+.embed-shell.embed-dark .session-card-eyebrow{color:var(--accent-bright)}
+.embed-shell.embed-dark .session-card-desc.truncated::after{background:linear-gradient(to bottom,transparent,var(--sidebar))}
+.embed-shell.embed-dark .session-card-speakers a{color:var(--accent-bright)}
+.embed-shell.embed-dark .session-card-toggle{color:var(--accent-bright)}
+.embed-shell.embed-dark .session-card-cal{background:var(--sidebar-2);border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .itinerary-toolbar{background:var(--sidebar-2);border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .itinerary-my-schedule{background:var(--sidebar);border-color:var(--sidebar-line);color:var(--on-dark)}
+.embed-shell.embed-dark .itinerary-sessions article{background:var(--sidebar);border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .itinerary-sessions article.starred{background:var(--sidebar-2)}
+.embed-shell.embed-dark .itinerary-sessions article.starred .itinerary-star{color:var(--accent-bright)}
+.embed-shell.embed-dark .itinerary-sessions h4{color:var(--on-dark)}
+.embed-shell.embed-dark .speakers-list{border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .speakers-list>li{border-color:var(--sidebar-line)}
+.embed-shell.embed-dark .speaker-row{background:var(--sidebar)}
+.embed-shell.embed-dark .speakers-list>li.expanded .speaker-row{background:var(--sidebar-2)}
+.embed-shell.embed-dark .speaker-row-name b{color:var(--on-dark)}
+
+@media(max-width:640px){
+  .sessions-grid{grid-template-columns:1fr}
+  .schedule-time-group{grid-template-columns:1fr}
+  .itinerary-export{margin-left:0;width:100%;justify-content:center}
+  .itinerary-my-schedule{width:100%;justify-content:center}
+  .speaker-row-detail{padding-left:16px}
+}

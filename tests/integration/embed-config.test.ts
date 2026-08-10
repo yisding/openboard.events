@@ -4,12 +4,20 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { getOrCreateEmbedConfigIn, isEmbedEnabledIn, listEmbedConfigsIn } from "@/features/public/server/embed-config-queries";
+import {
+  getOrCreateEmbedConfigIn,
+  getOrCreateSpeakerListConfigIn,
+  isEmbedEnabledIn,
+  listEmbedConfigsIn,
+} from "@/features/public/server/embed-config-queries";
 import { updateEmbedConfigIn } from "@/features/public/server/embed-config-mutations";
 import type { EmbedId, EventId } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = "b1000000-0000-4000-8000-000000000001" as EventId;
 const otherEventId = "b1000000-0000-4000-8000-000000000002" as EventId;
@@ -17,11 +25,12 @@ const otherEventId = "b1000000-0000-4000-8000-000000000002" as EventId;
 let pglite: PGlite;
 let db: DbOrTx;
 
-describe("embed config CRUD (M33)", () => {
+describe("embed config CRUD (M33/M53)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -49,6 +58,7 @@ describe("embed config CRUD (M33)", () => {
     expect(first.contentType).toBe("schedule_itinerary");
     expect(first.eventId).toBe(eventId);
     expect(first.style).toEqual({});
+    expect(first.filters).toEqual({});
 
     const second = await getOrCreateEmbedConfigIn(db, eventId, "schedule_itinerary");
     expect(second.id).toBe(first.id);
@@ -77,6 +87,19 @@ describe("embed config CRUD (M33)", () => {
     expect(reenabled.style).toEqual({ accent: "#ff0000", theme: "dark", showHeader: false });
   });
 
+  it("round-trips content filters and field visibility through updateEmbedConfigIn, replacing the whole object", async () => {
+    const config = await getOrCreateEmbedConfigIn(db, eventId, "session_list");
+
+    const withFilters = await updateEmbedConfigIn(db, eventId, config.id, {
+      filters: { trackIds: ["t1", "t2"], formatIds: ["f1"], fields: { description: false } },
+    });
+    expect(withFilters.filters).toEqual({ trackIds: ["t1", "t2"], formatIds: ["f1"], fields: { description: false } });
+
+    // A later filters-only patch replaces the whole object, same discipline as `style`.
+    const replaced = await updateEmbedConfigIn(db, eventId, config.id, { filters: { roomIds: ["r1"] } });
+    expect(replaced.filters).toEqual({ roomIds: ["r1"] });
+  });
+
   it("refuses to update a config row that belongs to a different event (IDOR-proof)", async () => {
     const config = await getOrCreateEmbedConfigIn(db, eventId, "schedule_itinerary");
     await expect(updateEmbedConfigIn(db, otherEventId, config.id, { enabled: false })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -88,10 +111,46 @@ describe("embed config CRUD (M33)", () => {
     await expect(updateEmbedConfigIn(db, eventId, "b1000000-0000-4000-8000-0000000000ff" as EmbedId, { enabled: false })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("listEmbedConfigsIn returns both canonical types, event-scoped, creating any missing ones", async () => {
+  it("getOrCreateSpeakerListConfigIn seeds a first-ever row from the legacy speaker_gallery config (M53 /embed/[slug]/speakers URL continuity)", async () => {
+    const migratedEventId = "b1000000-0000-4000-8000-000000000003" as EventId;
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Migrated Event','migrated-event','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [migratedEventId],
+    );
+
+    // Simulate a pre-M53 admin who disabled and restyled the legacy gallery embed.
+    const legacy = await getOrCreateEmbedConfigIn(db, migratedEventId, "speaker_gallery");
+    await updateEmbedConfigIn(db, migratedEventId, legacy.id, { enabled: false, style: { accent: "#ff00aa", theme: "dark" } });
+
+    const migrated = await getOrCreateSpeakerListConfigIn(db, migratedEventId);
+    expect(migrated.contentType).toBe("speaker_list");
+    expect(migrated.enabled).toBe(false);
+    expect(migrated.style).toEqual({ accent: "#ff00aa", theme: "dark" });
+
+    // Idempotent: a second read returns the same row, not a re-seeded one.
+    await updateEmbedConfigIn(db, migratedEventId, migrated.id, { enabled: true });
+    const second = await getOrCreateSpeakerListConfigIn(db, migratedEventId);
+    expect(second.id).toBe(migrated.id);
+    expect(second.enabled).toBe(true);
+  });
+
+  it("getOrCreateSpeakerListConfigIn defaults normally when no legacy speaker_gallery row exists", async () => {
+    const freshEventId = "b1000000-0000-4000-8000-000000000004" as EventId;
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Fresh Event','fresh-event','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [freshEventId],
+    );
+    const config = await getOrCreateSpeakerListConfigIn(db, freshEventId);
+    expect(config.enabled).toBe(true);
+    expect(config.style).toEqual({});
+  });
+
+  it("listEmbedConfigsIn returns all five canonical types, event-scoped, creating any missing ones", async () => {
     const configs = await listEmbedConfigsIn(db, otherEventId);
-    expect(configs).toHaveLength(2);
-    expect(configs.map((config) => config.contentType).sort()).toEqual(["schedule_itinerary", "speaker_gallery"]);
+    expect(configs).toHaveLength(5);
+    expect(configs.map((config) => config.contentType).sort()).toEqual([
+      "agenda", "schedule_itinerary", "session_list", "speaker_gallery", "speaker_list",
+    ]);
     for (const config of configs) expect(config.eventId).toBe(otherEventId);
   });
 });

@@ -4,14 +4,27 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, formSnapshotSchema, submissionIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, formSnapshotSchema, submissionIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { buildObjectKey, buildStagingKey } from "@/shared/server/r2";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M52's file-upload version columns and comment table. Independent of 0002–0005.
+const migration6 = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
+// P3-EMAIL added columns to the Drizzle `contacts` schema; any bare
+// `db.update(contacts)....returning()` (Drizzle selects every mapped column)
+// now needs them to exist, even in a suite that never exercises suppression.
+const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M51 added `contacts.workflow_status` — same blast radius as the P3-EMAIL
+// comment above.
+const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("c4000000-0000-4000-8000-000000000001");
+const organizerUserId = userIdSchema.parse("c4000000-0000-4000-8000-0000000000aa");
 const ada = contactIdSchema.parse("c4000000-0000-4000-8000-000000000010");
 const grace = contactIdSchema.parse("c4000000-0000-4000-8000-000000000011");
 const talkOne = submissionIdSchema.parse("c4000000-0000-4000-8000-000000000020");
@@ -95,7 +108,7 @@ vi.mock("@/db/client", async (importOriginal) => {
 });
 
 const {
-  completeTaskManual, completeTaskViaResponse, completeTaskViaUpload,
+  addTaskComment, completeTaskManual, completeTaskViaResponse, completeTaskViaUpload,
   getMyTask, getTaskForm, listMyTasks, listTaskCompletions,
 } = await import("@/features/portal");
 
@@ -109,12 +122,17 @@ describe("portal task runtime", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migration6);
+    await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationRoster);
     testDb = createTestDb(pglite);
 
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Task Event','task-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
       [eventId],
     );
+    await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'organizer@example.com','Sam Organizer')", [organizerUserId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name,company) VALUES($1,$2,'ada@example.com','Ada','Lovelace','Analytical Engines')", [ada, eventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'grace@example.com','Grace','Hopper')", [grace, eventId]);
 
@@ -186,7 +204,7 @@ describe("portal task runtime", () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await pglite.exec("TRUNCATE task_completions, file_uploads, form_responses CASCADE");
+    await pglite.exec("TRUNCATE task_completions, file_uploads, form_responses, file_comments CASCADE");
   });
 
   // Write-back mutates contacts, so it is reset here rather than at the end of
@@ -264,6 +282,44 @@ describe("portal task runtime", () => {
     expect(detail?.uploads).toHaveLength(2);
     expect(detail?.fileRequest?.maxSizeMb).toBe(25);
     expect(detail?.completed).toBe(true);
+  });
+
+  it("M52: numbers versions and marks exactly one latest per re-upload, newest first", async () => {
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+
+    const latestRows = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM file_uploads WHERE file_request_id = $1 AND contact_id = $2 AND submission_id = $3 AND is_latest",
+      [slidesRequest, ada, talkOne],
+    );
+    expect(latestRows.rows[0]?.n).toBe(1);
+
+    const detail = await getMyTask(eventId, ada, slidesTask, talkOne);
+    expect(detail?.uploads.map((upload) => upload.version)).toEqual([2, 1]);
+    expect(detail?.uploads[0]?.isLatest).toBe(true);
+    expect(detail?.uploads[1]?.isLatest).toBe(false);
+  });
+
+  it("M52: exchanges a speaker comment and organizer reply with correct author/timestamps", async () => {
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    const speakerComment = await addTaskComment(eventId, ada, slidesTask, talkOne, "Here's my deck — let me know if the fonts look off.");
+    expect(speakerComment.authorRole).toBe("speaker");
+    expect(speakerComment.authorName).toBe("Ada Lovelace");
+    expect(speakerComment.createdAt).toMatch(/^\d{4}-/);
+
+    const { addFileComment } = await import("@/features/portal/server/deliverable-slot");
+    const organizerReply = await addFileComment(
+      eventId, slidesRequest, ada, talkOne, { role: "organizer", userId: organizerUserId }, "Looks great, thanks!",
+    );
+    expect(organizerReply.authorRole).toBe("organizer");
+    expect(organizerReply.authorName).toBe("Sam Organizer");
+
+    const detail = await getMyTask(eventId, ada, slidesTask, talkOne);
+    expect(detail?.comments.map((comment) => comment.body)).toEqual([
+      "Here's my deck — let me know if the fonts look off.",
+      "Looks great, thanks!",
+    ]);
+    expect(detail?.comments.map((comment) => comment.authorRole)).toEqual(["speaker", "organizer"]);
   });
 
   it("refuses to answer a task with another speaker's file", async () => {

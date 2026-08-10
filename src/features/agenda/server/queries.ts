@@ -4,6 +4,7 @@ import {
   mySessionDtoSchema,
   roomDtoSchema,
   scheduledSessionDtoSchema,
+  sessionContentRevisionDtoSchema,
   sessionFormatDtoSchema,
   trackDtoSchema,
   type ContactId,
@@ -11,6 +12,7 @@ import {
   type MySessionDTO,
   type RoomDTO,
   type ScheduledSessionDTO,
+  type SessionContentRevisionDTO,
   type SessionFormatDTO,
   type SessionId,
   type SessionStatus,
@@ -220,6 +222,42 @@ export async function getMySessionsIn(
 }
 
 export const getMySessions = (eventId: EventId, contactId: ContactId) => getMySessionsIn(db, eventId, contactId);
+
+/**
+ * M52 — a session's attributed title/description history, newest first. Every
+ * row `saveSessionIn` and `restoreSessionContentIn` write, never edited or
+ * deleted — the history panel's whole point is that nothing here can quietly
+ * change out from under it.
+ */
+export async function listSessionContentRevisionsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+): Promise<SessionContentRevisionDTO[]> {
+  const result = await dbOrTx.execute<{
+    id: string; title: string; description_html: string; edited_by_name: string | null;
+    restored_from_revision_id: string | null; created_at: string;
+  }>(sql`
+    SELECT r.id, r.title, r.description_html, r.restored_from_revision_id, r.created_at,
+           coalesce(nullif(btrim(u.name), ''), u.email) AS edited_by_name
+    FROM session_content_revisions r
+    LEFT JOIN users u ON u.id = r.edited_by_user_id
+    WHERE r.event_id = ${eventId} AND r.session_id = ${sessionId}
+    ORDER BY r.created_at DESC, r.id DESC
+  `);
+  return (result.rows ?? []).map((row) => sessionContentRevisionDtoSchema.parse({
+    id: row.id,
+    sessionId,
+    title: row.title,
+    descriptionHtml: row.description_html,
+    editedByName: row.edited_by_name,
+    restoredFromRevisionId: row.restored_from_revision_id,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+}
+
+export const listSessionContentRevisions = (eventId: EventId, sessionId: SessionId) =>
+  listSessionContentRevisionsIn(db, eventId, sessionId);
 
 /**
  * Rooms, tracks, formats and the event's contacts, in one round trip.

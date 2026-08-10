@@ -1,0 +1,25 @@
+import { NextRequest } from "next/server";
+import { adminAuth } from "@/features/auth";
+import { importSpeakersCsv } from "@/features/portal";
+import { eventIdSchema, importSpeakersCsvInputSchema } from "@/shared/contracts";
+import { defineHandler } from "@/shared/server/handler";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * M51 — CSV import (work order step 3). One route for both halves: `mode:
+ * "preview"` parses and validates without writing (the "row-level errors,
+ * downloadable" AC), `mode: "commit"` performs exactly the writes the most
+ * recent preview described. The client sends the raw CSV text (read via
+ * `FileReader`) rather than a multipart upload — `defineHandler` only parses
+ * JSON bodies, and a speaker roster file is well within that budget.
+ */
+const importRoute = defineHandler({
+  auth: adminAuth({ role: "organizer" }),
+  input: importSpeakersCsvInputSchema,
+  handler: ({ eventId, input }) => importSpeakersCsv(eventIdSchema.parse(eventId), input),
+});
+
+export async function POST(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {
+  return importRoute(request, route);
+}

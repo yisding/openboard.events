@@ -20,12 +20,16 @@ export function nextCriterionToScore<T extends { id: string }>(
  * What "Save & next" opens: the next proposal that still needs a verdict, in
  * queue order, wrapping past the one just saved. Advancing to the neighbour
  * regardless would walk a reviewer back through work they had finished.
+ *
+ * "Finished" is `scoredAt`, not "has a number" (M50): a round whose criteria are
+ * all written feedback produces completed reviews with no score at all, and
+ * those must not be offered back to the reviewer as unfinished work.
  */
-export function nextUnscored<T extends { submissionId: string; myScore: number | null }>(
+export function nextUnscored<T extends { submissionId: string; scoredAt: string | null }>(
   rows: readonly T[],
   justSavedId: string,
 ): T | undefined {
   const index = rows.findIndex((row) => row.submissionId === justSavedId);
   const ordered = index < 0 ? rows : [...rows.slice(index + 1), ...rows.slice(0, index)];
-  return ordered.find((row) => row.myScore === null);
+  return ordered.find((row) => row.scoredAt === null);
 }

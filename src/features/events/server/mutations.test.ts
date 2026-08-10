@@ -4,13 +4,24 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { userIdSchema, type EventId, type UserId } from "@/shared/contracts";
+import { userIdSchema, type EventId, type UserId, TEMPLATE_KEYS } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { createEventIn, updateEventIn } from "./mutations";
 import { getEventIn, listVocabIn } from "./queries";
 import { deleteVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
+// M50 added `reviewer_invited`/`review_reminder` to `template_key`, which
+// `TEMPLATE_KEYS.length` below (and every `seedDefaultTemplates` call inside
+// `createEventIn`) already assumes — this fixture was missing the migration
+// that makes those enum labels valid, independent of P3-EMAIL.
+const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// P3-EMAIL added `events.physical_address`, which `createEventIn`/`updateEventIn`
+// now write on every call.
+const migrationEmailCompliance = readFileSync(new URL("../../../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// M51 added `speaker_bulk_message` to `template_key`, same reasoning as the
+// migrationReviewOps comment above.
+const migrationRoster = readFileSync(new URL("../../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -39,6 +50,9 @@ describe("database-backed event mutations", () => {
   beforeAll(async () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationRoster);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);
@@ -48,14 +62,14 @@ describe("database-backed event mutations", () => {
     await pglite.close();
   });
 
-  it("creates an event, grants the actor ownership, and seeds 8 templates + 5 formats", async () => {
+  it("creates an event, grants the actor ownership, and seeds one template per key + 5 formats", async () => {
     const event = await createEventIn(database, actorUserId, baseInput());
     expect(event.name).toBe("Builder Conf");
     expect(event.slug).toBe("builder-conf");
     expect(event.rowVersion).toBe(1);
 
     const templates = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM email_templates WHERE event_id=$1", [event.id]);
-    expect(templates.rows[0]?.n).toBe(8);
+    expect(templates.rows[0]?.n).toBe(TEMPLATE_KEYS.length);
     const formats = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM session_formats WHERE event_id=$1", [event.id]);
     expect(formats.rows[0]?.n).toBe(5);
     const membership = await pglite.query<{ role: string }>("SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2", [event.id, actorUserId]);
@@ -100,7 +114,7 @@ describe("database-backed event mutations", () => {
     expect(healed.id).toBe(orphanId);
 
     const templates = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM email_templates WHERE event_id=$1", [orphanId]);
-    expect(templates.rows[0]?.n).toBe(8);
+    expect(templates.rows[0]?.n).toBe(TEMPLATE_KEYS.length);
     const formats = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM session_formats WHERE event_id=$1", [orphanId]);
     expect(formats.rows[0]?.n).toBe(5);
   });
@@ -143,6 +157,17 @@ describe("database-backed event mutations", () => {
     // The row is untouched by the losing call.
     const current = await getEventIn(database, event.id);
     expect(current?.name).toBe("Version Conf (renamed)");
+  });
+
+  it("round-trips the CAN-SPAM physical address, clearing it on an explicit empty string", async () => {
+    const event = await createEventIn(database, actorUserId, baseInput({ name: "Address Conf", slug: "address-conf" }));
+    expect(event.physicalAddress).toBeNull();
+
+    const withAddress = await updateEventIn(database, event.id, { physicalAddress: "123 Main St, Suite 100, San Francisco, CA 94105" }, event.rowVersion);
+    expect(withAddress.physicalAddress).toBe("123 Main St, Suite 100, San Francisco, CA 94105");
+
+    const cleared = await updateEventIn(database, event.id, { physicalAddress: "" }, withAddress.rowVersion);
+    expect(cleared.physicalAddress).toBeNull();
   });
 
   it("rejects endsAt <= startsAt on update", async () => {

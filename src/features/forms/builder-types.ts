@@ -1,12 +1,15 @@
 import type {
   FieldId,
   FieldType,
+  FormContext,
   FormField,
   FormId,
   FormStatus,
   MapsToTarget,
+  ReviewVisibility,
   SectionId,
   SubmissionKind,
+  TaskTarget,
   VisibilityRule,
 } from "@/shared/contracts";
 
@@ -35,6 +38,9 @@ export type BuilderField = {
   options: FormField["options"];
   visibility: VisibilityRule | null;
   mapsTo: MapsToTarget | null;
+  // M50: what a blind reviewer may see of this question. `identity` is the
+  // fail-closed default and the only value a locked contact field can hold.
+  reviewVisibility: ReviewVisibility;
   sortOrder: number;
 };
 
@@ -51,7 +57,10 @@ export type BuilderSection = {
 export type BuilderForm = {
   id: FormId;
   eventId: string;
-  context: "cfp" | "portal";
+  context: FormContext;
+  // M12-GENERALIZE: only meaningful for context='portal' (M24's forms target
+  // a contact or a submission's own fields); null for context='cfp'.
+  targetType: TaskTarget | null;
   internalName: string;
   externalTitle: string;
   pageHeading: string;
@@ -81,6 +90,7 @@ export type FormListRow = {
   externalTitle: string;
   status: FormStatus;
   kind: SubmissionKind;
+  targetType: TaskTarget | null;
   collectParticipants: boolean;
   closesAt: string | null;
   createdAt: string;
@@ -115,5 +125,5 @@ export type FormPatch = OptionalValues<Pick<BuilderForm,
 export type SectionPatch = OptionalValues<Pick<BuilderSection, "title" | "pageHeading" | "descriptionHtml">>;
 
 export type FieldPatch = OptionalValues<Pick<BuilderField,
-  "label" | "key" | "fieldType" | "required" | "maxChars" | "helpText" | "visibility" | "mapsTo"
+  "label" | "key" | "fieldType" | "required" | "maxChars" | "helpText" | "visibility" | "mapsTo" | "reviewVisibility"
 >> & { optionLabels?: string[] | undefined };

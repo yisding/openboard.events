@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 import { landed, waitingOn } from "./helpers/landed";
-import { EVENTS, SESSIONS } from "./helpers/seeded";
+import { EVENTS, SESSIONS, uniqueEmail } from "./helpers/seeded";
 
 /**
  * Goes green when M28 (sessions CRUD), M29 (conflict engine) and M31 (views)
@@ -229,6 +229,87 @@ test.describe("agenda-schedule", () => {
           await expect(page.getByText(title)).toBeVisible({ timeout: 5_000 });
         }).toPass({ timeout: 120_000, intervals: [5_000] });
       });
+    });
+  });
+
+  test.describe("assisted placement", () => {
+    // Needs M51's real blackout store as well as M28/M29: the "useful
+    // reason" half of this spec is a speaker declared unavailable through
+    // the exact endpoint M51 ships, not a fixture PGlite alone can prove.
+    test.skip(!landed("M28", "M29", "M51", "M54"), waitingOn("M28", "M29", "M51", "M54"));
+
+    test("previews a deterministic placement, applies one accepted row, persists it, and shows a useful reason for a blacked-out speaker", async ({ page, request }) => {
+      const assertClean = expectNoConsoleErrors(page);
+      await loginAsAdmin(request);
+      await loginAsAdmin(page);
+
+      const stamp = Date.now();
+      const placeable = `E2E auto-place ${stamp}`;
+      const blockedTitle = `E2E blacked out ${stamp}`;
+      const sessionsUrl = `/api/internal/agenda/sessions?eventId=${EVENTS.main.id}`;
+      const draftSession = (title: string, speakerContactIds: string[] = []) => apiData(request, sessionsUrl, {
+        method: "POST",
+        data: {
+          title, descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+          startsAt: null, endsAt: null, speakerContactIds, status: "draft",
+        },
+      });
+
+      await test.step("seed a plain unscheduled session and one whose only speaker is blacked out for the whole event", async () => {
+        const speaker = await apiData<{ contact: { contactId: string } }>(request, `/api/internal/speakers/${EVENTS.main.id}`, {
+          method: "POST",
+          data: { email: uniqueEmail("autoplace"), firstName: "Blocked", lastName: "Speaker" },
+        });
+        await apiData(request, `/api/internal/speakers/${EVENTS.main.id}/${speaker.contact.contactId}/unavailability`, {
+          method: "PUT",
+          data: { intervals: [{ startsAt: "2020-01-01T00:00:00.000Z", endsAt: "2099-01-01T00:00:00.000Z", reason: "e2e always busy" }] },
+        });
+        await draftSession(placeable);
+        await draftSession(blockedTitle, [speaker.contact.contactId]);
+      });
+
+      await test.step("Auto-place previews both rows: one placeable, one unplaced with a useful reason", async () => {
+        await page.goto(`${AGENDA}?view=list`);
+        await page.getByRole("button", { name: /auto-place/i }).click();
+        const dialog = page.getByRole("dialog", { name: "Auto-place unscheduled sessions" });
+        await expect(dialog).toBeVisible();
+
+        const placedRow = dialog.locator(".data-table tbody tr", { hasText: placeable });
+        await expect(placedRow).toBeVisible({ timeout: 20_000 });
+        await expect(placedRow.locator("input[type=checkbox]")).toBeChecked();
+
+        const unplacedRow = dialog.locator(".data-table tbody tr", { hasText: blockedTitle });
+        await expect(unplacedRow).toBeVisible();
+        await expect(unplacedRow).toContainText(/unavailab/i);
+
+        // Deselect every other accepted row so Apply touches only `placeable`
+        // — the point of this step is the one accepted row, not every
+        // session the seeded board happens to have unscheduled.
+        const otherCheckboxes = dialog.locator(".data-table tbody tr:has(input[type=checkbox])").filter({ hasNotText: placeable });
+        const otherCount = await otherCheckboxes.count();
+        for (let index = 0; index < otherCount; index += 1) {
+          const box = otherCheckboxes.nth(index).locator("input[type=checkbox]");
+          if (await box.isChecked()) await box.uncheck();
+        }
+
+        await dialog.getByRole("button", { name: /^apply \d+ placement/i }).click();
+        await expect(dialog.locator(".data-table", { hasText: placeable })).toBeVisible({ timeout: 20_000 });
+        await expect(dialog.locator("tr", { hasText: placeable })).toContainText(/applied/i);
+        await dialog.getByRole("button", { name: "Done" }).click();
+        await expect(dialog).toHaveCount(0);
+      });
+
+      await test.step("the applied placement's day/time/room persists across reload", async () => {
+        await page.reload();
+        const sessions = await apiData<SessionDTO[]>(page.request, sessionsUrl);
+        const persisted = sessions.find((session) => session.title === placeable);
+        expect(persisted?.startsAt, "the accepted row's proposed time was written").toBeTruthy();
+
+        const stillUnplaced = sessions.find((session) => session.title === blockedTitle);
+        expect(stillUnplaced?.startsAt, "the blacked-out row was never written").toBeNull();
+      });
+
+      assertClean();
     });
   });
 });

@@ -53,8 +53,13 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
   return <div className="empty-state"><div className="empty-icon">{icon}</div><h3>{title}</h3><p>{description}</p>{action}</div>;
 }
 
-export function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: ReactNode }) {
-  return <label className="field"><span>{label}{required && <b className="required"> *</b>}</span>{children}{hint && <small>{hint}</small>}</label>;
+/**
+ * `error` is the server's message for this one input. It replaces the hint so
+ * the two never argue, and is announced with `role="alert"` because it appears
+ * after the field has already been left.
+ */
+export function Field({ label, hint, required, error, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; children: ReactNode }) {
+  return <label className={error ? "field field-invalid" : "field"}><span>{label}{required && <b className="required"> *</b>}</span>{children}{error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}</label>;
 }
 
 export function Segmented<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {

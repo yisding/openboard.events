@@ -1,31 +1,13 @@
-import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { PublicSchedule } from "@/features/public/public-schedule";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
-
-export const metadata: Metadata = { title: "Event schedule" };
+import { redirect } from "next/navigation";
 
 /**
- * CP0's revalidate-60 item, and the header `scripts/post-deploy-smoke.sh`
- * asserts: a public page must be edge-cacheable, or every visitor during a
- * keynote rush becomes an origin request. The client view reads URL filters
- * after hydration, so its complete default schedule remains in the cached HTML
- * — this route never reads `searchParams`, which is what keeps it static.
+ * Legacy route: M53 split this single combined view into five distinct
+ * surfaces (`sessions`, `agenda`, `itinerary`, `speakers`, `gallery`). The
+ * closest match for "/schedule" — and what pre-M53 links (including the
+ * marketing page's "See the public agenda" CTA) mean by it — is the Agenda
+ * surface, so old links keep working instead of 404ing.
  */
-export const revalidate = 60;
-
-/**
- * Empty on purpose: no slug is known at build time. Declaring it is what marks
- * the route statically generatable, so an unknown slug renders once on demand
- * and is then served from the cache for the revalidate window.
- */
-export async function generateStaticParams(): Promise<Array<{ eventSlug: string }>> {
-  return [];
-}
-
 export default async function Page({ params }: { params: Promise<{ eventSlug: string }> }) {
   const { eventSlug } = await params;
-  const schedule = await getPublishedSchedule(eventSlug);
-  if (!schedule) notFound();
-  return <PublicSchedule eventSlug={eventSlug} schedule={schedule} />;
+  redirect(`/e/${eventSlug}/agenda`);
 }

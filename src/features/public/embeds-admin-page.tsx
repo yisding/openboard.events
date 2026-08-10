@@ -1,19 +1,27 @@
 "use client";
 
-import { Check, Clipboard, ExternalLink, MonitorSmartphone, Palette } from "lucide-react";
+import { Calendar, Check, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, MonitorSmartphone, Users } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { Button, PageHeader, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedStyle } from "./embed-config-types";
+import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
 const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: "#00a878", theme: "light", showHeader: true };
 
-const TYPE_META: Record<CanonicalEmbedContentType, { label: string; route: "schedule" | "speakers"; description: string; icon: typeof MonitorSmartphone }> = {
-  schedule_itinerary: { label: "Schedule itinerary", route: "schedule", description: "Mobile-friendly agenda with live filters and calendar links.", icon: MonitorSmartphone },
-  speaker_gallery: { label: "Speaker gallery", route: "speakers", description: "Responsive confirmed-speaker cards with session links.", icon: Palette },
+const TYPE_META: Record<CanonicalEmbedContentType, { label: string; route: string; description: string; icon: typeof MonitorSmartphone }> = {
+  session_list: { label: "Sessions list", route: "sessions", description: "Searchable session cards with Track/Format/Location filters.", icon: ListChecks },
+  agenda: { label: "Agenda", route: "agenda", description: "Day/time/room agenda with day navigation.", icon: Calendar },
+  schedule_itinerary: { label: "Schedule itinerary", route: "itinerary", description: "Anonymous star-your-sessions itinerary with calendar export.", icon: MonitorSmartphone },
+  speaker_list: { label: "Speakers list", route: "speakers", description: "Compact, surname-sorted speaker directory.", icon: Users },
+  speaker_gallery: { label: "Speaker gallery", route: "gallery", description: "Photo-grid speaker gallery with full profiles.", icon: Grid3x3 },
 };
+
+// Session-shaped surfaces take track/format/room id filters and a
+// description toggle; speaker-shaped surfaces take company/bio toggles only.
+const SESSION_SHAPED = new Set<CanonicalEmbedContentType>(["agenda", "session_list", "schedule_itinerary"]);
 
 function withDefaults(style: EmbedStyle): ResolvedEmbedStyle {
   return { accent: style.accent ?? DEFAULT_STYLE.accent, theme: style.theme ?? DEFAULT_STYLE.theme, showHeader: style.showHeader ?? DEFAULT_STYLE.showHeader };
@@ -24,27 +32,45 @@ function toQuery(style: EmbedStyle): string {
   return `theme=${merged.theme}&header=${merged.showHeader ? 1 : 0}&accent=${encodeURIComponent(merged.accent)}`;
 }
 
-/** One card per canonical content type, each its own kill switch + staged style + save, per M33 work order Step 6. */
-export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventId: string; eventSlug: string; initialConfigs: EmbedConfigDTO[] }) {
+function toggleId(list: string[] | undefined, id: string): string[] {
+  const current = list ?? [];
+  return current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+}
+
+/** One card per canonical content type, each its own kill switch + staged style/filters + save, per M33/M53 work orders. */
+export function EmbedsAdminPage({
+  eventId, eventSlug, initialConfigs, tracks, formats, rooms,
+}: {
+  eventId: string; eventSlug: string; initialConfigs: EmbedConfigDTO[];
+  tracks: TrackDTO[]; formats: SessionFormatDTO[]; rooms: RoomDTO[];
+}) {
   const { toast } = useToast();
   const [configs, setConfigs] = useState(initialConfigs);
-  const [drafts, setDrafts] = useState<Record<CanonicalEmbedContentType, EmbedStyle>>(
+  const [styleDrafts, setStyleDrafts] = useState<Record<CanonicalEmbedContentType, EmbedStyle>>(
     () => Object.fromEntries(initialConfigs.map((config) => [config.contentType, config.style])) as Record<CanonicalEmbedContentType, EmbedStyle>,
+  );
+  const [filterDrafts, setFilterDrafts] = useState<Record<CanonicalEmbedContentType, EmbedFilters>>(
+    () => Object.fromEntries(initialConfigs.map((config) => [config.contentType, config.filters])) as Record<CanonicalEmbedContentType, EmbedFilters>,
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
 
   useEffect(() => setOrigin(window.location.origin), []);
 
-  function draftFor(contentType: CanonicalEmbedContentType): EmbedStyle {
-    return drafts[contentType] ?? {};
+  function styleFor(contentType: CanonicalEmbedContentType): EmbedStyle {
+    return styleDrafts[contentType] ?? {};
+  }
+  function setStyleDraft(contentType: CanonicalEmbedContentType, patch: EmbedStyle) {
+    setStyleDrafts((prev) => ({ ...prev, [contentType]: { ...prev[contentType], ...patch } }));
+  }
+  function filtersFor(contentType: CanonicalEmbedContentType): EmbedFilters {
+    return filterDrafts[contentType] ?? {};
+  }
+  function setFilterDraft(contentType: CanonicalEmbedContentType, patch: EmbedFilters) {
+    setFilterDrafts((prev) => ({ ...prev, [contentType]: { ...prev[contentType], ...patch } }));
   }
 
-  function setDraft(contentType: CanonicalEmbedContentType, patch: EmbedStyle) {
-    setDrafts((prev) => ({ ...prev, [contentType]: { ...prev[contentType], ...patch } }));
-  }
-
-  async function patch(config: EmbedConfigDTO, body: { enabled?: boolean; style?: EmbedStyle }): Promise<EmbedConfigDTO | null> {
+  async function patch(config: EmbedConfigDTO, body: { enabled?: boolean; style?: EmbedStyle; filters?: EmbedFilters }): Promise<EmbedConfigDTO | null> {
     setBusy(config.id);
     try {
       const updated = await api(`embeds/${eventId}/${config.id}`, embedConfigDtoSchema, { method: "PATCH", body });
@@ -63,19 +89,26 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
     if (updated) toast(updated.enabled ? `${TYPE_META[config.contentType].label} embed enabled` : `${TYPE_META[config.contentType].label} embed disabled`);
   }
 
-  async function saveStyle(config: EmbedConfigDTO) {
-    const updated = await patch(config, { style: draftFor(config.contentType) });
-    if (updated) toast("Embed appearance saved");
+  async function saveSettings(config: EmbedConfigDTO) {
+    // Content filters are read live from this saved row by the embed routes
+    // (not baked into the iframe URL like style) — an already-placed iframe
+    // picks up a filter/field-visibility change right after this save.
+    const updated = await patch(config, { style: styleFor(config.contentType), filters: filtersFor(config.contentType) });
+    if (updated) toast("Embed settings saved");
   }
 
   function iframeSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<iframe src="${origin}/embed/${eventSlug}/${route}?${toQuery(draftFor(contentType))}" width="100%" height="760" style="border:0" loading="lazy" title="${eventSlug} ${route}"></iframe>`;
+    return `<iframe src="${origin}/embed/${eventSlug}/${route}?${toQuery(styleFor(contentType))}" width="100%" height="760" style="border:0" loading="lazy" title="${eventSlug} ${route}"></iframe>`;
   }
 
   function scriptSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<script src="${origin}/embed.js" data-event="${eventSlug}" data-type="${route}" data-params="${toQuery(draftFor(contentType))}" async></script>`;
+    return `<script src="${origin}/embed.js" data-event="${eventSlug}" data-type="${route}" data-params="${toQuery(styleFor(contentType))}" async></script>`;
+  }
+
+  function shareUrl(contentType: CanonicalEmbedContentType): string {
+    return `${origin}/e/${eventSlug}/${TYPE_META[contentType].route}`;
   }
 
   function copyIframe(contentType: CanonicalEmbedContentType) {
@@ -88,15 +121,22 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
     toast("Auto-resize script copied");
   }
 
+  function copyShareUrl(contentType: CanonicalEmbedContentType) {
+    void navigator.clipboard.writeText(shareUrl(contentType));
+    toast("Direct share URL copied");
+  }
+
   return (
     <>
-      <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live schedule and speaker gallery on any website." />
+      <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live sessions, agenda, itinerary, and speakers on any website." />
       <section className="embed-cards">
         {configs.map((config) => {
           const meta = TYPE_META[config.contentType];
-          const draft = draftFor(config.contentType);
-          const style = withDefaults(draft);
+          const styleDraft = styleFor(config.contentType);
+          const style = withDefaults(styleDraft);
+          const filters = filtersFor(config.contentType);
           const Icon = meta.icon;
+          const sessionShaped = SESSION_SHAPED.has(config.contentType);
           return (
             <article className="panel embed-card" key={config.id}>
               <span className="summary-icon accent"><Icon size={20} /></span>
@@ -104,7 +144,7 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
                 <h2>{meta.label}</h2>
                 <p>{meta.description}</p>
               </div>
-              <a href={`/embed/${eventSlug}/${meta.route}?${toQuery(draft)}`} target="_blank" rel="noreferrer">View embed <ExternalLink size={14} /></a>
+              <a href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">View embed <ExternalLink size={14} /></a>
               <div className="inline-setting">
                 <div><b>Enabled</b><small>Turn off to blank this embed without breaking the host page</small></div>
                 <button
@@ -120,20 +160,77 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
               <div className="form-stack">
                 <label className="field">
                   <span>Color theme</span>
-                  <Segmented value={style.theme} onChange={(theme) => setDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+                  <Segmented value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
                 </label>
                 <label className="field">
                   <span>Accent color</span>
                   <div className="color-input">
                     <i style={{ background: style.accent }} />
-                    <input value={style.accent} onChange={(e) => setDraft(config.contentType, { accent: e.target.value })} />
+                    <input value={style.accent} onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })} />
                   </div>
                 </label>
                 <div className="inline-setting">
                   <div><b>Show event header</b><small>Include the event name above content</small></div>
-                  <button type="button" className={`switch ${style.showHeader ? "on" : ""}`} onClick={() => setDraft(config.contentType, { showHeader: !style.showHeader })}><i /></button>
+                  <button type="button" className={`switch ${style.showHeader ? "on" : ""}`} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })}><i /></button>
                 </div>
-                <Button variant="secondary" disabled={busy === config.id} onClick={() => void saveStyle(config)}><Check size={16} /> Save appearance</Button>
+
+                {sessionShaped ? (
+                  <>
+                    <div className="inline-setting">
+                      <div><b>Show description</b><small>Hide session descriptions in this embed</small></div>
+                      <button type="button" className={`switch ${filters.fields?.description !== false ? "on" : ""}`}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, description: filters.fields?.description === false } })}><i /></button>
+                    </div>
+                    {tracks.length > 0 && (
+                      <fieldset className="embed-filter-group">
+                        <legend>Tracks {filters.trackIds && filters.trackIds.length > 0 ? "(filtered)" : "(all)"}</legend>
+                        {tracks.map((t) => (
+                          <label key={t.id}>
+                            <input type="checkbox" checked={!!filters.trackIds?.includes(t.id)} onChange={() => setFilterDraft(config.contentType, { trackIds: toggleId(filters.trackIds, t.id) })} />
+                            {t.name}
+                          </label>
+                        ))}
+                      </fieldset>
+                    )}
+                    {formats.length > 0 && (
+                      <fieldset className="embed-filter-group">
+                        <legend>Formats {filters.formatIds && filters.formatIds.length > 0 ? "(filtered)" : "(all)"}</legend>
+                        {formats.map((f) => (
+                          <label key={f.id}>
+                            <input type="checkbox" checked={!!filters.formatIds?.includes(f.id)} onChange={() => setFilterDraft(config.contentType, { formatIds: toggleId(filters.formatIds, f.id) })} />
+                            {f.name}
+                          </label>
+                        ))}
+                      </fieldset>
+                    )}
+                    {rooms.length > 0 && (
+                      <fieldset className="embed-filter-group">
+                        <legend>Locations {filters.roomIds && filters.roomIds.length > 0 ? "(filtered)" : "(all)"}</legend>
+                        {rooms.map((r) => (
+                          <label key={r.id}>
+                            <input type="checkbox" checked={!!filters.roomIds?.includes(r.id)} onChange={() => setFilterDraft(config.contentType, { roomIds: toggleId(filters.roomIds, r.id) })} />
+                            {r.name}
+                          </label>
+                        ))}
+                      </fieldset>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="inline-setting">
+                      <div><b>Show company</b><small>Include job title/company on speaker cards and rows</small></div>
+                      <button type="button" className={`switch ${filters.fields?.speakerCompany !== false ? "on" : ""}`}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })}><i /></button>
+                    </div>
+                    <div className="inline-setting">
+                      <div><b>Show bio</b><small>Include the speaker&rsquo;s bio</small></div>
+                      <button type="button" className={`switch ${filters.fields?.speakerBio !== false ? "on" : ""}`}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })}><i /></button>
+                    </div>
+                  </>
+                )}
+
+                <Button variant="secondary" disabled={busy === config.id} onClick={() => void saveSettings(config)}><Check size={16} /> Save settings</Button>
               </div>
               <div className="embed-code">
                 <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}?…" …>`}</code>
@@ -142,6 +239,7 @@ export function EmbedsAdminPage({ eventId, eventSlug, initialConfigs }: { eventI
               <footer>
                 <Button variant="secondary" onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /> Copy iframe</Button>
                 <Button variant="ghost" onClick={() => copyScript(config.contentType)}>Copy auto-resize script</Button>
+                <Button variant="ghost" onClick={() => copyShareUrl(config.contentType)}><Link2 size={13} /> Copy share URL</Button>
               </footer>
             </article>
           );

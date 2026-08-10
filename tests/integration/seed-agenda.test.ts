@@ -13,6 +13,9 @@ import { seedId } from "../../scripts/seed/lib/ids";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const TRACKS = ["agents", "platforms", "security", "community"];
 const ROOMS = ["main-stage", "workshop-a", "workshop-b", "studio", "atrium"];
@@ -40,6 +43,7 @@ describe("agenda seed", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Seed Event','seed-event',$2,$3,$4)",
       [SEEDED_EVENT_ID, EVENT_TIMEZONE, eventLocal(now, 65, "09:00").toISOString(), eventLocal(now, 67, "17:00").toISOString()],

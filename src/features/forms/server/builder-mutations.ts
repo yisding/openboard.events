@@ -11,7 +11,9 @@ import {
   trackIdSchema,
   type EventId,
   type FormAuthoringRows,
+  type FormContext,
   type FormId,
+  type TaskTarget,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
@@ -24,9 +26,20 @@ import {
   assertUniqueMapsTo,
   fieldPatchIsStructural,
 } from "./guards";
-import { getFormForBuilderIn } from "./builder-queries";
+import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
 
-type CreateFormInput = { internalName: string; kind: "abstract" | "session"; collectParticipants: boolean };
+type CreateFormInput = {
+  internalName: string;
+  kind: "abstract" | "session";
+  collectParticipants: boolean;
+  // M12-GENERALIZE: defaults to "cfp" so every pre-existing caller (the
+  // organizer CFP builder's "+ Add" flow) is unaffected. M24's portal-form
+  // create passes context="portal" and a `targetType` — the two travel
+  // together, since a portal form's standard-field library (M24 §5) is
+  // chosen by target type.
+  context?: FormContext | undefined;
+  targetType?: TaskTarget | null | undefined;
+};
 type CreateFieldInput = { sectionId: string; label: string; fieldType: (typeof COMMITTED_FIELD_TYPES)[number] };
 
 function fieldKey(label: string): string {
@@ -65,6 +78,7 @@ function authoringRows(form: BuilderForm, version: number): FormAuthoringRows {
       options: field.options,
       visibility: field.visibility,
       mapsTo: field.mapsTo,
+      reviewVisibility: field.reviewVisibility,
       sortOrder: field.sortOrder,
       deletedAt: null,
     }))),
@@ -109,23 +123,12 @@ export function compileAndPublish(eventId: EventId, formId: FormId): Promise<{ v
   return compileAndPublishIn(db, eventId, formId);
 }
 
-export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: CreateFormInput): Promise<BuilderForm> {
-  const [eventRows, trackRows, formatRows, tagRows] = await Promise.all([
-    dbOrTx.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1),
-    dbOrTx.select().from(tracks).where(eq(tracks.eventId, eventId)).orderBy(asc(tracks.sortOrder), asc(tracks.id)),
-    dbOrTx.select().from(sessionFormats).where(eq(sessionFormats.eventId, eventId)).orderBy(asc(sessionFormats.sortOrder), asc(sessionFormats.id)),
-    dbOrTx.select().from(tags).where(eq(tags.eventId, eventId)).orderBy(asc(tags.name), asc(tags.id)),
-  ]);
-  // The relational query above is deliberately just an existence probe; avoid
-  // leaving a half-created form when the caller supplies a foreign event id.
-  if (!eventRows[0]) throw new AppError("NOT_FOUND", "Event not found");
-
-  const formId = formIdSchema.parse(crypto.randomUUID());
+function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string }[], formatRows: { id: string; name: string }[], tagRows: { id: string; name: string }[]): FormAuthoringRows {
   const abstractId = sectionIdSchema.parse(crypto.randomUUID());
   const participantId = sectionIdSchema.parse(crypto.randomUUID());
   type AuthoredOption = FormAuthoringRows["fields"][number]["options"][number];
   const option = (label: string, binding: Partial<Omit<AuthoredOption, "id" | "label">> = {}): AuthoredOption => ({ id: crypto.randomUUID(), label, ...binding });
-  const base: Pick<FormAuthoringRows["fields"][number], "required" | "locked" | "maxChars" | "helpText" | "options" | "visibility" | "mapsTo" | "deletedAt"> = {
+  const base: Pick<FormAuthoringRows["fields"][number], "required" | "locked" | "maxChars" | "helpText" | "options" | "visibility" | "mapsTo" | "reviewVisibility" | "deletedAt"> = {
     required: false,
     locked: false,
     maxChars: null,
@@ -133,6 +136,9 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     options: [],
     visibility: null,
     mapsTo: null,
+    // Every default question starts withheld from blind review; an organizer
+    // opts the ones that are really about the proposal into `content`.
+    reviewVisibility: "identity",
     deletedAt: null,
   };
   const authored = (sectionId: typeof abstractId, key: string, label: string, fieldType: FormAuthoringRows["fields"][number]["fieldType"], sortOrder: number, patch: Partial<FormAuthoringRows["fields"][number]> = {}): FormAuthoringRows["fields"][number] => ({
@@ -145,7 +151,7 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     sortOrder,
     ...patch,
   });
-  const rows: FormAuthoringRows = {
+  return {
     form: { id: formId, context: "cfp", version: 1 },
     sections: [
       { id: abstractId, key: "abstract", title: "Tell us about your submission", pageHeading: "Submission", descriptionHtml: "", sortOrder: 0 },
@@ -166,19 +172,54 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
       authored(participantId, "biography", "Biography", "richtext", 5, { maxChars: 5000, mapsTo: "contact.bio_html" }),
     ],
   };
+}
+
+// M24's builder adds fields from its own standard-field library after
+// creation (plan/modules/M24-portal-form-builder.md §5) through the same
+// field-CRUD mutations below (`createFieldIn`) — this module only owns the
+// empty skeleton a portal form starts from, one section, zero fields.
+function portalAuthoringRows(formId: FormId): FormAuthoringRows {
+  const questionsId = sectionIdSchema.parse(crypto.randomUUID());
+  return {
+    form: { id: formId, context: "portal", version: 1 },
+    sections: [
+      { id: questionsId, key: "questions", title: "Questions", pageHeading: "Questions", descriptionHtml: "", sortOrder: 0 },
+    ],
+    fields: [],
+  };
+}
+
+export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: CreateFormInput): Promise<BuilderForm> {
+  const context: FormContext = input.context ?? "cfp";
+  const targetType = context === "portal" ? input.targetType ?? null : null;
+  if (context === "portal" && !targetType) throw new AppError("VALIDATION", "Portal forms must specify a target type");
+
+  const [eventRows, trackRows, formatRows, tagRows] = await Promise.all([
+    dbOrTx.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1),
+    context === "cfp" ? dbOrTx.select().from(tracks).where(eq(tracks.eventId, eventId)).orderBy(asc(tracks.sortOrder), asc(tracks.id)) : Promise.resolve([]),
+    context === "cfp" ? dbOrTx.select().from(sessionFormats).where(eq(sessionFormats.eventId, eventId)).orderBy(asc(sessionFormats.sortOrder), asc(sessionFormats.id)) : Promise.resolve([]),
+    context === "cfp" ? dbOrTx.select().from(tags).where(eq(tags.eventId, eventId)).orderBy(asc(tags.name), asc(tags.id)) : Promise.resolve([]),
+  ]);
+  // The relational query above is deliberately just an existence probe; avoid
+  // leaving a half-created form when the caller supplies a foreign event id.
+  if (!eventRows[0]) throw new AppError("NOT_FOUND", "Event not found");
+
+  const formId = formIdSchema.parse(crypto.randomUUID());
+  const rows: FormAuthoringRows = context === "cfp" ? cfpAuthoringRows(formId, trackRows, formatRows, tagRows) : portalAuthoringRows(formId);
   const snapshot = compileFormSnapshot(rows);
   const now = new Date();
   const internalName = input.internalName.trim();
   await dbOrTx.insert(forms).values({
     id: formId,
     eventId,
-    context: "cfp",
+    context,
     internalName,
     externalTitle: internalName,
     pageHeading: "Welcome!",
     status: "draft",
     kind: input.kind,
     collectParticipants: input.collectParticipants,
+    targetType,
     currentVersion: 1,
     participantRoles: [
       { role: "speaker", enabled: true, min: 1, max: null },
@@ -190,25 +231,28 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     updatedAt: now,
   });
   await dbOrTx.insert(formSections).values(rows.sections.map((section) => ({ ...section, eventId, formId, descriptionHtml: section.descriptionHtml })));
-  await dbOrTx.insert(formFields).values(rows.fields.map((field) => ({
-    id: field.id,
-    eventId,
-    formId,
-    sectionId: field.sectionId,
-    key: field.key,
-    label: field.label,
-    fieldType: field.fieldType,
-    required: field.required,
-    locked: field.locked,
-    maxChars: field.maxChars,
-    helpText: field.helpText,
-    options: field.options,
-    visibility: field.visibility,
-    mapsTo: field.mapsTo,
-    sortOrder: field.sortOrder,
-  })));
+  if (rows.fields.length > 0) {
+    await dbOrTx.insert(formFields).values(rows.fields.map((field) => ({
+      id: field.id,
+      eventId,
+      formId,
+      sectionId: field.sectionId,
+      key: field.key,
+      label: field.label,
+      fieldType: field.fieldType,
+      required: field.required,
+      locked: field.locked,
+      maxChars: field.maxChars,
+      helpText: field.helpText,
+      options: field.options,
+      visibility: field.visibility,
+      mapsTo: field.mapsTo,
+      reviewVisibility: field.reviewVisibility ?? "identity",
+      sortOrder: field.sortOrder,
+    })));
+  }
   await dbOrTx.insert(formVersions).values({ eventId, formId, version: 1, snapshot });
-  return getFormForBuilderIn(dbOrTx, eventId, formId);
+  return getFormForBuilderIn(dbOrTx, eventId, formId, context);
 }
 
 export function createForm(eventId: EventId, input: CreateFormInput): Promise<BuilderForm> {
@@ -313,13 +357,14 @@ export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
       : [],
     visibility: null,
     mapsTo: null,
+    reviewVisibility: "identity",
     sortOrder: section.fields.length,
   };
   const hypothetical = { ...form, sections: form.sections.map((candidate) => candidate.id === section.id ? { ...candidate, fields: [...candidate.fields, field] } : candidate) };
   const snapshot = nextSnapshot(hypothetical);
   const now = new Date();
   await touchFormIn(dbOrTx, eventId, form, expectedUpdatedAt, now);
-  await dbOrTx.insert(formFields).values({ ...field, eventId, formId, fieldType: field.fieldType, options: field.options, visibility: field.visibility, mapsTo: field.mapsTo });
+  await dbOrTx.insert(formFields).values({ ...field, eventId, formId, fieldType: field.fieldType, options: field.options, visibility: field.visibility, mapsTo: field.mapsTo, reviewVisibility: field.reviewVisibility });
   await storeVersionIn(dbOrTx, eventId, form, snapshot);
   return getFormForBuilderIn(dbOrTx, eventId, formId);
 }
@@ -400,6 +445,9 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     helpText: patch.helpText ?? field.helpText,
     visibility: patch.visibility === undefined ? field.visibility : patch.visibility,
     mapsTo: nextMapsTo,
+    // A locked contact field can never be opted into a blind reviewer's view,
+    // whatever the request says.
+    reviewVisibility: field.locked ? "identity" : patch.reviewVisibility ?? field.reviewVisibility,
     options: nextOptions,
   };
   const hypothetical = {
@@ -418,6 +466,7 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     helpText: updated.helpText,
     options: updated.options,
     visibility: updated.visibility,
+    reviewVisibility: updated.reviewVisibility,
     mapsTo: updated.mapsTo,
     updatedAt: now,
   }).where(and(eq(formFields.id, field.id), eq(formFields.eventId, eventId), eq(formFields.formId, formId)));
@@ -439,6 +488,161 @@ export async function deleteFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     .where(and(eq(formFields.id, field.id), eq(formFields.eventId, eventId), eq(formFields.formId, formId)));
   await storeVersionIn(dbOrTx, eventId, form, snapshot);
   return getFormForBuilderIn(dbOrTx, eventId, formId);
+}
+
+// M24-GENERALIZE: "Duplicate" and "Delete" (plan/modules/M24-portal-form-builder.md
+// §7) were the two form-level mutations the CFP builder's own route surface
+// never exposed — the reference product's admin has both, but no code path
+// here ever built them. They are generic across `context`, so they belong
+// next to every other form-level mutation in this file rather than as a
+// portal-only parallel path (guardrail: "resist building a parallel
+// portal-only form-save path" — the whole point of the shared engine).
+
+/**
+ * Settings-and-structure-only copy: same context, target type, kind,
+ * participant config, and every live section/field with fresh ids — but a
+ * new draft (`status='draft'`, `currentVersion=1`, own `row_version`, no
+ * submissions, no routing rules, no form_versions history). "Settings only"
+ * because it never carries over the submissions/analytics/audit trail that
+ * make the source form what it is today, just the shape an organizer would
+ * want to iterate on next.
+ */
+export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId): Promise<BuilderForm> {
+  const source = await getFormForBuilderIn(dbOrTx, eventId, formId);
+  const newFormId = formIdSchema.parse(crypto.randomUUID());
+  const sectionIdMap = new Map<string, ReturnType<typeof sectionIdSchema.parse>>();
+  const sections: FormAuthoringRows["sections"] = source.sections.map((section) => {
+    const id = sectionIdSchema.parse(crypto.randomUUID());
+    sectionIdMap.set(section.id, id);
+    return { id, key: section.key, title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml, sortOrder: section.sortOrder };
+  });
+  const fields: FormAuthoringRows["fields"] = source.sections.flatMap((section) => section.fields.map((field) => ({
+    id: fieldIdSchema.parse(crypto.randomUUID()),
+    sectionId: sectionIdMap.get(section.id) ?? section.id,
+    key: field.key,
+    label: field.label,
+    fieldType: field.fieldType,
+    required: field.required,
+    locked: field.locked,
+    maxChars: field.maxChars,
+    helpText: field.helpText,
+    options: field.options,
+    visibility: field.visibility,
+    mapsTo: field.mapsTo,
+    reviewVisibility: field.reviewVisibility,
+    sortOrder: field.sortOrder,
+    deletedAt: null,
+  })));
+  const rows: FormAuthoringRows = { form: { id: newFormId, context: source.context, version: 1 }, sections, fields };
+  const snapshot = compileFormSnapshot(rows);
+  const now = new Date();
+  await dbOrTx.insert(forms).values({
+    id: newFormId,
+    eventId,
+    context: source.context,
+    internalName: `${source.internalName} (Copy)`,
+    externalTitle: source.externalTitle,
+    pageHeading: source.pageHeading,
+    status: "draft",
+    kind: source.kind,
+    collectParticipants: source.collectParticipants,
+    targetType: source.targetType,
+    showWelcome: source.showWelcome,
+    welcomeHtml: source.welcomeHtml,
+    successHtml: source.successHtml,
+    autoRedirectToPortal: source.autoRedirectToPortal,
+    participantRoles: source.participantRoles.map((role) => ({ ...role, min: null, max: null })),
+    sendConfirmation: source.sendConfirmation,
+    confirmationSubject: source.confirmationSubject,
+    confirmationBodyHtml: source.confirmationBodyHtml,
+    currentVersion: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await dbOrTx.insert(formSections).values(sections.map((section) => ({ ...section, eventId, formId: newFormId })));
+  if (fields.length > 0) {
+    await dbOrTx.insert(formFields).values(fields.map((field) => ({
+      id: field.id,
+      eventId,
+      formId: newFormId,
+      sectionId: field.sectionId,
+      key: field.key,
+      label: field.label,
+      fieldType: field.fieldType,
+      required: field.required,
+      locked: field.locked,
+      maxChars: field.maxChars,
+      helpText: field.helpText,
+      options: field.options,
+      visibility: field.visibility,
+      mapsTo: field.mapsTo,
+      reviewVisibility: field.reviewVisibility ?? "identity",
+      sortOrder: field.sortOrder,
+    })));
+  }
+  await dbOrTx.insert(formVersions).values({ eventId, formId: newFormId, version: 1, snapshot });
+  return getFormForBuilderIn(dbOrTx, eventId, newFormId);
+}
+
+export function duplicateForm(eventId: EventId, formId: FormId): Promise<BuilderForm> {
+  return duplicateFormIn(db, eventId, formId);
+}
+
+/**
+ * RESTRICT (`portal_tasks.form_id` → `forms.id` ON DELETE RESTRICT) is the
+ * backstop; this precheck turns that constraint violation into the same
+ * organizer-facing copy M23 already shows for a referenced file request
+ * (`features/portal/tasks-admin/server/mutations.ts#deleteFileRequestIn`) —
+ * the two call sites live in different modules' owned files so the string
+ * can't be a single shared import without crossing that boundary, but the
+ * wording is kept identical on purpose (M24 §7: "shared error code, not a
+ * duplicated copy of the string" — same `CONFLICT` code, same UX copy).
+ *
+ * Two further prechecks, added alongside the task-reference one above:
+ *
+ * - `form_responses.form_id` → `forms.id` is ON DELETE CASCADE (unlike the
+ *   RESTRICT `portal_tasks` FK), so nothing at the database layer stops a
+ *   delete from silently wiping every portal response ever collected against
+ *   this form — a task getting deleted or reverted to Manual (both reachable
+ *   from M23's tasks-admin UI) is enough to clear the RESTRICT above while
+ *   leaving responses behind. This is checked explicitly rather than relying
+ *   on a constraint, because CASCADE never raises anything to catch.
+ * - CFP forms have no `portal_tasks`/`form_responses` row at all but can
+ *   still carry live `submissions` — this route is generic across context
+ *   (reachable via `DELETE /api/internal/forms/[formId]` for a `cfp` form
+ *   just as much as a `portal` one), so it needs the same
+ *   hasNonDraftSubmissions check `updateFormIn`'s structural-edit guard
+ *   already applies, or a CFP form with real submissions could be deleted
+ *   out from under them.
+ *
+ * Both reuse the `CONFLICT` code the task-reference precheck already uses —
+ * "can't delete this, something depends on it" is one organizer-facing
+ * category, not three.
+ */
+export async function deleteFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId): Promise<void> {
+  const inUse = await dbOrTx.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM portal_tasks WHERE event_id = ${eventId} AND form_id = ${formId}
+  `);
+  if (Number((inUse.rows ?? [])[0]?.n ?? 0) > 0) {
+    throw new AppError("CONFLICT", "This form/file request is used by a task. Revert the task to Manual first.");
+  }
+  if (await hasNonDraftSubmissionsIn(dbOrTx, eventId, formId)) {
+    throw new AppError("CONFLICT", "This form has submissions and cannot be deleted. Duplicate it if you need a fresh copy to edit.");
+  }
+  const hasResponses = await dbOrTx.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM form_responses WHERE event_id = ${eventId} AND form_id = ${formId}
+  `);
+  if (Number((hasResponses.rows ?? [])[0]?.n ?? 0) > 0) {
+    throw new AppError("CONFLICT", "This form has collected responses and cannot be deleted.");
+  }
+  const result = await dbOrTx.execute<{ id: string }>(sql`
+    DELETE FROM forms WHERE id = ${formId} AND event_id = ${eventId} RETURNING id
+  `);
+  if ((result.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Form not found");
+}
+
+export function deleteForm(eventId: EventId, formId: FormId): Promise<void> {
+  return deleteFormIn(db, eventId, formId);
 }
 
 export async function reorderFieldsIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId, sectionId: string, orderedFieldIds: string[], expectedUpdatedAt: string): Promise<BuilderForm> {

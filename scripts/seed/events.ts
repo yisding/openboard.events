@@ -40,6 +40,9 @@ const TAGS = ["Evals", "Safety", "Platforms", "Open source", "Community", "Tooli
 const ADMINS = [
   { key: "organizer", email: "organizer@openboard.dev", name: "Openboard Organizer", role: "owner" as const },
   { key: "reviewer", email: "reviewer@openboard.dev", name: "Openboard Reviewer", role: "reviewer" as const },
+  // M50 needs a third reviewer: "assigned / completed / outstanding / recused"
+  // is only a legible fixture when the four states sit on different people.
+  { key: "reviewer2", email: "reviewer2@openboard.dev", name: "Openboard Second Reviewer", role: "reviewer" as const },
 ];
 
 export async function seedEvents(ctx: SeedCtx): Promise<void> {

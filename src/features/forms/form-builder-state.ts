@@ -1,6 +1,55 @@
+import type { FormAuthoringRows, FormSnapshot } from "@/shared/contracts";
+import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import type { BuilderForm, BuilderStep } from "./builder-types";
 
 export type BuilderDirtyTarget = `step:${BuilderStep}` | `section:${string}` | `field:${string}`;
+
+function builderFormToAuthoringRows(form: BuilderForm): FormAuthoringRows {
+  return {
+    form: { id: form.id, context: form.context, version: form.currentVersion + 1 },
+    sections: form.sections.map((section) => ({
+      id: section.id,
+      key: section.key,
+      title: section.title,
+      pageHeading: section.pageHeading,
+      descriptionHtml: section.descriptionHtml,
+      sortOrder: section.sortOrder,
+    })),
+    fields: form.sections.flatMap((section) => section.fields.map((field) => ({
+      id: field.id,
+      sectionId: section.id,
+      key: field.key,
+      label: field.label,
+      fieldType: field.fieldType,
+      required: field.required,
+      locked: field.locked,
+      maxChars: field.maxChars,
+      helpText: field.helpText,
+      options: field.options,
+      visibility: field.visibility,
+      mapsTo: field.mapsTo,
+      sortOrder: field.sortOrder,
+      deletedAt: null,
+    }))),
+  };
+}
+
+/**
+ * Compiles the builder's in-memory (possibly unsaved) form state into a
+ * `FormSnapshot` for `<BuilderPreview>` — the same pure `compileFormSnapshot`
+ * the server's `saveFormStep` path calls (M12 guardrail: it is the only
+ * producer), just run client-side against draft state so the live show/hide
+ * preview needs no round trip. Draft states that are momentarily invalid
+ * (e.g. a visibility rule mid-edit) fail closed to `null` rather than
+ * crashing the panel.
+ */
+export function tryCompileBuilderSnapshot(form: BuilderForm): FormSnapshot | null {
+  try {
+    return compileFormSnapshot(builderFormToAuthoringRows(form));
+  } catch {
+    return null;
+  }
+}
 
 function mergeStep(server: BuilderForm, local: BuilderForm, step: BuilderStep): BuilderForm {
   switch (step) {

@@ -9,18 +9,39 @@ import { requireAdmin } from "./admin";
 import { safeEqual, sha256 } from "./crypto";
 import { requirePortalByEventId } from "./portal";
 
+/**
+ * Every `/api/internal/[eventId]/…` route's guard. `role` defaults to
+ * `"organizer"`, the same default `agendaAuth` and `tasksAdminAuth` already
+ * use, and the same bar `requiredRoleForEventPath` puts on every admin page
+ * outside `/events/[eventId]/review`.
+ *
+ * Membership is not a role. Without a default, `authorizeAdmin` is satisfied by
+ * *any* `event_members` row, so a bare guard admitted a reviewer to every
+ * organizer surface — including the speaker roster, whose names, emails and
+ * per-contact submission codes/titles join straight back to the blind queue and
+ * undo an `anonymize_authors` round. The default is therefore fail-closed: a
+ * route a reviewer genuinely needs (their queue, their own scoring, the
+ * submission they were assigned) opts in with an explicit
+ * `{ role: "reviewer" }`, which is grep-able and checked by
+ * `scripts/check-invariants.sh`.
+ */
 export const adminAuth = (options?: { role?: "owner" | "organizer" | "reviewer" }): HandlerGuard => async (_request, eventId) => {
   if (!eventId) throw new AppError("VALIDATION", "eventId route parameter is required");
-  const session = await requireAdmin(eventId, options?.role);
+  const session = await requireAdmin(eventId, options?.role ?? "organizer");
   return { actorId: session.userId, role: session.role };
 };
 
-export const cronAuth = (): HandlerGuard => async (request) => {
-  const secret = getEnv().CRON_SECRET;
-  const provided = request.headers.get("x-cron-secret") ?? "";
-  if (!secret || !provided || !safeEqual(provided, secret)) throw new AppError("UNAUTHORIZED", "Invalid cron secret");
-  return { actorId: "cron", role: "cron" };
-};
+// Shared-secret header, not a browser cookie: a cross-site page cannot forge
+// it, so this guard is exempt from defineHandler's origin check.
+export const cronAuth = (): HandlerGuard => Object.assign(
+  (async (request: Parameters<HandlerGuard>[0]) => {
+    const secret = getEnv().CRON_SECRET;
+    const provided = request.headers.get("x-cron-secret") ?? "";
+    if (!secret || !provided || !safeEqual(provided, secret)) throw new AppError("UNAUTHORIZED", "Invalid cron secret");
+    return { actorId: "cron", role: "cron" };
+  }) as HandlerGuard,
+  { csrfExempt: true },
+);
 
 export const publicAuth = (): HandlerGuard => async () => null;
 
@@ -55,4 +76,8 @@ export async function authenticateApiKey(dbOrTx: DbOrTx, request: Parameters<Han
   return { actorId: key.id as ApiKeyId, role: "api_key", eventId: eventIdSchema.parse(key.eventId) };
 }
 
-export const apiKeyAuth = (): HandlerGuard => async (request, eventId, params) => authenticateApiKey(db, request, eventId, params);
+// Bearer token, not a browser cookie: same exemption rationale as cronAuth.
+export const apiKeyAuth = (): HandlerGuard => Object.assign(
+  (async (request, eventId, params) => authenticateApiKey(db, request, eventId, params)) as HandlerGuard,
+  { csrfExempt: true },
+);

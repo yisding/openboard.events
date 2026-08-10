@@ -29,6 +29,14 @@ export const embedIdSchema = brandedUuid<"EmbedId">();
 export const commLogIdSchema = brandedUuid<"CommLogId">();
 export const apiKeyIdSchema = brandedUuid<"ApiKeyId">();
 export const tokenIdSchema = brandedUuid<"TokenId">();
+// M52 — content and deliverables lifecycle.
+export const fileUploadIdSchema = brandedUuid<"FileUploadId">();
+export const fileCommentIdSchema = brandedUuid<"FileCommentId">();
+export const sessionContentRevisionIdSchema = brandedUuid<"SessionContentRevisionId">();
+export const fileExportJobIdSchema = brandedUuid<"FileExportJobId">();
+// M51 — standalone speaker roster operations.
+export const logisticsFieldIdSchema = brandedUuid<"LogisticsFieldId">();
+export const unavailabilityIdSchema = brandedUuid<"UnavailabilityId">();
 
 export type EventId = z.infer<typeof eventIdSchema>;
 export type UserId = z.infer<typeof userIdSchema>;
@@ -55,3 +63,9 @@ export type EmbedId = z.infer<typeof embedIdSchema>;
 export type CommLogId = z.infer<typeof commLogIdSchema>;
 export type ApiKeyId = z.infer<typeof apiKeyIdSchema>;
 export type TokenId = z.infer<typeof tokenIdSchema>;
+export type FileUploadId = z.infer<typeof fileUploadIdSchema>;
+export type FileCommentId = z.infer<typeof fileCommentIdSchema>;
+export type SessionContentRevisionId = z.infer<typeof sessionContentRevisionIdSchema>;
+export type FileExportJobId = z.infer<typeof fileExportJobIdSchema>;
+export type LogisticsFieldId = z.infer<typeof logisticsFieldIdSchema>;
+export type UnavailabilityId = z.infer<typeof unavailabilityIdSchema>;

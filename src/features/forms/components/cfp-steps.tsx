@@ -96,14 +96,25 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
   const flowSteps = cfpFlowSteps(form.collectParticipants);
+  /**
+   * Closed the moment submit is in flight. Submit promotes the draft row in
+   * place, so a debounced PATCH that lands after it has no draft left to write
+   * to and comes back 404 — a console error on an otherwise successful
+   * submission. Reopened if the submit is rejected, because then the draft is
+   * still a draft and the speaker is still editing.
+   */
+  const submitting = useRef(false);
   const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
-  autosave.current ??= serializeAutosaves((snapshotAnswers) => saveWithRetry(
-    () => request(`/api/internal/forms/${form.id}/draft`, {
-      formVersion: snapshot.version,
-      answers: snapshotAnswers,
-    }, "PATCH"),
-    setSaveState,
-  ));
+  autosave.current ??= serializeAutosaves((snapshotAnswers) => {
+    if (submitting.current) { setSaveState("saved"); return Promise.resolve(true); }
+    return saveWithRetry(
+      () => request(`/api/internal/forms/${form.id}/draft`, {
+        formVersion: snapshot.version,
+        answers: snapshotAnswers,
+      }, "PATCH"),
+      setSaveState,
+    );
+  });
 
   const onChange = (fieldId: FieldId, value: AnswerValue | undefined) => {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
@@ -118,6 +129,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     if (!draftId) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
+      if (submitting.current) return;
       void autosave.current?.({ ...answers });
     }, 800);
     return () => window.clearTimeout(timer);
@@ -159,6 +171,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   async function submit() {
+    submitting.current = true;
     setBusy(true);
     setErrors({});
     setNotice("");
@@ -181,6 +194,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
     setBusy(false);
     if (!sent.ok) {
+      // The draft was not promoted, so autosave has somewhere to write again.
+      submitting.current = false;
       // Field errors belong next to their fields; anything else is a message.
       if (sent.fieldErrors) { setErrors(sent.fieldErrors); setStep(stepForErrors(snapshot, sent.fieldErrors)); }
       setNotice(sent.fieldErrors ? "Some answers need attention" : sent.message);

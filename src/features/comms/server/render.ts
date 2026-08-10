@@ -23,6 +23,10 @@ const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
   schedule_assigned: [...COMMON_TOKENS, "session.title", "session.start_time_local", "session.end_time_local", "session.timezone", "session.room", "session.track", "calendar.google_url", "calendar.outlook_url", "calendar.download_url", "calendar.buttons_html"],
   schedule_changed: [...COMMON_TOKENS, "session.title", "session.start_time_local", "session.end_time_local", "session.timezone", "session.room", "session.track", "calendar.google_url", "calendar.outlook_url", "calendar.download_url", "calendar.buttons_html"],
   portal_login: [...COMMON_TOKENS, "otp.code"],
+  reviewer_invited: [...COMMON_TOKENS, "review.round", "review.queue_url", "review.outstanding", "review.closes_at"],
+  review_reminder: [...COMMON_TOKENS, "review.round", "review.queue_url", "review.outstanding", "review.closes_at"],
+  // M51 — bulk speaker email offers only the common merge surface.
+  speaker_bulk_message: [...COMMON_TOKENS],
 };
 
 export function escapeHtml(value: string): string {
@@ -80,6 +84,7 @@ export function renderTemplateContent(key: TemplateKey, subjectTemplate: string,
     eventName,
     ...(layoutMeta?.logoUrl ? { logoUrl: escapeHtml(layoutMeta.logoUrl) } : {}),
     ...(layoutMeta?.unsubscribeUrl ? { unsubscribeUrl: escapeHtml(layoutMeta.unsubscribeUrl) } : {}),
+    ...(layoutMeta?.physicalAddress ? { physicalAddress: escapeHtml(layoutMeta.physicalAddress) } : {}),
   });
   const text = stripHtml(html);
   if (!text) throw new AppError("TEMPLATE_VAR_MISSING", "rendered email text is empty");

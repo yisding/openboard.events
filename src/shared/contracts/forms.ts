@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONDITION_OPS, COMMITTED_FIELD_TYPES, FIELD_TYPES, FORM_CONTEXTS } from "./enums";
+import { CONDITION_OPS, COMMITTED_FIELD_TYPES, FIELD_TYPES, FORM_CONTEXTS, reviewVisibilitySchema, type ReviewVisibility } from "./enums";
 import {
   fieldIdSchema,
   fileIdSchema,
@@ -99,6 +99,11 @@ export const formFieldSchema = z.object({
   options: z.array(formOptionSchema),
   visibility: visibilityRuleSchema.nullable(),
   mapsTo: mapsToTargetSchema.nullable(),
+  // M50 blind review. Defaulted rather than required so a snapshot compiled
+  // before this field existed still parses — and parses as `identity`, which is
+  // the withholding answer. The failure mode of missing metadata is omission
+  // from the reviewer's DTO, never leakage into it.
+  reviewVisibility: reviewVisibilitySchema.default("identity"),
 });
 export type FormField = z.infer<typeof formFieldSchema>;
 
@@ -159,6 +164,10 @@ export type FormAuthoringRows = {
     options: Array<z.infer<typeof formOptionSchema>>;
     visibility: VisibilityRule | null;
     mapsTo: MapsToTarget | null;
+    // Optional on the authoring side so every existing constructor of these
+    // rows keeps compiling; `compileFormSnapshot` reads it as `identity` when
+    // absent, which is the fail-closed answer.
+    reviewVisibility?: ReviewVisibility | undefined;
     sortOrder: number;
     deletedAt: string | null;
   }>;

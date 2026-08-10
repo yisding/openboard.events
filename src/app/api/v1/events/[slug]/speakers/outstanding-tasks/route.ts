@@ -3,7 +3,7 @@ import { z } from "zod";
 import { apiKeyAuth } from "@/features/auth";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-import { corsPreflight, withV1PrivateHeaders } from "../../../../_lib";
+import { corsPreflight, v1RateLimit, withV1PrivateHeaders } from "../../../../_lib";
 import { listOutstandingTasks } from "../../../../server/queries";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export function OPTIONS() { return corsPreflight(); }
 const outstandingTasks = defineHandler({
   auth: apiKeyAuth(),
   input: z.object({}),
+  rateLimit: v1RateLimit("outstanding-tasks"),
   handler: async ({ eventId }) => {
     if (!eventId) throw new AppError("UNAUTHORIZED", "Invalid API key");
     return listOutstandingTasks(eventId);

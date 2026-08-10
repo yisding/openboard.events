@@ -17,6 +17,7 @@ export const fixtureEvent: EventDTO = {
   eventType: "conference",
   websiteUrl: null,
   location: "New York, NY",
+  physicalAddress: null,
   timezone: "America/Los_Angeles",
   startsAt: "2026-11-12T17:00:00.000Z",
   endsAt: "2026-11-14T01:00:00.000Z",

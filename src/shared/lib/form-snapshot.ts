@@ -92,6 +92,11 @@ export function compileFormSnapshot(rows: FormAuthoringRows): FormSnapshot {
         options: field.options,
         visibility: field.visibility,
         mapsTo: field.mapsTo,
+        // M50: the snapshot is what blind review consults, so the
+        // classification is pinned here with the rest of the question. Locked
+        // contact fields are identity by construction — an organizer cannot
+        // opt the speaker's own name or email into a blind reviewer's view.
+        reviewVisibility: field.locked ? "identity" : field.reviewVisibility ?? "identity",
       })),
     })),
   };

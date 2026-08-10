@@ -20,6 +20,9 @@ import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000001");
 
 function required<T>(value: T | undefined, message: string): T {
@@ -35,6 +38,7 @@ describe("database-backed form builder", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Builder Conf','builder-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -153,5 +157,85 @@ describe("database-backed form builder", () => {
     form = await reorderFieldsIn(database, eventId, formId, reorderedSection.id, reversed, form.updatedAt);
     const savedSection = required(form.sections[0], "saved abstract section");
     expect(savedSection.fields.map((field) => field.sortOrder)).toEqual(savedSection.fields.map((_, index) => index));
+  });
+
+  // M12-GENERALIZE: `context` is a parameter now (still defaulting to "cfp"
+  // for every caller above), and portal forms carry `targetType`. This is
+  // what unblocks M24 reusing the same createFormIn/getFormForBuilderIn/
+  // saveFormStep engine for context='portal' forms (plan/modules/M24).
+  describe("context='portal' forms (M24's engine reuse)", () => {
+    it("rejects a portal form with no targetType", async () => {
+      const rejected = await createFormIn(database, eventId, {
+        internalName: "Missing target type",
+        kind: "abstract",
+        collectParticipants: false,
+        context: "portal",
+      }).catch((error: unknown) => error);
+      expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+    });
+
+    it("creates a minimal skeleton — one section, zero fields, no CFP locked identities", async () => {
+      const form = await createFormIn(database, eventId, {
+        internalName: "Update Your Information",
+        kind: "abstract",
+        collectParticipants: false,
+        context: "portal",
+        targetType: "contact",
+      });
+      expect(form.context).toBe("portal");
+      expect(form.targetType).toBe("contact");
+      expect(form.sections).toHaveLength(1);
+      expect(form.sections.flatMap((section) => section.fields)).toHaveLength(0);
+      expect(form.currentVersion).toBe(1);
+    });
+
+    it("lists separately from cfp forms, is readable by id without a context filter, and saves through the same path", async () => {
+      const created = await createFormIn(database, eventId, {
+        internalName: "Session Info",
+        kind: "abstract",
+        collectParticipants: false,
+        context: "portal",
+        targetType: "submission",
+      });
+
+      // listForms still defaults to "cfp" for every pre-existing caller — the
+      // portal form must not leak into that list, and vice versa.
+      const cfpList = await listFormsIn(database, eventId);
+      expect(cfpList.some((row) => row.id === created.id)).toBe(false);
+      // Not the *only* row: the previous case in this describe block already
+      // created "Update Your Information" (context='portal', contact) against
+      // this same shared pglite instance — this list must contain this run's
+      // form alongside it, not replace it.
+      const portalList = await listFormsIn(database, eventId, "portal");
+      expect(portalList).toContainEqual(expect.objectContaining({ id: created.id, targetType: "submission" }));
+
+      // A form id + eventId is already a unique key — getFormForBuilderIn
+      // must not additionally reject it for not being "cfp" (that was the
+      // exact bug M24's blocker described).
+      const read = await getFormForBuilderIn(database, eventId, created.id);
+      expect(read.context).toBe("portal");
+
+      // A caller that pins a context still gets the right rejection.
+      const mismatched = await getFormForBuilderIn(database, eventId, created.id, "cfp").catch((error: unknown) => error);
+      expect(isAppError(mismatched) && mismatched.code).toBe("NOT_FOUND");
+
+      // The same saveFormStep-backing mutation (updateFormIn) works against
+      // a portal form and pins a new snapshot version, unchanged.
+      const saved = await updateFormIn(database, eventId, created.id, { internalName: "Session Info (renamed)" }, read.updatedAt);
+      expect(saved.internalName).toBe("Session Info (renamed)");
+      expect(saved.currentVersion).toBe(2);
+
+      // And the field-CRUD engine (M24's "reuse the field CRUD components
+      // verbatim") works against it too — a contact-mapped custom field, no
+      // CFP locked-identity requirements apply (compileFormSnapshot skips
+      // that check for context !== 'cfp').
+      const withField = await createFieldIn(database, eventId, created.id, {
+        sectionId: required(saved.sections[0], "questions section").id,
+        label: "Bio",
+        fieldType: "richtext",
+      }, saved.updatedAt);
+      expect(withField.sections.flatMap((section) => section.fields)).toHaveLength(1);
+      expect(withField.currentVersion).toBe(3);
+    });
   });
 });

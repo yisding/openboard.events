@@ -34,6 +34,25 @@ const envSchema = z.object({
   DATABASE_URL: optionalString,
   SESSION_SECRET: optionalString,
   RESEND_API_KEY: optionalString,
+  // P3-EMAIL: signs Resend's bounce/complaint webhook (Svix scheme). Left
+  // optional everywhere — the bounce webhook is provisioned in Resend's
+  // dashboard after a sending domain exists, an external step the roadmap's
+  // email-deliverability tail explicitly tracks as still in progress
+  // (plan/status.md); the route itself 500s with a clear message until it's
+  // set, rather than silently accepting unverified webhook calls.
+  RESEND_WEBHOOK_SECRET: optionalString,
+  // M46 — unsubscribe tokens (the JWT behind `/portal/[eventSlug]/unsubscribe`)
+  // are signed with this dedicated key rather than `SESSION_SECRET`, so
+  // rotating a session secret can never invalidate an outstanding
+  // unsubscribe link (and vice versa: this key rotating never signs a
+  // speaker out). Left optional everywhere, same posture as
+  // `RESEND_WEBHOOK_SECRET` above — additive, not a required-env breaking
+  // change — because the deployed preview/production Workers have not had
+  // this secret provisioned yet; `unsubscribe.ts`/`context.ts` fail closed
+  // with a clear `INTERNAL` message the moment a non-essential email
+  // actually needs to sign one, rather than the whole environment refusing
+  // to parse until someone runs `wrangler secret put`.
+  UNSUBSCRIBE_SECRET: optionalString,
   CRON_SECRET: optionalString,
   R2_ACCOUNT_ID: optionalString,
   R2_ACCESS_KEY_ID: optionalString,
@@ -75,6 +94,12 @@ const envSchema = z.object({
     if (env.CRON_SECRET && env.CRON_SECRET.length < 32) {
       context.addIssue({ code: "custom", path: ["CRON_SECRET"], message: "must be at least 32 characters" });
     }
+  }
+  // Hygiene applies whenever the value is present, not only when deployed —
+  // matches the pattern above, but UNSUBSCRIBE_SECRET itself stays optional
+  // (see its schema comment) so a short value is the only way to fail here.
+  if (env.UNSUBSCRIBE_SECRET && env.UNSUBSCRIBE_SECRET.length < 32) {
+    context.addIssue({ code: "custom", path: ["UNSUBSCRIBE_SECRET"], message: "must be at least 32 characters" });
   }
 
   const expectedBucket = env.APP_ENV === "production" ? "sb-files" : env.APP_ENV === "preview" ? "sb-files-preview" : undefined;

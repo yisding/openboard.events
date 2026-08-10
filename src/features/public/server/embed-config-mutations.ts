@@ -6,6 +6,8 @@ import {
   canonicalEmbedContentTypeSchema,
   embedConfigDtoSchema,
   embedConfigPatchSchema,
+  embedFiltersSchema,
+  embedStyleSchema,
   type EmbedConfigDTO,
   type EmbedConfigPatch,
   type EmbedId,
@@ -23,6 +25,7 @@ export async function updateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId, embe
   const values: Partial<typeof embeds.$inferInsert> = { updatedAt: new Date() };
   if (strict.enabled !== undefined) values.enabled = strict.enabled;
   if (strict.style !== undefined) values.style = strict.style;
+  if (strict.filters !== undefined) values.filters = strict.filters;
 
   const [row] = await dbOrTx
     .update(embeds)
@@ -30,12 +33,16 @@ export async function updateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId, embe
     .where(and(eq(embeds.id, embedId), eq(embeds.eventId, eventId)))
     .returning();
   if (!row) throw new AppError("NOT_FOUND", "That embed config no longer exists");
-  // `embeds` carries three other content types this module never manages
-  // (M53's scope) — this route only ever mutates a row this feature created,
-  // so a non-canonical id is treated the same as a missing one.
   const contentType = canonicalEmbedContentTypeSchema.safeParse(row.contentType);
   if (!contentType.success) throw new AppError("NOT_FOUND", "That embed config no longer exists");
-  return embedConfigDtoSchema.parse({ id: row.id, eventId: row.eventId, contentType: contentType.data, enabled: row.enabled, style: row.style ?? {} });
+  return embedConfigDtoSchema.parse({
+    id: row.id,
+    eventId: row.eventId,
+    contentType: contentType.data,
+    enabled: row.enabled,
+    style: embedStyleSchema.parse(row.style ?? {}),
+    filters: embedFiltersSchema.parse(row.filters ?? {}),
+  });
 }
 export const updateEmbedConfig = (eventId: EventId, embedId: EmbedId, patch: EmbedConfigPatch): Promise<EmbedConfigDTO> =>
   updateEmbedConfigIn(db, eventId, embedId, patch);

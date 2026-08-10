@@ -1,15 +1,25 @@
 "use client";
 
+import { History } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
+import { useQuery } from "@tanstack/react-query";
+import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId } from "@/shared/contracts";
+import { sessionContentRevisionDtoSchema } from "@/shared/contracts";
+import { z } from "zod";
 import { isAppError } from "@/shared/lib/errors";
+import { api } from "@/shared/lib/api-client";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
+import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations } from "../hooks/use-session-mutations";
+
+const revisionsSchema = z.array(sessionContentRevisionDtoSchema);
 
 type Draft = {
   title: string;
@@ -81,7 +91,7 @@ export function SessionFormDialog({
   session: ScheduledSessionDTO | null;
 } & Pick<AgendaViewProps, "eventId" | "event" | "rooms" | "tracks" | "formats" | "speakers">) {
   const { toast } = useToast();
-  const { save, remove } = useSessionMutations(eventId);
+  const { save, remove, restoreContent } = useSessionMutations(eventId);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -293,6 +303,26 @@ export function SessionFormDialog({
               <option value="published">Published — visible and speakers notified</option>
             </select>
           </Field>
+
+          {/* M52: attributed content history + restore. Restoring content
+              never changes `status` — publish/unpublish stays this Status
+              field's job, so a restore can never leak a draft. */}
+          {session && (
+            <SessionHistoryPanel
+              eventId={eventId}
+              sessionId={session.id}
+              timezone={event.timezone}
+              onRestore={async (revisionId) => {
+                try {
+                  const restored = await restoreContent.mutateAsync({ id: session.id, revisionId });
+                  setDraft((current) => ({ ...current, title: restored.title, descriptionHtml: restored.descriptionHtml }));
+                  toast("Restored as the current content");
+                } catch (caught) {
+                  toast(messageFor(caught, "Could not restore that revision"));
+                }
+              }}
+            />
+          )}
         </div>
       </Modal>
 
@@ -307,5 +337,81 @@ export function SessionFormDialog({
         onCancel={() => setConfirmingDelete(false)}
       />
     </>
+  );
+}
+
+/**
+ * M52 — a session's attributed title/description history, newest first, with
+ * a Restore action per earlier entry. The list refetches after a restore
+ * (through `agendaKeys.revisions`, invalidated the same way every other
+ * agenda write invalidates `allSessions`) so the new "restored from" entry
+ * appears without the organizer having to reopen the dialog.
+ */
+function SessionHistoryPanel({
+  eventId,
+  sessionId,
+  timezone,
+  onRestore,
+}: {
+  eventId: EventId;
+  sessionId: SessionId;
+  timezone: string;
+  onRestore: (revisionId: string) => Promise<void>;
+}) {
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: agendaKeys.revisions(eventId, sessionId),
+    queryFn: () => api(`agenda/sessions/${sessionId}/revisions?eventId=${eventId}`, revisionsSchema),
+  });
+  const revisions = query.data ?? [];
+  const hint = revisions.length > 0 ? `${revisions.length} revision${revisions.length === 1 ? "" : "s"}` : undefined;
+
+  return (
+    <Field label="Content history" {...(hint ? { hint } : {})}>
+      {query.isLoading && <p className="portal-note">Loading history…</p>}
+      {!query.isLoading && revisions.length === 0 && <p className="portal-note">No edits recorded yet.</p>}
+      {revisions.length > 0 && (
+        <ul className="portal-uploads">
+          {revisions.map((revision: SessionContentRevisionDTO, index: number) => (
+            <li key={revision.id}>
+              <History size={14} />
+              <span>
+                <b>{revision.title}</b>{" "}
+                <small style={{ color: "var(--muted)" }}>
+                  {revision.editedByName ?? "Someone"} · <TzTime instant={revision.createdAt} tz={timezone} style="date" />
+                  {revision.restoredFromRevisionId && " · restored"}
+                </small>
+              </span>
+              {index === 0
+                ? <em>Current</em>
+                : (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    disabled={restoringId !== null}
+                    onClick={async () => {
+                      setRestoringId(revision.id);
+                      try {
+                        await onRestore(revision.id);
+                        await query.refetch();
+                      } finally {
+                        setRestoringId(null);
+                      }
+                    }}
+                  >
+                    {restoringId === revision.id ? "Restoring…" : "Restore"}
+                  </button>
+                )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {revisions[0]?.descriptionHtml && (
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 9, color: "var(--muted)" }}>Preview current description</summary>
+          <RichTextView html={revisions[0].descriptionHtml} />
+        </details>
+      )}
+    </Field>
   );
 }

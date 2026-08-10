@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Paperclip } from "lucide-react";
+import { ArrowLeft, MessageSquare, Paperclip } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -41,6 +41,8 @@ export function TaskDetailView({
   const [answers, setAnswers] = useState<Record<string, AnswerValue | undefined>>(form?.answers ?? {});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
 
   const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
 
@@ -89,6 +91,31 @@ export function TaskDetailView({
     router.refresh();
   }
 
+  /** M52: a comment on this deliverable slot. Same server round trip pattern
+   * as `attach` — the server route is the one source of truth for the thread,
+   * so a successful post just re-fetches the task rather than appending a
+   * client-guessed row. */
+  async function sendComment() {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setCommentBusy(true);
+    try {
+      const response = await fetch(`/api/internal/portal/tasks/${task.taskId}/comments?eventId=${encodeURIComponent(eventId)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ submissionId: task.submissionId, body }),
+      }).catch(() => null);
+      if (!response?.ok) {
+        toast("That comment did not go through — try again");
+        return;
+      }
+      setCommentDraft("");
+      router.refresh();
+    } finally {
+      setCommentBusy(false);
+    }
+  }
+
   return (
     <div className="portal-container portal-page">
       <Link className="portal-back" href={backHref}><ArrowLeft size={15} /> All tasks</Link>
@@ -134,17 +161,45 @@ export function TaskDetailView({
           />
           {task.uploads.length > 0 && (
             <ul className="portal-uploads">
-              {task.uploads.map((upload, index) => (
+              {task.uploads.map((upload) => (
                 <li key={upload.fileUploadId}>
                   <Paperclip size={15} />
-                  <span>{upload.filename}</span>
-                  <TzTime instant={upload.createdAt} tz={timezone} style="date" />
-                  {/* Nothing is deleted, so the newest is simply the one on top. */}
-                  {index === 0 && <em>Latest</em>}
+                  <span>{upload.filename} <small>v{upload.version}</small></span>
+                  <TzTime instant={upload.uploadedAt} tz={timezone} style="date" />
+                  {/* Nothing is deleted; `isLatest` is server-derived (M52). */}
+                  {upload.isLatest && <em>Latest</em>}
                 </li>
               ))}
             </ul>
           )}
+
+          <section className="drawer-content" style={{ padding: "18px 0 0" }}>
+            <h3><MessageSquare size={12} style={{ verticalAlign: "-2px", marginRight: 5 }} />Comments</h3>
+            {task.comments.length === 0
+              ? <p className="portal-note">No comments yet — ask a question about this deliverable here.</p>
+              : task.comments.map((comment) => (
+                <div className="review-comment" key={comment.id}>
+                  <header>
+                    <span>{comment.authorName.slice(0, 2).toUpperCase()}</span>
+                    <b>{comment.authorName}</b>
+                    <em>{comment.authorRole === "organizer" ? "Organizer" : "You"}</em>
+                  </header>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            <div className="form-stack" style={{ marginTop: 12 }}>
+              <textarea
+                rows={2}
+                value={commentDraft}
+                onChange={(event) => setCommentDraft(event.target.value)}
+                placeholder="Add a comment for the organizers…"
+                maxLength={5000}
+              />
+              <Button size="sm" disabled={commentBusy || commentDraft.trim().length === 0} onClick={() => void sendComment()}>
+                {commentBusy ? "Sending…" : "Send"}
+              </Button>
+            </div>
+          </section>
         </div>
       )}
 

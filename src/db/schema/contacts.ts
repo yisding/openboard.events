@@ -1,6 +1,6 @@
 import { integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { events, users } from "./core";
-import { confirmationStatusEnum, tokenPurposeEnum } from "./enums";
+import { confirmationStatusEnum, speakerWorkflowStatusEnum, tokenPurposeEnum } from "./enums";
 
 export const contacts = pgTable("contacts", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
@@ -8,8 +8,16 @@ export const contacts = pgTable("contacts", {
   salutation: text("salutation"), honorific: text("honorific"), pronouns: text("pronouns"), gender: text("gender"), jobTitle: text("job_title"), company: text("company"), bioHtml: text("bio_html"),
   headshotFileId: uuid("headshot_file_id"), linkedinUrl: text("linkedin_url"), twitterUrl: text("twitter_url"), facebookUrl: text("facebook_url"), websiteUrl: text("website_url"),
   confirmationStatus: confirmationStatusEnum("confirmation_status").notNull().default("unconfirmed"), unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+  // M51 — organizer pipeline bookkeeping, distinct from `confirmationStatus`
+  // (drizzle/0008's header comment; never gates publication or notification).
+  workflowStatus: speakerWorkflowStatusEnum("workflow_status").notNull().default("new"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.email), unique().on(table.id, table.eventId)]);
+// P3-EMAIL: provider-driven suppression (Resend bounce/complaint webhook) —
+// see src/db/schema/comms.ts's `contactSuppressions` for why this is its own
+// table rather than columns on `contacts` (blast radius on every PGlite
+// fixture that inserts/updates a contact via the shared helpers' unqualified
+// `.returning()`, which every feature touching speakers goes through).
 
 export const portalTokens = pgTable("portal_tokens", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

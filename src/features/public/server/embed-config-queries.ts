@@ -5,6 +5,7 @@ import { AppError } from "@/shared/lib/errors";
 import {
   CANONICAL_EMBED_TYPES,
   embedConfigDtoSchema,
+  embedFiltersSchema,
   embedStyleSchema,
   type CanonicalEmbedContentType,
   type EmbedConfigDTO,
@@ -12,14 +13,18 @@ import {
 } from "../embed-config-types";
 
 /**
- * Embed kill-switch + appearance reads/writes over the `embeds` table — see
- * the M33 work order's Provides section. `embeds` has no unique constraint on
- * `(event_id, content_type)` (it is a general multi-type table); this module
- * only ever touches the two canonical types above.
+ * Embed kill-switch + appearance + filter reads/writes over the `embeds`
+ * table — see the M33/M53 work orders' Provides sections. `embeds` has no
+ * unique constraint on `(event_id, content_type)` (it is a general
+ * multi-type table); this module only ever touches the five canonical types
+ * above.
  */
 
 const DEFAULT_EMBED_NAME: Record<CanonicalEmbedContentType, string> = {
+  agenda: "Agenda",
+  session_list: "Sessions list",
   schedule_itinerary: "Schedule itinerary",
+  speaker_list: "Speakers list",
   speaker_gallery: "Speaker gallery",
 };
 
@@ -30,6 +35,7 @@ function toDto(row: typeof embeds.$inferSelect): EmbedConfigDTO {
     contentType: row.contentType,
     enabled: row.enabled,
     style: embedStyleSchema.parse(row.style ?? {}),
+    filters: embedFiltersSchema.parse(row.filters ?? {}),
   });
 }
 
@@ -71,7 +77,7 @@ export async function getOrCreateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId,
   if (existing) return toDto(existing);
   const [inserted] = await dbOrTx
     .insert(embeds)
-    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {} })
+    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} })
     .returning();
   if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
   return toDto(inserted);
@@ -79,7 +85,41 @@ export async function getOrCreateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId,
 export const getOrCreateEmbedConfig = (eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> =>
   getOrCreateEmbedConfigIn(db, eventId, contentType);
 
-/** Both canonical configs for the admin panel, creating either that is missing. */
+/**
+ * M53 legacy-URL continuity: before M53's five-surface split, the
+ * `/embed/[slug]/speakers` route slug served the `speaker_gallery` content
+ * type (see M33). M53 reassigns that same "speakers" slug to the new
+ * `speaker_list` surface (embeds-admin-page.tsx's `TYPE_META`), so an event
+ * that already configured — disabled, restyled — its `speaker_gallery` embed
+ * before this deploy must not have that continuity silently reset to
+ * enabled/default styling just because the row is now read under the new
+ * content type. On the very first read after the deploy (no `speaker_list`
+ * row yet), seed the new row from the sibling legacy row's enabled/style/
+ * filters when one exists, instead of the plain defaults every other content
+ * type gets on first read.
+ */
+export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmbedConfigDTO> {
+  const existing = await findRow(dbOrTx, eventId, "speaker_list");
+  if (existing) return toDto(existing);
+  const legacy = await findRow(dbOrTx, eventId, "speaker_gallery");
+  const [inserted] = await dbOrTx
+    .insert(embeds)
+    .values({
+      eventId,
+      contentType: "speaker_list",
+      name: DEFAULT_EMBED_NAME.speaker_list,
+      enabled: legacy?.enabled ?? true,
+      style: legacy?.style ?? {},
+      filters: legacy?.filters ?? {},
+    })
+    .returning();
+  if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
+  return toDto(inserted);
+}
+export const getOrCreateSpeakerListConfig = (eventId: EventId): Promise<EmbedConfigDTO> =>
+  getOrCreateSpeakerListConfigIn(db, eventId);
+
+/** All five canonical configs for the admin panel, creating any that are missing. */
 export async function listEmbedConfigsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmbedConfigDTO[]> {
   const configs: EmbedConfigDTO[] = [];
   for (const contentType of CANONICAL_EMBED_TYPES) configs.push(await getOrCreateEmbedConfigIn(dbOrTx, eventId, contentType));

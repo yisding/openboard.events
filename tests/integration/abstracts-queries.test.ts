@@ -11,6 +11,9 @@ import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// M50 is additive on top of the base schema; applying it keeps this fixture
+// aligned with the columns the repository modules now read.
+const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a1000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a1000000-0000-4000-8000-000000000002");
@@ -35,6 +38,7 @@ describe("abstracts queries", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug] of [[eventId, "event"], [otherEventId, "other"]] as const) {
@@ -126,6 +130,21 @@ describe("abstracts queries", () => {
     // The list preview is text; the drawer renders the HTML.
     expect(row?.descriptionPlain).toContain("Fast");
     expect(row?.descriptionPlain).not.toContain("<b>");
+  });
+
+  // The Abstracts table renders a Notified column (M10 §4), so the list row has
+  // to carry the stamp — an em dash there means "this speaker has not been told".
+  it("carries notifiedAt on the row, null until the decision is sent", async () => {
+    const before = (await listSubmissionsIn(db, eventId, filters({ search: "caching" }))).rows[0];
+    expect(before?.notifiedAt).toBeNull();
+
+    await pglite.query("UPDATE submissions SET notified_at = now() WHERE id = $1", [accepted]);
+    const after = (await listSubmissionsIn(db, eventId, filters({ search: "caching" }))).rows[0];
+    expect(after?.notifiedAt).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(after?.notifiedAt ?? ""))).toBe(false);
+
+    const untouched = (await listSubmissionsIn(db, eventId, filters({ search: "evals" }))).rows[0];
+    expect(untouched?.notifiedAt).toBeNull();
   });
 
   it("searches by code and by speaker name, not just by title", async () => {
