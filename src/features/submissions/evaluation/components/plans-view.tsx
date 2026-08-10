@@ -1,10 +1,11 @@
 "use client";
 
 import { ClipboardCheck, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ColorChip } from "@/shared/ui/app/color-chip";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -37,6 +38,13 @@ export function PlansView({
   const [editing, setEditing] = useState<PlanDTO | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PlanDTO | null>(null);
+
+  useEffect(() => {
+    const refreshProgress = () => router.refresh();
+    window.addEventListener("focus", refreshProgress);
+    return () => window.removeEventListener("focus", refreshProgress);
+  }, [router]);
 
   const trackName = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
   const nextRound = plans.reduce((highest, plan) => Math.max(highest, plan.round), 0) + 1;
@@ -50,6 +58,8 @@ export function PlansView({
       // close it instead; that message is the useful one, so pass it through.
       toast(response.ok ? `${plan.name} deleted` : payload?.error?.message ?? "That round could not be deleted");
       if (response.ok) router.refresh();
+    } catch {
+      toast("That round could not be deleted");
     } finally {
       setBusy(false);
     }
@@ -110,13 +120,10 @@ export function PlansView({
       cell: ({ row }) => (
         <span className="row-actions">
           <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove(row.original)}>Delete</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
         </span>
       ),
     },
-    // `remove` is stable enough for a row action and re-creating the columns on
-    // every render would reset the table's own state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [trackName, busy]);
 
   return (
@@ -153,6 +160,19 @@ export function PlansView({
           onClose={() => { setCreating(false); setEditing(null); }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete ${pendingDelete?.name ?? "this evaluation plan"}?`}
+        body="This permanently removes the round and its reviewer assignments. Rounds with completed reviews cannot be deleted."
+        confirmLabel="Delete plan"
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          await remove(pendingDelete);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </main>
   );
 }
