@@ -16,7 +16,7 @@ function speaker(overrides: Partial<SpeakerRecord> = {}): SpeakerRecord {
     website: "",
     linkedin: "",
     avatar: "AL",
-    avatarColor: "#6958d7",
+    avatarColor: "#007454",
     hasHeadshot: true,
     confirmation: "confirmed",
     profileCompletion: 100,
