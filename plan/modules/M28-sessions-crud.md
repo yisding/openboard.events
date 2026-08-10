@@ -1,7 +1,7 @@
 # M28 — Sessions CRUD, list view, tray, promotion
 | | |
 |---|---|
-| **Status** | IN PROGRESS — merged localStorage **STACK-DEMO** session create/edit/place/publish behavior lacks database CRUD, accepted promotion, authorization, and AC. See [`../status.md`](../status.md). |
+| **Status** | IN PROGRESS — **claimed by Claude** for the whole module: the server (`listSessions`, `getSchedulableSessions`, `getMySessions`, `saveSession`, `deleteSession`, `bulkSetPublished`, `promoteSubmission`, the audited `moveSession`), the five routes, the List view / tray / toolbar / dialog, and **`scripts/seed/agenda.ts`** — the last typed no-op in the seed. M29's `detectConflicts`/`toScheduledSession` are reconciled against the frozen contract as part of the same claim, since they gate the conflict-dependent steps. The merged localStorage **STACK-DEMO** stays in place until it lands. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-E (Agenda + Public/Embeds) |
 | **Scheduled** | Original target: Sat AM → Sun AM. Independent CRUD scaffolding may proceed, but `getSchedulableSessions`, authoritative conflict recompute, and downstream conflict consumers remain blocked until M29 is reconciled with frozen contracts and its full property/acceptance suite is green. |
 | **Size** | M |
