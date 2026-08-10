@@ -8,11 +8,11 @@ This folder is the execution surface for the build. It contains one **work order
 
 ## Authority order (read this before you argue with anything)
 
-1. **[`../PLAN.md`](../PLAN.md) is LAW.** Its 22 front-matter conflict resolutions, its §2 invariant list, its §4 module catalog, its §5 dependency graph, its §6/§7 schedule, and its §9 cut lines override every other document, including this one and including your module work order. Where PLAN.md spells out a signature or a rule, copy it **exactly**; never invent a conflicting one. **Precedence note (rev. 8):** while the recovery gates are open, PLAN §9's cut lines govern same-day scope decisions; after R3 exits, [`product-roadmap.md`](product-roadmap.md) governs the cut-line features as roadmap items. Naming reconciliation: the audited notify function shipped as **`notifyQueues`** (PLAN's `notifyDecisions` is its internal `withTx` body — see M18's work order); read the frozen lists accordingly.
+1. **[`../PLAN.md`](../PLAN.md) is LAW.** Its 23 front-matter conflict resolutions, its §2 invariant list, its §4 module catalog, its §5 dependency graph, its §6/§7 schedule, and its §9 cut lines override every other document, including this one and including your module work order. Where PLAN.md spells out a signature or a rule, copy it **exactly**; never invent a conflicting one. **Precedence note (rev. 8):** while the recovery gates are open, PLAN §9's cut lines govern same-day scope decisions; after R3 exits, [`product-roadmap.md`](product-roadmap.md) governs the product-completeness modules and remaining roadmap items. Naming reconciliation: the audited notify function shipped as **`notifyQueues`** (PLAN's `notifyDecisions` is its internal `withTx` body — see M18's work order); read the frozen lists accordingly.
 2. **[`status.md`](status.md)** — the current evidence ledger and recovery overlay. It selects the next recovery gate without changing scope, contracts, or dependency edges. Read it at the start of every work session and after any merge.
 3. **[`environments.md`](environments.md)** — the canonical environment, binding, and secret placement. It is authoritative only for provisioning and cannot change product scope.
 4. **[`execution.md`](execution.md)** — the parallel schedule: dependency graph, wave table, checkpoints, stub-first cold starts, cut lines. Its rebaseline overlay plus `status.md` determine what may run now; the original wave table shows intended parallel choreography once gates reopen.
-5. **`modules/<id>-*.md`** — your work order. Self-contained by construction: an agent should be able to implement a module from its work order + `PLAN.md` + the two or three design docs it names, without reading the other 43 work orders.
+5. **`modules/<id>-*.md`** — your work order. Self-contained by construction: an agent should be able to implement a module from its work order + `PLAN.md` + the two or three design docs it names, without reading every other work order.
 6. **`design/*.md`, `analysis/*.md`** — reference detail (DDL, layout, platform specifics, per-screen UI facts). Consult on demand; they are *sources*, not decisions. Where a design doc contradicts PLAN.md, PLAN.md wins.
 
 ---
@@ -113,7 +113,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 
 ---
 
-## 5. Module index (44)
+## 5. Module index (50 work orders)
 
 Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN §6/§7 (see `execution.md` for the half-day wave table). **Slot day names are logical plan-days — Aug 8 2026 is a Saturday: plan-Fri = Sat 8/8, plan-Sat = Sun 8/9, plan-Sun = Mon 8/10, plan-Mon = Tue 8/11, plan-Tue = Wed 8/12 until 2 PM (CP4), plan-Wed = Wed 8/12 afternoon (PLAN §7, delta #21).** Hard deps are the solid edges of PLAN §5; *italic* deps are dashed — you start against a Phase-0 stub or fixture and swap in the real artifact when it lands.
 
@@ -163,8 +163,15 @@ Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN �
 | M39 | Airtable export | [M39](modules/M39-airtable-export.md) | WS-F | WS-F | Sat PM (base provisioning) → Tue | M | M03, M08 |
 | M40 | Public API + keys | [M40](modules/M40-public-api.md) | WS-F | WS-F | Mon PM (start) → Tue | M | M32, M38, M04 |
 | M41 | Speaker submission editing (edit-until-close) | [M41](modules/M41-speaker-edit-until-close.md) | WS-D | WS-D | Tue AM | M | M21, M15, M16, M18, M14 |
+| M50 | Review operations depth + reviewer provisioning | [M50](modules/M50-review-operations.md) | WS-C / WS-A / WS-F | Architect-assigned | Post-R3 | L | M06a, M17, M19, M34, M37 |
+| M51 | Standalone speaker roster operations | [M51](modules/M51-speaker-roster-operations.md) | WS-D / WS-F | Architect-assigned | Post-R3 | L | M06b, M07, M22, M27, M34, M37, M41 |
+| M52 | Content and deliverables lifecycle | [M52](modules/M52-content-deliverables-lifecycle.md) | WS-D / WS-E / WS-F | Architect-assigned | Post-R3 | XL | M07, M22, M23, M25, M28, M34, M36 |
+| M53 | Five public widgets + embed parity | [M53](modules/M53-public-widgets.md) | WS-E | WS-E | Post-R3 | XL | M32, M33, M35 |
+| M54 | Assisted agenda placement | [M54](modules/M54-assisted-agenda-placement.md) | WS-E | WS-E | Post-M30 | S | M28, M29, M30 |
+| M55 | Organization-level Speaker CRM | [M55](modules/M55-speaker-crm.md) | Product lane | Architect-assigned | Optional after M43/M44 | XL | M43, M44, M51, M37/M46 |
 
-Counts: WS-A 10 · WS-B 7 · WS-C 6 · WS-D 7 · WS-E 6 · WS-F 8 = **44**.
+The original recovery program contains 44 work orders. M50–M55 add six post-R3 product work orders;
+M42–M49 remain roadmap-only until they receive work orders.
 
 ---
 
@@ -172,7 +179,7 @@ Counts: WS-A 10 · WS-B 7 · WS-C 6 · WS-D 7 · WS-E 6 · WS-F 8 = **44**.
 
 **Master plan**
 - [`../PLAN.md`](../PLAN.md) — scope (§1), architecture (§2), data model (§3), module catalog (§4), dependency graph (§5), workstreams (§6), timeline (§7), risks (§8), cut lines (§9)
-- [`product-roadmap.md`](product-roadmap.md) — the product overlay beyond the judged bar (rev. 7): phased plan for the wiring debt, external proof, trust/compliance, and the commercial layer (M42–M49), including the Better Auth + Google decision. Subordinate to the recovery gates while they are open.
+- [`product-roadmap.md`](product-roadmap.md) — the product overlay beyond the recovery bar: phased plan for wiring debt, external proof, trust/compliance, product-completeness work (M50–M54), and the optional commercial layer (M42–M49, M55). Subordinate to the recovery gates while they are open.
 
 **Design (the how)**
 - [`environments.md`](environments.md) — local/preview/production matrix, canonical resource names, bindings, secrets, and current scaffold drift

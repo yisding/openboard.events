@@ -5,8 +5,9 @@
 This document extends the plan beyond the judged bar toward a sellable product. It does not
 change `PLAN.md`'s frozen contracts, invariants, or single-writer rules — those are product
 assets and stay binding. It does two things `PLAN.md` deliberately did not: it reclassifies the
-§9 cut lines from same-day amputation triggers into roadmap items, and it adds the commercial
-scope (`M42+`) that was on the never-build list for the hackathon.
+§9 cut lines from same-day amputation triggers into roadmap items, adds the commercial scope
+(`M42+`) that was on the never-build list for the hackathon, and sequences PLAN §4's post-R3
+product-completeness modules.
 
 Precedence: while the recovery gates in [`status.md`](status.md) §5 are open, they order all
 work. This roadmap's Phase P1 is intentionally the same work as R2/R3 — closing the demo-adapter
@@ -75,11 +76,31 @@ Strictly ordered; do not start a later module before its predecessor's schema la
 | M48 | Observability & ops | Alerting thresholds, uptime checks against `/api/health`, Neon PITR/restore rehearsal, R2 lifecycle rules. | — (start anytime) |
 | M49 | Billing | Plans/entitlements/metering hung off `organizations`. **Blocked on M43 by construction** — there is nowhere to attach a plan today. | M43, M44 |
 
+## Phase P5 — product-completeness operations
+
+Begin this phase only after R3 is green. M50–M53 can run in parallel across their existing feature
+owners; M54 follows the agenda foundation. These modules are required release scope under PLAN
+resolution #23 and have detailed work orders in [`modules/`](modules/). They reuse the existing
+single-writer, outbox, publication-query, task-assignment, and file-storage paths.
+
+| ID | Module | Outcome | Depends on |
+|---|---|---|---|
+| M50 | Review operations depth + reviewer provisioning | Governed review rounds with typed scorecards, explicit assignments, reviewer onboarding, blind mode, recusal, progress, and reminders | M06a, M17, M19, M34, M37 |
+| M51 | Standalone speaker roster operations | Manual/CSV roster management, profile/logistics edits, portal invitations, asset visibility, and personalized bulk email | M06b, M07, M22, M27, M34, M37, M41 |
+| M52 | Content and deliverables lifecycle | Versioned/commented files, central library, filtered reminders, session revision history/restore, approval, and latest-file ZIP export | M07, M22, M23, M25, M28, M34, M36 |
+| M53 | Five public widgets + embed parity | Sessions, speakers, agenda, personal itinerary, and gallery surfaces with complete, configurable embed variants | M32, M33, M35 |
+| M54 | Assisted agenda placement | Deterministic conflict-safe placement preview and apply flow for unscheduled sessions | M28, M29, M30 |
+| M55 | Organization-level Speaker CRM (optional) | Cross-event directory, history, segments, merge, sourcing pipeline, event reuse, bulk contact, and metrics | M43, M44, M51, M37/M46 |
+
+M55 is deliberately separate from the required release: it needs the organization layer and turns
+event-scoped speaker operations into a commercial relationship-management product.
+
 Also promoted from the analysis-docs backlog (specced, never modularized, high buyer value):
 organizer view + CSV export of portal-form responses; speaker confirm CTA (replacing
 resolution 15's auto-confirm — publication, invites, and task fan-out currently hang off a
-status the speaker never set); white-labeling; the §9 cut-line features that are buyer table stakes
-(edit-until-close, server-side drafts, drag-and-drop scheduling, reminder ladder, keyed API).
+status the speaker never set); and white-labeling. Edit-until-close, server-side drafts, and
+multi-round review are now required foundations under resolution #23. Drag-and-drop scheduling,
+the reminder ladder, and the keyed API retain the reduced forms defined by §9.
 
 ## Explicitly still deferred
 

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | IN PROGRESS — merged client-only **STACK-DEMO** submission editing lacks portal ownership, server pipeline reuse, close/status guards, version handling, and AC. See [`../status.md`](../status.md). |
 | **Workstream / executing agent** | WS-D agent (`features/portal` — "submissions edit" sub-area). |
-| **Scheduled** | Tuesday AM. **Named cut-line entry (PLAN.md §9 #5):** if Tuesday is tight, this module is the first thing dropped — portal submission detail stays read-only, and the demo script notes the deviation from Sessionboard's "closes new AND updated submissions" claim rather than shipping it broken. |
+| **Scheduled** | Tuesday AM recovery target; required before the product-completeness modules begin. Resolution #23 removes this module from the cut list because M51 relies on a complete speaker-managed submission lifecycle. |
 | **Size** | M |
 | **Paths owned** | `src/features/portal/submissions-edit/server/queries.ts`; `src/features/portal/submissions-edit/components/**`; `src/app/(portal)/portal/[eventSlug]/submissions/[submissionId]/edit/page.tsx`; `src/app/api/internal/portal/submissions/[id]/edit/route.ts`; (append-only: one export block in `src/features/portal/index.ts`) |
 
@@ -86,4 +86,4 @@ Copied verbatim from the catalog (PLAN.md §4, M41), plus verification commands:
 
 ## If blocked
 
-If M18's `updateSubmissionFromCfp` isn't landed yet (it should be, per resolution #8, but if Tuesday morning finds it incomplete): build steps 1–4 fully (the read path, the gate, the UI) against a stub `updateSubmissionFromCfp` that throws, and file the gap immediately — this is a hard dependency, not a soft one, so do not silently work around it with a local mutation. If this module is cut per cut-line #5 before starting: spend the time on M10's e2e spec review, `docs/demo-script.md` polish for the deviation note, or Wed's bug-bash prep — do not silently re-scope into a smaller version of this feature without flagging it.
+If M18's `updateSubmissionFromCfp` isn't landed yet (it should be, per resolution #8, but if Tuesday morning finds it incomplete): build steps 1–4 fully (the read path, the gate, the UI) against a stub `updateSubmissionFromCfp` that throws, and file the gap immediately — this is a hard dependency, not a soft one, so do not silently work around it with a local mutation. Do not replace the server mutation with client-only editing or downgrade the detail page to permanently read-only; resolution #23 makes this a required foundation.

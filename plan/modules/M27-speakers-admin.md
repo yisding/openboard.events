@@ -125,7 +125,7 @@ Verification:
 - **Timezone:** all instants via `<TzTime>`/`formatInZone` in the event tz with the label.
 - **Cross-folder ownership:** you are a guest in `features/portal`. Touch only `features/portal/admin/**` and the four route files listed; portal shell/nav/barrel changes are requests to WS-D.
 - **Empty states:** no contacts at all, no missing assets, no comms yet, no tasks yet — verify on the empty second event.
-- **Impersonation is cut-line #16** — if it slips, the page still ships; the demo script then uses a magic link from the comms log instead.
+- **Impersonation is cut-line #13** — if it slips, the page still ships; the demo script then uses a magic link from the comms log instead.
 
 ## If blocked
 

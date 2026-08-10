@@ -30,6 +30,7 @@
 20. **Reminder cron gated on its AC suite:** the deployed `/api/jobs/reminders` keeps M08's stub until M36's PGlite AC tests are green — a half-wired ladder that emails real people is worse than a late one (M36).
 21. **Calendar correction — the draft scheduled six days into five:** Aug 8 2026 is a **Saturday**, and the draft's "Tue" and "Wed" both resolve to Wed Aug 12 (execution.md even dated them both Aug 12), putting the draft's CP4 "Tue midnight" *after* the Wed 10 PM submission deadline. Binding fix: weekday labels everywhere remain **logical plan-day names**, mapped plan-Fri = **Sat Aug 8** (Phase 0 tonight), plan-Sat = **Sun Aug 9** (CP1), plan-Sun = **Mon Aug 10** (CP2), plan-Mon = **Tue Aug 11** (CP3), plan-Tue = **Wed Aug 12 until 2 PM** (**CP4 = Wed 2 PM**), plan-Wed = **Wed Aug 12, 2–10 PM** (bug bash → submit by 8 PM; 8–10 PM emergency buffer). "Wed AM" phrases elsewhere mean the start of that compressed block. Consequence, stated honestly: the buffer day is gone — a checkpoint slip the draft would have absorbed on Wednesday now triggers its §9 cut line the same day it occurs.
 22. **Environments and Cloudflare plan:** [`plan/environments.md`](plan/environments.md) is the canonical provisioning inventory. `sb-web` owns all DB/R2/Resend/ICS/Airtable logic; `sb-jobs` receives only `APP_BASE_URL` + the matching `CRON_SECRET`. Local/preview/prod map to `sb-dev`/`sb-test`/`sb-prod`, isolated R2 buckets, and distinct worker pairs. Start on Workers Free: the Aug 8 reconciled candidate is 1204.60 KiB gzip against Free's 3 MB limit. Upgrade to Workers Paid before judging only if the production candidate approaches 2.5 MB gzip or deployed SSR/auth/DB probes cannot stay inside Free's 10 ms CPU allowance. Production never enables `TEST_AUTH` or `EMAIL_FALLBACK_UI`; preview fallbacks are evidence aids, not substitute authentication.
+23. **Product-completeness expansion:** this plan's §1 product-completeness scope and §4 M50–M54 modules are binding release scope after the recovery gates; M55 Speaker CRM remains an optional commercial expansion. M50–M54 and the server-backed drafts, edit-until-close, and multi-round foundations they extend are not eligible §9 cuts. The added scope does not override architecture invariants, feature ownership, or the eight-function `withTx` audit. `status.md` remains the only evidence that any behavior is implemented.
 
 ---
 
@@ -44,7 +45,7 @@ PR #3's hardening deltas above remain binding. Rev. 4 changes execution accounti
 - bonus work and new UI surface pause behind foundation, security, server-spine, and deployment gates;
 - the original dependency graph and work orders remain authoritative, while `plan/status.md` determines the next runnable recovery gate.
 
-The immediate sequence is: **R0 stack safety → R1 deployed foundation → R2 server-backed CFP/review/notify spine → R3 portal/program/tracking loop → R4 release proof**. The minimum winning bar in §9 is unchanged.
+The immediate sequence is: **R0 stack safety → R1 deployed foundation → R2 server-backed CFP/review/notify spine → R3 portal/program/tracking loop → R4 release proof**. Section 1's expanded product scope follows those recovery gates; §9's golden path is the recovery minimum, not the final release boundary.
 
 ---
 
@@ -64,6 +65,28 @@ Judging bar: the AIE team can run the full Sessionboard walkthrough on our deplo
 | 8 | Resource and wiki pages in the speaker portal, incl. HTML embed support | Admin CRUD of resource pages; portal render with the wide sanitizer allowlist (iframe permitted) | **MUST** (small) | Mon (CP3) | M26 |
 | 9 | Embeddable, mobile-friendly speaker gallery and schedule itinerary (ref: wf2025.ai.engineer/schedule) | Two canonical public pages per event (`/e/[slug]/schedule`, `/e/[slug]/speakers`) + `/embed/*` bare-shell variants with `frame-ancestors *` + postMessage auto-resize snippet; published-data-only via views; s-maxage=60 auto-update. **Pulled forward to Sunday** (it is a MUST with no fallback, unlike DnD). Full embed configurator = NICE | **MUST** | **Sun (CP2)** public pages; embeds Mon (CP3) | M32–M33 |
 
+## Product-completeness expansion
+
+The original nine-feature walkthrough establishes the end-to-end spine, but a production-ready
+event program also needs the operational depth below. These are product requirements rather than
+demo polish, and each extends an existing owner instead of creating a parallel subsystem.
+
+| Workflow | Committed capability | Owner |
+|---|---|---|
+| Review operations | Round dates, typed criteria, explicit assignments, reviewer onboarding, blind review, recusal, progress, and reminder controls | M50 |
+| Speaker operations | Manual roster management, profile/logistics fields, CSV import, portal invitations, uploaded-asset visibility, and personalized bulk email | M51 |
+| Content operations | File versions/comments, central file library, deliverable filtering/reminders, session-content history/restore, approval, and latest-file export | M52 |
+| Public discovery | Five consistent public surfaces with complete filters/details, personal itinerary, calendar export, and configurable embeds | M53 |
+| Agenda assistance | One-action conflict-safe placement suggestions for unscheduled sessions | M54 |
+| Speaker relationship management | Organization-wide directory, history, segmentation, sourcing pipeline, merge, and event reuse | M55 (optional) |
+
+**Sequencing:** finish the server-backed R2/R3 recovery spine before opening new surface area.
+Once those gates are green, M50/M51/M52 and M53 may proceed in parallel; M54 follows M30.
+M55 follows organization tenancy and remains outside the required release. Server-backed CFP
+drafts, speaker edit-until-close, and multi-round review are foundations for this scope and are no
+longer eligible cut lines. A module is complete only when its named browser acceptance path runs
+against a deployed preview; API and unit coverage alone are not release evidence.
+
 **Bonus items:**
 
 | Bonus | Build | MoSCoW | Must land | Modules |
@@ -74,7 +97,7 @@ Judging bar: the AIE team can run the full Sessionboard walkthrough on our deplo
 | Public API | `/api/v1`: unkeyed published-data endpoints (event/schedule/speakers) + keyed endpoints (submissions/outstanding-tasks/stats/comms-log), CORS, s-maxage | **SHOULD** | Tue (CP4) | M40 |
 | Forge hosting | Skip — "very teeny bonus"; GitHub + open-source repo (submission requirement) | **WON'T** / repo **MUST** | Wed | M10 |
 
-Explicit skip list (never build): Payments step, Accelevents, custom dashboard builder/AI-prompt dashboards, Month view, Group/sponsor targets, websockets, calendar OAuth, multi-org tenancy, CRM/Marketing/Studio/Invoices/Email Themes/Record Settings/Personas, Sentry, SVG uploads, server-side image processing, **cross-field character limits, participant-role min/max counts** (moved here from the cut list — no module builds them, so they are not cuttable, they are out).
+Explicit skip list for the required release (never build): Payments step, Accelevents, custom dashboard builder/AI-prompt dashboards, Month view, Group/sponsor targets, websockets, calendar OAuth, Marketing/Studio/Invoices/Email Themes/Record Settings/Personas, Sentry, SVG uploads, server-side image processing, **cross-field character limits, participant-role min/max counts**. Multi-org tenancy and CRM are excluded from the required release but move to M43/M55 as optional commercial work.
 
 Deferred post-CP4 COULD (additive, only if CP4 is green): phone/number/date field types; "Copy from…" deep-copy with id-remap (forms list keeps a plain "duplicate settings only" copy); draft-reminder email rung; AI review button.
 
@@ -338,10 +361,10 @@ Single-page builder (not a wizard) over the shared form engine (`context='portal
 **Interface:** portal-form builder page; forms saved via M12's engine + snapshots. **Deps:** M12. **AC:** build an "Update Your Information" form from library fields; snapshot compiles via the shared compiler; duplicate/delete works; maps_to targets restricted to the closed allowlist. **Size: M**
 
 **M25 — Speaker task runtime + completions** · `src/features/portal/` (tasks runtime)
-Speaker task list (grouped My Tasks / per-submission collapsible sections, due/overdue badges, filter); manual complete button; form task → `<FormFieldRenderer>` **consumed strictly through the Phase-0 `FormFieldRendererProps` contract — built Sun against the golden fixture snapshot, the import swapped when M15's real renderer lands (micro-checkpoint Mon noon: a portal form task renders WS-B's real snapshot end-to-end; a miss triggers cut-line #13 the same day, not Tue)** — renders the pinned snapshot, prefilled from mapped record fields → `completeTaskViaResponse` in `withTx` (response upsert + field-scoped write-back via `updateContactFields` + idempotent completion insert); file task → upload via M07 → `completeTaskViaUpload` (upload row + completion, same tx); uploads listed with replace; task auto-completes only after the response/upload commit. Manual+file modes land Sun; form mode Mon.
+Speaker task list (grouped My Tasks / per-submission collapsible sections, due/overdue badges, filter); manual complete button; form task → `<FormFieldRenderer>` **consumed strictly through the Phase-0 `FormFieldRendererProps` contract — built Sun against the golden fixture snapshot, the import swapped when M15's real renderer lands (micro-checkpoint Mon noon: a portal form task renders WS-B's real snapshot end-to-end; a miss triggers cut-line #10 the same day, not Tue)** — renders the pinned snapshot, prefilled from mapped record fields → `completeTaskViaResponse` in `withTx` (response upsert + field-scoped write-back via `updateContactFields` + idempotent completion insert); file task → upload via M07 → `completeTaskViaUpload` (upload row + completion, same tx); uploads listed with replace; task auto-completes only after the response/upload commit. Manual+file modes land Sun; form mode Mon.
 **Interface:** task pages; `completeTask*` mutations; org-side response/upload viewers. **Deps:** M21, M23, M24, M07, M03; M15 (renderer — dashed, fixture-first). **AC:** speaker with 2 accepted sessions sees the submission task once per accepted submission and completes them independently; double-click completes once (PGlite upsert test); completing drops the dashboard outstanding count on next poll; write-back updates the contact bio visible in admin; **full phone-width (390px viewport) run-through: portal login → complete a file task**. **Size: L**
 
-**M41 — Speaker submission editing (edit-until-close)** · `src/features/portal/` (submissions edit) — **Tuesday AM; named cut-line entry (§9 #5)**
+**M41 — Speaker submission editing (edit-until-close)** · `src/features/portal/` (submissions edit) — **Tuesday AM; required foundation for M51**
 "Edit submission" on the portal submission detail for status ∈ draft/pending while `is_form_open()`: reuses `<FormFieldRenderer>` prefilled from `submission_answers` against the **pinned** `form_versions` snapshot; PATCH runs M16's pure pipeline then **WS-C's `updateSubmissionFromCfp`** (ownership per resolution #8; guarded by `is_form_open()` + status + contact ownership). Honors Sessionboard's "closes new AND updated submissions" (annotated "kinda impt") — the close-date guard M14 built now guards a door that exists.
 **Interface:** edit page + PATCH route. **Deps:** M21, M15 (renderer), M16 (pipeline), M18 (mutation), M14 (guard). **AC:** editing a pending submission updates answers + typed columns (routing stamps on create only — documented in contracts); editing after close date → friendly FORM_CLOSED page; editing an accepted submission is not offered; a judge replicating the Sessionboard walkthrough can edit their submission pre-deadline. **Size: M**
 
@@ -404,6 +427,152 @@ One aggregated endpoint (`/api/internal/dashboard/[eventId]/overview`, grouped C
 **M40 — Public API + keys** · `app/api/v1/`, `src/features/dashboard/` (stats reuse) — **may start Mon PM (M32 landed Sun); finishes Tue**
 `/api/v1/events/[slug]` + `/schedule` + `/speakers` (unkeyed, CORS *, s-maxage=60 — thin wrappers over M32's contracts: zero drift, zero leak paths) and keyed endpoints (`/submissions?status=`, `/speakers/outstanding-tasks`, `/stats`, `/comms-log`) via **event-scoped** hashed bearer keys; keys management mini-page (own route file under settings); `{data}/{error:{code,message}}` envelopes zod-serialized. Private responses are `no-store`; optional custom-domain WAF protection is defense-in-depth, not authorization. Short API docs in README.
 **Interface:** the v1 surface. **Deps:** M32, M38, M04. **AC:** curl each endpoint against seed data; drafts absent from public endpoints; bad key → 401 envelope; docs example commands paste-and-run. **Size: M**
+
+### Product-completeness modules
+
+These modules add the operational depth needed beyond the original nine-feature walkthrough. They
+start only after the recovery gates have produced a server-backed base. They extend existing
+feature ownership and data paths; none may create a parallel sender, publication query, task
+assignment model, review aggregate, or file store. Detailed work orders live in `plan/modules/`.
+
+**M50 — Review operations depth + reviewer provisioning** · `src/features/{auth,submissions,evaluation,comms}/` — **post-R3, required release scope**
+
+Extend M06a/M19 from seeded, track-routed numeric review into a complete multi-round operation.
+Add `opens_at`, `closes_at`, and `anonymize_authors` to `evaluation_plans`; extend
+`evaluation_criteria` with `kind: numeric|select|text`, `options`, numeric range, and the existing
+weight. Text criteria do not participate in arithmetic. Add explicit
+`(plan_id, submission_id, reviewer_user_id)` assignments and reviewer recusal state with reason and
+timestamp. Existing `reviews` and `submission_ratings_v` remain the only score and aggregate truth.
+
+The organizer can create/invite an event reviewer with a usable sign-in path, configure each
+round's dates/typed scorecard/pool/anonymization, and bulk-assign filtered submissions. Track scope
+remains a bulk-selection aid; the explicit assignment set is the queue truth. Blind queues omit
+author/co-author/company/email/avatar and identity-bearing answers while organizer details retain
+them. Progress shows assigned/completed/recused per reviewer and bulk-sends reminders through the
+existing outbox. Reviewers can recuse; organizers can audit and reassign the item.
+
+**Interface:** extended M19 plan/criteria/assignment APIs; reviewer invitation action; reminder and
+recusal mutations. **Deps:** M06a, M17, M19, M34, M37. **Size: L.**
+
+**AC:** create two rounds with distinct dates, typed criteria and pools; submit numeric, dropdown and
+free-text values and reload them; assign two of three same-track submissions and prove the reviewer
+queue contains exactly those two (direct access to the third is forbidden); enable blind mode and
+prove author identity differs correctly by role; score one item and see progress update; bulk-remind
+the outstanding reviewer and find the outbox/log row; recuse one assignment without deleting its
+audit history.
+
+**M51 — Standalone speaker roster operations** · `src/features/{portal,comms}/` — **post-R3, required release scope**
+
+Make Speakers a first-class organizer workflow instead of a read-only projection of CFP-created
+contacts. Extend the contact single-writer helper with organizer-authorized, field-scoped create and
+update for name/email/title/company/bio/social links/headshot/workflow status. Add event-scoped
+contact custom fields/values (or a deliberately small logistics JSON model) with at least one
+organizer-defined text/select field. Add CSV import with column mapping, normalized email,
+row-level errors, and idempotent upsert by `(event_id,email)`.
+
+Add an explicit Invite to portal action that issues a fresh portal-login challenge, enqueues mail,
+confirms dispatch, and logs the communication; self-requested OTP is not a substitute. Organizer
+views show speaker-uploaded assets with filename, uploader, timestamp, and view/download action.
+Extend M37 with general bulk compose from selected/filtered speakers: subject/body, saved templates,
+merge-field picker, per-recipient resolved preview, success count, and one log row per recipient.
+
+**Interface:** extended `listContacts`; `createSpeaker`, field-scoped `updateSpeaker`,
+`importSpeakersCsv`, `inviteSpeaker`, and `composeBulkSpeakerEmail`, all through existing contact,
+token, upload, and outbox owners. **Deps:** M06b, M07, M22, M27, M34, M37, M41. **Size: L.**
+
+**AC:** manually add two speakers and persist a profile/status edit; import a CSV with two existing
+emails plus one new speaker without duplicates; invite one speaker and verify UI confirmation, log,
+delivery, and scoped portal session; upload a headshot as speaker and view its metadata/download as
+organizer; filter and bulk-send a personalized welcome message with resolved preview and log rows;
+save/reload a logistics custom field.
+
+**M52 — Content and deliverables lifecycle** · `src/features/{portal,agenda,comms}/` — **post-R3, required release scope**
+
+Treat repeated `file_uploads` for the same request/contact/submission as immutable, monotonically
+numbered versions with timestamps and an explicit latest marker; prior versions remain authorized
+and downloadable. Add cross-role `file_comments` with author/timestamp. Add immutable session-content
+revisions containing title/description, editor, timestamp and restore source; restoring creates a
+new revision instead of rewriting history. Add asynchronous bulk-file export records whose R2
+artifact contains only the latest selected versions.
+
+The organizer gets a central Files view with speaker/session/request/date/version metadata and
+filters, plus per-file version/comment detail. The deliverables matrix filters by completion/due
+state, task and speaker, and bulk-reminds the selected/filtered outstanding set through M34/M36 with
+a queued-recipient confirmation. Organizer speaker detail edits bio/headshot through M22's paths.
+Session edits create revisions; the existing draft/published state remains the content-approval
+gate and public views continue to expose only published data. Files multi-select generates a ZIP
+with optional session/speaker grouping.
+
+**Interface:** versioned upload query, file comments, central library query, content-revision
+save/restore, bulk reminder selection, and asynchronous latest-files ZIP job. **Deps:** M07, M22,
+M23, M25, M28, M34, M36. **Size: XL; split M52a files and M52b revisions if a PR would exceed 600
+lines.**
+
+**AC:** upload the same PDF twice and see versions 1/2 plus latest labeling from both roles; download
+the older version; exchange a speaker comment and organizer reply with author/timestamps; filter the
+matrix, bulk-remind outstanding rows, and verify count/logs; edit session content twice, inspect
+attributed history, restore the earlier version and observe approved public output; edit a speaker
+bio/headshot as organizer; generate and manually inspect a ZIP containing only latest selected files
+with the requested grouping and no deselected file.
+
+**M53 — Five public widgets + embed parity** · `src/features/embeds/`, `app/(public)/e/`, `app/(embed)/` — **post-R3, required release scope**
+
+Keep one M32 published query layer and enrich its shared DTOs: session speaker refs gain job title and
+company; speaker session refs gain end time, room, track and format. All five surfaces consume those
+contracts—no surface may read raw sessions/contacts or implement its own publication filter. Preserve
+anonymous access, event-timezone grouping, leakage tests, and the sixty-second freshness contract.
+
+Build five distinct surfaces: **Sessions List** cards with truncated/expandable description, complete
+speaker identity and Track/Format/Location facets; **Speakers List** as a surname-sorted searchable
+compact directory with bio/session detail; **Agenda** with day/time/room structure, day navigation and
+reversible full detail; **Schedule Itinerary** as chronological day sections with complete fields,
+anonymous localStorage starring, exact My Schedule filtering, reload persistence and selected-session
+iCal export; **Speaker Gallery** as a surname-sorted searchable photo grid with fallbacks and full
+profile/session time-room detail.
+
+Extend M33 configs/routes/admin cards to all five content types. Each offers share URL, iframe and
+script snippets; retain accent/theme/header and add content filters plus field visibility. JSON/iCal
+links reuse M40/M35 as alternate output formats. Cross-origin framing, resize, enable/disable serving
+and consistency continue through M33 rather than being reimplemented.
+
+**Interface:** enriched published DTOs and five direct/embed route types sharing M32/M33 components.
+**Deps:** M32 published queries/leakage tests, M33 shell/header behavior, M35. **Size: XL; split data
+contract from surface work.**
+
+**AC:** anonymously reach five visibly distinct populated surfaces; verify search/filter/day/detail
+interactions and parent-state restoration; star two sessions, reload, see exactly two, remove one and
+export a valid calendar containing the remaining selection; compare one session and speaker across
+all surfaces and the organizer source with no mismatches; generate and render all five embeds in the
+cross-origin scratch host, then verify configured field/filter changes inside the frame.
+
+**M54 — Assisted agenda placement** · `src/features/agenda/` — **post-M30, required release scope**
+
+Add a deterministic `suggestPlacements` greedy planner over unscheduled sessions, configured event
+days/rooms, speaker availability and existing placements. Preview placed/unplaced counts and reasons;
+apply accepted suggestions through existing `moveSession` so CAS, notifications and conflict
+recomputation remain intact. Model-generated optimization is optional; the deterministic planner
+is the committed behavior.
+
+**Interface:** `suggestPlacements` + Auto-place preview/apply UI. **Deps:** M28, M29, M30. **Size: S.**
+**AC:** with at least two unscheduled sessions, one click produces a preview and applying it persists
+at least one day/time/room across reload; unplaceable sessions stay in the tray with reasons and no
+room/speaker conflict is silently introduced.
+
+**M55 — Organization-level Speaker CRM** · `src/features/crm/` — **optional commercial expansion**
+
+After M43 organization tenancy, M44 user management and M51 speaker operations, build an org-level
+searchable directory across events with multi-criteria filters, tags/custom fields, internal notes,
+activity and event/session history; CSV import; duplicate detection/merge with an explicit primary;
+saved segments; a sourcing kanban with open/won/lost lifecycle and timestamped transitions; contact
+push into an event without re-entry; selected-contact bulk email through M37/M46; and org-wide
+directory/pipeline metrics. **Deps:** M43, M44, M51, M37/M46. **Size: XL. Required: no; never blocks
+the core release.**
+
+**End-to-end browser coverage:** add `e2e/review-operations.spec.ts`,
+`e2e/speaker-content-ops.spec.ts`, and `e2e/public-widgets-parity.spec.ts`; extend
+`e2e/agenda-schedule.spec.ts` with assisted placement. Reuse the seeded event/personas so handoffs are
+tested rather than replaced by isolated fixtures. Reporting distinguishes `not implemented` from
+`blocked by auth/test setup`; missing credentials never become a silent pass.
 
 ---
 
@@ -468,6 +637,14 @@ graph TD
     M38[M38 Dashboard]
     M39[M39 Airtable]
     M40[M40 Public API]
+  end
+  subgraph PC["Post-R3 product completeness"]
+    M50[M50 Review operations]
+    M51[M51 Speaker roster operations]
+    M52[M52 Content+deliverables lifecycle]
+    M53[M53 Five public widgets]
+    M54[M54 Assisted placement]
+    M55[M55 Speaker CRM optional]
   end
 
   M01 --> M02
@@ -584,15 +761,59 @@ graph TD
   M38 --> M40
   M04 --> M40
 
+  M06a --> M50
+  M17 --> M50
+  M19 --> M50
+  M34 --> M50
+  M37 --> M50
+  M06b --> M51
+  M07 --> M51
+  M22 --> M51
+  M27 --> M51
+  M34 --> M51
+  M37 --> M51
+  M41 --> M51
+  M07 --> M52
+  M22 --> M52
+  M23 --> M52
+  M25 --> M52
+  M28 --> M52
+  M34 --> M52
+  M36 --> M52
+  M32 --> M53
+  M33 --> M53
+  M35 --> M53
+  M28 --> M54
+  M29 --> M54
+  M30 --> M54
+  M43[M43 Organization tenancy] --> M55
+  M44[M44 User management] --> M55
+  M51 --> M55
+  M37 --> M55
+  M46[M46 Email compliance] --> M55
+
   M16 --> M10
   M18 --> M10
   M25 --> M10
   M30 --> M10
   M32 --> M10
   M34 --> M10
+  M50 --> M10
+  M51 --> M10
+  M52 --> M10
+  M53 --> M10
+  M54 --> M10
 ```
 
-No cycles. Cross-workstream edges and their contracts: **M18→M16** (createSubmission — resolution #8, stubbed Phase 0), **M15-.->M25** (`FormFieldRendererProps` — fixture-first, Mon-noon micro-checkpoint), **M12→M24** (shared builder engine), **M18-.->M28** (promotion contract), **M28-.->M21** (my-sessions query), **M34-.->M27 / M34-.->M11** (listLog / seedDefaultTemplates), **M06b-.->M34 / M06b-.->M35** (issuePortalToken — resolution #12), **M07→M32** (file URLs), **M32→M40 / M38→M40** (API reuse) — all consumed through barrels/contracts stubbed in Phase 0, so dependents start immediately against types + fixtures.
+No cycles. M10 starts during recovery but its final release sign-off remains open until M50–M54's
+browser AC are green; M55 is intentionally outside that gate. Cross-workstream edges and their
+contracts: **M18→M16** (createSubmission — resolution #8, stubbed Phase 0), **M15-.->M25**
+(`FormFieldRendererProps` — fixture-first, Mon-noon micro-checkpoint), **M12→M24** (shared builder
+engine), **M18-.->M28** (promotion contract), **M28-.->M21** (my-sessions query), **M34-.->M27 /
+M34-.->M11** (listLog / seedDefaultTemplates), **M06b-.->M34 / M06b-.->M35** (issuePortalToken —
+resolution #12), **M07→M32** (file URLs), **M32→M40 / M38→M40** (API reuse), and the post-R3 edges
+above — all consumed through barrels/contracts; new schema/contracts land in architect-owned,
+additive PRs before their feature PRs.
 
 ---
 
@@ -624,7 +845,7 @@ Needs: schema+seed (Sat AM); vocab via events barrel (fixture-stubbed); `getAcce
 Order: M08 (Sat AM, moved from WS-A) → M34 + Sat checklist (canned-ICS render check to real inboxes; Airtable base provisioning + hand-run upsert) → M35 + M36 + full seeded ICS lifecycle test (Sun) → M38 (Mon) + M40 start (Mon PM) → M37 + M39 + M40 finish (Tue).
 Needs: views + seed (Sat AM — dashboard builds against seeded views, swaps to live data automatically); `issuePortalToken` (M06b, stub Sat); outbox rows from WS-B/C/E arrive via the DB (no code coupling); M32's contracts for M40 (real from Sun). Provides: comms log data + `listLog` (→ M27), `seedDefaultTemplates` (→ M11), overview endpoint (→ M40 stats).
 
-**Integration points (hard dates):** Sat noon — contracts+schema freeze + **Resend domain verification check** (CP1). **Sat night — thin-slice integration: a seeded fixture-snapshot CFP form submits through the real `/api/internal` submit endpoint (B2's route → WS-C's createSubmission) and appears in the real Abstracts table on the deployed preview** — defineHandler/session/DTO drift surfaces a full day before CP2. Sun night — full golden path + public schedule live (CP2). **Mon noon — micro-checkpoint: portal form task renders WS-B's real snapshot** (miss → cut-line #13 fires same day). Mon night — agenda DnD, embeds framed, ICS end-to-end re-check, dashboard live (CP3). Tue night — API + Airtable + perf + full e2e (CP4).
+**Integration points (hard dates):** Sat noon — contracts+schema freeze + **Resend domain verification check** (CP1). **Sat night — thin-slice integration: a seeded fixture-snapshot CFP form submits through the real `/api/internal` submit endpoint (B2's route → WS-C's createSubmission) and appears in the real Abstracts table on the deployed preview** — defineHandler/session/DTO drift surfaces a full day before CP2. Sun night — full golden path + public schedule live (CP2). **Mon noon — micro-checkpoint: portal form task renders WS-B's real snapshot** (miss → cut-line #10 fires same day). Mon night — agenda DnD, embeds framed, ICS end-to-end re-check, dashboard live (CP3). Tue night — API + Airtable + perf + full e2e (CP4).
 
 ---
 
@@ -651,7 +872,7 @@ WS-B1: M12 finish, M13b, M14. B2: M16 complete (version pinning, FORM_VERSION_ST
 **Demo bar:** brief feature #1 fully demoable; #2/#4/#9 substantially demoable.
 
 **Plan-day "Mon" = Tue Aug 11 — full feature surface.**
-WS-E: M30 DnD, M33 embeds framed in a scratch host page, M31 Conflicts tab. WS-D: M23, M24, M25 form-mode (**micro-checkpoint Mon noon: portal form task renders WS-B's real snapshot end-to-end; miss → cut-line #13 (seeded portal forms) triggers today**). WS-C: M19 done, M26, M27 (fixture comm-log rows). WS-F: M38 dashboard both tabs, reminder+task_assigned scan live on cron, M40 start PM. WS-B: polish; closed-form/limit/stale-version states; success page. Architect: integration, CP3 prep.
+WS-E: M30 DnD, M33 embeds framed in a scratch host page, M31 Conflicts tab. WS-D: M23, M24, M25 form-mode (**micro-checkpoint Mon noon: portal form task renders WS-B's real snapshot end-to-end; miss → cut-line #10 (seeded portal forms) triggers today**). WS-C: M19 done, M26, M27 (fixture comm-log rows). WS-F: M38 dashboard both tabs, reminder+task_assigned scan live on cron, M40 start PM. WS-B: polish; closed-form/limit/stale-version states; success page. Architect: integration, CP3 prep.
 **Checkpoint CP3 (Mon night):** agenda DnD + conflicts + promotion demoable; public schedule/gallery live since Sun + iframe verified cross-origin; ICS end-to-end from a real scheduling action (lifecycle already proven Sun); dashboard Speaker Tracking live-updating on task completion; **reminders fired by cron for the seeded overdue task — exactly ONE email + two skipped rows, verified in the log**; resources page with iframe embed.
 **Demo bar:** all 9 primary features demoable end-to-end (rough edges allowed).
 
@@ -684,26 +905,23 @@ M39 Airtable (first 15 min: re-verify `performUpsert` merge on the provisioned b
 
 # 9. Cut lines
 
-Ordered: drop from the top first. Each cut keeps the feature *present* in reduced form — the 9 primary features are never cut entirely. (Cross-field char limits and participant-role min/max are no longer here — they moved to the never-build list, since no module owns them.)
+Ordered: drop from the top first. Each cut keeps the feature *present* in reduced form — the 9 primary features are never cut entirely. M41, server-backed CFP drafts, multi-round review, and M50–M54 are binding product-completeness scope and do not appear here. (Cross-field char limits and participant-role min/max are no longer here — they moved to the never-build list, since no module owns them.)
 
 1. AI-assisted review button (explicitly "very optional").
-2. Import Sessions CSV; XLSX export; download-all-files zip. (Keep CSV export.)
-3. Embed configurator admin (Style/Filters/Field Options) → keep the two canonical pages + snippet + enable toggle.
+2. Import Sessions CSV; XLSX export. (Keep review CSV export and M52's latest-files ZIP.)
+3. Embed polish beyond M53's five types, filters, field visibility, share URL, iframe, and script snippets — theme presets and live admin previews may wait.
 4. Saved views / column-preference persistence beyond localStorage; row density; ⌘K.
-5. **M41 speaker edit-until-close** → portal submission detail stays read-only; remove the "and updated submissions" claim from M14's close-date copy and note the deviation in the demo script so it reads as a decision, not a bug.
-6. **Server-side CFP drafts** → revert to localStorage-only: Drafts tab labeled "(seeded)", form-card draft counts hidden, limit semantics unchanged (already counts submitted only).
-7. Multi-round evaluation UI → single plan + Rating column (schema keeps rounds).
-8. Dashboard Today tab extras (pacing chart, form progress cards, participants donut) → keep KPI tiles + attention strip + Speaker Tracking (CORE).
-9. Airtable cron sync → manual button only. Then Airtable export entirely (bonus, not core).
-10. Week/Track/Room views (already Tue-scheduled) → keep List + Day + Conflicts (brief's views claim reduced, noted honestly).
-11. Public API keyed endpoints → keep the 3 public read endpoints (bonus still claimed).
-12. Agenda DnD → click-to-place + edit-dialog scheduling; conflict detection and all views intact.
-13. Portal form builder UI → 2 seeded portal forms (profile-update, session-info); task/form/file runtime intact. **Trigger: the Mon-noon renderer micro-checkpoint, not Tue.**
-14. Reminder ladder → single overdue reminder + per-speaker manual "send reminder now".
-15. Embed auto-resize script → plain iframe snippet with generous min-height.
-16. Admin impersonation; event switcher polish (single-event demo).
+5. Dashboard Today tab extras (pacing chart, form progress cards, participants donut) → keep KPI tiles + attention strip + Speaker Tracking (CORE).
+6. Airtable cron sync → manual button only. Then Airtable export entirely (bonus, not core).
+7. Week/Track/Room views (already Tue-scheduled) → keep List + Day + Conflicts.
+8. Public API keyed endpoints → keep the 3 public read endpoints (bonus still claimed).
+9. Agenda DnD → click-to-place + edit-dialog scheduling; conflict detection, assisted placement, and all views remain intact.
+10. Portal form builder UI → 2 seeded portal forms (profile-update, session-info); task/form/file runtime intact. **Trigger: the Mon-noon renderer micro-checkpoint, not Tue.**
+11. Reminder ladder → single overdue reminder + per-speaker manual "send reminder now"; M50/M52 filtered bulk reminders remain intact.
+12. Embed auto-resize polish → keep the plain iframe and functional script snippets with a conservative initial height.
+13. Admin impersonation; event switcher polish (single-event demo).
 
-**Minimum bar that still wins:** a judge on the deployed Cloudflare URL, unassisted with `docs/demo-script.md`, can: create/brand an event → build a CFP form with one conditional field and one routing rule → submit from a phone **with a real OTP arriving at their own inbox**, deadline+limit enforced → see it pre-tagged in Abstracts **with every answer they typed visible in the drawer** → score it as the seeded reviewer → accept + Notify (exactly one email, logged, with portal link) → log into the portal, complete bio + headshot + slide-upload task → schedule the session (any input method) with a conflict detected and resolved → view the public schedule + speaker gallery **including their own just-confirmed speaker**, framed inside another site → watch the Speaker Tracking dashboard count drop when a task completes. Everything above that line is margin; nothing below it ships half-broken.
+**Recovery minimum:** a user on the deployed Cloudflare URL, unassisted with `docs/demo-script.md`, can: create/brand an event → build a CFP form with one conditional field and one routing rule → submit from a phone **with a real OTP arriving at their own inbox**, deadline+limit enforced → see it pre-tagged in Abstracts **with every answer they typed visible in the drawer** → score it as the seeded reviewer → accept + Notify (exactly one email, logged, with portal link) → log into the portal, complete bio + headshot + slide-upload task → schedule the session (any input method) with a conflict detected and resolved → view the public schedule + speaker gallery **including their own just-confirmed speaker**, framed inside another site → watch the Speaker Tracking dashboard count drop when a task completes. This is the recovery gate, not the final release boundary: M41 and M50–M54 must also meet their deployed browser AC before the required release is complete. Nothing ships half-broken.
 
 ---
 
@@ -712,7 +930,7 @@ Ordered: drop from the top first. Each cut keeps the feature *present* in reduce
 All critical and major review issues were applied. Choices where the review offered alternatives, and adaptations:
 
 1. **Judge email path:** applied in full (CP1 hard gate, explicit env matrix, preview-only `EMAIL_FALLBACK_UI` diagnostics, production fail-closed rule, Wed Gmail/Outlook rehearsal); resend.dev and inline production OTPs explicitly disclaimed as fallbacks.
-2. **Speaker editing:** built as new module M41 (Tue AM, cut-line #5) rather than folded into M21/M25 — WS-D's Monday is already at capacity; the mutation lives in WS-C per resolution #8.
+2. **Speaker editing:** built as new module M41 (Tue AM) rather than folded into M21/M25 — WS-D's Monday is already at capacity; the mutation lives in WS-C per resolution #8. Resolution #23 promotes it from the original cut line to required product scope.
 3. **Drafts:** chose option (a) — real server draft row per (contact, form), pinned version, created at the Account step; multiple-drafts toggle deleted; limit counts submitted rows only; draft-reminder deferred to post-CP4 COULD (not built into M36 now).
 4. **confirmation_status:** chose option (a) — auto-confirm at notify (resolution #15) with M27 admin override; gallery filter and leakage test kept.
 5. **WS-B overload:** chose the two-agent split (B1/B2, 7 agents total) over pairing/swarm-only; WS-C additionally formalized as Sun-noon swarm capacity; both the split and the pre-applied scope cuts (8 types, no deep-copy, no admin alerts) are in effect together.
@@ -721,6 +939,7 @@ All critical and major review issues were applied. Choices where the review offe
 8. **Decision-email recipients:** chose submitter-only (simpler; avoids the per-participant token/key fan-out) — documented in the key recipes so no agent improvises fan-out.
 9. **Cut-list orphans:** chose deletion — cross-field limits and role min/max moved to the never-build list rather than assigned as COULDs.
 10. **Reminder-scan Fri-spike list tension** (dependencies said "cut to three existential", bug-resistance said "add two more"): reconciled as four existential spikes (the better-auth spike is itself a review requirement) + two ≤10-min curl checks Fri; the four cheap capability spikes moved to Sat AM.
+11. **Product-completeness scope:** M50–M54 extend the original delivery spine after R3 and are required before release; M55 remains optional after the organization layer. Required foundations—server drafts, edit-until-close, and multi-round review—were removed from §9's cut list.
 
 No review issue was rejected outright.
 

@@ -95,7 +95,7 @@ export async function requirePortalContext(eventSlug: string): Promise<{ event: 
     - **3 `portal_tasks`**, one per completion mode (manual / form / file_request), with **one due `now − 2d`** so the overdue list is never empty and the reminder scan has a due row on its first tick;
     - mixed `task_completions` (some done, some open);
     - **1 `file_request`** (title, instructions, accepted extensions, max size);
-    - **2 `context='portal'` forms** (profile-update, session-info) with snapshots produced by `compileFormSnapshot` — these are also cut-line #13's fallback, and [M24](./M24-portal-form-builder.md) Step 1 owns authoring their field sets;
+    - **2 `context='portal'` forms** (profile-update, session-info) with snapshots produced by `compileFormSnapshot` — these are also cut-line #10's fallback, and [M24](./M24-portal-form-builder.md) Step 1 owns authoring their field sets;
     - **2 `resource_pages`**, one containing a YouTube `iframe` (the `wide` sanitizer profile) and one containing a `<script>` that must be stripped.
     Deterministic UUIDv5 ids via `seedId`; idempotent `ON CONFLICT (id) DO UPDATE`. Register with the architect-owned `scripts/seed/index.ts` orchestrator after `agenda`.
     **Done when:** `pnpm seed && pnpm seed` is a no-op the second time, `SELECT count(*) FROM portal_tasks WHERE due_at < now()` is 1, and `SELECT count(*) FROM form_versions fv JOIN forms f ON f.id = fv.form_id WHERE f.context = 'portal'` is 2 with both snapshots zod-parsing as `FormSnapshot`.

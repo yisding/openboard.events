@@ -1123,6 +1123,26 @@ Position: Postgres is the source of truth; Airtable is a read-only mirror for bo
 
 **Audit** — deliberately minimal: `created_at/updated_at` everywhere, `communication_logs` (who was emailed what, when — the trust-critical audit), `airtable_sync_runs`, `task_completions.completed_by_user_id` and `completed_via`, `portal_sessions.impersonated_by_user_id` (impersonated writes attributable), `form_versions.published_by`. No generic audit_log table — zero judged value for its cost.
 
+### 8.1 Post-R3 additive product schema (M50–M55)
+
+These are additive migrations owned by the architect after the recovery schema is stable. They do
+not weaken composite event scoping or replace any existing owner/view.
+
+| Module | Additive shape | Invariants |
+|---|---|---|
+| M50 | `evaluation_plans.opens_at/closes_at/anonymize_authors`; typed criterion columns; explicit `review_submission_assignments` with recusal/audit fields | One row per plan/submission/reviewer; `reviews` remains score truth; text criteria excluded from rating arithmetic |
+| M51 | Event-scoped `contact_custom_fields` and `contact_custom_values`; optional import-run/error records | Contact identity remains unique by `(event_id,email)` and all writes use the contact owner |
+| M52 | Version metadata on `file_uploads`; `file_comments`; `session_content_revisions`; `file_export_jobs` | Versions/revisions immutable; one latest upload per request/contact/submission; public data still gated by session status/views |
+| M53 | Expand `embed_content_type`; add field-visibility data to embed config; extend published DTO/view columns only where required | All five surfaces read the same published views and event-scoped configs |
+| M54 | No persisted planner state required | Preview is pure; accepted placements write only through `moveSession` |
+| M55 | After M43: organization identities, event-contact links, CRM tags/notes/activity/segments, merge audit, and sourcing-stage history | Organization scoping on every row; event contacts remain operational records; merge cannot erase history |
+
+For M52's “latest” invariant, prefer a partial unique index over an application-only flag. Restore
+and bulk-assignment operations use a single SQL statement/CTE through `neon-http` where atomicity is
+needed; the eight audited `withTx` runtime functions remain unchanged. M55 explicitly supersedes the
+current “no global speaker identity” decision only after organization tenancy exists and only via an
+explicit organization-contact-to-event-contact link.
+
 ---
 
 ## 9. Migration workflow for parallel agents

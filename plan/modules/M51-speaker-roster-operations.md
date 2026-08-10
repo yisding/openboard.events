@@ -1,0 +1,63 @@
+# M51 — Standalone speaker roster operations
+
+| | |
+|---|---|
+| **Status** | NOT STARTED — begins only after R3 and M41 are green. |
+| **Workstream / executing agent** | WS-D leads roster/profile/assets; WS-F owns bulk compose/logging; WS-A reviews additive schema. |
+| **Scheduled** | Post-R3 product-completeness wave, parallel with M50/M52/M53. |
+| **Size** | L; split roster/import from invitations/bulk communication. |
+| **Paths owned** | `src/features/portal/admin/**`, `src/features/portal/server/contacts.ts` (through its single-writer API), `src/features/comms/**`, corresponding admin routes, additive migrations, and `e2e/speaker-content-ops.spec.ts`. |
+
+## Objective
+
+Make Speakers a first-class organizer workflow instead of only a projection of CFP submissions.
+Organizers can add, edit, import, invite, filter, and communicate with speakers while preserving the
+same event-scoped contact identity used by CFP, portal, tasks, files, and sessions.
+
+## Dependencies
+
+- **Hard:** M06b portal auth/token delivery, M07 files, M22 profile writes, M27 speakers admin,
+  M34 outbox, M37 comms UI, and M41 edit-until-close.
+- **Ownership:** all contact writes must extend `getOrCreateContact`/`updateContactFields`; no direct
+  contact mutation is permitted outside the existing owner.
+
+## Contract and data additions
+
+- Organizer-authorized `createSpeaker`, field-scoped `updateSpeaker`, and `importSpeakersCsv`.
+- Editable name, normalized email, title, company, bio, social links, headshot, and workflow status.
+- Event-scoped organizer-defined text/select logistics fields and per-contact values.
+- `inviteSpeaker` issues a fresh portal-login challenge through M06b and enqueues it through M34.
+- `composeBulkSpeakerEmail` accepts selected/filtered contacts, template/body, merge data, and a
+  preview recipient; it returns queued/skipped/error counts.
+
+## Implementation sequence
+
+1. Land additive logistics-field schema/contracts and seed mixed complete/incomplete speakers.
+2. Add manual create and full organizer edit through the contact single-writer API.
+3. Add CSV upload, column mapping, validation preview, row-level errors, and idempotent upsert by
+   `(event_id, normalized_email)`.
+4. Add explicit portal invitation with confirmation and communication-log link.
+5. Show speaker-uploaded assets with filename, uploader, timestamp, type, and authorized
+   view/download actions.
+6. Add selected/filtered bulk compose with saved template, merge-field picker, per-recipient resolved
+   preview, and result counts.
+
+## Acceptance criteria
+
+- Manually add two speakers and persist full profile, workflow-status, and logistics-field edits.
+- Import two existing emails plus one new row without duplicates; invalid rows remain downloadable
+  with clear errors and valid rows are committed exactly once on retry.
+- Invite a speaker and verify UI confirmation, delivery/log row, and an event-scoped portal session.
+- Upload a headshot/document as the speaker and view its metadata/download as an organizer without
+  widening another event's access.
+- Filter and bulk-send a personalized message, inspect a resolved preview first, and find one log row
+  per recipient with accurate queued/skipped totals.
+
+## Guardrails
+
+- Normalized `(event_id,email)` identity is preserved across CFP, import, manual entry, and portal.
+- CSV import never overwrites non-empty fields silently; the preview names every proposed change.
+- Portal invitation uses the existing encrypted short-lived login payload and token throttles.
+- Bulk messages go only through `enqueueEmail`; no direct Resend or communication-log writes.
+- Large selected/filtered sends must be chunked through the existing jobs path, not performed in a
+  browser request.

@@ -140,7 +140,7 @@ Verification:
 - **Role separation:** a `reviewer` sees `/events/[id]/review` and read-only submission data only; the evaluation admin page and all mutations except `submitReview` require `organizer`/`owner`. Verify by logging in as the seeded reviewer and hitting `/events/[id]/evaluation` → friendly 403, not a crash.
 - **Comments are plaintext.** Do not introduce rich text here — no new sanitizer surface, no new `dangerouslySetInnerHTML`.
 - **Empty states** (trap 7): plan with 0 criteria, reviewer with 0 assignments, plan with 0 in-scope submissions, submission with 0 scores. All four are demoable on the empty second event.
-- **Cut line #7** is above this module: if Monday is tight, ship a single plan + the Rating column and drop the multi-round UI (schema keeps rounds). Cut line #1 (AI review) goes first of all.
+- **Multi-round review is a foundation for M50.** It may land incrementally behind the single-plan recovery path, but it cannot be removed from the release scope. Cut line #1 still permits dropping the unrelated AI-assisted review button.
 
 ## If blocked
 

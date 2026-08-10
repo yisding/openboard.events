@@ -64,7 +64,7 @@ Route: `GET /api/internal/submissions/[eventId]/export.csv?<same query string as
 5. **Route handler.** `defineHandler({ auth: adminAuth() })`, streams the string with the headers above. Filename uses the event slug and today's date in the event tz.
    **Done when:** `curl -sD- "$BASE/api/internal/submissions/$EVENT_ID/export.csv?status=all" -b admin.cookie -o /tmp/x.csv | grep -i 'content-disposition'` shows the attachment header and `wc -l /tmp/x.csv` matches the All count + 1.
 
-6. **Toolbar wiring.** Add `Export .CSV` to M17's "… Options" dropdown (the Sessionboard menu also lists Import Sessions / Export .XLSX / Download files bundle — **do not** build those; cut-line #2). The item is a plain `<a href>` carrying the current filter query string so the browser downloads directly (no fetch/blob dance).
+6. **Toolbar wiring.** Add `Export .CSV` to M17's "… Options" dropdown (the Sessionboard menu also lists Import Sessions / Export .XLSX / Download files bundle — **do not** build those in M20; imports/XLSX are cut-line #2 and M52 owns the latest-files ZIP). The item is a plain `<a href>` carrying the current filter query string so the browser downloads directly (no fetch/blob dance).
    **Done when:** clicking Export on the Decline Queue tab downloads a file containing only decline-queue rows.
 
 7. **Spreadsheet round-trip check.** Open the exported seed file in Google Sheets (or LibreOffice): 21 columns, no row split by the multi-line description, the `;lkj` title intact, the `=`-prefixed cell shown as text, RTL text readable.
@@ -87,7 +87,7 @@ Verification:
 - **CSV injection** is treated as a real trap, not paranoia — public CFP input flows straight into a file organizers open in Excel.
 - **Nullables** are empty fields, never `null`/`undefined`/`—` (the `—` dash is a UI affordance, not data).
 - **Timezone:** every timestamp formatted through `formatInZone` in the event tz with the zone named in the header; no `date-fns` import outside `time.ts` (CI grep).
-- **Do not build** Import Sessions, XLSX, or the files-bundle zip (cut-line #2 / never-build list). If asked, the answer is "CSV export only".
+- **Do not build** Import Sessions, XLSX, or a files-bundle ZIP in this module. Import/XLSX remain cut-line #2; M52 separately owns an asynchronous, authorization-checked latest-files ZIP.
 - **Row cap** 5000 with an explicit truncation header — a runaway export must not blow the Worker's CPU/memory budget.
 
 ## If blocked

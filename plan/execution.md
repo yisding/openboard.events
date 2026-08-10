@@ -388,7 +388,7 @@ On the deployed preview, in one run:
 ### ☐ Mon noon — **renderer micro-checkpoint**
 
 - [ ] **A portal form task renders WS-B's real snapshot end-to-end** (M25 swaps the fixture import for M15's real `<FormFieldRenderer>`)
-- [ ] Miss → **cut-line #13 fires today, not Tuesday**: portal form builder UI → 2 seeded portal forms (profile-update, session-info), task/form/file runtime intact
+- [ ] Miss → **cut-line #10 fires today, not Tuesday**: portal form builder UI → 2 seeded portal forms (profile-update, session-info), task/form/file runtime intact
 
 ### ☐ CP3 — Mon night
 
@@ -460,31 +460,45 @@ Consequence: **the only genuinely serial thing in this build is the architect's 
 4. **A workstream blocked >½ day on a contract dispute → the architect decides same-day and both sides adapt.** Repeated collisions on one file → the architect takes sole ownership of that file. (Risk #8.)
 5. **Monday was de-loaded in advance** so that swarm capacity exists on the hardest day: M32 → Sunday, M37 / M20 / M31-views → Tuesday, M26 / M27 → WS-C.
 
+### 4.4 Post-R3 product-completeness wave
+
+This wave opens only after `status.md` marks R3 green. The architect first lands the additive
+schema/contracts named by the work orders, then assigns disjoint PR slices. M50–M53 may run in
+parallel; M54 starts after M30. M10's recovery specs can run earlier, but final release sign-off
+waits for all five deployed browser paths.
+
+| Lane | Module | First slice | Release proof |
+|---|---|---|---|
+| WS-C + WS-A/WS-F | M50 review operations | schema/auth contracts, then round and assignment UI | `e2e/review-operations.spec.ts` |
+| WS-D + WS-F | M51 speaker roster | manual edit/import, then invite/assets/bulk compose | `e2e/speaker-content-ops.spec.ts` |
+| WS-D + WS-E/WS-F | M52 content lifecycle | file versions/library, then revisions/export | `e2e/speaker-content-ops.spec.ts` |
+| WS-E | M53 public widgets | shared DTO expansion, then five surfaces/configs | `e2e/public-widgets-parity.spec.ts` |
+| WS-E | M54 assisted placement | pure planner, then preview/apply | extended `e2e/agenda-schedule.spec.ts` |
+
+M55 begins only after M43/M44 and never consumes capacity needed to finish this wave.
+
 ---
 
 ## 5. Cut lines (PLAN §9) — ordered, drop from the top first
 
-Each cut keeps the feature **present in reduced form**. The 9 primary features are never cut entirely. Cross-field character limits and participant-role min/max are *not* here — they are on the never-build list, since no module owns them.
+Each cut keeps the feature **present in reduced form**. The 9 primary features are never cut entirely. M41, server-backed CFP drafts, multi-round review, and M50–M54 are binding product scope and cannot be cut. Cross-field character limits and participant-role min/max are *not* here — they are on the never-build list, since no module owns them.
 
 | # | Cut | Reduced form that ships | Trigger |
 |---|---|---|---|
 | 1 | AI-assisted review button | Human scoring only | Explicitly "very optional" — builds Tue PM **only if everything else is green** at CP4 |
-| 2 | Import Sessions CSV; XLSX export; download-all-files zip | **Keep CSV export** | M20 is Tue and S-sized; the import stretch is cut on any Tue slippage |
-| 3 | Embed configurator admin (Style / Filters / Field Options) | Two canonical pages + snippet + enable toggle | M33 Monday runs long, or CP3 embeds unverified cross-origin |
+| 2 | Import Sessions CSV; XLSX export | **Keep review CSV export and M52's latest-files ZIP** | M20 is Tue and S-sized; the import stretch is cut on any Tue slippage |
+| 3 | Embed polish beyond M53's five types, filters, field visibility, share URL, iframe, and script snippets | Keep the functional M53 configurator; defer theme presets and live admin previews | M53's core cross-origin AC is green but polish remains |
 | 4 | Saved views / column-preference persistence beyond localStorage; row density; ⌘K | localStorage column show/hide only | Any lane needs the hours; these are NICE by construction |
-| 5 | **M41 speaker edit-until-close** | Portal submission detail stays read-only. Remove "and updated submissions" from M14's close-date copy and **note the deviation in the demo script so it reads as a decision, not a bug** | M41 is Tue AM; not merged by the **Tue-midnight CP4 freeze** → cut |
-| 6 | **Server-side CFP drafts** | localStorage-only; Drafts tab labeled "(seeded)"; form-card draft counts hidden; limit semantics unchanged (already counts submitted only) | Draft row / version pinning destabilizes the submit path before CP2 |
-| 7 | Multi-round evaluation UI | Single plan + Rating column (schema keeps rounds) | M19 slips past Monday, or WS-C is swarming B2 from Sun noon |
-| 8 | Dashboard Today tab extras (pacing chart, form progress cards, participants donut) | KPI tiles + attention strip + **Speaker Tracking (CORE)** | M38 runs long Monday; Speaker Tracking is never cut |
-| 9 | Airtable cron sync → manual button only. Then Airtable export entirely | Manual "Sync to Airtable" button; then nothing (it is a bonus, not core) | `performUpsert` merge re-verification fails in M39's first 15 min Tue, or Tue is over-subscribed |
-| 10 | Week / Track / Room views (already Tue-scheduled) | List + Day + Conflicts; the brief's views claim reduced **and noted honestly** | Tue AM slips |
-| 11 | Public API keyed endpoints | The 3 unkeyed public read endpoints (bonus still claimed) | M40 not finished Tue |
-| 12 | **Agenda DnD** | Click-to-place (click session, click slot) + resize via dialog; conflict detection and all views intact; demoed as click-drag-lite, **honestly noted** | **Mon noon: drag unreliable** (risk #5) |
-| 13 | **Portal form builder UI** | 2 seeded portal forms (profile-update, session-info); task / form / file runtime intact | **The Mon-noon renderer micro-checkpoint — not Tuesday.** Miss → fires the same day |
-| 14 | Reminder ladder | Single overdue reminder + per-speaker manual "send reminder now" | **Any double-send observed** (risk #7) → disable the ladder for judging |
-| 15 | Embed auto-resize script | Plain iframe snippet with a generous min-height | postMessage/ResizeObserver flaky cross-origin at CP3 |
-| 16 | Admin impersonation; event switcher polish | Single-event demo | Last resort before the minimum bar |
+| 5 | Dashboard Today tab extras (pacing chart, form progress cards, participants donut) | KPI tiles + attention strip + **Speaker Tracking (CORE)** | M38 runs long Monday; Speaker Tracking is never cut |
+| 6 | Airtable cron sync → manual button only. Then Airtable export entirely | Manual "Sync to Airtable" button; then nothing (it is a bonus, not core) | `performUpsert` merge re-verification fails in M39's first 15 min Tue, or Tue is over-subscribed |
+| 7 | Week / Track / Room views (already Tue-scheduled) | List + Day + Conflicts | Tue AM slips |
+| 8 | Public API keyed endpoints | The 3 unkeyed public read endpoints (bonus still claimed) | M40 not finished Tue |
+| 9 | **Agenda DnD** | Click-to-place + resize via dialog; conflict detection, assisted placement, and all views intact | **Mon noon: drag unreliable** (risk #5) |
+| 10 | **Portal form builder UI** | 2 seeded portal forms (profile-update, session-info); task / form / file runtime intact | **The Mon-noon renderer micro-checkpoint — not Tuesday.** Miss → fires the same day |
+| 11 | Reminder ladder | Single overdue reminder + per-speaker manual send; M50/M52 filtered bulk reminders remain | **Any double-send observed** (risk #7) → disable the automated ladder |
+| 12 | Embed auto-resize polish | Plain iframe and functional script snippets with a conservative initial height | ResizeObserver polish remains after M53's cross-origin AC is green |
+| 13 | Admin impersonation; event switcher polish | Single-event demo | Last resort before the recovery minimum |
 
 **Escalation above the cut list:** *Wed noon — any primary feature undemoable → cut to its §9 minimum form and rewrite the demo script around what works.*
 
-**The minimum bar that still wins** is quoted in [`README.md`](README.md) §7. Everything above that line is margin; nothing below it ships half-broken.
+**The recovery minimum** is quoted in [`README.md`](README.md) §7. M41 and M50–M54 remain required before release; nothing ships half-broken.

@@ -212,7 +212,7 @@ export type FormFieldRendererProps = {
   errors?: Record<string, string>;            // server field errors surfaced inline
 };
 ```
-Rules stated in the file: the implementation ([M15](./M15-public-cfp-wizard.md)) may import **nothing** from the CFP wizard's step/store code; [M25](./M25-task-runtime.md) consumes it as a black box against the golden fixture from Sunday and swaps the import at the **Mon-noon micro-checkpoint**. A miss fires cut-line #13 that day.
+Rules stated in the file: the implementation ([M15](./M15-public-cfp-wizard.md)) may import **nothing** from the CFP wizard's step/store code; [M25](./M25-task-runtime.md) consumes it as a black box against the golden fixture from Sunday and swaps the import at the **Mon-noon micro-checkpoint**. A miss fires cut-line #10 that day.
 **`mode` is the single most-tested prop in the build** — the Mon-noon micro-checkpoint exists to validate exactly this swap. Task-form filling uses `mode="edit"` (it is the same interaction as CFP editing); `'fill'` exists in no contract and must appear in no call site. Any *new* prop must be **optional** and land via an architect-labeled PR, because a required addition breaks WS-D's already-written call sites.
 
 ### 6. `errors.ts` — the closed code enum

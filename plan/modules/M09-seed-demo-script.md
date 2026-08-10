@@ -106,7 +106,7 @@ portal-login challenge; production sends it to the team-owned inbox, while the i
 preview may expose it only through the explicitly enabled fallback diagnostics.
 
 ### 7. `docs/demo-script.md`
-One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, preview-only email-diagnostics instructions, and any honest deviations (e.g. if cut-line #5 fired, "portal submission detail is read-only — deliberate, see README").
+One row per brief feature: **# · Feature · URL · Seeded artifact · What to show (≤ 1 line, ≤ 60 seconds)**. Cover all nine plus the four bonuses. Include: the **reviewer 60-second scoring walkthrough**, preview-only email-diagnostics instructions, and any active reduced forms from PLAN §9. Speaker submission editing is required and must not be described as a cut-line deviation.
 This file doubles as the Wed bug-bash checklist and as the judges' unassisted path.
 - **Done when:** someone who did not build the feature walks all nine rows on the deployed preview using only this file, in under 15 minutes, without asking a question — including logging in as the **reviewer** and scoring one abstract.
 

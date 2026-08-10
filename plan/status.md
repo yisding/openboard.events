@@ -304,19 +304,21 @@ this as a **release gate, not a data-dependent cleanup**: `TEST_AUTH` must be di
 preview network-restricted — before any customer-facing or non-demo deployment; the judged-demo
 window is the only sanctioned exception.
 
-## 8. Product overlay (added at rev. 8)
+## 8. Product overlay (expanded by PLAN resolution #23)
 
-The owner's goal is now a sellable product, not only the judged submission. Two documents extend
-this ledger without changing PLAN.md's frozen contracts or the judging bar:
+The owner's goal is now a sellable product, not only the judged submission. PLAN resolution #23
+adds M50–M54 as required post-R3 release scope and keeps M55 optional after organization tenancy.
+None of M50–M55 is started or evidenced by this ledger. Two companion documents provide context:
 
 - [`../docs/product-readiness.md`](../docs/product-readiness.md) — the audit: what is
   server-backed vs demo-adapter-only, what remains unproven externally, and the commercial scope
   the plan never contained.
 - [`product-roadmap.md`](product-roadmap.md) — the phased product plan layered after the
-  recovery gates (wiring debt → external proof → trust/compliance → commercial layer M42–M49),
-  including the product auth decision (Better Auth with Google as a social provider; see
-  `DECISIONS.md`, "Product auth direction").
+  recovery gates (wiring debt → external proof → trust/compliance → product-completeness M50–M54
+  and commercial layer M42–M49/M55), including the product auth decision (Better Auth with Google
+  as a social provider; see `DECISIONS.md`, "Product auth direction").
 
 Rule of precedence: while the recovery gates in §5 are open, they order all work; the roadmap
 consumes effort only where it overlaps them (which its Phase P1 deliberately does — it is the
-same work as R2/R3, starting with §6's next actions).
+same work as R2/R3, starting with §6's next actions). Once R3 is green, M50–M53 may run in parallel,
+M54 follows M30, and M10's final release sign-off waits for M50–M54's deployed browser AC.
