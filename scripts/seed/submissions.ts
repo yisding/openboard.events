@@ -46,6 +46,13 @@ const SPREAD: Array<{ key: string; title: string; status: SubmissionStatus }> = 
 
 /** Mirrors contacts.ts, which owns these people. */
 const SPEAKER_KEYS = ["ada", "grace", "alan", "katherine", "margaret", "barbara", "tim", "radia", "linus", "sophie", "james", "shafi"];
+/**
+ * Employers, on the seeded "Employer" question. They are deliberately
+ * recognisable: an anonymized reviewer who can see one of these names on a
+ * proposal is looking at a blindness bug, and a demo needs that to be obvious
+ * rather than subtle.
+ */
+const EMPLOYERS = ["Northwind Labs", "Contoso Cloud", "Initech Systems", "Globex Research"];
 const TRACK_KEYS = ["agents", "platforms", "security", "community"] as const;
 const FORMAT_KEYS = ["talk", "workshop", "panel", "keynote"] as const;
 
@@ -79,6 +86,12 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
     { fieldId: field("description"), participantId: null, value: { t: "s", v: `<p>A talk about ${title.toLowerCase().slice(0, 60)}.</p>` } },
     { fieldId: field("track"), participantId: null, value: { t: "opt", v: TRACK_KEYS[index % TRACK_KEYS.length] ?? "agents" } },
     { fieldId: field("format"), participantId: null, value: { t: "opt", v: FORMAT_KEYS[index % FORMAT_KEYS.length] ?? "talk" } },
+    // M50's blind-review pair, answered on every seeded abstract so a blind
+    // round has something to keep as well as something to withhold: "Approach"
+    // is classified as proposal content and reaches an anonymized reviewer,
+    // "Employer" is left at the fail-closed default and does not.
+    { fieldId: field("approach"), participantId: null, value: { t: "s", v: `Live walkthrough, then the parts of ${title.toLowerCase().slice(0, 40)} that went wrong.` } },
+    { fieldId: field("employer"), participantId: null, value: { t: "s", v: EMPLOYERS[index % EMPLOYERS.length] ?? "Northwind Labs" } },
   ]);
 
   const create = async (key: string, title: string, status: SubmissionStatus, index: number) => {
@@ -148,5 +161,52 @@ export async function seedSubmissions(ctx: SeedCtx): Promise<void> {
     WHERE event_id = ${eventId} AND client_session_id = 'seed:submission:pending-5'
   `);
 
+  await topUpBlindReviewAnswers(ctx);
+
   ctx.log(`seeded ${SPREAD.length + HOSTILE.length + 2} submissions across every status, including the XSS, emoji, RTL and null probes`);
+}
+
+/**
+ * The blind-review pair, added to submissions that were seeded before those two
+ * questions existed.
+ *
+ * `create` above is a no-op for a row it already made — deliberately, so a
+ * re-run cannot overwrite a judge's edits — which means new questions never
+ * reach the abstracts already in a seeded database. That is the same shape of
+ * bug that once kept Round 2 off every previously-seeded preview: without this,
+ * a blind round on `sb-test` would have nothing to show a reviewer and nothing
+ * to withhold from them, and only a full wipe would fix it.
+ *
+ * Answers that already exist are left exactly as they are.
+ */
+async function topUpBlindReviewAnswers(ctx: SeedCtx): Promise<void> {
+  const { tx, eventId } = ctx;
+  const approach = ctx.id("field", "form-a-approach");
+  const employer = ctx.id("field", "form-a-employer");
+  const employerCase = sql.join(
+    EMPLOYERS.map((name, position) => sql`WHEN ${position} THEN ${name}`),
+    sql` `,
+  );
+
+  const filled = await tx.execute<{ field_id: string }>(sql`
+    INSERT INTO submission_answers (event_id, submission_id, field_id, participant_id, value)
+    SELECT s.event_id, s.id, field.id, NULL, jsonb_build_object('t', 's', 'v', field.answer)
+    FROM submissions s
+    CROSS JOIN LATERAL (VALUES
+      (${approach}::uuid, 'Live walkthrough, then the parts of ' || lower(left(s.title, 40)) || ' that went wrong.'),
+      (${employer}::uuid, CASE (s.code % ${EMPLOYERS.length}) ${employerCase} ELSE ${EMPLOYERS[0]} END)
+    ) AS field(id, answer)
+    WHERE s.event_id = ${eventId}
+      AND s.client_session_id LIKE 'seed:submission:%'
+      -- Drafts are answerless on purpose; the Drafts tab is a fixture too.
+      AND s.status <> 'draft'
+      AND EXISTS (SELECT 1 FROM form_fields f WHERE f.id = field.id AND f.event_id = s.event_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM submission_answers a
+        WHERE a.submission_id = s.id AND a.field_id = field.id AND a.participant_id IS NULL
+      )
+    RETURNING field_id
+  `);
+  const added = (filled.rows ?? []).length;
+  if (added > 0) ctx.log(`topped up ${added} blind-review answers on submissions seeded before those questions existed`);
 }

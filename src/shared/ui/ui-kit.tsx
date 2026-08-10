@@ -58,8 +58,28 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
  * the two never argue, and is announced with `role="alert"` because it appears
  * after the field has already been left.
  */
-export function Field({ label, hint, required, error, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; children: ReactNode }) {
-  return <label className={error ? "field field-invalid" : "field"}><span>{label}{required && <b className="required"> *</b>}</span>{children}{error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}</label>;
+// `children` is optional so the component can be constructed through
+// `createElement(Field, props, child)` — the form the repo's render tests use,
+// and the only one `react/no-children-prop` allows. A required `children` in the
+// prop type makes that call fail to typecheck, because `createElement` does not
+// fold its rest arguments into the props type.
+export function Field({ label, hint, required, error, group, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; group?: boolean; children?: ReactNode }) {
+  const inner = <>
+    <span>{label}{required && <b className="required"> *</b>}</span>
+    {children}
+    {error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}
+  </>;
+  // `group` for the fields whose control is a *set* of buttons rather than one
+  // input. `<button>` is a labelable element, so a `<label>` wrapping a choice
+  // grid labels its first button — and the accessible name HTML-AAM computes is
+  // the label's whole text content minus that button's own, i.e. every *other*
+  // option's text. The first choice ends up named after the ones beside it and
+  // no choice can be found by its own name. A named group leaves each button
+  // named by its own content, which is what a screen reader and a role-based
+  // query both need. Same class name, so the styling is untouched.
+  return group
+    ? <div role="group" aria-label={label} className={error ? "field field-invalid" : "field"}>{inner}</div>
+    : <label className={error ? "field field-invalid" : "field"}>{inner}</label>;
 }
 
 export function Segmented<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {

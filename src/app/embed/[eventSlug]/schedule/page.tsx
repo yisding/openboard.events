@@ -8,9 +8,10 @@ import { redirect } from "next/navigation";
  * content type — redirecting here, not to `/agenda`, is what keeps an
  * already-placed iframe's admin-configured kill switch and style pointed at
  * the same config row instead of silently reading a different, freshly
- * defaulted one. The style knobs (`accent`/`theme`/`header`) also travel on
- * the query string, so they must ride along on the redirect too, or a host
- * page's already-placed iframe reverts to unstyled defaults.
+ * defaulted one. Style now comes from that config row rather than the query
+ * string (the caching-regression fix, status.md rev. 11), so forwarding the
+ * incoming query string is only for any other param a host page's snippet
+ * happens to carry — it is otherwise a harmless no-op.
  */
 export default async function Page({
   params,

@@ -90,9 +90,11 @@ export function EmbedsAdminPage({
   }
 
   async function saveSettings(config: EmbedConfigDTO) {
-    // Content filters are read live from this saved row by the embed routes
-    // (not baked into the iframe URL like style) — an already-placed iframe
-    // picks up a filter/field-visibility change right after this save.
+    // Style and content filters are both read live from this saved row by
+    // the embed routes (the query string on the copied iframe/script
+    // snippets is a display convenience for a human skimming the tag; the
+    // routes themselves never read it) — an already-placed iframe picks up
+    // a style or filter/field-visibility change right after this save.
     const updated = await patch(config, { style: styleFor(config.contentType), filters: filtersFor(config.contentType) });
     if (updated) toast("Embed settings saved");
   }

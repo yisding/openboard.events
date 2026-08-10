@@ -53,6 +53,14 @@ const envSchema = z.object({
   // actually needs to sign one, rather than the whole environment refusing
   // to parse until someone runs `wrangler secret put`.
   UNSUBSCRIBE_SECRET: optionalString,
+  // M49 — signs the billing provider webhook (`/api/webhooks/billing`), same
+  // shared-secret-HMAC posture as `RESEND_WEBHOOK_SECRET` above and left
+  // optional for the same reason: no live payment provider is connected yet
+  // (`src/features/billing/server/provider.ts`'s `StubBillingProviderAdapter`
+  // is the only adapter implemented), so nothing has this provisioned. The
+  // webhook route fails closed (rejects every event) rather than accepting
+  // an unverified one when it is unset.
+  BILLING_WEBHOOK_SECRET: optionalString,
   CRON_SECRET: optionalString,
   R2_ACCOUNT_ID: optionalString,
   R2_ACCESS_KEY_ID: optionalString,
@@ -65,6 +73,31 @@ const envSchema = z.object({
   AIRTABLE_API_KEY: optionalString,
   AIRTABLE_BASE_ID: optionalString,
   AIRTABLE_CRON: z.enum(["0", "1"]).default("0"),
+  /**
+   * M42 — which implementation backs `requireAdmin`.
+   *
+   * `fallback` (the default, and what every deployed environment runs today) is
+   * M06a's jose/PBKDF2 stateless cookie. `better-auth` is the M42
+   * implementation: Better Auth over the Drizzle adapter, with revocable
+   * server-side sessions in `admin_sessions`.
+   *
+   * Defaulting to `fallback` is the guardrail DECISIONS.md ("Product auth
+   * direction") states in as many words: the fallback remains the shipping auth
+   * until a deployed Better Auth round-trip is proven on the preview. Flipping
+   * this variable is that proof's first step, and it is reversible without a
+   * deploy — the two providers read disjoint storage, so a session minted under
+   * either one survives the switch being flipped back.
+   */
+  ADMIN_AUTH_PROVIDER: z.enum(["fallback", "better-auth"]).default("fallback"),
+  GOOGLE_CLIENT_ID: optionalString,
+  GOOGLE_CLIENT_SECRET: optionalString,
+  /**
+   * The origin Better Auth builds callback and email URLs from. Optional and
+   * defaulted to `APP_BASE_URL` at the point of use — one origin, not two, is
+   * the normal case; this exists because Google's authorized-redirect-URI list
+   * is configured per origin and a preview may need to differ.
+   */
+  BETTER_AUTH_URL: optionalString,
   TEST_AUTH: z.enum(["1"]).optional(),
   NEXT_PUBLIC_BUILD_SHA: optionalString,
 }).superRefine((env, context) => {
@@ -95,6 +128,25 @@ const envSchema = z.object({
       context.addIssue({ code: "custom", path: ["CRON_SECRET"], message: "must be at least 32 characters" });
     }
   }
+  // M42 — fail closed rather than half-configured. Better Auth signs its
+  // session cookies with SESSION_SECRET and needs an origin to build callbacks
+  // from; Google is optional (email+password alone is a complete sign-in path)
+  // but a half-supplied client id/secret pair is always a mistake.
+  if (env.ADMIN_AUTH_PROVIDER === "better-auth") {
+    if (!env.SESSION_SECRET) {
+      context.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "is required when ADMIN_AUTH_PROVIDER=better-auth" });
+    }
+    if (env.BETTER_AUTH_URL) {
+      const parsed = z.url().safeParse(env.BETTER_AUTH_URL);
+      if (!parsed.success || new URL(parsed.data).origin !== env.BETTER_AUTH_URL) {
+        context.addIssue({ code: "custom", path: ["BETTER_AUTH_URL"], message: "must be an origin with no path or trailing slash" });
+      }
+    }
+  }
+  if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
+    context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together" });
+  }
+
   // Hygiene applies whenever the value is present, not only when deployed —
   // matches the pattern above, but UNSUBSCRIBE_SECRET itself stays optional
   // (see its schema comment) so a short value is the only way to fail here.

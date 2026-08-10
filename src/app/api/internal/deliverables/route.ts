@@ -1,24 +1,13 @@
 import type { NextRequest } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/client";
 import { listDeliverablesIn, type DeliverableFilters } from "@/features/portal/deliverables/server/queries";
+import { deliverableFiltersSchema } from "@/features/portal/deliverables/server/filters";
 import { getEventTimezoneIn, tasksAdminAuth } from "@/features/portal/tasks-admin/server/queries";
-import { contactIdSchema, eventIdSchema, fileRequestIdSchema, taskIdSchema } from "@/shared/contracts";
+import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { endOfDayInTz, zonedTimeToInstant } from "@/shared/lib/time";
 
-const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date, YYYY-MM-DD");
-
-const listInput = z.object({
-  taskId: taskIdSchema.optional(),
-  fileRequestId: fileRequestIdSchema.optional(),
-  contactId: contactIdSchema.optional(),
-  state: z.enum(["all", "open", "overdue", "completed"]).optional(),
-  dueOnOrAfter: dateOnlySchema.optional(),
-  dueOnOrBefore: dateOnlySchema.optional(),
-  hasUpload: z.enum(["true", "false"]).optional(),
-  search: z.string().max(200).optional(),
-});
+const listInput = deliverableFiltersSchema;
 
 function startOfDayInTz(dateISO: string, timeZone: string): Date {
   const [year, month, day] = dateISO.split("-").map(Number);

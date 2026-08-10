@@ -146,7 +146,7 @@ export function FileRequestsView({
           <Field label="Title" required>
             <input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
           </Field>
-          <Field label="Type">
+          <Field label="Type" group>
             <div className="choice-cards compact">
               {(["contact", "submission"] as const).map((type) => (
                 <button type="button" key={type} className={draft.targetType === type ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, targetType: type }))}>

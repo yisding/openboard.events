@@ -45,7 +45,16 @@ export type DbOrTx = typeof db | TxDb;
  * Runtime transactions are confined to requestPortalLogin, createSubmission,
  * upsertDraft, updateSubmissionFromCfp, notifyQueues (PLAN's
  * "notifyDecisions" — its withTx body),
- * completeTaskViaResponse, completeTaskViaUpload, and moveSession.
+ * completeTaskViaResponse, completeTaskViaUpload, and moveSession —
+ * plus, added in the M47 (data lifecycle & GDPR) run, eraseContactData
+ * (`src/features/data-lifecycle/server/contact-erasure.ts`): a
+ * right-to-erasure deletion spans roughly a dozen tables and must be
+ * all-or-nothing, the same atomicity argument that put the original eight
+ * on this list — and, added in the M55 (organization-level speaker CRM) run,
+ * mergeOrganizationContactsIn (`src/features/crm/server/merge.ts`): a
+ * duplicate-contact merge reassigns references across five tables and then
+ * tombstones the losing identity, which must commit or roll back together
+ * the same way an erasure does.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {

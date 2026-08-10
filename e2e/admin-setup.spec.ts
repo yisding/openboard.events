@@ -118,11 +118,15 @@ test.describe("admin-setup", () => {
         // The standing empty-state test: it must stay genuinely empty, and every
         // surface must render its designed empty state rather than crash.
         await page.goto(`/events/${EVENTS.empty.id}/settings?tab=tracks`);
-        await expect(page.getByRole("heading", { name: "Tracks" })).toBeVisible();
+        // `exact`, because the empty state's own heading is "No tracks yet" and
+        // an accessible-name match is a substring match: the panel heading and
+        // the empty state it is asserting the presence of matched the same
+        // locator, and two matches is a strict-mode failure rather than a pass.
+        await expect(page.getByRole("heading", { name: "Tracks", exact: true })).toBeVisible();
         await expect(page.getByText("No tracks yet")).toBeVisible();
 
         await page.goto(`/events/${EVENTS.empty.id}/forms`);
-        await expect(page.getByRole("heading", { name: "Submission Forms" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Submission Forms", exact: true })).toBeVisible();
         await expect(page.getByText("No forms here")).toBeVisible();
       });
       assertClean();
@@ -168,36 +172,69 @@ test.describe("admin-setup", () => {
           await page.getByRole("button", { name: /add question/i }).first().click();
           const dialog = page.getByRole("dialog", { name: "Add a question" });
           await dialog.getByLabel("Question label").fill(label);
-          await dialog.getByRole("button", { name: type }).click();
+          // Located by the option's own title text rather than by accessible
+          // name. Each response-type card renders an icon glyph, a bold title
+          // and a description, so its name is "⌄ Dropdown Choose one option" —
+          // a name match works, but only while the card's name is its own
+          // content. It was not: the grid sat inside `<Field>`'s `<label>`,
+          // which labelled the first card with every *other* card's text, so
+          // "Dropdown" matched two buttons and "Short text" matched none. The
+          // markup is fixed; this locator is chosen so that it depends on the
+          // rendered title alone and cannot be pulled off by a neighbour again.
+          await dialog.locator(".type-grid button").filter({ has: page.getByText(type, { exact: true }) }).click();
           await dialog.getByRole("button", { name: /^add question$/i }).click();
           await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+        };
+
+        // Each "Save question" is one PATCH the builder fires on click, and the
+        // next step always depends on its answer: the following save sends the
+        // `expectedUpdatedAt` this one returns, and the reload below is the
+        // whole point of the conditional assertion — a reload that lands first
+        // cancels the save it was supposed to prove. So the click is paired
+        // with its response rather than with a guess about how fast Neon is.
+        const saveQuestion = async () => {
+          const response = page.waitForResponse((candidate) =>
+            candidate.url().includes(`/api/internal/forms/${formId}/fields/`)
+            && candidate.request().method() === "PATCH");
+          await page.getByRole("button", { name: /save question/i }).click();
+          const saved = await response;
+          expect(saved.status(), `saving a question should succeed: ${await saved.text()}`).toBe(200);
         };
 
         // A dropdown, with its options typed the way an organizer types them.
         await addQuestion("Session length", "Dropdown");
         await page.getByRole("button", { name: /Session length/ }).first().click();
         await page.getByLabel("Options").fill("Short\nLong");
-        await page.getByRole("button", { name: /save question/i }).click();
+        await saveQuestion();
 
-        // A conditional one. The toggle seeds a condition against the first
-        // earlier question; pointing it at the dropdown is the organizer's next
-        // click, and what is asserted is that the rule survives a reload —
-        // "Conditional" is rendered from the persisted `visibility` column.
+        // A conditional one. Switching the rule to "Show when…" seeds a
+        // condition against the first earlier question; pointing it at the
+        // dropdown is the organizer's next click, and what is asserted is that
+        // the rule survives a reload — "Conditional" is rendered from the
+        // persisted `visibility` column.
+        //
+        // Driven through M13b's `<VisibilityRuleEditor>`, which is what the
+        // inspector actually mounts now. The old on/off `.switch` and
+        // `.condition-editor` it replaced no longer exist, so this step was
+        // clicking for markup that had been gone since the rules UI landed. The
+        // editor is scoped by class because `<RoutingRulesPanel>` on the canvas
+        // renders the same condition row, with the same labels, beside it.
         await addQuestion("Room preference", "Short text");
         await page.getByRole("button", { name: /Room preference/ }).first().click();
-        await page.locator(".condition-card .switch").click();
-        await page.locator(".condition-editor select").first().selectOption({ label: "Session length" });
-        await page.getByRole("button", { name: /save question/i }).click();
+        const rule = page.locator(".visibility-rule-editor");
+        await rule.getByRole("button", { name: /show when/i }).click();
+        await rule.getByLabel("Source question").selectOption({ label: "Session length" });
+        await saveQuestion();
 
         await page.reload();
         await expect(page.getByText("· Conditional")).toBeVisible({ timeout: 20_000 });
 
-        // The routing rule goes through its own route, not the builder: M12's
-        // `<RoutingRulesPanel>` exists in the tree but is not mounted by
-        // `form-builder.tsx` (the Abstract step renders an explanatory note in
-        // its place), so there is no authoring UI to drive. The rule itself is
-        // real — same endpoint the panel calls, same server validation — and
-        // the missing mount is reported rather than papered over.
+        // The routing rule goes through its own route rather than the panel.
+        // M13b has since mounted `<RoutingRulesPanel>` on the Abstract step, so
+        // the authoring UI exists — but a rule is a *post-submit* effect, and
+        // what this spec is here to prove is the link at the end. The endpoint
+        // driven here is the one that panel calls, with the same server
+        // validation; driving the panel itself belongs to the rules spec.
         const form = await apiData<BuilderForm>(request, `/api/internal/forms/${formId}?eventId=${EVENTS.main.id}`);
         const dropdown = form.sections
           .flatMap((section) => section.fields)

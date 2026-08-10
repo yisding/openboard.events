@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { eventIdSchema } from "@/shared/contracts";
-import { adminAuth, apiKeyAuth, cronAuth, portalAuth, publicAuth } from "./guards";
-import { requireAdmin } from "./admin";
+import { eventIdSchema, organizationIdSchema } from "@/shared/contracts";
+import { adminAuth, apiKeyAuth, cronAuth, organizationAuth, portalAuth, publicAuth } from "./guards";
+import { requireAdmin, requireOrganizationAdmin } from "./admin";
 
 vi.mock("./admin", () => ({
   requireAdmin: vi.fn(async (eventId: string) => ({
@@ -10,6 +10,13 @@ vi.mock("./admin", () => ({
     name: "Member",
     role: "reviewer",
     eventId,
+  })),
+  requireOrganizationAdmin: vi.fn(async (organizationId: string) => ({
+    userId: "5f000000-0000-4000-8000-000000000001",
+    email: "member@example.com",
+    name: "Member",
+    role: "organizer",
+    organizationId,
   })),
 }));
 
@@ -28,8 +35,38 @@ describe("guard csrfExempt flags", () => {
 
   it("leaves the cookie-session guards unmarked (checked by default)", () => {
     expect(adminAuth().csrfExempt).toBeUndefined();
+    expect(organizationAuth().csrfExempt).toBeUndefined();
     expect(portalAuth().csrfExempt).toBeUndefined();
     expect(publicAuth().csrfExempt).toBeUndefined();
+  });
+});
+
+/**
+ * M43 — the organization-scoped guard is `adminAuth`'s shape one level up: the
+ * same fail-closed organizer default, applied to `organization_members`. It
+ * reads its id from the route's `organizationId` segment, never from the
+ * `eventId` one, so an event-scoped route can never accidentally authorize
+ * against an organization (or the reverse).
+ */
+describe("organizationAuth", () => {
+  const organizationId = organizationIdSchema.parse("5f000000-0000-4000-8000-0000000000a1");
+  const request = {} as Parameters<ReturnType<typeof organizationAuth>>[0];
+
+  it("demands organizer when a route names no role", async () => {
+    vi.mocked(requireOrganizationAdmin).mockClear();
+    await organizationAuth()(request, null, { organizationId });
+    expect(vi.mocked(requireOrganizationAdmin)).toHaveBeenCalledWith(organizationId, "organizer");
+  });
+
+  it("lowers the bar only where a route asks for it", async () => {
+    vi.mocked(requireOrganizationAdmin).mockClear();
+    await organizationAuth({ role: "reviewer" })(request, null, { organizationId });
+    expect(vi.mocked(requireOrganizationAdmin)).toHaveBeenCalledWith(organizationId, "reviewer");
+  });
+
+  it("rejects a route with a missing or malformed organizationId", async () => {
+    await expect(organizationAuth()(request, null, {})).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(organizationAuth()(request, null, { organizationId: "not-a-uuid" })).rejects.toMatchObject({ code: "VALIDATION" });
   });
 });
 

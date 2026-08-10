@@ -27,6 +27,9 @@ const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   reviewer_invited: "Reviewer invited",
   review_reminder: "Review reminder",
   speaker_bulk_message: "Message",
+  admin_password_reset: "Password reset",
+  admin_email_verification: "Email verification",
+  organization_invited: "Team invitation",
 };
 
 const CONFIRMATION_OPTIONS: ConfirmationStatus[] = ["unconfirmed", "confirmed", "declined"];

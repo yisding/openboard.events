@@ -36,9 +36,16 @@ const update = defineHandler({
 const remove = defineHandler({
   auth: agendaAuth(),
   input: z.object({ expectedVersion: z.int().positive() }),
-  handler: async ({ eventId, input, params }) => {
+  handler: async ({ eventId, input, params, requestId }) => {
     const { sessionId } = paramsSchema.parse(params);
-    await deleteSession(eventIdSchema.parse(eventId), sessionId, input.expectedVersion);
+    const scopedEventId = eventIdSchema.parse(eventId);
+    await deleteSession(scopedEventId, sessionId, input.expectedVersion);
+    // A deleted session that was published is still on the public agenda until
+    // the ISR entry expires, which is the one case where the stale page shows
+    // something that no longer exists at all. The row is gone by now, so its
+    // status cannot be re-read — this invalidates unconditionally rather than
+    // guess, and a delete is rare enough to afford it.
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     return { deleted: true };
   },
 });

@@ -1,6 +1,6 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, exists, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { events, rooms, sessionFormats, tags, tracks } from "@/db/schema";
+import { eventMembers, events, organizationMembers, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
   eventDtoSchema,
   roomDtoSchema,
@@ -13,6 +13,7 @@ import {
   type SessionFormatDTO,
   type TagDTO,
   type TrackDTO,
+  type UserId,
 } from "@/shared/contracts";
 import type { VocabKind } from "../schemas";
 
@@ -73,12 +74,46 @@ export async function getEventBySlugIn(dbOrTx: DbOrTx, slug: string): Promise<Ev
 }
 export const getEventBySlug = (slug: string): Promise<EventDTO | null> => getEventBySlugIn(db, slug);
 
-/** The `/events` switcher and index — soonest event first, so upcoming work stays on top. */
-export async function listEventsIn(dbOrTx: DbOrTx): Promise<EventDTO[]> {
-  const rows = await dbOrTx.select().from(events).orderBy(asc(events.startsAt), asc(events.id));
+/**
+ * The `/events` switcher and index — soonest event first, so upcoming work
+ * stays on top, and **scoped to the caller**.
+ *
+ * This was `select().from(events)` with no WHERE clause: M11 predates tenancy,
+ * and `eventsHubAuth` admits any signed-in admin, so `GET
+ * /api/internal/events` and the `/events` page handed every account the whole
+ * fleet — name, slug, type, dates, timezone, theme, caps — across every
+ * organization. Harmless while the install was single-tenant; the moment M44's
+ * self-serve signup went live it meant a stranger could enumerate every
+ * customer's event roster with one signup.
+ *
+ * The scope is the union of the two memberships the app already authorizes
+ * against, and nothing wider:
+ *
+ * - `event_members` — the row `requireAdmin` reads. Someone who can open an
+ *   event must be able to see it in the switcher.
+ * - `organization_members` — the row `authorizeOrganization` reads. An
+ *   organization's own team sees its events even before anyone grants them
+ *   per-event membership, which is what makes the invite-then-assign flow
+ *   (M44) usable.
+ *
+ * It deliberately does *not* widen event access: this is a list query, and
+ * every event-scoped route still goes through `requireAdmin`, which reads
+ * `event_members` and nothing else.
+ */
+export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId): Promise<EventDTO[]> {
+  const memberOfEvent = dbOrTx.select({ one: sql`1` })
+    .from(eventMembers)
+    .where(and(eq(eventMembers.eventId, events.id), eq(eventMembers.userId, userId)));
+  const memberOfOrganization = dbOrTx.select({ one: sql`1` })
+    .from(organizationMembers)
+    .where(and(eq(organizationMembers.organizationId, events.organizationId), eq(organizationMembers.userId, userId)));
+  const rows = await dbOrTx.select()
+    .from(events)
+    .where(or(exists(memberOfEvent), exists(memberOfOrganization)))
+    .orderBy(asc(events.startsAt), asc(events.id));
   return rows.map(toEventDto);
 }
-export const listEvents = (): Promise<EventDTO[]> => listEventsIn(db);
+export const listEvents = (userId: UserId): Promise<EventDTO[]> => listEventsIn(db, userId);
 
 export async function listTracksIn(dbOrTx: DbOrTx, eventId: EventId): Promise<TrackDTO[]> {
   const rows = await dbOrTx.select().from(tracks).where(eq(tracks.eventId, eventId)).orderBy(asc(tracks.sortOrder), asc(tracks.id));

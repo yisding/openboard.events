@@ -923,3 +923,23 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .itinerary-my-schedule{width:100%;justify-content:center}
   .speaker-row-detail{padding-left:16px}
 }
+
+/* M45 — self-serve onboarding: the organization picker card and the guided
+   setup wizard. Everything else reuses M15's `.cfp-step`/`.cfp-progress`/
+   `.cfp-actions` and M17's `.chip`/`.chip-picker`. */
+.org-picker-card{display:flex;align-items:center;gap:12px;text-align:left}
+.org-picker-card b{display:block;font-size:13px}
+.org-picker-card small{display:block;color:var(--muted);font-size:9px;margin-top:2px}
+.onboarding-wizard{max-width:640px}
+.onboarding-lede{color:var(--muted);font-size:10px;line-height:1.6;margin:0 0 16px}
+.onboarding-track-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
+.onboarding-track-list li{display:flex;align-items:center;gap:8px;font-size:10px;padding:7px 10px;border:1px solid var(--line);border-radius:7px}
+.onboarding-track-list li i{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.onboarding-toggle{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}
+.onboarding-toggle input{width:15px;height:15px;accent-color:var(--accent)}
+.onboarding-done{text-align:center;padding:32px 20px}
+.onboarding-done h2{font-size:18px;margin:12px 0 6px}
+.onboarding-done p{color:var(--muted);font-size:10px;max-width:440px;margin:0 auto}
+.onboarding-done .cfp-actions{justify-content:center;margin-top:20px}
+.onboarding-link-row{display:flex;gap:8px;margin:16px auto 0;max-width:440px}
+.onboarding-link-row input{flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--line-strong);border-radius:7px;background:var(--surface-subtle);color:var(--muted);font-size:9px}

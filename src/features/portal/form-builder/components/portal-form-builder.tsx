@@ -293,7 +293,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
     >
       <div className="form-stack">
         <Field label="Question label" required><input autoFocus value={customLabel} onChange={(current) => setCustomLabel(current.target.value)} placeholder="What would you like to ask?" /></Field>
-        <Field label="Response type">
+        <Field label="Response type" group>
           <div className="type-grid">
             {COMMITTED_FIELD_TYPES.map((type) => (
               <button key={type} className={customType === type ? "active" : ""} onClick={() => setCustomType(type)}>

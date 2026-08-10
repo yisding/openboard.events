@@ -1,0 +1,50 @@
+import { pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { users } from "./core";
+
+/**
+ * M42 — Better Auth's `account` and `verification` models for admin/organizer
+ * auth (`drizzle/0009_product_auth.sql`). The `session` model reuses the
+ * pre-existing `admin_sessions` table, declared in `./contacts`.
+ *
+ * These are admin-only. Speaker portal auth keeps its own `portal_sessions` /
+ * `portal_tokens` tables and its custom OTP/magic-link implementation — M42
+ * does not move it (DECISIONS.md, "Product auth direction").
+ */
+
+/**
+ * Credential and social-provider links.
+ *
+ * `providerId = 'credential'` rows carry the password hash — including the
+ * legacy PBKDF2 strings 0009 backfilled out of `users.password_hash`, which
+ * `admin-password.ts` verifies and rehashes on first sign-in.
+ * `providerId = 'google'` rows carry the OAuth tokens.
+ */
+export const adminAccounts = pgTable("admin_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  password: text("password"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [unique().on(table.providerId, table.accountId)]);
+
+/**
+ * Short-lived verification values: password-reset and email-verification
+ * tokens, plus the OAuth state/PKCE records written during the Google
+ * round-trip.
+ */
+export const adminVerifications = pgTable("admin_verifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});

@@ -141,3 +141,65 @@ export async function listDeliverablesIn(
 }
 
 export const listDeliverables = (eventId: EventId, filters?: DeliverableFilters) => listDeliverablesIn(db, eventId, filters);
+
+export type DeliverableStateCounts = { all: number; open: number; overdue: number; completed: number };
+
+/**
+ * The central Files view's tab badges (M52). Counts have to come from their
+ * own aggregate query, not `.length` on whatever `listDeliverablesIn` just
+ * returned for one tab — the whole point of moving that list server-side is
+ * that a "Completed" read no longer carries the "Open"/"Overdue" rows home
+ * just to count them. Every filter but `state` still applies, the same way
+ * `getStatusCountsIn` keeps Abstracts' own tab numbers honest about an active
+ * search.
+ */
+export async function getDeliverableStateCountsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  filters: Omit<DeliverableFilters, "state"> = {},
+): Promise<DeliverableStateCounts> {
+  const search = filters.search?.trim() || null;
+  const hasUpload = filters.hasUpload ?? null;
+  const result = await dbOrTx.execute<{ all: number; open: number; overdue: number; completed: number }>(sql`
+    SELECT
+      count(*)::int AS all,
+      count(*) FILTER (WHERE NOT v.completed)::int AS open,
+      count(*) FILTER (WHERE v.overdue)::int AS overdue,
+      count(*) FILTER (WHERE v.completed)::int AS completed
+    FROM task_assignments_v v
+    JOIN portal_tasks t ON t.id = v.task_id AND t.event_id = v.event_id AND t.completion_mode = 'file_request'
+    JOIN file_requests r ON r.id = t.file_request_id AND r.event_id = t.event_id
+    JOIN contacts c ON c.id = v.contact_id AND c.event_id = v.event_id
+    LEFT JOIN submissions s ON s.id = v.submission_id AND s.event_id = v.event_id
+    LEFT JOIN LATERAL (
+      SELECT u.id AS file_upload_id
+      FROM file_uploads u
+      WHERE u.event_id = v.event_id AND u.file_request_id = t.file_request_id
+        AND u.contact_id = v.contact_id AND u.submission_id IS NOT DISTINCT FROM v.submission_id AND u.is_latest
+      LIMIT 1
+    ) latest ON true
+    WHERE v.event_id = ${eventId}
+      AND (${filters.taskId ?? null}::uuid IS NULL OR t.id = ${filters.taskId ?? null}::uuid)
+      AND (${filters.fileRequestId ?? null}::uuid IS NULL OR t.file_request_id = ${filters.fileRequestId ?? null}::uuid)
+      AND (${filters.contactId ?? null}::uuid IS NULL OR v.contact_id = ${filters.contactId ?? null}::uuid)
+      AND (${filters.dueBefore ?? null}::timestamptz IS NULL OR v.due_at <= ${filters.dueBefore ?? null}::timestamptz)
+      AND (${filters.dueAfter ?? null}::timestamptz IS NULL OR v.due_at >= ${filters.dueAfter ?? null}::timestamptz)
+      AND (${hasUpload}::boolean IS NULL OR (latest.file_upload_id IS NOT NULL) = ${hasUpload}::boolean)
+      AND (
+        ${search}::text IS NULL
+        OR c.first_name ILIKE '%' || ${search} || '%' OR c.last_name ILIKE '%' || ${search} || '%'
+        OR c.email ILIKE '%' || ${search} || '%' OR s.title ILIKE '%' || ${search} || '%'
+        OR r.title ILIKE '%' || ${search} || '%'
+      )
+  `);
+  const row = (result.rows ?? [])[0];
+  return {
+    all: Number(row?.all ?? 0),
+    open: Number(row?.open ?? 0),
+    overdue: Number(row?.overdue ?? 0),
+    completed: Number(row?.completed ?? 0),
+  };
+}
+
+export const getDeliverableStateCounts = (eventId: EventId, filters?: Omit<DeliverableFilters, "state">) =>
+  getDeliverableStateCountsIn(db, eventId, filters);

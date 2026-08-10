@@ -3,7 +3,7 @@ import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { queryRows } from "./helpers/db";
 import { NO_DATABASE, NO_TARGET, databaseConfigured, targetConfigured } from "./helpers/env";
 import { landed, waitingOn } from "./helpers/landed";
-import { EVENTS, USERS } from "./helpers/seeded";
+import { EVENTS, FORMS, USERS } from "./helpers/seeded";
 
 /**
  * M50 — review operations, against the deployed preview.
@@ -23,10 +23,18 @@ type PlanDTO = {
   id: string;
   name: string;
   round: number;
+  scaleMin: number;
+  scaleMax: number;
+  status: string;
+  trackIds: string[] | null;
   anonymizeAuthors: boolean;
   opensAt: string | null;
   closesAt: string | null;
-  criteria: Array<{ id: string; label: string; kind: string; required: boolean; options: Array<{ id: string; score: number | null }> }>;
+  criteria: Array<{
+    id: string; label: string; weight: number; kind: string; required: boolean;
+    options: Array<{ id: string; label: string; score: number | null }>;
+    minValue: number | null; maxValue: number | null;
+  }>;
   reviewers: Array<{ userId: string; email: string; assigned: number; completed: number; recused: number }>;
 };
 
@@ -39,8 +47,45 @@ type QueueDTO = {
     scoredAt: string | null;
     myCriterionValues: Record<string, unknown>;
   }>;
-  window: { state: string; canSave: boolean } | null;
+  window: { state: string; canRead: boolean; canSave: boolean } | null;
 };
+
+type DetailDTO = {
+  submitterName: string | null;
+  submitterEmail: string | null;
+  speakers: unknown[];
+  participants: unknown[];
+  answerPanel: { answers: Array<{ fieldId: string; value: { t: string; v: unknown } }> };
+};
+
+/**
+ * The organizer's own edit of a round, sent as the plan editor sends it: the
+ * whole plan, not a patch. Used here to move the window under a reviewer's feet
+ * — which is the only honest way to prove a half-open window from outside.
+ */
+function planUpdate(plan: PlanDTO, window: { opensAt: string | null; closesAt: string | null }) {
+  return {
+    planId: plan.id,
+    name: plan.name,
+    round: plan.round,
+    scaleMin: plan.scaleMin,
+    scaleMax: plan.scaleMax,
+    status: plan.status,
+    trackIds: plan.trackIds,
+    anonymizeAuthors: plan.anonymizeAuthors,
+    criteria: plan.criteria.map((criterion) => ({
+      id: criterion.id,
+      label: criterion.label,
+      weight: criterion.weight,
+      kind: criterion.kind,
+      required: criterion.required,
+      options: criterion.options,
+      minValue: criterion.minValue,
+      maxValue: criterion.maxValue,
+    })),
+    ...window,
+  };
+}
 
 test.describe("review-operations", () => {
   test.skip(!targetConfigured(), NO_TARGET);
@@ -109,27 +154,41 @@ test.describe("review-operations", () => {
       const queue = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
       const first = queue.rows[0];
       expect(first, "the reviewer needs something to read").toBeDefined();
-      const detail = await apiData<{
-        submitterName: string | null;
-        submitterEmail: string | null;
-        speakers: unknown[];
-        participants: unknown[];
-      }>(page.request, `/api/internal/submissions/${EVENT}/${first?.submissionId}?planId=${round2.id}`);
+      const detail = await apiData<DetailDTO>(
+        page.request, `/api/internal/submissions/${EVENT}/${first?.submissionId}?planId=${round2.id}`,
+      );
       expect(detail.submitterName).toBeNull();
       expect(detail.submitterEmail).toBeNull();
       expect(detail.speakers).toEqual([]);
       expect(detail.participants).toEqual([]);
 
-      // And the rendered page, not just the JSON: the author's email must not
-      // appear anywhere in the reviewer's HTML.
+      // The answer-level half of the same rule, which is where a blind round
+      // actually leaks: "Approach" was classified as proposal content, so it
+      // survives; "Employer" was left at the fail-closed default, so it does
+      // not. Neither decision is taken from the question's name or section.
+      const reviewerFields = detail.answerPanel.answers.map((answer) => answer.fieldId);
+      expect(reviewerFields).toContain(FORMS.open.fields.approach);
+      expect(reviewerFields).not.toContain(FORMS.open.fields.employer);
+
+      // The organizer's copy of the same submission is untouched by any of it.
+      const full = await apiData<DetailDTO>(request, `/api/internal/submissions/${EVENT}/${first?.submissionId}`);
+      const organizerFields = full.answerPanel.answers.map((answer) => answer.fieldId);
+      expect(organizerFields).toEqual(expect.arrayContaining([FORMS.open.fields.approach, FORMS.open.fields.employer]));
+      expect(full.submitterEmail).not.toBeNull();
+      expect(full.participants.length).toBeGreaterThan(0);
+
+      // And the rendered page, not just the JSON: neither the author's email
+      // nor the employer they typed may appear anywhere in the reviewer's HTML.
       const authors = await queryRows<{ email: string }>(
         `SELECT c.email FROM submission_participants sp
          JOIN contacts c ON c.id = sp.contact_id AND c.event_id = sp.event_id
          WHERE sp.event_id = $1 AND sp.submission_id = $2`,
         [EVENT, first?.submissionId],
       );
+      const employer = full.answerPanel.answers.find((answer) => answer.fieldId === FORMS.open.fields.employer);
       const html = await page.content();
       for (const author of authors) expect(html).not.toContain(author.email);
+      if (typeof employer?.value.v === "string") expect(html).not.toContain(employer.value.v);
     });
 
     await test.step("a typed scorecard saves and reloads, and required values govern completion", async () => {
@@ -171,24 +230,106 @@ test.describe("review-operations", () => {
       expect(saved?.myCriterionValues[text?.id ?? ""]).toEqual({ kind: "text", value: "Recorded by the e2e run" });
     });
 
+    await test.step("the window governs reading before it opens and saving after it shuts", async () => {
+      // The round's own window is moved under the reviewer's feet and put back
+      // in a `finally`: a spec that leaves the seeded demo world closed, or not
+      // yet open, has broken the thing it was sent to prove.
+      const original = { opensAt: round2.opensAt, closesAt: round2.closesAt };
+      const saved = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
+      const target = saved.rows.find((row) => row.scoredAt !== null);
+      expect(target, "the previous step's score is what has to stay readable").toBeDefined();
+      const setWindow = (window: { opensAt: string | null; closesAt: string | null }) =>
+        apiData<PlanDTO>(request, `${API}/plans/${round2.id}`, { method: "PATCH", data: planUpdate(round2, window) });
+
+      try {
+        // Before it opens: no content at all, not a greyed-out list. A title is
+        // content, so "cannot read before the window" has to mean the payload.
+        await setWindow({ opensAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), closesAt: original.closesAt });
+        const early = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
+        expect(early.window).toMatchObject({ state: "before_open", canRead: false, canSave: false });
+        expect(early.rows).toEqual([]);
+        const earlyDetail = await page.request.get(
+          `/api/internal/submissions/${EVENT}/${target?.submissionId}?planId=${round2.id}`,
+        );
+        expect(earlyDetail.status()).toBe(403);
+
+        // After it shuts: the work stays readable — including the score already
+        // saved — and no further save is accepted.
+        await setWindow({ opensAt: original.opensAt, closesAt: new Date(Date.now() - 60 * 1000).toISOString() });
+        const late = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
+        expect(late.window).toMatchObject({ state: "closed", canRead: true, canSave: false });
+        const stillThere = late.rows.find((row) => row.submissionId === target?.submissionId);
+        expect(stillThere?.scoredAt, "prior work survives the close").not.toBeNull();
+        const refused = await page.request.post(`${API}/reviews`, {
+          data: {
+            planId: round2.id,
+            submissionId: target?.submissionId,
+            criterionScores: { [round2.criteria[0]?.id ?? ""]: { kind: "numeric", value: 2 } },
+          },
+        });
+        expect(refused.status(), "a closed round refuses the save").toBe(409);
+      } finally {
+        await setWindow(original);
+      }
+
+      const reopened = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
+      expect(reopened.window).toMatchObject({ state: "open", canSave: true });
+    });
+
     await test.step("a recusal leaves the queue and stays on the record", async () => {
+      // The organizer hands over one more abstract first, and this step steps
+      // away from *that* one. Two reasons, both learned the hard way: recusing
+      // the item the previous step scored would take its assignment out of the
+      // live set and with it the `completed` count the progress step below
+      // asserts on; and recusing a seeded row would shrink the seeded queue on
+      // every run, so the second run of the suite — or a single retry — would
+      // find nothing left to step away from.
+      const [reviewer] = await queryRows<{ id: string }>(
+        "SELECT id FROM users WHERE email = $1", [USERS.reviewer],
+      );
+      expect(reviewer?.id, "the reviewer has to exist before anything can be routed to them").toBeDefined();
+      const [spare] = await queryRows<{ id: string }>(
+        `SELECT s.id FROM submissions s
+         WHERE s.event_id = $1 AND s.status NOT IN ('draft','withdrawn')
+           AND NOT EXISTS (
+             SELECT 1 FROM review_assignments ra
+             WHERE ra.plan_id = $2 AND ra.submission_id = s.id AND ra.reviewer_user_id = $3
+           )
+         ORDER BY s.code LIMIT 1`,
+        [EVENT, round2.id, reviewer?.id],
+      );
+      expect(spare?.id, "the round needs one unassigned abstract to hand over").toBeDefined();
+      const handOver = () => apiData(request, `${API}/plans/${round2.id}/assignments`, {
+        method: "PUT",
+        data: { reviewerUserIds: [reviewer?.id], submissionIds: [spare?.id], mode: "add" },
+      });
+      await handOver();
+
       const queue = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
-      const target = queue.rows.at(-1);
-      expect(target, "the reviewer needs a second item to step away from").toBeDefined();
+      expect(queue.rows.map((row) => row.submissionId)).toContain(spare?.id);
       await apiData(page.request, `${API}/plans/${round2.id}/recusals`, {
         method: "POST",
-        data: { submissionId: target?.submissionId, reason: "e2e conflict of interest" },
+        data: { submissionId: spare?.id, reason: "e2e conflict of interest" },
       });
 
       const after = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
-      expect(after.rows.map((row) => row.submissionId)).not.toContain(target?.submissionId);
-      const audit = await queryRows<{ status: string; recusal_reason: string }>(
-        `SELECT ra.status, ra.recusal_reason FROM review_assignments ra
+      expect(after.rows.map((row) => row.submissionId)).not.toContain(spare?.id);
+      const auditRow = () => queryRows<{ status: string; recusal_reason: string; recused_at: string | null }>(
+        `SELECT ra.status, ra.recusal_reason, ra.recused_at FROM review_assignments ra
          JOIN users u ON u.id = ra.reviewer_user_id
          WHERE ra.plan_id = $1 AND ra.submission_id = $2 AND u.email = $3`,
-        [round2.id, target?.submissionId, USERS.reviewer],
+        [round2.id, spare?.id, USERS.reviewer],
       );
+      const audit = await auditRow();
       expect(audit[0]).toMatchObject({ status: "recused", recusal_reason: "e2e conflict of interest" });
+      expect(audit[0]?.recused_at, "a recusal without a time is unauditable").not.toBeNull();
+
+      // Handing the same abstract back does not quietly undo the declaration:
+      // the reason and the time are still on the record afterwards.
+      await handOver();
+      expect((await auditRow())[0]).toMatchObject({ status: "recused", recusal_reason: "e2e conflict of interest" });
+      const stillGone = await apiData<QueueDTO>(page.request, `${API}/queue?planId=${round2.id}`);
+      expect(stillGone.rows.map((row) => row.submissionId)).not.toContain(spare?.id);
     });
 
     await test.step("progress and a bulk reminder reach the organizer's own surfaces", async () => {

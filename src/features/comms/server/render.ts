@@ -14,6 +14,12 @@ const COMMON_TOKENS = [
   "speaker.first_name", "speaker.last_name", "speaker.email",
   "portal.magic_link", "unsubscribe.url",
 ] as const;
+const ADMIN_AUTH_TOKENS = [
+  "event.name", "event.start_date", "event.location", "event.timezone",
+  "speaker.first_name", "speaker.last_name", "speaker.email",
+  "unsubscribe.url",
+  "admin.name", "admin.action_url", "admin.expires_in",
+] as const;
 const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
   submission_received: [...COMMON_TOKENS, "submission.title", "submission.code"],
   submission_accepted: [...COMMON_TOKENS, "submission.title", "submission.code"],
@@ -27,6 +33,21 @@ const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
   review_reminder: [...COMMON_TOKENS, "review.round", "review.queue_url", "review.outstanding", "review.closes_at"],
   // M51 — bulk speaker email offers only the common merge surface.
   speaker_bulk_message: [...COMMON_TOKENS],
+  // M42 — admin auth mail. `portal.magic_link` is absent on purpose: these go
+  // to an organizer signing in to the admin app, and offering a speaker-portal
+  // link as a merge token would let an organizer put a second, month-long
+  // credential into a security email. See `TEMPLATE_VAR_SCHEMAS` in contracts.
+  admin_password_reset: [...ADMIN_AUTH_TOKENS],
+  admin_email_verification: [...ADMIN_AUTH_TOKENS],
+  // M44 — team invitations. Same shape as `ADMIN_AUTH_TOKENS`: no
+  // `portal.magic_link`, see the doc comment on `organization_invited` in
+  // `TEMPLATE_VAR_SCHEMAS`.
+  organization_invited: [
+    "event.name", "event.start_date", "event.location", "event.timezone",
+    "speaker.first_name", "speaker.last_name", "speaker.email",
+    "unsubscribe.url",
+    "invite.organization_name", "invite.inviter_name", "invite.role", "invite.action_url", "invite.expires_at",
+  ],
 };
 
 export function escapeHtml(value: string): string {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
+import { eraseContactData } from "@/features/data-lifecycle";
 import { getSpeakerDetail, setConfirmationStatus, updateSpeakerBio, updateSpeakerEmail, updateSpeakerHeadshot } from "@/features/portal";
 import { CONFIRMATION_STATUSES, contactIdSchema, eventIdSchema, fileIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -74,6 +75,27 @@ const patch = defineHandler({
   },
 });
 
+/**
+ * M47 — right-to-erasure. `eraseContactData` is the audited, all-or-nothing
+ * deletion (see its own doc comment); organizer-only, matching PATCH above
+ * and for the same reason — this is the most destructive action available
+ * on a speaker's record, not less sensitive than editing it.
+ */
+const del = defineHandler({
+  auth: adminAuth({ role: "organizer" }),
+  input: z.object({}),
+  handler: async ({ eventId, params, requestId }) => {
+    const { contactId } = routeParams.parse(params);
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const receipt = await eraseContactData(scopedEventId, contactId);
+    // An erased contact may have been a confirmed/published speaker — ask
+    // the public surfaces back rather than wait out the 60s ISR window, the
+    // same pattern PATCH already uses above.
+    await revalidatePublicEvent(scopedEventId, ["speakers", "schedule"], requestId);
+    return receipt;
+  },
+});
+
 type Route = { params: Promise<{ eventId: string; contactId: string }> };
 
 export function GET(request: NextRequest, route: Route): Promise<Response> {
@@ -82,4 +104,8 @@ export function GET(request: NextRequest, route: Route): Promise<Response> {
 
 export function PATCH(request: NextRequest, route: Route): Promise<Response> {
   return patch(request, route);
+}
+
+export function DELETE(request: NextRequest, route: Route): Promise<Response> {
+  return del(request, route);
 }

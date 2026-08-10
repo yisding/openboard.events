@@ -1,17 +1,39 @@
-import { bigint, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { DEFAULT_ORGANIZATION_ID } from "@/shared/contracts";
 import { fileKindEnum, memberRoleEnum } from "./enums";
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull().default(""),
+  // The legacy PBKDF2 credential. M42 copied every non-null value into
+  // `admin_accounts.password` (drizzle/0009_product_auth.sql); this column stays
+  // so the jose/PBKDF2 fallback keeps working until the deployed Better Auth
+  // round-trip is proven.
   passwordHash: text("password_hash"),
+  // M42 — required by Better Auth's `user` model.
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const events = pgTable("events", {
   id: uuid("id").defaultRandom().primaryKey(),
+  // M43 — the tenant this event belongs to. NOT NULL with a database DEFAULT
+  // of `DEFAULT_ORGANIZATION_ID` (drizzle/0010_organization_tenancy.sql), which
+  // is what let the column land additively: existing rows were backfilled by
+  // the ADD COLUMN itself and every existing writer keeps working unchanged.
+  // The foreign key and the `UNIQUE (id, organization_id)` key that extends the
+  // composite-FK chain one level live in that SQL file — declaring the
+  // reference here would make `core` and `organizations` import each other for
+  // no typing benefit, the same reason `logoFileId` below carries no
+  // `.references()` (its FK is composite).
+  //
+  // `.default(...)` mirrors the column default so an insert that names no
+  // organization stays type-legal and lets Postgres apply it, exactly as it
+  // did before this column existed.
+  organizationId: uuid("organization_id").notNull().default(DEFAULT_ORGANIZATION_ID),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   eventType: text("event_type").notNull().default("conference"),

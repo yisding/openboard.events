@@ -3,6 +3,21 @@ import type { TxDb } from "@/db/client";
 import { communicationLogs } from "@/db/schema";
 import { AppError } from "@/shared/lib/errors";
 
+/**
+ * The template keys whose outbox row carries a sealed, one-shot credential —
+ * and the exact set the `communication_logs` CHECK constraint allows a
+ * `secret_payload_ciphertext` on (drizzle/0000_init.sql, widened by
+ * drizzle/0009_product_auth.sql). Every one of these is a credential the
+ * recipient asked for seconds earlier and that the dispatcher clears the moment
+ * it has rendered it.
+ */
+export const SECRET_PAYLOAD_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set<TemplateKey>([
+  "portal_login",
+  // M42 — Better Auth's admin password-reset and email-verification links.
+  "admin_password_reset",
+  "admin_email_verification",
+]);
+
 export async function enqueueEmail(tx: TxDb, args: {
   eventId: EventId;
   templateKey: TemplateKey;
@@ -11,9 +26,11 @@ export async function enqueueEmail(tx: TxDb, args: {
   refs?: { submissionId?: SubmissionId; sessionId?: SessionId; taskId?: TaskId };
   secretPayloadCiphertext?: Uint8Array;
 }): Promise<void> {
-  const isLogin = args.templateKey === "portal_login";
-  if (isLogin !== (args.secretPayloadCiphertext !== undefined)) {
-    throw new AppError("VALIDATION", isLogin ? "portal_login requires encrypted delivery payload" : "encrypted delivery payload is restricted to portal_login");
+  const carriesSecret = SECRET_PAYLOAD_TEMPLATE_KEYS.has(args.templateKey);
+  if (carriesSecret !== (args.secretPayloadCiphertext !== undefined)) {
+    throw new AppError("VALIDATION", carriesSecret
+      ? `${args.templateKey} requires encrypted delivery payload`
+      : `encrypted delivery payload is restricted to ${[...SECRET_PAYLOAD_TEMPLATE_KEYS].join(", ")}`);
   }
   await tx.insert(communicationLogs).values({
     eventId: args.eventId,

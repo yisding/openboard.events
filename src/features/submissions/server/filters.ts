@@ -13,8 +13,15 @@ export const submissionFiltersSchema = z.object({
   search: z.string().trim().max(200).default(""),
   trackId: trackIdSchema.nullable().default(null),
   tagId: tagIdSchema.nullable().default(null),
-  page: z.int().positive().default(1),
-  pageSize: z.int().positive().max(200).default(25),
+  // Coerced, not bare `z.int()`: every caller of this schema parses a *query
+  // string* — `defineHandler`'s `queryInput` for GET, and `export.csv` from
+  // `searchParams` — so a page size arrives as `"200"`, which a bare integer
+  // schema rejects. Without the coercion the two pagination parameters this
+  // route advertises are unusable over HTTP: `?pageSize=200` answered 400
+  // VALIDATION while the server page, which hand-wrapped them in `Number(…)`,
+  // worked. Numbers still parse unchanged, so the server page keeps working.
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(25),
   sort: z.enum([
     "newest",
     "oldest",
@@ -27,6 +34,44 @@ export const submissionFiltersSchema = z.object({
   ]).default("newest"),
 });
 export type SubmissionFilters = z.infer<typeof submissionFiltersSchema>;
+
+/**
+ * The same filters, read for a *page render* rather than for an API call.
+ *
+ * A route must reject a bad parameter — `export.csv` and the list endpoint both
+ * answer 400, and that is right, because a program sent it. A page is different:
+ * its query string is in the address bar, where an organizer edits it, a stale
+ * bookmark preserves it and a shared link carries it. `submissionFiltersSchema
+ * .parse` inside a server component turns any of those into a 500 error page
+ * for the whole Abstracts surface, so `?page=` (an empty value, which coerces
+ * to 0) or a `status` from an older build takes the table down instead of
+ * ignoring one word.
+ *
+ * So: empty values are treated as absent, and a value that still will not parse
+ * is dropped by name and the rest kept — a mistyped `sort` must not also lose
+ * the `status` tab the organizer is standing on.
+ */
+export function parseSubmissionFiltersForPage(query: Record<string, string | string[] | undefined>): SubmissionFilters {
+  const input: Record<string, string> = {};
+  for (const [key, value] of Object.entries(query)) {
+    // A repeated parameter (`?status=a&status=b`) is ambiguous; the last one
+    // wins, which is what a browser form would have sent anyway.
+    const scalar = Array.isArray(value) ? value[value.length - 1] : value;
+    if (typeof scalar === "string" && scalar !== "") input[key] = scalar;
+  }
+  const parsed = submissionFiltersSchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  for (const issue of parsed.error.issues) {
+    const key = issue.path[0];
+    if (typeof key === "string") delete input[key];
+  }
+  // Every remaining key already parsed once and each field has a default, so
+  // the retry succeeds; the bare defaults are the floor if it somehow does not,
+  // because a page that renders the first page of everything is always better
+  // than a page that does not render.
+  const retried = submissionFiltersSchema.safeParse(input);
+  return retried.success ? retried.data : submissionFiltersSchema.parse({});
+}
 
 /**
  * What an organizer may change from the Abstracts drawer. Status is deliberately

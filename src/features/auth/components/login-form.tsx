@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
@@ -43,5 +44,8 @@ export function LoginForm() {
     <label className="field"><span>Password</span><input name="password" autoComplete="current-password" required minLength={8} type="password" /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
+    {/* The only route into M42's reset flow. `/login/reset` is where the
+        emailed link lands; `/login/forgot` is what causes it to be sent. */}
+    <p><Link href="/login/forgot">Forgot your password?</Link></p>
   </form>;
 }

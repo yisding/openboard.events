@@ -4,6 +4,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
+import { getReviewerSubmissionDetailIn, getSubmissionDetailIn } from "@/features/submissions";
+import type { PlanId, SubmissionId, UserId } from "@/shared/contracts";
 import { seedContacts } from "../../scripts/seed/contacts";
 import { seedEvaluation } from "../../scripts/seed/evaluation";
 import { seedEvents } from "../../scripts/seed/events";
@@ -43,7 +45,14 @@ describe("evaluation seed", () => {
         seedId("track", key), SEEDED_EVENT_ID, key, index,
       ]);
     }
-    for (const [key, email] of [["organizer", "organizer@openboard.dev"], ["reviewer", "reviewer@openboard.dev"]] as const) {
+    // The third pair of eyes is not decoration: M50's progress screen only has
+    // a completed, an outstanding and a recused column to fill because somebody
+    // other than the reviewer the deployed spec drives does that work.
+    for (const [key, email] of [
+      ["organizer", "organizer@openboard.dev"],
+      ["reviewer", "reviewer@openboard.dev"],
+      ["reviewer2", "reviewer2@openboard.dev"],
+    ] as const) {
       await pglite.query("INSERT INTO users(id,email,name) VALUES($1,$2,$3)", [seedId("user", key), email, key]);
       await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,$3)", [
         seedId("user", key), SEEDED_EVENT_ID, key === "organizer" ? "owner" : "reviewer",
@@ -107,17 +116,65 @@ describe("evaluation seed", () => {
     expect(typed.rows.at(-1)?.required).toBe(false);
   });
 
+  /**
+   * The organizer's progress table has an assigned, a completed, an outstanding
+   * and a recused column. A fixture that fills only the first of them is a
+   * fixture that cannot show whether the other three are wired to anything.
+   */
+  it("puts all four assignment states on Round 2, across three reviewers", async () => {
+    const rows = await pglite.query<{ email: string; assigned: number; completed: number; recused: number }>(
+      `SELECT u.email,
+              count(*) FILTER (WHERE ra.status = 'assigned')::int AS assigned,
+              count(*) FILTER (WHERE r.submitted_at IS NOT NULL)::int AS completed,
+              count(*) FILTER (WHERE ra.status = 'recused')::int AS recused
+       FROM review_assignments ra
+       JOIN users u ON u.id = ra.reviewer_user_id
+       LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
+         AND r.reviewer_user_id = ra.reviewer_user_id
+       WHERE ra.plan_id = $1 GROUP BY u.email`,
+      [seedId("plan", "round-2")],
+    );
+    const byEmail = new Map(rows.rows.map((row) => [row.email, row]));
+    expect([...byEmail.keys()].sort()).toEqual([
+      "organizer@openboard.dev", "reviewer2@openboard.dev", "reviewer@openboard.dev",
+    ]);
+    // The second reviewer carries the finished verdict and the recusal.
+    expect(byEmail.get("reviewer2@openboard.dev")).toMatchObject({ completed: 1, recused: 1 });
+    expect(byEmail.get("reviewer2@openboard.dev")?.assigned).toBeGreaterThan(0);
+    // The reviewer the deployed spec signs in as is left entirely outstanding,
+    // so the spec scores its own fixture rather than the seed's leftovers.
+    expect(byEmail.get("reviewer@openboard.dev")).toMatchObject({ completed: 0, recused: 0 });
+    expect(byEmail.get("reviewer@openboard.dev")?.assigned).toBeGreaterThan(0);
+
+    // And that verdict is a typed one, scored by the server from a numeric value
+    // and a *scored* option, with the written note contributing nothing.
+    const review = await pglite.query<{ overall_score: string; criterion_scores: Record<string, { kind: string }> }>(
+      `SELECT r.overall_score, r.criterion_scores FROM reviews r
+       JOIN users u ON u.id = r.reviewer_user_id
+       WHERE r.plan_id = $1 AND u.email = 'reviewer2@openboard.dev'`,
+      [seedId("plan", "round-2")],
+    );
+    const values = review.rows[0]?.criterion_scores ?? {};
+    expect(Object.values(values).map((value) => value.kind).sort()).toEqual(["numeric", "select", "text"]);
+    // (4 × 2 + 4 × 1) / 3 — the text criterion is not in the denominator.
+    expect(Number(review.rows[0]?.overall_score)).toBeCloseTo(4, 2);
+  });
+
   it("routes the reviewer to two of the four tracks", async () => {
     const rows = await pglite.query<{ email: string; track_ids: string[] | null }>(
       `SELECT u.email, a.track_ids FROM reviewer_assignments a JOIN users u ON u.id = a.user_id
        WHERE a.plan_id = $1 ORDER BY u.email`,
       [seedId("plan", "round-1")],
     );
-    expect(rows.rows.map((row) => row.email)).toEqual(["organizer@openboard.dev", "reviewer@openboard.dev"]);
-    // The organizer sees everything; the reviewer's two tracks are the demo's
-    // evidence that routing is real.
-    expect(rows.rows[0]?.track_ids).toBeNull();
-    expect(rows.rows[1]?.track_ids).toHaveLength(2);
+    const byEmail = new Map(rows.rows.map((row) => [row.email, row.track_ids]));
+    expect([...byEmail.keys()].sort()).toEqual([
+      "organizer@openboard.dev", "reviewer2@openboard.dev", "reviewer@openboard.dev",
+    ]);
+    // The organizer and the second reviewer see everything; the first
+    // reviewer's two tracks are the demo's evidence that routing is real.
+    expect(byEmail.get("organizer@openboard.dev")).toBeNull();
+    expect(byEmail.get("reviewer2@openboard.dev")).toBeNull();
+    expect(byEmail.get("reviewer@openboard.dev")).toHaveLength(2);
   });
 
   it("leaves some abstracts unscored so the Rating column shows an em dash", async () => {
@@ -143,8 +200,12 @@ describe("evaluation seed", () => {
   it("derives every overall score from the criteria server-side", async () => {
     // M50 stores discriminated values rather than bare numbers, in the same
     // column and the same row — one score store, evolved in place.
+    // Round 1 only: its two criteria are both numeric, which is what the
+    // weighted mean below is written against. Round 2's typed verdict is
+    // checked by the four-states test above, against its own arithmetic.
     const rows = await pglite.query<{ overall_score: string; criterion_scores: Record<string, { kind: string; value: number }> }>(
-      "SELECT overall_score, criterion_scores FROM reviews",
+      "SELECT overall_score, criterion_scores FROM reviews WHERE plan_id = $1",
+      [seedId("plan", "round-1")],
     );
     expect(rows.rows.length).toBeGreaterThan(0);
     for (const row of rows.rows) {
@@ -191,7 +252,112 @@ describe("evaluation seed", () => {
       "SELECT user_id,track_ids FROM reviewer_assignments WHERE plan_id = $1 ORDER BY user_id",
       [seedId("plan", "round-1")],
     );
-    expect(assignments.rows).toEqual([{ user_id: seedId("user", "reviewer"), track_ids: [seedId("track", "security")] }]);
+    // The organizer's deletion and the reviewer's narrowed scope both survive;
+    // the second reviewer's untouched row is simply still there.
+    expect(assignments.rows).toContainEqual({ user_id: seedId("user", "reviewer"), track_ids: [seedId("track", "security")] });
+    expect(assignments.rows.map((row) => row.user_id)).not.toContain(seedId("user", "organizer"));
+  });
+
+  /**
+   * The re-run above is the easy case: both rounds already exist. This is the
+   * one that bit — a database seeded before Round 2 existed. Round 1 is present,
+   * so the seed used to stop before ever reaching Round 2, and no number of
+   * re-runs could produce the blind, windowed, typed round that M50's surfaces
+   * and its deployed spec are written against. Short of wiping the database,
+   * which is exactly what a seeded preview cannot afford.
+   */
+  it("adds Round 2 to a database that only ever had Round 1", async () => {
+    await pglite.query("DELETE FROM evaluation_plans WHERE id = $1", [seedId("plan", "round-2")]);
+    const before = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM evaluation_plans");
+    expect(before.rows[0]?.n).toBe(1);
+
+    await seedEvaluation(ctx);
+
+    const round2 = await pglite.query<{ anonymize_authors: boolean; opens_at: string | null; closes_at: string | null; status: string }>(
+      "SELECT anonymize_authors, opens_at, closes_at, status FROM evaluation_plans WHERE id = $1",
+      [seedId("plan", "round-2")],
+    );
+    expect(round2.rows[0]).toMatchObject({ anonymize_authors: true, status: "open" });
+    expect(round2.rows[0]?.opens_at).not.toBeNull();
+    expect(round2.rows[0]?.closes_at).not.toBeNull();
+    const kinds = await pglite.query<{ kind: string }>(
+      "SELECT kind FROM evaluation_criteria WHERE plan_id = $1 ORDER BY sort_order",
+      [seedId("plan", "round-2")],
+    );
+    expect(kinds.rows.map((row) => row.kind)).toEqual(["numeric", "select", "text"]);
+    // And a reviewer with an actual worklist: a round nobody is assigned to is
+    // a round the spec cannot open.
+    const assignments = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM review_assignments WHERE plan_id = $1 AND status = 'assigned'",
+      [seedId("plan", "round-2")],
+    );
+    expect(assignments.rows[0]?.n).toBeGreaterThan(0);
+    // Round 1's own state is untouched by the top-up — the organizer's `closed`
+    // status from the re-run test above is still there.
+    expect((await pglite.query<{ status: string }>("SELECT status FROM evaluation_plans WHERE id = $1", [
+      seedId("plan", "round-1"),
+    ])).rows[0]?.status).toBe("closed");
+  });
+
+  /**
+   * The other half of the same failure, and the one an existence-only guard
+   * still had: a database that carries Round 2 in the shape it had *before* the
+   * three-reviewer fixture — two reviewers, nobody finished, nobody stepped
+   * away. "The plan row is there, therefore the round is right" skipped it
+   * wholesale, so the organizer's progress table would have shown an assigned
+   * column and three empty ones on the very database the walkthrough runs on,
+   * however many times the seed was re-run.
+   */
+  it("tops up a Round 2 that predates the three-reviewer fixture", async () => {
+    const planId = seedId("plan", "round-2");
+    const organizer = seedId("user", "organizer");
+    await pglite.query("DELETE FROM reviews WHERE plan_id = $1", [planId]);
+    await pglite.query(
+      "UPDATE review_assignments SET status = 'assigned', recusal_reason = NULL, recused_at = NULL WHERE plan_id = $1",
+      [planId],
+    );
+    await pglite.query("DELETE FROM review_assignments WHERE plan_id = $1 AND reviewer_user_id = $2", [planId, organizer]);
+    await pglite.query("DELETE FROM reviewer_assignments WHERE plan_id = $1 AND user_id = $2", [planId, organizer]);
+    const before = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM reviewer_assignments WHERE plan_id = $1", [planId],
+    );
+    expect(before.rows[0]?.n).toBe(2);
+
+    await seedEvaluation(ctx);
+
+    const rows = await pglite.query<{ email: string; assigned: number; completed: number; recused: number }>(
+      `SELECT u.email,
+              count(*) FILTER (WHERE ra.status = 'assigned')::int AS assigned,
+              count(*) FILTER (WHERE r.submitted_at IS NOT NULL)::int AS completed,
+              count(*) FILTER (WHERE ra.status = 'recused')::int AS recused
+       FROM review_assignments ra
+       JOIN users u ON u.id = ra.reviewer_user_id
+       LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
+         AND r.reviewer_user_id = ra.reviewer_user_id
+       WHERE ra.plan_id = $1 GROUP BY u.email`,
+      [planId],
+    );
+    const byEmail = new Map(rows.rows.map((row) => [row.email, row]));
+    expect([...byEmail.keys()].sort()).toEqual([
+      "organizer@openboard.dev", "reviewer2@openboard.dev", "reviewer@openboard.dev",
+    ]);
+    expect(byEmail.get("reviewer2@openboard.dev")).toMatchObject({ completed: 1, recused: 1 });
+    expect(byEmail.get("reviewer@openboard.dev")).toMatchObject({ completed: 0, recused: 0 });
+    expect(byEmail.get("organizer@openboard.dev")?.assigned).toBeGreaterThan(0);
+    // The round itself is not rewritten by a top-up: it is still the blind,
+    // windowed one the organizer has, and the top-up adds rows to it.
+    expect((await pglite.query<{ anonymize_authors: boolean }>(
+      "SELECT anonymize_authors FROM evaluation_plans WHERE id = $1", [planId],
+    )).rows[0]?.anonymize_authors).toBe(true);
+
+    // And now that the fixture is there, the round is the organizer's again: a
+    // reviewer they take off it does not come back on the next re-run.
+    await pglite.query("DELETE FROM review_assignments WHERE plan_id = $1 AND reviewer_user_id = $2", [planId, organizer]);
+    await pglite.query("DELETE FROM reviewer_assignments WHERE plan_id = $1 AND user_id = $2", [planId, organizer]);
+    await seedEvaluation(ctx);
+    expect((await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM reviewer_assignments WHERE plan_id = $1 AND user_id = $2", [planId, organizer],
+    )).rows[0]?.n).toBe(0);
   });
 
   it("scores submissions created by the real seed pipeline", async () => {
@@ -216,6 +382,55 @@ describe("evaluation seed", () => {
       const reviews = await seededDb.query<{ n: number }>("SELECT count(*)::int AS n FROM reviews");
       expect(routed.rows[0]?.n).toBeGreaterThan(0);
       expect(reviews.rows[0]?.n).toBeGreaterThan(0);
+
+      // The demo world's blind round, read the way a reviewer's browser reads
+      // it: the seeded "Approach" question is classified as proposal content
+      // and survives, the seeded "Employer" question was left at the
+      // fail-closed default and does not — and the organizer, who is not blind,
+      // still has both. Asserting this on the *seed* rather than on a
+      // purpose-built form is the point: the fixture the deployed spec runs
+      // against is the one that has to be blind.
+      const [assignment] = (await seededDb.query<{ submission_id: string }>(
+        `SELECT submission_id FROM review_assignments
+         WHERE plan_id = $1 AND reviewer_user_id = $2 AND status = 'assigned' ORDER BY submission_id LIMIT 1`,
+        [seedId("plan", "round-2"), seedId("user", "reviewer")],
+      )).rows;
+      expect(assignment?.submission_id).toBeDefined();
+      const submissionId = assignment?.submission_id as SubmissionId;
+      const blind = await getReviewerSubmissionDetailIn(
+        seededCtx.tx, SEEDED_EVENT_ID, seedId("plan", "round-2") as PlanId, submissionId,
+        seedId("user", "reviewer") as UserId, ctx.now,
+      );
+      const organizer = await getSubmissionDetailIn(seededCtx.tx, SEEDED_EVENT_ID, submissionId);
+      const fieldIds = (detail: typeof blind) => detail.answerPanel.answers.map((answer) => answer.fieldId as string);
+      const approach = seedId("field", "form-a-approach");
+      const employer = seedId("field", "form-a-employer");
+
+      expect(fieldIds(blind)).toContain(approach);
+      expect(fieldIds(blind)).not.toContain(employer);
+      expect(fieldIds(organizer)).toEqual(expect.arrayContaining([approach, employer]));
+      // And no route between the two can put a name back on it.
+      expect(blind.submitterName).toBeNull();
+      expect(blind.participants).toEqual([]);
+      expect(organizer.participants.length).toBeGreaterThan(0);
+
+      // And the same fixture on a database seeded *before* those two questions
+      // existed, which is every already-seeded preview: the submission seed
+      // skips a row it already created, so the answers have to be topped up or
+      // only a full wipe would ever produce them.
+      const countAnswers = async () => Number((await seededDb.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM submission_answers WHERE field_id = ANY($1::uuid[])",
+        [[approach, employer]],
+      )).rows[0]?.n ?? 0);
+      const fresh = await countAnswers();
+      expect(fresh).toBeGreaterThan(0);
+
+      await seededDb.query("DELETE FROM submission_answers WHERE field_id = ANY($1::uuid[])", [[approach, employer]]);
+      await seedSubmissions(seededCtx);
+      expect(await countAnswers()).toBe(fresh);
+      // Idempotent: a second re-run neither duplicates nor rewrites them.
+      await seedSubmissions(seededCtx);
+      expect(await countAnswers()).toBe(fresh);
     } finally {
       await seededDb.close();
     }

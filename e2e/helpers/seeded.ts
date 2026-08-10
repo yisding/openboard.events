@@ -57,6 +57,10 @@ export const FORMS = {
       format: formAField("format"),
       workshopDuration: formAField("workshop_duration"),
       topics: formAField("topics"),
+      /** Classified as proposal content: an anonymized reviewer reads this one. */
+      approach: formAField("approach"),
+      /** Left at the fail-closed default: an anonymized reviewer must not. */
+      employer: formAField("employer"),
       firstName: formAField("first_name"),
       lastName: formAField("last_name"),
       email: formAField("email"),

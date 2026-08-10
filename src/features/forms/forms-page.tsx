@@ -95,7 +95,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     <Modal open={creating} onClose={() => setCreating(false)} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
       <div className="form-stack">
         <Field label="Internal form name" required><input autoFocus maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
-        <Field label="Submission type"><div className="choice-cards">
+        <Field label="Submission type" group><div className="choice-cards">
           <button className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
           <button className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
         </div></Field>

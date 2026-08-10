@@ -1,0 +1,50 @@
+import { and, desc, eq } from "drizzle-orm";
+import { db, type DbOrTx } from "@/db/client";
+import { adminSessions } from "@/db/schema";
+import type { UserId } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
+
+/**
+ * M44 — admin session views over M42's revocable session store
+ * (`admin_sessions`, written only under `ADMIN_AUTH_PROVIDER=better-auth`).
+ * Self-service only: a signed-in identity sees and revokes their *own*
+ * sessions. Deliberately not extended to "an owner revokes a teammate's
+ * sessions" — `admin_sessions` is not organization-scoped (one person can
+ * belong to several organizations), so removing someone from *one*
+ * organization must not sign them out of every other one they legitimately
+ * belong to. `revokeAdminSessions(userId)` (M42, `admin.ts`) already covers
+ * "sign out everywhere"; this adds per-session listing and single-session
+ * revocation on top of it.
+ */
+export type AdminSessionSummary = {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId): Promise<AdminSessionSummary[]> {
+  const rows = await dbOrTx.select({
+    id: adminSessions.id,
+    ipAddress: adminSessions.ipAddress,
+    userAgent: adminSessions.userAgent,
+    createdAt: adminSessions.createdAt,
+    expiresAt: adminSessions.expiresAt,
+  }).from(adminSessions).where(eq(adminSessions.userId, userId)).orderBy(desc(adminSessions.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
+    ipAddress: row.ipAddress,
+    userAgent: row.userAgent,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+  }));
+}
+export const listAdminSessions = (userId: UserId): Promise<AdminSessionSummary[]> => listAdminSessionsIn(db, userId);
+
+/** Scoped by `userId` so a caller can only ever revoke their own session id, never someone else's by guessing it. */
+export async function revokeAdminSessionByIdIn(dbOrTx: DbOrTx, userId: UserId, sessionId: string): Promise<void> {
+  const revoked = await dbOrTx.delete(adminSessions).where(and(eq(adminSessions.id, sessionId), eq(adminSessions.userId, userId))).returning();
+  if (revoked.length === 0) throw new AppError("NOT_FOUND", "That session was not found");
+}
+export const revokeAdminSessionById = (userId: UserId, sessionId: string): Promise<void> => revokeAdminSessionByIdIn(db, userId, sessionId);

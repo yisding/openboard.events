@@ -8,6 +8,9 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// M52 adds `file_export_jobs`, whose `result_file_id` is one of the predicate's
+// owning references (P3-OPS).
+const migrationDeliverables = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 
 const EVENT_ID = "44444444-4444-4444-8444-444444444441";
 const CONTACT_ID = "44444444-4444-4444-8444-444444444442";
@@ -38,7 +41,8 @@ describe("orphan upload sweep", () => {
     db = new PGlite();
     await db.exec(migration0);
     await db.exec(migration1);
-db.exec(migrationReviewOps);
+    await db.exec(migrationReviewOps);
+    await db.exec(migrationDeliverables);
     await db.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'R2 Event','r2-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
       [EVENT_ID],
@@ -121,6 +125,26 @@ db.exec(migrationReviewOps);
     for (const key of ["evt/logo", "evt/bg", "evt/answer", "evt/task", "evt/response"]) {
       expect(swept).not.toContain(key);
     }
+  });
+
+  it("spares a completed export's ZIP while its file_export_jobs row still points at it, and reclaims it once that row is gone (P3-OPS)", async () => {
+    const exportZip = "44444444-4444-4444-8444-000000000030";
+    const jobId = "44444444-4444-4444-8444-000000000031";
+    await insertAsset(exportZip, "evt/export.zip", 48, "attachment");
+    await db.query(
+      `INSERT INTO file_export_jobs(id,event_id,status,group_by,result_file_id,expires_at)
+       VALUES($1,$2,'completed','none',$3, now() + interval '24 hours')`,
+      [jobId, EVENT_ID, exportZip],
+    );
+
+    // Old enough for the age cutoff, but still referenced by a live (not yet
+    // expired) export job: the general sweep must not touch it.
+    expect(await sweep()).not.toContain("evt/export.zip");
+
+    // Once the job row is gone — the only path that should ever happen through
+    // `pruneExpiredFileExportsIn`, not this sweep — the row is a genuine orphan.
+    await db.query("DELETE FROM file_export_jobs WHERE id=$1", [jobId]);
+    expect(await sweep()).toContain("evt/export.zip");
   });
 
   it("sweeps past a form response whose answers are not an object", async () => {

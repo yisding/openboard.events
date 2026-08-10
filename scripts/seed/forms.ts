@@ -20,7 +20,11 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
   const participant = ctx.id("section", `${formKey}-participant`) as FormAuthoringRows["sections"][number]["id"];
   const field = (key: string) => ctx.id("field", `${formKey}-${key}`) as FormAuthoringRows["fields"][number]["id"];
 
-  const base = { required: false, locked: false, maxChars: null, helpText: "", options: [], visibility: null, mapsTo: null, deletedAt: null };
+  // `reviewVisibility: "identity"` is the fail-closed default every question
+  // starts from (M50): a blind reviewer sees an answer only where an organizer
+  // has deliberately said it is proposal content. Two seeded questions below
+  // exist precisely to show both sides of that switch on the demo world.
+  const base = { required: false, locked: false, maxChars: null, helpText: "", options: [], visibility: null, mapsTo: null, reviewVisibility: "identity" as const, deletedAt: null };
 
   return {
     form: { id: formId, context: "cfp", version: 1 },
@@ -66,11 +70,25 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
           { id: "tooling", label: "Tooling", tagId: ctx.id("tag", "tooling") as never },
         ],
       },
+      // M50's blind-review fixture, half one. "Approach" is proposal content an
+      // organizer has explicitly opted into an anonymized reviewer's view, so a
+      // blind DTO carries it. Nothing about the question's *name* or section
+      // decides that — only this classification, pinned into the snapshot.
+      {
+        ...base, id: field("approach"), sectionId: abstract, key: "approach", label: "Approach",
+        fieldType: "textarea", maxChars: 1000, sortOrder: 6, reviewVisibility: "content",
+        helpText: "How you will teach it. Anonymized reviewers read this.",
+      },
       { ...base, id: field("first_name"), sectionId: participant, key: "first_name", label: "First name", fieldType: "text", required: true, locked: true, mapsTo: "contact.first_name", sortOrder: 0 },
       { ...base, id: field("last_name"), sectionId: participant, key: "last_name", label: "Last name", fieldType: "text", required: true, locked: true, mapsTo: "contact.last_name", sortOrder: 1 },
       { ...base, id: field("email"), sectionId: participant, key: "email", label: "Email", fieldType: "email", required: true, locked: true, mapsTo: "contact.email", sortOrder: 2 },
       { ...base, id: field("company"), sectionId: participant, key: "company", label: "Company", fieldType: "text", mapsTo: "contact.company", sortOrder: 3 },
       { ...base, id: field("bio"), sectionId: participant, key: "bio", label: "Bio", fieldType: "richtext", maxChars: 5000, mapsTo: "contact.bio_html", sortOrder: 4 },
+      // M50's blind-review fixture, half two. "Employer" is an ordinary custom
+      // question nobody classified, so it keeps the fail-closed default and a
+      // blind DTO withholds it — the failure mode of unclassified metadata is
+      // omission, not leakage.
+      { ...base, id: field("employer"), sectionId: participant, key: "employer", label: "Employer", fieldType: "text", sortOrder: 5 },
     ],
   };
 }
@@ -150,6 +168,11 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
         label: authored.label, fieldType: authored.fieldType, required: authored.required, locked: authored.locked,
         maxChars: authored.maxChars, helpText: authored.helpText, options: authored.options,
         visibility: authored.visibility, mapsTo: authored.mapsTo, sortOrder: authored.sortOrder,
+        // Carried explicitly rather than left to the column default: the
+        // authoring row and the compiled snapshot have to agree about which
+        // questions a blind reviewer may read, and the default is only correct
+        // for the questions that happen to want it.
+        reviewVisibility: authored.locked ? "identity" : authored.reviewVisibility ?? "identity",
         deletedAt: authored.deletedAt ? new Date(authored.deletedAt) : null,
       }).onConflictDoUpdate({
         target: formFields.id,
@@ -166,6 +189,7 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
           visibility: authored.visibility,
           mapsTo: authored.mapsTo,
           sortOrder: authored.sortOrder,
+          reviewVisibility: authored.locked ? "identity" : authored.reviewVisibility ?? "identity",
           deletedAt: authored.deletedAt ? new Date(authored.deletedAt) : null,
           updatedAt: new Date(),
         },

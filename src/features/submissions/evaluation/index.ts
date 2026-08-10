@@ -62,6 +62,8 @@ export {
   listEventMembersIn,
   listPlans,
   listPlansIn,
+  listReviewerPlans,
+  listReviewerPlansIn,
   listReviewQueue,
   listReviewQueueIn,
 } from "./server/queries";

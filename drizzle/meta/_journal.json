@@ -64,6 +64,48 @@
       "when": 1786766400000,
       "tag": "0008_speaker_roster_operations",
       "breakpoints": false
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786852800000,
+      "tag": "0009_product_auth",
+      "breakpoints": false
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786939200000,
+      "tag": "0010_organization_tenancy",
+      "breakpoints": false
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787025600000,
+      "tag": "0011_user_management",
+      "breakpoints": false
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787112000000,
+      "tag": "0012_billing_scaffold",
+      "breakpoints": false
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787198400000,
+      "tag": "0013_speaker_crm",
+      "breakpoints": false
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787284800000,
+      "tag": "0014_email_template_backfill",
+      "breakpoints": false
     }
   ]
 }
