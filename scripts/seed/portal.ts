@@ -1,18 +1,199 @@
 import { and, asc, eq } from "drizzle-orm";
-import { contacts, events, fileRequests, forms, portalTasks, resourcePages, taskCompletions } from "@/db/schema";
+import {
+  contacts,
+  events,
+  fileRequests,
+  formFields,
+  forms,
+  formSections,
+  formVersions,
+  portalTasks,
+  resourcePages,
+  taskCompletions,
+} from "@/db/schema";
+import type { FormAuthoringRows } from "@/shared/contracts";
+import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import { eventLocal, type SeedCtx } from "./lib/helpers";
+
+type PortalFormSeed = {
+  key: "profile-update" | "session-info";
+  internalName: string;
+  externalTitle: string;
+  targetType: "contact" | "submission";
+  rows: FormAuthoringRows;
+};
+
+function portalFormSeeds(ctx: SeedCtx): PortalFormSeed[] {
+  const makeIds = (formKey: PortalFormSeed["key"]) => ({
+    formId: ctx.id("form", formKey) as FormAuthoringRows["form"]["id"],
+    sectionId: ctx.id("section", `${formKey}-details`) as FormAuthoringRows["sections"][number]["id"],
+    fieldId: (key: string) => ctx.id("field", `${formKey}-${key}`) as FormAuthoringRows["fields"][number]["id"],
+  });
+  const fieldBase: Pick<
+    FormAuthoringRows["fields"][number],
+    "required" | "locked" | "maxChars" | "helpText" | "options" | "visibility" | "deletedAt"
+  > = {
+    required: false,
+    locked: false,
+    maxChars: null,
+    helpText: "",
+    options: [],
+    visibility: null,
+    deletedAt: null,
+  };
+
+  const profile = makeIds("profile-update");
+  const session = makeIds("session-info");
+
+  return [
+    {
+      key: "profile-update",
+      internalName: "Profile update",
+      externalTitle: "Update your information",
+      targetType: "contact",
+      rows: {
+        form: { id: profile.formId, context: "portal", version: 1 },
+        sections: [{
+          id: profile.sectionId,
+          key: "profile",
+          title: "Your profile",
+          pageHeading: "Profile",
+          descriptionHtml: "<p>Keep the information shown to attendees up to date.</p>",
+          sortOrder: 0,
+        }],
+        fields: [
+          { ...fieldBase, id: profile.fieldId("bio"), sectionId: profile.sectionId, key: "bio", label: "Bio", fieldType: "richtext", maxChars: 5000, mapsTo: "contact.bio_html", sortOrder: 0 },
+          { ...fieldBase, id: profile.fieldId("headshot"), sectionId: profile.sectionId, key: "headshot", label: "Headshot", fieldType: "file", mapsTo: "contact.headshot_file_id", sortOrder: 1 },
+          { ...fieldBase, id: profile.fieldId("pronouns"), sectionId: profile.sectionId, key: "pronouns", label: "Pronouns", fieldType: "text", mapsTo: "contact.pronouns", sortOrder: 2 },
+          { ...fieldBase, id: profile.fieldId("company"), sectionId: profile.sectionId, key: "company", label: "Company", fieldType: "text", mapsTo: "contact.company", sortOrder: 3 },
+          { ...fieldBase, id: profile.fieldId("job-title"), sectionId: profile.sectionId, key: "job_title", label: "Job Title", fieldType: "text", mapsTo: "contact.job_title", sortOrder: 4 },
+        ],
+      },
+    },
+    {
+      key: "session-info",
+      internalName: "Session information",
+      externalTitle: "Update your session",
+      targetType: "submission",
+      rows: {
+        form: { id: session.formId, context: "portal", version: 1 },
+        sections: [{
+          id: session.sectionId,
+          key: "session",
+          title: "Session information",
+          pageHeading: "Session",
+          descriptionHtml: "<p>Review the information attendees will see for this session.</p>",
+          sortOrder: 0,
+        }],
+        fields: [
+          { ...fieldBase, id: session.fieldId("title"), sectionId: session.sectionId, key: "title", label: "Session Title", fieldType: "text", required: true, maxChars: 255, mapsTo: "submission.title", sortOrder: 0 },
+          { ...fieldBase, id: session.fieldId("description"), sectionId: session.sectionId, key: "description", label: "Session Description", fieldType: "richtext", maxChars: 5000, mapsTo: "submission.description_html", sortOrder: 1 },
+          {
+            ...fieldBase,
+            id: session.fieldId("level"),
+            sectionId: session.sectionId,
+            key: "level",
+            label: "Session Level",
+            fieldType: "dropdown",
+            mapsTo: "submission.level",
+            options: [
+              { id: "beginner", label: "Beginner" },
+              { id: "intermediate", label: "Intermediate" },
+              { id: "advanced", label: "Advanced" },
+            ],
+            sortOrder: 2,
+          },
+        ],
+      },
+    },
+  ];
+}
+
+async function seedPortalForms(ctx: SeedCtx): Promise<PortalFormSeed[]> {
+  const { tx, eventId } = ctx;
+  const seeds = portalFormSeeds(ctx);
+
+  for (const seed of seeds) {
+    const { rows } = seed;
+    const [inserted] = await tx.insert(forms).values({
+      id: rows.form.id,
+      eventId,
+      context: "portal",
+      internalName: seed.internalName,
+      externalTitle: seed.externalTitle,
+      status: "open",
+      collectParticipants: false,
+      showWelcome: false,
+      sendConfirmation: false,
+      autoRedirectToPortal: false,
+      targetType: seed.targetType,
+      currentVersion: 1,
+    }).onConflictDoNothing({ target: forms.id }).returning({ id: forms.id });
+
+    // Seeded forms are editable fixtures. Once present, their authoring rows and
+    // immutable published versions belong to the organizer; a normal non-wiping
+    // seed must never rewind current_version or overwrite those edits.
+    if (!inserted) continue;
+
+    for (const section of rows.sections) {
+      await tx.insert(formSections).values({
+        id: section.id,
+        eventId,
+        formId: rows.form.id,
+        key: section.key,
+        title: section.title,
+        pageHeading: section.pageHeading,
+        descriptionHtml: section.descriptionHtml,
+        sortOrder: section.sortOrder,
+      });
+    }
+
+    for (const field of rows.fields) {
+      await tx.insert(formFields).values({
+        id: field.id,
+        eventId,
+        formId: rows.form.id,
+        sectionId: field.sectionId,
+        key: field.key,
+        label: field.label,
+        fieldType: field.fieldType,
+        required: field.required,
+        locked: field.locked,
+        maxChars: field.maxChars,
+        helpText: field.helpText,
+        options: field.options,
+        visibility: field.visibility,
+        mapsTo: field.mapsTo,
+        sortOrder: field.sortOrder,
+        deletedAt: null,
+      });
+    }
+
+    const snapshot = compileFormSnapshot(rows);
+    await tx.insert(formVersions).values({
+      id: ctx.id("form_version", `${seed.key}-1`),
+      eventId,
+      formId: rows.form.id,
+      version: 1,
+      snapshot,
+    });
+  }
+
+  return seeds;
+}
 
 /**
  * Owned by M21 (WS-D).
  *
- * The speaker portal's furniture: three tasks, one per completion mode, with one
+ * The speaker portal's furniture: two renderable portal forms; three tasks, one
+ * per completion mode, with one
  * already overdue so the overdue list is never empty and the reminder scan has a
  * due row on its very first tick; the file request one of them completes
  * against; and two resource pages that are also the sanitizer's standing probes.
  *
- * It never invents an id it does not own: the event, a portal form and the
- * contacts all belong to other modules, so each is looked up and each absence
- * degrades to something still useful rather than to a crash.
+ * It never invents an id it does not own: the event and contacts belong to other
+ * modules, so each absence degrades to something still useful rather than to a
+ * crash. The forms live here because they are the task runtime's fallback fixture.
  */
 export async function seedPortal(ctx: SeedCtx): Promise<void> {
   const { tx, eventId } = ctx;
@@ -25,14 +206,9 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
     return;
   }
 
-  // forms.ts owns portal forms. Until one exists the travel task cannot be a
-  // form task, because form_id is a real foreign key, not a label.
-  const [portalForm] = await tx
-    .select({ id: forms.id })
-    .from(forms)
-    .where(and(eq(forms.eventId, eventId), eq(forms.context, "portal")))
-    .orderBy(asc(forms.createdAt))
-    .limit(1);
+  const portalFormSeeds = await seedPortalForms(ctx);
+  const profileForm = portalFormSeeds.find((seed) => seed.key === "profile-update");
+  if (!profileForm) throw new Error("profile-update portal form seed is missing");
 
   const slidesRequestId = ctx.id("file_request", "slides");
   await tx.insert(fileRequests).values({
@@ -44,8 +220,22 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
     maxSizeMb: 100,
   }).onConflictDoUpdate({
     target: fileRequests.id,
-    set: { title: "Final slide deck", maxSizeMb: 100, updatedAt: new Date() },
+    set: {
+      title: "Final slide deck",
+      targetType: "contact",
+      instructionsHtml: "<p>PDF or Keynote, 16:9. Upload a backup PDF even if you present from your own laptop.</p>",
+      acceptedExtensions: ["pdf", "key", "pptx"],
+      maxSizeMb: 100,
+      updatedAt: new Date(),
+    },
   });
+
+  // This replaces the original manual travel fixture with a form-backed profile
+  // task. Preserve any historical completion evidence, but remove the legacy
+  // task from active assignment views rather than changing its meaning in place.
+  await tx.update(portalTasks)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(and(eq(portalTasks.eventId, eventId), eq(portalTasks.id, ctx.id("task", "travel-form"))));
 
   const tasks = [
     {
@@ -71,16 +261,14 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       formId: null,
     },
     {
-      key: "travel-form",
-      name: "Tell us about your travel",
-      descriptionHtml: "<p>Arrival day, dietary needs, and whether you want a hotel room held.</p>",
-      // A form task the moment forms.ts provides a portal form; a plain
-      // assignment until then, because form_id is a foreign key.
-      completionMode: portalForm ? ("form" as const) : ("manual" as const),
+      key: "update-profile",
+      name: "Update your profile",
+      descriptionHtml: "<p>Review your bio, headshot, pronouns, company, and job title.</p>",
+      completionMode: "form" as const,
       dueAt: eventLocal(ctx.now, 45, "17:00"),
       sortOrder: 2,
       fileRequestId: null,
-      formId: portalForm?.id ?? null,
+      formId: profileForm.rows.form.id,
     },
   ];
 
@@ -101,9 +289,13 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
       set: {
         name: task.name,
         descriptionHtml: task.descriptionHtml,
+        targetType: "contact",
         dueAt: task.dueAt,
         completionMode: task.completionMode,
         formId: task.formId,
+        fileRequestId: task.fileRequestId,
+        isActive: true,
+        sortOrder: task.sortOrder,
         updatedAt: new Date(),
       },
     });
@@ -170,7 +362,6 @@ export async function seedPortal(ctx: SeedCtx): Promise<void> {
     }).onConflictDoNothing({ target: taskCompletions.id });
   }
 
-  ctx.log(`seeded ${tasks.length} tasks, 1 file request, ${pages.length} resource pages`
-    + `${portalForm ? "" : " (travel task is manual until forms.ts lands)"}`
+  ctx.log(`seeded ${portalFormSeeds.length} portal forms, ${tasks.length} tasks, 1 file request, ${pages.length} resource pages`
     + `${firstSpeaker ? ", 1 completion" : " (no completions — contacts.ts has not run)"}`);
 }

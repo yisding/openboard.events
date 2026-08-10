@@ -87,21 +87,17 @@ async function mintSession(args: Args, email: string): Promise<string> {
 }
 
 /** The draft row the wizard creates at the Account step, pinned to a version. */
-async function openDraft(args: Args, eventId: string, cookie: string): Promise<{ submissionId: string; formVersion: number }> {
+async function openDraft(args: Args, cookie: string): Promise<{ submissionId: string; formVersion: number }> {
   const created = await postJson(
     `${args.baseUrl}/api/internal/forms/${args.formId}/draft`,
-    // The route reads the event from the body — omitting it is a 400 that reads
-    // like an auth failure.
-    { eventId, formVersion: args.formVersion },
+    { formVersion: args.formVersion },
     cookie,
   );
-  const data = created.json.data as { submissionId?: string } | undefined;
-  if (!data?.submissionId) {
+  const data = created.json.data as { submissionId?: string; formVersion?: number } | undefined;
+  if (!data?.submissionId || data.formVersion !== args.formVersion) {
     throw new Error(`draft failed (status ${created.status}): ${JSON.stringify(created.json).slice(0, 200)}`);
   }
-  // upsertDraft answers with the submission and its SESS code; the version is
-  // the one we just pinned, so submit sends that back rather than inventing one.
-  return { submissionId: data.submissionId, formVersion: args.formVersion };
+  return { submissionId: data.submissionId, formVersion: data.formVersion };
 }
 
 function percentile(sorted: number[], fraction: number): number {
@@ -120,13 +116,8 @@ async function main(): Promise<void> {
   if (typeof payload.answers !== "object" || payload.answers === null || Array.isArray(payload.answers)) {
     throw new Error("submit payload must contain an answers object");
   }
-  // The route reads the event from the body, not the URL, and rejects a missing
-  // one as a validation error — which would look like contention failing.
-  if (typeof payload.eventId !== "string") {
-    throw new Error("submit payload must contain the eventId the form belongs to");
-  }
-  // `participants` is optional and each entry names a contactId, which is per
-  // session — so a shared payload file cannot carry one. Omitting it still
+  // `participants` is optional and a primary entry names the session's unique
+  // email, so a shared payload file cannot carry one. Omitting it still
   // exercises the writer and the code allocation this test exists to contend on.
   if (payload.participants !== undefined && !Array.isArray(payload.participants)) {
     throw new Error("submit payload's participants, if present, must be an array");
@@ -139,7 +130,7 @@ async function main(): Promise<void> {
   for (const email of emails) {
     try {
       const cookie = await mintSession(args, email);
-      sessions.push({ email, cookie, draft: await openDraft(args, payload.eventId, cookie) });
+      sessions.push({ email, cookie, draft: await openDraft(args, cookie) });
     } catch (error) {
       console.error(`  ${email}: ${error instanceof Error ? error.message : String(error)}`);
     }

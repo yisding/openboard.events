@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PublicForm } from "@/features/forms";
 import { FormFieldRenderer } from "./form-field-renderer";
-import type { AnswerValue, ContactId, FieldId, FormSnapshot } from "@/shared/contracts";
+import type { AnswerValue, FieldId, FormSnapshot } from "@/shared/contracts";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { Button } from "@/shared/ui/ui-kit";
 
@@ -87,14 +87,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
-  const [contactId, setContactId] = useState<ContactId | null>(null);
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
   const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotAnswers) => saveWithRetry(
     () => request(`/api/internal/forms/${form.id}/draft`, {
-      eventId: event.id,
-      formId: form.id,
       formVersion: snapshot.version,
       answers: snapshotAnswers,
     }, "PATCH"),
@@ -138,14 +135,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setNotice("");
     const verified = await request("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
     if (!verified.ok) { setBusy(false); setNotice(verified.message); return; }
-    const verifiedContactId = String(verified.data.contactId) as ContactId;
 
     // The draft exists from this moment, pinned to the version being rendered.
-    const draft = await request(`/api/internal/forms/${form.id}/draft`, { eventId: event.id, formId: form.id, formVersion: snapshot.version });
+    const draft = await request(`/api/internal/forms/${form.id}/draft`, { formVersion: snapshot.version });
     setBusy(false);
     if (!draft.ok) { setNotice(draft.message); return; }
     setDraftId(String(draft.data.submissionId));
-    setContactId(verifiedContactId);
     const restored = (draft.data.answers ?? {}) as Answers;
     const emailField = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "email");
     setAnswers((current) => ({
@@ -165,14 +160,17 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       .flatMap((section) => section.fields.map((field) => field.id)));
     const participantAnswers = Object.fromEntries(Object.entries(answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId)));
     const sent = await request(`/api/internal/forms/${form.id}/submit`, {
-      eventId: event.id,
-      formId: form.id,
       formVersion: snapshot.version,
       draftSubmissionId: draftId,
       answers,
-      ...(contactId ? {
-        participants: [{ contactId, role: "speaker", isPrimary: true, sortOrder: 0, answers: participantAnswers }],
-      } : {}),
+      participants: [{
+        clientId: "primary",
+        email: email.trim().toLowerCase(),
+        role: "speaker",
+        isPrimary: true,
+        sortOrder: 0,
+        answers: participantAnswers,
+      }],
     });
     setBusy(false);
     if (!sent.ok) {
