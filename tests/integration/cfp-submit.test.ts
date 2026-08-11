@@ -597,6 +597,7 @@ describe("CFP submit, end to end through the server path", () => {
 
   it("persists incomplete draft answers and returns them when the draft is resumed", async () => {
     await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM contacts WHERE email='draft-co@example.com'");
     await upsertDraft(eventId, speaker, formId, 1);
     await saveCfpDraft({
       eventId,
@@ -604,10 +605,28 @@ describe("CFP submit, end to end through the server path", () => {
       contactId: speaker,
       formVersion: 1,
       answers: { [field("title").id]: text("A work in progress") },
+      participants: [{
+        clientId: "draft-co",
+        email: "draft-co@example.com",
+        role: "co_speaker",
+        isPrimary: false,
+        sortOrder: 1,
+        answers: {
+          [field("first_name").id]: text("Draft"),
+          [field("last_name").id]: text("Partner"),
+          [field("email").id]: text("draft-co@example.com"),
+        },
+      }],
     });
 
     const resumed = await upsertDraft(eventId, speaker, formId, 1);
     expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
+    expect(resumed.participants).toHaveLength(1);
+    expect(resumed.participants[0]).toMatchObject({ email: "draft-co@example.com", role: "co_speaker", sortOrder: 1 });
+    expect(resumed.participants[0]?.answers).toMatchObject({
+      [field("first_name").id]: text("Draft"),
+      [field("email").id]: text("draft-co@example.com"),
+    });
   });
 
   // The wizard debounces autosave, so its last PATCH can be in flight when

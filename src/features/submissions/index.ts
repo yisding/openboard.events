@@ -1,4 +1,4 @@
-export type { CreateSubmissionResult, NotifyResult, TransitionResult } from "./server/mutations";
+export type { CreateSubmissionResult, DraftParticipantInput, NotifyResult, TransitionResult } from "./server/mutations";
 export {
   createSubmission,
   createSubmissionIn,

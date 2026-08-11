@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
-import { forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { contacts, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
   acceptedForSchedulingRowSchema,
@@ -17,7 +17,7 @@ import {
   type SubmissionId,
   type SubmissionStatus,
 } from "@/shared/contracts";
-import { updateContactFields } from "@/features/portal";
+import { getOrCreateContact, updateContactFields } from "@/features/portal";
 // Deep imports rather than the `@/features/forms` barrel: that barrel re-exports
 // the submit pipeline, which imports this file's `createSubmissionIn`, and a
 // cycle through two feature barrels is a debugging expense nobody needs.
@@ -39,6 +39,15 @@ export type CreateSubmissionResult = {
   code: number;
   status: SubmissionStatus;
   promotedFromDraft: boolean;
+};
+
+export type DraftParticipantInput = {
+  clientId: string;
+  email: string;
+  role: "co_speaker";
+  isPrimary: false;
+  sortOrder: number;
+  answers: CleanAnswers;
 };
 
 /**
@@ -342,7 +351,12 @@ export async function upsertDraft(
   contactId: ContactId,
   formId: FormId,
   formVersion: number,
-): Promise<{ submissionId: SubmissionId; code: number; answers: Record<string, AnswerValue> }> {
+): Promise<{
+  submissionId: SubmissionId;
+  code: number;
+  answers: Record<string, AnswerValue>;
+  participants: Array<Pick<DraftParticipantInput, "clientId" | "email" | "role" | "isPrimary" | "sortOrder"> & { answers: Record<string, AnswerValue> }>;
+}> {
   return withTx(async (tx) => {
     // The form_id foreign key proves the form exists, not that it belongs to
     // this event — without this a caller could start a draft against another
@@ -366,10 +380,43 @@ export async function upsertDraft(
       const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
         .from(submissionAnswers)
         .where(and(eq(submissionAnswers.submissionId, existing.id), isNull(submissionAnswers.participantId)));
+      const participantRows = await tx.select({
+        id: submissionParticipants.id,
+        email: contacts.email,
+        role: submissionParticipants.role,
+        isPrimary: submissionParticipants.isPrimary,
+        sortOrder: submissionParticipants.sortOrder,
+      })
+        .from(submissionParticipants)
+        .innerJoin(contacts, and(eq(contacts.id, submissionParticipants.contactId), eq(contacts.eventId, submissionParticipants.eventId)))
+        .where(and(eq(submissionParticipants.submissionId, existing.id), eq(submissionParticipants.eventId, eventId), eq(submissionParticipants.isPrimary, false)))
+        .orderBy(submissionParticipants.sortOrder);
+      const participantAnswerRows = await tx.select({
+        participantId: submissionAnswers.participantId,
+        fieldId: submissionAnswers.fieldId,
+        value: submissionAnswers.value,
+      })
+        .from(submissionAnswers)
+        .where(eq(submissionAnswers.submissionId, existing.id));
+      const answersByParticipant = new Map<string, Record<string, AnswerValue>>();
+      for (const row of participantAnswerRows) {
+        if (!row.participantId) continue;
+        const answers = answersByParticipant.get(row.participantId) ?? {};
+        answers[row.fieldId] = answerValueSchema.parse(row.value);
+        answersByParticipant.set(row.participantId, answers);
+      }
       return {
         submissionId: existing.id as SubmissionId,
         code: Number(existing.code),
         answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
+        participants: participantRows.map((row) => ({
+          clientId: row.id,
+          email: row.email,
+          role: "co_speaker" as const,
+          isPrimary: false as const,
+          sortOrder: row.sortOrder,
+          answers: answersByParticipant.get(row.id) ?? {},
+        })),
       };
     }
 
@@ -398,7 +445,7 @@ export async function upsertDraft(
 
     // The losing racer's allocated code is simply unused; a gap in the sequence
     // costs nothing, a duplicate submission costs a speaker their proposal.
-    return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {} };
+    return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {}, participants: [] };
   });
 }
 
@@ -419,6 +466,7 @@ export async function saveDraftAnswers(
   formId: FormId,
   formVersion: number,
   answers: CleanAnswers,
+  participants?: DraftParticipantInput[],
 ): Promise<{ submissionId: SubmissionId; saved: boolean }> {
   return withTx(async (tx) => {
     const draft = (await tx.execute<{ id: string }>(sql`
@@ -442,7 +490,35 @@ export async function saveDraftAnswers(
     // a draft that is still open when the speaker loaded the page can go
     // stale mid-edit, and the autosave must stop writing once it does.
     await assertFormOpen(tx, formId);
-    await replaceAnswers(tx, eventId, draft.id, answers);
+    const participantIds = new Map<string, string>();
+    if (participants) {
+      const emails = new Set<string>();
+      const clientIds = new Set<string>();
+      await tx.delete(submissionParticipants).where(and(
+        eq(submissionParticipants.submissionId, draft.id),
+        eq(submissionParticipants.isPrimary, false),
+      ));
+      for (const participant of participants) {
+        const email = participant.email.trim().toLowerCase();
+        if (!email || emails.has(email)) throw new AppError("VALIDATION", "Participant emails must be unique");
+        if (clientIds.has(participant.clientId)) throw new AppError("VALIDATION", "Participant client IDs must be unique");
+        emails.add(email);
+        clientIds.add(participant.clientId);
+        const participantContactId = await getOrCreateContact(tx, eventId, email);
+        if (participantContactId === contactId) throw new AppError("VALIDATION", "Participant emails must be unique");
+        const [row] = await tx.insert(submissionParticipants).values({
+          eventId,
+          submissionId: draft.id,
+          contactId: participantContactId,
+          role: participant.role,
+          isPrimary: false,
+          sortOrder: participant.sortOrder,
+        }).returning({ id: submissionParticipants.id });
+        if (!row) throw new AppError("INTERNAL", "Could not store a draft participant");
+        participantIds.set(participant.clientId, row.id);
+      }
+    }
+    await replaceAnswers(tx, eventId, draft.id, answers, participantIds);
     await tx.update(submissions)
       .set({ formVersion, updatedAt: new Date() })
       .where(eq(submissions.id, draft.id));

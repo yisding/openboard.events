@@ -103,7 +103,7 @@ export function FileUpload({
 }: {
   eventId: string;
   kind: FileKind;
-  onUploaded: (fileId: string, meta: UploadedMeta) => void;
+  onUploaded: (fileId: string, meta: UploadedMeta) => void | boolean | Promise<void | boolean>;
   accept?: string;
   maxSizeMb?: number;
   currentFileId?: string | null;
@@ -177,9 +177,22 @@ export function FileUpload({
     }
 
     const meta: UploadedMeta = { filename: file.name, sizeBytes: file.size, mime: file.type };
+    try {
+      // Some callers have a second server mutation after finalization (for
+      // example, attaching this asset to a portal task). Wait for that mutation
+      // before showing the file as complete; a finalized but unattached asset is
+      // not a completed task.
+      const attached = await onUploaded(fileId, meta);
+      if (attached === false) {
+        fail("The file uploaded, but could not be attached to this task — try again");
+        return;
+      }
+    } catch (callbackError) {
+      fail(callbackError instanceof Error ? callbackError.message : "The file could not be attached — try again");
+      return;
+    }
     setUploaded({ fileId, meta });
     setPhase("done");
-    onUploaded(fileId, meta);
   }
 
   const busy = phase === "validating" || phase === "downscaling" || phase === "presigning" || phase === "uploading" || phase === "finalizing";

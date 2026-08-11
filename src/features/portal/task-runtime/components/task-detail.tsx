@@ -3,8 +3,8 @@
 import { ArrowLeft, MessageSquare, Paperclip } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
+import { useEffect, useState } from "react";
+import { fileVersionDtoSchema, type AnswerValue, type FileVersionDTO, type FormSnapshot } from "@/shared/contracts";
 import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
@@ -39,6 +39,8 @@ export function TaskDetailView({
   const router = useRouter();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<Record<string, AnswerValue | undefined>>(form?.answers ?? {});
+  const [uploads, setUploads] = useState<FileVersionDTO[]>(task.uploads);
+  const [completed, setCompleted] = useState(task.completed);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
@@ -46,7 +48,12 @@ export function TaskDetailView({
 
   const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
 
-  async function post(path: string, body: Record<string, unknown>): Promise<boolean> {
+  useEffect(() => {
+    setUploads(task.uploads);
+    setCompleted(task.completed);
+  }, [task.completed, task.uploads]);
+
+  async function post(path: string, body: Record<string, unknown>): Promise<{ ok: boolean; data?: Record<string, unknown> }> {
     setBusy(true);
     setFieldErrors({});
     try {
@@ -59,9 +66,10 @@ export function TaskDetailView({
       }).catch(() => null);
       if (!response) {
         toast("That did not reach us — check your connection and try again");
-        return false;
+        return { ok: false };
       }
       const payload = await response.json().catch(() => null) as {
+        data?: Record<string, unknown>;
         error?: { message?: string; data?: { fieldErrors?: Record<string, string> } };
       } | null;
       if (!response.ok) {
@@ -70,25 +78,35 @@ export function TaskDetailView({
         const errors = payload?.error?.data?.fieldErrors;
         if (errors) setFieldErrors(errors);
         toast(errors ? "Some answers need fixing" : payload?.error?.message ?? "That did not go through");
-        return false;
+        return { ok: false };
       }
-      return true;
+      return payload?.data ? { ok: true, data: payload.data } : { ok: true };
     } finally {
       setBusy(false);
     }
   }
 
   async function complete(body: Record<string, unknown> = {}) {
-    if (!await post(`/api/internal/portal/tasks/${task.taskId}/complete`, body)) return;
+    if (!(await post(`/api/internal/portal/tasks/${task.taskId}/complete`, body)).ok) return;
     toast("Task complete — your organizer can see it now");
     router.push(backHref);
     router.refresh();
   }
 
-  async function attach(fileId: string) {
-    if (!await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId })) return;
+  async function attach(fileId: string): Promise<boolean> {
+    const result = await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId });
+    if (!result.ok) return false;
+    const upload = fileVersionDtoSchema.safeParse(result.data?.upload);
+    if (!upload.success) {
+      toast("File received, but the new version could not be displayed — refresh and try again");
+      router.refresh();
+      return false;
+    }
+    setUploads((current) => [upload.data, ...current.filter((entry) => entry.fileUploadId !== upload.data.fileUploadId)]);
+    setCompleted(true);
     toast("File received — task complete");
     router.refresh();
+    return true;
   }
 
   /** M52: a comment on this deliverable slot. Same server round trip pattern
@@ -122,7 +140,7 @@ export function TaskDetailView({
 
       <header className="portal-page-header">
         <div className="portal-task-meta">
-          <StatusBadge value={task.completed ? "Complete" : task.completionMode.replace("_", " ")} />
+          <StatusBadge value={completed ? "Complete" : task.completionMode.replace("_", " ")} />
           {task.overdue && <StatusBadge value="Overdue" />}
           {task.dueAt && <span className="due-label">Due <TzTime instant={task.dueAt} tz={timezone} style="long" /></span>}
         </div>
@@ -134,7 +152,7 @@ export function TaskDetailView({
 
       {task.completionMode === "manual" && (
         <div className="portal-panel">
-          {task.completed ? (
+          {completed ? (
             <p className="portal-note">
               Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
             </p>
@@ -156,12 +174,12 @@ export function TaskDetailView({
             fileRequestId={task.fileRequest.id}
             maxSizeMb={task.fileRequest.maxSizeMb}
             accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
-            label={task.uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
-            onUploaded={(fileId) => { void attach(fileId); }}
+            label={uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
+            onUploaded={(fileId) => attach(fileId)}
           />
-          {task.uploads.length > 0 && (
+          {uploads.length > 0 && (
             <ul className="portal-uploads">
-              {task.uploads.map((upload) => (
+              {uploads.map((upload) => (
                 <li key={upload.fileUploadId}>
                   <Paperclip size={15} />
                   <span>{upload.filename} <small>v{upload.version}</small></span>
@@ -227,7 +245,7 @@ export function TaskDetailView({
             />
           </FormUploadProvider>
           <Button disabled={busy} onClick={() => complete({ answers })}>
-            {busy ? "Saving…" : task.completed ? "Save changes" : "Submit & complete"}
+            {busy ? "Saving…" : completed ? "Save changes" : "Submit & complete"}
           </Button>
         </div>
       )}
