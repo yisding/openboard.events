@@ -5,6 +5,7 @@ import {
   computeGridRange,
   gridRowCount,
   localWallTimeAt,
+  minutesFromDayStartInZone,
   minutesToGridRow,
   pixelDeltaToSlotDelta,
   SLOT_ROW_HEIGHT_PX,
@@ -101,6 +102,47 @@ describe("clampResize", () => {
   it("applies an ordinary one-slot drag on the start edge", () => {
     const result = clampResize("start", 9 * 60, 9 * 60 + 30, 1);
     expect(result).toEqual({ startMinutes: 9 * 60 + 15, endMinutes: 9 * 60 + 30 });
+  });
+});
+
+describe("minutesFromDayStartInZone", () => {
+  const ny = "America/New_York";
+
+  it("reads an in-day instant as its own wall-clock minutes", () => {
+    // 2026-08-11T16:15:00Z is 9:15am PT.
+    expect(minutesFromDayStartInZone("2026-08-11T16:15:00.000Z", "2026-08-11", tz)).toBe(9 * 60 + 15);
+  });
+
+  it("carries a next-day end past 1440 instead of wrapping to 00:xx", () => {
+    // 23:45 PT on the 11th to 00:15 PT on the 12th.
+    expect(minutesFromDayStartInZone("2026-08-12T06:45:00.000Z", "2026-08-11", tz)).toBe(23 * 60 + 45);
+    expect(minutesFromDayStartInZone("2026-08-12T07:15:00.000Z", "2026-08-11", tz)).toBe(24 * 60 + 15);
+  });
+
+  it("keeps wall-clock time across a fall-back transition, not elapsed time", () => {
+    // America/New_York, 2025-11-02: 00:30 EDT (04:30Z) to 02:30 EST (07:30Z) is
+    // three *elapsed* hours but a two-hour span on the clock the grid draws.
+    // Reading the end as start + elapsed minutes put it at 03:30.
+    expect(minutesFromDayStartInZone("2025-11-02T04:30:00.000Z", "2025-11-02", ny)).toBe(30);
+    expect(minutesFromDayStartInZone("2025-11-02T07:30:00.000Z", "2025-11-02", ny)).toBe(150);
+  });
+
+  it("keeps wall-clock time across a spring-forward transition too", () => {
+    // 2026-03-08: 01:30 EST (06:30Z) to 03:30 EDT (07:30Z) — one elapsed hour,
+    // two hours on the clock, because 02:xx does not exist that morning.
+    expect(minutesFromDayStartInZone("2026-03-08T06:30:00.000Z", "2026-03-08", ny)).toBe(90);
+    expect(minutesFromDayStartInZone("2026-03-08T07:30:00.000Z", "2026-03-08", ny)).toBe(210);
+  });
+
+  it("moves a DST-day end edge by exactly the slot dragged", () => {
+    // The regression in full: drag the end of that 00:30-02:30 session down one
+    // 15-minute row and it must save 02:45 local, not 03:45.
+    const day = "2025-11-02";
+    const start = minutesFromDayStartInZone("2025-11-02T04:30:00.000Z", day, ny);
+    const end = minutesFromDayStartInZone("2025-11-02T07:30:00.000Z", day, ny);
+    const next = clampResize("end", start, end, 1);
+    expect(zonedInputToUtc(localWallTimeAt(day, next.startMinutes), ny).toISOString()).toBe("2025-11-02T04:30:00.000Z");
+    expect(zonedInputToUtc(localWallTimeAt(day, next.endMinutes), ny).toISOString()).toBe("2025-11-02T07:45:00.000Z");
   });
 });
 

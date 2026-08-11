@@ -24,6 +24,13 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 const migrationProductAuth = readFileSync(new URL("../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
 // M43 added `events.organization_id` — same reason as the line above.
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+// `seedEvents` now writes a `contacts` row per admin so seeded reviewers are
+// addressable by the outbox, and Drizzle names every mapped column on that
+// insert: M51's `contacts.workflow_status` (0008) and M59's
+// `contacts.acceptance_seen_at` (0016) have to exist here for the same reason
+// the ones above do. Applied in journal order, after the rest.
+const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 
 describe("forms seed", () => {
   let pglite: PGlite;
@@ -37,6 +44,8 @@ describe("forms seed", () => {
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationProductAuth);
     await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSpeakerMoments);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
       now: new Date("2026-08-09T12:00:00.000Z"),
