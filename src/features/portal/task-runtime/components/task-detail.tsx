@@ -3,7 +3,7 @@
 import { ArrowLeft, MessageSquare, Paperclip } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fileVersionDtoSchema, type AnswerValue, type FileVersionDTO, type FormSnapshot } from "@/shared/contracts";
 import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
 import { FileUpload } from "@/shared/ui/app/file-upload";
@@ -45,6 +45,7 @@ export function TaskDetailView({
   const [busy, setBusy] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
+  const formPanelRef = useRef<HTMLDivElement>(null);
 
   const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
 
@@ -76,7 +77,10 @@ export function TaskDetailView({
         // Field errors belong beside their questions; anything else is a
         // sentence, not a form state.
         const errors = payload?.error?.data?.fieldErrors;
-        if (errors) setFieldErrors(errors);
+        if (errors) {
+          setFieldErrors(errors);
+          window.requestAnimationFrame(() => formPanelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+        }
         toast(errors ? "Some answers need fixing" : payload?.error?.message ?? "That did not go through", { kind: "error" });
         return { ok: false };
       }
@@ -91,6 +95,16 @@ export function TaskDetailView({
     toast("Task complete — your organizer can see it now");
     router.push(backHref);
     router.refresh();
+  }
+
+  function changeAnswer(fieldId: string, value: AnswerValue | undefined) {
+    setAnswers((current) => ({ ...current, [fieldId]: value }));
+    setFieldErrors((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
   }
 
   async function attach(fileId: string): Promise<boolean> {
@@ -230,7 +244,7 @@ export function TaskDetailView({
       )}
 
       {task.completionMode === "form" && form && (
-        <div className="portal-panel">
+        <div ref={formPanelRef} className="portal-panel">
           {/* A file question inside the renderer reads its event scope from this
               provider; without it the field renders "File uploads are
               unavailable here" and a required upload makes the task impossible
@@ -239,7 +253,7 @@ export function TaskDetailView({
             <FormFieldRenderer
               snapshot={form.snapshot}
               answers={answers}
-              onChange={(fieldId, value) => setAnswers((current) => ({ ...current, [fieldId]: value }))}
+              onChange={changeAnswer}
               mode="edit"
               errors={fieldErrors}
             />

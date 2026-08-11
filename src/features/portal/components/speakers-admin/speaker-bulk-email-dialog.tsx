@@ -4,6 +4,13 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { templateVariablePaths } from "@/features/comms/components/sample-vars";
 import { unknownTokensClientSide } from "@/features/comms/components/validate-client";
+import {
+  bulkSendPreviewFingerprint,
+  canSendBulkMessage,
+  claimBulkSendAttempt,
+  completeBulkSendAttempt,
+  type BulkSendAttempt,
+} from "@/features/comms/bulk-send-attempt";
 import type { ContactListRow } from "@/features/portal";
 import type { ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -12,6 +19,11 @@ import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 type FocusTarget = "subject" | "body";
+type ApprovedPreview = {
+  result: NonNullable<ComposeBulkSpeakerEmailResult["preview"]>;
+  fingerprint: string;
+  attempt: BulkSendAttempt;
+};
 
 async function compose(eventId: string, body: Record<string, unknown>): Promise<ComposeBulkSpeakerEmailResult> {
   const response = await fetch(`/api/internal/speakers/${eventId}/bulk-email`, {
@@ -45,7 +57,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [previewContactId, setPreviewContactId] = useState(selected[0]?.contactId ?? "");
-  const [previewResult, setPreviewResult] = useState<ComposeBulkSpeakerEmailResult["preview"]>(null);
+  const [preview, setPreview] = useState<ApprovedPreview | null>(null);
   const [busyPreview, setBusyPreview] = useState(false);
   const [busySend, setBusySend] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
@@ -55,9 +67,29 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   const variablePaths = useMemo(() => templateVariablePaths("speaker_bulk_message"), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide("speaker_bulk_message", subject, bodyHtml), [subject, bodyHtml]);
   const ready = subject.trim().length > 0 && bodyHtml.trim().length > 0 && unknownTokens.length === 0;
+  const previewFingerprint = useMemo(() => bulkSendPreviewFingerprint({
+    contactIds: selected.map((row) => row.contactId),
+    previewContactId,
+    subject,
+    bodyHtml,
+  }), [bodyHtml, previewContactId, selected, subject]);
+  const currentPreview = preview?.fingerprint === previewFingerprint ? preview : null;
+  const canSend = canSendBulkMessage({
+    canCompose: ready,
+    capped: false,
+    previewFingerprint: preview?.fingerprint ?? null,
+    currentFingerprint: previewFingerprint,
+  });
+
+  function invalidatePreview() {
+    setPreview(null);
+    setSendResult(null);
+    setConfirmSend(false);
+  }
 
   function insertToken(path: string) {
     const token = `{{${path}}}`;
+    invalidatePreview();
     if (focusTarget === "subject") {
       const el = subjectRef.current;
       const start = el?.selectionStart ?? subject.length;
@@ -72,19 +104,22 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   }
 
   function reset() {
-    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null); setConfirmSend(false);
+    setSubject(""); setBodyHtml(""); setPreview(null); setSendResult(null); setError(null); setConfirmSend(false);
   }
 
   async function runPreview() {
     if (!previewContactId) return;
     setBusyPreview(true);
     setError(null);
+    const fingerprint = previewFingerprint;
+    setPreview(null);
     try {
+      const attempt = await claimBulkSendAttempt(window.sessionStorage, `speaker-selected:${eventId}`, fingerprint);
       const result = await compose(eventId, {
         contactIds: selected.map((row) => row.contactId),
         subject, bodyHtml, mode: "preview", previewContactId,
       });
-      setPreviewResult(result.preview);
+      if (result.preview) setPreview({ result: result.preview, fingerprint, attempt });
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : "Could not build a preview");
     } finally {
@@ -93,13 +128,18 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   }
 
   async function runSend(): Promise<boolean> {
+    if (!currentPreview || !canSend) {
+      setError("Preview this exact audience and message before sending");
+      return false;
+    }
     setBusySend(true);
     setError(null);
     try {
       const result = await compose(eventId, {
         contactIds: selected.map((row) => row.contactId),
-        subject, bodyHtml, mode: "send",
+        subject, bodyHtml, mode: "send", sendId: currentPreview.attempt.sendId,
       });
+      completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setSendResult(result);
       toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
       router.refresh();
@@ -125,7 +165,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
       ) : (
         <>
           <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-          <Button disabled={!ready || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${selected.length}`}</Button>
+          <Button disabled={!canSend || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${selected.length}`}</Button>
         </>
       )}
     >
@@ -144,10 +184,10 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
         <div className="template-editor-grid">
           <div className="form-stack">
             <Field label="Subject">
-              <input ref={subjectRef} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => setSubject(event.target.value)} placeholder="A note about {{event.name}}" />
+              <input ref={subjectRef} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => { invalidatePreview(); setSubject(event.target.value); }} placeholder="A note about {{event.name}}" />
             </Field>
             <Field label="Message" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization.">
-              <textarea ref={bodyRef} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => setBodyHtml(event.target.value)} rows={8} />
+              <textarea ref={bodyRef} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => { invalidatePreview(); setBodyHtml(event.target.value); }} rows={8} />
             </Field>
             <div className="template-vars">
               {variablePaths.map((path) => <button key={path} type="button" onClick={() => insertToken(path)}>{`{{${path}}}`}</button>)}
@@ -159,15 +199,15 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
           </div>
           <aside className="template-editor__preview">
             <Field label="Preview recipient">
-              <select value={previewContactId} onChange={(event) => { setPreviewContactId(event.target.value); setPreviewResult(null); }}>
+              <select value={previewContactId} onChange={(event) => { invalidatePreview(); setPreviewContactId(event.target.value); }}>
                 {selected.map((row) => <option key={row.contactId} value={row.contactId}>{row.name}</option>)}
               </select>
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
-            {previewResult ? (
+            {currentPreview ? (
               <div style={{ marginTop: 12 }}>
-                <p><b>{previewResult.subject}</b></p>
-                <RichTextView html={previewResult.bodyHtml} />
+                <p><b>{currentPreview.result.subject}</b></p>
+                <RichTextView html={currentPreview.result.bodyHtml} />
               </div>
             ) : (
               <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient&rsquo;s resolved message before sending.</p>

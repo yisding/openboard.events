@@ -126,7 +126,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     };
   }
 
-  const sendId = input.sendId ?? crypto.randomUUID();
+  const sendId = input.sendId;
   let queued = 0;
   let skipped = 0;
   const errors: ComposeBulkSpeakerEmailResult["errors"] = [];
@@ -150,11 +150,14 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
       continue;
     }
     const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
-    await dbOrTx.insert(speakerBulkMessages).values({
+    const inserted = await dbOrTx.insert(speakerBulkMessages).values({
       eventId, contactId, idempotencyKey, subject: input.subject, bodyHtml,
-    }).onConflictDoNothing({ target: speakerBulkMessages.idempotencyKey });
+    }).onConflictDoNothing({ target: speakerBulkMessages.idempotencyKey }).returning();
     await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
-    queued += 1;
+    // Retrying still calls enqueueEmail so a rare failure between the message
+    // insert and outbox insert can heal itself. Only a newly-created message,
+    // however, counts as newly queued in this response.
+    if (inserted.length > 0) queued += 1;
   }
   return { queued, skipped, errors, preview: null };
 }

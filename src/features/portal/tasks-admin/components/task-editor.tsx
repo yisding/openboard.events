@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { eventDayKey } from "@/shared/lib/time";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
@@ -233,10 +233,10 @@ export function TaskEditor({
           </Field>
         )}
 
-        <label className="inline-setting">
+        <div className="inline-setting">
           <div><b>Active</b><small>Inactive tasks stop assigning to new speakers and drop off the portal.</small></div>
-          <button type="button" className={`switch ${draft.isActive ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, isActive: !current.isActive }))}><i /></button>
-        </label>
+          <Switch label="Active" checked={draft.isActive} onClick={() => setDraft((current) => ({ ...current, isActive: !current.isActive }))} />
+        </div>
       </div>
     </Modal>
   );

@@ -23,7 +23,7 @@ import {
   type TrackDTO,
   type TrackId,
 } from "@/shared/contracts";
-import { Button, EmptyState } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Switch } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -303,6 +303,7 @@ function RuleCard({
   const sortable = useSortable({ id: rule.id });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   const dangling = rule.danglingConditions.length > 0 || rule.danglingTagIds.length > 0 || rule.trackMissing;
+  const summary = ruleSummary(rule, fields, { tracks, tags });
 
   return (
     <div ref={sortable.setNodeRef} style={style} className="condition-card routing-rule-card">
@@ -310,10 +311,8 @@ function RuleCard({
         <button type="button" className="icon-button" aria-label={`Reorder rule`} {...sortable.attributes} {...sortable.listeners}>
           <GripVertical size={15} />
         </button>
-        <button type="button" className={`switch ${rule.enabled ? "on" : ""}`} aria-label={rule.enabled ? "Disable rule" : "Enable rule"} onClick={onToggle}>
-          <i />
-        </button>
-        <p className="rule-summary-line">{ruleSummary(rule, fields, { tracks, tags })}</p>
+        <Switch label={`Rule: ${summary}`} checked={rule.enabled} onClick={onToggle} />
+        <p className="rule-summary-line">{summary}</p>
         {dangling && (
           <span className="status-badge status-option-deleted" title="A condition, tag, or track this rule references was deleted. It has been disabled.">
             <TriangleAlert size={12} /> Option deleted
@@ -428,12 +427,10 @@ function RuleEditorBody({
         )}
       </label>
 
-      <label className="inline-setting">
+      <div className="inline-setting">
         <div><b>Enabled</b><small>Disabled rules are never matched.</small></div>
-        <button type="button" className={`switch ${draft.enabled ? "on" : ""}`} onClick={() => onChange({ ...draft, enabled: !draft.enabled })}>
-          <i />
-        </button>
-      </label>
+        <Switch label="Routing rule enabled" checked={draft.enabled} onClick={() => onChange({ ...draft, enabled: !draft.enabled })} />
+      </div>
     </div>
   );
 }

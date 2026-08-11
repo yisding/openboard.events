@@ -81,6 +81,7 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
   for (const [eventId, contactIds] of byEvent) {
     const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(eventId), {
       mode: "send", contactIds: contactIds.map((id) => contactIdSchema.parse(id)), subject: input.subject, bodyHtml: input.bodyHtml,
+      sendId: input.sendId,
     });
     queued += result.queued;
     skipped += result.skipped;

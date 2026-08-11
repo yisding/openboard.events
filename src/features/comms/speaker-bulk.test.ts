@@ -101,6 +101,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       subject: "Hi {{speaker.first_name}}",
       bodyHtml: "<p>{{submission.title}}</p>",
       mode: "send",
+      sendId: "91000000-0000-4000-8000-000000000010",
     })).rejects.toMatchObject({ code: "TEMPLATE_VAR_MISSING" });
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs");
     expect(rows.rows[0]?.n).toBe(0);
@@ -112,6 +113,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       subject: "Update for {{speaker.first_name}}",
       bodyHtml: "<p>Hello {{speaker.first_name}}, this is a note about {{event.name}}.</p>",
       mode: "send",
+      sendId: "91000000-0000-4000-8000-000000000011",
     });
     expect(result.queued).toBe(2);
     expect(result.skipped).toBe(2);
@@ -159,6 +161,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       subject: "Sanitize me",
       bodyHtml: "<p>ok</p><script>alert(2)</script>",
       mode: "send",
+      sendId: "91000000-0000-4000-8000-000000000012",
     });
     const stored = await pglite.query<{ body_html: string }>(
       "SELECT body_html FROM speaker_bulk_messages WHERE contact_id=$1 ORDER BY created_at DESC LIMIT 1", [ada],
@@ -177,8 +180,11 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       sendId,
     };
 
-    await composeBulkSpeakerEmailIn(tx, eventId, input);
-    await composeBulkSpeakerEmailIn(tx, eventId, input);
+    const first = await composeBulkSpeakerEmailIn(tx, eventId, input);
+    const retry = await composeBulkSpeakerEmailIn(tx, eventId, input);
+
+    expect(first.queued).toBe(1);
+    expect(retry.queued).toBe(0);
 
     const idempotencyKey = `${eventId}:speaker_bulk:${ada}:${sendId}`;
     const logs = await pglite.query<{ n: number }>(

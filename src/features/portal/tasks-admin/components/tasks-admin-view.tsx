@@ -121,11 +121,11 @@ export function TasksAdminView({
 
       {section === "tasks" && (
         <>
-          <nav className="abstract-status-tabs">
-            <button type="button" className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Tasks <span>{tabCounts.all}</span></button>
-            <button type="button" className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact Tasks <span>{tabCounts.contact}</span></button>
-            <button type="button" className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group Tasks <span>{tabCounts.group}</span></button>
-            <button type="button" className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission Tasks <span>{tabCounts.submission}</span></button>
+          <nav className="abstract-status-tabs" aria-label="Task filters">
+            <button type="button" aria-pressed={tab === "all"} className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Tasks <span>{tabCounts.all}</span></button>
+            <button type="button" aria-pressed={tab === "contact"} className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact Tasks <span>{tabCounts.contact}</span></button>
+            <button type="button" aria-pressed={tab === "group"} className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group Tasks <span>{tabCounts.group}</span></button>
+            <button type="button" aria-pressed={tab === "submission"} className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission Tasks <span>{tabCounts.submission}</span></button>
           </nav>
 
           <section className="panel data-panel">

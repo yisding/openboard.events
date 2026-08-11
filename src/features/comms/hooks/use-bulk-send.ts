@@ -5,12 +5,17 @@ import {
   composeBulkSpeakerEmailResultSchema,
   resolvedSpeakerSegmentSchema,
   type ComposeBulkSpeakerEmailInput,
-  type ComposeBulkSpeakerEmailResult,
-  type ContactId,
   type EventId,
   type SpeakerSegmentFilter,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
+export {
+  COMPOSE_BATCH_SIZE,
+  bulkSendPreviewFingerprint,
+  canSendBulkMessage,
+  chunkContactIds,
+  mergeBulkSendResults,
+} from "../bulk-send-attempt";
 
 /**
  * `composeBulkSpeakerEmailInputSchema.contactIds` caps at 200 — a browser
@@ -21,47 +26,6 @@ import { api } from "@/shared/lib/api-client";
  * pure helpers do the splitting and the result bookkeeping so `BulkSendTab`'s
  * send loop stays a thin, un-unit-testable shell.
  */
-export const COMPOSE_BATCH_SIZE = 200;
-
-export type BulkSendPreviewFingerprintInput = {
-  contactIds: readonly ContactId[];
-  previewContactId: ContactId | "";
-  subject: string;
-  bodyHtml: string;
-};
-
-/** A preview is approval for one exact audience/message combination. */
-export function bulkSendPreviewFingerprint(input: BulkSendPreviewFingerprintInput): string {
-  return JSON.stringify([input.contactIds, input.previewContactId, input.subject, input.bodyHtml]);
-}
-
-export function canSendBulkMessage(input: {
-  canCompose: boolean;
-  capped: boolean;
-  previewFingerprint: string | null;
-  currentFingerprint: string;
-}): boolean {
-  return input.canCompose && !input.capped && input.previewFingerprint === input.currentFingerprint;
-}
-
-export function chunkContactIds(contactIds: readonly ContactId[], size = COMPOSE_BATCH_SIZE): ContactId[][] {
-  const chunks: ContactId[][] = [];
-  for (let start = 0; start < contactIds.length; start += size) chunks.push([...contactIds.slice(start, start + size)]);
-  return chunks;
-}
-
-export function mergeBulkSendResults(results: readonly ComposeBulkSpeakerEmailResult[]): ComposeBulkSpeakerEmailResult {
-  return results.reduce<ComposeBulkSpeakerEmailResult>(
-    (acc, result) => ({
-      queued: acc.queued + result.queued,
-      skipped: acc.skipped + result.skipped,
-      errors: [...acc.errors, ...result.errors],
-      preview: acc.preview ?? result.preview,
-    }),
-    { queued: 0, skipped: 0, errors: [], preview: null },
-  );
-}
-
 /** M46 — step 1 of "bulk segmented sends with preview": turn a filter into
  * the resolved audience (`contactIds` + counts) the compose step below
  * sends unchanged. */

@@ -3,7 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
 import { formatCode } from "@/features/submissions/index.client";
 import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
@@ -40,6 +40,7 @@ export function EditSubmissionForm({
   const [answers, setAnswers] = useState<Record<string, AnswerValue | undefined>>(initialAnswers);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const formPanelRef = useRef<HTMLDivElement>(null);
   const detailHref = `/portal/${encodeURIComponent(eventSlug)}/submissions/${encodeURIComponent(submissionId)}`;
   // Only the abstract questions render here — the speaker roster is managed
   // through Profile, not resubmission (M18's mutation is answers-only).
@@ -67,6 +68,7 @@ export function EditSubmissionForm({
         const errors = payload?.error?.data?.fieldErrors;
         if (errors) {
           setFieldErrors(errors);
+          window.requestAnimationFrame(() => formPanelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
           toast("Some answers need fixing", { kind: "error" });
           return;
         }
@@ -90,6 +92,16 @@ export function EditSubmissionForm({
     }
   }
 
+  function changeAnswer(fieldId: string, value: AnswerValue | undefined) {
+    setAnswers((current) => ({ ...current, [fieldId]: value }));
+    setFieldErrors((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
   return (
     <article className="portal-submission-edit">
       <Link className="portal-back" href={detailHref}><ArrowLeft size={14} /> {formatCode(submission.code)}</Link>
@@ -97,12 +109,12 @@ export function EditSubmissionForm({
         <h1>Edit your proposal</h1>
         <p>{submission.title}</p>
       </header>
-      <div className="portal-panel">
+      <div ref={formPanelRef} className="portal-panel">
         <FormUploadProvider eventId={eventId}>
           <FormFieldRenderer
             snapshot={snapshot}
             answers={answers}
-            onChange={(fieldId, value) => setAnswers((current) => ({ ...current, [fieldId]: value }))}
+            onChange={changeAnswer}
             mode="edit"
             sectionKeys={sectionKeys}
             errors={fieldErrors}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
 import { Button, Field } from "@/shared/ui/ui-kit";
@@ -10,6 +10,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = "#00a878";
@@ -28,6 +29,10 @@ const FIELD_IDS: Record<string, string> = {
   startsAt: "onboarding-event-starts-at",
   endsAt: "onboarding-event-ends-at",
 };
+
+export function OnboardingStepHeading({ step, headingRef }: { step: 1 | 2 | 3 | 4; headingRef: RefObject<HTMLHeadingElement | null> }) {
+  return <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>;
+}
 
 function browserTimeZones(): string[] {
   try {
@@ -83,6 +88,14 @@ export function OnboardingWizard({
   const [saving, setSaving] = useState(false);
   const [event, setEvent] = useState<EventDTO | null>(null);
   const summaryRef = useRef<HTMLParagraphElement>(null);
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const previousStepRef = useRef(step);
+
+  useEffect(() => {
+    if (previousStepRef.current === step) return;
+    previousStepRef.current = step;
+    return focusOnNextFrame(stepHeadingRef);
+  }, [step]);
 
   // Step 2 — vocabulary (tracks only — rooms/formats/tags are fine to leave
   // for the settings hub; tracks are the one that gates the form/routing UI).
@@ -157,7 +170,7 @@ export function OnboardingWizard({
       setTracks((current) => [...current, track]);
       setTrackName("");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That track could not be added");
+      toast(isAppError(caught) ? caught.message : "That track could not be added", { kind: "error" });
     } finally {
       setAddingTrack(false);
     }
@@ -185,7 +198,7 @@ export function OnboardingWizard({
       toast(publishNow ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : "The form could not be created");
+      toast(caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);
     }
@@ -201,8 +214,9 @@ export function OnboardingWizard({
   return (
     <div className="panel settings-section onboarding-wizard">
       <ol className="cfp-progress">
-        {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined}>{index + 1}. {label}</li>)}
+        {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
       </ol>
+      <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
 
       {step === 1 && (
         <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>
