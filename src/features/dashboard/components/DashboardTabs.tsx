@@ -16,6 +16,13 @@ import { WidgetBoundary } from "./WidgetBoundary";
 
 export type DashboardTab = "today" | "speakers";
 
+export function DashboardTabNav({ eventId, active }: { eventId: EventId; active: DashboardTab }) {
+  return <nav className="dashboard-tabs" aria-label="Dashboard sections">
+    <Link className={active === "speakers" ? "active" : ""} aria-current={active === "speakers" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>
+    <Link className={active === "today" ? "active" : ""} aria-current={active === "today" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=today`}>Today</Link>
+  </nav>;
+}
+
 export function DashboardTabs(props: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
   const [client] = useState(() => new QueryClient());
   return <QueryClientProvider client={client}><DashboardTabsInner {...props} /></QueryClientProvider>;
@@ -36,10 +43,7 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
         ongoing work: each stays true once crossed, so this is what
         remembers "already celebrated" rather than recomputing urgency. */}
     <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
-    <nav className="dashboard-tabs" aria-label="Dashboard sections">
-      <Link className={initialTab === "speakers" ? "active" : ""} aria-current={initialTab === "speakers" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>
-      <Link className={initialTab === "today" ? "active" : ""} aria-current={initialTab === "today" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=today`}>Today</Link>
-    </nav>
+    <DashboardTabNav eventId={eventId} active={initialTab} />
     {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
   </main>;
 }

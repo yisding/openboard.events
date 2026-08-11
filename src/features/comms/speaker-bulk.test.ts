@@ -180,8 +180,11 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       sendId,
     };
 
-    await composeBulkSpeakerEmailIn(tx, eventId, input);
-    await composeBulkSpeakerEmailIn(tx, eventId, input);
+    const first = await composeBulkSpeakerEmailIn(tx, eventId, input);
+    const retry = await composeBulkSpeakerEmailIn(tx, eventId, input);
+
+    expect(first.queued).toBe(1);
+    expect(retry.queued).toBe(0);
 
     const idempotencyKey = `${eventId}:speaker_bulk:${ada}:${sendId}`;
     const logs = await pglite.query<{ n: number }>(

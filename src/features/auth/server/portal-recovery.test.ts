@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
+import { sha256 } from "./crypto";
 import { createConcurrentPortalRecoverySessionIn } from "./portal";
 
 describe("concurrent portal-login recovery", () => {
@@ -21,6 +22,6 @@ describe("concurrent portal-login recovery", () => {
     expect(recovered.raw).toEqual(expect.any(String));
     expect(recovered.raw.length).toBeGreaterThan(20);
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ contactId, eventId, impersonatedByUserId: null }));
-    expect(values.mock.calls[0]?.[0]).not.toHaveProperty("tokenHash", recovered.raw);
+    expect(values.mock.calls[0]?.[0]?.tokenHash).toBe(await sha256(recovered.raw));
   });
 });

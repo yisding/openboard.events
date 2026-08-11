@@ -1,11 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { OtpForm } from "./otp-form";
 import { portalAuthRequest } from "./portal-auth-request";
 
 type Fallback = { otp: string; magicLink: string };
+
+export function PortalCodeStep({ eventSlug, email, next, fallback, headingRef, onUseDifferentEmail }: {
+  eventSlug: string;
+  email: string;
+  next?: string;
+  fallback: Fallback | null;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  onUseDifferentEmail: () => void;
+}) {
+  return <>
+    <h1 ref={headingRef} tabIndex={-1}>Check your inbox</h1>
+    <p>Enter the six-digit code sent to <b>{email}</b>.</p>
+    <OtpForm eventSlug={eventSlug} email={email} {...(next ? { next } : {})} />
+    {fallback && <aside className="demo-code"><b>Development / fallback mode</b><span>Code <code>{fallback.otp}</code></span><Link href={fallback.magicLink}>Open magic link</Link></aside>}
+    <button className="text-button" type="button" onClick={onUseDifferentEmail}>Use a different email</button>
+  </>;
+}
 
 export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?: string }) {
   const [email, setEmail] = useState("");
@@ -17,8 +35,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
 
   useEffect(() => {
     if (!requested) return;
-    const frame = window.requestAnimationFrame(() => requestedHeadingRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
+    return focusOnNextFrame(requestedHeadingRef);
   }, [requested]);
 
   async function requestCode(event: FormEvent<HTMLFormElement>) {
@@ -44,13 +61,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     }
   }
 
-  if (requested) return <>
-    <h1 ref={requestedHeadingRef} tabIndex={-1}>Check your inbox</h1>
-    <p>Enter the six-digit code sent to <b>{email}</b>.</p>
-    <OtpForm eventSlug={eventSlug} email={email} {...(next ? { next } : {})} />
-    {fallback && <aside className="demo-code"><b>Development / fallback mode</b><span>Code <code>{fallback.otp}</code></span><Link href={fallback.magicLink}>Open magic link</Link></aside>}
-    <button className="text-button" type="button" onClick={() => setRequested(false)}>Use a different email</button>
-  </>;
+  if (requested) return <PortalCodeStep eventSlug={eventSlug} email={email} {...(next ? { next } : {})} fallback={fallback} headingRef={requestedHeadingRef} onUseDifferentEmail={() => setRequested(false)} />;
 
   return <form onSubmit={requestCode}>
     <h1>Speaker portal</h1>

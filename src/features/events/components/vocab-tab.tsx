@@ -25,7 +25,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
-import { restoreVocabItemAtIndex } from "./vocab-state";
+import { restoreFailedVocabDeletion } from "./vocab-state";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 type VocabSaveResult = { ok: boolean; item: VocabItem };
@@ -243,7 +243,12 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       toast(`${removed.name} deleted`);
       router.refresh();
     } catch {
-      setItems((current) => restoreVocabItemAtIndex(current, removed, originalIndex));
+      setItems((current) => restoreFailedVocabDeletion(
+        current,
+        removed,
+        originalIndex,
+        persistedItems.current.get(removed.id),
+      ));
       toast("That delete failed — it has been restored");
     }
   }

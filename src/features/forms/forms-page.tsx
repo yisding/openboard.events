@@ -73,7 +73,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     </section>
     <section className="panel list-panel">
       <div className="list-toolbar">
-        <div className="tabs" aria-label="Form filters">{(["all", "open", "draft", "closed"] as const).map((value) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value[0]?.toUpperCase()}{value.slice(1)}<span>{value === "all" ? forms.length : forms.filter((form) => form.status === value).length}</span></button>)}</div>
+        <div className="tabs" role="group" aria-label="Form filters">{(["all", "open", "draft", "closed"] as const).map((value) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value[0]?.toUpperCase()}{value.slice(1)}<span>{value === "all" ? forms.length : forms.filter((form) => form.status === value).length}</span></button>)}</div>
         <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
       </div>
       {visible.length === 0 ? <EmptyState icon={<FileText />} title="No forms here" description="Create a form or clear the current filters." /> : <div className="form-cards">{visible.map((form) => <article className="form-list-card" key={form.id}>

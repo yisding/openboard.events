@@ -1,19 +1,42 @@
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { PasswordResetConfirmation } from "./forgot-password-form";
+import { PortalCodeStep } from "./portal-login-form";
+
+Object.assign(globalThis, { React });
+
+function immediateScheduler() {
+  return {
+    requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => { callback(0); return 17; }),
+    cancelAnimationFrame: vi.fn(),
+  };
+}
 
 describe("authentication transition focus", () => {
-  it("focuses the portal code step heading after replacing the email form", () => {
-    const source = readFileSync(new URL("./portal-login-form.tsx", import.meta.url), "utf8");
+  it("renders and focuses the portal code step heading after replacement", () => {
+    const html = renderToStaticMarkup(React.createElement(PortalCodeStep, {
+      eventSlug: "test-event",
+      email: "speaker@example.com",
+      fallback: null,
+      headingRef: React.createRef<HTMLHeadingElement>(),
+      onUseDifferentEmail: vi.fn(),
+    }));
+    expect(html).toContain('<h1 tabindex="-1">Check your inbox</h1>');
 
-    expect(source).toContain("requestedHeadingRef.current?.focus()");
-    expect(source).toContain('<h1 ref={requestedHeadingRef} tabIndex={-1}>Check your inbox</h1>');
-    expect(source).toContain("<input autoFocus name=\"email\"");
+    const focus = vi.fn();
+    const scheduler = immediateScheduler();
+    const cancel = focusOnNextFrame({ current: { focus } }, scheduler);
+    expect(focus).toHaveBeenCalledOnce();
+    cancel();
+    expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(17);
   });
 
-  it("focuses the password-reset confirmation heading", () => {
-    const source = readFileSync(new URL("./forgot-password-form.tsx", import.meta.url), "utf8");
-
-    expect(source).toContain("sentHeadingRef.current?.focus()");
-    expect(source).toContain('<h1 ref={sentHeadingRef} tabIndex={-1}>Check your email</h1>');
+  it("renders the password-reset confirmation as a programmatic focus target", () => {
+    const html = renderToStaticMarkup(React.createElement(PasswordResetConfirmation, {
+      headingRef: React.createRef<HTMLHeadingElement>(),
+    }));
+    expect(html).toContain('<h1 tabindex="-1">Check your email</h1>');
   });
 });

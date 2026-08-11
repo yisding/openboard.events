@@ -1223,6 +1223,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .login-form-panel{min-height:calc(100vh - 76px);padding:36px 24px;place-items:start center}
   .login-form-panel form h1{font-size:32px}
 
+  /* Keep the agenda shell viewport-bound; the day view's own scroll region
+     carries the wide timeline instead of widening the document. */
+  .agenda-workspace>.day-grid{min-width:0;width:100%}
+  .agenda-workspace>.day-grid .dv-grid{min-width:700px}
+
   .public-day-tabs{overflow-x:auto;scroll-padding-inline:12px}
   .public-day-tabs button{flex:0 0 150px;width:150px}
 }

@@ -16,6 +16,36 @@ import { ReviewerInviteDialog } from "./reviewer-invite-dialog";
 
 export type TrackOption = { id: string; name: string; color: string | null };
 export type EventMember = { userId: string; name: string; email: string; role: string };
+type Requester = (input: string, init?: RequestInit) => Promise<Response>;
+
+export async function deleteEvaluationPlan(eventId: string, planId: string, request: Requester = fetch): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const response = await request(`/api/internal/evaluation/${eventId}/plans/${planId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    return response.ok
+      ? { ok: true }
+      : { ok: false, message: payload?.error?.message ?? "That round could not be deleted" };
+  } catch {
+    return { ok: false, message: "That round could not be deleted" };
+  }
+}
+
+export async function completeEvaluationPlanDelete(
+  eventId: string,
+  plan: PlanDTO,
+  effects: { onError: (message: string) => void; onDeleted: () => void; refresh: () => void; closeConfirmation: () => void },
+  request: Requester = fetch,
+): Promise<boolean> {
+  const result = await deleteEvaluationPlan(eventId, plan.id, request);
+  if (!result.ok) {
+    effects.onError(result.message);
+    return false;
+  }
+  effects.onDeleted();
+  effects.refresh();
+  effects.closeConfirmation();
+  return true;
+}
 
 /**
  * Program → Evaluation: the rounds an organizer runs, and how far each has got.
@@ -85,20 +115,14 @@ export function PlansView({
   async function remove(plan: PlanDTO): Promise<boolean> {
     setBusy(true);
     try {
-      const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}`, { method: "DELETE" });
-      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
       // The server refuses to delete a round that holds verdicts and says to
       // close it instead; that message is the useful one, so pass it through.
-      if (!response.ok) {
-        toast(payload?.error?.message ?? "That round could not be deleted", { kind: "error" });
-        return false;
-      }
-      toast(`${plan.name} deleted`);
-      router.refresh();
-      return true;
-    } catch {
-      toast("That round could not be deleted", { kind: "error" });
-      return false;
+      return completeEvaluationPlanDelete(eventId, plan, {
+        onError: (message) => toast(message, { kind: "error" }),
+        onDeleted: () => toast(`${plan.name} deleted`),
+        refresh: () => router.refresh(),
+        closeConfirmation: () => setPendingDelete(null),
+      });
     } finally {
       setBusy(false);
     }
@@ -251,7 +275,7 @@ export function PlansView({
         confirmLabel="Delete plan"
         onConfirm={async () => {
           if (!pendingDelete) return;
-          if (await remove(pendingDelete)) setPendingDelete(null);
+          await remove(pendingDelete);
         }}
         onCancel={() => setPendingDelete(null)}
       />

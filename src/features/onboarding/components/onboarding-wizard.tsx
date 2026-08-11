@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
 import { Button, Field } from "@/shared/ui/ui-kit";
@@ -10,6 +10,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = "#6366f1";
@@ -28,6 +29,10 @@ const FIELD_IDS: Record<string, string> = {
   startsAt: "onboarding-event-starts-at",
   endsAt: "onboarding-event-ends-at",
 };
+
+export function OnboardingStepHeading({ step, headingRef }: { step: 1 | 2 | 3 | 4; headingRef: RefObject<HTMLHeadingElement | null> }) {
+  return <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>;
+}
 
 function browserTimeZones(): string[] {
   try {
@@ -89,8 +94,7 @@ export function OnboardingWizard({
   useEffect(() => {
     if (previousStepRef.current === step) return;
     previousStepRef.current = step;
-    const frame = window.requestAnimationFrame(() => stepHeadingRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
+    return focusOnNextFrame(stepHeadingRef);
   }, [step]);
 
   // Step 2 — vocabulary (tracks only — rooms/formats/tags are fine to leave
@@ -212,7 +216,7 @@ export function OnboardingWizard({
       <ol className="cfp-progress">
         {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
       </ol>
-      <h2 ref={stepHeadingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>
+      <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
 
       {step === 1 && (
         <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>

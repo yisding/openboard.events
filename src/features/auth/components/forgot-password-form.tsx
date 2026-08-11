@@ -1,8 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { ArrowRight, Mail } from "lucide-react";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+
+export function PasswordResetConfirmation({ headingRef }: { headingRef: RefObject<HTMLHeadingElement | null> }) {
+  return <div>
+    <span className="metric-icon accent"><Mail size={20} /></span>
+    <h1 ref={headingRef} tabIndex={-1}>Check your email</h1>
+    <p>If that address has an account, a reset link is on its way. The link works once and expires in an hour.</p>
+    <p><Link href="/login">Back to sign in</Link></p>
+  </div>;
+}
 
 /**
  * M42 — the entry point to the password-reset flow.
@@ -32,8 +42,7 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
 
   useEffect(() => {
     if (!sent) return;
-    const frame = window.requestAnimationFrame(() => sentHeadingRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
+    return focusOnNextFrame(sentHeadingRef);
   }, [sent]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -69,12 +78,7 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
   }
 
   if (sent) {
-    return <div>
-      <span className="metric-icon accent"><Mail size={20} /></span>
-      <h1 ref={sentHeadingRef} tabIndex={-1}>Check your email</h1>
-      <p>If that address has an account, a reset link is on its way. The link works once and expires in an hour.</p>
-      <p><Link href="/login">Back to sign in</Link></p>
-    </div>;
+    return <PasswordResetConfirmation headingRef={sentHeadingRef} />;
   }
 
   return <form onSubmit={submit}>

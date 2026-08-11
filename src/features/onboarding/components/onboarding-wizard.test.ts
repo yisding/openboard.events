@@ -1,9 +1,9 @@
 import * as React from "react";
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { organizationIdSchema } from "@/shared/contracts";
-import { OnboardingWizard } from "./onboarding-wizard";
+import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { OnboardingStepHeading, OnboardingWizard } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -31,9 +31,22 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('class="sr-only">Step 1: Event basics</h2>');
   });
 
-  it("focuses the new step heading after a step replacement", () => {
-    const source = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
-    expect(source).toContain("stepHeadingRef.current?.focus()");
-    expect(source).toContain('aria-current={step === index + 1 ? "step" : undefined}');
+  it("renders and focuses the new heading after a step replacement", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingStepHeading, {
+      step: 2,
+      headingRef: React.createRef<HTMLHeadingElement>(),
+    }));
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain("Step 2: Vocabulary");
+
+    const focus = vi.fn();
+    const scheduler = {
+      requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => { callback(0); return 23; }),
+      cancelAnimationFrame: vi.fn(),
+    };
+    const cancel = focusOnNextFrame({ current: { focus } }, scheduler);
+    expect(focus).toHaveBeenCalledOnce();
+    cancel();
+    expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(23);
   });
 });

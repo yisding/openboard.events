@@ -11,6 +11,85 @@ import { useToast } from "@/shared/ui/toast";
 import type { ResourcePageDTO, ResourcePageRow } from "../server/queries";
 import { ResourcePageEditor } from "./resource-page-editor";
 
+type Requester = (input: string, init?: RequestInit) => Promise<Response>;
+
+export async function fetchResourcePages(eventId: string, request: Requester = fetch): Promise<ResourcePageRow[]> {
+  const response = await request(`/api/internal/resources/${eventId}`);
+  const payload = await response.json().catch(() => null) as { data?: ResourcePageRow[]; error?: { message?: string } } | null;
+  if (!response.ok || !payload?.data) throw new Error(payload?.error?.message ?? "Could not refresh resource pages");
+  return payload.data;
+}
+
+export async function persistResourcePageOrder(eventId: string, orderedIds: string[], request: Requester = fetch): Promise<void> {
+  const response = await request(`/api/internal/resources/${eventId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ orderedIds }),
+  });
+  if (!response.ok) throw new Error("Could not reorder pages");
+}
+
+export async function deleteResourcePage(eventId: string, page: ResourcePageRow, request: Requester = fetch): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const response = await request(`/api/internal/resources/${eventId}/${page.id}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    return response.ok
+      ? { ok: true }
+      : { ok: false, message: payload?.error?.message ?? "That page could not be deleted" };
+  } catch {
+    return { ok: false, message: "That page could not be deleted" };
+  }
+}
+
+export async function completeResourcePageDelete(
+  eventId: string,
+  page: ResourcePageRow,
+  effects: {
+    onError: (message: string) => void;
+    onDeleted: () => void;
+    removeRow: () => void;
+    refresh: () => Promise<void>;
+    onRefreshError: () => void;
+    closeConfirmation: () => void;
+  },
+  request: Requester = fetch,
+): Promise<boolean> {
+  const result = await deleteResourcePage(eventId, page, request);
+  if (!result.ok) {
+    effects.onError(result.message);
+    return false;
+  }
+  effects.onDeleted();
+  effects.removeRow();
+  try {
+    await effects.refresh();
+  } catch {
+    effects.onRefreshError();
+  }
+  effects.closeConfirmation();
+  return true;
+}
+
+export async function completeResourcePageReorder(
+  eventId: string,
+  orderedIds: string[],
+  effects: { onError: () => void; refresh: () => Promise<void>; onRefreshError: () => void },
+  request: Requester = fetch,
+): Promise<boolean> {
+  try {
+    await persistResourcePageOrder(eventId, orderedIds, request);
+    return true;
+  } catch {
+    effects.onError();
+    try {
+      await effects.refresh();
+    } catch {
+      effects.onRefreshError();
+    }
+    return false;
+  }
+}
+
 /**
  * Organizer CRUD for `resource_pages`. `pages` is kept in `sort_order` order —
  * the ↑/↓ controls act on that array's positions, not on whatever order a
@@ -38,9 +117,7 @@ export function ResourcePagesAdminView({
   const [reordering, setReordering] = useState(false);
 
   const refresh = useCallback(async () => {
-    const response = await fetch(`/api/internal/resources/${eventId}`);
-    const payload = await response.json().catch(() => null) as { data?: ResourcePageRow[] } | null;
-    if (payload?.data) setPages(payload.data);
+    setPages(await fetchResourcePages(eventId));
   }, [eventId]);
 
   const openEditor = useCallback(async (pageId: string) => {
@@ -89,46 +166,27 @@ export function ResourcePagesAdminView({
     if (!orderedIds) return;
     setReordering(true);
     try {
-      const response = await fetch(`/api/internal/resources/${eventId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ orderedIds }),
+      await completeResourcePageReorder(eventId, orderedIds, {
+        onError: () => toast("Could not reorder pages", { kind: "error" }),
+        refresh,
+        onRefreshError: () => toast("Could not refresh pages after the failed reorder", { kind: "error" }),
       });
-      if (!response.ok) {
-        toast("Could not reorder pages", { kind: "error" });
-        await refresh();
-      }
-    } catch {
-      toast("Could not reorder pages", { kind: "error" });
-      await refresh();
     } finally {
       setReordering(false);
     }
   }, [eventId, reordering, toast, refresh]);
 
   async function remove(page: ResourcePageRow): Promise<boolean> {
-    try {
-      const response = await fetch(`/api/internal/resources/${eventId}/${page.id}`, { method: "DELETE" });
-      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-      if (!response.ok) {
-        toast(payload?.error?.message ?? "That page could not be deleted", { kind: "error" });
-        return false;
-      }
-      toast(`${page.title} deleted`);
+    return completeResourcePageDelete(eventId, page, {
+      onError: (message) => toast(message, { kind: "error" }),
+      onDeleted: () => toast(`${page.title} deleted`),
       // The DELETE is authoritative. Remove the row immediately so a later
-      // refresh transport failure cannot misreport a successful deletion as
-      // failed or leave the confirmation open around an item that is gone.
-      setPages((current) => current.filter((candidate) => candidate.id !== page.id));
-      try {
-        await refresh();
-      } catch {
-        toast("Page deleted, but the list could not be refreshed", { kind: "error" });
-      }
-      return true;
-    } catch {
-      toast("That page could not be deleted", { kind: "error" });
-      return false;
-    }
+      // refresh transport failure cannot leave an item visible after it is gone.
+      removeRow: () => setPages((current) => current.filter((candidate) => candidate.id !== page.id)),
+      refresh,
+      onRefreshError: () => toast("Page deleted, but the list could not be refreshed", { kind: "error" }),
+      closeConfirmation: () => setPendingDelete(null),
+    });
   }
 
   const columns = useMemo<Array<ColumnDef<ResourcePageRow, unknown>>>(() => [
@@ -224,7 +282,14 @@ export function ResourcePagesAdminView({
         open={editorOpen && !editorLoading}
         page={creating ? null : editingPage}
         onClose={closeEditor}
-        onSaved={async () => { closeEditor(); await refresh(); }}
+        onSaved={async () => {
+          closeEditor();
+          try {
+            await refresh();
+          } catch {
+            toast("Page saved, but the list could not be refreshed", { kind: "error" });
+          }
+        }}
       />
 
       <ConfirmDialog
@@ -233,7 +298,7 @@ export function ResourcePagesAdminView({
         body="Speakers reading this page in the portal lose access immediately. This cannot be undone."
         confirmLabel="Delete page"
         onConfirm={async () => {
-          if (pendingDelete && await remove(pendingDelete)) setPendingDelete(null);
+          if (pendingDelete) await remove(pendingDelete);
         }}
         onCancel={() => setPendingDelete(null)}
       />
