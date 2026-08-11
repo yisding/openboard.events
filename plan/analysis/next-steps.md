@@ -103,7 +103,10 @@ Owner: M34–M40 and release owner.
 4. Exercise keyed API reads with a second event and confirm private/public cache
    behavior and draft exclusion.
 5. Run the worker-size, client-bundle, invariant, typecheck, lint, unit, build,
-   migration, and post-deploy smoke gates from a clean checkout.
+   migration, and post-deploy smoke gates from a clean checkout. Run the full
+   Playwright suite (`pnpm e2e`) against the fresh `sb-test` deployment and
+   require all six release specs to pass before declaring the validation gate
+   complete.
 
 Done when external integrations, background jobs, and release gates have current
 artifacts rather than historical notes.
