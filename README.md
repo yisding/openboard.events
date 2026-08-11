@@ -1,6 +1,6 @@
 # Openboard
 
-Openboard is an open-source, Sessionboard-class event and speaker-management platform: a public
+Openboard is an open-source event and speaker-management platform for conferences: a public
 call for speakers with conditional logic and routing, multi-round submission review, a speaker
 portal, automated transactional communications, a drag-and-drop agenda with conflict detection,
 public schedule/speaker/embed pages, and dashboards — plus a commercial layer (organizations,
