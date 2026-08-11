@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -18,6 +18,8 @@ export type TaskDraft = {
   dueAt: string | null;
   isActive: boolean;
 };
+
+const COMPLETION_MODES = ["manual", "form", "file_request"] as const;
 
 /**
  * `Field.hint` is `hint?: string` under `exactOptionalPropertyTypes` — the prop
@@ -82,6 +84,7 @@ export function TaskEditor({
   const [draft, setDraft] = useState<TaskDraft>(() => draftFromTask(task, timezone));
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -89,6 +92,11 @@ export function TaskEditor({
       setFieldErrors({});
     }
   }, [open, task, timezone]);
+
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return;
+    editorRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [fieldErrors]);
 
   const availableFileRequests = fileRequests.filter((request) => request.targetType === draft.targetType);
 
@@ -99,6 +107,22 @@ export function TaskEditor({
       formId: mode === "form" ? current.formId : null,
       fileRequestId: mode === "file_request" ? current.fileRequestId : null,
     }));
+  }
+
+  function onModeKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const delta = event.key === "ArrowRight" || event.key === "ArrowDown"
+      ? 1
+      : event.key === "ArrowLeft" || event.key === "ArrowUp"
+        ? -1
+        : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    const nextIndex = (index + delta + COMPLETION_MODES.length) % COMPLETION_MODES.length;
+    const next = COMPLETION_MODES[nextIndex];
+    if (!next) return;
+    const group = event.currentTarget.parentElement;
+    setMode(next);
+    window.requestAnimationFrame(() => group?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]?.focus());
   }
 
   async function save() {
@@ -123,13 +147,13 @@ export function TaskEditor({
       const payload = await response.json().catch(() => null) as { error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
       if (!response.ok) {
         setFieldErrors(payload?.error?.fieldErrors ?? {});
-        toast(payload?.error?.message ?? "That task could not be saved");
+        toast(payload?.error?.message ?? "That task could not be saved", { kind: "error" });
         return;
       }
       toast(draft.id ? "Task updated" : "Task created");
       onSaved();
     } catch {
-      toast("That task could not be saved");
+      toast("That task could not be saved", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -147,18 +171,20 @@ export function TaskEditor({
         <Button disabled={!draft.name.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create task"}</Button>
       </>}
     >
-      <div className="form-stack">
-        <Field label="Task name" required {...hintProp(fieldErrors.name)}>
-          <input autoFocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Upload final slides" />
+      <div ref={editorRef} className="form-stack">
+        <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
+          <input autoFocus aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Upload final slides" />
         </Field>
 
-        <Field label="Description">
-          <RichTextEditor value={draft.descriptionHtml} onChange={(html) => setDraft((current) => ({ ...current, descriptionHtml: html }))} placeholder="What should speakers do?" />
+        <Field label="Description" error={fieldErrors.descriptionHtml} errorId="task-description-error">
+          <RichTextEditor ariaInvalid={Boolean(fieldErrors.descriptionHtml)} {...(fieldErrors.descriptionHtml ? { ariaDescribedBy: "task-description-error" } : {})} value={draft.descriptionHtml} onChange={(html) => setDraft((current) => ({ ...current, descriptionHtml: html }))} placeholder="What should speakers do?" />
         </Field>
 
         <div className="form-grid">
-          <Field label="Target" {...hintProp(locked ? "This task has completions — create a new task to change who it targets." : undefined)}>
+          <Field label="Target" error={fieldErrors.targetType} errorId="task-target-error" {...hintProp(locked ? "This task has completions — create a new task to change who it targets." : undefined)}>
             <select
+              aria-invalid={Boolean(fieldErrors.targetType) || undefined}
+              aria-describedby={fieldErrors.targetType ? "task-target-error" : undefined}
               value={draft.targetType}
               disabled={locked}
               onChange={(event) => setDraft((current) => ({ ...current, targetType: event.target.value as TaskDraft["targetType"], fileRequestId: null }))}
@@ -167,19 +193,21 @@ export function TaskEditor({
               <option value="submission">Accepted submissions</option>
             </select>
           </Field>
-          <Field label="Due date">
+          <Field label="Due date" error={fieldErrors.dueAt} errorId="task-due-date-error">
             <input
               type="date"
+              aria-invalid={Boolean(fieldErrors.dueAt) || undefined}
+              aria-describedby={fieldErrors.dueAt ? "task-due-date-error" : undefined}
               value={draft.dueAt ?? ""}
               onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value || null }))}
             />
           </Field>
         </div>
 
-        <Field label="Completion mode" group {...hintProp(fieldErrors.completionMode)}>
+        <Field label="Completion mode" group radioGroup error={fieldErrors.completionMode} errorId="task-completion-mode-error">
           <div className="choice-cards compact">
-            {(["manual", "form", "file_request"] as const).map((mode) => (
-              <button type="button" key={mode} disabled={locked} className={draft.completionMode === mode ? "active" : ""} onClick={() => setMode(mode)}>
+            {COMPLETION_MODES.map((mode, index) => (
+              <button type="button" role="radio" aria-checked={draft.completionMode === mode} tabIndex={draft.completionMode === mode ? 0 : -1} key={mode} disabled={locked} className={draft.completionMode === mode ? "active" : ""} onKeyDown={(event) => onModeKeyDown(event, index)} onClick={() => setMode(mode)}>
                 <b>{mode === "file_request" ? "File request" : mode === "form" ? "Form" : "Manual"}</b>
                 <small>{mode === "manual" ? "One-click confirmation" : mode === "form" ? "Structured questions" : "Document upload"}</small>
               </button>
@@ -188,8 +216,8 @@ export function TaskEditor({
         </Field>
 
         {draft.completionMode === "form" && (
-          <Field label="Form" required {...hintProp(forms.length === 0 ? "No portal forms yet — create one first." : undefined)}>
-            <select disabled={locked} value={draft.formId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, formId: event.target.value || null }))}>
+          <Field label="Form" required error={fieldErrors.formId} errorId="task-form-error" {...hintProp(forms.length === 0 ? "No portal forms yet — create one first." : undefined)}>
+            <select aria-invalid={Boolean(fieldErrors.formId) || undefined} aria-describedby={fieldErrors.formId ? "task-form-error" : undefined} disabled={locked} value={draft.formId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, formId: event.target.value || null }))}>
               <option value="">Choose a form…</option>
               {forms.map((form) => <option key={form.id} value={form.id}>{form.internalName}</option>)}
             </select>
@@ -197,8 +225,8 @@ export function TaskEditor({
         )}
 
         {draft.completionMode === "file_request" && (
-          <Field label="File request" required {...hintProp(availableFileRequests.length === 0 ? "No matching file requests yet — create one first." : undefined)}>
-            <select disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, fileRequestId: event.target.value || null }))}>
+          <Field label="File request" required error={fieldErrors.fileRequestId} errorId="task-file-request-error" {...hintProp(availableFileRequests.length === 0 ? "No matching file requests yet — create one first." : undefined)}>
+            <select aria-invalid={Boolean(fieldErrors.fileRequestId) || undefined} aria-describedby={fieldErrors.fileRequestId ? "task-file-request-error" : undefined} disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, fileRequestId: event.target.value || null }))}>
               <option value="">Choose a file request…</option>
               {availableFileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
             </select>

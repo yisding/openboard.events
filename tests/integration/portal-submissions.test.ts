@@ -53,7 +53,7 @@ describe("portal submission queries", () => {
       );
     }
 
-    // The speaker is a co-speaker on `shared`; `soloOfStranger` belongs to
+    // The speaker is a moderator on `shared`; `soloOfStranger` belongs to
     // somebody else in the same event; `inOtherEvent` is a same-email contact's
     // submission in another event.
     await pglite.query("INSERT INTO submissions(id,event_id,code,status,source,title) VALUES($1,$2,401,'accepted','cfp','Shared talk')", [shared, eventA]);
@@ -61,7 +61,7 @@ describe("portal submission queries", () => {
     await pglite.query("INSERT INTO submissions(id,event_id,code,status,source,title) VALUES($1,$2,403,'pending','cfp','Other event')", [inOtherEvent, eventB]);
 
     await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)", [eventA, shared, coSpeaker]);
-    await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)", [eventA, shared, speaker]);
+    await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,role,is_primary,sort_order) VALUES($1,$2,$3,'moderator',false,1)", [eventA, shared, speaker]);
     await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)", [eventA, soloOfStranger, stranger]);
     await pglite.query("INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)", [eventB, inOtherEvent, otherEventContact]);
   }, 60_000);
@@ -74,6 +74,7 @@ describe("portal submission queries", () => {
     const rows = await listMySubmissionsIn(db, eventA, speaker);
     expect(rows.map((row) => row.submissionId)).toEqual([shared]);
     expect(rows[0]?.isPrimary).toBe(false);
+    expect(rows[0]?.role).toBe("moderator");
     expect(rows[0]?.status).toBe("Accepted");
     expect(await countMySubmissionsIn(db, eventA, speaker)).toBe(1);
   });
@@ -128,6 +129,7 @@ describe("portal submission queries", () => {
     expect(detail?.trackName).toBe("Agents");
     expect(detail?.participants.map((participant) => participant.email)).toEqual(["co@example.com", "speaker@example.com"]);
     expect(detail?.participants[0]?.isPrimary).toBe(true);
+    expect(detail?.participants.map((participant) => participant.role)).toEqual(["speaker", "moderator"]);
   });
 
   it("hides a submission in the same event the speaker is not on", async () => {

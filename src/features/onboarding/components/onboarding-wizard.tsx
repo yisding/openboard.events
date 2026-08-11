@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
 import { Button, Field } from "@/shared/ui/ui-kit";
@@ -19,7 +19,15 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Lightning Talks", color: "#8a5312" },
 ];
 const STEPS = ["Event basics", "Vocabulary", "First form", "Done"] as const;
-const RENDERED_FIELDS = new Set(["name", "slug", "timezone", "startsAt", "endsAt"]);
+const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
+const FIELD_IDS: Record<string, string> = {
+  name: "onboarding-event-name",
+  slug: "onboarding-event-slug",
+  eventType: "onboarding-event-type",
+  timezone: "onboarding-event-timezone",
+  startsAt: "onboarding-event-starts-at",
+  endsAt: "onboarding-event-ends-at",
+};
 
 function browserTimeZones(): string[] {
   try {
@@ -74,6 +82,7 @@ export function OnboardingWizard({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [event, setEvent] = useState<EventDTO | null>(null);
+  const summaryRef = useRef<HTMLParagraphElement>(null);
 
   // Step 2 — vocabulary (tracks only — rooms/formats/tags are fine to leave
   // for the settings hub; tracks are the one that gates the form/routing UI).
@@ -92,6 +101,21 @@ export function OnboardingWizard({
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
     setError(shownInline ? "" : summary);
     setFieldErrors(fields);
+    if (!summary && Object.keys(fields).length === 0) return;
+    const firstInvalid = Object.keys(fields).find((key) => RENDERED_FIELDS.has(key));
+    requestAnimationFrame(() => {
+      if (firstInvalid) document.getElementById(FIELD_IDS[firstInvalid] ?? "")?.focus();
+      else summaryRef.current?.focus();
+    });
+  }
+
+  function clearFieldError(key: string) {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   async function createEventStep() {
@@ -181,41 +205,41 @@ export function OnboardingWizard({
       </ol>
 
       {step === 1 && (
-        <div className="cfp-step form-stack">
+        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>
           <p className="onboarding-lede">
             {hasExistingEvents ? `Set up another event for ${organizationName}.` : `Welcome to ${organizationName} — let's set up your first event.`}
           </p>
-          <Field label="Event name" required error={fieldErrors.name}>
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="AI.Engineer Sandbox — NYC" />
+          <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
+            <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="AI.Engineer Sandbox — NYC" />
           </Field>
-          <Field label="Event slug" hint="Used in your public URLs — leave blank to generate from the name" error={fieldErrors.slug}>
-            <input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="ai-engineer-sandbox" />
+          <Field label="Event slug" hint="Used in your public URLs — leave blank to generate from the name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+            <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="ai-engineer-sandbox" />
           </Field>
           <div className="form-grid">
-            <Field label="Event type">
-              <select value={eventType} onChange={(event) => setEventType(event.target.value as EventType)}>
+            <Field label="Event type" error={fieldErrors.eventType} errorId="onboarding-event-type-error">
+              <select id="onboarding-event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
                 {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
               </select>
             </Field>
-            <Field label="Timezone" required error={fieldErrors.timezone}>
-              <select value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+            <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
+              <select id="onboarding-event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
                 {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
               </select>
             </Field>
           </div>
           <div className="form-grid">
-            <Field label="Starts At" required error={fieldErrors.startsAt}>
-              <DateTimePicker value={startsAt} onChange={setStartsAt} tz={timezone} clearable={false} />
+            <Field label="Starts At" required error={fieldErrors.startsAt} errorId="onboarding-event-starts-at-error">
+              <DateTimePicker id="onboarding-event-starts-at" required invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "onboarding-event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
             </Field>
-            <Field label="Ends At" required error={fieldErrors.endsAt}>
-              <DateTimePicker value={endsAt} onChange={setEndsAt} tz={timezone} clearable={false} />
+            <Field label="Ends At" required error={fieldErrors.endsAt} errorId="onboarding-event-ends-at-error">
+              <DateTimePicker id="onboarding-event-ends-at" required invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "onboarding-event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
             </Field>
           </div>
-          {error && <p className="field-error">{error}</p>}
+          {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           <footer className="cfp-actions">
-            <Button onClick={() => void createEventStep()} disabled={saving}>{saving ? "Creating…" : "Create event"} <ArrowRight size={16} /></Button>
+            <Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>
-        </div>
+        </form>
       )}
 
       {step === 2 && event && (

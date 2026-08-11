@@ -31,6 +31,7 @@ function submission(overrides: Partial<PortalSubmissionRow>): PortalSubmissionRo
     title: "My talk",
     status: "Draft",
     isPrimary: true,
+    role: "speaker",
     formId: "form-1",
     trackName: null,
     formatName: null,

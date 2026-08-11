@@ -35,12 +35,13 @@ export function eventDayKey(utc: Date | string | number, timeZone: string): stri
  * A key such as `2026-09-15` names September 15 in the event timezone; it is
  * not an instant. Converting a UTC-noon pivot into UTC+12/+14 advances that
  * pivot to September 16. Anchoring noon in the event timezone and formatting
- * it back in the same zone preserves the calendar date in every offset while
- * retaining `formatInZone`'s existing locale and zone-label behavior.
+ * it back in the same zone preserves the calendar date in every offset. Day
+ * labels intentionally omit a zone suffix: the event-local date is already
+ * the context, and repeating `PDT` on both the weekday and date is noise.
  */
 export function formatDayKeyInZone(dayKey: string, timeZone: string, style: Intl.DateTimeFormatOptions): string {
   const localNoon = zonedInputToUtc(`${dayKey}T12:00:00`, timeZone);
-  return formatInZone(localNoon, timeZone, style);
+  return new Intl.DateTimeFormat("en-US", { ...style, timeZone }).format(localNoon);
 }
 
 export function endOfDayInTz(dateISO: string, timeZone: string): Date {

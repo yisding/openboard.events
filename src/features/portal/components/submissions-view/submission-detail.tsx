@@ -5,11 +5,12 @@ import { ColorChip } from "@/shared/ui/app/color-chip";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { StatusBadge } from "@/shared/ui/ui-kit";
+import { participantRoleLabel } from "../../lib/participant-role";
 
 /**
  * Read-only, plus an Edit entry point M41 adds: offered only when the caller's
  * own `getEditableSubmission` gate already passed (open form, pending/draft
- * status, the submitter — never a co-speaker). A speaker who needs a change
+ * status, the submitter — never a secondary participant). A speaker who needs a change
  * outside that window asks the organizers, which is what the fallback copy says
  * rather than showing a control that does nothing.
  */
@@ -59,7 +60,7 @@ export function SubmissionDetail({
             <li key={participant.contactId}>
               <b>{participant.name}</b>
               <span>{participant.email}</span>
-              {participant.isPrimary && <em>Primary contact</em>}
+              <em>{participant.isPrimary ? "Primary speaker" : participantRoleLabel(participant.role)}</em>
             </li>
           ))}
         </ul>

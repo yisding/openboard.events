@@ -4,7 +4,7 @@ import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } f
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z, type ZodType } from "zod";
 import {
@@ -24,8 +24,10 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
+type VocabSaveResult = { ok: boolean; item: VocabItem };
 
 const deletedSchema = z.object({ deleted: z.boolean() });
 const reorderedSchema = z.object({ reordered: z.boolean() });
@@ -81,7 +83,7 @@ function Row({
 }: {
   item: VocabItem;
   reorderable: boolean;
-  onSave: (patch: Record<string, unknown>) => void;
+  onSave: (patch: Record<string, unknown>) => Promise<VocabSaveResult>;
   onDelete: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !reorderable });
@@ -106,14 +108,28 @@ function Row({
           className="vocab-color"
           aria-label={`Color for ${item.name}`}
           onChange={(event) => setColor(event.target.value)}
-          onBlur={() => onSave({ color })}
+          onBlur={() => {
+            if (color === item.color) return;
+            const attempted = color;
+            void onSave({ color: attempted }).then((result) => {
+              if (!result.ok) setColor((current) => current === attempted && hasColor(result.item) ? result.item.color : current);
+            });
+          }}
         />
       )}
       <input
         value={name}
         aria-label="Name"
         onChange={(event) => setName(event.target.value)}
-        onBlur={() => name.trim() && name !== item.name && onSave({ name: name.trim() })}
+        onBlur={() => {
+          const attempted = name.trim();
+          if (!attempted) { setName(item.name); return; }
+          setName(attempted);
+          if (attempted === item.name) return;
+          void onSave({ name: attempted }).then((result) => {
+            if (!result.ok) setName((current) => current === attempted ? result.item.name : current);
+          });
+        }}
       />
       {hasCapacity(item) && (
         <input
@@ -123,7 +139,14 @@ function Row({
           aria-label="Capacity"
           placeholder="Capacity"
           onChange={(event) => setCapacity(event.target.value)}
-          onBlur={() => onSave({ capacity: capacity === "" ? null : Number(capacity) })}
+          onBlur={() => {
+            const attempted = capacity === "" ? null : Number(capacity);
+            if (attempted === item.capacity) return;
+            const localValue = capacity;
+            void onSave({ capacity: attempted }).then((result) => {
+              if (!result.ok) setCapacity((current) => current === localValue && hasCapacity(result.item) ? result.item.capacity ?? "" : current);
+            });
+          }}
         />
       )}
       {hasDuration(item) && (
@@ -134,7 +157,13 @@ function Row({
           value={duration}
           aria-label="Default duration (minutes)"
           onChange={(event) => setDuration(Number(event.target.value))}
-          onBlur={() => onSave({ defaultDurationMins: duration })}
+          onBlur={() => {
+            if (duration === item.defaultDurationMins) return;
+            const attempted = duration;
+            void onSave({ defaultDurationMins: attempted }).then((result) => {
+              if (!result.ok) setDuration((current) => current === attempted && hasDuration(result.item) ? result.item.defaultDurationMins : current);
+            });
+          }}
         />
       )}
       <button type="button" aria-label={`Remove ${item.name}`} onClick={onDelete}>
@@ -160,6 +189,8 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<VocabItem | null>(null);
+  const saveQueue = useRef(new KeyedSerialQueue());
+  const persistedItems = useRef(new Map<string, VocabItem>(initialItems.map((item) => [item.id, item])));
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   async function addItem() {
@@ -171,6 +202,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         body: { name: newName.trim() },
       });
       setItems((current) => [...current, created]);
+      persistedItems.current.set(created.id, created);
       setNewName("");
       toast(`${copy.title.slice(0, -1)} added`);
     } catch (caught) {
@@ -180,17 +212,22 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
     }
   }
 
-  async function saveItem(item: VocabItem, patch: Record<string, unknown>) {
-    try {
-      const saved = await api(`events/${eventId}/vocab/${kind}/${item.id}`, dtoSchemaFor(kind), {
-        method: "PATCH",
-        body: { name: item.name, ...patch },
-      });
-      setItems((current) => current.map((row) => row.id === item.id ? saved : row));
-      router.refresh();
-    } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That change did not save");
-    }
+  function saveItem(itemId: string, patch: Record<string, unknown>, fallbackItem: VocabItem): Promise<VocabSaveResult> {
+    return saveQueue.current.run(itemId, async () => {
+      try {
+        const saved = await api(`events/${eventId}/vocab/${kind}/${itemId}`, dtoSchemaFor(kind), {
+          method: "PATCH",
+          body: patch,
+        });
+        persistedItems.current.set(itemId, saved);
+        setItems((current) => current.map((row) => row.id === itemId ? saved : row));
+        router.refresh();
+        return { ok: true, item: saved };
+      } catch (caught) {
+        toast(isAppError(caught) ? caught.message : "That change did not save");
+        return { ok: false, item: persistedItems.current.get(itemId) ?? fallbackItem };
+      }
+    });
   }
 
   async function confirmDelete() {
@@ -200,6 +237,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
     setPendingDelete(null);
     try {
       await api(`events/${eventId}/vocab/${kind}/${removed.id}`, deletedSchema, { method: "DELETE" });
+      persistedItems.current.delete(removed.id);
       toast(`${removed.name} deleted`);
       router.refresh();
     } catch {
@@ -244,7 +282,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
                   key={item.id}
                   item={item}
                   reorderable={reorderable}
-                  onSave={(patch) => { void saveItem(item, patch); }}
+                  onSave={(patch) => saveItem(item.id, patch, item)}
                   onDelete={() => setPendingDelete(item)}
                 />
               ))}

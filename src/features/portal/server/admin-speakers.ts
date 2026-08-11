@@ -11,7 +11,7 @@ import { listLogIn } from "@/features/comms/server/queries";
 // full `@/features/submissions` barrel here would close that loop; this import
 // carries the exact same function without it.
 import { toPortalStatus } from "@/features/submissions/index.client";
-import type { CommLogRow, ConfirmationStatus, ContactId, EventId, OutstandingTasksRow, SubmissionId, SubmissionStatus } from "@/shared/contracts";
+import type { CommLogRow, ConfirmationStatus, ContactId, EventId, OutstandingTasksRow, ParticipantRole, SubmissionId, SubmissionStatus } from "@/shared/contracts";
 import type { SpeakerRecord } from "@/shared/demo/types";
 import { stripHtml } from "@/features/comms/server/render";
 import { listMyTasksIn } from "../task-runtime/server/queries";
@@ -148,9 +148,9 @@ function toContactListRow(row: ContactListRawRow): ContactListRow {
     isAcceptedSpeaker: row.isAcceptedSpeaker,
     submissionCount: Number(row.submissionCount ?? 0),
     // `speaker_outstanding_v` has no row for a contact with zero assignments
-    // (never an accepted speaker, or an accepted co-speaker who owns none) —
+    // (never an accepted speaker, or an accepted secondary participant who owns none) —
     // that is a legitimate "0 open, 0 overdue", not a missing value (edge
-    // case: co-speaker-only contact in the work order).
+    // case: secondary-participant-only contact in the work order).
     openTasks: Number(row.openTasks ?? 0),
     overdueTasks: Number(row.overdueTasks ?? 0),
     missingBio: row.missingBio,
@@ -262,7 +262,7 @@ export type SpeakerDetailDTO = {
     links: { linkedin: string | null; twitter: string | null; facebook: string | null; website: string | null };
     unsubscribedAt: string | null;
   };
-  submissions: Array<{ submissionId: SubmissionId; code: number; title: string; portalStatus: string; isPrimary: boolean }>;
+  submissions: Array<{ submissionId: SubmissionId; code: number; title: string; portalStatus: string; isPrimary: boolean; role: ParticipantRole }>;
   tasks: Array<{ taskId: string; name: string; submissionId: SubmissionId | null; dueAt: string | null; completed: boolean; overdue: boolean }>;
   comms: CommLogRow[];
 };
@@ -279,7 +279,7 @@ type SpeakerDetailContactRow = ContactListRawRow & {
   unsubscribedAt: string | Date | null;
 };
 
-type SubmissionRow = { submissionId: string; code: number | string; title: string; status: SubmissionStatus; isPrimary: boolean };
+type SubmissionRow = { submissionId: string; code: number | string; title: string; status: SubmissionStatus; isPrimary: boolean; role: ParticipantRole };
 
 /**
  * (eventId, contactId) scoped together (R4) — a contact id from another event
@@ -300,7 +300,7 @@ export async function getSpeakerDetailIn(dbOrTx: DbOrTx, eventId: EventId, conta
   if (!row) return null;
 
   const submissionsResult = await dbOrTx.execute<SubmissionRow>(sql`
-    SELECT s.id AS "submissionId", s.code, s.title, s.status, sp.is_primary AS "isPrimary"
+    SELECT s.id AS "submissionId", s.code, s.title, s.status, sp.is_primary AS "isPrimary", sp.role
     FROM submission_participants sp
     JOIN submissions s ON s.id = sp.submission_id AND s.event_id = sp.event_id
     WHERE sp.event_id = ${eventId} AND sp.contact_id = ${contactId}
@@ -333,6 +333,7 @@ export async function getSpeakerDetailIn(dbOrTx: DbOrTx, eventId: EventId, conta
       // table and the portal use, imported rather than reimplemented.
       portalStatus: toPortalStatus(submission.status),
       isPrimary: submission.isPrimary,
+      role: submission.role,
     })),
     tasks: tasks.map((task) => ({
       taskId: task.taskId,

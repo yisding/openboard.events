@@ -105,13 +105,19 @@ export function PublicItinerary({
     ? `/api/v1/events/${encodeURIComponent(eventSlug)}/schedule/ics?${starred.map((id) => `session=${encodeURIComponent(id)}`).join("&")}`
     : null;
 
-  const body = sessions.length === 0 ? (
+  const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Schedule coming soon"
       description={`Sessions land closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile, then come back to build your itinerary.`}
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
+    />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Star}
+      title="No itinerary sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
     />
   ) : (
     <>

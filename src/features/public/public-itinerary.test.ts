@@ -40,4 +40,15 @@ describe("PublicItinerary", () => {
 
     expect(html).toContain("Schedule coming soon");
   });
+
+  it("distinguishes configured filters with no matches from an unpublished schedule", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicItinerary, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+      filters: { trackIds: ["00000000-0000-4000-8000-000000000999"] },
+    }));
+
+    expect(html).toContain("No itinerary sessions match this embed");
+    expect(html).not.toContain("Schedule coming soon");
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ClipboardCheck, Search, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
@@ -55,10 +55,11 @@ function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
   ];
 }
 
-function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base: string; role: MemberRole; onClose: () => void }) {
+export function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base: string; role: MemberRole; onClose: () => void }) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -100,6 +101,7 @@ function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base
   }, [query, eventId]);
 
   const items = useMemo(() => toItems(filteredVerbs, results), [filteredVerbs, results]);
+  const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [items.length]);
 
   function go(item: PaletteItem) {
@@ -142,12 +144,13 @@ function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base
             aria-label="Search anything"
             role="combobox"
             aria-expanded="true"
-            aria-controls="command-palette-listbox"
+            aria-controls={listboxId}
+            aria-activedescendant={activeOptionId}
             aria-autocomplete="list"
           />
           <kbd>Esc</kbd>
         </div>
-        <div className="command-palette-results" role="listbox" id="command-palette-listbox">
+        <div className="command-palette-results" role="listbox" id={listboxId}>
           {items.length === 0 && (
             <p className="command-palette-empty">{showingResults ? "Nothing matches" : "No matching commands"}</p>
           )}
@@ -156,6 +159,7 @@ function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base
             return (
               <button
                 key={item.key}
+                id={`${listboxId}-option-${index}`}
                 type="button"
                 role="option"
                 aria-selected={index === activeIndex}

@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { FileText, Plus, Upload } from "lucide-react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
 import type { FileRequestDTO } from "../server/queries";
+import { taskMutation } from "./task-mutation";
 
 type Draft = {
   id?: string;
@@ -49,6 +51,7 @@ export function FileRequestsView({
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => draftFromRequest(null));
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<FileRequestDTO | null>(null);
 
   const open = creating || editing !== null;
 
@@ -69,7 +72,7 @@ export function FileRequestsView({
     if (saving) return;
     setSaving(true);
     try {
-      const response = await fetch(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
+      const result = await taskMutation(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
         method: draft.id ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -79,12 +82,8 @@ export function FileRequestsView({
           acceptedExtensions: draft.acceptedExtensions.split(",").map((extension) => extension.trim()).filter(Boolean),
           maxSizeMb: draft.maxSizeMb,
         }),
-      });
-      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-      if (!response.ok) {
-        toast(payload?.error?.message ?? "That file request could not be saved");
-        return;
-      }
+      }, "That file request could not be saved");
+      if (!result.ok) { toast(result.message); return; }
       toast(draft.id ? "File request updated" : "File request created");
       closeEditor();
       await onChanged();
@@ -94,11 +93,12 @@ export function FileRequestsView({
   }
 
   async function remove(request: FileRequestDTO) {
-    const response = await fetch(`/api/internal/file-requests/${request.id}?eventId=${eventId}`, { method: "DELETE" });
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    const result = await taskMutation(`/api/internal/file-requests/${request.id}?eventId=${eventId}`, { method: "DELETE" }, "That file request could not be deleted");
     // A RESTRICT constraint refusal reads as this friendly message, never a raw 500.
-    toast(response.ok ? `${request.title} deleted` : payload?.error?.message ?? "That file request could not be deleted");
-    if (response.ok) await onChanged();
+    if (!result.ok) { toast(result.message); return; }
+    toast(`${request.title} deleted`);
+    setPendingDelete(null);
+    await onChanged();
   }
 
   return (
@@ -127,7 +127,7 @@ export function FileRequestsView({
           </div>
           <span className="row-actions">
             <Button size="sm" variant="secondary" onClick={() => startEdit(request)}>Edit</Button>
-            <Button size="sm" variant="ghost" onClick={() => remove(request)}>Delete</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPendingDelete(request)}>Delete</Button>
           </span>
         </article>
       ))}
@@ -169,6 +169,14 @@ export function FileRequestsView({
           </div>
         </div>
       </Modal>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete ? `Delete “${pendingDelete.title}”?` : "Delete file request?"}
+        body={pendingDelete ? `The “${pendingDelete.title}” file request will be permanently deleted. Tasks using it must be changed to Manual first.` : "This file request will be permanently deleted."}
+        confirmLabel="Delete file request"
+        onConfirm={async () => { if (pendingDelete) await remove(pendingDelete); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </section>
   );
 }

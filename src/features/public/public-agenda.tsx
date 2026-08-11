@@ -153,13 +153,19 @@ export function PublicAgenda({
     }
   }
 
-  const body = days.length === 0 ? (
+  const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Agenda coming soon"
       description={`The day-by-day program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
+    />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Star}
+      title="No agenda sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
     />
   ) : (
     <>
@@ -168,7 +174,7 @@ export function PublicAgenda({
           {days.map((dayKey) => {
             const label = dayLabel(dayKey, event.timezone);
             return (
-              <button key={dayKey} type="button" className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
+              <button key={dayKey} type="button" aria-pressed={day === dayKey} className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
                 <b>{label.weekday}</b>
                 <span>{label.date}</span>
               </button>

@@ -23,6 +23,27 @@ import { api } from "@/shared/lib/api-client";
  */
 export const COMPOSE_BATCH_SIZE = 200;
 
+export type BulkSendPreviewFingerprintInput = {
+  contactIds: readonly ContactId[];
+  previewContactId: ContactId | "";
+  subject: string;
+  bodyHtml: string;
+};
+
+/** A preview is approval for one exact audience/message combination. */
+export function bulkSendPreviewFingerprint(input: BulkSendPreviewFingerprintInput): string {
+  return JSON.stringify([input.contactIds, input.previewContactId, input.subject, input.bodyHtml]);
+}
+
+export function canSendBulkMessage(input: {
+  canCompose: boolean;
+  capped: boolean;
+  previewFingerprint: string | null;
+  currentFingerprint: string;
+}): boolean {
+  return input.canCompose && !input.capped && input.previewFingerprint === input.currentFingerprint;
+}
+
 export function chunkContactIds(contactIds: readonly ContactId[], size = COMPOSE_BATCH_SIZE): ContactId[][] {
   const chunks: ContactId[][] = [];
   for (let start = 0; start < contactIds.length; start += size) chunks.push([...contactIds.slice(start, start + size)]);

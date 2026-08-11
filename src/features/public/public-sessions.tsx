@@ -115,6 +115,12 @@ export function PublicSessions({
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
     />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Search}
+      title="No sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
+    />
   ) : (
     <>
       <div className="sessions-filters">

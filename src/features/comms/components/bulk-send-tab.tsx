@@ -16,7 +16,14 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
-import { chunkContactIds, mergeBulkSendResults, useComposeBulkSpeakerEmail, useResolveSpeakerSegment } from "../hooks/use-bulk-send";
+import {
+  bulkSendPreviewFingerprint,
+  canSendBulkMessage,
+  chunkContactIds,
+  mergeBulkSendResults,
+  useComposeBulkSpeakerEmail,
+  useResolveSpeakerSegment,
+} from "../hooks/use-bulk-send";
 import { templateVariablePaths } from "./sample-vars";
 import { unknownTokensClientSide } from "./validate-client";
 
@@ -49,34 +56,71 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [previewContactId, setPreviewContactId] = useState<ContactId | "">("");
-  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string } | null>(null);
+  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
   const [focusTarget, setFocusTarget] = useState<"subject" | "body">("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const resolveGeneration = useRef(0);
 
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
   const canCompose = segment !== null && segment.contactIds.length > 0 && subject.trim().length > 0 && bodyHtml.trim().length > 0 && unknownTokens.length === 0;
+  const currentPreviewFingerprint = useMemo(() => bulkSendPreviewFingerprint({
+    contactIds: segment?.contactIds ?? [],
+    previewContactId,
+    subject,
+    bodyHtml,
+  }), [bodyHtml, previewContactId, segment?.contactIds, subject]);
+  const currentPreview = preview?.fingerprint === currentPreviewFingerprint ? preview : null;
+  const canSend = canSendBulkMessage({
+    canCompose,
+    capped: segment?.capped ?? false,
+    previewFingerprint: preview?.fingerprint ?? null,
+    currentFingerprint: currentPreviewFingerprint,
+  });
+
+  function invalidateAudience() {
+    resolveGeneration.current += 1;
+    setSegment(null);
+    setPreviewContactId("");
+    setPreview(null);
+    setResult(null);
+    setConfirmSend(false);
+  }
+
+  function invalidateMessagePreview() {
+    setPreview(null);
+    setResult(null);
+    setConfirmSend(false);
+  }
 
   async function onResolve() {
+    const generation = resolveGeneration.current + 1;
+    resolveGeneration.current = generation;
     setSegment(null);
+    setPreviewContactId("");
+    setPreview(null);
     setResult(null);
+    setConfirmSend(false);
     try {
       const resolved = await resolveSegment.mutateAsync({
         ...(workflowStatus.length > 0 ? { workflowStatus } : {}),
         ...(confirmationStatus.length > 0 ? { confirmationStatus } : {}),
       });
+      if (resolveGeneration.current !== generation) return;
       setSegment(resolved);
       setPreviewContactId(resolved.preview[0]?.contactId ?? "");
     } catch {
+      if (resolveGeneration.current !== generation) return;
       toast("Could not resolve this segment");
     }
   }
 
   function insertToken(path: string) {
     const token = `{{${path}}}`;
+    invalidateMessagePreview();
     if (focusTarget === "subject") {
       const el = subjectRef.current;
       const start = el?.selectionStart ?? subject.length;
@@ -91,7 +135,8 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   }
 
   async function onPreview() {
-    if (!segment || !previewContactId) return;
+    if (!segment || segment.capped || !previewContactId) return;
+    const fingerprint = currentPreviewFingerprint;
     setPreview(null);
     try {
       // Only the previewed recipient is ever rendered — sending the full
@@ -105,14 +150,17 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         mode: "preview",
         previewContactId,
       });
-      if (rendered.preview) setPreview({ subject: rendered.preview.subject, bodyHtml: rendered.preview.bodyHtml });
+      if (rendered.preview) setPreview({ subject: rendered.preview.subject, bodyHtml: rendered.preview.bodyHtml, fingerprint });
     } catch {
       toast("Could not render a preview");
     }
   }
 
-  async function onSend() {
-    if (!segment) return;
+  async function onSend(): Promise<boolean> {
+    if (!segment || !canSend) {
+      toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending");
+      return false;
+    }
     try {
       // composeBulkSpeakerEmailInputSchema caps contactIds at 200 per call
       // (a browser DataTable-selection limit), well under a resolved
@@ -126,8 +174,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const sent = mergeBulkSendResults(results);
       setResult(sent);
       toast(`Queued ${sent.queued} · Skipped ${sent.skipped}${sent.errors.length > 0 ? ` · ${sent.errors.length} error(s)` : ""}`);
+      return true;
     } catch {
       toast("Could not send this message");
+      return false;
     }
   }
 
@@ -140,7 +190,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             <div className="bulk-send-checkboxes">
               {SPEAKER_WORKFLOW_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
-                  <input type="checkbox" checked={workflowStatus.includes(status)} onChange={() => setWorkflowStatus((current) => toggle(current, status))} />
+                  <input type="checkbox" checked={workflowStatus.includes(status)} onChange={() => { invalidateAudience(); setWorkflowStatus((current) => toggle(current, status)); }} />
                   {humanize(status)}
                 </label>
               ))}
@@ -150,7 +200,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             <div className="bulk-send-checkboxes">
               {CONFIRMATION_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
-                  <input type="checkbox" checked={confirmationStatus.includes(status)} onChange={() => setConfirmationStatus((current) => toggle(current, status))} />
+                  <input type="checkbox" checked={confirmationStatus.includes(status)} onChange={() => { invalidateAudience(); setConfirmationStatus((current) => toggle(current, status)); }} />
                   {humanize(status)}
                 </label>
               ))}
@@ -162,12 +212,12 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               <div>
                 <span className="metric-icon accent"><Users size={18} /></span>
                 <p>
-                  <b>{segment.contactIds.length} recipient{segment.contactIds.length === 1 ? "" : "s"} will be emailed</b>
+                  <b>{segment.capped ? "More than 2,000 eligible recipients" : `${segment.contactIds.length} recipient${segment.contactIds.length === 1 ? "" : "s"} will be emailed`}</b>
                   <small>
                     {segment.matchedCount} matched the segment
                     {segment.excludedSuppressedCount > 0 ? ` · ${segment.excludedSuppressedCount} suppressed` : ""}
                     {segment.excludedUnsubscribedCount > 0 ? ` · ${segment.excludedUnsubscribedCount} unsubscribed` : ""}
-                    {segment.capped ? " · capped at 2,000 — send in batches for the rest" : ""}
+                    {segment.capped ? " · refine this segment to 2,000 or fewer before composing or sending" : ""}
                   </small>
                 </p>
               </div>
@@ -182,10 +232,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         <div className="template-editor-grid">
           <div className="form-stack">
             <Field label="Subject">
-              <input ref={subjectRef} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => setSubject(event.target.value)} />
+              <input ref={subjectRef} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => { invalidateMessagePreview(); setSubject(event.target.value); }} />
             </Field>
             <Field label="Email body" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization on save.">
-              <textarea ref={bodyRef} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => setBodyHtml(event.target.value)} />
+              <textarea ref={bodyRef} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => { invalidateMessagePreview(); setBodyHtml(event.target.value); }} />
             </Field>
             <div className="template-vars">
               {variablePaths.map((path) => <button key={path} type="button" onClick={() => insertToken(path)}>{`{{${path}}}`}</button>)}
@@ -195,20 +245,20 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             )}
             {segment && segment.preview.length > 0 && (
               <Field label="Preview as">
-                <select value={previewContactId} onChange={(event) => setPreviewContactId(event.target.value as ContactId)}>
+                <select value={previewContactId} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
                   {segment.preview.map((recipient) => <option key={recipient.contactId} value={recipient.contactId}>{recipient.name} ({recipient.email})</option>)}
                 </select>
               </Field>
             )}
             <div className="bulk-send-actions">
-              <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || !previewContactId || compose.isPending}>Preview message</Button>
-              <Button onClick={() => setConfirmSend(true)} disabled={!canCompose || compose.isPending}>Send to {segment?.contactIds.length ?? 0} recipient{segment?.contactIds.length === 1 ? "" : "s"}</Button>
+              <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || segment?.capped || !previewContactId || compose.isPending}>Preview message</Button>
+              <Button onClick={() => setConfirmSend(true)} disabled={!canSend || compose.isPending}>{segment?.capped ? "Refine segment to send" : `Send to ${segment?.contactIds.length ?? 0} recipient${segment?.contactIds.length === 1 ? "" : "s"}`}</Button>
             </div>
           </div>
           <aside className="template-editor__preview">
             <span>PREVIEW</span>
-            {!preview && <p className="long-copy">Resolve a segment, write a message, then Preview message.</p>}
-            {preview && <><b>{preview.subject || "(empty subject)"}</b><RichTextView html={preview.bodyHtml} /></>}
+            {!currentPreview && <p className="long-copy">Resolve a segment, write a message, then Preview message.</p>}
+            {currentPreview && <><b>{currentPreview.subject || "(empty subject)"}</b><RichTextView html={currentPreview.bodyHtml} /></>}
           </aside>
         </div>
         {result && (
@@ -231,7 +281,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         title={`Send to ${segment?.contactIds.length ?? 0} recipients?`}
         body="This queues one email per recipient through the ordinary outbox — suppressed and unsubscribed addresses are rechecked at send time and skipped."
         confirmLabel="Send"
-        onConfirm={async () => { await onSend(); setConfirmSend(false); }}
+        onConfirm={async () => { if (await onSend()) setConfirmSend(false); }}
         onCancel={() => setConfirmSend(false)}
       />
     </div>

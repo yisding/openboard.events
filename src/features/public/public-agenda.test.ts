@@ -18,6 +18,7 @@ describe("PublicAgenda", () => {
     expect(html).toContain("Agents");
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Main Hall");
+    expect(html).toContain('aria-pressed="true"');
   });
 
   it("jumps the active day tab to a deep-linked session on a later day (?session=<id>)", () => {
@@ -45,6 +46,8 @@ describe("PublicAgenda", () => {
     // The day-2 session's title must actually be in the rendered list (its
     // day tab must be selected), not just theoretically reachable.
     expect(html).toContain("Day Two Keynote");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('aria-pressed="false"');
   });
 
   it("shows the coming-soon empty state when the event has no published days", () => {
@@ -62,5 +65,7 @@ describe("PublicAgenda", () => {
     }));
 
     expect(html).not.toContain("<h3>Agents</h3>");
+    expect(html).toContain("No agenda sessions match this embed");
+    expect(html).not.toContain("Agenda coming soon");
   });
 });

@@ -58,6 +58,8 @@ describe("PublicSessions", () => {
     }));
 
     expect(html).not.toContain("<h3>Agents</h3>");
-    expect(html).toContain("No sessions match those filters");
+    expect(html).toContain("No sessions match this embed");
+    expect(html).toContain("Ask the organizer to update the embed settings");
+    expect(html).not.toContain("Clear filters");
   });
 });
