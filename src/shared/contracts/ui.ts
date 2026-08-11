@@ -8,5 +8,7 @@ export type FormFieldRendererProps = {
   mode: "edit" | "review" | "readonly";
   sectionKeys?: string[];
   participantId?: string | null;
+  /** Answers from the surrounding abstract form used for participant visibility rules. */
+  visibilityAnswers?: Record<FieldId, AnswerValue | undefined>;
   errors?: Record<string, string>;
 };

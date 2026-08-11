@@ -30,9 +30,10 @@ export function FormFieldRenderer({
   mode,
   sectionKeys,
   participantId,
+  visibilityAnswers,
   errors,
 }: FormFieldRendererProps) {
-  const visible = evaluateVisibility(snapshot, answers);
+  const visible = evaluateVisibility(snapshot, visibilityAnswers ? { ...visibilityAnswers, ...answers } : answers);
   const sections = sectionKeys
     ? snapshot.sections.filter((section) => sectionKeys.includes(section.key))
     : snapshot.sections;

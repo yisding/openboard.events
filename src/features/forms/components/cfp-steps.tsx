@@ -18,7 +18,7 @@ import { Button } from "@/shared/ui/ui-kit";
 type Step = "account" | "submission" | "speaker" | "review" | "done";
 
 type Answers = Record<string, AnswerValue | undefined>;
-type ParticipantDraft = { clientId: string; answers: Answers };
+export type ParticipantDraft = { clientId: string; answers: Answers };
 type AutosaveSnapshot = { answers: Answers; participants: ParticipantDraft[] };
 
 export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
@@ -43,6 +43,10 @@ export function participantEmail(snapshot: FormSnapshot, answers: Answers): stri
     .find((field) => field.mapsTo === "contact.email" || field.key === "email");
   const value = emailField ? answers[emailField.id] : undefined;
   return value?.t === "s" ? value.v.trim().toLowerCase() : "";
+}
+
+export function hasIncompleteParticipantEmail(snapshot: FormSnapshot, participants: ReadonlyArray<ParticipantDraft>): boolean {
+  return participants.some((participant) => participantEmail(snapshot, participant.answers) === "");
 }
 
 async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
@@ -135,8 +139,14 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         role: "co_speaker" as const,
         isPrimary: false as const,
         sortOrder: index + 1,
-      }))
-      .filter((participant) => participant.email !== "");
+      }));
+    if (hasIncompleteParticipantEmail(snapshot, snapshotState.participants)) {
+      // Draft participant rows require a real contact email. Do not send a
+      // partial snapshot that would silently discard the still-unidentified
+      // co-speaker, and do not report the primary answers as saved either.
+      setSaveState("failed");
+      return Promise.resolve(false);
+    }
     return saveWithRetry(
       () => request(`/api/internal/forms/${form.id}/draft`, {
         formVersion: snapshot.version,
@@ -362,6 +372,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 mode="edit"
                 sectionKeys={["participant"]}
                 participantId={participant.clientId}
+                visibilityAnswers={answers}
                 errors={errors}
               />
             </div>
@@ -395,6 +406,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                     mode="review"
                     sectionKeys={["participant"]}
                     participantId={participant.clientId}
+                    visibilityAnswers={answers}
                   />
                 </div>
               ))}
