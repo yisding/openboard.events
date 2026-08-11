@@ -10,6 +10,8 @@ export { getResourcePage, getResourcePageById, listResourcePages } from "./serve
 
 export type { ResourcePageInput, SaveResourcePageInput, SaveResourcePageRequest } from "./server/mutations";
 export {
+  createResourcePage,
+  createResourcePageRequestSchema,
   deleteResourcePage,
   excerptFromHtml,
   reorderResourcePages,

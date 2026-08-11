@@ -19,6 +19,39 @@ function dayLabel(dayKey: string, timezone: string): { weekday: string; date: st
   };
 }
 
+export function myScheduleEmptyCopy(starredCount: number): {
+  title: string;
+  description: string;
+  hiddenByEmbed: boolean;
+} {
+  return starredCount > 0
+    ? {
+      title: "Your starred sessions are outside this embed",
+      description: "This embed’s track, format, or location filters hide them. Open the full itinerary to see every starred session.",
+      hiddenByEmbed: true,
+    }
+    : {
+      title: "No starred sessions yet",
+      description: "Browse the sessions in this embed and tap a star to add one to My Schedule.",
+      hiddenByEmbed: false,
+    };
+}
+
+export function FilteredItineraryEmptyState({ eventSlug, starredCount }: { eventSlug: string; starredCount: number }) {
+  const emptyCopy = myScheduleEmptyCopy(starredCount);
+  const hasHiddenStars = emptyCopy.hiddenByEmbed;
+  return (
+    <PublicComingSoon
+      icon={Star}
+      title={hasHiddenStars ? emptyCopy.title : "No itinerary sessions match this embed"}
+      description={hasHiddenStars
+        ? emptyCopy.description
+        : "Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."}
+      {...(hasHiddenStars ? { linkHref: `/e/${eventSlug}/itinerary`, linkLabel: "Open the full itinerary" } : {})}
+    />
+  );
+}
+
 /**
  * Schedule Itinerary — the M53 anonymous, no-account "My Schedule": star any
  * number of sessions, persisted in `localStorage` keyed by event slug
@@ -104,6 +137,7 @@ export function PublicItinerary({
   const exportHref = starred.length > 0
     ? `/api/v1/events/${encodeURIComponent(eventSlug)}/schedule/ics?${starred.map((id) => `session=${encodeURIComponent(id)}`).join("&")}`
     : null;
+  const emptyCopy = myScheduleEmptyCopy(starred.length);
 
   const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
@@ -114,11 +148,7 @@ export function PublicItinerary({
       linkLabel="Speaker gallery"
     />
   ) : sessions.length === 0 ? (
-    <PublicComingSoon
-      icon={Star}
-      title="No itinerary sessions match this embed"
-      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
-    />
+    <FilteredItineraryEmptyState eventSlug={eventSlug} starredCount={hydrated ? starred.length : 0} />
   ) : (
     <>
       <div className="itinerary-toolbar">
@@ -144,9 +174,13 @@ export function PublicItinerary({
       {myScheduleOnly && visible.length === 0 && (
         <div className="public-empty">
           <Star size={24} />
-          <h3>No starred sessions yet</h3>
-          <p>Tap the star on any session below to add it to My Schedule.</p>
-          <button type="button" onClick={() => setMyScheduleOnly(false)}>Browse the full schedule</button>
+          <h3>{emptyCopy.title}</h3>
+          <p>{emptyCopy.description}</p>
+          {emptyCopy.hiddenByEmbed ? (
+            <Link className="button button-secondary" href={`/e/${eventSlug}/itinerary`} target="_blank" rel="noreferrer">Open the full itinerary</Link>
+          ) : (
+            <button type="button" onClick={() => setMyScheduleOnly(false)}>Browse sessions in this embed</button>
+          )}
         </div>
       )}
       {grouped.map(([dayKey, items]) => {

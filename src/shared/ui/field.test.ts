@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Field, Segmented, Switch } from "./ui-kit";
+import { Field, ProgressBar, Segmented, Switch } from "./ui-kit";
 
 Object.assign(globalThis, { React });
 
@@ -65,12 +65,24 @@ describe("stateful button controls", () => {
     expect(html).toContain('aria-checked="true"');
   });
 
+  it("names progress and exposes a clamped numeric value", () => {
+    const html = renderToStaticMarkup(React.createElement(ProgressBar, { label: "Speaker readiness", value: 120 }));
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-label="Speaker readiness"');
+    expect(html).toContain('aria-valuemin="0"');
+    expect(html).toContain('aria-valuemax="100"');
+    expect(html).toContain('aria-valuenow="100"');
+  });
+
   it("exposes the selected Segmented button", () => {
     const html = renderToStaticMarkup(React.createElement(Segmented, {
+      label: "Task content type",
       value: "tasks",
       onChange: () => undefined,
       items: [{ value: "tasks", label: "Tasks" }, { value: "files", label: "Files" }],
     }));
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Task content type"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-pressed="false"');
   });

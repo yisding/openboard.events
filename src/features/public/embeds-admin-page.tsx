@@ -168,10 +168,10 @@ export function EmbedsAdminPage({
                 />
               </div>
               <div className="form-stack">
-                <label className="field">
+                <div className="field">
                   <span>Color theme</span>
-                  <Segmented value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
-                </label>
+                  <Segmented label={`${meta.label} color theme`} value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+                </div>
                 <label className="field">
                   <span>Accent color</span>
                   <div className="color-input">

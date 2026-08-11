@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FileText, Plus, Upload } from "lucide-react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
 import type { FileRequestDTO } from "../server/queries";
 import { taskMutation } from "./task-mutation";
@@ -52,18 +53,23 @@ export function FileRequestsView({
   const [draft, setDraft] = useState<Draft>(() => draftFromRequest(null));
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FileRequestDTO | null>(null);
+  const createRequestId = useRef(createStableCreateRequestId());
 
   const open = creating || editing !== null;
 
   function startCreate() {
+    createRequestId.current.reset();
+    createRequestId.current.begin();
     setDraft(draftFromRequest(null));
     setCreating(true);
   }
   function startEdit(request: FileRequestDTO) {
+    createRequestId.current.reset();
     setDraft(draftFromRequest(request));
     setEditing(request);
   }
   function closeEditor() {
+    createRequestId.current.reset();
     setCreating(false);
     setEditing(null);
   }
@@ -75,13 +81,13 @@ export function FileRequestsView({
       const result = await taskMutation<FileRequestDTO>(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
         method: draft.id ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(createRequestId.current.payload(draft.id, {
           title: draft.title,
           targetType: draft.targetType,
           instructionsHtml: draft.instructionsHtml,
           acceptedExtensions: draft.acceptedExtensions.split(",").map((extension) => extension.trim()).filter(Boolean),
           maxSizeMb: draft.maxSizeMb,
-        }),
+        })),
       }, "That file request could not be saved");
       if (!result.ok) { toast(result.message, { kind: "error" }); return; }
       const saved = result.payload?.data;

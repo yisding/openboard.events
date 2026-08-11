@@ -38,9 +38,11 @@ const talkTwo = submissionIdSchema.parse("c4000000-0000-4000-8000-000000000021")
 const pendingTalk = submissionIdSchema.parse("c4000000-0000-4000-8000-000000000022");
 const headshotTask = "c4000000-0000-4000-8000-000000000030";
 const slidesTask = "c4000000-0000-4000-8000-000000000031";
+const secondSlidesTask = "c4000000-0000-4000-8000-000000000033";
 const profileTask = "c4000000-0000-4000-8000-000000000032";
 const slidesRequest = "c4000000-0000-4000-8000-000000000040";
 const deck = "c4000000-0000-4000-8000-000000000041";
+const replacementDeck = "c4000000-0000-4000-8000-000000000046";
 const othersDeck = "c4000000-0000-4000-8000-000000000042";
 const stagedDeck = "c4000000-0000-4000-8000-000000000043";
 const wrongType = "c4000000-0000-4000-8000-000000000044";
@@ -203,6 +205,7 @@ describe("portal task runtime", () => {
       );
     };
     await asset(deck, ada, "deck.pdf", "application/pdf", 1024);
+    await asset(replacementDeck, ada, "deck-final.pdf", "application/pdf", 1536);
     // Somebody else's private deck, for the case that must not be able to reach it.
     await asset(othersDeck, grace, "secret.pdf", "application/pdf", 2048);
     await asset(stagedDeck, ada, "half-sent.pdf", "application/pdf", 4096, "staged");
@@ -279,25 +282,51 @@ describe("portal task runtime", () => {
     expect(await count("task_completions")).toBe(0);
   });
 
-  it("keeps every upload and completes only once", async () => {
+  it("returns the existing version when an ambiguous association retries the same asset", async () => {
     const first = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
     const second = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
     expect(first.version).toBe(1);
     expect(first.isLatest).toBe(true);
-    expect(second.version).toBe(2);
+    expect(second.fileUploadId).toBe(first.fileUploadId);
+    expect(second.version).toBe(1);
     expect(second.isLatest).toBe(true);
-    expect(await count("file_uploads")).toBe(2);
+    expect(await count("file_uploads")).toBe(1);
     expect(await count("task_completions")).toBe(1);
 
     const detail = await getMyTask(eventId, ada, slidesTask, talkOne);
-    expect(detail?.uploads).toHaveLength(2);
+    expect(detail?.uploads).toHaveLength(1);
     expect(detail?.fileRequest?.maxSizeMb).toBe(25);
     expect(detail?.completed).toBe(true);
   });
 
+  it("completes each task when two tasks share a request, slot, and replayed asset", async () => {
+    await pglite.query(
+      "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,file_request_id,sort_order) VALUES($1,$2,'Confirm final slides','submission','file_request',$3,3)",
+      [secondSlidesTask, eventId, slidesRequest],
+    );
+    try {
+      const first = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+      const second = await completeTaskViaUpload(eventId, ada, secondSlidesTask, talkOne, deck);
+
+      expect(second.fileUploadId).toBe(first.fileUploadId);
+      expect(await count("file_uploads")).toBe(1);
+      const completions = await pglite.query<{ task_id: string; file_upload_id: string }>(
+        "SELECT task_id, file_upload_id FROM task_completions WHERE contact_id=$1 AND submission_id=$2 ORDER BY task_id",
+        [ada, talkOne],
+      );
+      expect(completions.rows).toEqual([
+        { task_id: slidesTask, file_upload_id: first.fileUploadId },
+        { task_id: secondSlidesTask, file_upload_id: first.fileUploadId },
+      ]);
+      expect((await getMyTask(eventId, ada, secondSlidesTask, talkOne))?.completed).toBe(true);
+    } finally {
+      await pglite.query("DELETE FROM portal_tasks WHERE id=$1", [secondSlidesTask]);
+    }
+  });
+
   it("M52: numbers versions and marks exactly one latest per re-upload, newest first", async () => {
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
-    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, replacementDeck);
 
     const latestRows = await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM file_uploads WHERE file_request_id = $1 AND contact_id = $2 AND submission_id = $3 AND is_latest",
@@ -367,7 +396,7 @@ describe("portal task runtime", () => {
   it("points a re-upload's completion at the newest file", async () => {
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
     const first = await pglite.query<{ file_upload_id: string }>("SELECT file_upload_id FROM task_completions");
-    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, replacementDeck);
     const second = await pglite.query<{ file_upload_id: string }>("SELECT file_upload_id FROM task_completions");
     // Otherwise the organizer keeps being served the version the speaker replaced.
     expect(second.rows[0]?.file_upload_id).not.toBe(first.rows[0]?.file_upload_id);

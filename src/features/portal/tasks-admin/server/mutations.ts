@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
-import { fileRequests, forms, portalTasks } from "@/db/schema";
+import { fileRequests, forms } from "@/db/schema";
 import {
   fileRequestIdSchema,
   formIdSchema,
@@ -91,24 +91,33 @@ function toTaskDto(row: TaskRow): TaskDTO {
  * closed `APP_ERROR_CODES` enum has no `TASK_LOCKED`, and this is the same
  * "structure frozen by existing responses" meaning.
  */
-export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTaskInput): Promise<TaskDTO> {
+export async function saveTaskIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveTaskInput,
+  options: { createIfMissing?: boolean } = {},
+): Promise<TaskDTO> {
   const timezone = await getEventTimezoneIn(dbOrTx, eventId);
   const formId = input.formId ?? null;
   const fileRequestId = input.fileRequestId ?? null;
 
   if (input.id) {
-    const [existing] = await dbOrTx.select({
-      targetType: portalTasks.targetType,
-      completionMode: portalTasks.completionMode,
-      formId: portalTasks.formId,
-      fileRequestId: portalTasks.fileRequestId,
-    }).from(portalTasks).where(and(eq(portalTasks.id, input.id), eq(portalTasks.eventId, eventId))).limit(1);
-    if (!existing) throw new AppError("NOT_FOUND", "Task not found");
+    const existingResult = await dbOrTx.execute<TaskRow>(sql`
+      SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id,
+             due_at, is_active, created_at
+      FROM portal_tasks WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    const existing = (existingResult.rows ?? [])[0];
+    // A collection-create id is an operation id, not an update target. A lost
+    // response may be retried with stale/different form state; return the row
+    // the first attempt committed without changing fields or updated_at.
+    if (existing && options.createIfMissing) return toTaskDto(existing);
+    if (!existing && !options.createIfMissing) throw new AppError("NOT_FOUND", "Task not found");
 
-    const shapeChanged = existing.targetType !== input.targetType
-      || existing.completionMode !== input.completionMode
-      || (existing.formId ?? null) !== formId
-      || (existing.fileRequestId ?? null) !== fileRequestId;
+    const shapeChanged = existing !== undefined && (existing.target_type !== input.targetType
+      || existing.completion_mode !== input.completionMode
+      || (existing.form_id ?? null) !== formId
+      || (existing.file_request_id ?? null) !== fileRequestId);
     if (shapeChanged) {
       const completions = await dbOrTx.execute<{ n: number }>(sql`
         SELECT count(*)::int AS n FROM task_completions WHERE task_id = ${input.id} AND event_id = ${eventId}
@@ -133,6 +142,15 @@ export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTa
   // event's own timezone (analysis trap #9 / resolution #9).
   const dueAt = input.dueAt ? endOfDayInTz(input.dueAt, timezone) : null;
   const descriptionHtml = sanitize(input.descriptionHtml ?? "");
+  const idempotentCreate = options.createIfMissing === true && input.id !== undefined;
+  const conflictClause = idempotentCreate
+    ? sql`ON CONFLICT (id) DO NOTHING`
+    : sql`ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name, description_html = EXCLUDED.description_html,
+        target_type = EXCLUDED.target_type, completion_mode = EXCLUDED.completion_mode,
+        form_id = EXCLUDED.form_id, file_request_id = EXCLUDED.file_request_id,
+        due_at = EXCLUDED.due_at, is_active = EXCLUDED.is_active, updated_at = now()
+      WHERE portal_tasks.event_id = ${eventId}`;
 
   const result = await dbOrTx.execute<TaskRow>(sql`
     INSERT INTO portal_tasks (id, event_id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, sort_order)
@@ -145,18 +163,27 @@ export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTa
         (SELECT coalesce(max(sort_order) + 1, 0) FROM portal_tasks WHERE event_id = ${eventId})
       )
     )
-    ON CONFLICT (id) DO UPDATE SET
-      name = EXCLUDED.name, description_html = EXCLUDED.description_html,
-      target_type = EXCLUDED.target_type, completion_mode = EXCLUDED.completion_mode,
-      form_id = EXCLUDED.form_id, file_request_id = EXCLUDED.file_request_id,
-      due_at = EXCLUDED.due_at, is_active = EXCLUDED.is_active, updated_at = now()
-    WHERE portal_tasks.event_id = ${eventId}
+    ${conflictClause}
     RETURNING id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, created_at
   `);
-  const row = (result.rows ?? [])[0];
+  let row = (result.rows ?? [])[0];
+  if (!row && idempotentCreate) {
+    const replay = await dbOrTx.execute<TaskRow>(sql`
+      SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id,
+             due_at, is_active, created_at
+      FROM portal_tasks WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    row = (replay.rows ?? [])[0];
+  }
   if (!row) throw new AppError("INTERNAL", "The task could not be saved");
   return toTaskDto(row);
 }
+
+/** POST/create variant: a supplied id is an idempotency key and may insert on
+ * its first use. PATCH continues through `saveTaskIn` and never creates a
+ * missing path id. */
+export const createTaskIn = (dbOrTx: DbOrTx, eventId: EventId, input: SaveTaskInput): Promise<TaskDTO> =>
+  saveTaskIn(dbOrTx, eventId, input, { createIfMissing: true });
 
 export async function deleteTaskIn(dbOrTx: DbOrTx, eventId: EventId, taskId: TaskId): Promise<void> {
   const result = await dbOrTx.execute<{ id: string }>(sql`
@@ -216,10 +243,36 @@ function toFileRequestDto(row: FileRequestRow): FileRequestDTO {
   };
 }
 
-export async function saveFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveFileRequestInput): Promise<FileRequestDTO> {
+export async function saveFileRequestIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveFileRequestInput,
+  options: { createIfMissing?: boolean } = {},
+): Promise<FileRequestDTO> {
+  if (input.id && options.createIfMissing) {
+    const replay = await dbOrTx.execute<FileRequestRow>(sql`
+      SELECT id, title, target_type, instructions_html, accepted_extensions, max_size_mb, created_at, updated_at
+      FROM file_requests WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    const existing = (replay.rows ?? [])[0];
+    if (existing) return toFileRequestDto(existing);
+  }
+  if (input.id && !options.createIfMissing) {
+    const [existing] = await dbOrTx.select({ id: fileRequests.id }).from(fileRequests)
+      .where(and(eq(fileRequests.id, input.id), eq(fileRequests.eventId, eventId)))
+      .limit(1);
+    if (!existing) throw new AppError("NOT_FOUND", "File request not found");
+  }
   const instructionsHtml = sanitize(input.instructionsHtml ?? "");
   const extensions = [...new Set(input.acceptedExtensions.map((extension) => extension.replace(/^\./, "")))];
   const extensionsSql = sql`ARRAY[${sql.join(extensions.map((extension) => sql`${extension}`), sql`, `)}]::text[]`;
+  const idempotentCreate = options.createIfMissing === true && input.id !== undefined;
+  const conflictClause = idempotentCreate
+    ? sql`ON CONFLICT (id) DO NOTHING`
+    : sql`ON CONFLICT (id) DO UPDATE SET
+        title = EXCLUDED.title, target_type = EXCLUDED.target_type, instructions_html = EXCLUDED.instructions_html,
+        accepted_extensions = EXCLUDED.accepted_extensions, max_size_mb = EXCLUDED.max_size_mb, updated_at = now()
+      WHERE file_requests.event_id = ${eventId}`;
 
   const result = await dbOrTx.execute<FileRequestRow>(sql`
     INSERT INTO file_requests (id, event_id, title, target_type, instructions_html, accepted_extensions, max_size_mb)
@@ -227,16 +280,24 @@ export async function saveFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, input:
       COALESCE(${input.id ?? null}::uuid, gen_random_uuid()), ${eventId}, ${input.title}, ${input.targetType}::task_target,
       ${instructionsHtml}, ${extensionsSql}, ${input.maxSizeMb}
     )
-    ON CONFLICT (id) DO UPDATE SET
-      title = EXCLUDED.title, target_type = EXCLUDED.target_type, instructions_html = EXCLUDED.instructions_html,
-      accepted_extensions = EXCLUDED.accepted_extensions, max_size_mb = EXCLUDED.max_size_mb, updated_at = now()
-    WHERE file_requests.event_id = ${eventId}
+    ${conflictClause}
     RETURNING id, title, target_type, instructions_html, accepted_extensions, max_size_mb, created_at, updated_at
   `);
-  const row = (result.rows ?? [])[0];
+  let row = (result.rows ?? [])[0];
+  if (!row && idempotentCreate) {
+    const replay = await dbOrTx.execute<FileRequestRow>(sql`
+      SELECT id, title, target_type, instructions_html, accepted_extensions, max_size_mb, created_at, updated_at
+      FROM file_requests WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    row = (replay.rows ?? [])[0];
+  }
   if (!row) throw new AppError("NOT_FOUND", "File request not found");
   return toFileRequestDto(row);
 }
+
+/** Collection POST counterpart to `saveFileRequestIn`; see `createTaskIn`. */
+export const createFileRequestIn = (dbOrTx: DbOrTx, eventId: EventId, input: SaveFileRequestInput): Promise<FileRequestDTO> =>
+  saveFileRequestIn(dbOrTx, eventId, input, { createIfMissing: true });
 
 /**
  * RESTRICT is the backstop (`file_requests.id` is FK'd from `portal_tasks`
@@ -258,8 +319,10 @@ export async function deleteFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, id: 
 }
 
 export const saveTask = (eventId: EventId, input: SaveTaskInput) => saveTaskIn(db, eventId, input);
+export const createTask = (eventId: EventId, input: SaveTaskInput) => createTaskIn(db, eventId, input);
 export const deleteTask = (eventId: EventId, taskId: TaskId) => deleteTaskIn(db, eventId, taskId);
 export const reopenCompletion = (eventId: EventId, taskId: TaskId, contactId: ContactId, submissionId: SubmissionId | null) =>
   reopenCompletionIn(db, eventId, taskId, contactId, submissionId);
 export const saveFileRequest = (eventId: EventId, input: SaveFileRequestInput) => saveFileRequestIn(db, eventId, input);
+export const createFileRequest = (eventId: EventId, input: SaveFileRequestInput) => createFileRequestIn(db, eventId, input);
 export const deleteFileRequest = (eventId: EventId, id: string) => deleteFileRequestIn(db, eventId, id);

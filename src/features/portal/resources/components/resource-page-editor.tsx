@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { slugify } from "@/shared/lib/slug";
 import type { ResourcePageDTO } from "../server/queries";
 
@@ -15,18 +16,29 @@ export type ResourcePageDraft = {
   published: boolean;
 };
 
-/**
- * `Field.hint` is `hint?: string` under `exactOptionalPropertyTypes` — the prop
- * may be omitted, but never explicitly set to `undefined`. Same helper as
- * `tasks-admin`'s `TaskEditor`.
- */
-function hintProp(hint: string | undefined): { hint: string } | Record<string, never> {
-  return hint ? { hint } : {};
-}
-
 function draftFromPage(page: ResourcePageDTO | null): ResourcePageDraft {
   if (!page) return { title: "", slug: "", bodyHtml: "", published: true };
   return { id: page.id, title: page.title, slug: page.slug, bodyHtml: page.bodyHtml ?? "", published: page.published };
+}
+
+export function focusResourceFieldError(
+  container: { querySelector: (selector: string) => { focus: () => void } | null } | null,
+  schedule: (callback: () => void) => unknown = (callback) => window.requestAnimationFrame(callback),
+) {
+  schedule(() => container?.querySelector('[aria-invalid="true"]')?.focus());
+}
+
+export async function recoverStaleResourcePage(
+  reload: () => void | Promise<void>,
+  onFailure: () => void,
+): Promise<boolean> {
+  try {
+    await reload();
+    return true;
+  } catch {
+    onFailure();
+    return false;
+  }
 }
 
 /**
@@ -51,31 +63,53 @@ export function ResourcePageEditor({
   open: boolean;
   page: ResourcePageDTO | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
+  const formRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<ResourcePageDraft>(() => draftFromPage(page));
   const [slugTouched, setSlugTouched] = useState(Boolean(page));
   const [mode, setMode] = useState<"rich" | "source">("rich");
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const createRequestId = useRef(createStableCreateRequestId());
 
   useEffect(() => {
-    if (open) {
-      setDraft(draftFromPage(page));
-      setSlugTouched(Boolean(page));
-      setMode("rich");
-      setFieldErrors({});
+    if (!open) {
+      createRequestId.current.reset();
+      return;
     }
+    if (page) createRequestId.current.reset();
+    else createRequestId.current.begin();
+    setDraft(draftFromPage(page));
+    setSlugTouched(Boolean(page));
+    setMode("rich");
+    setFieldErrors({});
   }, [open, page]);
 
   function setTitle(title: string) {
     setDraft((current) => ({ ...current, title, slug: slugTouched ? current.slug : slugify(title) }));
+    clearFieldError("title");
   }
 
   function setSlug(slug: string) {
     setSlugTouched(true);
     setDraft((current) => ({ ...current, slug: slug.toLowerCase() }));
+    clearFieldError("slug");
+  }
+
+  function clearFieldError(field: string) {
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function closeEditor() {
+    createRequestId.current.reset();
+    onClose();
   }
 
   async function save() {
@@ -88,35 +122,40 @@ export function ResourcePageEditor({
         {
           method: draft.id ? "PATCH" : "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
+          body: JSON.stringify(createRequestId.current.payload(draft.id, {
             title: draft.title,
             ...(draft.slug ? { slug: draft.slug } : {}),
             bodyHtml: draft.bodyHtml,
             published: draft.published,
             ...(page ? { expectedUpdatedAt: page.updatedAt } : {}),
-          }),
+          })),
         },
       );
       const payload = await response.json().catch(() => null) as {
-        error?: { code?: string; message?: string; data?: { fieldErrors?: Record<string, string> } };
+        error?: { code?: string; message?: string; fieldErrors?: Record<string, string>; data?: { fieldErrors?: Record<string, string> } };
       } | null;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by saving
         // again: somebody else's edit landed first, so say so and let the list
         // refetch rather than silently overwriting it.
-        toast("This page changed since you opened it. Reloading the latest version — please re-apply your edit.");
-        onSaved();
+        toast("This page changed since you opened it. Reloading the latest version — please re-apply your edit.", { kind: "error" });
+        await recoverStaleResourcePage(onSaved, () => {
+          toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
+        });
         return;
       }
       if (!response.ok) {
-        setFieldErrors(payload?.error?.data?.fieldErrors ?? {});
-        toast(payload?.error?.message ?? "That page could not be saved");
+        const nextFieldErrors = payload?.error?.fieldErrors ?? payload?.error?.data?.fieldErrors ?? {};
+        setFieldErrors(nextFieldErrors);
+        if (Object.keys(nextFieldErrors).length > 0) focusResourceFieldError(formRef.current);
+        toast(payload?.error?.message ?? "That page could not be saved", { kind: "error" });
         return;
       }
       toast(draft.id ? "Page updated" : "Page created");
-      onSaved();
+      await onSaved();
+      createRequestId.current.reset();
     } catch {
-      toast("That page could not be saved");
+      toast("That page could not be saved", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -125,22 +164,22 @@ export function ResourcePageEditor({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeEditor}
       title={draft.id ? "Edit resource page" : "New resource page"}
       description="Speakers see this in the portal once it is published."
       wide
       footer={<>
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
         <Button disabled={!draft.title.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create page"}</Button>
       </>}
     >
-      <div className="form-stack">
-        <Field label="Title" required {...hintProp(fieldErrors.title)}>
-          <input required value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
+      <div ref={formRef} className="form-stack">
+        <Field label="Title" required error={fieldErrors.title} errorId="resource-title-error">
+          <input required aria-invalid={Boolean(fieldErrors.title) || undefined} aria-describedby={fieldErrors.title ? "resource-title-error" : undefined} value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
         </Field>
 
-        <Field label="URL" {...hintProp(fieldErrors.slug ?? `…/resources/${draft.slug || "…"}`)}>
-          <input value={draft.slug} onChange={(event) => setSlug(event.target.value)} placeholder="speaker-guide" />
+        <Field label="URL" hint={`…/resources/${draft.slug || "…"}`} hintId="resource-slug-hint" error={fieldErrors.slug} errorId="resource-slug-error">
+          <input aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "resource-slug-error" : "resource-slug-hint"} value={draft.slug} onChange={(event) => setSlug(event.target.value)} placeholder="speaker-guide" />
         </Field>
 
         <Field label="Body" group>

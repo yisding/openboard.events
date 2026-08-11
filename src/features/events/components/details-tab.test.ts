@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { eventSlugValidationError } from "./details-tab";
+import { describe, expect, it, vi } from "vitest";
+import {
+  eventDetailsValidationErrors,
+  eventSlugValidationError,
+  focusDetailsError,
+  focusDetailsNotice,
+  STALE_NOTICE_A11Y,
+} from "./details-tab";
 
 describe("event details slug validation", () => {
   it("rejects invalid and reserved slugs before save", () => {
@@ -11,5 +17,35 @@ describe("event details slug validation", () => {
 
   it("accepts a trimmed lowercase slug", () => {
     expect(eventSlugValidationError("  my-event-2026  ")).toBeNull();
+  });
+
+  it("associates each invalid value with the first field that must recover focus", () => {
+    expect(eventDetailsValidationErrors({ name: "", slug: "My Event", startsAt: null, endsAt: null, theme: "" })).toEqual({
+      name: "Event name is required",
+      slug: "Slug must be lowercase letters, numbers and single hyphens",
+      startsAt: "Start date and time are required",
+      endsAt: "End date and time are required",
+    });
+
+    const focus = vi.fn();
+    const querySelector = vi.fn(() => ({ focus }));
+    focusDetailsError({ querySelector }, { current: null }, (callback) => callback());
+    expect(querySelector).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it("focuses the alert summary when a response error has no invalid field", () => {
+    const focus = vi.fn();
+    focusDetailsError(null, { current: { focus } }, (callback) => callback());
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it("announces and focuses a stale-write recovery notice", () => {
+    expect(STALE_NOTICE_A11Y).toEqual({ role: "alert", tabIndex: -1 });
+    const focus = vi.fn();
+    const schedule = vi.fn((callback: () => void) => callback());
+    focusDetailsNotice({ current: { focus } }, schedule);
+    expect(schedule).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenCalledOnce();
   });
 });

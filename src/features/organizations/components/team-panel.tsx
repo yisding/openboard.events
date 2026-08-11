@@ -70,7 +70,7 @@ export function TeamPanel({
       toast(`${member.email} is now ${role}`);
     } catch (caught) {
       setMembers(previous);
-      toast(isAppError(caught) ? caught.message : "That role change failed");
+      toast(isAppError(caught) ? caught.message : "That role change failed", { kind: "error" });
     }
   }, [members, organizationId, toast]);
 
@@ -84,7 +84,7 @@ export function TeamPanel({
       toast(`${removed.email} removed from the organization`);
     } catch (caught) {
       setMembers((current) => [...current, removed]);
-      toast(isAppError(caught) ? caught.message : "That removal failed");
+      toast(isAppError(caught) ? caught.message : "That removal failed", { kind: "error" });
     }
   }
 
@@ -103,7 +103,7 @@ export function TeamPanel({
       setInviteEmail("");
       setInviteRole("organizer");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That invitation did not send");
+      toast(isAppError(caught) ? caught.message : "That invitation did not send", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -119,7 +119,7 @@ export function TeamPanel({
       toast(`Invitation to ${revoked.email} revoked`);
     } catch (caught) {
       setInvitations((current) => [revoked, ...current]);
-      toast(isAppError(caught) ? caught.message : "That revoke failed");
+      toast(isAppError(caught) ? caught.message : "That revoke failed", { kind: "error" });
     }
   }
 

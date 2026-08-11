@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
@@ -12,6 +12,22 @@ const reviewerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 export function normalizeReviewerEmail(value: string): string | null {
   const parsed = reviewerEmailSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+export function reviewerEmailValidationError(value: string): string | null {
+  if (!value.trim()) return "Email is required";
+  return normalizeReviewerEmail(value) ? null : "Enter a valid email address";
+}
+
+export function canAttemptReviewerInvite(email: string, password: string, busy: boolean): boolean {
+  return !busy && email.trim() !== "" && password.length >= 12;
+}
+
+export function focusReviewerEmail(
+  ref: { current: { focus: () => void } | null },
+  schedule: (callback: () => void) => unknown = (callback) => window.requestAnimationFrame(callback),
+) {
+  schedule(() => ref.current?.focus());
 }
 
 /**
@@ -31,12 +47,14 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState("");
   const [busy, setBusy] = useState(false);
-  const normalizedEmail = normalizeReviewerEmail(email);
+  const emailRef = useRef<HTMLInputElement>(null);
 
   async function invite() {
+    const nextEmailError = reviewerEmailValidationError(email);
     const validEmail = normalizeReviewerEmail(email);
-    if (!validEmail) {
-      setEmailError("Enter a valid email address");
+    if (nextEmailError || !validEmail) {
+      setEmailError(nextEmailError ?? "Enter a valid email address");
+      focusReviewerEmail(emailRef);
       return;
     }
     setEmailError("");
@@ -65,28 +83,30 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
 
   return (
     <Drawer open onClose={onClose} title="Invite a reviewer">
-      <div className="form-stack">
-        <Field label="Email" required error={emailError} errorId="reviewer-email-error">
-          <input required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} placeholder="reviewer@example.com" />
-        </Field>
-        <Field label="Name">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ada Lovelace" />
-        </Field>
-        <Field label="Initial password" required hint="At least 12 characters. Share it with them directly — it is never emailed.">
-          <input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
-        </Field>
-        <p className="portal-note">
-          Reviewers get the lowest role on this event: their queue and the proposals assigned to them, and no organizer settings.
-          An address that already has an account keeps its existing password and role.
-        </p>
-      </div>
+      <form noValidate onSubmit={(event) => { event.preventDefault(); void invite(); }}>
+        <div className="form-stack">
+          <Field label="Email" required error={emailError} errorId="reviewer-email-error">
+            <input ref={emailRef} required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} onBlur={() => setEmailError(reviewerEmailValidationError(email) ?? "")} placeholder="reviewer@example.com" />
+          </Field>
+          <Field label="Name">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ada Lovelace" />
+          </Field>
+          <Field label="Initial password" required hint="At least 12 characters. Share it with them directly — it is never emailed.">
+            <input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
+          </Field>
+          <p className="portal-note">
+            Reviewers get the lowest role on this event: their queue and the proposals assigned to them, and no organizer settings.
+            An address that already has an account keeps its existing password and role.
+          </p>
+        </div>
 
-      <div className="drawer-actions">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={busy || normalizedEmail === null || password.length < 12} onClick={invite}>
-          {busy ? "Adding…" : "Add reviewer"}
-        </Button>
-      </div>
+        <div className="drawer-actions">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!canAttemptReviewerInvite(email, password, busy)}>
+            {busy ? "Adding…" : "Add reviewer"}
+          </Button>
+        </div>
+      </form>
     </Drawer>
   );
 }

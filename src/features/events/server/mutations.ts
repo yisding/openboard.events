@@ -31,6 +31,7 @@ export {
 
 const SLUG_PATTERN = /^[a-z0-9](-?[a-z0-9])*$/;
 const EVENTS_SLUG_UNIQUE = "events_slug_key";
+const EVENTS_PRIMARY_KEY = "events_pkey";
 
 const DEFAULT_FORMATS = [
   { name: "Keynote", defaultDurationMins: 45 },
@@ -134,7 +135,7 @@ export async function createEventIn(
     throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
   }
 
-  const eventId = eventIdSchema.parse(crypto.randomUUID());
+  const eventId = input.id ?? eventIdSchema.parse(crypto.randomUUID());
   try {
     await dbOrTx.insert(events).values({
       id: eventId,
@@ -158,6 +159,33 @@ export async function createEventIn(
       ...(organizationId ? { organizationId } : {}),
     });
   } catch (error) {
+    if (input.id && isConstraintViolation(error, EVENTS_PRIMARY_KEY)) {
+      const [colliding] = await dbOrTx.select({
+        id: events.id,
+        slug: events.slug,
+        organizationId: events.organizationId,
+      }).from(events).where(eq(events.id, input.id)).limit(1);
+      const organizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
+      if (colliding?.slug === slugCandidate && organizationMatches) {
+        const [membership] = await dbOrTx.select({ userId: eventMembers.userId })
+          .from(eventMembers)
+          .where(and(eq(eventMembers.eventId, input.id), eq(eventMembers.userId, actorUserId)))
+          .limit(1);
+        const repairable = await isRepairableOrphanIn(dbOrTx, input.id, actorUserId);
+        if (membership || repairable) {
+          // Re-run the idempotent seeds only when the existing orphan heuristic
+          // says this create stopped before its defaults were complete.
+          if (repairable) {
+            await grantOwnerIn(dbOrTx, input.id, actorUserId);
+            await seedEventDefaultsIn(dbOrTx, input.id);
+          }
+          const recovered = await getEventIn(dbOrTx, input.id);
+          if (!recovered) throw new AppError("INTERNAL", "Could not load the recovered event");
+          return recovered;
+        }
+      }
+      throw new AppError("VALIDATION", "That event creation request was already used");
+    }
     if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
     const [colliding] = await dbOrTx.select({ id: events.id }).from(events).where(eq(events.slug, slugCandidate)).limit(1);
     if (colliding && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {

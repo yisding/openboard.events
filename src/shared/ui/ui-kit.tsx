@@ -24,8 +24,9 @@ export function Avatar({ initials, color = "#007454", size = "md", imageUrl }: {
   return <span className={`person-avatar person-avatar-${size}`} style={style}>{imageUrl ? null : initials}</span>;
 }
 
-export function ProgressBar({ value, tone = "accent" }: { value: number; tone?: "accent" | "green" | "amber" }) {
-  return <div className={`progress-track progress-${tone}`}><i style={{ width: `${Math.max(0, Math.min(value, 100))}%` }} /></div>;
+export function ProgressBar({ value, label, tone = "accent" }: { value: number; label: string; tone?: "accent" | "green" | "amber" }) {
+  const normalizedValue = Math.max(0, Math.min(value, 100));
+  return <div className={`progress-track progress-${tone}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={normalizedValue}><i style={{ width: `${normalizedValue}%` }} /></div>;
 }
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
@@ -118,6 +119,6 @@ export function Field({ label, hint, hintId, required, error, errorId, group, ra
     : <label className={error ? "field field-invalid" : "field"}>{inner}</label>;
 }
 
-export function Segmented<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {
-  return <div className="segmented">{items.map((item) => <button key={item.value} type="button" aria-pressed={value === item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+export function Segmented<T extends string>({ label, value, onChange, items }: { label: string; value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {
+  return <div className="segmented" role="group" aria-label={label}>{items.map((item) => <button key={item.value} type="button" aria-pressed={value === item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
 }

@@ -166,6 +166,7 @@ export function TasksAdminView({
       />
 
       <Segmented
+        label="Task content type"
         value={section}
         onChange={setSection}
         items={[{ value: "tasks", label: "Tasks" }, { value: "file_requests", label: "File Requests" }]}
@@ -217,7 +218,7 @@ export function TasksAdminView({
                   </div>
                   <div className="admin-task-progress">
                     <div><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
-                    <ProgressBar value={progress} tone={progress > 75 ? "green" : "accent"} />
+                    <ProgressBar label={`Completion for ${task.name}`} value={progress} tone={progress > 75 ? "green" : "accent"} />
                   </div>
                   <TaskRowMenu task={task} onView={() => setMatrixTaskId(task.id)} onEdit={() => setEditing(task)} onDelete={() => setPendingDelete(task)} />
                 </article>

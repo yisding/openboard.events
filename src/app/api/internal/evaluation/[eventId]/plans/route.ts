@@ -20,7 +20,7 @@ const list = defineHandler({
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: planCreateInputSchema,
-  handler: async ({ eventId, input }) => savePlan(eventIdSchema.parse(eventId), { ...input, planId: null }),
+  handler: async ({ eventId, input }) => savePlan(eventIdSchema.parse(eventId), input),
 });
 
 export async function GET(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {

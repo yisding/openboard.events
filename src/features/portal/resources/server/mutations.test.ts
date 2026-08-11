@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import { eventIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import {
+  createResourcePageIn,
   deleteResourcePageIn,
   reorderResourcePagesIn,
   saveResourcePageIn,
@@ -61,6 +62,20 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     expect(page?.summary).toBe("Welcome Check in at the Speaker Lounge.");
   });
 
+  it("replays a collection create by stable client id without duplicating or rewriting it", async () => {
+    const stableId = "d6000000-0000-4000-8000-000000000090";
+    const input = pageInput({ id: stableId, title: "Retry-safe resource", slug: "retry-safe-resource" });
+
+    await expect(createResourcePageIn(db, eventId, input)).resolves.toEqual({ pageId: stableId });
+    await expect(createResourcePageIn(db, eventId, { ...input, title: "Changed retry body" })).resolves.toEqual({ pageId: stableId });
+
+    const rows = await pglite.query<{ n: number; title: string }>(
+      "SELECT count(*)::int AS n, min(title) AS title FROM resource_pages WHERE id=$1",
+      [stableId],
+    );
+    expect(rows.rows[0]).toMatchObject({ n: 1, title: "Retry-safe resource" });
+  });
+
   it("slug uniqueness is scoped per event: the same slug is rejected within an event but allowed in another", async () => {
     await saveResourcePageIn(db, eventId, pageInput({ title: "Venue & Travel", slug: "venue-travel" }));
 
@@ -68,7 +83,13 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
       .catch((thrown: unknown) => thrown);
     expect(isAppError(dup) && dup.code).toBe("VALIDATION");
     expect(isAppError(dup) && dup.message).toBe("That URL is already used");
-    expect(isAppError(dup) && (dup.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBe("That URL is already used");
+    expect(isAppError(dup) && dup.fieldErrors?.slug).toBe("That URL is already used");
+
+    const editable = await saveResourcePageIn(db, eventId, pageInput({ title: "Editable", slug: "editable" }));
+    const updateDup = await saveResourcePageIn(db, eventId, pageInput({ id: editable.pageId, title: "Editable", slug: "venue-travel" }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(updateDup) && updateDup.code).toBe("VALIDATION");
+    expect(isAppError(updateDup) && updateDup.fieldErrors?.slug).toBe("That URL is already used");
 
     // A different event can use the identical slug — the unique constraint is
     // (event_id, slug), never slug alone.
@@ -80,7 +101,7 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     const rejected = await saveResourcePageIn(db, eventId, pageInput({ title: "Admin", slug: "admin" }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
-    expect(isAppError(rejected) && (rejected.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBeTruthy();
+    expect(isAppError(rejected) && rejected.fieldErrors?.slug).toBe("That word is reserved");
   });
 
   it("sanitizes on save through the wide profile: an allowlisted iframe survives, a script and an onerror handler do not", async () => {

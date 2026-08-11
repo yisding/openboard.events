@@ -184,6 +184,33 @@ export async function completeTaskViaUploadIn(
   // download rights, hand themselves a presigned URL to it.
   await requireFinishedUpload(tx, eventId, contactId, fileAssetId, assignment.policy);
 
+  // Serialize this task's short association transaction before looking for an
+  // earlier copy. A client retries the *same* immutable fileAssetId when the
+  // first response is lost; that replay returns the original version instead
+  // of turning one upload into two historical versions. A genuinely replaced
+  // file has a new asset id and still follows the versioning path below.
+  await tx.execute(sql`SELECT id FROM portal_tasks WHERE id = ${taskId} AND event_id = ${eventId} FOR UPDATE`);
+  const existing = (await listFileVersionsIn(
+    tx,
+    eventId,
+    assignment.fileRequestId,
+    contactId,
+    submissionId as SubmissionId | null,
+  )).find((entry) => entry.fileAssetId === fileAssetId);
+  if (existing) {
+    // File versions are scoped to a deliverable slot, not to a task. Two tasks
+    // may intentionally point at the same request, so finding the replayed
+    // asset only proves the association exists; this task still needs its own
+    // completion row.
+    await tx.execute(sql`
+      INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id)
+      VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${existing.fileUploadId})
+      ON CONFLICT (task_id, contact_id, submission_id) DO UPDATE SET
+        completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
+    `);
+    return existing;
+  }
+
   // M52: numbered, server-derived versions. The prior latest row (if any) is
   // flipped off in the same statement that inserts the new one — a client
   // never supplies `version`/`isLatest` (the module's own "latest is

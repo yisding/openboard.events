@@ -123,7 +123,12 @@ export function defineHandler<Input, Output>(options: {
       const envelope = apiErrorSchema.parse({
         error: error instanceof z.ZodError
           ? { code: appError.code, message: appError.message, fieldErrors: zodFieldErrors(error) }
-          : { code: appError.code, message: appError.message, data: appError.details },
+          : {
+              code: appError.code,
+              message: appError.message,
+              data: appError.details,
+              ...(appError.fieldErrors ? { fieldErrors: appError.fieldErrors } : {}),
+            },
       });
       // Capture the raw error — message and stack — before it is ever mapped
       // down to the generic envelope the caller sees. Without this, every

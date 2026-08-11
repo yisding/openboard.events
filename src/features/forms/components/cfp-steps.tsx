@@ -34,6 +34,14 @@ export function cfpFlowSteps(collectParticipants: boolean): Array<Exclude<Step, 
     : ["account", "submission", "review"];
 }
 
+export function focusCfpAccountControl(
+  codeRequested: boolean,
+  emailControl: { focus: () => void } | null,
+  codeControl: { focus: () => void } | null,
+) {
+  (codeRequested ? codeControl : emailControl)?.focus();
+}
+
 export function participantFieldIds(snapshot: FormSnapshot): Set<string> {
   return new Set(snapshot.sections
     .filter((section) => section.key === "participant")
@@ -193,6 +201,9 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const nextCoSpeaker = useRef(1);
   const stepRegion = useRef<HTMLElement>(null);
   const previousStep = useRef<Step>(step);
+  const previousCodeRequested = useRef(codeRequested);
+  const emailInput = useRef<HTMLInputElement>(null);
+  const codeInput = useRef<HTMLInputElement>(null);
   const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotState) => {
     if (submitting.current) { setSaveState("saved"); return Promise.resolve(true); }
@@ -244,6 +255,15 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [step]);
+
+  useEffect(() => {
+    if (previousCodeRequested.current === codeRequested) return;
+    previousCodeRequested.current = codeRequested;
+    const frame = window.requestAnimationFrame(() => {
+      focusCfpAccountControl(codeRequested, emailInput.current, codeInput.current);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [codeRequested]);
 
   useEffect(() => {
     if (Object.keys(errors).length === 0 && Object.values(coSpeakerErrors).every((participantErrors) => Object.keys(participantErrors).length === 0)) return;
@@ -467,7 +487,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
           <label className="field">
             <span>Email address</span>
-            <input type="email" required value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
+            <input ref={emailInput} type="email" required value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
           </label>
           {!codeRequested ? (
             <Button type="submit" disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
@@ -475,7 +495,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
             <>
               <label className="field">
                 <span>Six-digit code</span>
-                <input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(change) => setCode(change.target.value.replace(/\D/g, "").slice(0, 6))} />
+                <input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(change) => setCode(change.target.value.replace(/\D/g, "").slice(0, 6))} />
               </label>
               {/* Development diagnostics only — production does not return this. */}
               {fallbackOtp && <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>}

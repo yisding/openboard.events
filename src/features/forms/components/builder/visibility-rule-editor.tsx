@@ -77,6 +77,7 @@ export function VisibilityRuleEditor({
         <small>Conditions may reference only earlier questions.</small>
       </div>
       <Segmented
+        label={`Visibility for ${field.label}`}
         value={mode}
         onChange={setMode}
         items={[{ value: "always", label: "Always visible" }, { value: "conditional", label: "Show when…" }]}

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
-import { DEFAULT_ORGANIZATION_ID, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
+import { DEFAULT_ORGANIZATION_ID, eventIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
 import { provisionOrganizationEventIn } from "./provisioning";
 
 // Same migration set `features/events/server/mutations.test.ts` needs for
@@ -93,6 +93,28 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     expect(templates.rows[0]?.n).toBe(TEMPLATE_KEYS.length);
     const formats = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM session_formats WHERE event_id=$1", [event.id]);
     expect(formats.rows[0]?.n).toBe(5);
+  });
+
+  it("recovers a committed response by stable id without consuming another event or usage count", async () => {
+    const stableId = eventIdSchema.parse("d7000000-0000-4000-8000-000000000090");
+    const beforeUsage = await pglite.query<{ count: number }>(
+      "SELECT count FROM organization_usage_counters WHERE organization_id=$1 AND metric='events'",
+      [organizationId],
+    );
+    const input = baseInput({ id: stableId, name: "Retry-safe event", slug: "retry-safe-event" });
+
+    const first = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
+    const retry = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
+    expect(retry.id).toBe(first.id);
+    expect(await getEventOrganizationIn(database, stableId)).toBe(organizationId);
+
+    const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM events WHERE id=$1", [stableId]);
+    const afterUsage = await pglite.query<{ count: number }>(
+      "SELECT count FROM organization_usage_counters WHERE organization_id=$1 AND metric='events'",
+      [organizationId],
+    );
+    expect(rows.rows[0]?.n).toBe(1);
+    expect(afterUsage.rows[0]?.count ?? 0).toBe((beforeUsage.rows[0]?.count ?? 0) + 1);
   });
 
   it("scopes a second organization's events independently", async () => {

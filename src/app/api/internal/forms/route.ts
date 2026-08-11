@@ -1,12 +1,15 @@
 import { z } from "zod";
 import type { NextRequest } from "next/server";
-import { eventIdSchema, formContextSchema, taskTargetSchema } from "@/shared/contracts";
+import { eventIdSchema, formContextSchema, formIdSchema, taskTargetSchema } from "@/shared/contracts";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { createForm } from "@/features/forms/server/builder-mutations";
 import { listForms } from "@/features/forms/server/builder-queries";
 import { defineHandler } from "@/shared/server/handler";
 
 const createInput = z.object({
+  // Optional for legacy builder callers; onboarding sends a stable id so a
+  // committed response can be retried without creating a second draft.
+  id: formIdSchema.optional(),
   internalName: z.string().trim().min(1).max(255),
   kind: z.enum(["abstract", "session"]),
   collectParticipants: z.boolean(),

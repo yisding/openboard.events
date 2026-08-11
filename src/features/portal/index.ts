@@ -61,6 +61,10 @@ export {
 export type { SaveFileRequestInput, SaveTaskInput } from "./tasks-admin/server/mutations";
 export {
   DEFAULT_ACCEPTED_EXTENSIONS,
+  createFileRequest,
+  createFileRequestIn,
+  createTask,
+  createTaskIn,
   deleteFileRequest,
   deleteFileRequestIn,
   deleteTask,
