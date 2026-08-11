@@ -286,7 +286,7 @@ export async function savePlanIn(
           anonymize_authors = EXCLUDED.anonymize_authors,
           updated_at = now()
         WHERE evaluation_plans.event_id = ${eventId}
-          AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR evaluation_plans.updated_at = ${expectedUpdatedAt ?? null}::timestamptz)
+          AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR date_trunc('milliseconds', evaluation_plans.updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz))
         RETURNING id
       ),
       dropped AS (
@@ -412,7 +412,8 @@ export async function assignReviewersIn(
   if (new Set(assignments.map((assignment) => assignment.userId)).size !== assignments.length) {
     throw new AppError("VALIDATION", "A reviewer can only be assigned once per evaluation plan");
   }
-  for (const assignment of assignments) await assertTracksInEvent(dbOrTx, eventId, assignment.trackIds);
+  const trackIds = [...new Set(assignments.flatMap((assignment) => assignment.trackIds ?? []))];
+  await assertTracksInEvent(dbOrTx, eventId, trackIds);
   const incoming = assignments.map((assignment) => ({
     user_id: assignment.userId,
     track_ids: normalizeTracks(assignment.trackIds),

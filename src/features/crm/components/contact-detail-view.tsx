@@ -258,7 +258,7 @@ export function ContactDetailView({
           <Avatar initials={initialsFor(contact)} size="lg" />
           <div>
             <h1 style={{ margin: "0 0 4px" }}>{nameOf(contact)}</h1>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: 11 }}>{contact.email}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.company ? ` at ${contact.company}` : ""}</p>
+            <p style={{ margin: 0, color: "var(--muted)", fontSize: 12.5 }}>{contact.email}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.company ? ` at ${contact.company}` : ""}</p>
           </div>
           <StatusBadge value={contact.source} />
           <Button variant="secondary" size="sm" onClick={() => setMergeSearchOpen(true)}><GitMerge size={14} /> Merge with…</Button>
@@ -290,7 +290,7 @@ export function ContactDetailView({
                 <div className="drawer-actions">
                   <Button disabled={!fieldsDirty || savingFields} onClick={() => void saveFields()}>{savingFields ? "Saving…" : "Save details"}</Button>
                 </div>
-                {contact.bioHtml && <div><h3 style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>Bio</h3><RichTextView html={contact.bioHtml} /></div>}
+                {contact.bioHtml && <div><h3 style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Bio</h3><RichTextView html={contact.bioHtml} /></div>}
               </div>
             </section>
 

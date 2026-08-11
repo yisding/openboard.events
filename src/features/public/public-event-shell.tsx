@@ -125,7 +125,7 @@ export function PublicEventShell({
           <span className="public-event-logo">{event.name}</span>
           <nav aria-label="Event navigation">
             {NAV_ITEMS.map((item) => (
-              <Link key={item.key} className={active === item.key ? "active" : ""} href={`/e/${eventSlug}/${item.key}`}>{item.label}</Link>
+              <Link key={item.key} className={active === item.key ? "active" : ""} aria-current={active === item.key ? "page" : undefined} href={`/e/${eventSlug}/${item.key}`}>{item.label}</Link>
             ))}
           </nav>
           <Link className="button public-cta" href={`/portal/${eventSlug}`}>Speaker portal</Link>

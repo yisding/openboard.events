@@ -81,6 +81,8 @@ function refinePlan<Schema extends z.ZodType<{ scaleMin: number; scaleMax: numbe
 
 export const planInputSchema = refinePlan(planFields);
 export type PlanInput = z.infer<typeof planInputSchema>;
+export const planCreateInputSchema = refinePlan(planFields.omit({ planId: true }));
+export type PlanCreateInput = z.infer<typeof planCreateInputSchema>;
 export type CriterionInput = z.infer<typeof criterionInputSchema>;
 
 /**

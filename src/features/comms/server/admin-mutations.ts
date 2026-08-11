@@ -96,7 +96,14 @@ export async function saveTemplateIn(dbOrTx: DbOrTx, eventId: EventId, key: Temp
   if (Number.isNaN(expected.getTime())) throw new AppError("VALIDATION", "expectedUpdatedAt must be an ISO timestamp");
   const [updated] = await dbOrTx.update(emailTemplates)
     .set({ subject: input.subject, bodyHtml: cleanBody, enabled: input.enabled, updatedAt: new Date() })
-    .where(and(eq(emailTemplates.eventId, eventId), eq(emailTemplates.key, key), eq(emailTemplates.updatedAt, expected)))
+    .where(and(
+      eq(emailTemplates.eventId, eventId),
+      eq(emailTemplates.key, key),
+      // `updatedAt` carries Postgres microsecond precision, but `expected` is a JS
+      // Date#toISOString() round trip (millisecond only), so compare truncated on
+      // both sides — matching the resource_pages CAS pattern.
+      sql`date_trunc('milliseconds', ${emailTemplates.updatedAt}) = date_trunc('milliseconds', ${expected.toISOString()}::timestamptz)`,
+    ))
     .returning();
   if (!updated) throw new AppError("STALE_WRITE", "This template changed since you loaded it. Reload and try again.");
   return toEmailTemplateRow(updated);

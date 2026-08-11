@@ -2,6 +2,7 @@
 
 import { Camera, CheckCircle2, Linkedin, LinkIcon, Twitter } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
 import { LIMITS, plainTextLength } from "@/shared/contracts";
@@ -67,6 +68,7 @@ async function patchProfile(eventId: string, payload: Payload): Promise<
  * never revert bio/links a moment earlier, or vice versa.
  */
 export function ProfileForm({ eventId, profile }: { eventId: string; profile: SpeakerProfileDTO }) {
+  const router = useRouter();
   const { toast } = useToast();
   const [bioHtml, setBioHtml] = useState(profile.bioHtml ?? "");
   const [salutation, setSalutation] = useState(profile.salutation ?? "");
@@ -113,17 +115,20 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
       return;
     }
     toast("Saved successfully.");
+    router.refresh();
   }
 
   async function onHeadshotUploaded(fileId: string) {
     const result = await patchProfile(eventId, { headshotFileId: fileId });
     if (!result.ok) {
       toast(result.message);
-      return;
+      return false;
     }
     setHeadshotFileId(result.profile.headshotFileId);
     setHeadshotUrl(result.profile.headshotUrl);
     toast("Photo updated.");
+    router.refresh();
+    return true;
   }
 
   const initials = `${firstName.trim().charAt(0)}${lastName.trim().charAt(0)}`.toUpperCase() || "?";
@@ -151,7 +156,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                 eventId={eventId}
                 kind="headshot"
                 currentFileId={headshotFileId}
-                onUploaded={(fileId) => { void onHeadshotUploaded(fileId); }}
+                onUploaded={(fileId) => onHeadshotUploaded(fileId)}
                 label="Upload new photo"
               />
             </div>

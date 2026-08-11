@@ -14,6 +14,7 @@ export type {
   AssignmentInput,
   CriterionDTO,
   CriterionInput,
+  PlanCreateInput,
   PlanDTO,
   PlanInput,
   PlanUpdate,
@@ -26,6 +27,7 @@ export type {
 } from "./types";
 export {
   assignmentInputSchema,
+  planCreateInputSchema,
   planInputSchema,
   planUpdateSchema,
   recusalInputSchema,

@@ -62,5 +62,5 @@ export default async function EventLayout({ children, params }: { children: Reac
       counts = { abstracts: nav.abstractsPending, speakers: nav.speakersMissing, tasks: nav.tasksOverdue };
     }
   }
-  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} {...(shellEvent ? { event: shellEvent } : {})} {...(counts ? { counts } : {})}>{children}</AdminShell>;
+  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} {...(shellEvent ? { event: shellEvent } : {})} {...(counts ? { counts } : {})} {...(session ? { user: { name: session.name, email: session.email } } : {})}>{children}</AdminShell>;
 }
