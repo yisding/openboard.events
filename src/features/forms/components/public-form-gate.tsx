@@ -1,8 +1,32 @@
+import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { PublicForm } from "@/features/forms";
 import { formatInZone } from "@/shared/lib/time";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import styles from "./public-form-gate.module.css";
+
+function EventBackground({ url, children }: { url: string | null; children: React.ReactNode }) {
+  // Keep the unbranded path markup- and layout-compatible with existing CFPs.
+  if (!url) return <>{children}</>;
+
+  return (
+    <div className={styles.frame}>
+      {/* Event files are served from the same-origin immutable /f/ route. An
+          empty alt keeps this visual branding out of the accessibility tree. */}
+      <Image
+        src={url}
+        alt=""
+        aria-hidden="true"
+        className={styles.background}
+        fill
+        unoptimized
+        sizes="(max-width: 800px) calc(100vw - 40px), 760px"
+      />
+      <div className={styles.content}>{children}</div>
+    </div>
+  );
+}
 
 /**
  * What a speaker sees before the form itself: the welcome, or the reason they
@@ -17,55 +41,57 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
 
   if (!openState.open) {
     return (
-      <main className="cfp-closed">
-        <h1>{form.externalTitle || `Call for speakers — ${event.name}`}</h1>
-        {openState.reason === "not_open_yet" ? (
-          <p>
-            Submissions open{" "}
-            {form.opensAt
-              ? <b>{formatInZone(form.opensAt, event.timezone, "long")}</b>
-              : "soon"}
-            . Check back then — nothing has been missed.
-          </p>
-        ) : (
-          <p>
-            Submissions closed{" "}
-            {form.closesAt && openState.reason === "closed_by_date"
-              ? <b>{formatInZone(form.closesAt, event.timezone, "long")}</b>
-              : "for this event"}
-            . Thank you for your interest in {event.name}.
-          </p>
-        )}
-        <Link href={`/e/${event.slug}/schedule`}>See the programme</Link>
-      </main>
+      <EventBackground url={event.backgroundUrl}>
+        <main className="cfp-closed">
+          <h1>{form.externalTitle || `Call for speakers — ${event.name}`}</h1>
+          {openState.reason === "not_open_yet" ? (
+            <p>
+              Submissions open{" "}
+              {form.opensAt
+                ? <b>{formatInZone(form.opensAt, event.timezone, "long")}</b>
+                : "soon"}
+              . Check back then — nothing has been missed.
+            </p>
+          ) : (
+            <p>
+              Submissions closed{" "}
+              {form.closesAt && openState.reason === "closed_by_date"
+                ? <b>{formatInZone(form.closesAt, event.timezone, "long")}</b>
+                : "for this event"}
+              . Thank you for your interest in {event.name}.
+            </p>
+          )}
+          <Link href={`/e/${event.slug}/schedule`}>See the programme</Link>
+        </main>
+      </EventBackground>
     );
   }
 
   return (
-    <>
-    <header className="public-form-welcome">
-      {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
-          an unsized image on the first public page a judge opens is a layout
-          shift they watch happen. Optimization is off globally on Workers. */}
-      {event.logoUrl && <Image src={event.logoUrl} alt={event.name} className="cfp-logo" width={160} height={48} />}
-      <h1>{form.pageHeading || "Welcome!"}</h1>
-      {form.showWelcome && form.welcomeHtml && <RichTextView html={form.welcomeHtml} />}
-      <dl className="welcome-facts">
-        {form.closesAt && (
+    <EventBackground url={event.backgroundUrl}>
+      <header className="public-form-welcome">
+        {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
+            an unsized image on the first public page a judge opens is a layout
+            shift they watch happen. Optimization is off globally on Workers. */}
+        {event.logoUrl && <Image src={event.logoUrl} alt={event.name} className="cfp-logo" width={160} height={48} />}
+        <h1>{form.pageHeading || "Welcome!"}</h1>
+        {form.showWelcome && form.welcomeHtml && <RichTextView html={form.welcomeHtml} />}
+        <dl className="welcome-facts">
+          {form.closesAt && (
+            <div>
+              <dt>Submissions close</dt>
+              {/* Always with the zone label: a speaker reading this in Berlin must
+                  not infer their own midnight. */}
+              <dd>{formatInZone(form.closesAt, event.timezone, "long")}</dd>
+            </div>
+          )}
           <div>
-            <dt>Submissions close</dt>
-            {/* Always with the zone label: a speaker reading this in Berlin must
-                not infer their own midnight. */}
-            <dd>{formatInZone(form.closesAt, event.timezone, "long")}</dd>
+            <dt>Submission limit</dt>
+            <dd>{form.effectiveLimit} per speaker</dd>
           </div>
-        )}
-        <div>
-          <dt>Submission limit</dt>
-          <dd>{form.effectiveLimit} per speaker</dd>
-        </div>
-      </dl>
-    </header>
-    {children}
-    </>
+        </dl>
+      </header>
+      {children}
+    </EventBackground>
   );
 }

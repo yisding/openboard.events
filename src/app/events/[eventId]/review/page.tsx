@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
+import Link from "next/link";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { listReviewerPlans, listReviewQueue } from "@/features/submissions";
 import { ReviewQueueView } from "@/features/submissions/evaluation/components/review-queue-view";
 import { eventIdSchema, planIdSchema, userIdSchema } from "@/shared/contracts";
+import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { PageHeader } from "@/shared/ui/ui-kit";
 
 export const metadata: Metadata = { title: "Review" };
 export const dynamic = "force-dynamic";
@@ -23,7 +26,24 @@ export default async function Page({
   params: Promise<{ eventId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const eventId = eventIdSchema.parse((await params).eventId);
+  const { eventId: rawEventId } = await params;
+  if (isCredentialFreeLocalDemo()) {
+    return (
+      <>
+        <PageHeader eyebrow="REVIEW" title="Review queue" description="Score the proposals assigned to you." />
+        <div className="panel settings-section">
+          <h2>Try the evaluation workspace</h2>
+          <p className="long-copy">
+            Private reviewer assignments need a connected database, so they are not available in the credential-free local demo.
+            The evaluation demo includes the same proposal-scoring interaction with fixture data.
+          </p>
+          <Link className="button" href={`/events/${rawEventId}/evaluation`}>Open evaluation demo</Link>
+        </div>
+      </>
+    );
+  }
+
+  const eventId = eventIdSchema.parse(rawEventId);
   const session = await requireAdmin(eventId, "reviewer");
 
   const query = await searchParams;

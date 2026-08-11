@@ -301,8 +301,8 @@ export function ReviewQueueView({
 
       {notice && <p className="portal-note" role="status">{notice}</p>}
 
-      <div className="evaluation-summary">
-        <article>
+      <div className="evaluation-summary review-summary">
+        <article className="review-progress-card">
           <div><span>Your progress</span><b>Finished {progress.scored} of {progress.total}</b></div>
           <ProgressBar value={progress.total === 0 ? 0 : Math.round((progress.scored / progress.total) * 100)} />
         </article>

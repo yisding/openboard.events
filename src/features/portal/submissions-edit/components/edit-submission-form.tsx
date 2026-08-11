@@ -57,7 +57,7 @@ export function EditSubmissionForm({
         body: JSON.stringify({ formVersion: snapshot.version, answers }),
       }).catch(() => null);
       if (!response) {
-        toast("That did not reach us — check your connection and try again");
+        toast("That did not reach us — check your connection and try again", { kind: "error" });
         return;
       }
       const payload = await response.json().catch(() => null) as {
@@ -67,19 +67,19 @@ export function EditSubmissionForm({
         const errors = payload?.error?.data?.fieldErrors;
         if (errors) {
           setFieldErrors(errors);
-          toast("Some answers need fixing");
+          toast("Some answers need fixing", { kind: "error" });
           return;
         }
         // The deadline race M14's guard exists for: open at page load, closed by
         // the time Save is pressed. The read-only page already knows how to say
         // this, so send the speaker back to it rather than duplicate the copy.
         if (payload?.error?.code === "FORM_CLOSED") {
-          toast("This call closed while you were editing");
+          toast("This call closed while you were editing", { kind: "error" });
           router.push(detailHref);
           router.refresh();
           return;
         }
-        toast(payload?.error?.message ?? "That did not go through");
+        toast(payload?.error?.message ?? "That did not go through", { kind: "error" });
         return;
       }
       toast("Changes saved");

@@ -3,7 +3,7 @@
 import { Camera, CheckCircle2, Linkedin, LinkIcon, Twitter } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
 import { LIMITS, plainTextLength } from "@/shared/contracts";
 import { FileUpload } from "@/shared/ui/app/file-upload";
@@ -85,11 +85,18 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   const [headshotUrl, setHeadshotUrl] = useState(profile.headshotUrl);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const formRef = useRef<HTMLFormElement>(null);
 
   // The exact function the server's .refine() rejects with — the counter and
   // the rejection can never disagree (R12).
   const bioLength = plainTextLength(bioHtml);
   const bioOverLimit = bioLength > LIMITS.BIO;
+  const bioError = fieldErrors.bioHtml ?? (bioOverLimit ? `Keep this under ${LIMITS.BIO} characters` : undefined);
+
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return;
+    formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [fieldErrors]);
 
   async function save() {
     if (bioOverLimit) return;
@@ -111,7 +118,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
     setSaving(false);
     if (!result.ok) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-      toast(result.message);
+      toast(result.message, { kind: "error" });
       return;
     }
     toast("Saved successfully.");
@@ -121,7 +128,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   async function onHeadshotUploaded(fileId: string) {
     const result = await patchProfile(eventId, { headshotFileId: fileId });
     if (!result.ok) {
-      toast(result.message);
+      toast(result.message, { kind: "error" });
       return false;
     }
     setHeadshotFileId(result.profile.headshotFileId);
@@ -162,12 +169,14 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
             </div>
           </section>
 
-          <section className="portal-panel profile-form">
+          <form ref={formRef} className="portal-panel profile-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
             <h2>General</h2>
             <div className="form-grid">
               <Field label="Salutation"><input value={salutation} onChange={(event) => setSalutation(event.target.value)} placeholder="Dr., Ms., Mx…" /></Field>
               <Field label="Honorific"><input value={honorific} onChange={(event) => setHonorific(event.target.value)} placeholder="PhD, MBA…" /></Field>
-              <Field label="First name" required><input value={firstName} onChange={(event) => setFirstName(event.target.value)} /></Field>
+              <Field label="First name" required error={fieldErrors.firstName} errorId="profile-first-name-error">
+                <input required aria-invalid={Boolean(fieldErrors.firstName) || undefined} aria-describedby={fieldErrors.firstName ? "profile-first-name-error" : undefined} value={firstName} onChange={(event) => setFirstName(event.target.value)} />
+              </Field>
               <Field label="Last name"><input value={lastName} onChange={(event) => setLastName(event.target.value)} /></Field>
               <Field label="Pronouns">
                 <input list="profile-pronoun-options" value={pronouns} onChange={(event) => setPronouns(event.target.value)} placeholder="she/her, he/him, they/them…" />
@@ -186,33 +195,31 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                 </datalist>
               </Field>
             </div>
-            {fieldErrors.firstName && <p className="portal-note" role="alert">{fieldErrors.firstName}</p>}
-            <Field label="Biography" hint={`${bioLength} / ${LIMITS.BIO} characters`}>
+            <Field label="Biography" hint={`${bioLength} / ${LIMITS.BIO} characters`} hintId="profile-bio-hint" error={bioError} errorId="profile-bio-error">
               <RichTextEditor
                 value={bioHtml}
                 onChange={setBioHtml}
                 maxChars={LIMITS.BIO}
                 placeholder="Tell attendees about yourself…"
+                ariaLabel="Biography"
+                ariaInvalid={Boolean(bioError)}
+                ariaDescribedBy={bioError ? "profile-bio-error" : "profile-bio-hint"}
               />
             </Field>
-            {fieldErrors.bioHtml && <p className="portal-note" role="alert">{fieldErrors.bioHtml}</p>}
 
             <h2>My Links</h2>
             <div className="form-stack">
-              <Field label="LinkedIn"><div className="input-icon"><Linkedin size={16} /><input value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} placeholder="https://linkedin.com/in/…" /></div></Field>
-              <Field label="X (Twitter)"><div className="input-icon"><Twitter size={16} /><input value={twitterUrl} onChange={(event) => setTwitterUrl(event.target.value)} placeholder="https://x.com/…" /></div></Field>
-              <Field label="Facebook"><div className="input-icon"><LinkIcon size={16} /><input value={facebookUrl} onChange={(event) => setFacebookUrl(event.target.value)} placeholder="https://facebook.com/…" /></div></Field>
-              <Field label="Website"><div className="input-icon"><LinkIcon size={16} /><input value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} placeholder="https://…" /></div></Field>
+              <Field label="LinkedIn" error={fieldErrors.linkedinUrl} errorId="profile-linkedin-error"><div className="input-icon"><Linkedin size={16} /><input type="url" aria-invalid={Boolean(fieldErrors.linkedinUrl) || undefined} aria-describedby={fieldErrors.linkedinUrl ? "profile-linkedin-error" : undefined} value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} placeholder="https://linkedin.com/in/…" /></div></Field>
+              <Field label="X (Twitter)" error={fieldErrors.twitterUrl} errorId="profile-twitter-error"><div className="input-icon"><Twitter size={16} /><input type="url" aria-invalid={Boolean(fieldErrors.twitterUrl) || undefined} aria-describedby={fieldErrors.twitterUrl ? "profile-twitter-error" : undefined} value={twitterUrl} onChange={(event) => setTwitterUrl(event.target.value)} placeholder="https://x.com/…" /></div></Field>
+              <Field label="Facebook" error={fieldErrors.facebookUrl} errorId="profile-facebook-error"><div className="input-icon"><LinkIcon size={16} /><input type="url" aria-invalid={Boolean(fieldErrors.facebookUrl) || undefined} aria-describedby={fieldErrors.facebookUrl ? "profile-facebook-error" : undefined} value={facebookUrl} onChange={(event) => setFacebookUrl(event.target.value)} placeholder="https://facebook.com/…" /></div></Field>
+              <Field label="Website" error={fieldErrors.websiteUrl} errorId="profile-website-error"><div className="input-icon"><LinkIcon size={16} /><input type="url" aria-invalid={Boolean(fieldErrors.websiteUrl) || undefined} aria-describedby={fieldErrors.websiteUrl ? "profile-website-error" : undefined} value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} placeholder="https://…" /></div></Field>
             </div>
-            {(fieldErrors.linkedinUrl || fieldErrors.twitterUrl || fieldErrors.facebookUrl || fieldErrors.websiteUrl) && (
-              <p className="portal-note" role="alert">Links need to start with http:// or https://</p>
-            )}
             <footer>
-              <Button onClick={() => void save()} disabled={saving || bioOverLimit}>
+              <Button type="submit" disabled={saving || bioOverLimit}>
                 {saving ? "Saving…" : "Save"}
               </Button>
             </footer>
-          </section>
+          </form>
         </main>
         <aside>
           <section className="portal-panel profile-readiness">

@@ -142,22 +142,22 @@ export function MergeWizardDialog({
                 <p className="long-copy">No conflicting fields — every field the merged contact has is either blank or already matches the primary.</p>
               ) : (
                 <div className="crm-merge-compare">
-                  <div>Field</div><div>Keep primary</div><div>Take merged</div>
+                  <div className="crm-merge-column-head">Field</div><div className="crm-merge-column-head">Keep primary</div><div className="crm-merge-column-head">Take merged</div>
                   {preview.fieldConflicts.map((conflict) => {
                     const resolution = resolutions[conflict.field] ?? "primary";
                     return (
-                      <div key={conflict.field} style={{ display: "contents" }}>
-                        <div style={{ background: "var(--surface-raised)", color: "var(--muted)", display: "flex", alignItems: "center" }}>{FIELD_LABELS[conflict.field] ?? conflict.field}</div>
-                        <div>
+                      <div key={conflict.field} className="crm-merge-conflict">
+                        <div className="crm-merge-field-label">{FIELD_LABELS[conflict.field] ?? conflict.field}</div>
+                        <div className="crm-merge-choice">
                           <label>
                             <input type="radio" name={`field-${conflict.field}`} checked={resolution === "primary"} onChange={() => setResolutions((current) => ({ ...current, [conflict.field]: "primary" }))} />
-                            {conflict.primaryValue || <em style={{ color: "var(--muted)" }}>blank</em>}
+                            <span><small>Keep primary</small>{conflict.primaryValue || <em style={{ color: "var(--muted)" }}>blank</em>}</span>
                           </label>
                         </div>
-                        <div>
+                        <div className="crm-merge-choice">
                           <label>
                             <input type="radio" name={`field-${conflict.field}`} checked={resolution === "merged"} onChange={() => setResolutions((current) => ({ ...current, [conflict.field]: "merged" }))} />
-                            {conflict.mergedValue}
+                            <span><small>Take merged</small>{conflict.mergedValue}</span>
                           </label>
                         </div>
                       </div>

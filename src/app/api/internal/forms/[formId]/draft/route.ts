@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { saveCfpDraft } from "@/features/forms/server/submit";
+import { secondaryParticipantRoleSchema } from "@/features/forms/participant-roles";
 import { upsertDraft } from "@/features/submissions";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -34,7 +35,7 @@ const draftParticipant = z.object({
   clientId: z.string().min(1).max(100),
   email: z.email(),
   answers: z.record(z.string(), answerValueSchema),
-  role: z.literal("co_speaker"),
+  role: secondaryParticipantRoleSchema,
   isPrimary: z.literal(false),
   sortOrder: z.int().min(1).max(100),
 });

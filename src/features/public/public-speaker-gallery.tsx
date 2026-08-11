@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Globe, Linkedin, Search, Twitter, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Dash } from "@/shared/ui/app/dash";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { formatInZone } from "@/shared/lib/time";
@@ -21,15 +21,15 @@ function plainTextPreview(html: string): string {
 }
 
 function SpeakerDetail({
-  speaker, event, eventSlug, showBio, onBack,
-}: { speaker: PublishedSpeakerDTO; event: PublishedSpeakersDTO["event"]; eventSlug: string; showBio: boolean; onBack: () => void }) {
+  speaker, event, eventSlug, showBio, onBack, headingRef,
+}: { speaker: PublishedSpeakerDTO; event: PublishedSpeakersDTO["event"]; eventSlug: string; showBio: boolean; onBack: () => void; headingRef: RefObject<HTMLHeadingElement | null> }) {
   return (
     <div className="speaker-detail">
       <button type="button" className="speaker-detail-back" onClick={onBack}><ArrowLeft size={14} /> Back to all speakers</button>
       <div className="speaker-detail-hero">
         <SpeakerAvatar name={speaker.name} headshotUrl={speaker.headshotUrl} size="xl" />
         <div>
-          <h2>{speaker.name}</h2>
+          <h2 ref={headingRef} tabIndex={-1}>{speaker.name}</h2>
           <p>{speaker.jobTitle ?? <Dash />} {speaker.company ? `· ${speaker.company}` : ""}</p>
           <div className="speaker-detail-links">
             {speaker.linkedinUrl ? <a href={speaker.linkedinUrl} target="_blank" rel="noreferrer"><Linkedin size={15} /> LinkedIn</a> : <span><Dash /></span>}
@@ -86,6 +86,8 @@ export function PublicSpeakerGallery({
   const showBio = filters.fields?.speakerBio !== false;
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initialSpeakerId);
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const cardButtons = useRef(new Map<string, HTMLButtonElement>());
 
   // Same deep-link contract as every other public surface: read after
   // hydration so the route stays cacheable.
@@ -94,6 +96,12 @@ export function PublicSpeakerGallery({
     const speakerParam = params.get("speaker");
     setSelectedId(speakerParam && speakers.speakers.some((item) => item.contactId === speakerParam) ? speakerParam : (initialSpeakerId ?? null));
   }, [initialSpeakerId, speakers.speakers]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const frame = window.requestAnimationFrame(() => detailHeadingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedId]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -110,13 +118,19 @@ export function PublicSpeakerGallery({
     }
   }
 
+  function showGallery() {
+    const returningTo = selectedId;
+    select(null);
+    if (returningTo) window.requestAnimationFrame(() => cardButtons.current.get(returningTo)?.focus());
+  }
+
   const selected = selectedId ? speakers.speakers.find((item) => item.contactId === selectedId) : undefined;
 
   return (
     <PublicEventShell active="gallery" eventSlug={eventSlug} event={speakers.event} embed={embed} embedOptions={embedOptions}>
       <main className={`public-speakers ${embed ? "embed-content" : "public-event-container"}`}>
         {selected ? (
-          <SpeakerDetail speaker={selected} event={speakers.event} eventSlug={eventSlug} showBio={showBio} onBack={() => select(null)} />
+          <SpeakerDetail speaker={selected} event={speakers.event} eventSlug={eventSlug} showBio={showBio} onBack={showGallery} headingRef={detailHeadingRef} />
         ) : (
           <>
             <header>
@@ -138,20 +152,27 @@ export function PublicSpeakerGallery({
               <>
                 <label className="speaker-search">
                   <Search size={18} />
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search speakers, companies, or topics" />
-                  {search && <button type="button" onClick={() => setSearch("")}><X size={15} /></button>}
+                  <input aria-label="Search speakers, companies, or topics" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search speakers, companies, or topics" />
+                  {search && <button type="button" aria-label="Clear speaker search" onClick={() => setSearch("")}><X size={15} /></button>}
                 </label>
                 <div className="speaker-gallery">
                   {filtered.map((speaker, index) => (
-                    <article key={speaker.contactId} className={index === 0 && !embed ? "featured" : ""} onClick={() => select(speaker.contactId)} role="button" tabIndex={0}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && select(speaker.contactId)}>
+                    <article key={speaker.contactId} className={index === 0 && !embed ? "featured" : ""}>
                       <div className="speaker-portrait">
                         <SpeakerAvatar name={speaker.name} headshotUrl={speaker.headshotUrl} size="xl" />
                       </div>
                       <div>
-                        <h3>{speaker.name}</h3>
-                        <p>{speaker.jobTitle ?? <Dash />} {showCompany && speaker.company ? `· ${speaker.company}` : ""}</p>
-                        {showBio && <small>{speaker.bioHtml ? plainTextPreview(speaker.bioHtml) : <Dash />}</small>}
+                        <button
+                          ref={(node) => { if (node) cardButtons.current.set(speaker.contactId, node); else cardButtons.current.delete(speaker.contactId); }}
+                          type="button"
+                          aria-label={`View profile for ${speaker.name}`}
+                          onClick={() => select(speaker.contactId)}
+                          style={{ display: "block", width: "100%", padding: 0, border: 0, background: "transparent", color: "inherit", textAlign: "left", cursor: "pointer" }}
+                        >
+                          <h3>{speaker.name}</h3>
+                          <p>{speaker.jobTitle ?? <Dash />} {showCompany && speaker.company ? `· ${speaker.company}` : ""}</p>
+                          {showBio && <small>{speaker.bioHtml ? plainTextPreview(speaker.bioHtml) : <Dash />}</small>}
+                        </button>
                         <footer>
                           <Link href={`/e/${eventSlug}/sessions?search=${encodeURIComponent(speaker.name)}`} onClick={(e) => e.stopPropagation()}>
                             View sessions <ArrowRight size={14} />

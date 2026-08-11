@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { safeInternalPath } from "../safe-next";
+import { portalAuthRequest } from "./portal-auth-request";
 
 export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSlug: string; token: string; impersonate: boolean; next?: string }) {
   const [error, setError] = useState("");
@@ -11,19 +12,21 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
     event.preventDefault();
     setPending(true);
     setError("");
-    const response = await fetch("/api/internal/auth/portal/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventSlug, token, impersonate }),
-    });
-    const body = await response.json().catch(() => null) as { data?: { alreadySignedIn?: boolean } } | null;
-    setPending(false);
-    if (!response.ok) {
-      setError("That link is invalid or expired");
-      return;
+    try {
+      const result = await portalAuthRequest("/api/internal/auth/portal/verify", { eventSlug, token, impersonate });
+      if (!result.ok) {
+        setError(result.status === null
+          ? "We couldn't reach the server — check your connection and try again"
+          : result.status >= 500
+            ? "We couldn't confirm that link right now — try again"
+            : "That link is invalid or expired");
+        return;
+      }
+      if (result.data.alreadySignedIn) await new Promise((resolve) => setTimeout(resolve, 250));
+      window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
+    } finally {
+      setPending(false);
     }
-    if (body?.data?.alreadySignedIn) await new Promise((resolve) => setTimeout(resolve, 250));
-    window.location.assign(safeInternalPath(next, `/portal/${eventSlug}`));
   }
 
   return <form onSubmit={submit}>

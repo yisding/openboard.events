@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Row as TableRow } from "@tanstack/react-table";
-import { defaultRowId, nullsLast } from "./data-table";
+import { defaultRowId, nullsLast, selectionLabel } from "./data-table";
 
 type ValueRow = { value: number | null };
 
@@ -27,5 +27,10 @@ describe("DataTable helpers", () => {
   it("uses an id property before falling back to position", () => {
     expect(defaultRowId({ id: "stable-id", name: "Ada" }, 4)).toBe("stable-id");
     expect(defaultRowId({ name: "Ada" }, 4)).toBe("4");
+  });
+
+  it("names a selection checkbox for its specific row", () => {
+    expect(selectionLabel({ code: "SESS-104", title: "Useful forms" }, "fallback", (row) => `${row.code}, ${row.title}`)).toBe("Select SESS-104, Useful forms");
+    expect(selectionLabel({}, "row-7")).toBe("Select row row-7");
   });
 });

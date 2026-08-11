@@ -268,6 +268,7 @@ type DeliverableRow = {
   taskId: string;
   taskName: string;
   fileRequestId: string;
+  fileRequestTitle: string;
   contactId: string;
   contactName: string;
   submissionId: string | null;
@@ -450,7 +451,7 @@ test.describe("content-deliverables (M52)", () => {
       const tab = page.locator(".abstract-status-tabs [role='tab']", { hasText: target.overdue ? "Overdue" : "Open" });
       await tab.click();
       await page.getByPlaceholder("Search speaker, request, or session").fill(target.contactName);
-      const rowCheckbox = page.getByRole("checkbox", { name: "Select row" });
+      const rowCheckbox = page.getByRole("checkbox", { name: `Select ${target.contactName}, ${target.fileRequestTitle}` });
       await expect(rowCheckbox).toHaveCount(1);
       await rowCheckbox.check();
       await page.getByRole("button", { name: /send reminder/i }).click();

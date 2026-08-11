@@ -128,14 +128,14 @@ export function SpeakersAdminView({
       });
       const payload = await response.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
       if (!response.ok || !payload?.data) {
-        toast("Could not send reminders — try again");
+        toast("Could not send reminders — try again", { kind: "error" });
         return;
       }
       toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} assignment${payload.data.total === 1 ? "" : "s"}`);
       setSelected([]);
       setSelectionEpoch((epoch) => epoch + 1);
     } catch {
-      toast("Could not load or send reminders — try again");
+      toast("Could not load or send reminders — try again", { kind: "error" });
     } finally {
       setReminding(false);
     }
@@ -240,6 +240,7 @@ export function SpeakersAdminView({
         getRowId={(row) => row.contactId}
         onRowClick={(row) => setOpenContactId(row.contactId)}
         enableSelection
+        getRowLabel={(row) => row.name || row.email}
         onSelectionChange={setSelected}
         selectionEpoch={selectionEpoch}
         selectAllEpoch={selectAllEpoch}

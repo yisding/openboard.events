@@ -125,7 +125,7 @@ export function FilesAdminView({
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
       if (!response?.ok || !payload?.data) {
-        toast("Could not send reminders — try again");
+        toast("Could not send reminders — try again", { kind: "error" });
         return;
       }
       toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} — the rest were already announced this cycle`);
@@ -161,7 +161,7 @@ export function FilesAdminView({
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: FileExportJobDTO; error?: { message?: string } } | null;
       if (!response?.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Could not start the export — try again");
+        toast(payload?.error?.message ?? "Could not start the export — try again", { kind: "error" });
         return;
       }
       setExportJob(payload.data);
@@ -327,6 +327,7 @@ export function FilesAdminView({
           data={displayRows}
           empty={<EmptyState icon={<FolderOpen size={28} />} title="No deliverables match" description="Adjust the filters above, or wait for speakers to complete their tasks." />}
           enableSelection
+          getRowLabel={(row) => `${row.contactName}, ${row.fileRequestTitle}`}
           onSelectionChange={setSelected}
           selectionEpoch={selectionEpoch}
           getRowId={(row) => `${row.taskId}:${row.contactId}:${row.submissionId ?? "-"}`}
@@ -401,7 +402,7 @@ function DeliverableDrawer({
       const payload = await response?.json().catch(() => null) as { data?: FileCommentDTO } | null;
       const created = payload?.data;
       if (!response?.ok || !created) {
-        toast("That comment did not go through — try again");
+        toast("That comment did not go through — try again", { kind: "error" });
         return;
       }
       setComments((current) => {

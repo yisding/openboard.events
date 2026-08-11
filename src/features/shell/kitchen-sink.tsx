@@ -111,6 +111,7 @@ export function KitchenSink() {
           columns={columns}
           data={data}
           enableSelection
+          getRowLabel={(row) => `${row.code}, ${row.title}`}
           onSelectionChange={setSelected}
           columnVisibilityKey="kitchen-sink"
           pageSize={10}

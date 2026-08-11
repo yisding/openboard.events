@@ -157,10 +157,10 @@ test.describe("public-widgets-parity (M53)", () => {
       await test.step("a description expands and collapses in place", async () => {
         const card = page.locator(".session-card", { hasText: KEYNOTE.title });
         await expect(card.locator(".session-card-desc.truncated")).toBeVisible();
-        await card.getByRole("button", { name: "Read more" }).click();
+        await card.getByRole("button", { name: `Read more about ${KEYNOTE.title}` }).click();
         await expect(card).toHaveClass(/expanded/);
         await expect(card.locator(".session-card-desc.truncated")).toHaveCount(0);
-        await card.getByRole("button", { name: "Show less" }).click();
+        await card.getByRole("button", { name: `Show less about ${KEYNOTE.title}` }).click();
         await expect(card).not.toHaveClass(/expanded/);
       });
 
@@ -252,7 +252,7 @@ test.describe("public-widgets-parity (M53)", () => {
 
       await page.getByPlaceholder("Search speakers, companies, or topics").fill("Lovelace");
       await expect(cards).toHaveCount(1);
-      await cards.first().click();
+      await cards.first().getByRole("button", { name: /view profile for/i }).click();
       await expect(page.locator(".speaker-detail")).toBeVisible();
       await expect(page.locator(".speaker-detail-sessions li", { hasText: KEYNOTE.title })).toBeVisible();
       await page.getByRole("button", { name: /back to all speakers/i }).click();

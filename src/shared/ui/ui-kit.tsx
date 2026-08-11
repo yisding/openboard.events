@@ -13,8 +13,11 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#007454", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
-  return <span className={`person-avatar person-avatar-${size}`} style={{ background: color }}>{initials}</span>;
+export function Avatar({ initials, color = "#007454", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
+  const style = imageUrl
+    ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
+    : { background: color };
+  return <span className={`person-avatar person-avatar-${size}`} style={style}>{imageUrl ? null : initials}</span>;
 }
 
 export function ProgressBar({ value, tone = "accent" }: { value: number; tone?: "accent" | "green" | "amber" }) {
@@ -92,11 +95,11 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
 // and the only one `react/no-children-prop` allows. A required `children` in the
 // prop type makes that call fail to typecheck, because `createElement` does not
 // fold its rest arguments into the props type.
-export function Field({ label, hint, required, error, group, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; group?: boolean; children?: ReactNode }) {
+export function Field({ label, hint, hintId, required, error, errorId, group, children }: { label: string; hint?: string; hintId?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; children?: ReactNode }) {
   const inner = <>
     <span>{label}{required && <b className="required"> *</b>}</span>
     {children}
-    {error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}
+    {error ? <small id={errorId} className="field-error" role="alert">{error}</small> : hint && <small id={hintId}>{hint}</small>}
   </>;
   // `group` for the fields whose control is a *set* of buttons rather than one
   // input. `<button>` is a labelable element, so a `<label>` wrapping a choice
