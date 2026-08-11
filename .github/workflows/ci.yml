@@ -45,10 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
+      # Run this before build:worker. Once .open-next/worker.js exists,
+      # Wrangler resolves the local service binding to that transient module
+      # and generates artifact-dependent declarations that are not valid in a
+      # clean checkout.
+      - run: pnpm cf-typegen:check
       - run: pnpm build:worker
       # build:worker produces both .next and .open-next. Keep these consumers in
       # the same job so the expensive build runs once and no artifact upload or
       # download is needed.
-      - run: pnpm cf-typegen:check
       - run: pnpm bundle:client
       - run: pnpm worker:size
