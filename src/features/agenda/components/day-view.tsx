@@ -5,12 +5,13 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type DndContextProps,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { LayoutGrid } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { RoomId, ScheduledSessionDTO } from "@/shared/contracts";
+import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { zonedInputToUtc } from "@/shared/lib/time";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import { toScheduledSession, detectConflicts } from "../conflicts";
@@ -29,6 +30,16 @@ type DragData =
   | { type: "resize-start" | "resize-end"; session: ScheduledSessionDTO };
 
 const DEFAULT_FORMAT_DURATION_MINUTES = 30;
+
+type AgendaDayDndContextProps = Omit<DndContextProps, "id"> & {
+  eventId: EventId;
+  selectedDay: string;
+};
+
+/** Small render seam that keeps dnd-kit's SSR id tied to the selected event day. */
+export function AgendaDayDndContext({ eventId, selectedDay, ...props }: AgendaDayDndContextProps) {
+  return <DndContext {...props} id={agendaDayDndContextId(eventId, selectedDay)} />;
+}
 
 /**
  * The Day view — real content per ./M30-day-grid-dnd.md. `agenda-page.tsx`
@@ -167,7 +178,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
           />
         )
         : (
-          <DndContext id={agendaDayDndContextId(eventId, selectedDay)} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
+          <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
             <div className="dv-layout">
               <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} />
               <div className="dv-scroll">
@@ -181,7 +192,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
                 />
               </div>
             </div>
-          </DndContext>
+          </AgendaDayDndContext>
         )}
     </div>
   );

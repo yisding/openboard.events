@@ -45,4 +45,12 @@ describe("form builder accessibility", () => {
     expect(source).toContain("setSelected(null);");
     expect(source).toContain("setPendingDelete(null);");
   });
+
+  it("keeps question selection and reorder controls from submitting the builder form", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('<button type="button" className="field-row-main"');
+    expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} up`}');
+    expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} down`}');
+  });
 });

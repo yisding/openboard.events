@@ -128,6 +128,13 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   }
 
   const sendId = input.sendId;
+  const idempotencyKeys = input.contactIds.map((contactId) => idem.speakerBulk(eventId, contactId, sendId));
+  const existingKeys = new Set(
+    (await dbOrTx.select({ idempotencyKey: speakerBulkMessages.idempotencyKey })
+      .from(speakerBulkMessages)
+      .where(inArray(speakerBulkMessages.idempotencyKey, idempotencyKeys)))
+      .map((message) => message.idempotencyKey),
+  );
   let queued = 0;
   let alreadyQueued = 0;
   let skipped = 0;
@@ -136,9 +143,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     const row = recipients.get(contactId);
     if (!row) { errors.push({ contactId, reason: "Not found in this event" }); continue; }
     const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
-    const [existing] = await dbOrTx.select({ id: speakerBulkMessages.id }).from(speakerBulkMessages)
-      .where(eq(speakerBulkMessages.idempotencyKey, idempotencyKey)).limit(1);
-    if (existing) {
+    if (existingKeys.has(idempotencyKey)) {
       // The first response may have been lost after the message insert. Count
       // that recipient as accepted by this attempt and retry enqueueing so a
       // rarer failure between the message and outbox inserts still self-heals.

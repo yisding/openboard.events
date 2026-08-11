@@ -25,7 +25,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
-import { restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
+import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 type VocabSaveResult = { ok: boolean; item: VocabItem };
@@ -80,11 +80,12 @@ function hasDuration(item: VocabItem): item is SessionFormatDTO {
 }
 
 function Row({
-  item, reorderable, reorderDisabled, onSave, onDelete,
+  item, reorderable, reorderDisabled, deleteDisabled, onSave, onDelete,
 }: {
   item: VocabItem;
   reorderable: boolean;
   reorderDisabled: boolean;
+  deleteDisabled: boolean;
   onSave: (patch: Record<string, unknown>) => Promise<VocabSaveResult>;
   onDelete: () => void;
 }) {
@@ -171,7 +172,7 @@ function Row({
           }}
         />
       )}
-      <button type="button" aria-label={`Remove ${item.name}`} onClick={onDelete}>
+      <button type="button" aria-label={`Remove ${item.name}`} disabled={deleteDisabled} onClick={onDelete}>
         <Trash2 size={15} />
       </button>
     </div>
@@ -239,7 +240,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   }
 
   async function confirmDelete() {
-    if (!pendingDelete) return;
+    if (!pendingDelete || !canDeleteVocabItem(reorderPending.current)) return;
     const removed = pendingDelete;
     const originalIndex = items.findIndex((item) => item.id === removed.id);
     setItems((current) => current.filter((row) => row.id !== removed.id));
@@ -310,8 +311,11 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
                   item={item}
                   reorderable={reorderable}
                   reorderDisabled={reordering}
+                  deleteDisabled={!canDeleteVocabItem(reordering)}
                   onSave={(patch) => saveItem(item.id, patch, item)}
-                  onDelete={() => setPendingDelete(item)}
+                  onDelete={() => {
+                    if (canDeleteVocabItem(reorderPending.current)) setPendingDelete(item);
+                  }}
                 />
               ))}
             </div>

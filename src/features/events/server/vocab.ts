@@ -171,17 +171,26 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
   const table = kind === "tracks" ? tracks : kind === "rooms" ? rooms : kind === "formats" ? sessionFormats : tags;
   const filterKey = kind === "tracks" ? "trackIds" : kind === "rooms" ? "roomIds" : kind === "formats" ? "formatIds" : null;
   if (filterKey) {
-    const configs = await dbOrTx.select({ id: embeds.id, filters: embeds.filters }).from(embeds).where(eq(embeds.eventId, eventId));
-    for (const config of configs) {
-      const filters = config.filters && typeof config.filters === "object" && !Array.isArray(config.filters)
-        ? { ...(config.filters as Record<string, unknown>) }
-        : {};
-      const ids = filters[filterKey];
-      if (!Array.isArray(ids) || !ids.includes(id)) continue;
-      filters[filterKey] = ids.filter((candidate) => candidate !== id);
-      await dbOrTx.update(embeds).set({ filters, updatedAt: new Date() })
-        .where(and(eq(embeds.id, config.id), eq(embeds.eventId, eventId)));
-    }
+    // Mutate only the affected JSON array from the row version PostgreSQL
+    // locks for this UPDATE. A read/modify/write loop could overwrite a
+    // concurrent style/field/filter edit with the stale object it selected.
+    await dbOrTx.update(embeds).set({
+      filters: sql`jsonb_set(
+        ${embeds.filters},
+        ARRAY[${filterKey}]::text[],
+        COALESCE((
+          SELECT jsonb_agg(entries.value ORDER BY entries.position)
+          FROM jsonb_array_elements(${embeds.filters} -> ${filterKey}) WITH ORDINALITY AS entries(value, position)
+          WHERE entries.value <> to_jsonb(${id}::text)
+        ), '[]'::jsonb),
+        false
+      )`,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(embeds.eventId, eventId),
+      sql`jsonb_typeof(${embeds.filters} -> ${filterKey}) = 'array'`,
+      sql`(${embeds.filters} -> ${filterKey}) @> jsonb_build_array(${id}::text)`,
+    ));
   }
   await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
 }

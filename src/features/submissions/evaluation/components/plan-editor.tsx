@@ -8,7 +8,7 @@ import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
-import { evaluationRequest, type EvaluationRequestResult } from "./evaluation-request";
+import { evaluationFailureMessage, evaluationRequest, type EvaluationRequestResult } from "./evaluation-request";
 
 /**
  * Creating and editing a round. Rounds are ordered plans rather than a state
@@ -151,7 +151,7 @@ function TrackScope({
 
 export type PlanReviewerSaveResult =
   | { ok: true; planId: string }
-  | { ok: false; message: string; pendingReviewerPlanId: string | null };
+  | { ok: false; kind: "response" | "transport"; message: string; pendingReviewerPlanId: string | null };
 
 /** Two-stage round saves can be retried safely: once the round write succeeds,
  * its id is retained and later attempts run only the reviewer replacement. */
@@ -163,12 +163,12 @@ export async function completePlanAndReviewerSave(
   const planResult = pendingReviewerPlanId
     ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
     : await savePlan();
-  if (!planResult.ok) return { ok: false, message: planResult.message, pendingReviewerPlanId: null };
+  if (!planResult.ok) return { ok: false, kind: planResult.kind, message: planResult.message, pendingReviewerPlanId: null };
 
   const reviewerResult = await saveReviewers(planResult.data.planId);
   return reviewerResult.ok
     ? { ok: true, planId: planResult.data.planId }
-    : { ok: false, message: reviewerResult.message, pendingReviewerPlanId: planResult.data.planId };
+    : { ok: false, kind: reviewerResult.kind, message: reviewerResult.message, pendingReviewerPlanId: planResult.data.planId };
 }
 
 export function PlanEditor({
@@ -243,7 +243,7 @@ export function PlanEditor({
       );
       if (!result.ok) {
         setPendingReviewerPlanId(result.pendingReviewerPlanId);
-        toast(result.message, { kind: "error" });
+        toast(evaluationFailureMessage(result), { kind: "error" });
         if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
@@ -274,7 +274,7 @@ export function PlanEditor({
         )}
         <fieldset disabled={pendingReviewerPlanId !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "contents" }}>
         <Field label="Round name" required>
-          <input autoFocus required value={draft.name} onChange={(event) => patch({ name: event.target.value })} placeholder="e.g. Round 1 · Program committee" />
+          <input required value={draft.name} onChange={(event) => patch({ name: event.target.value })} placeholder="e.g. Round 1 · Program committee" />
         </Field>
 
         <div className="field-row">

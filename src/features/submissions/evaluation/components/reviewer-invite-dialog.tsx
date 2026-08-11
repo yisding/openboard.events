@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { z } from "zod";
 import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { evaluationRequest } from "./evaluation-request";
+import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
+
+const reviewerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
+
+export function normalizeReviewerEmail(value: string): string | null {
+  const parsed = reviewerEmailSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 /**
  * Adding a reviewer to the event.
@@ -21,18 +29,26 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [busy, setBusy] = useState(false);
+  const normalizedEmail = normalizeReviewerEmail(email);
 
   async function invite() {
+    const validEmail = normalizeReviewerEmail(email);
+    if (!validEmail) {
+      setEmailError("Enter a valid email address");
+      return;
+    }
+    setEmailError("");
     setBusy(true);
     try {
       const result = await evaluationRequest<{ email: string; createdUser: boolean }>(`/api/internal/evaluation/${eventId}/reviewers`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, name, password, role: "reviewer" }),
+        body: JSON.stringify({ email: validEmail, name, password, role: "reviewer" }),
       }, "That reviewer was not added");
       if (!result.ok) {
-        toast(result.message, { kind: "error" });
+        toast(evaluationFailureMessage(result), { kind: "error" });
         return;
       }
       toast(result.data.createdUser
@@ -50,8 +66,8 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   return (
     <Drawer open onClose={onClose} title="Invite a reviewer">
       <div className="form-stack">
-        <Field label="Email" required>
-          <input autoFocus required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="reviewer@example.com" />
+        <Field label="Email" required error={emailError} errorId="reviewer-email-error">
+          <input required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} placeholder="reviewer@example.com" />
         </Field>
         <Field label="Name">
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ada Lovelace" />
@@ -67,7 +83,7 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
 
       <div className="drawer-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={busy || email.trim() === "" || password.length < 12} onClick={invite}>
+        <Button disabled={busy || normalizedEmail === null || password.length < 12} onClick={invite}>
           {busy ? "Adding…" : "Add reviewer"}
         </Button>
       </div>

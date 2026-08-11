@@ -53,12 +53,33 @@ export async function createOrPublishOnboardingForm(input: {
   existing: BuilderFormLite | null;
   publishNow: boolean;
   create: () => Promise<BuilderFormLite>;
+  reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   onCreated: (form: BuilderFormLite) => void;
 }): Promise<BuilderFormLite> {
-  const form = input.existing ?? await input.create();
+  let form = input.existing ?? await input.create();
   if (!input.existing) input.onCreated(form);
-  return input.publishNow && form.status !== "open" ? input.publish(form) : form;
+  // A previous PATCH may have committed even if its response was lost. Always
+  // reconcile an existing form before deciding whether to publish or continue
+  // as a draft, so neither path trusts a stale status/updatedAt pair.
+  else form = await input.reconcile(form);
+
+  if (!input.publishNow || form.status === "open") return form;
+  try {
+    return await input.publish(form);
+  } catch (publishError) {
+    // A transport failure cannot tell us whether the server committed. If the
+    // form is now open, treat the operation as successful; otherwise retain the
+    // original publication error. A failed GET remains retryable because the
+    // next attempt reconciles before issuing another PATCH.
+    try {
+      const current = await input.reconcile(form);
+      if (current.status === "open") return current;
+    } catch {
+      // Preserve the more useful mutation failure below.
+    }
+    throw publishError;
+  }
 }
 
 async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
@@ -203,6 +224,7 @@ export function OnboardingWizard({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
         }),
+        reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
         publish: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
@@ -221,7 +243,7 @@ export function OnboardingWizard({
       setStep(4);
     } catch (caught) {
       toast(hasCreatedForm
-        ? `The form is saved as a draft, but publication failed: ${caught instanceof Error ? caught.message : "try again"}`
+        ? `The form is saved, but publication could not be confirmed: ${caught instanceof Error ? caught.message : "try again"}`
         : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);

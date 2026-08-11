@@ -1,8 +1,14 @@
 export type EvaluationRequestResult<T> =
   | { ok: true; data: T }
-  | { ok: false; message: string };
+  | { ok: false; kind: "response" | "transport"; message: string };
 
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
+
+export function evaluationFailureMessage(failure: { kind: "response" | "transport"; message: string }): string {
+  return failure.kind === "transport"
+    ? `${failure.message} — check your connection and try again`
+    : failure.message;
+}
 
 /** Normalizes HTTP, malformed-response, and transport failures for evaluation
  * drawers. A failed button-triggered request must always resolve to feedback
@@ -17,10 +23,10 @@ export async function evaluationRequest<T>(
     const response = await request(input, init);
     const payload = await response.json().catch(() => null) as { data?: T; error?: { message?: string } } | null;
     if (!response.ok || payload?.data === undefined) {
-      return { ok: false, message: payload?.error?.message ?? fallbackMessage };
+      return { ok: false, kind: "response", message: payload?.error?.message ?? fallbackMessage };
     }
     return { ok: true, data: payload.data };
   } catch {
-    return { ok: false, message: fallbackMessage };
+    return { ok: false, kind: "transport", message: fallbackMessage };
   }
 }

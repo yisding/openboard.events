@@ -146,7 +146,7 @@ export function FileRequestsView({
       >
         <div className="form-stack">
           <Field label="Title" required>
-            <input autoFocus required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
+            <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
           </Field>
           <Field label="Type" group>
             <div className="choice-cards compact">

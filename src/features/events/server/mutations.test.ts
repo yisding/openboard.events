@@ -251,19 +251,25 @@ describe("database-backed event mutations", () => {
 
     expect(await codeOf(reorderVocabIn(database, event.id, "tracks", [third.id, first.id]))).toBe("VALIDATION");
 
-    const preservedRoomId = "93000000-0000-4000-8000-000000000001";
+    const room = await saveVocabItemIn(database, event.id, "rooms", { name: "Auditorium" });
     const [embed] = await database.insert(schema.embeds).values({
       eventId: event.id,
       name: "Filtered sessions",
       contentType: "session_list",
-      filters: { trackIds: [second.id], roomIds: [preservedRoomId] },
+      filters: { trackIds: [second.id], roomIds: [room.id], fields: { description: false } },
     }).returning();
     if (!embed) throw new Error("expected embed fixture");
     await deleteVocabItemIn(database, event.id, "tracks", second.id);
     const afterDelete = await listVocabIn(database, event.id, "tracks");
     expect(afterDelete.map((track) => track.id)).toEqual([third.id, first.id]);
     const [cleanedEmbed] = await database.select({ filters: schema.embeds.filters }).from(schema.embeds).where(eq(schema.embeds.id, embed.id));
-    expect(cleanedEmbed?.filters).toEqual({ trackIds: [], roomIds: [preservedRoomId] });
+    expect(cleanedEmbed?.filters).toEqual({ trackIds: [], roomIds: [room.id], fields: { description: false } });
+
+    // A second targeted cleanup composes with the first instead of restating
+    // a stale whole filters object and reviving the track id.
+    await deleteVocabItemIn(database, event.id, "rooms", room.id);
+    const [twiceCleanedEmbed] = await database.select({ filters: schema.embeds.filters }).from(schema.embeds).where(eq(schema.embeds.id, embed.id));
+    expect(twiceCleanedEmbed?.filters).toEqual({ trackIds: [], roomIds: [], fields: { description: false } });
 
     // A second delete of the same id is a silent no-op, not an error.
     await expect(deleteVocabItemIn(database, event.id, "tracks", second.id)).resolves.toBeUndefined();

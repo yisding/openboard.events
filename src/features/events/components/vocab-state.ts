@@ -14,6 +14,10 @@ export function restoreFailedVocabDeletion<T extends { id: string }>(
   return restoreVocabItemAtIndex(current, latestPersisted ?? removed, originalIndex);
 }
 
+export function canDeleteVocabItem(reorderPending: boolean): boolean {
+  return !reorderPending;
+}
+
 /** Restore the last persisted relative order without discarding rows added,
  * deleted, or edited while the reorder request was in flight. */
 export function restoreVocabOrder<T extends { id: string }>(current: readonly T[], persistedIds: readonly string[]): T[] {

@@ -6,7 +6,7 @@ import { formatCode } from "@/features/submissions/index.client";
 import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AssignableSubmission, PlanDTO } from "../types";
-import { evaluationRequest } from "./evaluation-request";
+import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
 /**
  * Handing work out.
@@ -75,7 +75,7 @@ export function AssignmentDrawer({
         body: JSON.stringify({ reviewerUserIds: reviewerIds, submissionIds: selected, mode }),
       }, "Those assignments did not save");
       if (!result.ok) {
-        toast(result.message, { kind: "error" });
+        toast(evaluationFailureMessage(result), { kind: "error" });
         return;
       }
       toast(`${result.data.assigned} assigned${result.data.removed > 0 ? `, ${result.data.removed} taken back` : ""}`);

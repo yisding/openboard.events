@@ -136,7 +136,7 @@ export function ResourcePageEditor({
     >
       <div className="form-stack">
         <Field label="Title" required {...hintProp(fieldErrors.title)}>
-          <input autoFocus required value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
+          <input required value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
         </Field>
 
         <Field label="URL" {...hintProp(fieldErrors.slug ?? `…/resources/${draft.slug || "…"}`)}>

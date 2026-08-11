@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { restoreFailedVocabDeletion, restoreVocabItemAtIndex, restoreVocabOrder } from "./vocab-state";
+import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabItemAtIndex, restoreVocabOrder } from "./vocab-state";
 
 describe("restoreVocabItemAtIndex", () => {
   it("puts a failed middle deletion back at its original position", () => {
@@ -37,5 +37,12 @@ describe("restoreVocabOrder", () => {
       { id: "c", name: "C edited" },
       { id: "d", name: "D added" },
     ]);
+  });
+});
+
+describe("canDeleteVocabItem", () => {
+  it("blocks deletion while a reorder mutation is pending", () => {
+    expect(canDeleteVocabItem(true)).toBe(false);
+    expect(canDeleteVocabItem(false)).toBe(true);
   });
 });

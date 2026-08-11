@@ -220,7 +220,10 @@ describe("organization-level speaker CRM (M55)", () => {
 
     // The CRM route can fan out across event groups or be retried after an
     // ambiguous batch failure. Its caller-owned id must reach M51 unchanged.
-    await composeCrmBulkEmailIn(db, orgA, sendInput);
+    const retry = await composeCrmBulkEmailIn(db, orgA, sendInput);
+    expect(retry.queued).toBe(0);
+    expect(retry.alreadyQueued).toBe(1);
+    expect(retry.errors).toEqual([]);
     const [retryRows] = (await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM speaker_bulk_messages WHERE idempotency_key LIKE $1",
       [`%:${sendId}`],

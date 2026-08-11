@@ -189,7 +189,7 @@ export function TaskEditor({
     >
       <div ref={editorRef} className="form-stack">
         <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
-          <input autoFocus required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearFieldError("name"); }} placeholder="e.g. Upload final slides" />
+          <input required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearFieldError("name"); }} placeholder="e.g. Upload final slides" />
         </Field>
 
         <Field label="Description" error={fieldErrors.descriptionHtml} errorId="task-description-error">

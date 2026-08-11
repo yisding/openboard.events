@@ -37,6 +37,21 @@ function json(method: string, body?: unknown): RequestInit {
   return { method, headers: { "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
 }
 
+export function validatePortalFormMetadata(internalName: string, externalTitle: string):
+  | { ok: true; internalName: string; externalTitle: string }
+  | { ok: false; message: string } {
+  const trimmedInternalName = internalName.trim();
+  if (!trimmedInternalName) return { ok: false, message: "Internal form name is required" };
+  const trimmedExternalTitle = externalTitle.trim();
+  if (!trimmedExternalTitle) return { ok: false, message: "Public title is required" };
+  return { ok: true, internalName: trimmedInternalName, externalTitle: trimmedExternalTitle };
+}
+
+export function normalizePortalFieldLabel(label: string): string | null {
+  const trimmed = label.trim();
+  return trimmed || null;
+}
+
 /**
  * M24 — the portal builder: one page, top-to-bottom (Setup → Questions →
  * Settings, collapsed), never a wizard (M24 §4, a deliberate simplification
@@ -77,11 +92,16 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
   /** The single Save button: Setup (name/title) + Settings, one PATCH call — M24 §4's "one `saveFormStep`-equivalent call" per visit. */
   async function saveTopLevel() {
     if (busy) return;
+    const metadata = validatePortalFormMetadata(internalName, externalTitle);
+    if (!metadata.ok) {
+      toast(metadata.message, { kind: "error" });
+      return;
+    }
     setBusy(true);
     try {
       const patch: FormPatch = {
-        internalName,
-        externalTitle,
+        internalName: metadata.internalName,
+        externalTitle: metadata.externalTitle,
         sendConfirmation: form.sendConfirmation,
         confirmationSubject: form.confirmationSubject,
         confirmationBodyHtml: form.confirmationBodyHtml,
@@ -124,13 +144,14 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
   }
 
   async function addCustomField() {
-    if (!section || !customLabel.trim() || busy) return;
+    const label = normalizePortalFieldLabel(customLabel);
+    if (!section || !label || busy) return;
     setBusy(true);
     try {
       const next = await requestData<BuilderForm>(apiPath("/fields"), json("POST", {
         expectedUpdatedAt: form.updatedAt,
         sectionId: section.id,
-        label: customLabel,
+        label,
         fieldType: customType,
       }));
       setForm(next);
@@ -147,11 +168,16 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
 
   async function saveField(patch: { label: string; helpText: string; required: boolean; maxChars: number | null; optionLabels?: string[] }) {
     if (!selectedField || busy) return;
+    const label = normalizePortalFieldLabel(patch.label);
+    if (!label) {
+      toast("Question label is required", { kind: "error" });
+      return;
+    }
     setBusy(true);
     try {
       const next = await requestData<BuilderForm>(apiPath(`/fields/${selectedField.id}`), json("PATCH", {
         expectedUpdatedAt: form.updatedAt,
-        patch,
+        patch: { ...patch, label },
       }));
       setForm(next);
       toast("Question saved");
@@ -342,7 +368,7 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
       title="Edit field"
       footer={<>
         {!field.locked && <Button variant="ghost" className="delete-field" disabled={busy} onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
-        <Button disabled={busy} onClick={() => onSave({
+        <Button disabled={busy || !label.trim()} onClick={() => onSave({
           label,
           helpText,
           required,
