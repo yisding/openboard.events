@@ -14,9 +14,11 @@ import {
   type CreateSubmissionInput,
   type EventId,
   type FormId,
+  type SubmissionKind,
   type SubmissionId,
   type SubmissionStatus,
 } from "@/shared/contracts";
+import { secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "@/features/forms/participant-roles";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
 // Deep imports rather than the `@/features/forms` barrel: that barrel re-exports
 // the submit pipeline, which imports this file's `createSubmissionIn`, and a
@@ -44,7 +46,7 @@ export type CreateSubmissionResult = {
 export type DraftParticipantInput = {
   clientId: string;
   email: string;
-  role: "co_speaker";
+  role: SecondaryParticipantRole;
   isPrimary: false;
   sortOrder: number;
   answers: CleanAnswers;
@@ -72,11 +74,11 @@ export async function nextSubmissionCode(tx: TxDb, eventId: EventId): Promise<nu
   return Number(code);
 }
 
-type FormRow = { id: string; sendConfirmation: boolean; submissionLimit: number | null };
+type FormRow = { id: string; kind: SubmissionKind; sendConfirmation: boolean; submissionLimit: number | null };
 
 async function loadForm(tx: TxDb, eventId: EventId, formId: FormId): Promise<FormRow> {
   const [form] = await tx
-    .select({ id: forms.id, sendConfirmation: forms.sendConfirmation, submissionLimit: forms.submissionLimit })
+    .select({ id: forms.id, kind: forms.kind, sendConfirmation: forms.sendConfirmation, submissionLimit: forms.submissionLimit })
     .from(forms)
     .where(and(eq(forms.id, formId), eq(forms.eventId, eventId)))
     .limit(1);
@@ -361,7 +363,7 @@ export async function upsertDraft(
     // The form_id foreign key proves the form exists, not that it belongs to
     // this event — without this a caller could start a draft against another
     // event's form and the row would look legitimate.
-    await loadForm(tx, eventId, formId);
+    const form = await loadForm(tx, eventId, formId);
     // Starting (or resuming) a draft is itself a write against the form, so it
     // must agree with the other three call sites: the database clock decides,
     // via the same is_form_open() predicate, never a JS comparison (S2).
@@ -375,7 +377,7 @@ export async function upsertDraft(
 
     if (existing) {
       await tx.update(submissions)
-        .set({ formVersion, updatedAt: new Date() })
+        .set({ formVersion, kind: form.kind, updatedAt: new Date() })
         .where(eq(submissions.id, existing.id));
       const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
         .from(submissionAnswers)
@@ -412,7 +414,7 @@ export async function upsertDraft(
         participants: participantRows.map((row) => ({
           clientId: row.id,
           email: row.email,
-          role: "co_speaker" as const,
+          role: secondaryParticipantRoleSchema.parse(row.role),
           isPrimary: false as const,
           sortOrder: row.sortOrder,
           answers: answersByParticipant.get(row.id) ?? {},
@@ -425,10 +427,10 @@ export async function upsertDraft(
     // ON CONFLICT turns the loser into a read instead of a duplicate-key error.
     const code = await nextSubmissionCode(tx, eventId);
     const upserted = (await tx.execute<{ id: string; code: number }>(sql`
-      INSERT INTO submissions (event_id, form_id, form_version, code, status, source, submitter_contact_id, title)
-      VALUES (${eventId}, ${formId}, ${formVersion}, ${code}, 'draft', 'cfp', ${contactId}, '')
+      INSERT INTO submissions (event_id, form_id, form_version, code, kind, status, source, submitter_contact_id, title)
+      VALUES (${eventId}, ${formId}, ${formVersion}, ${code}, ${form.kind}, 'draft', 'cfp', ${contactId}, '')
       ON CONFLICT (event_id, form_id, submitter_contact_id) WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL
-      DO UPDATE SET form_version = EXCLUDED.form_version, updated_at = now()
+      DO UPDATE SET form_version = EXCLUDED.form_version, kind = EXCLUDED.kind, updated_at = now()
       RETURNING id, code
     `)).rows?.[0];
     const inserted = upserted ? { id: upserted.id, code: Number(upserted.code) } : undefined;

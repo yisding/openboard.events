@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { OtpForm } from "./otp-form";
+import { portalAuthRequest } from "./portal-auth-request";
 
 type Fallback = { otp: string; magicLink: string };
 
@@ -17,21 +18,23 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     event.preventDefault();
     setPending(true);
     setError("");
-    const value = String(new FormData(event.currentTarget).get("email") ?? "").trim().toLowerCase();
-    const response = await fetch("/api/internal/auth/portal/request", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventSlug, email: value, ...(next ? { next } : {}) }),
-    });
-    const body = await response.json().catch(() => null) as { data?: { fallback?: Fallback } } | null;
-    setPending(false);
-    if (!response.ok) {
-      setError(response.status === 429 ? "Check your inbox, or try again in a few minutes" : "We couldn't send a code right now");
-      return;
-    }
+    const value = email.trim().toLowerCase();
     setEmail(value);
-    setFallback(body?.data?.fallback ?? null);
-    setRequested(true);
+    try {
+      const result = await portalAuthRequest("/api/internal/auth/portal/request", { eventSlug, email: value, ...(next ? { next } : {}) });
+      if (!result.ok) {
+        setError(result.status === 429
+          ? "Check your inbox, or try again in a few minutes"
+          : result.status === null
+            ? "We couldn't reach the server — check your connection and try again"
+            : "We couldn't send a code right now");
+        return;
+      }
+      setFallback(result.data.fallback ?? null);
+      setRequested(true);
+    } finally {
+      setPending(false);
+    }
   }
 
   if (requested) return <>
@@ -45,7 +48,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
   return <form onSubmit={requestCode}>
     <h1>Speaker portal</h1>
     <p>Enter your email to receive a one-time code and secure sign-in link.</p>
-    <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required /></label>
+    <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary" disabled={pending} type="submit">{pending ? "Sending…" : "Send sign-in code"}</button>
   </form>;

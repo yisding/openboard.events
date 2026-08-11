@@ -19,6 +19,7 @@ export function EvaluationPage({ eventId }: { eventId: string }){
   const plans=state.plans.filter((plan)=>plan.eventId===eventId); const activePlan=plans.find((plan)=>plan.status==="open")??plans[0];
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.matches("input,textarea,select") || target.isContentEditable)) return;
       const value = Number(event.key);

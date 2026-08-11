@@ -8,6 +8,7 @@ import { useDemo } from "@/shared/demo/demo-provider";
 import { Brand } from "@/shared/ui/brand";
 import type { DemoAnswers as Answers, DemoAnswerValue as AnswerValue } from "@/shared/demo/types";
 import type { FormFieldRecord, SpeakerRecord, SubmissionRecord } from "@/shared/demo/types";
+import { formatInZone } from "@/shared/lib/time";
 
 const wizardSteps = ["Welcome", "Account", "Submission", "Participant", "Review"];
 
@@ -63,7 +64,7 @@ export function CfpWizard({ eventSlug, formId }: { eventSlug: string; formId: st
 
   if (!event || !form) return <main className="cfp-error"><Brand dark /><FileText size={36} /><h1>This form isn’t available.</h1><p>Check the link or contact the event organizer.</p></main>;
   const availability = formAvailability(form, Date.now());
-  if (availability === "not_open_yet") return <main className="cfp-error"><Brand dark /><Clock3 size={36} /><h1>The call for speakers hasn’t opened yet.</h1><p>This form opens {new Date(form.opensAt).toLocaleString()}. Check back then.</p></main>;
+  if (availability === "not_open_yet") return <main className="cfp-error"><Brand dark /><Clock3 size={36} /><h1>The call for speakers hasn’t opened yet.</h1><p>This form opens {formatInZone(form.opensAt, event.timezone, "long")}. Check back then.</p></main>;
   if (availability === "closed") return <main className="cfp-error"><Brand dark /><Clock3 size={36} /><h1>The call for speakers is closed.</h1><p>This form is not accepting new or updated submissions right now.</p><Link href={`/e/${event.slug}/agenda`}>View the event schedule</Link></main>;
   const currentEvent = event;
   const currentForm = form;

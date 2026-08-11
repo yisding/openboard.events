@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
+import { scopedParticipantFieldErrorKey } from "@/features/forms/participant-errors";
 import { GOLDEN_AUTHORING_ROWS, GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import { contactIdSchema, eventIdSchema, formIdSchema, type AnswerValue } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
@@ -38,6 +39,12 @@ const FORMATS = optionsOf("format");
 const TAGS = optionsOf("topics");
 const trackId = TRACKS.find((option) => option.id === "platforms")?.trackId ?? "";
 const tagId = TAGS[0]?.tagId ?? "";
+const DEFAULT_PARTICIPANT_ROLES = [
+  { role: "speaker", enabled: true, min: 1, max: null },
+  { role: "co_speaker", enabled: true, min: null, max: null },
+  { role: "moderator", enabled: false, min: null, max: null },
+  { role: "panelist", enabled: false, min: null, max: null },
+];
 
 let pglite: PGlite;
 let tx: TxDb;
@@ -101,8 +108,8 @@ describe("CFP submit, end to end through the server path", () => {
       if (option.tagId) await pglite.query("INSERT INTO tags(id,event_id,name) VALUES($1,$2,$3)", [option.tagId, eventId, option.label]);
     }
     await pglite.query(
-      "INSERT INTO forms(id,event_id,context,internal_name,status,closes_at,current_version) VALUES($1,$2,'cfp','CFP','open', now() + interval '10 days', 1)",
-      [formId, eventId],
+      "INSERT INTO forms(id,event_id,context,internal_name,status,closes_at,current_version,participant_roles) VALUES($1,$2,'cfp','CFP','open', now() + interval '10 days', 1, $3::jsonb)",
+      [formId, eventId, JSON.stringify(DEFAULT_PARTICIPANT_ROLES)],
     );
     // submission_answers references form_fields, so the authoring rows the
     // snapshot was compiled from have to exist too — a snapshot is a copy of
@@ -237,6 +244,118 @@ describe("CFP submit, end to end through the server path", () => {
     expect(isAppError(error) && error.code).toBe("FORBIDDEN");
     const rows = await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions");
     expect(rows.rows[0]?.count).toBe(0);
+  });
+
+  it("keeps the configured form kind on both the draft and final submission", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("UPDATE forms SET kind='session' WHERE id=$1", [formId]);
+    try {
+      const draft = await upsertDraft(eventId, speaker, formId, 1);
+      const draftRow = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [draft.submissionId]);
+      expect(draftRow.rows[0]?.kind).toBe("session");
+
+      const submitted = await submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        draftSubmissionId: draft.submissionId,
+        answers: answers(),
+      });
+      const submittedRow = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [submitted.submissionId]);
+      expect(submittedRow.rows[0]?.kind).toBe("session");
+    } finally {
+      await pglite.query("UPDATE forms SET kind='abstract' WHERE id=$1", [formId]);
+    }
+  });
+
+  it("accepts enabled canonical roles and rejects disabled roles", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const moderatorOnly = DEFAULT_PARTICIPANT_ROLES.map((setting) => ({
+      ...setting,
+      enabled: setting.role === "speaker" || setting.role === "moderator",
+    }));
+    await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(moderatorOnly)]);
+    try {
+      const submitted = await submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: answers(),
+        participants: [
+          { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+          {
+            clientId: "moderator-1",
+            email: "moderator@example.com",
+            role: "moderator",
+            isPrimary: false,
+            sortOrder: 1,
+            answers: answers({ [field("email").id]: text("moderator@example.com") }),
+          },
+        ],
+      });
+      const roles = await pglite.query<{ role: string }>(
+        "SELECT role FROM submission_participants WHERE submission_id=$1 ORDER BY sort_order",
+        [submitted.submissionId],
+      );
+      expect(roles.rows.map((row) => row.role)).toEqual(["speaker", "moderator"]);
+
+      await pglite.query("DELETE FROM submissions");
+      const disabled = await submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: answers(),
+        participants: [
+          { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+          {
+            clientId: "co-1",
+            email: "disabled-co@example.com",
+            role: "co_speaker",
+            isPrimary: false,
+            sortOrder: 1,
+            answers: answers({ [field("email").id]: text("disabled-co@example.com") }),
+          },
+        ],
+      }).catch((thrown: unknown) => thrown);
+      expect(isAppError(disabled) && disabled.code).toBe("VALIDATION");
+      expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
+    } finally {
+      await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(DEFAULT_PARTICIPANT_ROLES)]);
+    }
+  });
+
+  it("scopes an additional participant's field errors to its client ID", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const incomplete = answers({ [field("email").id]: text("incomplete@example.com") });
+    delete incomplete[field("first_name").id];
+    const error = await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-1",
+          email: "incomplete@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: incomplete,
+        },
+      ],
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    const fieldErrors = isAppError(error)
+      ? (error.details as { fieldErrors?: Record<string, string> } | undefined)?.fieldErrors
+      : undefined;
+    expect(fieldErrors?.[scopedParticipantFieldErrorKey("co-1", field("first_name").id)]).toContain("required");
+    expect(fieldErrors?.[field("first_name").id]).toBeUndefined();
   });
 
   it("resolves co-speaker emails and remaps their answers to stored participants", async () => {
@@ -627,6 +746,56 @@ describe("CFP submit, end to end through the server path", () => {
       [field("first_name").id]: text("Draft"),
       [field("email").id]: text("draft-co@example.com"),
     });
+  });
+
+  it("persists enabled non-speaker draft roles and rejects disabled ones", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const moderatorOnly = DEFAULT_PARTICIPANT_ROLES.map((setting) => ({
+      ...setting,
+      enabled: setting.role === "speaker" || setting.role === "moderator",
+    }));
+    await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(moderatorOnly)]);
+    try {
+      await upsertDraft(eventId, speaker, formId, 1);
+      await saveCfpDraft({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: { [field("title").id]: text("A moderated draft") },
+        participants: [{
+          clientId: "draft-moderator",
+          email: "draft-moderator@example.com",
+          role: "moderator",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: { [field("email").id]: text("draft-moderator@example.com") },
+        }],
+      });
+      const resumed = await upsertDraft(eventId, speaker, formId, 1);
+      expect(resumed.participants[0]).toMatchObject({ role: "moderator", email: "draft-moderator@example.com" });
+
+      await pglite.query("DELETE FROM submissions");
+      await upsertDraft(eventId, speaker, formId, 1);
+      const disabled = await saveCfpDraft({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: {},
+        participants: [{
+          clientId: "disabled-draft-co",
+          email: "disabled-draft-co@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: {},
+        }],
+      }).catch((thrown: unknown) => thrown);
+      expect(isAppError(disabled) && disabled.code).toBe("VALIDATION");
+    } finally {
+      await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(DEFAULT_PARTICIPANT_ROLES)]);
+    }
   });
 
   // The wizard debounces autosave, so its last PATCH can be in flight when

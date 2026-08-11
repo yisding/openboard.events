@@ -95,11 +95,11 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
 // and the only one `react/no-children-prop` allows. A required `children` in the
 // prop type makes that call fail to typecheck, because `createElement` does not
 // fold its rest arguments into the props type.
-export function Field({ label, hint, required, error, group, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; group?: boolean; children?: ReactNode }) {
+export function Field({ label, hint, hintId, required, error, errorId, group, children }: { label: string; hint?: string; hintId?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; children?: ReactNode }) {
   const inner = <>
     <span>{label}{required && <b className="required"> *</b>}</span>
     {children}
-    {error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}
+    {error ? <small id={errorId} className="field-error" role="alert">{error}</small> : hint && <small id={hintId}>{hint}</small>}
   </>;
   // `group` for the fields whose control is a *set* of buttons rather than one
   // input. `<button>` is a labelable element, so a `<label>` wrapping a choice

@@ -1,0 +1,40 @@
+.frame {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 40px);
+  margin: -20px;
+  padding: clamp(28px, 5vw, 48px) 20px;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.frame::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+  /* Even over a black source image, the least-opaque point resolves to #f2f2f2;
+     existing muted text retains AA contrast while the event art stays visible. */
+  background: linear-gradient(rgba(255, 255, 255, .95), rgba(255, 255, 255, .98));
+}
+
+.background {
+  z-index: -2;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.content {
+  position: relative;
+}
+
+@media (max-width: 650px) {
+  .frame {
+    min-height: calc(100vh - 24px);
+    margin: -12px -20px;
+    padding-block: 28px;
+    border-radius: 12px;
+  }
+}

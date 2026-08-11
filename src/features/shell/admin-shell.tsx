@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, usePathname } from "next/navigation";
 import { BarChart3, BookOpen, CalendarDays, ClipboardCheck, ExternalLink, FileText, FolderOpen, LayoutDashboard, Mail, Menu, PanelTop, Settings, Sparkles, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Brand } from "@/shared/ui/brand";
 import { useDemo } from "@/shared/demo/demo-provider";
 import { CommandPalette } from "@/features/shell/components/command-palette";
@@ -52,6 +52,13 @@ export function activeAdminSection(pathname: string, base: string): string | und
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1).split("/")[0] : undefined;
 }
 
+export function adminMobileNavigationState(isMobile: boolean, open: boolean) {
+  return {
+    sidebarHidden: isMobile && !open,
+    backgroundInert: isMobile && open,
+  };
+}
+
 /**
  * The admin event shell.
  *
@@ -66,7 +73,55 @@ export function activeAdminSection(pathname: string, base: string): string | und
 export function AdminShell({ eventId, role, event: serverEvent, counts, user, children }: { eventId: EventId; role: MemberRole; event?: AdminShellEvent; counts?: AdminShellCounts; user?: { name: string; email: string }; children: React.ReactNode }) {
   const pathname = usePathname();
   const { state, hydrated } = useDemo();
-  const [open, setOpen] = useState(false); const menuButtonRef = useRef<HTMLButtonElement>(null); const closeButtonRef = useRef<HTMLButtonElement>(null); function closeMenu() { setOpen(false); menuButtonRef.current?.focus(); } useEffect(() => { if (!open) return; closeButtonRef.current?.focus(); function onKeyDown(event: KeyboardEvent) { if (event.key === "Escape") { setOpen(false); menuButtonRef.current?.focus(); } } document.addEventListener("keydown", onKeyDown); return () => document.removeEventListener("keydown", onKeyDown); }, [open]);
+  const [open, setOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 860px)");
+    function syncMobileState() {
+      setIsMobile(media.matches);
+      if (!media.matches) setOpen(false);
+    }
+    syncMobileState();
+    media.addEventListener("change", syncMobileState);
+    return () => media.removeEventListener("change", syncMobileState);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    closeButtonRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...(sidebarRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [])].filter((element) => !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeMenu, isMobile, open]);
   const demoEvent = state.events.find((item) => item.id === eventId);
   const event: AdminShellEvent | undefined = serverEvent
     ?? (demoEvent ? { id: demoEvent.id, slug: demoEvent.slug, name: demoEvent.name, shortName: demoEvent.shortName } : undefined);
@@ -80,9 +135,10 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ch
   const current = visibleNavigation.flatMap((group) => group.items).find((item) => item.href === activeSection)?.label ?? "Event";
   const accountName = user?.name.trim() || user?.email || "Maya Lin";
   const accountInitials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "ML";
+  const mobileNavigation = adminMobileNavigationState(isMobile, open);
   return <div className="app-shell">
     <button ref={menuButtonRef} type="button" className="mobile-menu" aria-label="Open navigation" aria-expanded={open} aria-controls="admin-navigation" onClick={() => setOpen(true)}><Menu size={20} /></button>
-    <aside id="admin-navigation" className={`admin-sidebar ${open ? "open" : ""}`}>
+    <aside ref={sidebarRef} id="admin-navigation" className={`admin-sidebar ${open ? "open" : ""}`} aria-hidden={mobileNavigation.sidebarHidden || undefined} inert={mobileNavigation.sidebarHidden || undefined}>
       <div className="sidebar-brand"><Brand /><button ref={closeButtonRef} type="button" className="mobile-close" aria-label="Close navigation" onClick={closeMenu}><X size={18} /></button></div>
       <EventSwitcher
         eventId={eventId}
@@ -92,7 +148,7 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ch
       <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; return <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={() => setOpen(false)}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; })}</div>)}</nav>
       <div className="sidebar-bottom"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
     </aside>
-    {open && <button type="button" aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}
-    <section className="app-main"><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><CommandPalette eventId={event.id} base={base} role={role} />{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
+    {open && <button type="button" tabIndex={-1} aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}
+    <section className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><CommandPalette eventId={event.id} base={base} role={role} />{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
   </div>;
 }

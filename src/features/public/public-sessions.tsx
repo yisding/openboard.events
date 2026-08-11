@@ -5,7 +5,7 @@ import { CalendarPlus, ChevronDown, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Dash } from "@/shared/ui/app/dash";
-import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
 import { PublicComingSoon } from "./public-coming-soon";
@@ -15,8 +15,7 @@ import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./pu
 const ALL = "All";
 
 function dayLabel(dayKey: string, timezone: string): string {
-  const pivot = `${dayKey}T12:00:00.000Z`;
-  return formatInZone(pivot, timezone, { weekday: "short", month: "short", day: "numeric" });
+  return formatDayKeyInZone(dayKey, timezone, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function speakerIdentity(speaker: PublishedSessionDTO["speakers"][number]): string {
@@ -180,7 +179,7 @@ export function PublicSessions({
                       <p className="session-detail-empty"><Dash /> No description yet.</p>
                     )}
                     {session.descriptionHtml && (
-                      <button type="button" className="session-card-toggle" aria-expanded={expanded} aria-controls={descriptionId} onClick={() => toggleExpanded(session.id)}>
+                      <button type="button" className="session-card-toggle" aria-label={`${expanded ? "Show less about" : "Read more about"} ${session.title}`} aria-expanded={expanded} aria-controls={descriptionId} onClick={() => toggleExpanded(session.id)}>
                         {expanded ? "Show less" : "Read more"} <ChevronDown size={13} className={expanded ? "flipped" : ""} />
                       </button>
                     )}

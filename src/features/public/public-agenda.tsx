@@ -5,7 +5,7 @@ import { CalendarPlus, Clock3, MapPin, Radio, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Dash } from "@/shared/ui/app/dash";
-import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import { computeLiveHighlight, EMPTY_LIVE_HIGHLIGHT, type LiveHighlight } from "./live-highlight";
 import { PublicComingSoon } from "./public-coming-soon";
@@ -35,10 +35,9 @@ function useLiveHighlight(sessions: ReadonlyArray<{ id: string; startsAt: string
 }
 
 function dayLabel(dayKey: string, timezone: string): { weekday: string; date: string } {
-  const pivot = `${dayKey}T12:00:00.000Z`;
   return {
-    weekday: formatInZone(pivot, timezone, { weekday: "long" }),
-    date: formatInZone(pivot, timezone, { month: "short", day: "numeric" }),
+    weekday: formatDayKeyInZone(dayKey, timezone, { weekday: "long" }),
+    date: formatDayKeyInZone(dayKey, timezone, { month: "short", day: "numeric" }),
   };
 }
 

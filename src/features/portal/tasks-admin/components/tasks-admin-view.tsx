@@ -147,7 +147,7 @@ export function TasksAdminView({
               const total = task.counts.completed + task.counts.open;
               const progress = total ? Math.round((task.counts.completed / total) * 100) : 0;
               return (
-                <article className="admin-task-row" key={task.id}>
+                <article className="admin-task-row admin-task-row-with-menu" key={task.id}>
                   <span className={`task-mode-icon ${task.completionMode}`}><Icon size={18} /></span>
                   <div className="admin-task-main">
                     <div><h3>{task.name}</h3><span className="track-chip">{MODE_LABEL[task.completionMode]}</span>{!task.isActive && <span className="track-chip">Inactive</span>}</div>
@@ -213,7 +213,7 @@ export function TasksAdminView({
 function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: "relative" }}>
+    <div className="task-row-menu">
       <button type="button" className="icon-button" aria-label={`Actions for ${task.name}`} onClick={() => setOpen((current) => !current)}>
         <MoreHorizontal size={18} />
       </button>

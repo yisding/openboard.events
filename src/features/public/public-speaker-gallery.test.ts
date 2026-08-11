@@ -18,6 +18,8 @@ describe("PublicSpeakerGallery", () => {
 
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Analytical Engines");
+    expect(html).toContain('aria-label="View profile for Ada Lovelace"');
+    expect(html).not.toContain('role="button"');
   });
 
   it("hides company on the card when the embed field-visibility filter turns it off", () => {

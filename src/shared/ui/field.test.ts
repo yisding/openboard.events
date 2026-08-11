@@ -41,4 +41,12 @@ describe("Field", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain("Pick one");
   });
+
+  it("gives callers stable ids for associated help and errors", () => {
+    const help = renderToStaticMarkup(React.createElement(Field, { label: "Biography", hint: "500 characters", hintId: "bio-help" }, React.createElement("textarea", { "aria-describedby": "bio-help" })));
+    const error = renderToStaticMarkup(React.createElement(Field, { label: "Biography", error: "Too long", errorId: "bio-error" }, React.createElement("textarea", { "aria-describedby": "bio-error", "aria-invalid": true })));
+    expect(help).toContain('id="bio-help"');
+    expect(error).toContain('id="bio-error"');
+    expect(error).toContain('aria-invalid="true"');
+  });
 });

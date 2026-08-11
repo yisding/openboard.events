@@ -77,7 +77,7 @@ export function EmbedsAdminPage({
       setConfigs((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       return updated;
     } catch {
-      toast("That change could not be saved");
+      toast("That change could not be saved", { kind: "error" });
       return null;
     } finally {
       setBusy(null);

@@ -16,6 +16,7 @@ describe("PublicSessions", () => {
     expect(html).toContain(PUBLISHED_SCHEDULE_FIXTURE.event.name);
     expect(html).toContain("Agents");
     expect(html).toContain("Ada Lovelace");
+    expect(html).toContain('aria-label="Read more about Agents"');
   });
 
   it("uses initialSearch for the markup sent before hydration, matching the PR #71 cache contract", () => {

@@ -25,7 +25,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
       window.location.assign(kind === "admin" ? "/login" : `/portal/${encodeURIComponent(eventSlug ?? "")}/login`);
     } catch {
       setBusy(false);
-      toast("Could not sign out — check your connection and try again");
+      toast("Could not sign out — check your connection and try again", { kind: "error" });
     }
   }
 

@@ -38,6 +38,8 @@ export function EventSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -45,8 +47,16 @@ export function EventSwitcher({
 
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
-    void api("events", z.array(eventDtoSchema)).then(setRemoteEvents).catch(() => setRemoteEvents([]));
-  }, [demoEvents, open, remoteEvents]);
+    let cancelled = false;
+    void api("events", z.array(eventDtoSchema))
+      .then((nextEvents) => {
+        if (!cancelled) setRemoteEvents(nextEvents);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Events couldn't be loaded. Check your connection and try again.");
+      });
+    return () => { cancelled = true; };
+  }, [demoEvents, loadAttempt, open, remoteEvents]);
 
   useEffect(() => {
     function onClickOutside(event: MouseEvent) {
@@ -76,7 +86,10 @@ export function EventSwitcher({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <button ref={triggerRef} type="button" className="event-switcher" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
+      <button ref={triggerRef} type="button" className="event-switcher" onClick={() => {
+        if (!open && loadError) setLoadError("");
+        setOpen((value) => !value);
+      }} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
         <span>
           <b>{currentName}</b>
@@ -93,7 +106,16 @@ export function EventSwitcher({
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {events === null && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {events === null && !loadError && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {events === null && loadError && (
+            <div role="alert" style={{ display: "grid", gap: 8, padding: 10, fontSize: 11.5, color: "var(--muted)" }}>
+              <span>{loadError}</span>
+              <button type="button" className="text-button" onClick={() => {
+                setLoadError("");
+                setLoadAttempt((attempt) => attempt + 1);
+              }}>Retry</button>
+            </div>
+          )}
           {events?.length === 0 && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
           {events?.map((event) => (
             <Link
