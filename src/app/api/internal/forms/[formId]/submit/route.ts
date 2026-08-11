@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { submitCfpForm } from "@/features/forms/server/submit";
-import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, submissionIdSchema } from "@/shared/contracts";
+import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, participantRoleSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { clientIp } from "@/shared/server/rate-limit";
 import { formPortalAuth } from "../_lib";
@@ -17,7 +17,7 @@ const inputSchema = z.object({
   participants: z.array(z.object({
     clientId: z.string().trim().min(1).max(100),
     email: z.string().trim().pipe(z.email()).transform((email) => email.toLowerCase()),
-    role: z.enum(["speaker", "co_speaker"]),
+    role: participantRoleSchema,
     isPrimary: z.boolean(),
     sortOrder: z.int().nonnegative(),
     answers: rawAnswers.optional(),

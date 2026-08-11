@@ -140,6 +140,13 @@ describe("createSubmission", () => {
     expect(await countRows("submission_participants", "is_primary")).toBe(1);
   });
 
+  it("uses the form kind for a new form-backed submission", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const result = await createSubmission(eventId, cfpInput({ kind: "session", sendConfirmation: false }));
+    const rows = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [result.submissionId]);
+    expect(rows.rows[0]?.kind).toBe("abstract");
+  });
+
   it("refuses a closed form against the database clock", async () => {
     const error = await createSubmission(eventId, cfpInput({ formId: closedForm })).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
@@ -170,6 +177,14 @@ describe("createSubmission", () => {
     expect(submitted.submissionId).toBe(draft.submissionId);
     expect(submitted.code).toBe(draft.code);
     expect(await countRows("submissions")).toBe(1);
+  });
+
+  it("keeps the form kind when a caller promotes a draft with a mismatched kind", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, openForm, 3);
+    await createSubmission(eventId, cfpInput({ formVersion: 3, kind: "session", sendConfirmation: false }));
+    const rows = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [draft.submissionId]);
+    expect(rows.rows[0]?.kind).toBe("abstract");
   });
 
   it("rejects an illegal draft promotion before the database trigger", async () => {

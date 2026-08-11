@@ -119,7 +119,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         ? "Nothing to change — those sessions were already in that state"
         : `${result.changed} session${result.changed === 1 ? "" : "s"} ${published ? "published" : "unpublished"}${result.emailsQueued > 0 ? `, ${result.emailsQueued} speaker email${result.emailsQueued === 1 ? "" : "s"} queued` : ""}`);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Could not update those sessions");
+      toast(isAppError(caught) ? caught.message : "Could not update those sessions", { kind: "error" });
     }
   };
 
@@ -137,6 +137,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         columns={columns}
         data={sessions}
         enableSelection
+        getRowLabel={(row) => `${row.title}${row.startsAt ? "" : ", unscheduled"}`}
         selectionEpoch={selectionEpoch}
         columnVisibilityKey={`agenda-list:${eventId}`}
         getRowId={(row) => String(row.id)}

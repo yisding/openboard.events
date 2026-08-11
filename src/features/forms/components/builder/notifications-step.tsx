@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
-import { Field } from "@/shared/ui/ui-kit";
+import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
 const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
@@ -45,11 +45,11 @@ export function NotificationsStep({ form, onChange }: {
             <b>Submission Confirmation</b>
             <small>Email sent to the submitter after a successful submission</small>
           </div>
-          <button
-            type="button"
-            className={`switch ${form.sendConfirmation ? "on" : ""}`}
+          <Switch
+            label="Send submission confirmation"
+            checked={form.sendConfirmation}
             onClick={() => onChange({ sendConfirmation: !form.sendConfirmation })}
-          ><i /></button>
+          />
         </div>
         <button
           type="button"

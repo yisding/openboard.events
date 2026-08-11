@@ -8,6 +8,7 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AdminTaskAssignmentDTO, AdminTaskDTO } from "../server/queries";
+import { taskMutation } from "./task-mutation";
 
 const VIA_LABEL: Record<string, string> = {
   manual: "Marked complete",
@@ -73,15 +74,12 @@ export function TaskMatrixDrawer({
     const key = assignmentKey(row);
     setBusyKey(key);
     try {
-      const response = await fetch(`/api/internal/tasks/${task.id}/reopen?eventId=${eventId}`, {
+      const result = await taskMutation(`/api/internal/tasks/${task.id}/reopen?eventId=${eventId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ contactId: row.contactId, submissionId: row.submissionId }),
-      });
-      if (!response.ok) {
-        toast("That completion could not be reopened");
-        return;
-      }
+      }, "That completion could not be reopened");
+      if (!result.ok) { toast(result.message); return; }
       toast(`${row.contactName}'s completion was reopened`);
       await load();
     } finally {
@@ -104,19 +102,15 @@ export function TaskMatrixDrawer({
     if (targets.length === 0) return;
     setReminding(true);
     try {
-      const response = await fetch(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
+      const result = await taskMutation<{ enqueued: number; total: number }>(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           targets: targets.map((row) => ({ taskId: task.id, contactId: row.contactId, submissionId: row.submissionId })),
         }),
-      });
-      const payload = await response.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
-      if (!response.ok || !payload?.data) {
-        toast("Could not send reminders — try again");
-        return;
-      }
-      toast(`Reminded ${payload.data.enqueued} of ${payload.data.total}`);
+      }, "Could not send reminders — try again");
+      if (!result.ok || !result.payload?.data) { toast(result.ok ? "Could not send reminders — try again" : result.message); return; }
+      toast(`Reminded ${result.payload.data.enqueued} of ${result.payload.data.total}`);
       setSelected(new Set());
     } finally {
       setReminding(false);
@@ -131,7 +125,7 @@ export function TaskMatrixDrawer({
       open
       onClose={onClose}
       title={task.name}
-      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={task.name} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
       <div className="drawer-content">
         <section>

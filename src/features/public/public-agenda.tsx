@@ -5,7 +5,7 @@ import { CalendarPlus, Clock3, MapPin, Radio, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Dash } from "@/shared/ui/app/dash";
-import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import { computeLiveHighlight, EMPTY_LIVE_HIGHLIGHT, type LiveHighlight } from "./live-highlight";
 import { PublicComingSoon } from "./public-coming-soon";
@@ -35,10 +35,9 @@ function useLiveHighlight(sessions: ReadonlyArray<{ id: string; startsAt: string
 }
 
 function dayLabel(dayKey: string, timezone: string): { weekday: string; date: string } {
-  const pivot = `${dayKey}T12:00:00.000Z`;
   return {
-    weekday: formatInZone(pivot, timezone, { weekday: "long" }),
-    date: formatInZone(pivot, timezone, { month: "short", day: "numeric" }),
+    weekday: formatDayKeyInZone(dayKey, timezone, { weekday: "long" }),
+    date: formatDayKeyInZone(dayKey, timezone, { month: "short", day: "numeric" }),
   };
 }
 
@@ -154,13 +153,19 @@ export function PublicAgenda({
     }
   }
 
-  const body = days.length === 0 ? (
+  const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Agenda coming soon"
       description={`The day-by-day program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
+    />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Star}
+      title="No agenda sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
     />
   ) : (
     <>
@@ -169,7 +174,7 @@ export function PublicAgenda({
           {days.map((dayKey) => {
             const label = dayLabel(dayKey, event.timezone);
             return (
-              <button key={dayKey} type="button" className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
+              <button key={dayKey} type="button" aria-pressed={day === dayKey} className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
                 <b>{label.weekday}</b>
                 <span>{label.date}</span>
               </button>

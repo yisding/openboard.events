@@ -169,7 +169,7 @@ export function ReviewQueueView({
       });
       const payload = await response.json().catch(() => null) as { data?: { overallScore: number | null; complete: boolean }; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "That score did not save");
+        toast(payload?.error?.message ?? "That score did not save", { kind: "error" });
         return;
       }
       toast(!payload.data.complete
@@ -182,6 +182,8 @@ export function ReviewQueueView({
       const next = nextUnscored(rows, active.submissionId);
       if (next) open(next.submissionId);
       router.refresh();
+    } catch {
+      toast("Could not reach the server. Your review was not saved.", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -197,14 +199,16 @@ export function ReviewQueueView({
         body: JSON.stringify({ submissionId: active.submissionId, reason: recusalReason }),
       });
       const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-      toast(response.ok
-        ? `${formatCode(active.code)} recused — it has left your queue and the reason is on the record`
-        : payload?.error?.message ?? "That recusal did not save");
-      if (response.ok) {
-        setRecusing(false);
-        setRecusalReason("");
-        router.refresh();
+      if (!response.ok) {
+        toast(payload?.error?.message ?? "That recusal did not save", { kind: "error" });
+        return;
       }
+      toast(`${formatCode(active.code)} recused — it has left your queue and the reason is on the record`);
+      setRecusing(false);
+      setRecusalReason("");
+      router.refresh();
+    } catch {
+      toast("Could not reach the server. Your recusal was not saved.", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -301,8 +305,8 @@ export function ReviewQueueView({
 
       {notice && <p className="portal-note" role="status">{notice}</p>}
 
-      <div className="evaluation-summary">
-        <article>
+      <div className="evaluation-summary review-summary">
+        <article className="review-progress-card">
           <div><span>Your progress</span><b>Finished {progress.scored} of {progress.total}</b></div>
           <ProgressBar value={progress.total === 0 ? 0 : Math.round((progress.scored / progress.total) * 100)} />
         </article>

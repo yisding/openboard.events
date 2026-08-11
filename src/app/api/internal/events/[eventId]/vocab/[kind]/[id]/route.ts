@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
-import { deleteVocabItem, saveVocabItem, vocabItemInputSchema, vocabKindSchema } from "@/features/events";
+import { deleteVocabItem, patchVocabItem, vocabItemPatchSchema, vocabKindSchema } from "@/features/events";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -9,10 +9,10 @@ const routeParams = z.object({ kind: vocabKindSchema, id: z.uuid() });
 
 const update = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: vocabItemInputSchema.omit({ id: true }),
+  input: vocabItemPatchSchema,
   handler: async ({ eventId, input, params }) => {
     const route = routeParams.parse(params);
-    return saveVocabItem(eventIdSchema.parse(eventId), route.kind, { ...input, id: route.id });
+    return patchVocabItem(eventIdSchema.parse(eventId), route.kind, route.id, input);
   },
 });
 

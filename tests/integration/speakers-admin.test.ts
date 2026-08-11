@@ -42,7 +42,7 @@ const otherEventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000002")
 
 // Ada: primary on an accepted submission, has a bio but no headshot.
 const ada = contactIdSchema.parse("b1000000-0000-4000-8000-000000000010");
-// Grace: co-speaker only on Ada's accepted submission — appears in
+// Grace: panelist only on Ada's accepted submission — appears in
 // `accepted_speakers_v` but owns zero submission-task assignments (the
 // fan-out edge case the work order names explicitly).
 const grace = contactIdSchema.parse("b1000000-0000-4000-8000-000000000011");
@@ -130,7 +130,7 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
       [eventId, talkOne, ada],
     );
     await pglite.query(
-      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)",
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,role,is_primary,sort_order) VALUES($1,$2,$3,'panelist',false,1)",
       [eventId, talkOne, grace],
     );
     await pglite.query(
@@ -251,9 +251,10 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
       expect(detail?.comms).toEqual([]);
     });
 
-    it("shows the co-speaker-only contact with a real submission but zero task rows, not an error", async () => {
+    it("shows a panelist-only contact with a real submission but zero task rows, not an error", async () => {
       const detail = await getSpeakerDetailIn(db, eventId, grace);
       expect(detail?.submissions).toHaveLength(1);
+      expect(detail?.submissions[0]?.role).toBe("panelist");
       expect(detail?.tasks).toEqual([]);
       expect(detail?.contact.isAcceptedSpeaker).toBe(true);
     });

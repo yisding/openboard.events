@@ -12,6 +12,7 @@ import type { AdminTaskDTO, FileRequestDTO, FormOption, TaskTabCounts } from "..
 import { FileRequestsView } from "./file-requests-view";
 import { TaskEditor } from "./task-editor";
 import { TaskMatrixDrawer } from "./task-matrix-drawer";
+import { taskMutation } from "./task-mutation";
 
 const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Manual", form: "Form", file_request: "File Request" };
 const MODE_ICON: Record<AdminTaskDTO["completionMode"], typeof CheckCircle2> = { manual: CheckCircle2, form: FileText, file_request: Upload };
@@ -82,20 +83,25 @@ export function TasksAdminView({
   }
 
   async function remove(task: AdminTaskDTO) {
-    const response = await fetch(`/api/internal/tasks/${task.id}?eventId=${eventId}`, { method: "DELETE" });
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-    toast(response.ok ? `${task.name} deleted` : payload?.error?.message ?? "That task could not be deleted");
+    const result = await taskMutation(`/api/internal/tasks/${task.id}?eventId=${eventId}`, { method: "DELETE" }, "That task could not be deleted");
+    if (!result.ok) { toast(result.message); return; }
+    toast(`${task.name} deleted`);
     setPendingDelete(null);
-    if (response.ok) await refresh();
+    await refresh();
   }
 
   // Owned here, not inside `FileRequestsView` — a request created while that
   // section is open has to be immediately selectable in the task editor's
   // "File request" dropdown, which only holds if both read the same list.
   async function refreshFileRequests() {
-    const response = await fetch(`/api/internal/file-requests?eventId=${eventId}`);
-    const payload = await response.json().catch(() => null) as { data?: FileRequestDTO[] } | null;
-    if (payload?.data) setFileRequests(payload.data);
+    try {
+      const response = await fetch(`/api/internal/file-requests?eventId=${eventId}`);
+      const payload = await response.json().catch(() => null) as { data?: FileRequestDTO[] } | null;
+      if (!response.ok || !payload?.data) throw new Error("file request refresh failed");
+      setFileRequests(payload.data);
+    } catch {
+      toast("Could not refresh file requests — showing the last saved list");
+    }
   }
 
   return (
@@ -147,7 +153,7 @@ export function TasksAdminView({
               const total = task.counts.completed + task.counts.open;
               const progress = total ? Math.round((task.counts.completed / total) * 100) : 0;
               return (
-                <article className="admin-task-row" key={task.id}>
+                <article className="admin-task-row admin-task-row-with-menu" key={task.id}>
                   <span className={`task-mode-icon ${task.completionMode}`}><Icon size={18} /></span>
                   <div className="admin-task-main">
                     <div><h3>{task.name}</h3><span className="track-chip">{MODE_LABEL[task.completionMode]}</span>{!task.isActive && <span className="track-chip">Inactive</span>}</div>
@@ -213,7 +219,7 @@ export function TasksAdminView({
 function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: "relative" }}>
+    <div className="task-row-menu">
       <button type="button" className="icon-button" aria-label={`Actions for ${task.name}`} onClick={() => setOpen((current) => !current)}>
         <MoreHorizontal size={18} />
       </button>

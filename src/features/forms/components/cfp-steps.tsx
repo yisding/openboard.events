@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PublicForm } from "@/features/forms";
+import { splitParticipantFieldErrors } from "../participant-errors";
+import { enabledSecondaryParticipantRoles, secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "../participant-roles";
 import { FormFieldRenderer } from "./form-field-renderer";
-import type { AnswerValue, FieldId, FormSnapshot } from "@/shared/contracts";
+import { plainTextLength, type AnswerValue, type FieldId, type FormField, type FormSnapshot } from "@/shared/contracts";
+import { evaluateVisibility } from "@/shared/lib/conditions";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
+import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button } from "@/shared/ui/ui-kit";
 
 /**
@@ -18,7 +22,7 @@ import { Button } from "@/shared/ui/ui-kit";
 type Step = "account" | "submission" | "speaker" | "review" | "done";
 
 type Answers = Record<string, AnswerValue | undefined>;
-export type ParticipantDraft = { clientId: string; answers: Answers };
+export type ParticipantDraft = { clientId: string; role: SecondaryParticipantRole; answers: Answers };
 type AutosaveSnapshot = { answers: Answers; participants: ParticipantDraft[] };
 
 export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
@@ -47,6 +51,61 @@ export function participantEmail(snapshot: FormSnapshot, answers: Answers): stri
 
 export function hasIncompleteParticipantEmail(snapshot: FormSnapshot, participants: ReadonlyArray<ParticipantDraft>): boolean {
   return participants.some((participant) => participantEmail(snapshot, participant.answers) === "");
+}
+
+function answerIsEmpty(field: FormField, value: AnswerValue | undefined): boolean {
+  if (value === undefined) return true;
+  if (value.t === "s") return field.type === "richtext" ? plainTextLength(value.v) === 0 : value.v.trim() === "";
+  if (value.t === "opt") return value.v === "";
+  if (value.t === "opts") return value.v.length === 0;
+  return false;
+}
+
+export function requiredStepErrors(
+  snapshot: FormSnapshot,
+  sectionKeys: string[],
+  answers: Answers,
+  visibilityAnswers: Answers = answers,
+): Record<string, string> {
+  const visible = evaluateVisibility(snapshot, { ...visibilityAnswers, ...answers });
+  const keys = new Set(sectionKeys);
+  const errors: Record<string, string> = {};
+  for (const section of snapshot.sections) {
+    if (!keys.has(section.key)) continue;
+    for (const field of section.fields) {
+      if (visible.has(field.id) && field.required && answerIsEmpty(field, answers[field.id])) {
+        errors[field.id] = `${field.label} is required`;
+      }
+    }
+  }
+  return errors;
+}
+
+export function cfpStepHeading(snapshot: FormSnapshot, step: Exclude<Step, "done">): string {
+  if (step === "account") return "Verify your email";
+  if (step === "review") return "Review your proposal";
+  const key = step === "submission" ? "abstract" : "participant";
+  const section = snapshot.sections.find((candidate) => candidate.key === key);
+  return section?.pageHeading || section?.title || (step === "submission" ? "Submission" : "Participant");
+}
+
+const PARTICIPANT_ROLE_LABELS: Record<SecondaryParticipantRole, string> = {
+  co_speaker: "co-speaker",
+  moderator: "moderator",
+  panelist: "panelist",
+};
+
+export const CFP_PORTAL_REDIRECT_MS = 10_000;
+
+export function schedulePortalRedirect(
+  enabled: boolean,
+  navigate: () => void,
+  schedule?: (callback: () => void, milliseconds: number) => number,
+  cancel?: (timer: number) => void,
+): () => void {
+  if (!enabled) return () => undefined;
+  const timer = (schedule ?? ((callback, milliseconds) => window.setTimeout(callback, milliseconds)))(navigate, CFP_PORTAL_REDIRECT_MS);
+  return () => (cancel ?? ((timerId) => window.clearTimeout(timerId)))(timer);
 }
 
 async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
@@ -111,7 +170,9 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [fallbackOtp, setFallbackOtp] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [coSpeakerErrors, setCoSpeakerErrors] = useState<Record<string, Record<string, string>>>({});
   const [notice, setNotice] = useState("");
+  const [noticeKind, setNoticeKind] = useState<"status" | "error">("status");
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
@@ -119,6 +180,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
   const flowSteps = cfpFlowSteps(form.collectParticipants);
+  const enabledSecondaryRoles = enabledSecondaryParticipantRoles(form.participantRoles);
+  const portalHref = `/portal/${encodeURIComponent(event.slug)}`;
   /**
    * Closed the moment submit is in flight. Submit promotes the draft row in
    * place, so a debounced PATCH that lands after it has no draft left to write
@@ -128,6 +191,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
    */
   const submitting = useRef(false);
   const nextCoSpeaker = useRef(1);
+  const stepRegion = useRef<HTMLElement>(null);
+  const previousStep = useRef<Step>(step);
   const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotState) => {
     if (submitting.current) { setSaveState("saved"); return Promise.resolve(true); }
@@ -136,7 +201,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         clientId: participant.clientId,
         email: participantEmail(snapshot, participant.answers),
         answers: participant.answers,
-        role: "co_speaker" as const,
+        role: participant.role,
         isPrimary: false as const,
         sortOrder: index + 1,
       }));
@@ -166,6 +231,35 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
   };
 
+  function showNotice(message: string, kind: "status" | "error" = "status") {
+    setNotice(message);
+    setNoticeKind(kind);
+  }
+
+  useEffect(() => {
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    const frame = window.requestAnimationFrame(() => {
+      stepRegion.current?.querySelector<HTMLElement>("[data-cfp-step-heading]")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [step]);
+
+  useEffect(() => {
+    if (Object.keys(errors).length === 0 && Object.values(coSpeakerErrors).every((participantErrors) => Object.keys(participantErrors).length === 0)) return;
+    const frame = window.requestAnimationFrame(() => {
+      stepRegion.current?.querySelector<HTMLElement>(
+        '[aria-invalid="true"], .field--error [contenteditable="true"], .field--error button, .field--error input, .field--error select, .field--error textarea',
+      )?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [coSpeakerErrors, errors]);
+
+  useEffect(() => schedulePortalRedirect(
+    step === "done" && form.autoRedirectToPortal,
+    () => window.location.assign(portalHref),
+  ), [form.autoRedirectToPortal, portalHref, step]);
+
   useEffect(() => {
     if (!draftId) return;
     setSaveState("saving");
@@ -178,36 +272,45 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
   async function requestCode() {
     setBusy(true);
-    setNotice("");
+    showNotice("");
     const sent = await request("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
     setBusy(false);
-    if (!sent.ok) { setNotice(sent.message); return; }
+    if (!sent.ok) { showNotice(sent.message, "error"); return; }
     // The preview surfaces the issued code inline; production never does, which
     // is why this is read from the response rather than assumed.
     const fallback = sent.data.fallback as { otp?: string } | undefined;
     setFallbackOtp(fallback?.otp ?? null);
     setCodeRequested(true);
-    setNotice(String(sent.data.message ?? "We sent you a code"));
+    showNotice(String(sent.data.message ?? "We sent you a code"));
   }
 
   async function verifyAndStart() {
     setBusy(true);
-    setNotice("");
+    showNotice("");
     const verified = await request("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
-    if (!verified.ok) { setBusy(false); setNotice(verified.message); return; }
+    if (!verified.ok) { setBusy(false); showNotice(verified.message, "error"); return; }
 
     // The draft exists from this moment, pinned to the version being rendered.
     const draft = await request(`/api/internal/forms/${form.id}/draft`, { formVersion: snapshot.version });
     setBusy(false);
-    if (!draft.ok) { setNotice(draft.message); return; }
+    if (!draft.ok) { showNotice(draft.message, "error"); return; }
     setDraftId(String(draft.data.submissionId));
     const restored = (draft.data.answers ?? {}) as Answers;
     const restoredParticipants = Array.isArray(draft.data.participants)
-      ? draft.data.participants as Array<{ clientId?: unknown; answers?: unknown }>
+      ? draft.data.participants as Array<{ clientId?: unknown; role?: unknown; answers?: unknown }>
       : [];
     setCoSpeakers(restoredParticipants
-      .filter((participant) => typeof participant.clientId === "string" && participant.answers && typeof participant.answers === "object")
-      .map((participant) => ({ clientId: participant.clientId as string, answers: participant.answers as Answers })));
+      .flatMap((participant) => {
+        const role = secondaryParticipantRoleSchema.safeParse(participant.role);
+        if (
+          typeof participant.clientId !== "string"
+          || !participant.answers
+          || typeof participant.answers !== "object"
+          || !role.success
+          || !enabledSecondaryRoles.includes(role.data)
+        ) return [];
+        return [{ clientId: participant.clientId, role: role.data, answers: participant.answers as Answers }];
+      }));
     setDraftRestored(Object.keys(restored).length > 0 || restoredParticipants.length > 0);
     const emailField = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "email");
     setAnswers((current) => ({
@@ -218,10 +321,39 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setStep("submission");
   }
 
-  function addCoSpeaker() {
+  function continueFromSubmission() {
+    const next = requiredStepErrors(snapshot, ["abstract"], answers);
+    setErrors(next);
+    if (Object.keys(next).length > 0) {
+      showNotice("Complete the required submission questions before continuing", "error");
+      return;
+    }
+    showNotice("");
+    setStep(form.collectParticipants ? "speaker" : "review");
+  }
+
+  function continueFromSpeaker() {
+    const primaryErrors = requiredStepErrors(snapshot, ["participant"], answers);
+    const participantErrors = Object.fromEntries(coSpeakers.map((participant) => [
+      participant.clientId,
+      requiredStepErrors(snapshot, ["participant"], participant.answers, answers),
+    ]));
+    setErrors(primaryErrors);
+    setCoSpeakerErrors(participantErrors);
+    const hasErrors = Object.keys(primaryErrors).length > 0
+      || Object.values(participantErrors).some((next) => Object.keys(next).length > 0);
+    if (hasErrors) {
+      showNotice("Complete the required speaker details before reviewing", "error");
+      return;
+    }
+    showNotice("");
+    setStep("review");
+  }
+
+  function addParticipant(role: SecondaryParticipantRole) {
     const number = nextCoSpeaker.current;
     nextCoSpeaker.current += 1;
-    setCoSpeakers((current) => [...current, { clientId: `co-speaker-${number}`, answers: {} }]);
+    setCoSpeakers((current) => [...current, { clientId: `${role.replaceAll("_", "-")}-${number}`, role, answers: {} }]);
   }
 
   function updateCoSpeaker(clientId: string, fieldId: FieldId, value: AnswerValue | undefined) {
@@ -230,21 +362,22 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         ? { ...participant, answers: { ...participant.answers, [fieldId]: value } }
         : participant
     )));
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[fieldId];
-      return next;
-    });
+    setCoSpeakerErrors((current) => ({
+      ...current,
+      [clientId]: Object.fromEntries(Object.entries(current[clientId] ?? {}).filter(([existingFieldId]) => existingFieldId !== fieldId)),
+    }));
   }
 
   function removeCoSpeaker(clientId: string) {
     setCoSpeakers((current) => current.filter((participant) => participant.clientId !== clientId));
+    setCoSpeakerErrors((current) => Object.fromEntries(Object.entries(current).filter(([participantId]) => participantId !== clientId)));
   }
 
   async function submit() {
     submitting.current = true;
     setBusy(true);
     setErrors({});
+    setCoSpeakerErrors({});
     setNotice("");
     const participantIds = participantFieldIds(snapshot);
     const participantAnswers = Object.fromEntries(Object.entries(answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId)));
@@ -262,7 +395,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     })) {
       submitting.current = false;
       setBusy(false);
-      setNotice("Each co-speaker needs a unique email address");
+      showNotice("Each additional participant needs a unique email address", "error");
       setStep("speaker");
       return;
     }
@@ -280,7 +413,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       }, ...coSpeakerParticipants.map(({ participant, email: participantEmailAddress, sortOrder }) => ({
         clientId: participant.clientId,
         email: participantEmailAddress,
-        role: "co_speaker" as const,
+        role: participant.role,
         isPrimary: false,
         sortOrder,
         answers: Object.fromEntries(Object.entries(participant.answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId))),
@@ -291,8 +424,13 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       // The draft was not promoted, so autosave has somewhere to write again.
       submitting.current = false;
       // Field errors belong next to their fields; anything else is a message.
-      if (sent.fieldErrors) { setErrors(sent.fieldErrors); setStep(stepForErrors(snapshot, sent.fieldErrors)); }
-      setNotice(sent.fieldErrors ? "Some answers need attention" : sent.message);
+      if (sent.fieldErrors) {
+        const split = splitParticipantFieldErrors(sent.fieldErrors);
+        setErrors(split.unscoped);
+        setCoSpeakerErrors(split.byParticipant);
+        setStep(stepForErrors(snapshot, sent.fieldErrors));
+      }
+      showNotice(sent.fieldErrors ? "Some answers need attention" : sent.message, "error");
       return;
     }
     setResult({ code: Number(sent.data.code) });
@@ -302,24 +440,30 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
   if (step === "done" && result) {
     return (
-      <section className="cfp-step">
-        <h2>Thank you — your proposal is in</h2>
-        <p>It is recorded as <b>SESS-{result.code}</b>. We have emailed a confirmation and a link to your speaker portal.</p>
-        <a className="button button-primary" href={`/portal/${encodeURIComponent(event.slug)}`}>Open your speaker portal</a>
+      <section ref={stepRegion} className="cfp-step">
+        <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your proposal is in</h2>
+        {form.successHtml?.trim()
+          ? <RichTextView html={form.successHtml} />
+          : <p>Your proposal was submitted successfully. Keep the reference code below for your records.</p>}
+        <p>Reference <b>SESS-{result.code}</b></p>
+        {form.autoRedirectToPortal && <p role="status">Opening your speaker portal in 10 seconds…</p>}
+        <a className="button button-primary" href={portalHref}>Open your speaker portal</a>
       </section>
     );
   }
 
   return (
     <FormUploadProvider eventId={event.id}>
-    <section className="cfp-step">
+    <section ref={stepRegion} className="cfp-step">
       <ol className="public-form-progress" aria-label="Submission progress">
         {flowSteps.map((name) => (
-          <li key={name} className={step === name ? "active" : ""}>{name}</li>
+          <li key={name} className={step === name ? "active" : ""} aria-current={step === name ? "step" : undefined}>{name}</li>
         ))}
       </ol>
 
       {step === "account" && (
+        <>
+        <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
         <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
           <label className="field">
             <span>Email address</span>
@@ -343,10 +487,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
             </>
           )}
         </form>
+        </>
       )}
 
       {step === "submission" && (
-        <>
+        <form onSubmit={(event) => { event.preventDefault(); continueFromSubmission(); }}>
+          <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           {draftRestored && (
             <div className="cfp-draft-resume" role="status">
               <b>Saved draft restored</b>
@@ -355,18 +501,19 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["abstract"]} errors={errors} />
           <div className="cfp-actions">
-            <Button onClick={() => setStep(form.collectParticipants ? "speaker" : "review")}>Continue</Button>
+            <Button type="submit">Continue</Button>
           </div>
-        </>
+        </form>
       )}
 
       {form.collectParticipants && step === "speaker" && (
-        <>
+        <form onSubmit={(event) => { event.preventDefault(); continueFromSpeaker(); }}>
+          <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["participant"]} errors={errors} />
           {coSpeakers.map((participant, index) => (
             <div className="co-speaker-fields" key={participant.clientId}>
               <div className="review-block__header">
-                <h3>Co-speaker {index + 1}</h3>
+                <h3>{PARTICIPANT_ROLE_LABELS[participant.role]} {coSpeakers.slice(0, index + 1).filter((candidate) => candidate.role === participant.role).length}</h3>
                 <button type="button" className="button button-secondary" onClick={() => removeCoSpeaker(participant.clientId)}>Remove</button>
               </div>
               <FormFieldRenderer
@@ -377,32 +524,35 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 sectionKeys={["participant"]}
                 participantId={participant.clientId}
                 visibilityAnswers={answers}
-                errors={errors}
+                errors={coSpeakerErrors[participant.clientId] ?? {}}
               />
             </div>
           ))}
-          <button type="button" className="add-cospeaker" onClick={addCoSpeaker}>
-            <b>Add a co-speaker</b>
-            <span>Include another person on this proposal.</span>
-          </button>
+          {enabledSecondaryRoles.map((role) => (
+            <button key={role} type="button" className="add-cospeaker" onClick={() => addParticipant(role)}>
+              <b>Add a {PARTICIPANT_ROLE_LABELS[role]}</b>
+              <span>Include another person on this proposal.</span>
+            </button>
+          ))}
           <div className="cfp-actions">
-            <Button variant="secondary" onClick={() => setStep("submission")}>Back</Button>
-            <Button onClick={() => setStep("review")}>Review</Button>
+            <Button type="button" variant="secondary" onClick={() => setStep("submission")}>Back</Button>
+            <Button type="submit">Review</Button>
           </div>
-        </>
+        </form>
       )}
 
       {step === "review" && (
-        <>
+        <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           {/* Read-back in review mode: the speaker checks what will be stored,
               which is also where a stale hidden answer would be conspicuous. */}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="review" />
           {coSpeakers.length > 0 && (
             <div className="review-block">
-              <div className="review-block__header"><h3>Co-speakers</h3></div>
+              <div className="review-block__header"><h3>Additional participants</h3></div>
               {coSpeakers.map((participant, index) => (
                 <div className="review-block" key={participant.clientId}>
-                  <h4>Co-speaker {index + 1}</h4>
+                  <h4>{PARTICIPANT_ROLE_LABELS[participant.role]} {coSpeakers.slice(0, index + 1).filter((candidate) => candidate.role === participant.role).length}</h4>
                   <FormFieldRenderer
                     snapshot={snapshot}
                     answers={participant.answers}
@@ -417,13 +567,13 @@ export function CfpSteps({ data }: { data: PublicForm }) {
             </div>
           )}
           <div className="cfp-actions">
-            <Button variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button onClick={submit} disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
+            <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
           </div>
-        </>
+        </form>
       )}
 
-      {notice && <p className="cfp-notice" role="status">{notice}</p>}
+      {notice && <p className="cfp-notice" role={noticeKind === "error" ? "alert" : "status"}>{notice}</p>}
       {draftId && (
         <div className="autosave" aria-live="polite">
           {saveState === "saving" && "Saving…"}
@@ -444,5 +594,9 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
 export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
   const participantFields = participantFieldIds(snapshot);
-  return Object.keys(fieldErrors).some((fieldId) => participantFields.has(fieldId as FieldId)) ? "speaker" : "submission";
+  const split = splitParticipantFieldErrors(fieldErrors);
+  return Object.keys(split.byParticipant).length > 0
+    || Object.keys(split.unscoped).some((fieldId) => participantFields.has(fieldId as FieldId))
+    ? "speaker"
+    : "submission";
 }

@@ -21,7 +21,8 @@ import type { BuilderEvent, BuilderField, BuilderForm, FormPatch } from "@/featu
 // here verbatim rather than rebuilt.
 import { NotificationsStep } from "@/features/forms/components/builder/notifications-step";
 import { COMMITTED_FIELD_TYPES } from "@/shared/contracts";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { committedTypeLabel, standardFieldsFor, type StandardFieldItem } from "./field-library";
 
@@ -58,6 +59,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
   const [customLabel, setCustomLabel] = useState("");
   const [customType, setCustomType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
 
   const section = form.sections[0] ?? null;
   const targetType = form.targetType ?? "contact";
@@ -175,9 +177,10 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       const next = await requestData<BuilderForm>(apiPath(`/fields/${field.id}`), json("DELETE", { expectedUpdatedAt: form.updatedAt }));
       setForm(next);
       setSelectedFieldId(null);
+      setPendingDelete(null);
       toast("Question removed");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The question could not be removed");
+      toast(error instanceof Error ? error.message : "The question could not be removed", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -311,9 +314,17 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         busy={busy}
         onClose={() => setSelectedFieldId(null)}
         onSave={(patch) => void saveField(patch)}
-        onDelete={() => void deleteField(selectedField)}
+        onDelete={() => setPendingDelete(selectedField)}
       />
     )}
+    <ConfirmDialog
+      open={pendingDelete !== null}
+      title={pendingDelete ? `Delete “${pendingDelete.label}”?` : "Delete question?"}
+      body="This question and its draft configuration will be permanently removed."
+      confirmLabel="Delete question"
+      onConfirm={async () => { if (pendingDelete) await deleteField(pendingDelete); }}
+      onCancel={() => setPendingDelete(null)}
+    />
   </div>;
 }
 
@@ -359,7 +370,7 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
         )}
         <div className="inline-setting">
           <div><b>Required</b><small>Speakers must answer this question.</small></div>
-          <button className={`switch ${required ? "on" : ""}`} onClick={() => setRequired((current) => !current)}><i /></button>
+          <Switch label="Required" checked={required} onClick={() => setRequired((current) => !current)} />
         </div>
         {/* M24 §5/§7: `mapsTo` is read-only here, chosen only from the standard
             library at add-time (or left null for a custom field) — this

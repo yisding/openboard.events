@@ -54,7 +54,7 @@ export default function HomePage() {
             <div className="preview-body">
               <aside><Brand compact /><div className="preview-nav-lines">{Array.from({ length: 7 }, (_, i) => <b key={i} />)}</div></aside>
               <div className="preview-main">
-                <div className="preview-heading"><span>Good morning, Maya</span><button>＋ Add</button></div>
+                <div className="preview-heading"><span>Good morning, Maya</span><span className="preview-add">＋ Add</span></div>
                 <div className="preview-stats"><article><small>Submissions</small><strong>247</strong><em>↑ 18%</em></article><article><small>Accepted</small><strong>82</strong><em>33%</em></article><article><small>Tasks done</small><strong>91%</strong><em>On track</em></article></div>
                 <div className="preview-chart"><div className="chart-bars">{[30, 48, 42, 72, 58, 86, 70, 96, 78, 100, 90].map((n, i) => <i key={i} style={{ height: `${n}%` }} />)}</div></div>
                 <div className="preview-list">{["Nadia Rahman", "Alex Chen", "Priya Shah"].map((name, i) => <div key={name}><span className={`avatar avatar-${i + 1}`}>{name.split(" ").map((v) => v[0]).join("")}</span><b>{name}</b><small>{i === 0 ? "2 tasks remaining" : "Ready"}</small></div>)}</div>

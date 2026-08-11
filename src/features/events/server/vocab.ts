@@ -13,7 +13,7 @@ import {
   type TrackDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { VOCAB_LABELS, vocabInputSchemaFor, type VocabInput, type VocabKind } from "../schemas";
+import { VOCAB_LABELS, vocabInputSchemaFor, vocabPatchSchemaFor, type VocabInput, type VocabKind, type VocabPatch } from "../schemas";
 import { isConstraintViolation } from "./db-errors";
 
 /**
@@ -68,23 +68,18 @@ async function insertRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, inpu
   }
 }
 
-/**
- * An omitted optional field (e.g. a color-only save that never mentions
- * `description`) must keep its current value, not fall back to a default and
- * silently wipe it — the same "re-state from `patch ?? current`" rule
- * `updateEventIn` uses. That means reading the row before writing it.
- */
-async function updateRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string, input: VocabInput) {
+/** PATCHes write only the named columns. Apart from avoiding a needless read,
+ * this makes two serialized field edits composable: a color/capacity save can
+ * never restate an older name and undo a rename. */
+async function updateRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string, input: VocabPatch) {
   const now = new Date();
   switch (kind) {
     case "tracks": {
-      const [current] = await dbOrTx.select().from(tracks).where(and(eq(tracks.id, id), eq(tracks.eventId, eventId))).limit(1);
-      if (!current) return undefined;
       const [row] = await dbOrTx.update(tracks)
         .set({
-          name: input.name,
-          color: input.color ?? current.color,
-          description: input.description !== undefined ? input.description : current.description,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.color !== undefined ? { color: input.color } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
           updatedAt: now,
         })
         .where(and(eq(tracks.id, id), eq(tracks.eventId, eventId)))
@@ -92,26 +87,30 @@ async function updateRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: 
       return row;
     }
     case "rooms": {
-      const [current] = await dbOrTx.select().from(rooms).where(and(eq(rooms.id, id), eq(rooms.eventId, eventId))).limit(1);
-      if (!current) return undefined;
       const [row] = await dbOrTx.update(rooms)
-        .set({ name: input.name, capacity: input.capacity !== undefined ? input.capacity : current.capacity, updatedAt: now })
+        .set({
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+          updatedAt: now,
+        })
         .where(and(eq(rooms.id, id), eq(rooms.eventId, eventId)))
         .returning();
       return row;
     }
     case "formats": {
-      const [current] = await dbOrTx.select().from(sessionFormats).where(and(eq(sessionFormats.id, id), eq(sessionFormats.eventId, eventId))).limit(1);
-      if (!current) return undefined;
       const [row] = await dbOrTx.update(sessionFormats)
-        .set({ name: input.name, defaultDurationMins: input.defaultDurationMins ?? current.defaultDurationMins, updatedAt: now })
+        .set({
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.defaultDurationMins !== undefined ? { defaultDurationMins: input.defaultDurationMins } : {}),
+          updatedAt: now,
+        })
         .where(and(eq(sessionFormats.id, id), eq(sessionFormats.eventId, eventId)))
         .returning();
       return row;
     }
     case "tags": {
       const [row] = await dbOrTx.update(tags)
-        .set({ name: input.name, updatedAt: now })
+        .set({ ...(input.name !== undefined ? { name: input.name } : {}), updatedAt: now })
         .where(and(eq(tags.id, id), eq(tags.eventId, eventId)))
         .returning();
       return row;
@@ -144,6 +143,21 @@ export async function saveVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: Vo
   }
 }
 export const saveVocabItem = (eventId: EventId, kind: VocabKind, input: VocabInput) => saveVocabItemIn(db, eventId, kind, input);
+
+export async function patchVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string, input: VocabPatch): Promise<VocabDto> {
+  const strict = vocabPatchSchemaFor(kind).parse(input) as VocabPatch;
+  try {
+    const row = await updateRow(dbOrTx, eventId, kind, id, strict);
+    if (!row) throw new AppError("NOT_FOUND", `That ${VOCAB_LABELS[kind]} no longer exists`);
+    return toDto(kind, row);
+  } catch (error) {
+    if (isConstraintViolation(error, UNIQUE_CONSTRAINTS[kind])) {
+      throw new AppError("VALIDATION", `A ${VOCAB_LABELS[kind]} named “${strict.name}” already exists`, { field: "name" });
+    }
+    throw error;
+  }
+}
+export const patchVocabItem = (eventId: EventId, kind: VocabKind, id: string, input: VocabPatch) => patchVocabItemIn(db, eventId, kind, id, input);
 
 /**
  * FKs decide the blast radius, not this function: `submissions.track_id` /

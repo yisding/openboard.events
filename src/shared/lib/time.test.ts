@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatInZone, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDayKeyInZone, formatInZone, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -17,6 +17,13 @@ describe("event timezone API", () => {
   it("bins UTC rollover instants into the event day", () => {
     expect(eventDayKey("2026-09-16T04:00:00.000Z", LA)).toBe("2026-09-15");
     expect(eventDayKey("2026-09-16T07:30:00.000Z", LA)).toBe("2026-09-16");
+  });
+
+  it.each(["Pacific/Auckland", "Pacific/Kiritimati"])("keeps a day key on the same calendar date in %s", (timeZone) => {
+    const rendered = formatDayKeyInZone("2026-09-15", timeZone, { weekday: "short", month: "short", day: "numeric" });
+    expect(rendered).toContain("Tue, Sep 15");
+    expect(rendered).not.toMatch(/\b(?:PDT|PST|GMT|UTC)\b/);
+    expect(rendered).not.toContain("Sep 16");
   });
 
   it("always appends the zone label", () => {

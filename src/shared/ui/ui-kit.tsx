@@ -8,13 +8,20 @@ export function Button({ variant = "primary", size = "md", type = "button", clas
   return <button type={type} className={cn("button", `button-${variant}`, size === "sm" && "button-sm", size === "lg" && "button-lg", className)} {...props} />;
 }
 
+export function Switch({ checked, label, className, ...props }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-checked" | "aria-label" | "role" | "type"> & { checked: boolean; label: string }) {
+  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={cn("switch", checked && "on", className)} {...props}><i /></button>;
+}
+
 export function StatusBadge({ value }: { value: string }) {
   const normalized = value.toLowerCase().replaceAll(" ", "-").replaceAll("_", "-");
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#007454", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
-  return <span className={`person-avatar person-avatar-${size}`} style={{ background: color }}>{initials}</span>;
+export function Avatar({ initials, color = "#007454", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
+  const style = imageUrl
+    ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
+    : { background: color };
+  return <span className={`person-avatar person-avatar-${size}`} style={style}>{imageUrl ? null : initials}</span>;
 }
 
 export function ProgressBar({ value, tone = "accent" }: { value: number; tone?: "accent" | "green" | "amber" }) {
@@ -92,11 +99,11 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
 // and the only one `react/no-children-prop` allows. A required `children` in the
 // prop type makes that call fail to typecheck, because `createElement` does not
 // fold its rest arguments into the props type.
-export function Field({ label, hint, required, error, group, children }: { label: string; hint?: string; required?: boolean; error?: string | undefined; group?: boolean; children?: ReactNode }) {
+export function Field({ label, hint, hintId, required, error, errorId, group, radioGroup, children }: { label: string; hint?: string; hintId?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; radioGroup?: boolean; children?: ReactNode }) {
   const inner = <>
     <span>{label}{required && <b className="required"> *</b>}</span>
     {children}
-    {error ? <small className="field-error" role="alert">{error}</small> : hint && <small>{hint}</small>}
+    {error ? <small id={errorId} className="field-error" role="alert">{error}</small> : hint && <small id={hintId}>{hint}</small>}
   </>;
   // `group` for the fields whose control is a *set* of buttons rather than one
   // input. `<button>` is a labelable element, so a `<label>` wrapping a choice
@@ -107,10 +114,10 @@ export function Field({ label, hint, required, error, group, children }: { label
   // named by its own content, which is what a screen reader and a role-based
   // query both need. Same class name, so the styling is untouched.
   return group
-    ? <div role="group" aria-label={label} className={error ? "field field-invalid" : "field"}>{inner}</div>
+    ? <div role={radioGroup ? "radiogroup" : "group"} aria-label={label} aria-invalid={radioGroup && error ? true : undefined} aria-describedby={error ? errorId : undefined} tabIndex={error ? -1 : undefined} className={error ? "field field-invalid" : "field"}>{inner}</div>
     : <label className={error ? "field field-invalid" : "field"}>{inner}</label>;
 }
 
 export function Segmented<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {
-  return <div className="segmented">{items.map((item) => <button key={item.value} type="button" className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+  return <div className="segmented">{items.map((item) => <button key={item.value} type="button" aria-pressed={value === item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
 }

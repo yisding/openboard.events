@@ -5,7 +5,7 @@ import { CalendarPlus, ChevronDown, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Dash } from "@/shared/ui/app/dash";
-import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
 import { PublicComingSoon } from "./public-coming-soon";
@@ -15,8 +15,7 @@ import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./pu
 const ALL = "All";
 
 function dayLabel(dayKey: string, timezone: string): string {
-  const pivot = `${dayKey}T12:00:00.000Z`;
-  return formatInZone(pivot, timezone, { weekday: "short", month: "short", day: "numeric" });
+  return formatDayKeyInZone(dayKey, timezone, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function speakerIdentity(speaker: PublishedSessionDTO["speakers"][number]): string {
@@ -116,13 +115,19 @@ export function PublicSessions({
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
     />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Search}
+      title="No sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
+    />
   ) : (
     <>
       <div className="sessions-filters">
         <label>
           <Search size={17} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sessions or speakers" />
-          {search && <button type="button" onClick={() => setSearch("")}><X size={14} /></button>}
+          <input aria-label="Search sessions or speakers" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sessions or speakers" />
+          {search && <button type="button" aria-label="Clear session search" onClick={() => setSearch("")}><X size={14} /></button>}
         </label>
         {tracks.length > 0 && (
           <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Filter by track">
@@ -146,6 +151,7 @@ export function PublicSessions({
       <div className="sessions-grid">
         {filtered.map((session) => {
           const expanded = expandedId === session.id;
+          const descriptionId = `session-${session.id}-description`;
           return (
             <article key={session.id} className={`session-card ${expanded ? "expanded" : ""}`}>
               <i className="session-stripe" style={{ background: session.track?.color ?? "var(--accent)" }} />
@@ -174,12 +180,12 @@ export function PublicSessions({
                 {showDescription && (
                   <>
                     {session.descriptionHtml ? (
-                      <div className={`session-card-desc ${expanded ? "" : "truncated"}`}><RichTextView html={session.descriptionHtml} /></div>
+                      <div id={descriptionId} className={`session-card-desc ${expanded ? "" : "truncated"}`}><RichTextView html={session.descriptionHtml} /></div>
                     ) : (
                       <p className="session-detail-empty"><Dash /> No description yet.</p>
                     )}
                     {session.descriptionHtml && (
-                      <button type="button" className="session-card-toggle" onClick={() => toggleExpanded(session.id)}>
+                      <button type="button" className="session-card-toggle" aria-label={`${expanded ? "Show less about" : "Read more about"} ${session.title}`} aria-expanded={expanded} aria-controls={descriptionId} onClick={() => toggleExpanded(session.id)}>
                         {expanded ? "Show less" : "Read more"} <ChevronDown size={13} className={expanded ? "flipped" : ""} />
                       </button>
                     )}

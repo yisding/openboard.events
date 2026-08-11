@@ -38,14 +38,25 @@ export function EventSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const events = demoEvents ?? remoteEvents;
 
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
-    void api("events", z.array(eventDtoSchema)).then(setRemoteEvents).catch(() => setRemoteEvents([]));
-  }, [demoEvents, open, remoteEvents]);
+    let cancelled = false;
+    void api("events", z.array(eventDtoSchema))
+      .then((nextEvents) => {
+        if (!cancelled) setRemoteEvents(nextEvents);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Events couldn't be loaded. Check your connection and try again.");
+      });
+    return () => { cancelled = true; };
+  }, [demoEvents, loadAttempt, open, remoteEvents]);
 
   useEffect(() => {
     function onClickOutside(event: MouseEvent) {
@@ -55,6 +66,18 @@ export function EventSwitcher({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   const current = events?.find((event) => event.id === eventId);
   const currentName = current?.name ?? initialEvent?.name ?? "Choose an event";
   const currentDetail = current
@@ -63,7 +86,10 @@ export function EventSwitcher({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <button type="button" className="event-switcher" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
+      <button ref={triggerRef} type="button" className="event-switcher" onClick={() => {
+        if (!open && loadError) setLoadError("");
+        setOpen((value) => !value);
+      }} aria-expanded={open} aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
         <span>
           <b>{currentName}</b>
@@ -74,19 +100,26 @@ export function EventSwitcher({
       {open && (
         <div
           id={menuId}
-          role="menu"
           style={{
             position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto",
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {events === null && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {events === null && !loadError && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {events === null && loadError && (
+            <div role="alert" style={{ display: "grid", gap: 8, padding: 10, fontSize: 11.5, color: "var(--muted)" }}>
+              <span>{loadError}</span>
+              <button type="button" className="text-button" onClick={() => {
+                setLoadError("");
+                setLoadAttempt((attempt) => attempt + 1);
+              }}>Retry</button>
+            </div>
+          )}
           {events?.length === 0 && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
           {events?.map((event) => (
             <Link
               key={event.id}
               href={`/events/${event.id}/dashboard`}
-              role="menuitem"
               onClick={() => setOpen(false)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, textDecoration: "none",
@@ -104,7 +137,6 @@ export function EventSwitcher({
           ))}
           <Link
             href={demoEvents ? "/events" : "/events/new"}
-            role="menuitem"
             onClick={() => setOpen(false)}
             style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 600, color: "var(--accent-dark)", textDecoration: "none" }}
           >

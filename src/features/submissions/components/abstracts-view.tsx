@@ -186,6 +186,7 @@ export function AbstractsView({
             : {
                 index: openIndex,
                 total: rowIds.length,
+                itemLabel: `${rows[openIndex]?.code ? `SESS-${rows[openIndex].code}: ` : ""}${rows[openIndex]?.title ?? "Submission"}`,
                 ...(rowIds[openIndex - 1] ? { onPrev: () => setOpenId(rowIds[openIndex - 1] as string) } : {}),
                 ...(rowIds[openIndex + 1] ? { onNext: () => setOpenId(rowIds[openIndex + 1] as string) } : {}),
               }}

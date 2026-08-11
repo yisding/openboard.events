@@ -13,12 +13,15 @@ import {
   type EventId,
   type FormId,
   type FormSnapshot,
+  type ParticipantRole,
   type SubmissionId,
   type SubmissionStatus,
   submissionIdSchema,
 } from "@/shared/contracts";
 import { applyRouting, cleanAnswersToRecord } from "@/shared/lib/conditions";
 import { AppError } from "@/shared/lib/errors";
+import { scopeParticipantFieldErrors } from "../participant-errors";
+import { enabledSecondaryParticipantRoles, type SecondaryParticipantRole } from "../participant-roles";
 import { deriveMappedFields, runSubmitPipeline, type RawAnswers } from "./pipeline";
 import { isStructurallyCompatible } from "./snapshot-compat";
 import { getActiveRoutingRules, getCurrentSnapshot, getPinnedSnapshot } from "./snapshots";
@@ -32,7 +35,7 @@ export type ParticipantInput = {
   clientId: string;
   email: string;
   answers?: RawAnswers;
-  role: "speaker" | "co_speaker";
+  role: ParticipantRole;
   isPrimary: boolean;
   sortOrder: number;
 };
@@ -79,6 +82,25 @@ function committedResult(row: { id: string; code: number; status: SubmissionStat
   };
 }
 
+function assertParticipantRolePolicy(
+  participants: ReadonlyArray<{ role: ParticipantRole; isPrimary: boolean }>,
+  enabledSecondaryRoles: ReadonlySet<SecondaryParticipantRole>,
+): void {
+  const primary = participants.filter((participant) => participant.isPrimary);
+  if (primary.length !== 1 || primary[0]?.role !== "speaker") {
+    throw new AppError("VALIDATION", "A submission needs exactly one primary speaker");
+  }
+  for (const participant of participants) {
+    if (participant.isPrimary) continue;
+    if (participant.role === "speaker") {
+      throw new AppError("VALIDATION", "Only the primary participant can have the speaker role");
+    }
+    if (!enabledSecondaryRoles.has(participant.role)) {
+      throw new AppError("VALIDATION", `The ${participant.role.replaceAll("_", "-")} role is not enabled for this form`);
+    }
+  }
+}
+
 export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissionResult> {
   if (input.draftSubmissionId) {
     // A committed draft is the idempotency record. Bind it to all three owners
@@ -104,7 +126,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
   const [rendered, current, formRows] = await Promise.all([
     getPinnedSnapshot(input.eventId, input.formId, input.formVersion),
     getCurrentSnapshot(input.eventId, input.formId),
-    db.select({ collectParticipants: forms.collectParticipants })
+    db.select({ kind: forms.kind, collectParticipants: forms.collectParticipants, participantRoles: forms.participantRoles })
       .from(forms)
       .where(and(eq(forms.eventId, input.eventId), eq(forms.id, input.formId)))
       .limit(1),
@@ -134,16 +156,15 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
     email: string | null;
     contactId: ContactId | null;
     answers?: RawAnswers;
-    role: "speaker" | "co_speaker";
+    role: ParticipantRole;
     isPrimary: boolean;
     sortOrder: number;
   }> = form.collectParticipants && input.participants?.length
     ? input.participants.map((participant) => ({ ...participant, email: participant.email.trim().toLowerCase(), contactId: null }))
     : [{ clientId: input.contactId, email: null, contactId: input.contactId, role: "speaker", isPrimary: true, sortOrder: 0, answers: topLevelParticipantAnswers }];
 
-  if (submittedParticipants.filter((participant) => participant.isPrimary).length !== 1) {
-    throw new AppError("VALIDATION", "A submission needs exactly one primary participant");
-  }
+  const enabledSecondaryRoles = new Set(enabledSecondaryParticipantRoles(form.participantRoles));
+  assertParticipantRolePolicy(submittedParticipants, enabledSecondaryRoles);
   if (new Set(submittedParticipants.map((participant) => participant.clientId)).size !== submittedParticipants.length) {
     throw new AppError("VALIDATION", "Participant client IDs must be unique");
   }
@@ -167,7 +188,13 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
       // visibility may depend on an abstract answer from an earlier section.
       // Only participant answers are retained after that evaluation.
       const result = runSubmitPipeline(rendered, { ...abstractContext, ...raw }, { participantId: participant.clientId, requireRequired: true });
-      if (!result.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: result.fieldErrors });
+      if (!result.ok) {
+        throw new AppError("VALIDATION", "Some speaker details need attention", {
+          fieldErrors: participant.isPrimary
+            ? result.fieldErrors
+            : scopeParticipantFieldErrors(participant.clientId, result.fieldErrors),
+        });
+      }
       const participantClean = cleanAnswersSchema.parse(result.clean.filter((answer) => participantFieldIds.has(answer.fieldId)));
       preparedParticipants.push({
         ...participant,
@@ -230,7 +257,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
     const seenContacts = new Set<string>();
     const participants: Array<{
       contactId: ContactId;
-      role: "speaker" | "co_speaker";
+      role: ParticipantRole;
       isPrimary: boolean;
       sortOrder: number;
     }> = [];
@@ -295,7 +322,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
       formId: input.formId,
       formVersion: rendered.version,
       source: "cfp",
-      kind: "abstract",
+      kind: form.kind,
       submitterContactId: input.contactId,
       ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
       fields: {
@@ -318,8 +345,16 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
 
 /** Persist incomplete, type-valid answers without enforcing required fields. */
 export async function saveCfpDraft(input: SaveDraftInput) {
-  const rendered = await getPinnedSnapshot(input.eventId, input.formId, input.formVersion);
-  const current = await getCurrentSnapshot(input.eventId, input.formId);
+  const [rendered, current, formRows] = await Promise.all([
+    getPinnedSnapshot(input.eventId, input.formId, input.formVersion),
+    getCurrentSnapshot(input.eventId, input.formId),
+    db.select({ collectParticipants: forms.collectParticipants, participantRoles: forms.participantRoles })
+      .from(forms)
+      .where(and(eq(forms.eventId, input.eventId), eq(forms.id, input.formId)))
+      .limit(1),
+  ]);
+  const form = formRows[0];
+  if (!form) throw new AppError("NOT_FOUND", "Form not found");
   if (!rendered || !isStructurallyCompatible(rendered, current)) {
     throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
       snapshot: current,
@@ -332,18 +367,29 @@ export async function saveCfpDraft(input: SaveDraftInput) {
   const abstractContext = answersFor(sectionSnapshot(rendered, false), input.answers);
   const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
   const draftParticipants: DraftParticipantInput[] = [];
-  for (const participant of (input.participants ?? []).filter((candidate) => !candidate.isPrimary)) {
-    if (participant.role !== "co_speaker") continue;
+  const enabledSecondaryRoles = new Set(enabledSecondaryParticipantRoles(form.participantRoles));
+  const submittedDraftParticipants = form.collectParticipants ? (input.participants ?? []) : [];
+  for (const participant of submittedDraftParticipants) {
+    if (participant.isPrimary || participant.role === "speaker") {
+      throw new AppError("VALIDATION", "Draft participant entries must use an additional participant role");
+    }
+    if (!enabledSecondaryRoles.has(participant.role)) {
+      throw new AppError("VALIDATION", `The ${participant.role.replaceAll("_", "-")} role is not enabled for this form`);
+    }
     const participantResult = runSubmitPipeline(
       rendered,
       { ...abstractContext, ...answersFor(participantSnapshot, participant.answers ?? {}) },
       { participantId: participant.clientId, requireRequired: false },
     );
-    if (!participantResult.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: participantResult.fieldErrors });
+    if (!participantResult.ok) {
+      throw new AppError("VALIDATION", "Some speaker details need attention", {
+        fieldErrors: scopeParticipantFieldErrors(participant.clientId, participantResult.fieldErrors),
+      });
+    }
     draftParticipants.push({
       clientId: participant.clientId,
       email: participant.email,
-      role: "co_speaker",
+      role: participant.role,
       isPrimary: false,
       sortOrder: participant.sortOrder,
       answers: cleanAnswersSchema.parse(participantResult.clean.filter((answer) => participantFieldIds.has(answer.fieldId))),
@@ -351,7 +397,7 @@ export async function saveCfpDraft(input: SaveDraftInput) {
   }
   const answers = cleanAnswersSchema.parse([
     ...result.clean,
-    ...(input.participants ? draftParticipants.flatMap((participant) => participant.answers) : []),
+    ...(submittedDraftParticipants.length > 0 ? draftParticipants.flatMap((participant) => participant.answers) : []),
   ]);
   return saveDraftAnswers(
     input.eventId,
@@ -359,6 +405,6 @@ export async function saveCfpDraft(input: SaveDraftInput) {
     input.formId,
     rendered.version,
     answers,
-    input.participants ? draftParticipants : undefined,
+    input.participants || !form.collectParticipants ? draftParticipants : undefined,
   );
 }

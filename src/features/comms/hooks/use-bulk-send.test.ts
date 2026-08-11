@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { contactIdSchema } from "@/shared/contracts";
-import { chunkContactIds, mergeBulkSendResults } from "./use-bulk-send";
+import { bulkSendPreviewFingerprint, canSendBulkMessage, chunkContactIds, mergeBulkSendResults } from "./use-bulk-send";
 
 const id = (n: number) => contactIdSchema.parse(`f4000000-0000-4000-8000-${String(n).padStart(12, "0")}`);
+
+describe("bulk-send preview approval", () => {
+  const original = bulkSendPreviewFingerprint({
+    contactIds: [id(1), id(2)],
+    previewContactId: id(1),
+    subject: "Welcome",
+    bodyHtml: "<p>Hello</p>",
+  });
+
+  it("approves only the exact audience, preview recipient, and message that was rendered", () => {
+    expect(canSendBulkMessage({ canCompose: true, capped: false, previewFingerprint: original, currentFingerprint: original })).toBe(true);
+
+    for (const changed of [
+      bulkSendPreviewFingerprint({ contactIds: [id(1)], previewContactId: id(1), subject: "Welcome", bodyHtml: "<p>Hello</p>" }),
+      bulkSendPreviewFingerprint({ contactIds: [id(1), id(2)], previewContactId: id(2), subject: "Welcome", bodyHtml: "<p>Hello</p>" }),
+      bulkSendPreviewFingerprint({ contactIds: [id(1), id(2)], previewContactId: id(1), subject: "Changed", bodyHtml: "<p>Hello</p>" }),
+      bulkSendPreviewFingerprint({ contactIds: [id(1), id(2)], previewContactId: id(1), subject: "Welcome", bodyHtml: "<p>Changed</p>" }),
+    ]) {
+      expect(canSendBulkMessage({ canCompose: true, capped: false, previewFingerprint: original, currentFingerprint: changed })).toBe(false);
+    }
+  });
+
+  it("never enables a capped segment, even when its preview fingerprint matches", () => {
+    expect(canSendBulkMessage({ canCompose: true, capped: true, previewFingerprint: original, currentFingerprint: original })).toBe(false);
+  });
+});
 
 describe("chunkContactIds (M46 — batching a resolved segment for compose's 200-recipient cap)", () => {
   it("returns a single batch for a segment at or under the compose cap", () => {

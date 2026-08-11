@@ -65,7 +65,7 @@ export function TaskDetailView({
         body: JSON.stringify({ submissionId: task.submissionId, ...body }),
       }).catch(() => null);
       if (!response) {
-        toast("That did not reach us — check your connection and try again");
+        toast("That did not reach us — check your connection and try again", { kind: "error" });
         return { ok: false };
       }
       const payload = await response.json().catch(() => null) as {
@@ -77,7 +77,7 @@ export function TaskDetailView({
         // sentence, not a form state.
         const errors = payload?.error?.data?.fieldErrors;
         if (errors) setFieldErrors(errors);
-        toast(errors ? "Some answers need fixing" : payload?.error?.message ?? "That did not go through");
+        toast(errors ? "Some answers need fixing" : payload?.error?.message ?? "That did not go through", { kind: "error" });
         return { ok: false };
       }
       return payload?.data ? { ok: true, data: payload.data } : { ok: true };
@@ -98,7 +98,7 @@ export function TaskDetailView({
     if (!result.ok) return false;
     const upload = fileVersionDtoSchema.safeParse(result.data?.upload);
     if (!upload.success) {
-      toast("File received, but the new version could not be displayed — refresh and try again");
+      toast("File received, but the new version could not be displayed — refresh and try again", { kind: "error" });
       router.refresh();
       return false;
     }
@@ -124,7 +124,7 @@ export function TaskDetailView({
         body: JSON.stringify({ submissionId: task.submissionId, body }),
       }).catch(() => null);
       if (!response?.ok) {
-        toast("That comment did not go through — try again");
+        toast("That comment did not go through — try again", { kind: "error" });
         return;
       }
       setCommentDraft("");

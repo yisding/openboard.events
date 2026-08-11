@@ -1,8 +1,9 @@
-import { db, type DbOrTx } from "@/db/client";
+import type { DbOrTx } from "@/db/client";
 import { buildFeed, icsUid, type IcsEvent } from "@/features/comms/ics";
 import { stripHtml } from "@/features/comms/server/render";
+import type { PublishedScheduleDTO } from "@/shared/contracts";
 import { emailFromAddress, getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { getPublishedScheduleIn } from "./public-queries";
+import { getPublishedSchedule, getPublishedScheduleIn } from "./public-queries";
 
 /**
  * The anonymous itinerary export — see M53 work order's calendar-export
@@ -30,24 +31,12 @@ function senderDomain(email: string): string {
 
 export type PublicScheduleIcs = { calendarName: string; ics: string };
 
-/**
- * `sessionIds` is `null` for "the whole published schedule" (used by the
- * agenda's "add all to calendar" affordance) and an array — possibly empty —
- * for "exactly these ids". An empty array is a real state (every starred
- * session removed) and yields a valid, empty calendar rather than an error or
- * a silent fallback to the full schedule; a non-empty array silently drops
- * any id that is no longer published, which is the removed/unpublished-id
- * reconciliation the M53 work order requires of the itinerary export.
- */
-export async function buildPublicScheduleIcsIn(
-  dbOrTx: DbOrTx,
+export function renderPublicScheduleIcs(
+  schedule: PublishedScheduleDTO,
   eventSlug: string,
   sessionIds: string[] | null,
   env: RuntimeEnv = getEnv(),
-): Promise<PublicScheduleIcs | null> {
-  const schedule = await getPublishedScheduleIn(dbOrTx, eventSlug);
-  if (!schedule) return null;
-
+): PublicScheduleIcs {
   const selected = sessionIds === null
     ? schedule.sessions
     : schedule.sessions.filter((session) => sessionIds.includes(session.id));
@@ -73,5 +62,27 @@ export async function buildPublicScheduleIcsIn(
   return { calendarName: schedule.event.name, ics: buildFeed(schedule.event.name, events) };
 }
 
-export const buildPublicScheduleIcs = (eventSlug: string, sessionIds: string[] | null): Promise<PublicScheduleIcs | null> =>
-  buildPublicScheduleIcsIn(db, eventSlug, sessionIds);
+/**
+ * `sessionIds` is `null` for "the whole published schedule" (used by the
+ * agenda's "add all to calendar" affordance) and an array — possibly empty —
+ * for "exactly these ids". An empty array is a real state (every starred
+ * session removed) and yields a valid, empty calendar rather than an error or
+ * a silent fallback to the full schedule; a non-empty array silently drops
+ * any id that is no longer published, which is the removed/unpublished-id
+ * reconciliation the M53 work order requires of the itinerary export.
+ */
+export async function buildPublicScheduleIcsIn(
+  dbOrTx: DbOrTx,
+  eventSlug: string,
+  sessionIds: string[] | null,
+  env: RuntimeEnv = getEnv(),
+): Promise<PublicScheduleIcs | null> {
+  const schedule = await getPublishedScheduleIn(dbOrTx, eventSlug);
+  if (!schedule) return null;
+  return renderPublicScheduleIcs(schedule, eventSlug, sessionIds, env);
+}
+
+export async function buildPublicScheduleIcs(eventSlug: string, sessionIds: string[] | null): Promise<PublicScheduleIcs | null> {
+  const schedule = await getPublishedSchedule(eventSlug);
+  return schedule ? renderPublicScheduleIcs(schedule, eventSlug, sessionIds) : null;
+}

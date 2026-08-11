@@ -4,6 +4,7 @@ import type { PortalSubmissionRow } from "@/features/portal";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
+import { participantRoleLabel } from "../../lib/participant-role";
 
 /**
  * The speaker's own proposals, rendered from the database rather than from
@@ -49,7 +50,7 @@ export function SubmissionList({
             {row.submittedAt
               ? <span>Submitted <TzTime instant={row.submittedAt} tz={timezone} style="date" /></span>
               : <span>Draft — not submitted yet</span>}
-            {!row.isPrimary && <span className="portal-submission__role">You are a co-speaker</span>}
+            {!row.isPrimary && <span className="portal-submission__role">You are a {participantRoleLabel(row.role)}</span>}
           </footer>
         </article>
       ))}

@@ -11,40 +11,55 @@
  * blank (`e2e/public-embeds.spec.ts`).
  */
 
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  // Next.js App Router hydrates from inline <script> tags it writes itself
-  // (no nonce plumbing in this app), so script-src needs 'unsafe-inline';
-  // everything else stays locked to same-origin.
-  "script-src 'self' 'unsafe-inline'",
-  // Inline `style={{...}}` attributes are common throughout the UI (progress
-  // bars, dynamic layout); CSP2 style-src covers both <style> blocks and the
-  // style attribute.
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  // The browser uploads straight to a presigned R2 URL (src/shared/ui/app/
-  // file-upload.tsx) — bytes never pass through this origin — so R2's own
-  // host needs an explicit connect-src allowance or every upload 400s at the
-  // CSP layer, not the network layer, which is a much harder bug to find.
-  "connect-src 'self' https://*.r2.cloudflarestorage.com",
-  "form-action 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
+export function contentSecurityPolicy(allowUnsafeEval = false): string {
+  const scriptSource = [
+    "'self'",
+    // Next.js App Router hydrates from inline <script> tags it writes itself
+    // (no nonce plumbing in this app), so script-src needs 'unsafe-inline'.
+    "'unsafe-inline'",
+    // The development compiler evaluates generated modules and source maps.
+    // Without this development-only exception, the local demo server renders
+    // static HTML but none of its controls hydrate. Production bundles do not
+    // need eval and retain the stricter policy.
+    ...(allowUnsafeEval ? ["'unsafe-eval'"] : []),
+  ].join(" ");
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSource}`,
+    // Inline `style={{...}}` attributes are common throughout the UI (progress
+    // bars, dynamic layout); CSP2 style-src covers both <style> blocks and the
+    // style attribute.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    // The browser uploads straight to a presigned R2 URL (src/shared/ui/app/
+    // file-upload.tsx) — bytes never pass through this origin — so R2's own
+    // host needs an explicit connect-src allowance or every upload 400s at the
+    // CSP layer, not the network layer, which is a much harder bug to find.
+    "connect-src 'self' https://*.r2.cloudflarestorage.com",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
 
 const EMBED_CONTENT_SECURITY_POLICY = "frame-ancestors *";
 
 const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
 
-export const SECURITY_HEADERS = [
-  { key: "X-Frame-Options", value: "DENY" },
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
-  { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
-];
+function securityHeaders(allowUnsafeEval = false) {
+  return [
+    { key: "X-Frame-Options", value: "DENY" },
+    { key: "X-Content-Type-Options", value: "nosniff" },
+    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+    { key: "Content-Security-Policy", value: contentSecurityPolicy(allowUnsafeEval) },
+    { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
+  ];
+}
+
+export const SECURITY_HEADERS = securityHeaders();
 
 // No X-Frame-Options here on purpose — see the module doc. nosniff and HSTS
 // are transport/content concerns, orthogonal to framing, so both still apply.
@@ -55,7 +70,11 @@ export const EMBED_SECURITY_HEADERS = [
 ];
 
 /** Shape `next.config.ts`'s `headers()` returns verbatim. */
-export const headersConfig = [
-  { source: "/embed/:path*", headers: EMBED_SECURITY_HEADERS },
-  { source: "/((?!embed/).*)", headers: SECURITY_HEADERS },
-];
+export function buildHeadersConfig(allowUnsafeEval = false) {
+  return [
+    { source: "/embed/:path*", headers: EMBED_SECURITY_HEADERS },
+    { source: "/((?!embed/).*)", headers: securityHeaders(allowUnsafeEval) },
+  ];
+}
+
+export const headersConfig = buildHeadersConfig();

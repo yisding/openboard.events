@@ -207,6 +207,7 @@ export function DirectoryView({
         getRowId={(row) => row.id}
         onRowClick={(row) => router.push(`/organizations/${organizationId}/crm/${row.id}`)}
         enableSelection
+        getRowLabel={nameOf}
         onSelectionChange={setSelected}
         selectionEpoch={selectionEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
@@ -225,7 +226,7 @@ export function DirectoryView({
               <option value="all">Every source</option>
               {CRM_CONTACT_SOURCES.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
             </select>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--muted)" }}>
+            <label className="crm-unlinked-filter">
               <input type="checkbox" checked={hasEventLink === false} onChange={(event) => setParams({ hasEventLink: event.target.checked ? "false" : null })} />
               Not linked to an event yet
             </label>

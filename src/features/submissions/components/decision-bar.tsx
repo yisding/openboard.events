@@ -53,7 +53,7 @@ export function DecisionBar({
         });
         const payload = await response.json().catch(() => null) as { data?: { changed: string[]; stale: string[] }; error?: { message?: string } } | null;
         if (!response.ok || !payload?.data) {
-          toast(payload?.error?.message ?? "That did not go through");
+          toast(payload?.error?.message ?? "That did not go through", { kind: "error" });
           return;
         }
         moved += payload.data.changed.length;
@@ -65,6 +65,8 @@ export function DecisionBar({
         : `${moved} moved · ${unchanged} unchanged, someone else had already moved them`);
       onDone();
       router.refresh();
+    } catch {
+      toast("Could not reach the server. Check the latest decision state before trying again.", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -83,7 +85,7 @@ export function DecisionBar({
         error?: { message?: string };
       } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Notify did not go through");
+        toast(payload?.error?.message ?? "Notify did not go through", { kind: "error" });
         return;
       }
       const { accepted, declined, emailsQueued, skippedNoRecipient } = payload.data;
@@ -94,9 +96,11 @@ export function DecisionBar({
           + (skippedNoRecipient.length > 0 ? ` · ${skippedNoRecipient.length} had no recipient` : ""));
       onDone();
       router.refresh();
+      setConfirmingNotify(false);
+    } catch {
+      toast("Could not reach the server. Check Communications before retrying this notification batch.", { kind: "error" });
     } finally {
       setBusy(false);
-      setConfirmingNotify(false);
     }
   }
 

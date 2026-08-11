@@ -46,6 +46,7 @@ declare module "@tanstack/react-table" {
  *   isLoading={query.isPending}
  *   empty={<EmptyState … />}            // required: there is no undesigned empty state
  *   enableSelection
+ *   getRowLabel={(row) => `${row.code}, ${row.title}`}
  *   onSelectionChange={setSelected}
  *   columnVisibilityKey={`abstracts:${eventId}`}
  *   onRowClick={(row) => openDrawer(row.id)}
@@ -64,6 +65,8 @@ export type DataTableProps<Row> = {
   isLoading?: boolean;
   toolbar?: ReactNode;
   enableSelection?: boolean;
+  /** Human-readable identity used by that row's selection checkbox. */
+  getRowLabel?: (row: Row) => string;
   onSelectionChange?: (rows: Row[]) => void;
   /** localStorage key for hidden columns. Scope it per event. */
   columnVisibilityKey?: string;
@@ -129,6 +132,11 @@ export function defaultRowId<Row>(row: Row, index: number): string {
   return String(index);
 }
 
+export function selectionLabel<Row>(row: Row, rowId: string, getRowLabel?: (row: Row) => string): string {
+  const label = getRowLabel?.(row).trim();
+  return `Select ${label || `row ${rowId}`}`;
+}
+
 function readVisibility(key: string | undefined): VisibilityState {
   if (!key || typeof window === "undefined") return {};
   try {
@@ -146,6 +154,7 @@ export function DataTable<Row>({
   isLoading = false,
   toolbar,
   enableSelection = false,
+  getRowLabel,
   onSelectionChange,
   columnVisibilityKey,
   onRowClick,
@@ -396,10 +405,13 @@ export function DataTable<Row>({
                 >
                   {enableSelection && (
                     <td onClick={(event) => event.stopPropagation()}>
+                      {/* `.checkbox-hit` carries the 44x44 touch target the bare
+                          native checkbox cannot (T7); the name comes from
+                          `getRowLabel` so each row reads distinctly. */}
                       <label className="checkbox-hit">
                         <input
                           type="checkbox"
-                          aria-label="Select row"
+                          aria-label={selectionLabel(row.original, row.id, getRowLabel)}
                           checked={row.getIsSelected()}
                           onChange={row.getToggleSelectedHandler()}
                         />

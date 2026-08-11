@@ -6,6 +6,7 @@ import { templateVariablePaths } from "@/features/comms/components/sample-vars";
 import { unknownTokensClientSide } from "@/features/comms/components/validate-client";
 import type { ContactListRow } from "@/features/portal";
 import type { ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -47,6 +48,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   const [previewResult, setPreviewResult] = useState<ComposeBulkSpeakerEmailResult["preview"]>(null);
   const [busyPreview, setBusyPreview] = useState(false);
   const [busySend, setBusySend] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
 
@@ -70,7 +72,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
   }
 
   function reset() {
-    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null);
+    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null); setConfirmSend(false);
   }
 
   async function runPreview() {
@@ -90,7 +92,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
     }
   }
 
-  async function runSend() {
+  async function runSend(): Promise<boolean> {
     setBusySend(true);
     setError(null);
     try {
@@ -101,14 +103,17 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
       setSendResult(result);
       toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
       router.refresh();
+      return true;
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "That did not go through");
+      return false;
     } finally {
       setBusySend(false);
     }
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={() => { reset(); onClose(); }}
@@ -120,7 +125,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
       ) : (
         <>
           <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-          <Button disabled={!ready || busySend} onClick={() => void runSend()}>{busySend ? "Sending…" : `Send to ${selected.length}`}</Button>
+          <Button disabled={!ready || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${selected.length}`}</Button>
         </>
       )}
     >
@@ -171,5 +176,14 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
         </div>
       )}
     </Modal>
+    <ConfirmDialog
+      open={confirmSend}
+      title={`Send this message to ${selected.length} speaker${selected.length === 1 ? "" : "s"}?`}
+      body="This queues a personalized email for every selected speaker. Suppressed and unsubscribed addresses are rechecked and skipped at send time."
+      confirmLabel={`Send to ${selected.length}`}
+      onConfirm={async () => { if (await runSend()) setConfirmSend(false); }}
+      onCancel={() => setConfirmSend(false)}
+    />
+    </>
   );
 }

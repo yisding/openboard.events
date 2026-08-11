@@ -46,7 +46,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       router.push(`/events/${event.id}/forms/${form.id}`);
       router.refresh();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The form could not be created");
+      toast(error instanceof Error ? error.message : "The form could not be created", { kind: "error" });
       setBusy(false);
     }
   }

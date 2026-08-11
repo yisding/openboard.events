@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts, forms, sessionFormats, submissionParticipants, submissions, tracks } from "@/db/schema";
-import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type SubmissionStatus } from "@/shared/contracts";
+import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type ParticipantRole, type SubmissionStatus } from "@/shared/contracts";
 
 /**
  * The speaker's own view of their submissions.
@@ -36,6 +36,7 @@ export type PortalSubmissionRow = {
   title: string;
   status: PortalStatus;
   isPrimary: boolean;
+  role: ParticipantRole;
   formId: string | null;
   /** The organizer's vocabulary, resolved here so a card never shows a raw id. */
   trackName: string | null;
@@ -52,6 +53,7 @@ export type PortalParticipant = {
   name: string;
   email: string;
   isPrimary: boolean;
+  role: ParticipantRole;
 };
 
 export type PortalSubmissionDetail = PortalSubmissionRow & {
@@ -76,6 +78,7 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
       title: submissions.title,
       status: submissions.status,
       isPrimary: submissionParticipants.isPrimary,
+      role: submissionParticipants.role,
       formId: submissions.formId,
       trackName: tracks.name,
       trackColor: tracks.color,
@@ -106,6 +109,7 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
     title: row.title,
     status: portalStatus(row.status),
     isPrimary: row.isPrimary,
+    role: row.role,
     formId: row.formId,
     trackName: row.trackName,
     trackColor: row.trackColor,
@@ -134,6 +138,7 @@ export async function getMySubmissionIn(
       title: submissions.title,
       status: submissions.status,
       isPrimary: submissionParticipants.isPrimary,
+      role: submissionParticipants.role,
       formId: submissions.formId,
       trackName: tracks.name,
       trackColor: tracks.color,
@@ -162,8 +167,8 @@ export async function getMySubmissionIn(
     .limit(1);
   if (!row) return null;
 
-  // Co-speakers are listed because the speaker already knows who they submitted
-  // with; nothing beyond name and email is exposed.
+  // Participants are listed because the speaker already knows who they submitted
+  // with; nothing beyond name, email, and proposal role is exposed.
   const participants = await dbOrTx
     .select({
       contactId: submissionParticipants.contactId,
@@ -171,6 +176,7 @@ export async function getMySubmissionIn(
       lastName: contacts.lastName,
       email: contacts.email,
       isPrimary: submissionParticipants.isPrimary,
+      role: submissionParticipants.role,
     })
     .from(submissionParticipants)
     .innerJoin(contacts, and(eq(contacts.id, submissionParticipants.contactId), eq(contacts.eventId, submissionParticipants.eventId)))
@@ -183,6 +189,7 @@ export async function getMySubmissionIn(
     title: row.title,
     status: portalStatus(row.status),
     isPrimary: row.isPrimary,
+    role: row.role,
     formId: row.formId,
     trackName: row.trackName,
     trackColor: row.trackColor,
@@ -196,6 +203,7 @@ export async function getMySubmissionIn(
       name: displayName(participant.firstName, participant.lastName, participant.email),
       email: participant.email,
       isPrimary: participant.isPrimary,
+      role: participant.role,
     })),
   };
 }

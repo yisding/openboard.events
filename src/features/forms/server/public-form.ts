@@ -3,6 +3,7 @@ import { db, type DbOrTx } from "@/db/client";
 import { events, forms } from "@/db/schema";
 import { type FormId, type FormSnapshot } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { participantRoleSettingsSchema, type ParticipantRoleSetting } from "../participant-roles";
 import { getCurrentSnapshotIn } from "./snapshots";
 
 /**
@@ -32,7 +33,7 @@ export type PublicForm = {
     showWelcome: boolean;
     welcomeHtml: string | null;
     collectParticipants: boolean;
-    participantRoles: unknown;
+    participantRoles: Array<Pick<ParticipantRoleSetting, "role" | "enabled">>;
     successHtml: string | null;
     autoRedirectToPortal: boolean;
     /** Present so a not-open-yet page can name the date rather than say "soon". */
@@ -113,6 +114,8 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
   const snapshot = form.collectParticipants
     ? storedSnapshot
     : { ...storedSnapshot, sections: storedSnapshot.sections.filter((section) => section.key !== "participant") };
+  const participantRoles = participantRoleSettingsSchema.parse(form.participantRoles)
+    .map(({ role, enabled }) => ({ role, enabled }));
 
   return {
     event: {
@@ -132,7 +135,7 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       showWelcome: form.showWelcome,
       welcomeHtml: form.welcomeHtml,
       collectParticipants: form.collectParticipants,
-      participantRoles: form.participantRoles,
+      participantRoles,
       successHtml: form.successHtml,
       autoRedirectToPortal: form.autoRedirectToPortal,
       opensAt: form.opensAt ? form.opensAt.toISOString() : null,

@@ -16,6 +16,7 @@ describe("PublicSessions", () => {
     expect(html).toContain(PUBLISHED_SCHEDULE_FIXTURE.event.name);
     expect(html).toContain("Agents");
     expect(html).toContain("Ada Lovelace");
+    expect(html).toContain('aria-label="Read more about Agents"');
   });
 
   it("uses initialSearch for the markup sent before hydration, matching the PR #71 cache contract", () => {
@@ -57,6 +58,8 @@ describe("PublicSessions", () => {
     }));
 
     expect(html).not.toContain("<h3>Agents</h3>");
-    expect(html).toContain("No sessions match those filters");
+    expect(html).toContain("No sessions match this embed");
+    expect(html).toContain("Ask the organizer to update the embed settings");
+    expect(html).not.toContain("Clear filters");
   });
 });

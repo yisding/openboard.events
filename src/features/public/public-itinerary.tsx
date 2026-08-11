@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CalendarPlus, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
 import { readStarredIds, reconcileStarredIds, toggleStarredId, writeStarredIds } from "./itinerary-storage";
@@ -13,10 +13,9 @@ import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
 
 function dayLabel(dayKey: string, timezone: string): { weekday: string; date: string } {
-  const pivot = `${dayKey}T12:00:00.000Z`;
   return {
-    weekday: formatInZone(pivot, timezone, { weekday: "long" }),
-    date: formatInZone(pivot, timezone, { month: "short", day: "numeric" }),
+    weekday: formatDayKeyInZone(dayKey, timezone, { weekday: "long" }),
+    date: formatDayKeyInZone(dayKey, timezone, { month: "short", day: "numeric" }),
   };
 }
 
@@ -106,13 +105,19 @@ export function PublicItinerary({
     ? `/api/v1/events/${encodeURIComponent(eventSlug)}/schedule/ics?${starred.map((id) => `session=${encodeURIComponent(id)}`).join("&")}`
     : null;
 
-  const body = sessions.length === 0 ? (
+  const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Schedule coming soon"
       description={`Sessions land closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile, then come back to build your itinerary.`}
       linkHref={`/e/${eventSlug}/speakers`}
       linkLabel="Speaker gallery"
+    />
+  ) : sessions.length === 0 ? (
+    <PublicComingSoon
+      icon={Star}
+      title="No itinerary sessions match this embed"
+      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
     />
   ) : (
     <>

@@ -198,6 +198,7 @@ export function AbstractsTable({
         columns={columns}
         data={rows}
         enableSelection
+        getRowLabel={(row) => `${formatCode(row.code)}, ${row.title}`}
         {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
         {...(selectAllEpoch === undefined ? {} : { selectAllEpoch })}
         columnVisibilityKey="abstracts"

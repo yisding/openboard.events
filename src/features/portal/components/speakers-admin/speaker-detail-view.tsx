@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, Facebook, Globe, Linkedin, P
 import Link from "next/link";
 import { useState } from "react";
 import type { SpeakerDetailDTO, SpeakerRosterExtras } from "@/features/portal";
+import { participantRoleLabel } from "../../lib/participant-role";
 import { LIMITS, plainTextLength, type ConfirmationStatus, type TemplateKey } from "@/shared/contracts";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
@@ -300,7 +301,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
           {detail.submissions.map((submission) => (
             <Link key={submission.submissionId} className="mini-session" href={`/events/${eventId}/abstracts?submission=${submission.submissionId}`}>
               <span>SESS-{submission.code}</span>
-              <b>{submission.title}{submission.isPrimary ? "" : " (co-speaker)"}</b>
+              <b>{submission.title}{submission.isPrimary ? "" : ` (${participantRoleLabel(submission.role)})`}</b>
               <StatusBadge value={submission.portalStatus} />
             </Link>
           ))}
