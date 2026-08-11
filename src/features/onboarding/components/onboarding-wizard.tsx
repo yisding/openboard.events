@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
 import { Button, Field } from "@/shared/ui/ui-kit";
@@ -83,6 +83,15 @@ export function OnboardingWizard({
   const [saving, setSaving] = useState(false);
   const [event, setEvent] = useState<EventDTO | null>(null);
   const summaryRef = useRef<HTMLParagraphElement>(null);
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const previousStepRef = useRef(step);
+
+  useEffect(() => {
+    if (previousStepRef.current === step) return;
+    previousStepRef.current = step;
+    const frame = window.requestAnimationFrame(() => stepHeadingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [step]);
 
   // Step 2 — vocabulary (tracks only — rooms/formats/tags are fine to leave
   // for the settings hub; tracks are the one that gates the form/routing UI).
@@ -157,7 +166,7 @@ export function OnboardingWizard({
       setTracks((current) => [...current, track]);
       setTrackName("");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That track could not be added");
+      toast(isAppError(caught) ? caught.message : "That track could not be added", { kind: "error" });
     } finally {
       setAddingTrack(false);
     }
@@ -185,7 +194,7 @@ export function OnboardingWizard({
       toast(publishNow ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : "The form could not be created");
+      toast(caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);
     }
@@ -201,8 +210,9 @@ export function OnboardingWizard({
   return (
     <div className="panel settings-section onboarding-wizard">
       <ol className="cfp-progress">
-        {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined}>{index + 1}. {label}</li>)}
+        {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
       </ol>
+      <h2 ref={stepHeadingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>
 
       {step === 1 && (
         <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>

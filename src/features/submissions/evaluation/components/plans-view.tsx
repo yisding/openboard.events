@@ -68,7 +68,7 @@ export function PlansView({
       });
       const payload = await response.json().catch(() => null) as { data?: { enqueued: number; skipped: number }; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Those reminders did not send");
+        toast(payload?.error?.message ?? "Those reminders did not send", { kind: "error" });
         return;
       }
       toast(payload.data.enqueued === 0
@@ -76,23 +76,29 @@ export function PlansView({
         : `Reminded ${payload.data.enqueued} reviewer${payload.data.enqueued === 1 ? "" : "s"}${payload.data.skipped > 0 ? ` · ${payload.data.skipped} had no contact record` : ""}`);
       router.refresh();
     } catch {
-      toast("Those reminders did not send");
+      toast("Those reminders did not send", { kind: "error" });
     } finally {
       setBusy(false);
     }
   }
 
-  async function remove(plan: PlanDTO) {
+  async function remove(plan: PlanDTO): Promise<boolean> {
     setBusy(true);
     try {
       const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}`, { method: "DELETE" });
       const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
       // The server refuses to delete a round that holds verdicts and says to
       // close it instead; that message is the useful one, so pass it through.
-      toast(response.ok ? `${plan.name} deleted` : payload?.error?.message ?? "That round could not be deleted");
-      if (response.ok) router.refresh();
+      if (!response.ok) {
+        toast(payload?.error?.message ?? "That round could not be deleted", { kind: "error" });
+        return false;
+      }
+      toast(`${plan.name} deleted`);
+      router.refresh();
+      return true;
     } catch {
-      toast("That round could not be deleted");
+      toast("That round could not be deleted", { kind: "error" });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -245,8 +251,7 @@ export function PlansView({
         confirmLabel="Delete plan"
         onConfirm={async () => {
           if (!pendingDelete) return;
-          await remove(pendingDelete);
-          setPendingDelete(null);
+          if (await remove(pendingDelete)) setPendingDelete(null);
         }}
         onCancel={() => setPendingDelete(null)}
       />

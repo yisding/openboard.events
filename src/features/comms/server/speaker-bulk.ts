@@ -126,7 +126,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     };
   }
 
-  const sendId = input.sendId ?? crypto.randomUUID();
+  const sendId = input.sendId;
   let queued = 0;
   let skipped = 0;
   const errors: ComposeBulkSpeakerEmailResult["errors"] = [];

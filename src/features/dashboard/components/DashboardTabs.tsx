@@ -37,8 +37,8 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
         remembers "already celebrated" rather than recomputing urgency. */}
     <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
     <nav className="dashboard-tabs" aria-label="Dashboard sections">
-      <Link className={initialTab === "speakers" ? "active" : ""} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>
-      <Link className={initialTab === "today" ? "active" : ""} href={`/events/${eventId}/dashboard?tab=today`}>Today</Link>
+      <Link className={initialTab === "speakers" ? "active" : ""} aria-current={initialTab === "speakers" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>
+      <Link className={initialTab === "today" ? "active" : ""} aria-current={initialTab === "today" ? "page" : undefined} href={`/events/${eventId}/dashboard?tab=today`}>Today</Link>
     </nav>
     {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
   </main>;

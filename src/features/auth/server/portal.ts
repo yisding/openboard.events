@@ -64,6 +64,19 @@ async function createPortalSessionRow(dbOrTx: DbOrTx, contactId: ContactId, even
   return { raw, expiresAt };
 }
 
+/** A retry proves possession of the just-consumed credential, but the first
+ * response may have been lost before its Set-Cookie reached the browser. Mint
+ * a fresh session for the retry instead of returning cookie-less success. */
+export async function createConcurrentPortalRecoverySessionIn(
+  dbOrTx: DbOrTx,
+  concurrent: { contactId: ContactId; email: string },
+  eventId: EventId,
+  impersonatedByUserId: UserId | null,
+) {
+  const session = await createPortalSessionRow(dbOrTx, concurrent.contactId, eventId, impersonatedByUserId);
+  return { raw: session.raw, contactId: concurrent.contactId, email: concurrent.email, alreadySignedIn: true as const };
+}
+
 async function setPortalCookie(eventId: EventId, raw: string) {
   (await cookies()).set(portalCookieName(eventId), raw, portalCookieOptions());
 }
@@ -233,7 +246,7 @@ export async function verifyPortalLogin(args: { eventSlug: string; raw?: string;
     if (!consumed) {
       const concurrent = await findConcurrentPortalSignInIn(tx, credential, { eventId: event.id, purpose });
       if (!concurrent) throw new AppError("UNAUTHORIZED", "That code or link is invalid or expired");
-      return { raw: null, contactId: concurrent.contactId, email: concurrent.email, alreadySignedIn: true as const };
+      return createConcurrentPortalRecoverySessionIn(tx, concurrent, event.id, admin?.userId ?? null);
     }
     const session = await createPortalSessionRow(tx, consumed.contactId, event.id, admin?.userId ?? null);
     const [contact] = await tx.select({ email: contacts.email }).from(contacts)
@@ -242,13 +255,13 @@ export async function verifyPortalLogin(args: { eventSlug: string; raw?: string;
     if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
     return { raw: session.raw, contactId: consumed.contactId, email: contact.email };
   });
-  if (result.raw) await setPortalCookie(event.id, result.raw);
+  await setPortalCookie(event.id, result.raw);
   return {
     contactId: result.contactId,
     eventId: event.id,
     email: result.email,
     impersonatedByUserId: admin?.userId ?? null,
-    ...(result.alreadySignedIn ? { alreadySignedIn: true } : {}),
+    ...("alreadySignedIn" in result && result.alreadySignedIn ? { alreadySignedIn: true } : {}),
   };
 }
 

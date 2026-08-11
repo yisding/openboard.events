@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Mail } from "lucide-react";
 
 /**
@@ -28,6 +28,13 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const sentHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!sent) return;
+    const frame = window.requestAnimationFrame(() => sentHeadingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [sent]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -64,7 +71,7 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
   if (sent) {
     return <div>
       <span className="metric-icon accent"><Mail size={20} /></span>
-      <h1>Check your email</h1>
+      <h1 ref={sentHeadingRef} tabIndex={-1}>Check your email</h1>
       <p>If that address has an account, a reset link is on its way. The link works once and expires in an hour.</p>
       <p><Link href="/login">Back to sign in</Link></p>
     </div>;

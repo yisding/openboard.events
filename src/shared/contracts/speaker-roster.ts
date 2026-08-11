@@ -145,7 +145,7 @@ export type ImportSpeakersCsvResult = z.infer<typeof importSpeakersCsvResultSche
 
 // --- Bulk email ------------------------------------------------------------
 
-export const composeBulkSpeakerEmailInputSchema = z.object({
+const bulkSpeakerEmailBaseSchema = z.object({
   // 200, not the roadmap's hypothetical thousands: `<DataTable>` selection is
   // page-local by construction (its own doc comment — "selecting all selects
   // the rows you can see") and this module never adds a "select every match
@@ -158,16 +158,22 @@ export const composeBulkSpeakerEmailInputSchema = z.object({
   contactIds: z.array(contactIdSchema).min(1).max(200),
   subject: z.string().trim().min(1).max(200),
   bodyHtml: z.string().trim().min(1).max(20_000),
-  // "preview" renders the merged content for one recipient and sends
-  // nothing; "send" enqueues one email per selected contact.
-  mode: z.enum(["preview", "send"]),
-  previewContactId: contactIdSchema.optional(),
-  // A segmented send spans several bounded requests. Reusing one caller-
-  // generated id across those requests and any retry makes every recipient
-  // idempotent even when the browser cannot tell whether a failed request
-  // committed before its connection dropped.
-  sendId: z.uuid().optional(),
 });
+
+export const composeBulkSpeakerEmailInputSchema = z.discriminatedUnion("mode", [
+  bulkSpeakerEmailBaseSchema.extend({
+    // Preview renders one recipient and enqueues nothing, so it has no send
+    // attempt to deduplicate.
+    mode: z.literal("preview"),
+    previewContactId: contactIdSchema.optional(),
+  }),
+  bulkSpeakerEmailBaseSchema.extend({
+    mode: z.literal("send"),
+    // Every send caller must own a durable attempt id. Making this required in
+    // the contract prevents a new random id from silently defeating retries.
+    sendId: z.uuid(),
+  }),
+]);
 export type ComposeBulkSpeakerEmailInput = z.infer<typeof composeBulkSpeakerEmailInputSchema>;
 
 export const bulkSpeakerEmailPreviewSchema = z.object({
@@ -194,11 +200,10 @@ export type ComposeBulkSpeakerEmailResult = z.infer<typeof composeBulkSpeakerEma
  * `contactIds` array the *caller* already resolved — see
  * `composeBulkSpeakerEmailInputSchema` above), so this is the "simple
  * filter" the roadmap names as the fallback. Deliberately a **separate**
- * contract rather than a change to `composeBulkSpeakerEmailInputSchema`:
- * the existing input/route/mutation are unchanged (no breaking edit to a
- * live export), and a filter resolves to `contactIds` through
+ * audience-resolution contract: a filter resolves to `contactIds` through
  * `resolveSpeakerSegmentIn` (`src/features/comms/server/segments.ts`),
- * which then feeds the untouched M51 compose flow. Both fields are
+ * which then feeds the M51 compose flow with one durable send-attempt id.
+ * Both fields are
  * optional and independently combinable (AND, not OR); an entirely empty
  * filter matches every contact in the event.
  */

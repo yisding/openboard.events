@@ -1,7 +1,7 @@
 "use client";
 
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
-import { Field } from "@/shared/ui/ui-kit";
+import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
 const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
@@ -26,11 +26,11 @@ export function SuccessPageCard({ form, onChange }: {
           <b>Auto-redirect to speaker portal</b>
           <small>After 10 seconds on the confirmation page. If off, submitters use Continue to portal.</small>
         </div>
-        <button
-          type="button"
-          className={`switch ${form.autoRedirectToPortal ? "on" : ""}`}
+        <Switch
+          label="Auto-redirect to speaker portal"
+          checked={form.autoRedirectToPortal}
           onClick={() => onChange({ autoRedirectToPortal: !form.autoRedirectToPortal })}
-        ><i /></button>
+        />
       </div>
       <Field label="Customize the success page message:">
         <RichTextEditor value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} />

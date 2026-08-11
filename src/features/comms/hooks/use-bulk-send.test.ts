@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { contactIdSchema } from "@/shared/contracts";
-import { bulkSendPreviewFingerprint, canSendBulkMessage, chunkContactIds, mergeBulkSendResults } from "./use-bulk-send";
+import { composeBulkSpeakerEmailInputSchema, contactIdSchema } from "@/shared/contracts";
+import {
+  bulkSendPreviewFingerprint,
+  canSendBulkMessage,
+  chunkContactIds,
+  claimBulkSendAttempt,
+  completeBulkSendAttempt,
+  mergeBulkSendResults,
+  type BulkSendAttemptStorage,
+} from "../bulk-send-attempt";
 
 const id = (n: number) => contactIdSchema.parse(`f4000000-0000-4000-8000-${String(n).padStart(12, "0")}`);
+const original = bulkSendPreviewFingerprint({
+  contactIds: [id(1), id(2)],
+  previewContactId: id(1),
+  subject: "Welcome",
+  bodyHtml: "<p>Hello</p>",
+});
 
 describe("bulk-send preview approval", () => {
-  const original = bulkSendPreviewFingerprint({
-    contactIds: [id(1), id(2)],
-    previewContactId: id(1),
-    subject: "Welcome",
-    bodyHtml: "<p>Hello</p>",
-  });
-
   it("approves only the exact audience, preview recipient, and message that was rendered", () => {
     expect(canSendBulkMessage({ canCompose: true, capped: false, previewFingerprint: original, currentFingerprint: original })).toBe(true);
 
@@ -76,5 +83,54 @@ describe("mergeBulkSendResults", () => {
 
   it("returns the zero identity for no batches", () => {
     expect(mergeBulkSendResults([])).toEqual({ queued: 0, skipped: 0, errors: [], preview: null });
+  });
+});
+
+describe("durable bulk-send attempts", () => {
+  function memoryStorage(): BulkSendAttemptStorage {
+    const values = new Map<string, string>();
+    return {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); },
+      removeItem: (key) => { values.delete(key); },
+    };
+  }
+
+  it("reuses the same attempt after a reload-style re-claim of the exact preview", async () => {
+    const storage = memoryStorage();
+    let next = 0;
+    const createId = () => `99000000-0000-4000-8000-${String(++next).padStart(12, "0")}`;
+    const first = await claimBulkSendAttempt(storage, "speaker-segment:event", original, createId);
+    const retried = await claimBulkSendAttempt(storage, "speaker-segment:event", original, createId);
+    const changed = await claimBulkSendAttempt(storage, "speaker-segment:event", `${original}-changed`, createId);
+
+    expect(retried).toEqual(first);
+    expect(changed.sendId).not.toBe(first.sendId);
+  });
+
+  it("clears only the completed exact attempt so a later intentional send gets a new id", async () => {
+    const storage = memoryStorage();
+    let next = 0;
+    const createId = () => `99000000-0000-4000-8000-${String(++next).padStart(12, "0")}`;
+    const first = await claimBulkSendAttempt(storage, "speaker-selected:event", original, createId);
+    completeBulkSendAttempt(storage, first);
+    const nextAttempt = await claimBulkSendAttempt(storage, "speaker-selected:event", original, createId);
+
+    expect(nextAttempt.sendId).not.toBe(first.sendId);
+  });
+});
+
+describe("bulk speaker send contract", () => {
+  it("requires the durable attempt id in send mode", () => {
+    expect(composeBulkSpeakerEmailInputSchema.safeParse({
+      contactIds: [id(1)], subject: "Update", bodyHtml: "<p>Hello</p>", mode: "send",
+    }).success).toBe(false);
+    expect(composeBulkSpeakerEmailInputSchema.safeParse({
+      contactIds: [id(1)],
+      subject: "Update",
+      bodyHtml: "<p>Hello</p>",
+      mode: "send",
+      sendId: "98000000-0000-4000-8000-000000000001",
+    }).success).toBe(true);
   });
 });

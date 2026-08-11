@@ -41,13 +41,13 @@ export function SettingsShell({ event, vocabulary }: { event: EventDTO; vocabula
     <>
       <PageHeader eyebrow="EVENT" title="Event settings" description="Details, vocabulary, and public event configuration." />
       <div className="settings-layout">
-        <aside className="settings-nav">
+        <nav className="settings-nav" aria-label="Event settings sections">
           {TABS.map(([id, label, Icon]) => (
-            <button key={id} type="button" className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            <button key={id} type="button" aria-pressed={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
               <Icon size={16} /> <span>{label}</span>
             </button>
           ))}
-        </aside>
+        </nav>
         <main>
           {tab === "details" && <DetailsTab event={current} onSaved={setCurrent} />}
           {tab === "tracks" && <VocabTab eventId={event.id} kind="tracks" initialItems={vocabulary.tracks} />}

@@ -4,7 +4,7 @@ import { Calendar, Check, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, M
 import { useEffect, useState } from "react";
 import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { Button, PageHeader, Segmented } from "@/shared/ui/ui-kit";
+import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 
@@ -149,15 +149,12 @@ export function EmbedsAdminPage({
               <a href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">View embed <ExternalLink size={14} /></a>
               <div className="inline-setting">
                 <div><b>Enabled</b><small>Turn off to blank this embed without breaking the host page</small></div>
-                <button
-                  type="button"
-                  className={`switch ${config.enabled ? "on" : ""}`}
+                <Switch
+                  label={`${meta.label} embed`}
+                  checked={config.enabled}
                   disabled={busy === config.id}
                   onClick={() => void toggleEnabled(config)}
-                  aria-label={`${config.enabled ? "Disable" : "Enable"} ${meta.label} embed`}
-                >
-                  <i />
-                </button>
+                />
               </div>
               <div className="form-stack">
                 <label className="field">
@@ -173,15 +170,15 @@ export function EmbedsAdminPage({
                 </label>
                 <div className="inline-setting">
                   <div><b>Show event header</b><small>Include the event name above content</small></div>
-                  <button type="button" className={`switch ${style.showHeader ? "on" : ""}`} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })}><i /></button>
+                  <Switch label={`${meta.label}: show event header`} checked={style.showHeader} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })} />
                 </div>
 
                 {sessionShaped ? (
                   <>
                     <div className="inline-setting">
                       <div><b>Show description</b><small>Hide session descriptions in this embed</small></div>
-                      <button type="button" className={`switch ${filters.fields?.description !== false ? "on" : ""}`}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, description: filters.fields?.description === false } })}><i /></button>
+                      <Switch label={`${meta.label}: show description`} checked={filters.fields?.description !== false}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, description: filters.fields?.description === false } })} />
                     </div>
                     {tracks.length > 0 && (
                       <fieldset className="embed-filter-group">
@@ -221,13 +218,13 @@ export function EmbedsAdminPage({
                   <>
                     <div className="inline-setting">
                       <div><b>Show company</b><small>Include job title/company on speaker cards and rows</small></div>
-                      <button type="button" className={`switch ${filters.fields?.speakerCompany !== false ? "on" : ""}`}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })}><i /></button>
+                      <Switch label={`${meta.label}: show company`} checked={filters.fields?.speakerCompany !== false}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })} />
                     </div>
                     <div className="inline-setting">
                       <div><b>Show bio</b><small>Include the speaker&rsquo;s bio</small></div>
-                      <button type="button" className={`switch ${filters.fields?.speakerBio !== false ? "on" : ""}`}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })}><i /></button>
+                      <Switch label={`${meta.label}: show bio`} checked={filters.fields?.speakerBio !== false}
+                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })} />
                     </div>
                   </>
                 )}

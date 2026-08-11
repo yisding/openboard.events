@@ -15,8 +15,9 @@ export const idem = {
   reviewReminder: (eventId: EventId, planId: PlanId, reviewerUserId: UserId, cycle: number) =>
     `${eventId}:review_reminder:${planId}:${reviewerUserId}:${cycle}`,
   reviewerInvited: (eventId: EventId, userId: UserId) => `${eventId}:reviewer_invited:${userId}`,
-  // M51. `sendId` is one value per bulk-compose click (server-generated), so
-  // the same organizer send fans out to one row per recipient, and a retried
+  // M51. `sendId` is one durable caller-generated value per exact approved
+  // bulk compose, so the same organizer send fans out to one row per recipient
+  // across server-sized batches, event groups, reloads, and retries. A retried
   // request collapses onto the rows already queued rather than duplicating
   // them. `speaker_bulk_messages` (drizzle/0008) is keyed by this same
   // string, which is how `buildContext` finds the one recipient's rendered

@@ -50,13 +50,13 @@ export function ResourcePagesAdminView({
       const response = await fetch(`/api/internal/resources/${eventId}/${pageId}`);
       const payload = await response.json().catch(() => null) as { data?: ResourcePageDTO; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Could not load this page");
+        toast(payload?.error?.message ?? "Could not load this page", { kind: "error" });
         setEditorOpen(false);
         return;
       }
       setEditingPage(payload.data);
     } catch {
-      toast("Could not load this page");
+      toast("Could not load this page", { kind: "error" });
       setEditorOpen(false);
     } finally {
       setEditorLoading(false);
@@ -95,23 +95,40 @@ export function ResourcePagesAdminView({
         body: JSON.stringify({ orderedIds }),
       });
       if (!response.ok) {
-        toast("Could not reorder pages");
+        toast("Could not reorder pages", { kind: "error" });
         await refresh();
       }
     } catch {
-      toast("Could not reorder pages");
+      toast("Could not reorder pages", { kind: "error" });
       await refresh();
     } finally {
       setReordering(false);
     }
   }, [eventId, reordering, toast, refresh]);
 
-  async function remove(page: ResourcePageRow) {
-    const response = await fetch(`/api/internal/resources/${eventId}/${page.id}`, { method: "DELETE" });
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-    toast(response.ok ? `${page.title} deleted` : payload?.error?.message ?? "That page could not be deleted");
-    setPendingDelete(null);
-    if (response.ok) await refresh();
+  async function remove(page: ResourcePageRow): Promise<boolean> {
+    try {
+      const response = await fetch(`/api/internal/resources/${eventId}/${page.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!response.ok) {
+        toast(payload?.error?.message ?? "That page could not be deleted", { kind: "error" });
+        return false;
+      }
+      toast(`${page.title} deleted`);
+      // The DELETE is authoritative. Remove the row immediately so a later
+      // refresh transport failure cannot misreport a successful deletion as
+      // failed or leave the confirmation open around an item that is gone.
+      setPages((current) => current.filter((candidate) => candidate.id !== page.id));
+      try {
+        await refresh();
+      } catch {
+        toast("Page deleted, but the list could not be refreshed", { kind: "error" });
+      }
+      return true;
+    } catch {
+      toast("That page could not be deleted", { kind: "error" });
+      return false;
+    }
   }
 
   const columns = useMemo<Array<ColumnDef<ResourcePageRow, unknown>>>(() => [
@@ -215,7 +232,9 @@ export function ResourcePagesAdminView({
         title={pendingDelete ? `Delete “${pendingDelete.title}”?` : ""}
         body="Speakers reading this page in the portal lose access immediately. This cannot be undone."
         confirmLabel="Delete page"
-        onConfirm={async () => { if (pendingDelete) await remove(pendingDelete); }}
+        onConfirm={async () => {
+          if (pendingDelete && await remove(pendingDelete)) setPendingDelete(null);
+        }}
         onCancel={() => setPendingDelete(null)}
       />
     </main>

@@ -12,13 +12,13 @@ import type { OrganizationId } from "@/shared/contracts";
 export function CrmNav({ organizationId, active }: { organizationId: OrganizationId; active: "directory" | "contact" | "pipeline" | "segments" }) {
   return (
     <nav className="crm-subnav" aria-label="Speaker CRM">
-      <Link href={`/organizations/${organizationId}/crm`} className={active === "directory" || active === "contact" ? "active" : ""}>
+      <Link href={`/organizations/${organizationId}/crm`} className={active === "directory" || active === "contact" ? "active" : ""} aria-current={active === "directory" || active === "contact" ? "page" : undefined}>
         <Contact size={14} /> Directory
       </Link>
-      <Link href={`/organizations/${organizationId}/crm/pipeline`} className={active === "pipeline" ? "active" : ""}>
+      <Link href={`/organizations/${organizationId}/crm/pipeline`} className={active === "pipeline" ? "active" : ""} aria-current={active === "pipeline" ? "page" : undefined}>
         <Kanban size={14} /> Pipeline
       </Link>
-      <Link href={`/organizations/${organizationId}/crm/segments`} className={active === "segments" ? "active" : ""}>
+      <Link href={`/organizations/${organizationId}/crm/segments`} className={active === "segments" ? "active" : ""} aria-current={active === "segments" ? "page" : undefined}>
         <Layers size={14} /> Segments
       </Link>
     </nav>

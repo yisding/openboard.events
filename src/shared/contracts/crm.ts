@@ -328,13 +328,21 @@ export type ResolvedCrmSegment = z.infer<typeof resolvedCrmSegmentSchema>;
  * reported back as skipped with a specific reason rather than silently
  * dropped.
  */
-export const composeCrmBulkEmailInputSchema = z.object({
+const crmBulkEmailBaseSchema = z.object({
   organizationContactIds: z.array(organizationContactIdSchema).min(1).max(500),
   subject: z.string().trim().min(1).max(200),
   bodyHtml: z.string().trim().min(1).max(20_000),
-  mode: z.enum(["preview", "send"]),
-  previewOrganizationContactId: organizationContactIdSchema.optional(),
 });
+export const composeCrmBulkEmailInputSchema = z.discriminatedUnion("mode", [
+  crmBulkEmailBaseSchema.extend({
+    mode: z.literal("preview"),
+    previewOrganizationContactId: organizationContactIdSchema.optional(),
+  }),
+  crmBulkEmailBaseSchema.extend({
+    mode: z.literal("send"),
+    sendId: z.uuid(),
+  }),
+]);
 export type ComposeCrmBulkEmailInput = z.infer<typeof composeCrmBulkEmailInputSchema>;
 
 export const composeCrmBulkEmailResultSchema = z.object({

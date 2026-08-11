@@ -204,15 +204,27 @@ describe("organization-level speaker CRM (M55)", () => {
 
     // Bulk send: ada is linked to eventA1/eventA2, so the send fans out
     // through the existing M51/outbox path.
-    const sent = await composeCrmBulkEmailIn(db, orgA, {
-      organizationContactIds: [primaryId], subject: "Hello {{speaker.first_name}}", bodyHtml: "<p>Hi {{speaker.first_name}}</p>", mode: "send",
-    });
+    const sendId = "96000000-0000-4000-8000-000000000001";
+    const sendInput = {
+      organizationContactIds: [primaryId], subject: "Hello {{speaker.first_name}}", bodyHtml: "<p>Hi {{speaker.first_name}}</p>", mode: "send" as const,
+      sendId,
+    };
+    const sent = await composeCrmBulkEmailIn(db, orgA, sendInput);
     expect(sent.queued).toBe(1);
     expect(sent.errors).toEqual([]);
     const [loggedRow] = (await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM communication_logs WHERE template_key='speaker_bulk_message'",
     )).rows;
     expect(loggedRow?.n).toBeGreaterThanOrEqual(1);
+
+    // The CRM route can fan out across event groups or be retried after an
+    // ambiguous batch failure. Its caller-owned id must reach M51 unchanged.
+    await composeCrmBulkEmailIn(db, orgA, sendInput);
+    const [retryRows] = (await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM speaker_bulk_messages WHERE idempotency_key LIKE $1",
+      [`%:${sendId}`],
+    )).rows;
+    expect(retryRows?.n).toBe(1);
 
     // Suppress the resolved event contact and confirm the second send skips it.
     const [linkRow] = (await pglite.query<{ contact_id: string; event_id: string }>(
@@ -221,6 +233,7 @@ describe("organization-level speaker CRM (M55)", () => {
     await pglite.query("INSERT INTO contact_suppressions(contact_id, event_id, reason) VALUES($1,$2,'bounce')", [linkRow?.contact_id, linkRow?.event_id]);
     const suppressed = await composeCrmBulkEmailIn(db, orgA, {
       organizationContactIds: [primaryId], subject: "Hello again", bodyHtml: "<p>Hi</p>", mode: "send",
+      sendId: "96000000-0000-4000-8000-000000000002",
     });
     expect(suppressed.queued).toBe(0);
     expect(suppressed.skipped).toBe(1);
