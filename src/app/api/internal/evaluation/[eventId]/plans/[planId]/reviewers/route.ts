@@ -16,7 +16,12 @@ const replace = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({
     planId: planIdSchema,
-    reviewers: z.array(reviewerAssignmentSchema).max(50),
+    reviewers: z
+      .array(reviewerAssignmentSchema)
+      .max(50)
+      .refine((reviewers) => new Set(reviewers.map((reviewer) => reviewer.userId)).size === reviewers.length, {
+        message: "A reviewer can only be assigned once per evaluation plan",
+      }),
   }),
   handler: async ({ eventId, input }) => {
     const event = eventIdSchema.parse(eventId);

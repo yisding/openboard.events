@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { adminAuth } from "@/features/auth";
-import { listPlans, planInputSchema, savePlan } from "@/features/submissions";
+import { listPlans, planCreateInputSchema, savePlan } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { z } from "zod";
@@ -19,8 +19,8 @@ const list = defineHandler({
 
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: planInputSchema,
-  handler: async ({ eventId, input }) => savePlan(eventIdSchema.parse(eventId), input),
+  input: planCreateInputSchema,
+  handler: async ({ eventId, input }) => savePlan(eventIdSchema.parse(eventId), { ...input, planId: null }),
 });
 
 export async function GET(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {
