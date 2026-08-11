@@ -189,6 +189,10 @@ what actually merged plus its remaining deployed-evidence acceptance criteria; s
 
 ## 6. Reference docs
 
+**Execution overlay**
+
+- [`analysis/next-steps.md`](analysis/next-steps.md) — ordered release-closure queue, dependencies, verification checks, and handoff order.
+
 **Master plan**
 - [`../PLAN.md`](../PLAN.md) — scope (§1), architecture (§2), data model (§3), module catalog (§4), dependency graph (§5), workstreams (§6), timeline (§7), risks (§8), cut lines (§9)
 - [`product-roadmap.md`](product-roadmap.md) — the product overlay beyond the recovery bar: phased plan for wiring debt, external proof, trust/compliance, product-completeness work (M50–M54), and the optional commercial layer (M42–M49, M55). Subordinate to the recovery gates while they are open.
