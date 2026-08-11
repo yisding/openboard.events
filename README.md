@@ -35,7 +35,9 @@ a Worker bundle inside the Cloudflare Workers Free budget.
 **What is not yet proven anywhere:** a green run of the `Deploy` GitHub Actions workflow (every
 deploy so far is a laptop operation via `scripts/deploy-cloudflare.sh`); production (`sb-prod`) is
 provisioned — database migrated through the full journal, both workers deployed with secrets —
-but its first healthy post-deploy smoke is still pending; an Outlook delivery probe; and full end-to-end passes of the review
+but its first healthy post-deploy smoke is still pending (this post-dates the ledger's rev. 12
+snapshot; the recorded proof is [`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §11.2,
+which the ledger's next revision will absorb); an Outlook delivery probe; and full end-to-end passes of the review
 reminders, speaker-roster, and content-operations e2e specs (each has failed on a real but narrow
 gap — see `plan/status.md` §3 for the specifics rather than treating the surface as untested).
 `TEST_AUTH` remains enabled on the preview and must be disabled before any non-demo deployment.
