@@ -18,6 +18,8 @@ import { Button } from "@/shared/ui/ui-kit";
 type Step = "account" | "submission" | "speaker" | "review" | "done";
 
 type Answers = Record<string, AnswerValue | undefined>;
+export type ParticipantDraft = { clientId: string; answers: Answers };
+type AutosaveSnapshot = { answers: Answers; participants: ParticipantDraft[] };
 
 export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
@@ -26,6 +28,25 @@ export function cfpFlowSteps(collectParticipants: boolean): Array<Exclude<Step, 
   return collectParticipants
     ? ["account", "submission", "speaker", "review"]
     : ["account", "submission", "review"];
+}
+
+export function participantFieldIds(snapshot: FormSnapshot): Set<string> {
+  return new Set(snapshot.sections
+    .filter((section) => section.key === "participant")
+    .flatMap((section) => section.fields.map((field) => field.id)));
+}
+
+export function participantEmail(snapshot: FormSnapshot, answers: Answers): string {
+  const emailField = snapshot.sections
+    .filter((section) => section.key === "participant")
+    .flatMap((section) => section.fields)
+    .find((field) => field.mapsTo === "contact.email" || field.key === "email");
+  const value = emailField ? answers[emailField.id] : undefined;
+  return value?.t === "s" ? value.v.trim().toLowerCase() : "";
+}
+
+export function hasIncompleteParticipantEmail(snapshot: FormSnapshot, participants: ReadonlyArray<ParticipantDraft>): boolean {
+  return participants.some((participant) => participantEmail(snapshot, participant.answers) === "");
 }
 
 async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
@@ -93,6 +114,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [coSpeakers, setCoSpeakers] = useState<ParticipantDraft[]>([]);
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
   const flowSteps = cfpFlowSteps(form.collectParticipants);
@@ -104,13 +127,31 @@ export function CfpSteps({ data }: { data: PublicForm }) {
    * still a draft and the speaker is still editing.
    */
   const submitting = useRef(false);
-  const autosave = useRef<((snapshotAnswers: Answers) => Promise<boolean>) | null>(null);
-  autosave.current ??= serializeAutosaves((snapshotAnswers) => {
+  const nextCoSpeaker = useRef(1);
+  const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
+  autosave.current ??= serializeAutosaves((snapshotState) => {
     if (submitting.current) { setSaveState("saved"); return Promise.resolve(true); }
+    const participants = snapshotState.participants
+      .map((participant, index) => ({
+        clientId: participant.clientId,
+        email: participantEmail(snapshot, participant.answers),
+        answers: participant.answers,
+        role: "co_speaker" as const,
+        isPrimary: false as const,
+        sortOrder: index + 1,
+      }));
+    if (hasIncompleteParticipantEmail(snapshot, snapshotState.participants)) {
+      // Draft participant rows require a real contact email. Do not send a
+      // partial snapshot that would silently discard the still-unidentified
+      // co-speaker, and do not report the primary answers as saved either.
+      setSaveState("failed");
+      return Promise.resolve(false);
+    }
     return saveWithRetry(
       () => request(`/api/internal/forms/${form.id}/draft`, {
         formVersion: snapshot.version,
-        answers: snapshotAnswers,
+        answers: snapshotState.answers,
+        participants,
       }, "PATCH"),
       setSaveState,
     );
@@ -130,10 +171,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setSaveState("saving");
     const timer = window.setTimeout(() => {
       if (submitting.current) return;
-      void autosave.current?.({ ...answers });
+      void autosave.current?.({ answers: { ...answers }, participants: [...coSpeakers] });
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [answers, draftId]);
+  }, [answers, coSpeakers, draftId]);
 
   async function requestCode() {
     setBusy(true);
@@ -161,6 +202,13 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     if (!draft.ok) { setNotice(draft.message); return; }
     setDraftId(String(draft.data.submissionId));
     const restored = (draft.data.answers ?? {}) as Answers;
+    const restoredParticipants = Array.isArray(draft.data.participants)
+      ? draft.data.participants as Array<{ clientId?: unknown; answers?: unknown }>
+      : [];
+    setCoSpeakers(restoredParticipants
+      .filter((participant) => typeof participant.clientId === "string" && participant.answers && typeof participant.answers === "object")
+      .map((participant) => ({ clientId: participant.clientId as string, answers: participant.answers as Answers })));
+    setDraftRestored(Object.keys(restored).length > 0 || restoredParticipants.length > 0);
     const emailField = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "email");
     setAnswers((current) => ({
       ...restored,
@@ -170,15 +218,54 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setStep("submission");
   }
 
+  function addCoSpeaker() {
+    const number = nextCoSpeaker.current;
+    nextCoSpeaker.current += 1;
+    setCoSpeakers((current) => [...current, { clientId: `co-speaker-${number}`, answers: {} }]);
+  }
+
+  function updateCoSpeaker(clientId: string, fieldId: FieldId, value: AnswerValue | undefined) {
+    setCoSpeakers((current) => current.map((participant) => (
+      participant.clientId === clientId
+        ? { ...participant, answers: { ...participant.answers, [fieldId]: value } }
+        : participant
+    )));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  function removeCoSpeaker(clientId: string) {
+    setCoSpeakers((current) => current.filter((participant) => participant.clientId !== clientId));
+  }
+
   async function submit() {
     submitting.current = true;
     setBusy(true);
     setErrors({});
     setNotice("");
-    const participantIds = new Set(snapshot.sections
-      .filter((section) => section.key === "participant")
-      .flatMap((section) => section.fields.map((field) => field.id)));
+    const participantIds = participantFieldIds(snapshot);
     const participantAnswers = Object.fromEntries(Object.entries(answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId)));
+    const coSpeakerParticipants = coSpeakers.map((participant, index) => ({
+      participant,
+      email: participantEmail(snapshot, participant.answers),
+      sortOrder: index + 1,
+    }));
+    const duplicateEmails = new Set<string>();
+    const primaryEmail = email.trim().toLowerCase();
+    if (coSpeakerParticipants.some(({ email: coSpeakerEmail }) => {
+      if (!coSpeakerEmail || duplicateEmails.has(coSpeakerEmail) || coSpeakerEmail === primaryEmail) return true;
+      duplicateEmails.add(coSpeakerEmail);
+      return false;
+    })) {
+      submitting.current = false;
+      setBusy(false);
+      setNotice("Each co-speaker needs a unique email address");
+      setStep("speaker");
+      return;
+    }
     const sent = await request(`/api/internal/forms/${form.id}/submit`, {
       formVersion: snapshot.version,
       draftSubmissionId: draftId,
@@ -190,7 +277,14 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         isPrimary: true,
         sortOrder: 0,
         answers: participantAnswers,
-      }],
+      }, ...coSpeakerParticipants.map(({ participant, email: participantEmailAddress, sortOrder }) => ({
+        clientId: participant.clientId,
+        email: participantEmailAddress,
+        role: "co_speaker" as const,
+        isPrimary: false,
+        sortOrder,
+        answers: Object.fromEntries(Object.entries(participant.answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId))),
+      }))],
     });
     setBusy(false);
     if (!sent.ok) {
@@ -253,6 +347,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
       {step === "submission" && (
         <>
+          {draftRestored && (
+            <div className="cfp-draft-resume" role="status">
+              <b>Saved draft restored</b>
+              <span>Your previous answers are back. Continue when ready.</span>
+            </div>
+          )}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["abstract"]} errors={errors} />
           <div className="cfp-actions">
             <Button onClick={() => setStep(form.collectParticipants ? "speaker" : "review")}>Continue</Button>
@@ -263,6 +363,28 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       {form.collectParticipants && step === "speaker" && (
         <>
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["participant"]} errors={errors} />
+          {coSpeakers.map((participant, index) => (
+            <div className="co-speaker-fields" key={participant.clientId}>
+              <div className="review-block__header">
+                <h3>Co-speaker {index + 1}</h3>
+                <button type="button" className="button button-secondary" onClick={() => removeCoSpeaker(participant.clientId)}>Remove</button>
+              </div>
+              <FormFieldRenderer
+                snapshot={snapshot}
+                answers={participant.answers}
+                onChange={(fieldId, value) => updateCoSpeaker(participant.clientId, fieldId, value)}
+                mode="edit"
+                sectionKeys={["participant"]}
+                participantId={participant.clientId}
+                visibilityAnswers={answers}
+                errors={errors}
+              />
+            </div>
+          ))}
+          <button type="button" className="add-cospeaker" onClick={addCoSpeaker}>
+            <b>Add a co-speaker</b>
+            <span>Include another person on this proposal.</span>
+          </button>
           <div className="cfp-actions">
             <Button variant="secondary" onClick={() => setStep("submission")}>Back</Button>
             <Button onClick={() => setStep("review")}>Review</Button>
@@ -275,6 +397,25 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           {/* Read-back in review mode: the speaker checks what will be stored,
               which is also where a stale hidden answer would be conspicuous. */}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="review" />
+          {coSpeakers.length > 0 && (
+            <div className="review-block">
+              <div className="review-block__header"><h3>Co-speakers</h3></div>
+              {coSpeakers.map((participant, index) => (
+                <div className="review-block" key={participant.clientId}>
+                  <h4>Co-speaker {index + 1}</h4>
+                  <FormFieldRenderer
+                    snapshot={snapshot}
+                    answers={participant.answers}
+                    onChange={() => undefined}
+                    mode="review"
+                    sectionKeys={["participant"]}
+                    participantId={participant.clientId}
+                    visibilityAnswers={answers}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <div className="cfp-actions">
             <Button variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
             <Button onClick={submit} disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
@@ -291,7 +432,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           {saveState === "failed" && (
             <>
               <span>Changes are not saved.</span>{" "}
-              <button type="button" onClick={() => void autosave.current?.({ ...answers })}>Retry now</button>
+              <button type="button" onClick={() => void autosave.current?.({ answers: { ...answers }, participants: [...coSpeakers] })}>Retry now</button>
             </>
           )}
         </div>
@@ -302,8 +443,6 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 }
 
 export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
-  const participantFields = new Set(snapshot.sections
-    .filter((section) => section.key === "participant")
-    .flatMap((section) => section.fields.map((field) => field.id)));
+  const participantFields = participantFieldIds(snapshot);
   return Object.keys(fieldErrors).some((fieldId) => participantFields.has(fieldId as FieldId)) ? "speaker" : "submission";
 }

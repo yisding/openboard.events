@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
-import { cfpFlowSteps, saveWithRetry, serializeAutosaves, stepForErrors, type AutosaveState } from "./components/cfp-steps";
+import {
+  cfpFlowSteps,
+  hasIncompleteParticipantEmail,
+  participantEmail,
+  participantFieldIds,
+  saveWithRetry,
+  serializeAutosaves,
+  stepForErrors,
+  type AutosaveState,
+} from "./components/cfp-steps";
 
 const fieldId = (key: string) => {
   const field = GOLDEN_SNAPSHOT.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === key);
@@ -20,6 +29,21 @@ describe("CFP validation routing", () => {
 
   it("returns abstract errors to the submission step", () => {
     expect(stepForErrors(GOLDEN_SNAPSHOT, { [fieldId("title")]: "Title is required" })).toBe("submission");
+  });
+
+  it("keeps co-speaker answers scoped to participant fields", () => {
+    const ids = participantFieldIds(GOLDEN_SNAPSHOT);
+    expect(ids.has(fieldId("first_name"))).toBe(true);
+    expect(ids.has(fieldId("title"))).toBe(false);
+    expect(participantEmail(GOLDEN_SNAPSHOT, { [fieldId("email")]: { t: "s", v: "  CO@EXAMPLE.COM " } })).toBe("co@example.com");
+  });
+
+  it("does not treat a co-speaker without an email as autosaveable", () => {
+    expect(hasIncompleteParticipantEmail(GOLDEN_SNAPSHOT, [{ clientId: "co-1", answers: {} }])).toBe(true);
+    expect(hasIncompleteParticipantEmail(GOLDEN_SNAPSHOT, [{
+      clientId: "co-1",
+      answers: { [fieldId("email")]: { t: "s", v: "co@example.com" } },
+    }])).toBe(false);
   });
 });
 
