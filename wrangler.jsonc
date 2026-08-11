@@ -49,6 +49,11 @@
     },
     "production": {
       "name": "sb-web",
+      // Error 1042 fix, same as workers/jobs: the OpenNext runtime fetches its
+      // own APP_BASE_URL (a same-account workers.dev host), which Cloudflare
+      // refuses unless same-zone fetches are treated as public. Env-scoped so
+      // the working preview config stays byte-identical.
+      "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
       "vars": {
         "APP_ENV": "production",
         "EMAIL_MODE": "send",
