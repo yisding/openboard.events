@@ -44,8 +44,8 @@ function isEmpty(field: FormField, value: AnswerValue | undefined): boolean {
 
 /** Length is counted on text, not on markup, so `<b>` cannot eat a speaker's budget. */
 function tooLong(field: FormField, value: AnswerValue): string | null {
-  const max = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : null);
-  if (max === null || value.t !== "s") return null;
+  const max = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+  if (value.t !== "s") return null;
   const used = field.type === "richtext" ? plainTextLength(value.v) : value.v.length;
   return used > max ? `Keep this under ${max} characters` : null;
 }

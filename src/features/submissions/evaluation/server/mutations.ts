@@ -286,7 +286,7 @@ export async function savePlanIn(
           anonymize_authors = EXCLUDED.anonymize_authors,
           updated_at = now()
         WHERE evaluation_plans.event_id = ${eventId}
-          AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR evaluation_plans.updated_at = ${expectedUpdatedAt ?? null}::timestamptz)
+          AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR date_trunc('milliseconds', evaluation_plans.updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz))
         RETURNING id
       ),
       dropped AS (

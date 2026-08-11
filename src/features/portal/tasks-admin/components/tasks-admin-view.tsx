@@ -173,6 +173,7 @@ export function TasksAdminView({
 
       <TaskEditor
         eventId={eventId}
+        timezone={timezone}
         open={creating || editing !== null}
         task={editing}
         locked={editing !== null && editing.counts.completed > 0}
