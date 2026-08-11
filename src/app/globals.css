@@ -1156,6 +1156,15 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .public-form-progress li.active{color:var(--accent-dark);font-weight:700}
 .cfp-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;grid-column:1/-1}
 
+.recipient-preview{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint)}
+.recipient-preview>svg{flex:0 0 auto;color:var(--accent-dark)}
+.recipient-preview>div{display:grid;gap:3px;min-width:0}
+.recipient-preview b{font-size:11.5px}
+.recipient-preview span{color:var(--muted);font-size:10px;line-height:1.45}
+.recipient-cell{display:flex;align-items:center;gap:8px;min-width:0}
+.recipient-cell>span{width:28px;height:28px;flex:0 0 28px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-dark);font-size:9px;font-weight:800}
+.recipient-cell>b{min-width:0;overflow:hidden;text-overflow:ellipsis}
+
 /* Calendar is a download link, not a form button. Keep the affordance a full
    touch target in both hosted and dark embedded schedules. */
 .public-session-meta .public-calendar-link{position:absolute;right:11px;top:11px;width:31px;height:31px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--accent-dark);display:grid;place-items:center}
@@ -1249,6 +1258,22 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .crm-merge-field-label{min-height:38px}
   .crm-merge-choice+.crm-merge-choice{border-top:1px solid var(--line)}
   .crm-merge-choice small{display:block;margin-bottom:3px}
+}
+
+@media(max-width:650px){
+  /* Preserve the useful recipient, subject, status, and action on phones. The
+     full template and timestamp remain available in the detail drawer. */
+  .comms-table{width:100%!important;table-layout:fixed}
+  .comms-table th:nth-child(3),.comms-table td:nth-child(3),.comms-table th:nth-child(5),.comms-table td:nth-child(5){display:none}
+  .comms-table th:first-child{width:38%}
+  .comms-table th:nth-child(2){width:auto}
+  .comms-table th:nth-child(4){width:68px}
+  .comms-table th:last-child{width:48px}
+  .comms-table td{min-width:0;overflow:hidden}
+  .comms-table .recipient-cell>span{display:none}
+  .comms-table .recipient-cell>b,.comms-table .submission-title-cell b,.comms-table .submission-title-cell span{overflow:hidden;text-overflow:ellipsis}
+  .comms-table .submission-title-cell b,.comms-table .submission-title-cell span{white-space:nowrap}
+  .comms-table .icon-button{min-width:44px;min-height:44px}
 }
 
 @media(prefers-reduced-motion:reduce){

@@ -89,7 +89,7 @@ export function EventSwitcher({
       <button ref={triggerRef} type="button" className="event-switcher" onClick={() => {
         if (!open && loadError) setLoadError("");
         setOpen((value) => !value);
-      }} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
+      }} aria-expanded={open} aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
         <span>
           <b>{currentName}</b>
@@ -100,7 +100,6 @@ export function EventSwitcher({
       {open && (
         <div
           id={menuId}
-          role="menu"
           style={{
             position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto",
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
@@ -121,7 +120,6 @@ export function EventSwitcher({
             <Link
               key={event.id}
               href={`/events/${event.id}/dashboard`}
-              role="menuitem"
               onClick={() => setOpen(false)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, textDecoration: "none",
@@ -139,7 +137,6 @@ export function EventSwitcher({
           ))}
           <Link
             href={demoEvents ? "/events" : "/events/new"}
-            role="menuitem"
             onClick={() => setOpen(false)}
             style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textDecoration: "none" }}
           >

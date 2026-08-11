@@ -32,10 +32,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const kind = options.kind ?? "success";
     setCurrent({ message, kind });
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      if (timerRef.current !== timer) return;
       timerRef.current = null;
       setCurrent(null);
     }, options.durationMs ?? (kind === "error" ? 6000 : 3200));
+    timerRef.current = timer;
   }, []);
   useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
   const value = useMemo(() => ({ toast }), [toast]);

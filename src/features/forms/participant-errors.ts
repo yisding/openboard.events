@@ -12,8 +12,8 @@ export function splitParticipantFieldErrors(fieldErrors: Record<string, string>)
   unscoped: Record<string, string>;
   byParticipant: Record<string, Record<string, string>>;
 } {
-  const unscoped: Record<string, string> = {};
-  const byParticipant: Record<string, Record<string, string>> = {};
+  const unscoped = Object.create(null) as Record<string, string>;
+  const byParticipant = Object.create(null) as Record<string, Record<string, string>>;
   for (const [key, message] of Object.entries(fieldErrors)) {
     if (!key.startsWith(PARTICIPANT_ERROR_PREFIX)) {
       unscoped[key] = message;
@@ -33,7 +33,9 @@ export function splitParticipantFieldErrors(fieldErrors: Record<string, string>)
       unscoped[key] = message;
       continue;
     }
-    byParticipant[clientId] = { ...(byParticipant[clientId] ?? {}), [fieldId]: message };
+    const participantErrors = byParticipant[clientId] ?? Object.create(null) as Record<string, string>;
+    participantErrors[fieldId] = message;
+    byParticipant[clientId] = participantErrors;
   }
   return { unscoped, byParticipant };
 }

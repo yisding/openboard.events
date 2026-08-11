@@ -260,6 +260,10 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
       await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, Number(event.submission_cap_per_user));
     }
   }
+  // A form-backed submission inherits the form's configured kind. Keeping an
+  // independent caller value here would allow a form foreign key and its
+  // submission kind to contradict each other.
+  const kind = form?.kind ?? input.kind;
 
   const columns = submissionColumns(input);
 
@@ -293,7 +297,7 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
       status,
       formVersion: input.formVersion,
       source: input.source,
-      kind: input.kind,
+      kind,
       // A promotion that stays a draft has not been submitted, so it must not
       // carry a submitted_at that every downstream sort trusts.
       ...(status === "draft" ? {} : { submittedAt: new Date() }),
@@ -307,7 +311,7 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
       formId: input.formId,
       formVersion: input.formVersion,
       code,
-      kind: input.kind,
+      kind,
       status,
       source: input.source,
       submitterContactId: input.submitterContactId,

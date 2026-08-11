@@ -19,4 +19,11 @@ describe("participant field errors", () => {
       byParticipant: {},
     });
   });
+
+  it("treats prototype-shaped participant ids as ordinary keys", () => {
+    const fieldErrors = scopeParticipantFieldErrors("__proto__", { bio: "Biography is required" });
+    const split = splitParticipantFieldErrors(fieldErrors);
+    expect(Object.keys(split.byParticipant)).toEqual(["__proto__"]);
+    expect(split.byParticipant.__proto__).toEqual({ bio: "Biography is required" });
+  });
 });
