@@ -280,8 +280,12 @@ describe("portal task runtime", () => {
   });
 
   it("keeps every upload and completes only once", async () => {
-    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
-    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    const first = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    const second = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+    expect(first.version).toBe(1);
+    expect(first.isLatest).toBe(true);
+    expect(second.version).toBe(2);
+    expect(second.isLatest).toBe(true);
     expect(await count("file_uploads")).toBe(2);
     expect(await count("task_completions")).toBe(1);
 

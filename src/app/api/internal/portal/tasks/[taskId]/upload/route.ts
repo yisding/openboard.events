@@ -20,14 +20,14 @@ const upload = defineHandler({
     fileAssetId: z.uuid(),
   }),
   handler: async ({ eventId, session, input }) => {
-    await completeTaskViaUpload(
+    const upload = await completeTaskViaUpload(
       eventIdSchema.parse(eventId),
       sessionContactId(session),
       input.taskId,
       input.submissionId,
       input.fileAssetId,
     );
-    return { completed: true };
+    return { completed: true, upload };
   },
 });
 

@@ -1,12 +1,12 @@
 import { sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
-import type { ContactId, EventId, FileCommentDTO, FileKind, FormId, SubmissionId } from "@/shared/contracts";
+import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
 import { updateContactFields } from "../../server/contacts";
-import { addFileCommentIn } from "../../server/deliverable-slot";
+import { addFileCommentIn, listFileVersionsIn } from "../../server/deliverable-slot";
 
 /**
  * The three ways a speaker finishes a task.
@@ -175,7 +175,7 @@ export async function completeTaskViaUploadIn(
   taskId: string,
   submissionId: string | null,
   fileAssetId: string,
-): Promise<void> {
+): Promise<FileVersionDTO> {
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
   if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
 
@@ -215,6 +215,19 @@ export async function completeTaskViaUploadIn(
     ON CONFLICT (task_id, contact_id, submission_id) DO UPDATE SET
       completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
   `);
+
+  // Return the exact row the organizer and task detail views will read. This
+  // keeps the client from reconstructing a version number, latest marker, or
+  // timestamp and lets the speaker see a successful attachment immediately.
+  const version = (await listFileVersionsIn(
+    tx,
+    eventId,
+    assignment.fileRequestId,
+    contactId,
+    submissionId as SubmissionId | null,
+  )).find((entry) => entry.fileUploadId === fileUploadId);
+  if (!version) throw new AppError("INTERNAL", "The uploaded version could not be read back");
+  return version;
 }
 
 /**
