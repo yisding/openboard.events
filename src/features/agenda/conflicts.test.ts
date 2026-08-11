@@ -143,4 +143,74 @@ describe("detectConflicts", () => {
     ]);
     expect(after).toEqual(before);
   });
+
+  it("matches a pairwise oracle across deterministic randomized schedules", () => {
+    // This is deliberately a tiny local generator rather than a dependency on
+    // a property-testing package: the seed is visible in a failing test and
+    // the suite remains runnable in every worker/browser environment.
+    const random = (seed: number) => {
+      let state = seed >>> 0;
+      return () => {
+        state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+        return state / 0x1_0000_0000;
+      };
+    };
+    const generatedId = (index: number) => `d5000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+    const keyFor = (kind: string, subjectId: string, a: string, b: string) => `${kind}:${subjectId}:${a}:${b}`;
+
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const next = random(seed);
+      const sessions = Array.from({ length: 12 }, (_, index) => {
+        const startsAtMs = at(8) + Math.floor(next() * 12 * 60) * 60_000;
+        const endsAtMs = startsAtMs + (15 + Math.floor(next() * 150)) * 60_000;
+        const roomId = next() < 0.72 ? roomIdSchema.parse(generatedId(0x100 + Math.floor(next() * 4))) : null;
+        const trackId = next() < 0.62 ? trackIdSchema.parse(generatedId(0x200 + Math.floor(next() * 3))) : null;
+        const speakerPool = [
+          contactIdSchema.parse(generatedId(0x300)),
+          contactIdSchema.parse(generatedId(0x301)),
+          contactIdSchema.parse(generatedId(0x302)),
+          contactIdSchema.parse(generatedId(0x303)),
+        ];
+        const speakerIds = speakerPool.filter(() => next() < 0.38);
+        return session({ id: generatedId(0x400 + index), startsAtMs, endsAtMs, roomId, trackId, speakerIds });
+      });
+
+      const expected = new Set<string>();
+      const expectedPair = (left: ScheduledSession, right: ScheduledSession, kind: "room" | "track" | "speaker", subjectId: string) => {
+        if (!(left.startsAtMs < right.endsAtMs && right.startsAtMs < left.endsAtMs)) return;
+        const [a, b] = left.id.localeCompare(right.id) <= 0 ? [left.id, right.id] : [right.id, left.id];
+        expected.add(keyFor(kind, subjectId, a, b));
+      };
+
+      for (let leftIndex = 0; leftIndex < sessions.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < sessions.length; rightIndex += 1) {
+          const left = sessions[leftIndex];
+          const right = sessions[rightIndex];
+          if (!left || !right) continue;
+          if (left.roomId && left.roomId === right.roomId) expectedPair(left, right, "room", left.roomId);
+          if (left.trackId && left.trackId === right.trackId) expectedPair(left, right, "track", left.trackId);
+          for (const speakerId of left.speakerIds) {
+            if (right.speakerIds.includes(speakerId)) expectedPair(left, right, "speaker", speakerId);
+          }
+        }
+      }
+
+      const actual = detectConflicts(sessions);
+      expect(new Set(actual.map((conflict) => keyFor(conflict.kind, conflict.subjectId, conflict.a, conflict.b)))).toEqual(expected);
+      expect(actual.every((conflict) => conflict.a !== conflict.b)).toBe(true);
+      expect(new Set(actual.map((conflict) => `${conflict.kind}:${conflict.subjectId}:${conflict.a}:${conflict.b}`)).size).toBe(actual.length);
+      expect(actual.every((conflict) => conflict.overlapStartMs < conflict.overlapEndMs)).toBe(true);
+      expect(detectConflicts([...sessions].reverse())).toEqual(actual);
+    }
+
+    const disjoint = Array.from({ length: 20 }, (_, index) => session({
+      id: generatedId(0x500 + index),
+      startsAtMs: at(8) + index * 30 * 60_000,
+      endsAtMs: at(8) + (index * 30 + 15) * 60_000,
+      roomId: room,
+      trackId: track,
+      speakerIds: [ada],
+    }));
+    expect(detectConflicts(disjoint)).toEqual([]);
+  });
 });
