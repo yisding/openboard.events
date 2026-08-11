@@ -62,7 +62,10 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
             const progress = task.assigned ? Math.round(task.completed / task.assigned * 100) : 0;
             return (
               <article className="admin-task-row" key={task.id}>
-                <span className={`task-mode-icon ${task.mode}`}>
+                {/* T6: the mode tint borrowed green/blue for a category with no
+                    status meaning; the icon shape already distinguishes the three
+                    modes, so the chip renders neutral. */}
+                <span className="task-mode-icon">
                   {task.mode === "file_request" ? <Upload size={18} /> : task.mode === "form" ? <FileText size={18} /> : <CheckCircle2 size={18} />}
                 </span>
                 <div className="admin-task-main">

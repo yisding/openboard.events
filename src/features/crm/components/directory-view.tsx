@@ -123,7 +123,7 @@ export function DirectoryView({
       enableSorting: false,
       cell: ({ row }) => row.original.tags.length === 0 ? <Dash /> : (
         <div className="chip-picker">
-          {row.original.tags.map((tag) => <span key={tag.id} className="chip" style={{ borderColor: `${tag.color}55`, background: `${tag.color}1f`, color: tag.color }}>{tag.name}</span>)}
+          {row.original.tags.map((tag) => <span key={tag.id} className="chip">{tag.name}</span>)}
         </div>
       ),
     },
@@ -162,9 +162,9 @@ export function DirectoryView({
 
       <section className="summary-row">
         <article><span className="summary-icon accent"><Contact size={19} /></span><div><strong>{metrics.totalContacts}</strong><small>Total contacts</small></div></article>
-        <article><span className="summary-icon blue"><Users size={19} /></span><div><strong>{metrics.totalWithEventLink}</strong><small>Linked to an event</small></div></article>
-        <article><span className="summary-icon green"><Tags size={19} /></span><div><strong>{metrics.totalTagged}</strong><small>Tagged</small></div></article>
-        <article><span className="summary-icon amber"><Building2 size={19} /></span><div><strong>{metrics.eventsRepresented}</strong><small>Events represented</small></div></article>
+        <article><span className="summary-icon"><Users size={19} /></span><div><strong>{metrics.totalWithEventLink}</strong><small>Linked to an event</small></div></article>
+        <article><span className="summary-icon"><Tags size={19} /></span><div><strong>{metrics.totalTagged}</strong><small>Tagged</small></div></article>
+        <article><span className="summary-icon"><Building2 size={19} /></span><div><strong>{metrics.eventsRepresented}</strong><small>Events represented</small></div></article>
       </section>
 
       {selected.length > 0 && (

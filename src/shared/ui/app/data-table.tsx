@@ -10,6 +10,7 @@ import {
   type ColumnDef,
   type PaginationState,
   type Row as TableRow,
+  type RowData,
   type SortingState,
   type Updater,
   type VisibilityState,
@@ -17,6 +18,21 @@ import {
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Dash } from "./dash";
+
+// Additive column-meta support: a column definition may carry a stable class
+// name that DataTable stamps onto both its <th> and every <td> in that
+// column. This exists for responsive column-hiding — nth-child selectors
+// break the moment a table's column order differs from the surface that was
+// screenshotted, which is exactly what happened with the demo `.abstracts-table`
+// vs. the database-backed one (same feature, different column order, only the
+// shared `class="data-table"` in common). A per-column class survives that.
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    /** Stamped onto this column's <th> and every <td> in its body cells. */
+    className?: string;
+  }
+}
 
 /**
  * The one table in the product. Building a second one is a review-blocker: six
@@ -322,20 +338,29 @@ export function DataTable<Row>({
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {enableSelection && (
-                  <th style={{ width: 38 }}>
-                    <input
-                      type="checkbox"
-                      aria-label="Select every row on this page"
-                      checked={table.getIsAllPageRowsSelected()}
-                      ref={(node) => { if (node) node.indeterminate = table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected(); }}
-                      onChange={table.getToggleAllPageRowsSelectedHandler()}
-                    />
+                  <th style={{ width: 44 }}>
+                    {/* `.checkbox-hit` carries the 44x44 touch target the bare
+                        14px control cannot — padding does not grow a native
+                        checkbox. The label toggles it with no extra handler. */}
+                    <label className="checkbox-hit">
+                      <input
+                        type="checkbox"
+                        aria-label="Select every row on this page"
+                        checked={table.getIsAllPageRowsSelected()}
+                        ref={(node) => { if (node) node.indeterminate = table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected(); }}
+                        onChange={table.getToggleAllPageRowsSelectedHandler()}
+                      />
+                    </label>
                   </th>
                 )}
                 {group.headers.map((header) => {
                   const sorted = header.column.getIsSorted();
                   return (
-                    <th key={header.id} aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"}>
+                    <th
+                      key={header.id}
+                      {...(header.column.columnDef.meta?.className ? { className: header.column.columnDef.meta.className } : {})}
+                      aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"}
+                    >
                       {header.isPlaceholder ? null : header.column.getCanSort() ? (
                         <button type="button" className="table-sort" onClick={header.column.getToggleSortingHandler()}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
@@ -380,16 +405,26 @@ export function DataTable<Row>({
                 >
                   {enableSelection && (
                     <td onClick={(event) => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={selectionLabel(row.original, row.id, getRowLabel)}
-                        checked={row.getIsSelected()}
-                        onChange={row.getToggleSelectedHandler()}
-                      />
+                      {/* `.checkbox-hit` carries the 44x44 touch target the bare
+                          native checkbox cannot (T7); the name comes from
+                          `getRowLabel` so each row reads distinctly. */}
+                      <label className="checkbox-hit">
+                        <input
+                          type="checkbox"
+                          aria-label={selectionLabel(row.original, row.id, getRowLabel)}
+                          checked={row.getIsSelected()}
+                          onChange={row.getToggleSelectedHandler()}
+                        />
+                      </label>
                     </td>
                   )}
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    <td
+                      key={cell.id}
+                      {...(cell.column.columnDef.meta?.className ? { className: cell.column.columnDef.meta.className } : {})}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
                   ))}
                 </tr>
               ))}

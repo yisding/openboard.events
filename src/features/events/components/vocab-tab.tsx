@@ -90,7 +90,10 @@ function Row({
 }) {
   const sortable = useSortable({ id: item.id, disabled: !reorderable || reorderDisabled });
   const [name, setName] = useState(item.name);
-  const [color, setColor] = useState(hasColor(item) ? item.color : "#6366f1");
+  // On-palette jade, matching `CUSTOM_TRACK_COLOR` in the onboarding wizard.
+  // The previous default was indigo (#6366f1), which is not in the palette at
+  // all — see design-system.md T6.
+  const [color, setColor] = useState(hasColor(item) ? item.color : "#00a878");
   const [capacity, setCapacity] = useState(hasCapacity(item) ? item.capacity ?? "" : "");
   const [duration, setDuration] = useState(hasDuration(item) ? item.defaultDurationMins : 30);
 
