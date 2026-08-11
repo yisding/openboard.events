@@ -118,6 +118,10 @@ export function AbstractsTable({
       accessorFn: (row) => row.speakers[0]?.name ?? null,
       enableSorting: false,
       sortingFn: nullsLast,
+      // T5 disclosure ladder (design-system.md) — this table has no demo
+      // equivalent to ride nth-child off (the demo folds the speaker name
+      // into the title cell instead), so it carries its own stable class.
+      meta: { className: "abstracts-col-speakers" },
       cell: ({ row }) => <Dash value={row.original.speakers[0]?.name}>
         <span>{row.original.speakers.map((speaker) => speaker.name).join(", ")}</span>
       </Dash>,
@@ -129,6 +133,9 @@ export function AbstractsTable({
       accessorFn: (row) => row.trackName,
       enableSorting: false,
       sortingFn: nullsLast,
+      // Mirrors `.abstracts-table`'s Track column: ellipsised at ≤1024, hidden
+      // at ≤768.
+      meta: { className: "abstracts-col-track" },
       cell: ({ row }) => row.original.trackName
         ? <ColorChip label={row.original.trackName} />
         : <Dash />,
@@ -153,6 +160,9 @@ export function AbstractsTable({
       accessorFn: (row) => row.notifiedAt,
       enableSorting: false,
       sortingFn: nullsLast,
+      // T5 — the two lowest-priority columns (this and Submitted) hide first,
+      // at ≤1024; the demo has no Notified column at all to model this on.
+      meta: { className: "abstracts-col-notified" },
       cell: ({ row }) => <TzTime instant={row.original.notifiedAt} tz={timezone} style="date" secondary="time" />,
     },
     {
@@ -161,6 +171,8 @@ export function AbstractsTable({
       accessorFn: (row) => row.submittedAt,
       sortDescFirst: true,
       sortingFn: nullsLast,
+      // Mirrors `.abstracts-table`'s Submitted column: hidden at ≤1024.
+      meta: { className: "abstracts-col-submitted" },
       cell: ({ row }) => <TzTime instant={row.original.submittedAt} tz={timezone} style="date" secondary="time" />,
     },
   ], [timezone]);

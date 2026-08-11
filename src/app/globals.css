@@ -799,6 +799,16 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .column-picker{position:absolute;right:0;top:38px;z-index:20;min-width:170px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 28px rgba(12,32,29,.12);display:grid;gap:4px;text-align:left}
 .column-picker label{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:11px;color:var(--ink);cursor:pointer}
 .column-picker label:hover{background:var(--canvas)}
+/* Found while extending the T7 touch floor to this control (design-system.md
+   "Accessibility floors"): this checkbox has no size reset of its own, so it
+   inherits the generic `input, textarea, select { width: 100%; ... }` /
+   `input { height: 40px }` rules meant for text fields — measured 85×40,
+   ballooning across most of the popover row instead of sitting as a small
+   glyph next to its label text. `.data-table input[type=checkbox]` and
+   `.choice input[type=checkbox]` already carry the same reset for the same
+   reason; this one was missed because the column-picker predates neither
+   pattern being generalized. */
+.column-picker input[type=checkbox]{width:14px;height:14px;flex-shrink:0;accent-color:var(--accent)}
 .skeleton-row td{padding:0}
 .skeleton-row span{display:block;height:14px;margin:24px 12px;border-radius:5px;background:linear-gradient(90deg,var(--fill) 25%,#e2ebe7 37%,var(--fill) 63%);background-size:400% 100%;animation:skeleton-sweep 1.4s ease infinite}
 @keyframes skeleton-sweep{0%{background-position:100% 50%}100%{background-position:0 50%}}
@@ -1262,6 +1272,29 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 @media (max-width: 1024px) {
   .abstracts-table th:nth-child(7), .abstracts-table td:nth-child(7) { display: none; }
   .abstracts-table .track-chip { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
+  /* The database-backed Abstracts table renders through the shared
+     `<DataTable>` (globals.css only ever sees `class="data-table"`), with a
+     different column order and two columns — Speakers, Notified — the demo
+     above doesn't have (it folds the speaker into the title cell and has no
+     notify-status column at all). nth-child can't identify a column here, so
+     these ride the `abstracts-col-*` class each column definition supplies
+     via DataTable's `meta.className` (src/features/submissions/components/
+     abstracts-table.tsx) instead. Same ladder as the demo: Notified and
+     Submitted — the two lowest-priority, least-glanceable columns — hide
+     first, and Track gets the same ellipsis treatment. */
+  .data-table td.abstracts-col-track .track-chip { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+  .data-table th.abstracts-col-notified, .data-table td.abstracts-col-notified,
+  .data-table th.abstracts-col-submitted, .data-table td.abstracts-col-submitted { display: none; }
+}
+
+@media (max-width: 768px) {
+  /* Second disclosure stage, mirroring `.abstracts-table`'s own ≤768 rule
+     (which additionally drops Track at this width): Track and Speakers go
+     too, leaving Code / Title / Status / Rating — the same five essential
+     columns the demo settles on at this width. */
+  .data-table th.abstracts-col-track, .data-table td.abstracts-col-track,
+  .data-table th.abstracts-col-speakers, .data-table td.abstracts-col-speakers { display: none; }
 }
 
 /*
@@ -1280,6 +1313,17 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
  *    left exactly as designed.
  */
 .checkbox-hit { display: grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }
+
+/* Base (>768px) floor for the shared DataTable's column-picker rows — a
+ * <label> wrapping a 14px checkbox plus text, ~24px tall from padding alone
+ * (measured). This is the width range where the control is actually
+ * reachable: `.row-count{display:none}` in the ≤768 block below already
+ * hides the whole "Columns" button + picker at that width (same declutter
+ * rule that also removes the demo's separate Columns icon-button), so the
+ * ≤768 44px override added there is a defensive no-op today, not the fix
+ * that matters — this unconditional 32px rule is.
+ */
+.column-picker label { min-height: 32px; }
 
 @media (max-width: 768px) {
   .icon-button, .mobile-menu, .mobile-close, .portal-mobile-menu { min-width: 44px; min-height: 44px; }
@@ -1316,6 +1360,33 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      14px glyph into a 14×44 lozenge. They get their hit area from the
      `.checkbox-hit` wrapper above (measured 44×44) instead. */
   input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+
+  /* Four more offenders, found the same way as the block above (browser
+     measurement, not a stylesheet grep): the shared DataTable's column-picker
+     rows, the bulk-bar "Clear" button, the form builder's `.switch`, and the
+     portal profile-photo button. */
+  /* Defensive only: `.row-count{display:none}` a few rules up already hides
+     the whole "Columns" trigger (and this picker with it) at this width — see
+     the unconditional 32px rule next to `.checkbox-hit` above for the floor
+     that's actually load-bearing, in the >768 range where the picker is
+     reachable. This stays in case that hide rule ever narrows. */
+  .column-picker label { min-height: 44px; }
+  /* The bulk-bar's "Clear" is a bare text button with no authored height —
+     min-height is purely additive here, there's nothing fixed to beat. */
+  .bulk-bar > button:last-child { min-height: 44px; }
+  /* `.switch` (36×21) and the portal profile-photo badge (27×27) both keep
+     their visual size — T7 prefers hit-area expansion over visual inflation
+     where the control's rendered size is otherwise meaningful (a switch that
+     suddenly reads as 44px tall no longer looks like a switch). A transparent
+     `::before`, centred over each and sized 44×44, supplies the target
+     without changing what's painted; `.profile-photo button` is already
+     `position: absolute` so it already anchors an absolutely-positioned
+     `::before` with no extra declaration. */
+  .switch { position: relative; }
+  .switch::before, .profile-photo button::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
 }
 
 @media(prefers-reduced-motion:reduce){
