@@ -16,7 +16,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
   useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
   const value = useMemo(() => ({ toast }), [toast]);
-  return <ToastContext.Provider value={value}>{children}{message && <div className="toast"><CheckCircle2 size={18} /><span>{message}</span><button type="button" aria-label="Dismiss" onClick={() => setMessage(null)}><X size={16} /></button></div>}</ToastContext.Provider>;
+  return <ToastContext.Provider value={value}>{children}{message && <div className="toast" role="status" aria-live="polite" aria-atomic="true"><CheckCircle2 size={18} aria-hidden /><span>{message}</span><button type="button" aria-label="Dismiss" onClick={() => setMessage(null)}><X size={16} /></button></div>}</ToastContext.Provider>;
 }
 
 export function useToast() {

@@ -190,6 +190,15 @@ describe("M42 admin auth on Better Auth", () => {
     await expect(authorizeAdmin(database, reviewer, eventB, "owner")).resolves.toMatchObject({ role: "owner" });
     await expect(authorizeAdmin(database, legacy, eventB)).rejects.toMatchObject({ code: "FORBIDDEN" });
 
+    // An event that does not exist answers exactly like one the caller is not a
+    // member of. The membership lookup runs *before* any event row is read —
+    // `createImpersonationLink`'s `NOT_FOUND` sits behind `requireAdmin` for
+    // this reason — so a signed-in organizer cannot probe which event ids are
+    // real by reading the error back.
+    const unknownEvent = eventIdSchema.parse("b0000000-0000-4000-8000-0000000000ff");
+    await expect(authorizeAdmin(database, legacy, unknownEvent)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(authorizeAdmin(database, reviewer, unknownEvent, "reviewer")).rejects.toMatchObject({ code: "FORBIDDEN" });
+
     expect(roleSatisfies("owner", "reviewer")).toBe(true);
     expect(roleSatisfies("reviewer", "organizer")).toBe(false);
     expect(requiredRoleForEventPath(eventA, `/events/${eventA}/review`)).toBe("reviewer");

@@ -5,8 +5,8 @@ import type { BuilderEvent, BuilderForm, FormPatch } from "../../builder-types";
 import { CloseDateCard } from "./close-date-card";
 import { SuccessPageCard } from "./success-page-card";
 
-const captionStyle = { color: "var(--muted)", fontSize: 10, margin: "-10px 0 16px" } as const;
-const helpStyle = { color: "var(--muted)", fontSize: 9, lineHeight: 1.5, margin: "10px 0 0" } as const;
+const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
+const helpStyle = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "10px 0 0" } as const;
 
 /**
  * "Settings" step — Deadlines, Submission capacity, After submission.

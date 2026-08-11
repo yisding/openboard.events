@@ -28,12 +28,20 @@ export function RichTextEditor({
   maxChars,
   placeholder,
   ariaLabel = "Rich text editor",
+  ariaLabelledBy,
+  ariaDescribedBy,
+  ariaInvalid = false,
+  required = false,
 }: {
   value: string;
   onChange: (html: string) => void;
   maxChars?: number;
   placeholder?: string;
   ariaLabel?: string;
+  ariaLabelledBy?: string;
+  ariaDescribedBy?: string;
+  ariaInvalid?: boolean;
+  required?: boolean;
 }) {
   const editor = useEditor({
     immediatelyRender: false,
@@ -55,7 +63,10 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         class: "rich-text-editor__surface",
-        "aria-label": ariaLabel,
+        ...(ariaLabelledBy ? { "aria-labelledby": ariaLabelledBy } : { "aria-label": ariaLabel }),
+        ...(ariaDescribedBy ? { "aria-describedby": ariaDescribedBy } : {}),
+        ...(ariaInvalid ? { "aria-invalid": "true" } : {}),
+        ...(required ? { "aria-required": "true" } : {}),
       },
     },
     onUpdate: ({ editor: instance }) => onChange(sanitize(instance.getHTML())),

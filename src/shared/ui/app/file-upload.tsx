@@ -27,7 +27,7 @@ const CLIENT_POLICY: Record<FileKind, { accept: string; maxSizeMb: number; downs
   upload: { accept: "", maxSizeMb: 100 },
 };
 
-type Phase = "idle" | "validating" | "downscaling" | "presigning" | "uploading" | "finalizing" | "done" | "error";
+type Phase = "idle" | "validating" | "downscaling" | "presigning" | "uploading" | "finalizing" | "associating" | "done" | "error";
 
 export type UploadedMeta = { filename: string; sizeBytes: number; mime: string };
 
@@ -103,7 +103,7 @@ export function FileUpload({
 }: {
   eventId: string;
   kind: FileKind;
-  onUploaded: (fileId: string, meta: UploadedMeta) => void | boolean | Promise<void | boolean>;
+  onUploaded: (fileId: string, meta: UploadedMeta) => boolean | void | Promise<boolean | void>;
   accept?: string;
   maxSizeMb?: number;
   currentFileId?: string | null;
@@ -116,11 +116,26 @@ export function FileUpload({
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState("");
   const [uploaded, setUploaded] = useState<{ fileId: string; meta: UploadedMeta } | null>(null);
+  const [pendingAssociation, setPendingAssociation] = useState<{ fileId: string; meta: UploadedMeta } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function fail(reason: string) {
     setError(reason);
     setPhase("error");
+  }
+
+  async function associate(fileId: string, meta: UploadedMeta) {
+    setPhase("associating");
+    try {
+      const accepted = await onUploaded(fileId, meta);
+      if (accepted === false) throw new Error("The file uploaded, but could not be saved. Try again.");
+      setPendingAssociation(null);
+      setUploaded({ fileId, meta });
+      setPhase("done");
+    } catch (associationError) {
+      setPendingAssociation({ fileId, meta });
+      fail(associationError instanceof Error ? associationError.message : "The file uploaded, but could not be saved. Try again.");
+    }
   }
 
   async function upload(picked: File) {
@@ -177,25 +192,10 @@ export function FileUpload({
     }
 
     const meta: UploadedMeta = { filename: file.name, sizeBytes: file.size, mime: file.type };
-    try {
-      // Some callers have a second server mutation after finalization (for
-      // example, attaching this asset to a portal task). Wait for that mutation
-      // before showing the file as complete; a finalized but unattached asset is
-      // not a completed task.
-      const attached = await onUploaded(fileId, meta);
-      if (attached === false) {
-        fail("The file uploaded, but could not be attached to this task — try again");
-        return;
-      }
-    } catch (callbackError) {
-      fail(callbackError instanceof Error ? callbackError.message : "The file could not be attached — try again");
-      return;
-    }
-    setUploaded({ fileId, meta });
-    setPhase("done");
+    await associate(fileId, meta);
   }
 
-  const busy = phase === "validating" || phase === "downscaling" || phase === "presigning" || phase === "uploading" || phase === "finalizing";
+  const busy = phase === "validating" || phase === "downscaling" || phase === "presigning" || phase === "uploading" || phase === "finalizing" || phase === "associating";
   const shownFileId = uploaded?.fileId ?? currentFileId ?? null;
 
   return (
@@ -238,7 +238,11 @@ export function FileUpload({
       {phase === "error" && (
         <p className="file-upload__error" role="alert">
           <X size={14} /> {error}{" "}
-          <button type="button" onClick={() => { setPhase("idle"); setError(""); }}>Try again</button>
+          <button type="button" onClick={() => {
+            setError("");
+            if (pendingAssociation) void associate(pendingAssociation.fileId, pendingAssociation.meta);
+            else setPhase("idle");
+          }}>Try again</button>
         </p>
       )}
     </div>
@@ -252,6 +256,7 @@ const PHASE_LABEL: Record<Phase, string> = {
   presigning: "Starting the upload…",
   uploading: "Uploading…",
   finalizing: "Verifying…",
+  associating: "Saving…",
   done: "",
   error: "",
 };

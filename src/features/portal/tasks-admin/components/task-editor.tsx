@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { eventDayKey } from "@/shared/lib/time";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
 
 export type TaskDraft = {
@@ -27,7 +28,7 @@ function hintProp(hint: string | undefined): { hint: string } | Record<string, n
   return hint ? { hint } : {};
 }
 
-function draftFromTask(task: AdminTaskDTO | null): TaskDraft {
+function draftFromTask(task: AdminTaskDTO | null, timezone: string): TaskDraft {
   if (!task) {
     return {
       name: "", descriptionHtml: "", targetType: "contact", completionMode: "manual",
@@ -42,9 +43,10 @@ function draftFromTask(task: AdminTaskDTO | null): TaskDraft {
     completionMode: task.completionMode,
     formId: task.formId,
     fileRequestId: task.fileRequestId,
-    // The picker only ever shows a date; trimming here is what stops a
-    // previously-set time-of-day from round-tripping into the input.
-    dueAt: task.dueAt ? task.dueAt.slice(0, 10) : null,
+    // `dueAt` is a UTC instant at end-of-day *in the event zone*; for negative-offset
+    // zones that instant falls on the next UTC date, so slicing the raw ISO string
+    // would show (and re-save) the day after. Format the day in the event zone.
+    dueAt: task.dueAt ? eventDayKey(task.dueAt, timezone) : null,
     isActive: task.isActive,
   };
 }
@@ -57,6 +59,7 @@ function draftFromTask(task: AdminTaskDTO | null): TaskDraft {
  */
 export function TaskEditor({
   eventId,
+  timezone,
   open,
   task,
   locked,
@@ -66,6 +69,7 @@ export function TaskEditor({
   onSaved,
 }: {
   eventId: string;
+  timezone: string;
   open: boolean;
   task: AdminTaskDTO | null;
   locked: boolean;
@@ -75,16 +79,16 @@ export function TaskEditor({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
-  const [draft, setDraft] = useState<TaskDraft>(() => draftFromTask(task));
+  const [draft, setDraft] = useState<TaskDraft>(() => draftFromTask(task, timezone));
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
-      setDraft(draftFromTask(task));
+      setDraft(draftFromTask(task, timezone));
       setFieldErrors({});
     }
-  }, [open, task]);
+  }, [open, task, timezone]);
 
   const availableFileRequests = fileRequests.filter((request) => request.targetType === draft.targetType);
 

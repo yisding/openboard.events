@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
@@ -27,6 +28,7 @@ export function DecisionBar({
   const router = useRouter();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [confirmingNotify, setConfirmingNotify] = useState(false);
 
   async function move(to: SubmissionStatus) {
     setBusy(true);
@@ -88,16 +90,17 @@ export function DecisionBar({
       const decided = accepted.length + declined.length;
       toast(decided === 0
         ? "Nothing was queued to notify"
-        : `${decided} decided · ${emailsQueued} email${emailsQueued === 1 ? "" : "s"} sent`
+        : `${decided} decided · ${emailsQueued} email${emailsQueued === 1 ? "" : "s"} queued`
           + (skippedNoRecipient.length > 0 ? ` · ${skippedNoRecipient.length} had no recipient` : ""));
       onDone();
       router.refresh();
     } finally {
       setBusy(false);
+      setConfirmingNotify(false);
     }
   }
 
-  return (
+  return <>
     <BulkActionBar
       count={selected.length}
       onClear={onDone}
@@ -107,8 +110,17 @@ export function DecisionBar({
       </>}
       {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision{pendingNotify === 1 ? "" : "s"} queued and not yet sent</span> } : {})}
       {...(pendingNotify > 0 ? {
-        trailing: <Button disabled={busy} onClick={notify}>{busy ? "Sending…" : `Notify ${pendingNotify}`}</Button>,
+        trailing: <Button disabled={busy} onClick={() => setConfirmingNotify(true)}>{busy ? "Queuing…" : `Notify ${pendingNotify}`}</Button>,
       } : {})}
     />
-  );
+    <ConfirmDialog
+      open={confirmingNotify}
+      title={`Notify ${pendingNotify} decision${pendingNotify === 1 ? "" : "s"}?`}
+      body="This finalizes every queued accept and decline decision for the event and queues the corresponding speaker emails. Review both queues before continuing."
+      confirmLabel="Queue decision emails"
+      variant="destructive"
+      onConfirm={notify}
+      onCancel={() => setConfirmingNotify(false)}
+    />
+  </>;
 }

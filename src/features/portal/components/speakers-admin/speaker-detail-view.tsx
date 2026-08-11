@@ -148,13 +148,15 @@ function HeadshotField({ eventId, contactId, headshotFileId, onSaved }: {
       const detail = await patchSpeaker(eventId, contactId, { headshotFileId: fileId });
       onSaved(detail);
       toast("Photo updated");
+      return true;
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not save that photo");
+      return false;
     }
   }
   return (
     <Field label="Headshot">
-      <FileUpload eventId={eventId} kind="headshot" currentFileId={headshotFileId} onUploaded={(fileId) => { void onUploaded(fileId); }} label="Upload new photo" />
+      <FileUpload eventId={eventId} kind="headshot" currentFileId={headshotFileId} onUploaded={(fileId) => onUploaded(fileId)} label="Upload new photo" />
     </Field>
   );
 }

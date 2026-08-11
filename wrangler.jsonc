@@ -57,6 +57,7 @@
       "vars": {
         "APP_ENV": "production",
         "EMAIL_MODE": "send",
+        "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
         "EMAIL_FALLBACK_UI": "0",
         "AIRTABLE_CRON": "0",
         "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",

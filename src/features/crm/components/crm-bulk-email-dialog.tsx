@@ -120,7 +120,7 @@ export function CrmBulkEmailDialog({
           {sendResult.errors.length > 0 && (
             <ul className="crm-field-list">
               {sendResult.errors.map((entry) => (
-                <li key={entry.organizationContactId} style={{ fontSize: 9, color: "var(--muted)" }}>{entry.organizationContactId}: {entry.reason}</li>
+                <li key={entry.organizationContactId} style={{ fontSize: 11, color: "var(--muted)" }}>{entry.organizationContactId}: {entry.reason}</li>
               ))}
             </ul>
           )}

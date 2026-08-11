@@ -24,7 +24,11 @@ fi
 
 : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required by the web runtime}"
 if [[ "$target_env" == "production" ]]; then
-  : "${EMAIL_FROM:?EMAIL_FROM is required for production}"
+  # EMAIL_FROM lives in wrangler.jsonc's production vars: the address contains
+  # <angle brackets>, and opennextjs-cloudflare spawns wrangler with shell:true
+  # (args concatenated, not escaped), so passing it as --var is a shell syntax
+  # error. Config JSON needs no quoting; just verify it is present.
+  grep -q '"EMAIL_FROM"' wrangler.jsonc || { echo "EMAIL_FROM must be set in wrangler.jsonc production vars" >&2; exit 2; }
 fi
 
 build_sha="${NEXT_PUBLIC_BUILD_SHA:-}"
@@ -38,7 +42,6 @@ vars=(
   --var "R2_ACCOUNT_ID:$R2_ACCOUNT_ID"
   --var "NEXT_PUBLIC_BUILD_SHA:$build_sha"
 )
-[[ -n "${EMAIL_FROM:-}" ]] && vars+=(--var "EMAIL_FROM:$EMAIL_FROM")
 [[ -n "${EMAIL_ALLOWLIST:-}" ]] && vars+=(--var "EMAIL_ALLOWLIST:$EMAIL_ALLOWLIST")
 [[ -n "${AIRTABLE_BASE_ID:-}" ]] && vars+=(--var "AIRTABLE_BASE_ID:$AIRTABLE_BASE_ID")
 

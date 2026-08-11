@@ -45,14 +45,21 @@ export function TaskMatrixDrawer({
 }) {
   const { toast } = useToast();
   const [rows, setRows] = useState<AdminTaskAssignmentDTO[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reminding, setReminding] = useState(false);
 
   async function load() {
-    const response = await fetch(`/api/internal/tasks/${task.id}?eventId=${eventId}`);
-    const payload = await response.json().catch(() => null) as { data?: { assignments: AdminTaskAssignmentDTO[] } } | null;
-    setRows(payload?.data?.assignments ?? []);
+    setLoadError(false);
+    try {
+      const response = await fetch(`/api/internal/tasks/${task.id}?eventId=${eventId}`);
+      const payload = await response.json().catch(() => null) as { data?: { assignments: AdminTaskAssignmentDTO[] } } | null;
+      if (!response.ok || !payload?.data) throw new Error("assignment refresh failed");
+      setRows(payload.data.assignments);
+    } catch {
+      setLoadError(true);
+    }
   }
 
   useEffect(() => {
@@ -142,8 +149,9 @@ export function TaskMatrixDrawer({
               </Button>
             }
           />
-          {rows === null && <p className="portal-note">Loading…</p>}
-          {rows !== null && rows.length === 0 && <p className="portal-note">Nobody is assigned to this task yet.</p>}
+          {rows === null && !loadError && <p className="portal-note">Loading…</p>}
+          {loadError && <p className="portal-note" role="alert">Assignments could not be loaded. <button type="button" className="text-button" onClick={() => void load()}>Try again</button></p>}
+          {!loadError && rows !== null && rows.length === 0 && <p className="portal-note">Nobody is assigned to this task yet.</p>}
           {rows !== null && rows.map((row) => {
             const key = assignmentKey(row);
             return (
@@ -157,9 +165,9 @@ export function TaskMatrixDrawer({
                   />
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <b style={{ display: "block", fontSize: 10 }}>{row.contactName}</b>
-                  {row.submissionCode !== null && <small style={{ display: "block", color: "var(--muted)", fontSize: 8 }}>#{row.submissionCode} {row.submissionTitle}</small>}
-                  <small style={{ display: "block", color: "var(--muted)", fontSize: 8, marginTop: 2 }}>
+                  <b style={{ display: "block", fontSize: 11.5 }}>{row.contactName}</b>
+                  {row.submissionCode !== null && <small style={{ display: "block", color: "var(--muted)", fontSize: 10 }}>#{row.submissionCode} {row.submissionTitle}</small>}
+                  <small style={{ display: "block", color: "var(--muted)", fontSize: 10, marginTop: 2 }}>
                     {row.completed
                       ? <>{VIA_LABEL[row.completedVia ?? ""] ?? "Complete"} · <TzTime instant={row.completedAt} tz={timezone} style="date" /></>
                       : row.overdue ? "Overdue" : row.dueAt ? <>Due <TzTime instant={row.dueAt} tz={timezone} style="date" /></> : "No due date"}

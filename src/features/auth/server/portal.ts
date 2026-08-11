@@ -218,7 +218,7 @@ export async function verifyPortalLogin(args: { eventSlug: string; raw?: string;
   const event = await resolveEvent(db, args.eventSlug);
   const admin = args.impersonate ? await getAdminSession() : null;
   if (args.impersonate && !admin) throw new AppError("UNAUTHORIZED", "Admin sign-in required");
-  if (admin) await requireAdmin(event.id);
+  if (admin) await requireAdmin(event.id, "organizer");
   const result = await withTx(async (tx) => {
     let contactId: ContactId | undefined;
     if (args.code && args.email) {
@@ -265,9 +265,12 @@ export async function startImpersonation(eventId: EventId, contactId: ContactId)
 }
 
 export async function createImpersonationLink(eventId: EventId, contactId: ContactId): Promise<string> {
-  await requireAdmin(eventId);
+  await requireAdmin(eventId, "organizer");
   const [event] = await db.select({ slug: events.slug }).from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new AppError("NOT_FOUND", "Event not found");
+  const [contact] = await db.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.id, contactId), eq(contacts.eventId, eventId))).limit(1);
+  if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
   const issued = await issuePortalToken(db, { contactId, eventId, purpose: "impersonation", ttl: "PT5M" });
   return `/portal/${event.slug}/verify?token=${encodeURIComponent(issued.raw)}&impersonate=1`;
 }

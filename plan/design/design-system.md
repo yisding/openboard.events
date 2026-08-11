@@ -206,11 +206,24 @@ weights it happened to ship, so most of the intended hierarchy was invisible.
 
 ### Size
 
-Fifteen steps: 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48.
+Fifteen steps: 10, 11, 11.5, 12, 12.5, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48.
 Base is 14px on `body`, which is right for a dense operations tool.
 
 This replaces 34 authored sizes, including one-offs at 23, 25, 27, 29, 31, 34,
 35, 43, 44 and 50px. The sub-8px tail (6px and 7px, 53 rules) was lifted to 8px.
+
+The four lowest steps were raised again — 8→10, 9→11, 10→11.5, 11→12.5 — by a
+mechanical sweep of every `font-size` declaration (`globals.css`) and inline
+`fontSize` style (sixteen `builder`, `crm`, `billing`, `events`, `agenda` and
+`portal` components carry their step-5 caption/help styles inline rather than
+as CSS classes). The four new values were chosen to land strictly between the
+untouched steps around them (11.5 sits under the old 12, 12.5 sits between the
+old 12 and 13) specifically so the table stays fifteen *distinct*, ascending
+sizes rather than colliding two steps onto one number. This did not touch the
+public landing hero — `.hero`, `.hero-copy > p`, `.hero-proof`, `.eyebrow`
+all sit at 12px or above already — except the old `.logo-strip` labels, which
+were 11px; that markup (and its now-dead CSS) was removed in the same change,
+replaced by real `#features` / `#story` content sections.
 
 Two rules are exempt: `.dashboard-donut text` sets font-size in SVG user units
 scaled by a `viewBox`, so its 3px and 6px values are not device pixels.
@@ -220,22 +233,23 @@ anywhere figures stack vertically.
 
 ### Open issue: density
 
-**The app is authored at roughly 0.6× conventional UI sizing and this document
-does not fix that.**
+**The app was authored at roughly 0.6× conventional UI sizing; the lowest four
+steps have since been raised, but the rest of this open issue still stands.**
 
-337 of 488 real-UI rules set a font size below 11px — the practical floor for
-comfortable reading. That is 69% of the interface, not a tail of outliers.
-41 of those rules place text inside a *fixed* height as small as 16px, so the
-type cannot grow on its own without clipping.
+The floor is no longer 8px (raised to 10px, see above), but the fifteen-step
+scale itself is still denser than a conventional admin UI, and box dimensions
+— heights, padding, gaps, grid columns — were only adjusted where the new
+sizes would have clipped, not rebalanced wholesale. A handful of fixed heights
+(status pills, table rows, compact selects) were widened just enough to fit
+the new sizes without visual regression; that is a targeted fix, not the
+coordinated re-scale this section originally called for.
 
-Raising the floor is therefore a coordinated re-scale of type **and** box
-dimensions — heights, padding, gaps, grid columns — not a stylesheet cleanup.
-Done mechanically it would be a uniform ~1.35× on the component scale, which
-also changes how much fits on screen. That is a product decision about
-information density and needs visual QA across every screen.
-
-Recommended as a separate piece of work. Until then, treat 8px as the floor
-and do not add new rules below it.
+A full coordinated re-scale of type **and** box dimensions, done mechanically,
+would still be roughly a uniform ~1.2–1.35× on the component scale on top of
+today's values, which also changes how much fits on screen. That remains a
+product decision about information density and needs visual QA across every
+screen — recommended as a separate piece of work. Until then, treat 10px as
+the floor and do not add new rules below it.
 
 ## Extending this
 

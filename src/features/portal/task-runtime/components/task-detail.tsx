@@ -178,7 +178,7 @@ export function TaskDetailView({
             onUploaded={(fileId) => attach(fileId)}
           />
           {uploads.length > 0 && (
-            <ul className="portal-uploads">
+            <ul className="portal-uploads" aria-live="polite">
               {uploads.map((upload) => (
                 <li key={upload.fileUploadId}>
                   <Paperclip size={15} />

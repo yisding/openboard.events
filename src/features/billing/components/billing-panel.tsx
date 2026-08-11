@@ -70,9 +70,9 @@ export function BillingPanel({
         <strong style={{ fontSize: 20 }}>{plan.name}</strong>
         <span style={{ color: "var(--muted)", fontSize: 12 }}>{formatPrice(plan.priceCents)}</span>
         <StatusBadge value={subscription.status} />
-        <span style={{ color: "var(--muted)", fontSize: 11 }}>via {subscription.provider}</span>
+        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>via {subscription.provider}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "var(--muted)", fontSize: 11 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "var(--muted)", fontSize: 12.5 }}>
         <Info size={13} /> No live payment provider is connected in this environment — this is a billing scaffold. Choosing a plan below attempts a real checkout through the provider seam and will explain why it isn&apos;t available yet.
       </div>
     </section>
@@ -83,13 +83,13 @@ export function BillingPanel({
         <p>Metered against this organization&apos;s plan.</p>
       </header>
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>
           <span>Events</span>
           <span>{usage.events.used} of {usage.events.limit ?? "∞"} used</span>
         </div>
         <ProgressBar value={usage.events.limit === null ? 0 : usagePercent} tone={usageTone} />
       </div>
-      {counters.length > 0 && <ul style={{ marginTop: 14, display: "grid", gap: 4, fontSize: 11, color: "var(--muted)" }}>
+      {counters.length > 0 && <ul style={{ marginTop: 14, display: "grid", gap: 4, fontSize: 12.5, color: "var(--muted)" }}>
         {counters.map((counter) => <li key={counter.metric}>{counter.metric}: {counter.count}</li>)}
       </ul>}
     </section>
@@ -104,7 +104,7 @@ export function BillingPanel({
           const isCurrent = candidate.id === plan.id;
           return <div key={candidate.id} style={{ border: `1px solid ${isCurrent ? "var(--accent-border)" : "var(--line)"}`, borderRadius: 11, padding: 14, background: isCurrent ? "var(--accent-faint)" : "var(--surface)" }}>
             <strong>{candidate.name}</strong>
-            <p style={{ margin: "4px 0 10px", color: "var(--muted)", fontSize: 11 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
+            <p style={{ margin: "4px 0 10px", color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
             {isCurrent
               ? <StatusBadge value="current plan" />
               : canManage

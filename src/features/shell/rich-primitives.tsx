@@ -47,7 +47,7 @@ export function RichPrimitives() {
         </div>
         <details style={{ marginTop: 10 }}>
           <summary className="section-title">Emitted HTML</summary>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 10 }}>{bio}</pre>
+          <pre style={{ whiteSpace: "pre-wrap", fontSize: 11.5 }}>{bio}</pre>
         </details>
       </section>
 

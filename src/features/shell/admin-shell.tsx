@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { notFound, usePathname } from "next/navigation";
-import { BarChart3, Bell, BookOpen, CalendarDays, ChevronDown, ClipboardCheck, ExternalLink, FileText, FolderOpen, HelpCircle, LayoutDashboard, Mail, Menu, PanelTop, Settings, Sparkles, Users, X } from "lucide-react";
+import { BarChart3, Bell, BookOpen, CalendarDays, ClipboardCheck, ExternalLink, FileText, FolderOpen, HelpCircle, LayoutDashboard, Mail, Menu, PanelTop, Settings, Sparkles, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "@/shared/ui/brand";
 import { useDemo } from "@/shared/demo/demo-provider";
 import { CommandPalette } from "@/features/shell/components/command-palette";
-import { eventInitials } from "@/shared/lib/event-label";
-import type { MemberRole } from "@/shared/contracts";
+import { EventSwitcher } from "@/features/events/components/event-switcher";
+import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import type { EventId, MemberRole } from "@/shared/contracts";
 
 type NavigationGroup = { label: string; items: Array<{ label: string; href: string; icon: LucideIcon }> };
 
@@ -47,6 +48,10 @@ const reviewerNavigation: NavigationGroup[] = [
   { label: "Review", items: [{ label: "Review queue", href: "review", icon: ClipboardCheck }] },
 ];
 
+export function activeAdminSection(pathname: string, base: string): string | undefined {
+  return pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1).split("/")[0] : undefined;
+}
+
 /**
  * The admin event shell.
  *
@@ -58,7 +63,7 @@ const reviewerNavigation: NavigationGroup[] = [
  * `notFound()`ed once hydrated. The demo lookup survives only as the fallback
  * for the credential-free local demo, which has no database to read.
  */
-export function AdminShell({ eventId, role, event: serverEvent, counts, children }: { eventId: string; role: MemberRole; event?: AdminShellEvent; counts?: AdminShellCounts; children: React.ReactNode }) {
+export function AdminShell({ eventId, role, event: serverEvent, counts, user, children }: { eventId: EventId; role: MemberRole; event?: AdminShellEvent; counts?: AdminShellCounts; user?: { name: string; email: string }; children: React.ReactNode }) {
   const pathname = usePathname();
   const { state, hydrated } = useDemo();
   const [open, setOpen] = useState(false);
@@ -71,14 +76,21 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, children
   }
   const base = `/events/${event.id}`;
   const visibleNavigation = role === "reviewer" ? reviewerNavigation : navigation;
-  const current = visibleNavigation.flatMap((group) => group.items).find((item) => pathname.includes(`/${item.href}`))?.label ?? "Event";
+  const activeSection = activeAdminSection(pathname, base);
+  const current = visibleNavigation.flatMap((group) => group.items).find((item) => item.href === activeSection)?.label ?? "Event";
+  const accountName = user?.name.trim() || user?.email || "Maya Lin";
+  const accountInitials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "ML";
   return <div className="app-shell">
     <button type="button" className="mobile-menu" aria-label="Open navigation" onClick={() => setOpen(true)}><Menu size={20} /></button>
     <aside className={`admin-sidebar ${open ? "open" : ""}`}>
       <div className="sidebar-brand"><Brand /><button type="button" className="mobile-close" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={18} /></button></div>
-      <button type="button" className="event-switcher"><span className="event-switcher-mark">{eventInitials(event.name)}</span><span><b>{event.shortName}</b><small>/{event.slug}</small></span><ChevronDown size={16} /></button>
-      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = pathname.includes(`/${item.href}`); const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; return <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} onClick={() => setOpen(false)}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; })}</div>)}</nav>
-      <div className="sidebar-bottom"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>ML</span><div><b>Maya Lin</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div><button type="button" aria-label="Account menu"><ChevronDown size={15} /></button></div></div>
+      <EventSwitcher
+        eventId={eventId}
+        initialEvent={{ name: event.shortName, detail: `/${event.slug}` }}
+        {...(!serverEvent ? { demoEvents: state.events } : {})}
+      />
+      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; return <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={() => setOpen(false)}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; })}</div>)}</nav>
+      <div className="sidebar-bottom"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
     </aside>
     {open && <button type="button" aria-label="Close navigation" className="mobile-overlay" onClick={() => setOpen(false)} />}
     <section className="app-main"><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><CommandPalette eventId={event.id} base={base} role={role} /><button type="button" className="icon-button" aria-label="Help & docs"><HelpCircle size={19} /></button><button type="button" className="icon-button notification-button" aria-label="Notifications"><Bell size={19} /><i /></button>{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
