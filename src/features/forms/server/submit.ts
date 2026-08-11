@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, withTx } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
-import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult } from "@/features/submissions";
+import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult, type DraftParticipantInput } from "@/features/submissions";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -28,6 +28,15 @@ import { getActiveRoutingRules, getCurrentSnapshot, getPinnedSnapshot } from "./
  * This feature contains no submission INSERT: everything here is preparation,
  * and the single owner does the write.
  */
+export type ParticipantInput = {
+  clientId: string;
+  email: string;
+  answers?: RawAnswers;
+  role: "speaker" | "co_speaker";
+  isPrimary: boolean;
+  sortOrder: number;
+};
+
 export type SubmitInput = {
   eventId: EventId;
   formId: FormId;
@@ -35,17 +44,10 @@ export type SubmitInput = {
   formVersion: number;
   draftSubmissionId?: SubmissionId | null;
   answers: RawAnswers;
-  participants?: Array<{
-    clientId: string;
-    email: string;
-    answers?: RawAnswers;
-    role: "speaker" | "co_speaker";
-    isPrimary: boolean;
-    sortOrder: number;
-  }>;
+  participants?: ParticipantInput[];
 };
 
-export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId" | "participants">;
+export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId">;
 
 /**
  * A mapped answer is a plain string until it is checked. Parsing rather than
@@ -326,5 +328,37 @@ export async function saveCfpDraft(input: SaveDraftInput) {
   }
   const result = runSubmitPipeline(rendered, input.answers, { participantId: null, requireRequired: false });
   if (!result.ok) throw new AppError("VALIDATION", "Some answers need attention", { fieldErrors: result.fieldErrors });
-  return saveDraftAnswers(input.eventId, input.contactId, input.formId, rendered.version, result.clean);
+  const participantSnapshot = sectionSnapshot(rendered, true);
+  const abstractContext = answersFor(sectionSnapshot(rendered, false), input.answers);
+  const participantFieldIds = new Set(participantSnapshot.sections.flatMap((section) => section.fields.map((field) => field.id)));
+  const draftParticipants: DraftParticipantInput[] = [];
+  for (const participant of (input.participants ?? []).filter((candidate) => !candidate.isPrimary)) {
+    if (participant.role !== "co_speaker") continue;
+    const participantResult = runSubmitPipeline(
+      rendered,
+      { ...abstractContext, ...answersFor(participantSnapshot, participant.answers ?? {}) },
+      { participantId: participant.clientId, requireRequired: false },
+    );
+    if (!participantResult.ok) throw new AppError("VALIDATION", "Some speaker details need attention", { fieldErrors: participantResult.fieldErrors });
+    draftParticipants.push({
+      clientId: participant.clientId,
+      email: participant.email,
+      role: "co_speaker",
+      isPrimary: false,
+      sortOrder: participant.sortOrder,
+      answers: cleanAnswersSchema.parse(participantResult.clean.filter((answer) => participantFieldIds.has(answer.fieldId))),
+    });
+  }
+  const answers = cleanAnswersSchema.parse([
+    ...result.clean,
+    ...(input.participants ? draftParticipants.flatMap((participant) => participant.answers) : []),
+  ]);
+  return saveDraftAnswers(
+    input.eventId,
+    input.contactId,
+    input.formId,
+    rendered.version,
+    answers,
+    input.participants ? draftParticipants : undefined,
+  );
 }

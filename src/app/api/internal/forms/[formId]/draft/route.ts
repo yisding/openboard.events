@@ -30,11 +30,21 @@ const draft = defineHandler({
   },
 });
 
+const draftParticipant = z.object({
+  clientId: z.string().min(1).max(100),
+  email: z.email(),
+  answers: z.record(z.string(), answerValueSchema),
+  role: z.literal("co_speaker"),
+  isPrimary: z.literal(false),
+  sortOrder: z.int().min(1).max(100),
+});
+
 const save = defineHandler({
   auth: formPortalAuth,
   input: z.object({
     formVersion: z.int().positive(),
     answers: z.record(z.string(), answerValueSchema),
+    participants: z.array(draftParticipant).max(20).optional(),
   }),
   // Autosave is debounced client-side and fires far more often than submit,
   // so its bucket is wider — still enough to stop a scripted flood.
@@ -45,6 +55,7 @@ const save = defineHandler({
     formVersion: input.formVersion,
     contactId: contactIdSchema.parse(session?.actorId),
     answers: input.answers,
+    ...(input.participants ? { participants: input.participants } : {}),
   }),
 });
 
