@@ -11,7 +11,16 @@ import os from "node:os";
 // off actual headroom instead: about 2 GiB per worker, capped at the CPU
 // count, floored at 1 (fully serial — the previously shipped, known-safe
 // behavior — on anything too small to risk a second worker at all).
-const workers = Math.max(1, Math.min(os.availableParallelism(), Math.floor(os.totalmem() / (2 * 1024 ** 3))));
+//
+// Use process.availableMemory() rather than os.totalmem(): in a
+// memory-limited container the latter reports host-visible RAM, not the
+// cgroup limit, which can pick multiple workers in exactly the constrained
+// environment this is meant to fall back to serial for. availableMemory()
+// is cgroup-aware and reflects actual current headroom; it's only present
+// from Node 22 onward, so fall back to os.freemem() on older runtimes.
+const availableMemory =
+  typeof process.availableMemory === "function" ? process.availableMemory() : os.freemem();
+const workers = Math.max(1, Math.min(os.availableParallelism(), Math.floor(availableMemory / (2 * 1024 ** 3))));
 
 export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
