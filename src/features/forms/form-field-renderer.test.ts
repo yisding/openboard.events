@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createElement } from "react";
+import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { evaluateVisibility } from "@/shared/lib/conditions";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import { fileIdSchema, type AnswerValue, type FieldId, type FormSnapshot } from "@/shared/contracts";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { FormFieldRenderer, toRichTextAnswer } from "./components/form-field-renderer";
+
+Object.assign(globalThis, { React });
 
 /**
  * The renderer itself is a React tree, and component tests are outside the test
@@ -88,5 +90,24 @@ describe("form field controls", () => {
   it("does not retain empty rich-text markup as an answer", () => {
     expect(toRichTextAnswer("<p><br></p>")).toBeUndefined();
     expect(toRichTextAnswer("<p>Hello</p>")).toEqual({ t: "s", v: "<p>Hello</p>" });
+  });
+
+  it("connects required controls and server errors to their accessible field names", () => {
+    const title = field("title");
+    const topics = field("topics");
+    const html = renderToStaticMarkup(createElement(FormFieldRenderer, {
+      snapshot: GOLDEN_SNAPSHOT,
+      answers: {},
+      onChange: () => undefined,
+      mode: "edit",
+      errors: { [title.id]: "Add a title" },
+    }));
+
+    expect(html).toContain(`id="${title.id}"`);
+    expect(html).toContain("required=\"\"");
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain(`aria-describedby="${title.id}-error"`);
+    expect(html).toContain(`id="${title.id}-error" role="alert"`);
+    expect(html).toContain(`<legend class="sr-only">${topics.label}</legend>`);
   });
 });

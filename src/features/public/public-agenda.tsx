@@ -185,12 +185,12 @@ export function PublicAgenda({
                   const primary = session.speakers[0];
                   const isLiveNow = live.nowSessionIds.has(session.id);
                   const isUpNext = live.nextSessionId === session.id;
+                  const detailId = `session-${session.id}-details`;
                   return (
                     <div key={session.id}>
                       <article
                         className={isLiveNow ? "session-live-now" : isUpNext ? "session-up-next" : ""}
-                        onClick={() => toggleExpanded(session.id)} role="button" tabIndex={0}
-                        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleExpanded(session.id)}>
+                        onClick={() => toggleExpanded(session.id)}>
                         <i className="session-stripe" style={{ background: session.track?.color ?? "var(--accent)" }} />
                         <div className="public-session-main">
                           <span>
@@ -198,7 +198,7 @@ export function PublicAgenda({
                             {isLiveNow && <em className="live-now-badge"><Radio size={10} /> Happening now</em>}
                             {!isLiveNow && isUpNext && <em className="up-next-badge">Up next</em>}
                           </span>
-                          <h3>{session.title}</h3>
+                          <h3><button type="button" aria-expanded={expandedId === session.id} aria-controls={detailId} onClick={(event) => { event.stopPropagation(); toggleExpanded(session.id); }}>{session.title}</button></h3>
                           {primary ? (
                             <div className="public-session-speaker">
                               <SpeakerAvatar name={primary.name} headshotUrl={primary.headshotUrl} size="sm" />
@@ -209,14 +209,14 @@ export function PublicAgenda({
                         <div className="public-session-meta">
                           <span><Clock3 size={14} />{Math.max(1, Math.round((new Date(session.endsAt).getTime() - new Date(session.startsAt).getTime()) / 60000))} min</span>
                           <span><MapPin size={14} />{session.room ? session.room.name : <Dash />}</span>
-                          <a title="Add to calendar" aria-label={`Add ${session.title} to calendar`}
+                          <a className="public-calendar-link" title="Add to calendar" aria-label={`Add ${session.title} to calendar`}
                             href={`/api/v1/events/${encodeURIComponent(eventSlug)}/schedule/ics?session=${encodeURIComponent(session.id)}`}
                             onClick={(e) => e.stopPropagation()}>
                             <CalendarPlus size={17} />
                           </a>
                         </div>
                       </article>
-                      {expandedId === session.id && <SessionDetail session={session} eventSlug={eventSlug} />}
+                      {expandedId === session.id && <div id={detailId}><SessionDetail session={session} eventSlug={eventSlug} /></div>}
                     </div>
                   );
                 })}

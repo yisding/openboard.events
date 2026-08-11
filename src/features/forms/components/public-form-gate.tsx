@@ -43,7 +43,7 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
 
   return (
     <>
-    <header className="cfp-welcome">
+    <header className="public-form-welcome">
       {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
           an unsized image on the first public page a judge opens is a layout
           shift they watch happen. Optimization is off globally on Workers. */}

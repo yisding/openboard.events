@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts, events } from "@/db/schema";
 import type { ContactId, EventId } from "@/shared/contracts";
@@ -36,7 +36,7 @@ export function initialsFor(firstName: string, lastName: string, email: string):
 export async function getPortalShellDataIn(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId): Promise<PortalShellData | null> {
   // Scoped by (id, eventId) together (R4): a contact id from another event
   // resolves to nothing here.
-  const [[event], [contact]] = await Promise.all([
+  const [[event], [contact], openTaskRows] = await Promise.all([
     dbOrTx.select({
       id: events.id, slug: events.slug, name: events.name, timezone: events.timezone,
       location: events.location, startsAt: events.startsAt, endsAt: events.endsAt,
@@ -47,6 +47,10 @@ export async function getPortalShellDataIn(dbOrTx: DbOrTx, eventId: EventId, con
       linkedinUrl: contacts.linkedinUrl, headshotFileId: contacts.headshotFileId,
       confirmationStatus: contacts.confirmationStatus,
     }).from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.eventId, eventId))).limit(1),
+    dbOrTx.execute<{ open_count: number }>(sql`
+      SELECT open_count FROM speaker_outstanding_v
+      WHERE event_id = ${eventId} AND contact_id = ${contactId}
+    `),
   ]);
   if (!event || !contact) return null;
 
@@ -83,7 +87,7 @@ export async function getPortalShellDataIn(dbOrTx: DbOrTx, eventId: EventId, con
     profileCompletion: 0,
     tags: [],
   };
-  return { event: shellEvent, speaker };
+  return { event: shellEvent, speaker, openTaskCount: Number((openTaskRows.rows ?? [])[0]?.open_count ?? 0) };
 }
 
 export const getPortalShellData = (eventId: EventId, contactId: ContactId): Promise<PortalShellData | null> =>

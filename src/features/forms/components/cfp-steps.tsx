@@ -219,32 +219,36 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   return (
     <FormUploadProvider eventId={event.id}>
     <section className="cfp-step">
-      <ol className="cfp-progress">
+      <ol className="public-form-progress" aria-label="Submission progress">
         {flowSteps.map((name) => (
           <li key={name} className={step === name ? "active" : ""}>{name}</li>
         ))}
       </ol>
 
       {step === "account" && (
-        <div className="form-grid">
+        <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
           <label className="field">
             <span>Email address</span>
-            <input type="email" value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
+            <input type="email" required value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
           </label>
           {!codeRequested ? (
-            <Button onClick={requestCode} disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
+            <Button type="submit" disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
           ) : (
             <>
               <label className="field">
                 <span>Six-digit code</span>
-                <input inputMode="numeric" value={code} onChange={(change) => setCode(change.target.value)} />
+                <input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(change) => setCode(change.target.value.replace(/\D/g, "").slice(0, 6))} />
               </label>
               {/* Development diagnostics only — production does not return this. */}
               {fallbackOtp && <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>}
-              <Button onClick={verifyAndStart} disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Continue"}</Button>
+              <div className="cfp-code-actions">
+                <Button type="button" variant="ghost" onClick={() => { setCodeRequested(false); setCode(""); }}>Change email</Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => void requestCode()}>Resend code</Button>
+                <Button type="submit" disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Continue"}</Button>
+              </div>
             </>
           )}
-        </div>
+        </form>
       )}
 
       {step === "submission" && (

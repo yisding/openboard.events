@@ -137,7 +137,7 @@ export function DirectoryView({
       id: "source",
       header: "Source",
       accessorKey: "source",
-      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: 9, textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
+      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: 11, textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
     },
     {
       id: "lastActivityAt",
@@ -225,7 +225,7 @@ export function DirectoryView({
               <option value="all">Every source</option>
               {CRM_CONTACT_SOURCES.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
             </select>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, color: "var(--muted)" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--muted)" }}>
               <input type="checkbox" checked={hasEventLink === false} onChange={(event) => setParams({ hasEventLink: event.target.checked ? "false" : null })} />
               Not linked to an event yet
             </label>

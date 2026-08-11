@@ -86,12 +86,15 @@ function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base
       setResults([]);
       return;
     }
+    // Results from the previous term must never remain keyboard-selectable
+    // while the next debounced request is in flight.
+    setResults([]);
     const controller = new AbortController();
     const timer = setTimeout(() => {
       fetch(`/api/internal/events/${eventId}/search?q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then((response) => response.json())
+        .then((response) => response.ok ? response.json() : Promise.reject(new Error("search failed")))
         .then((payload: { data?: SearchResult[] }) => setResults(payload.data ?? []))
-        .catch(() => {});
+        .catch(() => setResults([]));
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, eventId]);

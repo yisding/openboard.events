@@ -66,14 +66,19 @@ export function TasksAdminView({
   const matrixTask = matrixIndex !== -1 ? filtered[matrixIndex] : undefined;
 
   async function refresh() {
-    const response = await fetch(`/api/internal/tasks?eventId=${eventId}`);
-    const payload = await response.json().catch(() => null) as { data?: AdminTaskDTO[] } | null;
-    const all = payload?.data ?? [];
-    setTasks(all);
-    const contact = all.filter((task) => task.targetType === "contact").length;
-    const submission = all.filter((task) => task.targetType === "submission").length;
-    setTabCounts({ all: contact + submission, contact, group: 0, submission });
-    router.refresh();
+    try {
+      const response = await fetch(`/api/internal/tasks?eventId=${eventId}`);
+      const payload = await response.json().catch(() => null) as { data?: AdminTaskDTO[] } | null;
+      if (!response.ok || !payload?.data) throw new Error("task refresh failed");
+      const all = payload.data;
+      setTasks(all);
+      const contact = all.filter((task) => task.targetType === "contact").length;
+      const submission = all.filter((task) => task.targetType === "submission").length;
+      setTabCounts({ all: contact + submission, contact, group: 0, submission });
+      router.refresh();
+    } catch {
+      toast("Could not refresh tasks — showing the last saved list");
+    }
   }
 
   async function remove(task: AdminTaskDTO) {
@@ -222,4 +227,4 @@ function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; o
   );
 }
 
-const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: 0, background: "transparent", fontSize: 10, borderRadius: 6, cursor: "pointer" };
+const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: 0, background: "transparent", fontSize: 11.5, borderRadius: 6, cursor: "pointer" };

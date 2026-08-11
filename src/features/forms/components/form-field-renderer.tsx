@@ -82,18 +82,24 @@ function Field({
   // without two inputs claiming the same label.
   const id = participantId ? `${field.id}:${participantId}` : field.id;
   const readOnly = mode !== "edit";
+  const labelId = `${id}-label`;
+  const helpId = field.helpText && mode === "edit" ? `${id}-help` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const describedBy = [helpId, errorId].filter(Boolean).join(" ") || undefined;
+  const composite = readOnly || ["richtext", "multiselect", "checkbox", "file"].includes(field.type);
 
-  return (
-    <label className={cn("field", error && "field--error", field.type === "richtext" && "field--wide")} htmlFor={id}>
-      <span>
-        {field.label}
-        {field.required && mode === "edit" && <em aria-hidden="true"> *</em>}
-      </span>
-      {readOnly ? <ReadOnlyValue field={field} value={value} /> : <Input field={field} id={id} value={value} onChange={onChange} />}
-      {field.helpText && mode === "edit" && <small>{field.helpText}</small>}
-      {error && <strong role="alert">{error}</strong>}
-    </label>
-  );
+  const content = <>
+    <span id={labelId}>
+      {field.label}
+      {field.required && mode === "edit" && <em aria-hidden="true"> *</em>}
+    </span>
+    {readOnly ? <ReadOnlyValue field={field} value={value} /> : <Input field={field} id={id} labelId={labelId} {...(describedBy ? { describedBy } : {})} invalid={Boolean(error)} value={value} onChange={onChange} />}
+    {helpId && <small id={helpId}>{field.helpText}</small>}
+    {errorId && <strong id={errorId} role="alert">{error}</strong>}
+  </>;
+
+  const className = cn("field", error && "field--error", field.type === "richtext" && "field--wide");
+  return composite ? <div className={className}>{content}</div> : <label className={className} htmlFor={id}>{content}</label>;
 }
 
 /** What a reviewer or a read-only speaker sees: the answer, never an input. */
@@ -112,17 +118,28 @@ function ReadOnlyValue({ field, value }: { field: FormField; value: AnswerValue 
 function Input({
   field,
   id,
+  labelId,
+  describedBy,
+  invalid,
   value,
   onChange,
 }: {
   field: FormField;
   id: string;
+  labelId: string;
+  describedBy?: string;
+  invalid: boolean;
   value: AnswerValue | undefined;
   onChange: (value: AnswerValue | undefined) => void;
 }) {
   const uploadEventId = useFormUploadEventId();
   const text = value?.t === "s" ? value.v : "";
   const emit = (next: string) => onChange(next === "" ? undefined : { t: "s", v: next });
+  const controlProps = {
+    required: field.required || undefined,
+    "aria-invalid": invalid || undefined,
+    "aria-describedby": describedBy,
+  };
 
   switch (field.type) {
     case "richtext":
@@ -130,15 +147,19 @@ function Input({
         <RichTextEditor
           value={text}
           onChange={(html) => onChange(toRichTextAnswer(html))}
+          ariaLabelledBy={labelId}
+          {...(describedBy ? { ariaDescribedBy: describedBy } : {})}
+          ariaInvalid={invalid}
+          required={field.required}
           {...(field.maxChars ? { maxChars: field.maxChars } : {})}
         />
       );
     case "textarea":
-      return <textarea id={id} value={text} rows={5} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
+      return <textarea id={id} {...controlProps} value={text} rows={5} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
     case "dropdown":
     case "radio":
       return (
-        <select id={id} value={value?.t === "opt" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "opt", v: event.target.value } : undefined)}>
+        <select id={id} {...controlProps} value={value?.t === "opt" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "opt", v: event.target.value } : undefined)}>
           <option value="">Choose one</option>
           {field.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
@@ -147,11 +168,13 @@ function Input({
     case "checkbox": {
       const chosen = value?.t === "opts" ? value.v : [];
       return (
-        <div className="choice-list" role="group" aria-labelledby={id}>
+        <fieldset className="choice-list field-control-group" aria-describedby={describedBy}>
+          <legend className="sr-only">{field.label}{field.required ? " (required)" : ""}</legend>
           {field.options.map((option) => (
             <label key={option.id} className="choice">
               <input
                 type="checkbox"
+                aria-invalid={invalid || undefined}
                 checked={chosen.includes(option.id)}
                 onChange={(event) => {
                   const next = event.target.checked
@@ -163,32 +186,35 @@ function Input({
               {option.label}
             </label>
           ))}
-        </div>
+        </fieldset>
       );
     }
     case "number":
-      return <input id={id} type="number" value={value?.t === "n" ? value.v : ""} onChange={(event) => onChange(event.target.value === "" ? undefined : { t: "n", v: Number(event.target.value) })} />;
+      return <input id={id} {...controlProps} type="number" value={value?.t === "n" ? value.v : ""} onChange={(event) => onChange(event.target.value === "" ? undefined : { t: "n", v: Number(event.target.value) })} />;
     case "date":
-      return <input id={id} type="date" value={value?.t === "d" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "d", v: event.target.value } : undefined)} />;
+      return <input id={id} {...controlProps} type="date" value={value?.t === "d" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "d", v: event.target.value } : undefined)} />;
     case "file":
       return uploadEventId ? (
+        <fieldset className="field-control-group" aria-describedby={describedBy}>
+        <legend className="sr-only">{field.label}{field.required ? " (required)" : ""}</legend>
         <FileUpload
           eventId={uploadEventId}
           kind="attachment"
           currentFileId={value?.t === "file" ? value.v : null}
           onUploaded={(fileId) => onChange({ t: "file", v: fileIdSchema.parse(fileId) })}
         />
+        </fieldset>
       ) : (
         <span className="dash">File uploads are unavailable here</span>
       );
     case "email":
-      return <input id={id} type="email" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
+      return <input id={id} {...controlProps} type="email" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
     case "url":
-      return <input id={id} type="url" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
+      return <input id={id} {...controlProps} type="url" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
     case "phone":
-      return <input id={id} type="tel" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
+      return <input id={id} {...controlProps} type="tel" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
     case "text":
-      return <input id={id} type="text" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
+      return <input id={id} {...controlProps} type="text" value={text} maxLength={field.maxChars ?? undefined} onChange={(event) => emit(event.target.value)} />;
   }
 }
 

@@ -20,9 +20,9 @@ export const PORTAL_SPEAKER_KEY = "openboard-portal-speaker";
  * so a genuinely signed-in speaker saw the 404 page on every portal surface
  * while the page underneath had already loaded their real data.
  */
-export type PortalShellData = { event: EventRecord; speaker: SpeakerRecord };
+export type PortalShellData = { event: EventRecord; speaker: SpeakerRecord; openTaskCount: number };
 
-type PortalContextValue = { event: EventRecord; speaker: SpeakerRecord; impersonated: boolean; exitImpersonation: () => void };
+type PortalContextValue = { event: EventRecord; speaker: SpeakerRecord; openTaskCount: number; impersonated: boolean; exitImpersonation: () => void };
 const PortalContext = createContext<PortalContextValue | null>(null);
 
 export function PortalProvider({ eventSlug, session, serverShell, children }: { eventSlug: string; session: PortalSession | null; serverShell?: PortalShellData; children: React.ReactNode }) {
@@ -45,6 +45,7 @@ export function PortalProvider({ eventSlug, session, serverShell, children }: { 
   }
   const value: PortalContextValue = {
     event, speaker,
+    openTaskCount: serverShell?.openTaskCount ?? state.tasks.filter((task) => task.eventId === event.id && !state.completions.some((done) => done.taskId === task.id && done.speakerId === speaker.id)).length,
     impersonated: session ? session.impersonatedByUserId !== null : Boolean(impersonatedId && impersonatedId !== DEMO_SPEAKER_ID && impersonatedId === speaker.id),
     exitImpersonation: () => { window.localStorage.removeItem(PORTAL_SPEAKER_KEY); setImpersonatedId(null); },
   };

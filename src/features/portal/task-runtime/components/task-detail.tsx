@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
 import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
-import { FileUpload } from "@/shared/ui/app/file-upload";
+import { FileUpload, type UploadedMeta } from "@/shared/ui/app/file-upload";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -43,6 +43,7 @@ export function TaskDetailView({
   const [busy, setBusy] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
+  const [recentUpload, setRecentUpload] = useState<UploadedMeta | null>(null);
 
   const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
 
@@ -85,10 +86,12 @@ export function TaskDetailView({
     router.refresh();
   }
 
-  async function attach(fileId: string) {
-    if (!await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId })) return;
+  async function attach(fileId: string, meta: UploadedMeta) {
+    if (!await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId })) return false;
+    setRecentUpload(meta);
     toast("File received — task complete");
     router.refresh();
+    return true;
   }
 
   /** M52: a comment on this deliverable slot. Same server round trip pattern
@@ -156,18 +159,25 @@ export function TaskDetailView({
             fileRequestId={task.fileRequest.id}
             maxSizeMb={task.fileRequest.maxSizeMb}
             accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
-            label={task.uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
-            onUploaded={(fileId) => { void attach(fileId); }}
+            label={recentUpload || task.uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
+            onUploaded={(fileId, meta) => attach(fileId, meta)}
           />
-          {task.uploads.length > 0 && (
-            <ul className="portal-uploads">
+          {(recentUpload || task.uploads.length > 0) && (
+            <ul className="portal-uploads" aria-live="polite">
+              {recentUpload && !task.uploads.some((upload) => upload.filename === recentUpload.filename) && (
+                <li>
+                  <Paperclip size={15} />
+                  <span>{recentUpload.filename}</span>
+                  <em>Latest</em>
+                </li>
+              )}
               {task.uploads.map((upload) => (
                 <li key={upload.fileUploadId}>
                   <Paperclip size={15} />
                   <span>{upload.filename} <small>v{upload.version}</small></span>
                   <TzTime instant={upload.uploadedAt} tz={timezone} style="date" />
                   {/* Nothing is deleted; `isLatest` is server-derived (M52). */}
-                  {upload.isLatest && <em>Latest</em>}
+                  {upload.isLatest && !recentUpload && <em>Latest</em>}
                 </li>
               ))}
             </ul>

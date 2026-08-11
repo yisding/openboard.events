@@ -10,18 +10,23 @@ export function PrivateFileLink({ fileId, children = "Uploaded file" }: { fileId
   async function open() {
     setBusy(true);
     setError("");
-    const response = await fetch(`/api/uploads/${encodeURIComponent(fileId)}/download-url`);
-    const payload = await response.json().catch(() => null) as {
-      data?: { url?: string };
-      error?: { message?: string };
-    } | null;
-    setBusy(false);
-    const url = payload?.data?.url;
-    if (!response.ok || !url) {
-      setError(payload?.error?.message ?? "The file could not be opened");
-      return;
+    try {
+      const response = await fetch(`/api/uploads/${encodeURIComponent(fileId)}/download-url`);
+      const payload = await response.json().catch(() => null) as {
+        data?: { url?: string };
+        error?: { message?: string };
+      } | null;
+      const url = payload?.data?.url;
+      if (!response.ok || !url) {
+        setError(payload?.error?.message ?? "The file could not be opened");
+        return;
+      }
+      window.location.assign(url);
+    } catch {
+      setError("The file could not be opened — check your connection and try again");
+    } finally {
+      setBusy(false);
     }
-    window.location.assign(url);
   }
 
   return (
