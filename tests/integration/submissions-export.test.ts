@@ -147,6 +147,9 @@ describe("submissions CSV export", () => {
       expect(result.truncated).toBe(true);
       // header + 5000 data records + the trailing empty segment after the last CRLF.
       expect(result.csv.split("\r\n")).toHaveLength(5002);
-    });
+      // Formatting 5000 rows is real work, same as the bulk-insert fixture
+      // above it — give it the same generous timeout rather than the 5s
+      // default.
+    }, 60_000);
   });
 });
