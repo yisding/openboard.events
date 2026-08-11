@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SubmissionDetailDTO } from "@/shared/contracts";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
@@ -79,15 +79,28 @@ export function SubmissionDrawer({
    * re-renders the server tree but cannot reach this client-side fetch, so a
    * stale-write conflict needs its own reload signal. */
   const [reloadToken, setReloadToken] = useState(0);
+  /** True from a 409 until the reload it triggers settles. Saving again in that
+   * window would send the row version the server has already refused, so the
+   * button stays disabled rather than buying a second guaranteed conflict. */
+  const [reloading, setReloading] = useState(false);
+
+  /** Which submission the drawer is showing *now*. `save()` is async and this
+   * component is not remounted between submissions (the parent swaps the id
+   * while the drawer stays open), so a PATCH for the one the organizer just
+   * left must not write its answer into the one they are now reading. */
+  const active = useRef({ eventId, submissionId });
 
   // Blanking belongs to *opening a different submission*, not to reloading the
   // one on screen: a reload after a 409 has to keep the message explaining why
   // it is reloading, which the loader below would otherwise clear out from under
   // the organizer.
   useEffect(() => {
+    active.current = { eventId, submissionId };
     setDetail(null);
     setError("");
     setSaveError("");
+    setBusy(false);
+    setReloading(false);
   }, [eventId, submissionId]);
 
   useEffect(() => {
@@ -105,7 +118,8 @@ export function SubmissionDrawer({
         setOriginal(toValues(payload.data, vocabulary));
         setRowVersion(payload.data.rowVersion);
       })
-      .catch(() => { if (!cancelled) setError("Could not load this submission"); });
+      .catch(() => { if (!cancelled) setError("Could not load this submission"); })
+      .finally(() => { if (!cancelled) setReloading(false); });
     // A reviewer clicking down a list opens several in a row; a late response
     // for one they have already moved past must not replace what they are reading.
     return () => { cancelled = true; };
@@ -122,6 +136,7 @@ export function SubmissionDrawer({
 
   async function save() {
     if (!values || !original || rowVersion === null) return;
+    const request = { eventId, submissionId };
     setBusy(true);
     setSaveError("");
     try {
@@ -134,6 +149,11 @@ export function SubmissionDrawer({
         data?: { rowVersion: number };
         error?: { code?: string; message?: string };
       } | null;
+      // The organizer can walk to the next abstract (or close the drawer) while
+      // this is in flight. Every branch below writes state that belongs to the
+      // submission this request was for, so a late answer for one they have
+      // left is dropped rather than stamped onto the one they are reading.
+      if (active.current.eventId !== request.eventId || active.current.submissionId !== request.submissionId) return;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by
         // pressing Save again: their copy is behind, so say so and reload it.
@@ -141,6 +161,7 @@ export function SubmissionDrawer({
         // drawer holding the same fields and the same row version, so every
         // retry would keep conflicting until it was closed and reopened.
         setSaveError("This abstract changed since you opened it. Reloading the latest version — please re-apply your edit.");
+        setReloading(true);
         setReloadToken((token) => token + 1);
         router.refresh();
         return;
@@ -158,7 +179,11 @@ export function SubmissionDrawer({
       toast("Abstract saved");
       router.refresh();
     } finally {
-      setBusy(false);
+      // Same rule as above, for the same reason: if the drawer has moved on,
+      // `busy` now belongs to whatever is saving *there* and this request has no
+      // business clearing it. The submission it does belong to was reset when
+      // the drawer switched away.
+      if (active.current.eventId === request.eventId && active.current.submissionId === request.submissionId) setBusy(false);
     }
   }
 
@@ -206,10 +231,12 @@ export function SubmissionDrawer({
                   onChange={setValues}
                   vocabulary={vocabulary}
                   timezone={timezone}
-                  disabled={busy}
+                  disabled={busy || reloading}
                 />
                 <div className="drawer-actions">
-                  <Button disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save changes"}</Button>
+                  <Button disabled={busy || reloading || !dirty} onClick={save}>
+                    {busy ? "Saving…" : reloading ? "Reloading…" : "Save changes"}
+                  </Button>
                 </div>
               </section>
             )}
