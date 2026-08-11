@@ -68,8 +68,9 @@ The full feature-to-module mapping lives in [`PLAN.md`](PLAN.md) §1's product t
 
 Two Cloudflare Workers, one Next.js repository:
 
-- **`sb-web`** — Next.js 15 (App Router) deployed via OpenNext. Owns every binding: Neon
-  Postgres, sessions, R2 presigning, Resend, ICS, Better Auth.
+- **`sb-web`** — Next.js 15 (App Router) deployed via OpenNext. Owns the web application's bindings: Neon
+  Postgres, sessions, R2 presigning, Resend, ICS, Better Auth. (The jobs Worker below holds the
+  only two bindings outside it.)
 - **`workers/jobs`** — a dumb cron dispatcher with no application imports. It holds only
   `APP_BASE_URL` and a `CRON_SECRET`, and calls back into `sb-web`'s `/api/jobs/*` routes on a
   minute-modulo schedule (outbox drain, reminders, cleanup).
@@ -149,11 +150,19 @@ Deploys are currently a laptop operation via `scripts/deploy-cloudflare.sh`, not
 `Deploy` GitHub Actions run (see Honest status):
 
 ```bash
+export APP_BASE_URL=https://sb-web-preview.yi-ding.workers.dev   # exact deployed origin; the script refuses anything else
+export R2_ACCOUNT_ID=<cloudflare account id>
 pnpm deploy:web:preview      # OpenNext build + wrangler deploy, preview environment
 pnpm deploy:jobs:preview
-pnpm deploy:web:production   # gated on the protected production GitHub environment
+
+export APP_BASE_URL=https://sb-web.yi-ding.workers.dev
+pnpm deploy:web:production
 pnpm deploy:jobs:production
 ```
+
+The protected `production` GitHub environment gates the `Deploy` Actions workflow only — these
+local commands bypass that gate entirely and are restrained by nothing but the script's
+argument checks. Treat production invocations accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub
