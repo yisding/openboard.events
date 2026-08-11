@@ -5,8 +5,8 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Field } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
-const captionStyle = { color: "var(--muted)", fontSize: 10, margin: "-10px 0 16px" } as const;
-const fallbackNote = { color: "var(--muted)", fontSize: 9, lineHeight: 1.5, margin: "6px 0 14px" } as const;
+const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
+const fallbackNote = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "6px 0 14px" } as const;
 
 /**
  * "Notifications" — the Submission Confirmation email.

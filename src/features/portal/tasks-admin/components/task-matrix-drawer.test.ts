@@ -38,6 +38,8 @@ describe("TaskMatrixDrawer", () => {
     expect(html).toContain("Upload slides");
     expect(html).toContain("Loading");
     expect(html).toContain("2 of 5");
+    expect(html).toContain("<dialog");
+    expect(html).toContain('aria-label="Upload slides"');
   });
 
   it("omits the nav controls when no nav is supplied", () => {

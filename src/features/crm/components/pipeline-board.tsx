@@ -158,7 +158,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
           <>
             <div className="notify-bar">
               <div><p><b>{`${picked.firstName} ${picked.lastName}`.trim() || picked.email}</b><small>{picked.email}</small></p></div>
-              <button type="button" onClick={() => setPicked(null)} style={{ border: 0, background: "transparent", color: "var(--muted)", fontSize: 9 }}>Change</button>
+              <button type="button" onClick={() => setPicked(null)} style={{ border: 0, background: "transparent", color: "var(--muted)", fontSize: 11 }}>Change</button>
             </div>
             <Field label="Target event" hint="Optional.">
               <select value={targetEventId} onChange={(event) => setTargetEventId(event.target.value)}>

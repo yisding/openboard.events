@@ -29,10 +29,12 @@ export function BrandingPanel({ event, onSaved }: { event: EventDTO; onSaved: (e
       });
       onSaved(updated);
       toast(field === "logoFileId" ? "Logo updated" : "Background image updated");
+      return true;
     } catch (caught) {
       toast(isAppError(caught) && caught.code === "STALE_WRITE"
         ? "This event changed since you loaded it — refresh to see the latest"
         : "That image did not save");
+      return false;
     } finally {
       setBusyField(null);
     }
@@ -58,7 +60,7 @@ export function BrandingPanel({ event, onSaved }: { event: EventDTO; onSaved: (e
             eventId={event.id}
             kind="logo"
             currentFileId={event.logoFileId}
-            onUploaded={(fileId) => { void persist("logoFileId", fileId); }}
+            onUploaded={(fileId) => persist("logoFileId", fileId)}
             label={busyField === "logoFileId" ? "Saving…" : event.logoFileId ? "Replace logo" : "Upload logo"}
           />
         </div>
@@ -72,7 +74,7 @@ export function BrandingPanel({ event, onSaved }: { event: EventDTO; onSaved: (e
             eventId={event.id}
             kind="background"
             currentFileId={event.backgroundFileId}
-            onUploaded={(fileId) => { void persist("backgroundFileId", fileId); }}
+            onUploaded={(fileId) => persist("backgroundFileId", fileId)}
             label={busyField === "backgroundFileId" ? "Saving…" : event.backgroundFileId ? "Replace background" : "Upload background"}
           />
         </div>

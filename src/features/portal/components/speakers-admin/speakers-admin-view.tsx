@@ -113,7 +113,8 @@ export function SpeakersAdminView({
       const perSpeaker = await Promise.all(targets.map(async (row) => {
         const response = await fetch(`/api/internal/comms/${eventId}/open-assignments?contactId=${row.contactId}`);
         const payload = await response.json().catch(() => null) as { data?: Array<{ taskId: string; submissionId: string | null }> } | null;
-        return (payload?.data ?? []).map((assignment) => ({ taskId: assignment.taskId, contactId: row.contactId, submissionId: assignment.submissionId }));
+        if (!response.ok || !payload?.data) throw new Error("assignment lookup failed");
+        return payload.data.map((assignment) => ({ taskId: assignment.taskId, contactId: row.contactId, submissionId: assignment.submissionId }));
       }));
       const flatTargets = perSpeaker.flat();
       if (flatTargets.length === 0) {
@@ -133,6 +134,8 @@ export function SpeakersAdminView({
       toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} assignment${payload.data.total === 1 ? "" : "s"}`);
       setSelected([]);
       setSelectionEpoch((epoch) => epoch + 1);
+    } catch {
+      toast("Could not load or send reminders — try again");
     } finally {
       setReminding(false);
     }

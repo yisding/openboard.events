@@ -21,5 +21,5 @@ export default async function Page() {
   if (!identity) redirect("/login?next=%2Fevents");
 
   const events = await listEvents(identity.userId);
-  return <EventsView events={events} />;
+  return <EventsView events={events} user={{ name: identity.name, email: identity.email }} />;
 }

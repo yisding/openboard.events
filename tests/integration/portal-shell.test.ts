@@ -72,6 +72,7 @@ describe("portal shell data (M06b portal chrome)", () => {
       confirmation: "confirmed",
       hasHeadshot: false,
     });
+    expect(shell?.openTaskCount).toBe(0);
   });
 
   // R4: (id, eventId) are scoped together, so a session for one event can never

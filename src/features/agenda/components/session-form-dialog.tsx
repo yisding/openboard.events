@@ -408,7 +408,7 @@ function SessionHistoryPanel({
       )}
       {revisions[0]?.descriptionHtml && (
         <details style={{ marginTop: 8 }}>
-          <summary style={{ cursor: "pointer", fontSize: 9, color: "var(--muted)" }}>Preview current description</summary>
+          <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--muted)" }}>Preview current description</summary>
           <RichTextView html={revisions[0].descriptionHtml} />
         </details>
       )}
