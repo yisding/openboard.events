@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headersConfig } from "./security-headers";
+import { contentSecurityPolicy, headersConfig } from "./security-headers";
 
 function rule(source: string) {
   const found = headersConfig.find((entry) => entry.source === source);
@@ -39,6 +39,12 @@ describe("security-headers", () => {
     const rest = rule("/((?!embed/).*)");
     const csp = value(rest.headers, "Content-Security-Policy") ?? "";
     expect(csp).toContain("connect-src 'self' https://*.r2.cloudflarestorage.com");
+  });
+
+  it("allows Next development hydration without weakening deployed script policy", () => {
+    expect(contentSecurityPolicy(true)).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+    expect(contentSecurityPolicy()).toContain("script-src 'self' 'unsafe-inline'");
+    expect(contentSecurityPolicy()).not.toContain("'unsafe-eval'");
   });
 
   it("the non-embed rule's negative-lookahead source excludes only embed paths", () => {

@@ -39,6 +39,7 @@ export function EventSwitcher({
   const [open, setOpen] = useState(false);
   const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const events = demoEvents ?? remoteEvents;
 
@@ -55,6 +56,18 @@ export function EventSwitcher({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   const current = events?.find((event) => event.id === eventId);
   const currentName = current?.name ?? initialEvent?.name ?? "Choose an event";
   const currentDetail = current
@@ -63,7 +76,7 @@ export function EventSwitcher({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <button type="button" className="event-switcher" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
+      <button ref={triggerRef} type="button" className="event-switcher" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu" aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
         <span>
           <b>{currentName}</b>
