@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { checkRateLimit } from "@/shared/server/rate-limit";
@@ -48,13 +48,24 @@ describe("checkRateLimit (PLAN P3-SEC)", () => {
   });
 
   it("opens a fresh window once the previous one has fully elapsed", async () => {
-    const key = "window-reset";
-    await checkRateLimit(tx, { key, limit: 1, windowMs: 20 });
-    await expect(checkRateLimit(tx, { key, limit: 1, windowMs: 20 })).rejects.toMatchObject({ code: "RATE_LIMITED" });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    // The 20ms window has fully elapsed: this call opens a fresh window
-    // rather than continuing to count against the expired one.
-    await expect(checkRateLimit(tx, { key, limit: 1, windowMs: 20 })).resolves.toBeUndefined();
+    // Fakes only `Date` (not timers): a real 20ms wall-clock margin is too
+    // tight under CI/parallel load, where a single PGlite round trip can
+    // itself take longer than that and make even back-to-back calls land in
+    // different windows. Controlling the clock directly makes the "still
+    // inside the window" vs "window elapsed" cases deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const key = "window-reset";
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      await checkRateLimit(tx, { key, limit: 1, windowMs: 20 });
+      await expect(checkRateLimit(tx, { key, limit: 1, windowMs: 20 })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+      // The 20ms window has fully elapsed: this call opens a fresh window
+      // rather than continuing to count against the expired one.
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.021Z"));
+      await expect(checkRateLimit(tx, { key, limit: 1, windowMs: 20 })).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hashes the key rather than storing it in the clear", async () => {
