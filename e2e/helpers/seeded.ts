@@ -118,8 +118,12 @@ export const TASKS = {
 } as const;
 
 // 7 domain templates + portal_login + M50's reviewer_invited and
-// review_reminder + M51's speaker_bulk_message.
-export const TEMPLATE_KEYS_PER_EVENT = 11;
+// review_reminder + M51's speaker_bulk_message + M42's admin_password_reset and
+// admin_email_verification (drizzle/0009) + M44's organization_invited
+// (drizzle/0011). The whole `template_key` enum, in other words: `0014`
+// backfills every event's missing rows precisely so this count is the enum's
+// length and not "whichever keys existed when the event was created".
+export const TEMPLATE_KEYS_PER_EVENT = 14;
 
 /**
  * Every seeded address is on a domain the project owns, and so is every address

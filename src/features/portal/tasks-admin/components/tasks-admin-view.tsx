@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, FileText, MoreHorizontal, Plus, Search, Up
 import { useRouter } from "next/navigation";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, ProgressBar, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AdminTaskDTO, FileRequestDTO, FormOption, TaskTabCounts } from "../server/queries";
@@ -42,7 +43,11 @@ export function TasksAdminView({
   const [fileRequests, setFileRequests] = useState(initialFileRequests);
   const [editing, setEditing] = useState<AdminTaskDTO | null>(null);
   const [creating, setCreating] = useState(false);
-  const [matrixTask, setMatrixTask] = useState<AdminTaskDTO | null>(null);
+  // M57 — the open task drawer is an id into `filtered`, not a captured
+  // object, so next/prev always resolves against whatever is on screen right
+  // now (a search or tab change while the drawer is open never leaves it
+  // pointing at a row that has scrolled out of the visible list).
+  const [matrixTaskId, setMatrixTaskId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AdminTaskDTO | null>(null);
 
   const filtered = useMemo(() => {
@@ -54,6 +59,11 @@ export function TasksAdminView({
       return true;
     });
   }, [tasks, tab, search]);
+
+  const taskIds = useMemo<string[]>(() => filtered.map((task) => task.id), [filtered]);
+  useFlowKeyboardNav({ ids: taskIds, activeId: matrixTaskId, onNavigate: setMatrixTaskId, onClose: () => setMatrixTaskId(null) });
+  const matrixIndex = matrixTaskId ? taskIds.indexOf(matrixTaskId) : -1;
+  const matrixTask = matrixIndex !== -1 ? filtered[matrixIndex] : undefined;
 
   async function refresh() {
     const response = await fetch(`/api/internal/tasks?eventId=${eventId}`);
@@ -146,7 +156,7 @@ export function TasksAdminView({
                     <div><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
                     <ProgressBar value={progress} tone={progress > 75 ? "green" : "accent"} />
                   </div>
-                  <TaskRowMenu task={task} onView={() => setMatrixTask(task)} onEdit={() => setEditing(task)} onDelete={() => setPendingDelete(task)} />
+                  <TaskRowMenu task={task} onView={() => setMatrixTaskId(task.id)} onEdit={() => setEditing(task)} onDelete={() => setPendingDelete(task)} />
                 </article>
               );
             })}
@@ -168,7 +178,18 @@ export function TasksAdminView({
       />
 
       {matrixTask && (
-        <TaskMatrixDrawer eventId={eventId} task={matrixTask} timezone={timezone} onClose={() => setMatrixTask(null)} />
+        <TaskMatrixDrawer
+          eventId={eventId}
+          task={matrixTask}
+          timezone={timezone}
+          onClose={() => setMatrixTaskId(null)}
+          nav={{
+            index: matrixIndex,
+            total: taskIds.length,
+            ...(taskIds[matrixIndex - 1] ? { onPrev: () => setMatrixTaskId(taskIds[matrixIndex - 1] as string) } : {}),
+            ...(taskIds[matrixIndex + 1] ? { onNext: () => setMatrixTaskId(taskIds[matrixIndex + 1] as string) } : {}),
+          }}
+        />
       )}
 
       <ConfirmDialog

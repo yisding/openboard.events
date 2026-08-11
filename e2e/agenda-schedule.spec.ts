@@ -269,8 +269,16 @@ test.describe("agenda-schedule", () => {
       });
 
       await test.step("Auto-place previews both rows: one placeable, one unplaced with a useful reason", async () => {
-        await page.goto(`${AGENDA}?view=list`);
-        await page.getByRole("button", { name: /auto-place/i }).click();
+        // `?view=day`, not `?view=list`: Auto-place lives in the unscheduled
+        // tray, and `agenda-page.tsx` renders that tray only alongside the
+        // grid views — the list view replaces the whole workspace, so on
+        // `?view=list` the button this step clicks does not exist at all.
+        await page.goto(`${AGENDA}?view=day`);
+        // Exact, not a substring: this step's own fixture is *named*
+        // "E2E auto-place <stamp>" and the tray renders every unscheduled
+        // session as a button, so `/auto-place/i` matches the fixture card as
+        // well as the action and fails strict mode.
+        await page.getByRole("button", { name: "Auto-place", exact: true }).click();
         const dialog = page.getByRole("dialog", { name: "Auto-place unscheduled sessions" });
         await expect(dialog).toBeVisible();
 

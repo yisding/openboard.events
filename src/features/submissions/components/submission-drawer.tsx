@@ -12,6 +12,7 @@ import {
   type AbstractFieldValues,
 } from "./abstract-fields";
 import { Dash } from "@/shared/ui/app/dash";
+import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
@@ -54,6 +55,7 @@ export function SubmissionDrawer({
   vocabulary,
   canEdit = false,
   onClose,
+  nav,
 }: {
   eventId: string;
   submissionId: string;
@@ -61,6 +63,8 @@ export function SubmissionDrawer({
   vocabulary: SubmissionVocabulary;
   canEdit?: boolean;
   onClose: () => void;
+  /** M57 — keyboard/click next-prev across the table's current rows. */
+  nav?: { index: number; total: number; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -134,7 +138,12 @@ export function SubmissionDrawer({
   }
 
   return (
-    <Drawer open onClose={onClose} title={detail ? formatCode(detail.code) : "Submission"}>
+    <Drawer
+      open
+      onClose={onClose}
+      title={detail ? formatCode(detail.code) : "Submission"}
+      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+    >
       {error && <p className="portal-note" role="alert">{error}</p>}
       {!detail && !error && <p className="portal-note">Loading…</p>}
       {detail && (

@@ -139,20 +139,31 @@ export function PlansView({
       id: "reviewers",
       header: "Reviewers",
       accessorFn: (plan) => plan.reviewers.length,
-      cell: ({ row }) => (
-        <ul className="reviewer-progress">
-          {row.original.reviewers.length === 0 && <li>Nobody assigned</li>}
-          {row.original.reviewers.map((reviewer) => (
-            <li key={reviewer.userId}>
-              {reviewer.name || reviewer.email}{" "}
-              <small>
-                {reviewer.completed}/{reviewer.assigned}
-                {reviewer.recused > 0 && ` · ${reviewer.recused} recused`}
-              </small>
-            </li>
-          ))}
-        </ul>
-      ),
+      cell: ({ row }) => {
+        // M56 — reviewer-load mini-bars: assignment count relative to this
+        // round's busiest reviewer, so "one reviewer got 80 abstracts" is
+        // visible at a glance instead of buried in a column of numbers.
+        const maxAssigned = Math.max(1, ...row.original.reviewers.map((reviewer) => reviewer.assigned));
+        return (
+          <ul className="reviewer-progress">
+            {row.original.reviewers.length === 0 && <li>Nobody assigned</li>}
+            {row.original.reviewers.map((reviewer) => (
+              <li key={reviewer.userId}>
+                {reviewer.name || reviewer.email}{" "}
+                <small>
+                  {reviewer.completed}/{reviewer.assigned}
+                  {reviewer.recused > 0 && ` · ${reviewer.recused} recused`}
+                </small>
+                {reviewer.assigned > 0 && (
+                  <span className="dashboard-bar reviewer-load-bar" aria-hidden="true" title={`${reviewer.assigned} assigned`}>
+                    <i style={{ width: `${(reviewer.assigned / maxAssigned) * 100}%` }} />
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        );
+      },
     },
     {
       id: "progress",

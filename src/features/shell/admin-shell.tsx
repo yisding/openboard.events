@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { notFound, usePathname } from "next/navigation";
-import { BarChart3, Bell, BookOpen, CalendarDays, ChevronDown, ClipboardCheck, ExternalLink, FileText, FolderOpen, HelpCircle, LayoutDashboard, Mail, Menu, PanelTop, Search, Settings, Sparkles, Users, X } from "lucide-react";
+import { BarChart3, Bell, BookOpen, CalendarDays, ChevronDown, ClipboardCheck, ExternalLink, FileText, FolderOpen, HelpCircle, LayoutDashboard, Mail, Menu, PanelTop, Settings, Sparkles, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "@/shared/ui/brand";
 import { useDemo } from "@/shared/demo/demo-provider";
+import { CommandPalette } from "@/features/shell/components/command-palette";
 import { eventInitials } from "@/shared/lib/event-label";
 import type { MemberRole } from "@/shared/contracts";
 
-type NavigationGroup = { label: string; items: Array<{ label: string; href: string; icon: LucideIcon; count?: number }> };
+type NavigationGroup = { label: string; items: Array<{ label: string; href: string; icon: LucideIcon }> };
 
 /**
  * What the shell needs to draw itself. The event layout reads this from the
@@ -18,6 +19,22 @@ type NavigationGroup = { label: string; items: Array<{ label: string; href: stri
  * the same shape when the credential-free demo is running.
  */
 export type AdminShellEvent = { id: string; slug: string; name: string; shortName: string };
+
+/**
+ * M56 — real, *actionable* sidebar counts (replacing the previous permanent
+ * hardcode). Every key maps to one nav href; a missing or zero value renders
+ * no badge at all, so the sidebar stays quiet when there is nothing to do.
+ * `abstracts`/`speakers`/`tasks` are organizer/owner badges; `review` is the
+ * reviewer's own outstanding-work count and only that nav renders it.
+ */
+export type AdminShellCounts = { abstracts?: number; speakers?: number; tasks?: number; review?: number };
+
+const COUNT_KEY_BY_HREF: Record<string, keyof AdminShellCounts> = {
+  abstracts: "abstracts",
+  speakers: "speakers",
+  tasks: "tasks",
+  review: "review",
+};
 
 const navigation: NavigationGroup[] = [
   { label: "Overview", items: [{ label: "Dashboard", href: "dashboard", icon: LayoutDashboard }] },
@@ -41,7 +58,7 @@ const reviewerNavigation: NavigationGroup[] = [
  * `notFound()`ed once hydrated. The demo lookup survives only as the fallback
  * for the credential-free local demo, which has no database to read.
  */
-export function AdminShell({ eventId, role, event: serverEvent, children }: { eventId: string; role: MemberRole; event?: AdminShellEvent; children: React.ReactNode }) {
+export function AdminShell({ eventId, role, event: serverEvent, counts, children }: { eventId: string; role: MemberRole; event?: AdminShellEvent; counts?: AdminShellCounts; children: React.ReactNode }) {
   const pathname = usePathname();
   const { state, hydrated } = useDemo();
   const [open, setOpen] = useState(false);
@@ -60,10 +77,10 @@ export function AdminShell({ eventId, role, event: serverEvent, children }: { ev
     <aside className={`admin-sidebar ${open ? "open" : ""}`}>
       <div className="sidebar-brand"><Brand /><button type="button" className="mobile-close" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={18} /></button></div>
       <button type="button" className="event-switcher"><span className="event-switcher-mark">{eventInitials(event.name)}</span><span><b>{event.shortName}</b><small>/{event.slug}</small></span><ChevronDown size={16} /></button>
-      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = pathname.includes(`/${item.href}`); return <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} onClick={() => setOpen(false)}><Icon size={18} /><b>{item.label}</b>{item.count && <em>{item.count}</em>}</Link>; })}</div>)}</nav>
+      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = pathname.includes(`/${item.href}`); const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; return <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} onClick={() => setOpen(false)}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; })}</div>)}</nav>
       <div className="sidebar-bottom"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>ML</span><div><b>Maya Lin</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div><button type="button" aria-label="Account menu"><ChevronDown size={15} /></button></div></div>
     </aside>
     {open && <button type="button" aria-label="Close navigation" className="mobile-overlay" onClick={() => setOpen(false)} />}
-    <section className="app-main"><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><button type="button" className="search-trigger"><Search size={17} /><span>Search anything</span><kbd>⌘ K</kbd></button><button type="button" className="icon-button" aria-label="Help & docs"><HelpCircle size={19} /></button><button type="button" className="icon-button notification-button" aria-label="Notifications"><Bell size={19} /><i /></button>{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
+    <section className="app-main"><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><CommandPalette eventId={event.id} base={base} role={role} /><button type="button" className="icon-button" aria-label="Help & docs"><HelpCircle size={19} /></button><button type="button" className="icon-button notification-button" aria-label="Notifications"><Bell size={19} /><i /></button>{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
   </div>;
 }

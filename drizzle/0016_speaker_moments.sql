@@ -1,0 +1,12 @@
+-- M59 — speaker moments.
+--
+-- Additive: one nullable column on `contacts` recording when a speaker has
+-- seen the acceptance-celebration moment on their portal home, so a repeat
+-- visit does not replay it. Write path stays the same one chokepoint
+-- (`updateContactFields`, resolution #13) — this file only adds the column
+-- `ContactPatch` now carries.
+--
+-- No default backfill needed: every existing contact reads NULL, which is
+-- exactly "has not seen it yet" — the correct value for every row that
+-- predates this column, accepted or not.
+ALTER TABLE contacts ADD COLUMN acceptance_seen_at timestamptz;

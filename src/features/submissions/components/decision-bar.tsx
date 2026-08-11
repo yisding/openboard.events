@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
@@ -96,25 +97,18 @@ export function DecisionBar({
     }
   }
 
-  if (selected.length === 0 && pendingNotify === 0) return null;
-
   return (
-    <div className="bulk-bar">
-      {selected.length > 0 ? (
-        <>
-          <span>{selected.length} selected</span>
-          <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
-          <Button variant="secondary" disabled={busy} onClick={() => move("decline_queue")}>Move to decline queue</Button>
-          <Button variant="ghost" disabled={busy} onClick={onDone}>Clear</Button>
-        </>
-      ) : (
-        <span>{pendingNotify} decision{pendingNotify === 1 ? "" : "s"} queued and not yet sent</span>
-      )}
-      {pendingNotify > 0 && (
-        <Button disabled={busy} onClick={notify}>
-          {busy ? "Sending…" : `Notify ${pendingNotify}`}
-        </Button>
-      )}
-    </div>
+    <BulkActionBar
+      count={selected.length}
+      onClear={onDone}
+      actions={<>
+        <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => move("decline_queue")}>Move to decline queue</Button>
+      </>}
+      {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision{pendingNotify === 1 ? "" : "s"} queued and not yet sent</span> } : {})}
+      {...(pendingNotify > 0 ? {
+        trailing: <Button disabled={busy} onClick={notify}>{busy ? "Sending…" : `Notify ${pendingNotify}`}</Button>,
+      } : {})}
+    />
   );
 }

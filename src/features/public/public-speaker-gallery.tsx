@@ -8,6 +8,7 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { formatInZone } from "@/shared/lib/time";
 import type { PublishedSpeakerDTO, PublishedSpeakersDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
+import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
 
@@ -126,11 +127,13 @@ export function PublicSpeakerGallery({
               <p>Confirmed speakers for this event — search by name, company, or topic.</p>
             </header>
             {speakers.speakers.length === 0 ? (
-              <div className="public-empty">
-                <Search size={24} />
-                <h3>Speakers coming soon</h3>
-                <p>Confirmed speakers will appear here as they&rsquo;re announced.</p>
-              </div>
+              <PublicComingSoon
+                icon={Search}
+                title="Speakers coming soon"
+                description="Confirmed speakers will appear here as they're announced — the agenda is the other place to check."
+                linkHref={`/e/${eventSlug}/agenda`}
+                linkLabel="View the agenda"
+              />
             ) : (
               <>
                 <label className="speaker-search">

@@ -84,6 +84,11 @@ export const fileExportJobs = pgTable("file_export_jobs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  // M52-ZIP (drizzle/0015): resumable-export progress — next file index, R2
+  // multipart upload id/part number, running ZIP offset, and the small
+  // accumulated central-directory bytes. '{}' means "not started yet";
+  // `processFileExportJobIn` treats a missing key as its own default.
+  exportState: jsonb("export_state").notNull().default({}),
 }, (table) => [unique().on(table.id, table.eventId)]);
 export const resourcePages = pgTable("resource_pages", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

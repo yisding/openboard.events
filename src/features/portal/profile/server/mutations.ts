@@ -82,3 +82,18 @@ export async function updateProfileIn(
 export function updateProfile(eventId: EventId, contactId: ContactId, patch: ProfilePatch): Promise<SpeakerProfileDTO> {
   return updateProfileIn(db, eventId, contactId, patch);
 }
+
+/**
+ * M59 — the acceptance-celebration hero renders once. The portal home page
+ * calls this right after it decides to show the celebration (never before —
+ * a request that never rendered the celebration must not consume it), so a
+ * refresh or a second tab a moment later already sees the ordinary home.
+ * Same one chokepoint as every other portal-side `contacts` write.
+ */
+export async function markAcceptanceSeenIn(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId): Promise<void> {
+  await updateContactFields(dbOrTx, eventId, contactId, { acceptanceSeenAt: new Date() });
+}
+
+export function markAcceptanceSeen(eventId: EventId, contactId: ContactId): Promise<void> {
+  return markAcceptanceSeenIn(db, eventId, contactId);
+}

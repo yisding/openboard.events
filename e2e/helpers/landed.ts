@@ -31,40 +31,41 @@ export const MODULES = {
   M33: { landed: true, what: "embed shells (frame-ancestors, no X-Frame-Options)" },
   M34: { landed: true, what: "comms outbox dispatcher (one log row per submission)" },
   M40: { landed: true, what: "public API (published-only rows matching the page)" },
-  // M50's code is merged and the preview already runs a build carrying
-  // migration 0004, so the deployment is no longer what this gate waits on:
-  // the *data* is. The spec drives Round 2 — blind, windowed, typed — and reads
-  // a blind payload that has to both contain the "Approach" answer and omit the
-  // "Employer" one, and `sb-test` was seeded before either existed. `pnpm seed`
-  // now tops both up in place rather than needing a wipe, so this flips once
-  // that run is confirmed against the preview's own database.
-  M50: { landed: false, what: "review operations — needs sb-test reseeded with Round 2 and the blind-review questions" },
-  // M51's code is merged, but this gate is about *deployed* evidence: the
-  // spec adds/imports/invites/uploads/bulk-emails against the real preview
-  // and reads communication_logs back, so it flips only once the preview
-  // runs a build that carries migration 0008.
-  M51: { landed: false, what: "speaker roster operations — needs a preview deployed with drizzle/0008" },
-  // M54's code is merged and its PGlite suite is green, but this gate is
-  // about *deployed* evidence too: the spec previews and applies a real
-  // placement against the preview's own schedule and blackout rows, so it
-  // flips once that run is confirmed against a deployed preview.
-  M54: { landed: false, what: "assisted agenda placement — needs deployed preview/apply evidence" },
-  // M52's code is merged (drizzle/0006_content_deliverables.sql) and its
-  // PGlite suite is green, but this gate is about *deployed* evidence too:
-  // the spec uploads two real versions through the browser, exchanges a
-  // comment, bulk-reminds through the real outbox, restores/publishes a
-  // session against the real public schedule, and reads back real ZIP bytes
-  // from R2 — none of which PGlite or a fixture can stand in for.
-  M52: { landed: false, what: "content/deliverables lifecycle — needs a preview deployed with drizzle/0006" },
-  // M53's code is merged (no new migration — it reads M32/M33's existing
-  // views and the pre-existing `embeds` table/enum) and its own unit/
-  // integration coverage is green, but this gate is about *deployed*
-  // evidence too: the spec exercises every search/filter/day/detail
-  // interaction across all five surfaces, a real localStorage star/reload/
-  // export round trip, a genuine cross-origin iframe render, and a
-  // parity comparison against the organizer's own admin API — none of
-  // which a fixture can stand in for.
-  M53: { landed: false, what: "five public widgets + embed parity — needs a deployed preview" },
+  // The five gates below were the *deployed/data* remainders rather than code
+  // gaps, and each gate's stated condition is met as of the rev. 13 evidence run
+  // (`docs/evidence/rev13-deployed-run.md`): the preview runs a build carrying
+  // migrations 0004/0006/0008 — and 0009–0014 — and `sb-test` was wiped and
+  // reseeded by this suite's own global setup, which is what tops up Round 2
+  // and the two blind-review questions M50's spec reads. That condition is what
+  // the header rule above asks for, so all five are `true`.
+  //
+  // **Open, and the reason this comment is long: `true` here does not mean the
+  // gated specs pass.** Only M53 and M54 went green in that run. The other three
+  // are open over specs that have never passed end-to-end, so a red run on them
+  // is expected, not a regression:
+  //
+  //  - M50 — blocked on a real app/seed gap, not weather. No seeded reviewer has
+  //    a `contacts` row, so `sendReviewRemindersIn` skips every target and the
+  //    reminders route answers `{"enqueued":0,"skipped":3}`; `review-operations.
+  //    spec.ts:94` cannot pass until M50's provisioning path (or the seed)
+  //    creates that contact. Evidence file §8 Finding 1.
+  //  - M52 — the browser presign→PUT→finalize succeeds on the preview but
+  //    `.portal-uploads` never renders; the defect is localised to `attach()`'s
+  //    POST /api/internal/portal/tasks/{id}/upload + router.refresh() path.
+  //    Evidence file §1g.
+  //  - M51 — no clean run yet: its arrange steps are not idempotent (a duplicate
+  //    "Shirt size" field survives between runs), and its one retry hit the
+  //    preview's 503s. Evidence file §8 Findings 4 and 6.
+  //
+  // Each entry names the steps it now gates; a regression sends it back to
+  // `false` together with those steps, never on its own. If the next clean rerun
+  // does not close M50/M51/M52, those three go back to `false` — see the
+  // evidence file's `needs_owner` items 3 and 4.
+  M50: { landed: true, what: "review operations (round governance, blind payloads, the reviewer's own queue)" },
+  M51: { landed: true, what: "speaker roster operations (manual add, CSV import, invite, bulk email)" },
+  M54: { landed: true, what: "assisted agenda placement (preview, apply one row, blacked-out reason)" },
+  M52: { landed: true, what: "content/deliverables lifecycle (versions, comments, reminders, ZIP export)" },
+  M53: { landed: true, what: "five public widgets + embed parity (interactions, iframe, cacheability)" },
 } as const;
 
 export type ModuleId = keyof typeof MODULES;

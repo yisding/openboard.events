@@ -2,9 +2,10 @@
 
 import { Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SubmissionFilters, SubmissionVocabulary } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
+import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
 import { AddAbstractDrawer } from "./add-abstract-drawer";
@@ -60,11 +61,35 @@ export function AbstractsView({
   // Bumped to clear the table's own checkbox state; `selected` is only a mirror
   // of it, so resetting the mirror alone leaves the boxes ticked.
   const [selectionEpoch, setSelectionEpoch] = useState(0);
+  // M58 — bumped to select every row on screen: the command palette's
+  // "pending abstracts" verb lands here with `?status=pending&arm=1` and the
+  // bar is already showing "N selected" with its actions, nothing to click
+  // first.
+  const [selectAllEpoch, setSelectAllEpoch] = useState(0);
 
   const clearSelection = useCallback(() => {
     setSelected([]);
     setSelectionEpoch((epoch) => epoch + 1);
   }, []);
+
+  // `arm` and `submission` are one-shot: consumed on arrival, then stripped
+  // from the URL (replace, not push) so neither a re-render nor the back
+  // button re-fires them. `submission` is the same param name
+  // `SpeakerFlowDrawer`'s "this speaker's submissions" links already send —
+  // that link was dead on this server-backed view until now; M58's command
+  // palette entity jump reuses it rather than adding a second name for the
+  // same thing.
+  useEffect(() => {
+    const shouldArm = params.get("arm") === "1";
+    const openTarget = params.get("submission");
+    if (!shouldArm && !openTarget) return;
+    if (shouldArm) setSelectAllEpoch((epoch) => epoch + 1);
+    if (openTarget) setOpenId(openTarget);
+    const query = new URLSearchParams(params.toString());
+    query.delete("arm");
+    query.delete("submission");
+    router.replace(`?${query.toString()}`, { scroll: false });
+  }, [params, router]);
 
   const onFilter = useCallback((next: { status?: SubmissionStatus | "all"; search?: string }) => {
     const query = new URLSearchParams(params.toString());
@@ -98,6 +123,13 @@ export function AbstractsView({
   // route walks every page server-side, so the query string it needs is
   // exactly the one already in the address bar.
   const exportHref = `/api/internal/submissions/${eventId}/export.csv?${params.toString()}`;
+
+  // M57 — flow through the current server page with the keyboard: the ids
+  // are this page's rows in the order the table is showing them, so
+  // next/prev walks exactly what is on screen, not a hidden global order.
+  const rowIds = useMemo<string[]>(() => rows.map((row) => row.submissionId), [rows]);
+  useFlowKeyboardNav({ ids: rowIds, activeId: openId, onNavigate: setOpenId, onClose: () => setOpenId(null) });
+  const openIndex = openId ? rowIds.indexOf(openId) : -1;
 
   return (
     <main className="page">
@@ -133,9 +165,14 @@ export function AbstractsView({
         onPageChange={onPageChange}
         onSortChange={onSortChange}
         selectionEpoch={selectionEpoch}
+        selectAllEpoch={selectAllEpoch}
         onSelectionChange={setSelected}
         onRowClick={(row) => setOpenId(row.submissionId)}
       />
+      {/* `openIndex === -1` happens when a command-palette jump opens a
+          submission that is not on the current filtered/paginated page — the
+          drawer still opens (it fetches its own detail by id), it just has
+          no next/prev to offer. */}
       {openId && (
         <SubmissionDrawer
           eventId={eventId}
@@ -144,6 +181,14 @@ export function AbstractsView({
           vocabulary={vocabulary}
           canEdit={canEdit}
           onClose={() => setOpenId(null)}
+          nav={openIndex === -1
+            ? { index: 0, total: 1 }
+            : {
+                index: openIndex,
+                total: rowIds.length,
+                ...(rowIds[openIndex - 1] ? { onPrev: () => setOpenId(rowIds[openIndex - 1] as string) } : {}),
+                ...(rowIds[openIndex + 1] ? { onNext: () => setOpenId(rowIds[openIndex + 1] as string) } : {}),
+              }}
         />
       )}
       {canEdit && (

@@ -20,6 +20,12 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // M51 added `contacts.workflow_status`; `getOrCreateContact`'s unqualified
 // `.returning()` now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M59 (drizzle/0016) added `contacts.acceptance_seen_at`. This harness applies
+// a hand-picked subset of migrations rather than the whole journal, so any
+// drizzle query that names every declared `contacts` column — an unqualified
+// `.returning()`, or a `select()` of the whole table — fails against a
+// database built without it. Applied last, as it is in the journal.
+const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
 const contactA = contactIdSchema.parse("b0000000-0000-4000-8000-000000000003");
@@ -37,6 +43,7 @@ describe("portal authentication", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSpeakerMoments);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Portal A','portal-a','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Portal B','portal-b','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventA, eventB]);
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [contactA, eventA]);
     testDb = drizzle(pglite, { schema });

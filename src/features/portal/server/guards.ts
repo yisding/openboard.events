@@ -8,7 +8,15 @@ import { isAppError } from "@/shared/lib/errors";
 
 export type PortalContext = {
   event: { id: EventId; slug: string; name: string; timezone: string };
-  contact: { id: ContactId; email: string; firstName: string; lastName: string; headshotFileId: string | null };
+  contact: {
+    id: ContactId;
+    email: string;
+    firstName: string;
+    lastName: string;
+    headshotFileId: string | null;
+    /** M59 — null until the portal home has shown the acceptance celebration once. */
+    acceptanceSeenAt: string | null;
+  };
   impersonatedByUserId: string | null;
 };
 
@@ -49,6 +57,7 @@ export async function requirePortalContext(eventSlug: string): Promise<PortalCon
         firstName: contacts.firstName,
         lastName: contacts.lastName,
         headshotFileId: contacts.headshotFileId,
+        acceptanceSeenAt: contacts.acceptanceSeenAt,
       })
       .from(contacts)
       .where(and(eq(contacts.id, session.contactId), eq(contacts.eventId, session.eventId)))
@@ -67,6 +76,7 @@ export async function requirePortalContext(eventSlug: string): Promise<PortalCon
       firstName: contact.firstName,
       lastName: contact.lastName,
       headshotFileId: contact.headshotFileId,
+      acceptanceSeenAt: contact.acceptanceSeenAt ? contact.acceptanceSeenAt.toISOString() : null,
     },
     impersonatedByUserId: session.impersonatedByUserId,
   };

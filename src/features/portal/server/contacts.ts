@@ -26,6 +26,9 @@ export type ContactPatch = Partial<{
   // M51 — pure organizer pipeline bookkeeping (drizzle/0008's header comment);
   // never read by publication or notification logic.
   workflowStatus: SpeakerWorkflowStatus;
+  // M59 — set once, the moment the portal home has shown the
+  // acceptance-celebration hero to this contact.
+  acceptanceSeenAt: Date;
 }>;
 
 export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId> {

@@ -9,6 +9,14 @@ paths exist today, and this file is the index between them:
    configured under the repo's own Settings → Notifications) with no further setup — that failure
    *is* the alert today. A Slack/PagerDuty webhook step can be added to the same job later without
    changing anything in this file's thresholds; see the workflow's own header comment for where.
+
+   **Which origins are polled is configuration.** The workflow reads the repository variables
+   `UPTIME_PREVIEW_URL` (defaulted to the deployed preview) and `UPTIME_PRODUCTION_URL` (unset), and
+   an environment with no configured origin is skipped with a `::notice::` instead of polled. This
+   is load-bearing for the whole "a failed run *is* the alert" scheme: the production Worker
+   (`sb-web`) has never been deployed, and polling it anyway made every scheduled run red, which is
+   indistinguishable from a real preview outage. Set `UPTIME_PRODUCTION_URL` on the day production
+   first deploys and production resumes being polled on the next schedule.
 2. **Error-rate-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single seam
    every unmapped `INTERNAL` error (`defineHandler`'s catch block, the job routes' catch block)
    flows through before it becomes the generic 500 the caller sees. It is console-only today

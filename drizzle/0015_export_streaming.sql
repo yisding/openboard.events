@@ -1,0 +1,11 @@
+-- M52-ZIP — resumable, chunked latest-file export, replacing the synchronous
+-- in-memory ZIP build that docs/evidence/m52-zip-cpu-measurement.md measured
+-- unsafe at realistic export sizes (CPU time far past Workers Free's 10ms
+-- allowance, and peak memory past the 128 MB isolate ceiling that applies on
+-- both Free and Paid). Additive only: one new JSONB column carries a
+-- resumable export's progress (next file index, R2 multipart upload id/part
+-- number, running ZIP offset, and the small accumulated central-directory
+-- bytes) between processing steps, which may run in different Worker
+-- invocations. Nothing existing is altered; every prior row defaults to '{}'
+-- (not yet started), which `processFileExportJobIn` treats as step zero.
+ALTER TABLE file_export_jobs ADD COLUMN export_state jsonb NOT NULL DEFAULT '{}'::jsonb;

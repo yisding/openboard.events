@@ -218,3 +218,66 @@ an ops task. `docs/runbooks/r2-lifecycle.md` documents the finding in full, the 
 `cleanupOrphans` sweep that already covers this gap today (daily cron, already deployed), and the
 exact wrangler/dashboard steps for the rule that becomes correct once the key-scheme follow-up
 lands. Filed as a scoped follow-up for M07's owner, not a blocker for M48.
+
+## S4 redo attempt — blocked on preview configuration, not on code (2026-08-10)
+
+The rev. 13 deployed-demonstration run attempted the M42 S4 redo against the live preview
+(version `3f42f894`, code = merge `7b9cf3a`, `/api/health` `sha: 8b566c0`). Full transcript:
+[`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §2.
+
+**Verdict: not executable on this deployment. `ADMIN_AUTH_PROVIDER` is unset on
+`sb-web-preview`, so it holds its default `fallback` and the entire Better Auth surface is
+unreachable** — `GET /api/auth/get-session`, `GET|POST /api/auth/sign-in/email`,
+`/api/auth/sign-in/social` and `/api/auth/callback/google` all answer this application's own
+`404 {"error":{"code":"NOT_FOUND"}}`, which is exactly what `src/app/api/auth/[...action]/route.ts`
+returns while the provider is `fallback`. The preview also carries no `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET` or `BETTER_AUTH_URL` (this file's "Product auth direction" entry records
+those as `.dev.vars`, local-dev only). So the deployed Better Auth sign-in round-trip, the deployed
+revocation proof, deployed rehash-on-login, and the Google consent redirect are all blocked on an
+owner action — worker secrets plus a redeploy — and none of them is blocked on missing code.
+
+**What the attempt did establish, deployed:**
+
+- The *shipping* provider's credential round-trip works end to end on the preview: wrong password
+  → 401, real credential → 200 with an `ob_admin` cookie (Secure, HttpOnly, SameSite=lax, 7 days),
+  that cookie authorizing a real `requireAdmin` read, no cookie → 401, sign-out → 200 with the
+  cookie cleared.
+- **The revocation gap M42 exists to close, reproduced on the deployment:** replaying the
+  pre-sign-out cookie after a successful sign-out still returns 200. The fallback cookie is a
+  self-contained jose JWT with no server record, `revokeAdminSessions` returns 0 on this provider
+  by design, and `admin_sessions` is empty. Under Better Auth the same probe must answer 401 after
+  a row delete; that is the proof still owed.
+- The rehash-on-login *precondition* is real on `sb-test`: after `pnpm admin:bootstrap`, both
+  admins hold a legacy `pbkdf2-sha256$…` value in `users.password_hash` **and** in
+  `admin_accounts.password` under `provider_id = 'credential'` (the `upsertCredentialAccount`
+  mirror), which is precisely the row `needsRehash` upgrades on first sign-in once the flag flips.
+
+**Consequence for the guardrail in "Product auth direction": unchanged. The jose/PBKDF2 fallback
+remains the shipping auth**, because the deployed Better Auth round-trip is still unproven. This
+entry records that the reason is now configuration and an owner action, not an unknown-risk
+compatibility question.
+
+## Deployed auth-throttle proof — CP0 / R1 item 4 closed (2026-08-10)
+
+The last outstanding CP0 bullet ("a deployed application auth-throttle proof; unit coverage is not
+external evidence") is satisfied. Against the deployed preview, one throwaway address, requests
+paced 1.5 s apart:
+
+```
+attempt 1: 401   attempt 3: 401   attempt 5: 401
+attempt 2: 401   attempt 4: 401   attempt 6: 429 {"code":"RATE_LIMITED","message":"Too many sign-in attempts. Try again later."}
+```
+
+Five attempts per email+IP per 15 minutes, then a block — `registerLoginAttempt`'s documented
+policy, observed on the application rather than in a test. The independent P3-SEC IP limiter on
+the portal login-request route was proven in the same session with a fresh address every request
+(so the per-contact throttle could not be what answered): 20 × 200, then 429 on the 21st, matching
+`limit: 20, windowMs: 10 min`.
+
+**Finding recorded alongside it:** the *unpaced* version of the same probe — seven sign-in attempts
+back to back — returned Cloudflare **error 1102, "Worker exceeded resource limits"** (HTTP 503) for
+the first five and only then the 429. PBKDF2 at 100,000 iterations runs on every attempt, including
+for an unknown address against `DUMMY_PASSWORD_HASH`, so a login burst is CPU-bound on the Workers
+Free plan. The attacker still learns nothing, but a burst degrades the whole Worker and the 503s
+are indistinguishable from an outage in a log. Filed for M06a/M01's owners; not fixed by the
+evidence run.

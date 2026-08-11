@@ -18,19 +18,26 @@ import { EVENTS, SESSIONS, VOCAB } from "./helpers/seeded";
  * product-completeness wave, owned by WS-E.
  */
 
+/**
+ * `/api/v1/events/[slug]/{schedule,speakers}` as those routes actually answer:
+ * a `{ data, meta }` envelope over a flat array, with vocabulary flattened to
+ * *names* (the DTO is written out by hand at the route boundary, deliberately —
+ * see the speakers route's own comment) and a contact's id spelled `id`. The
+ * earlier declarations here described a nested `{ sessions: [...] }` shape with
+ * `{ id, name }` vocabulary objects that this API has never returned, so every
+ * step reading them died on `undefined`.
+ */
 type PublishedSession = {
-  id: string; title: string; startsAt: string; endsAt: string; dayKey: string;
-  room: { id: string; name: string } | null;
-  track: { id: string; name: string } | null;
-  format: { id: string; name: string } | null;
-  speakers: Array<{ contactId: string; name: string; jobTitle: string | null; company: string | null }>;
+  id: string; title: string; startsAt: string; endsAt: string;
+  room: string | null; track: string | null; format: string | null;
+  speakers: Array<{ id: string; firstName: string; lastName: string; company: string | null; title: string | null }>;
 };
-type PublishedSchedule = { event: { name: string; timezone: string }; sessions: PublishedSession[] };
 type PublishedSpeaker = {
-  contactId: string; name: string; jobTitle: string | null; company: string | null;
-  sessions: Array<{ id: string; title: string; startsAt: string; room: { id: string; name: string } | null }>;
+  id: string; firstName: string; lastName: string; title: string | null; company: string | null;
+  bioHtml: string | null; headshotUrl: string | null;
 };
-type PublishedSpeakers = { event: { name: string; timezone: string }; speakers: PublishedSpeaker[] };
+/** The organizer's own vocabulary, to compare the public *names* against the ids the admin API returns. */
+type VocabItem = { id: string; name: string };
 type ScheduledSession = {
   id: string; title: string; startsAt: string | null; endsAt: string | null;
   trackId: string | null; roomId: string | null; formatId: string | null; speakerIds: string[];
@@ -60,10 +67,14 @@ function must<T>(value: T | undefined, message: string): T {
   return value as T;
 }
 
-async function fetchJson<T>(page: Page, path: string): Promise<T> {
+/** One row-array out of the public API's `{ data, meta }` envelope. */
+async function fetchPublic<T>(page: Page, path: string): Promise<T[]> {
   const response = await page.request.get(`${path}${path.includes("?") ? "&" : "?"}cb=${Date.now()}`);
   expect(response.ok(), `${path} → ${response.status()}`).toBe(true);
-  return (await response.json()) as T;
+  const body = await response.json() as { data?: T[]; meta?: { count: number } };
+  expect(Array.isArray(body.data), `${path} should answer a { data: [...] } envelope`).toBe(true);
+  expect(body.meta?.count, `${path}'s meta.count should agree with its own rows`).toBe(body.data?.length);
+  return body.data ?? [];
 }
 
 /** Every direct/embed page reads the search/session/speaker deep link after
@@ -80,6 +91,15 @@ test.describe("public-widgets-parity (M53)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.skip(!landed("M53"), waitingOn("M53"));
   test.use({ viewport: { width: 390, height: 844 } });
+
+  // Every surface in this file is `revalidate = 60`, so each navigation is
+  // wrapped in a retry window of up to 120 s (`waitForVisible`, and the embed
+  // test's five iframes). Those windows do not fit inside Playwright's 30 s
+  // default, which turned a cold cache into "element(s) not found" long before
+  // the retry loop had done its job — the timeouts were the assertion's own
+  // budget being cut off, not the page failing to render. The assertions are
+  // unchanged; only the budget they were written against is now declared.
+  test.beforeEach(({}, testInfo) => { testInfo.setTimeout(180_000); });
 
   // Worker-scoped: puts Ada into the "confirmed" state the leakage rule needs
   // (every seeded contact starts `unconfirmed`, which the gallery/speakers
@@ -168,7 +188,11 @@ test.describe("public-widgets-parity (M53)", () => {
       await test.step("expanding a detail preserves the active day, and collapsing it does too", async () => {
         await page.locator("article[role='button']", { hasText: KEYNOTE.title }).click();
         await expect(page.locator(".session-detail")).toBeVisible();
-        await expect(page.getByText("Ada Lovelace")).toBeVisible();
+        // Scoped to the detail panel: the collapsed row already carries the
+        // speaker's name as its own byline, so a bare `getByText` resolves to
+        // two nodes and fails strict mode without telling you which one the
+        // step is about. The claim is "the expanded detail names the speaker".
+        await expect(page.locator(".session-detail").getByText("Ada Lovelace")).toBeVisible();
         await expect(tabs.nth(keynoteDayIndex)).toHaveClass(/active/);
         await page.locator("article[role='button']", { hasText: KEYNOTE.title }).click();
         await expect(page.locator(".session-detail")).toHaveCount(0);
@@ -216,8 +240,13 @@ test.describe("public-widgets-parity (M53)", () => {
       expect(cardCount).toBeGreaterThan(0);
       for (let i = 0; i < cardCount; i += 1) {
         const card = cards.nth(i);
-        const hasImage = await card.locator("img").count();
-        const hasInitials = await card.locator(".speaker-avatar-initials, [class*='initial']").count();
+        const hasImage = await card.locator("img.person-avatar").count();
+        // `SpeakerAvatar` renders the fallback as a `<span class="person-avatar
+        // person-avatar-xl">JG</span>` — there is no `initials` class anywhere
+        // in the tree, so the earlier `[class*='initial']` selector could only
+        // ever match zero and reported "no avatar at all" for every seeded
+        // speaker who deliberately has no headshot.
+        const hasInitials = await card.locator("span.person-avatar").count();
         expect(hasImage + hasInitials, "each gallery card needs a headshot or an initials fallback").toBeGreaterThan(0);
       }
 
@@ -289,6 +318,9 @@ test.describe("public-widgets-parity (M53)", () => {
     let organizerSpeaker: SpeakerDetail | undefined;
     let publicSession: PublishedSession | undefined;
     let publicSpeaker: PublishedSpeaker | undefined;
+    // The public API flattens vocabulary to names while the admin API returns
+    // ids, so parity is only checkable through the organizer's own vocabulary.
+    const vocabularyName = new Map<string, string>();
 
     await test.step("gather the organizer's own view of the keynote and Ada", async () => {
       const request = await playwright.request.newContext({ baseURL: BASE_URL });
@@ -298,16 +330,21 @@ test.describe("public-widgets-parity (M53)", () => {
         organizerSession = sessions.find((s) => s.id === KEYNOTE.id);
         const detail = await apiData<SpeakerDetail>(request, `/api/internal/speakers/${EVENTS.main.id}/${ADA_ID}`);
         organizerSpeaker = detail;
+        for (const kind of ["rooms", "tracks", "formats"] as const) {
+          for (const item of await apiData<VocabItem[]>(request, `/api/internal/events/${EVENTS.main.id}/vocab/${kind}`)) {
+            vocabularyName.set(item.id, item.name);
+          }
+        }
       } finally {
         await request.dispose();
       }
     });
 
     await test.step("the public API's session and speaker match the organizer's, field for field", async () => {
-      const schedule = await fetchJson<PublishedSchedule>(page, `/api/v1/events/${SLUG}/schedule`);
-      publicSession = schedule.sessions.find((s) => s.id === KEYNOTE.id);
-      const speakers = await fetchJson<PublishedSpeakers>(page, `/api/v1/events/${SLUG}/speakers`);
-      publicSpeaker = speakers.speakers.find((s) => s.contactId === ADA_ID);
+      const schedule = await fetchPublic<PublishedSession>(page, `/api/v1/events/${SLUG}/schedule`);
+      publicSession = schedule.find((s) => s.id === KEYNOTE.id);
+      const speakers = await fetchPublic<PublishedSpeaker>(page, `/api/v1/events/${SLUG}/speakers`);
+      publicSpeaker = speakers.find((s) => s.id === ADA_ID);
 
       const org = must(organizerSession, "the seeded keynote must exist in the organizer's own list");
       const pub = must(publicSession, "the seeded keynote must be published");
@@ -317,23 +354,27 @@ test.describe("public-widgets-parity (M53)", () => {
       expect(pub.title).toBe(org.title);
       expect(pub.startsAt).toBe(org.startsAt);
       expect(pub.endsAt).toBe(org.endsAt);
-      expect(pub.room?.id ?? null).toBe(org.roomId);
-      expect(pub.track?.id ?? null).toBe(org.trackId);
-      expect(pub.format?.id ?? null).toBe(org.formatId);
+      // Name-for-id through the organizer's own vocabulary: the claim is that
+      // the two surfaces name the same room/track/format, not merely that both
+      // are non-empty.
+      expect(pub.room).toBe(org.roomId === null ? null : vocabularyName.get(org.roomId));
+      expect(pub.track).toBe(org.trackId === null ? null : vocabularyName.get(org.trackId));
+      expect(pub.format).toBe(org.formatId === null ? null : vocabularyName.get(org.formatId));
       expect(org.speakerIds).toContain(ADA_ID);
-      expect(pub.speakers.map((s) => s.contactId)).toContain(ADA_ID);
+      expect(pub.speakers.map((s) => s.id)).toContain(ADA_ID);
 
-      expect(pubSpeaker.name).toBe(orgSpeaker.contact.name);
-      expect(pubSpeaker.jobTitle).toBe(orgSpeaker.contact.jobTitle);
+      expect(`${pubSpeaker.firstName} ${pubSpeaker.lastName}`).toBe(orgSpeaker.contact.name);
+      expect(pubSpeaker.title).toBe(orgSpeaker.contact.jobTitle);
       expect(pubSpeaker.company).toBe(orgSpeaker.contact.company);
     });
 
     await test.step("the same title, room, and speaker render identically on all five direct surfaces", async () => {
       const pub = must(publicSession, "the keynote must have resolved in the previous step");
-      const pubSpeaker = must(publicSpeaker, "Ada must have resolved in the previous step");
-      const roomName = pub.room?.name ?? "";
-      const speakerRow = pubSpeaker.sessions.find((s) => s.id === KEYNOTE.id);
-      expect(speakerRow, "the public speaker's own session list must carry the keynote back").toBeTruthy();
+      const roomName = pub.room ?? "";
+      // The speakers endpoint is a roster, not a per-speaker session list, so
+      // the speaker-to-session link is read where the API actually carries it:
+      // the keynote's own `speakers` array, asserted above.
+      expect(pub.speakers.map((s) => `${s.firstName} ${s.lastName}`), "the public keynote must carry Ada back").toContain("Ada Lovelace");
 
       await waitForVisible(page, SURFACES.sessions, KEYNOTE.title);
       await expect(page.locator(".session-card", { hasText: KEYNOTE.title })).toContainText(roomName);
@@ -401,10 +442,10 @@ test.describe("public-widgets-parity (M53)", () => {
     });
 
     await test.step("both public APIs agree: no draft title, no declined speaker", async () => {
-      const schedule = await fetchJson<PublishedSchedule>(page, `/api/v1/events/${SLUG}/schedule`);
-      expect(schedule.sessions.map((s) => s.title)).not.toContain(SESSIONS.draftUnscheduled.title);
-      const speakers = await fetchJson<PublishedSpeakers>(page, `/api/v1/events/${SLUG}/speakers`);
-      expect(speakers.speakers.map((s) => s.name)).not.toContain(GRACE_NAME);
+      const schedule = await fetchPublic<PublishedSession>(page, `/api/v1/events/${SLUG}/schedule`);
+      expect(schedule.map((s) => s.title)).not.toContain(SESSIONS.draftUnscheduled.title);
+      const speakers = await fetchPublic<PublishedSpeaker>(page, `/api/v1/events/${SLUG}/speakers`);
+      expect(speakers.map((s) => `${s.firstName} ${s.lastName}`)).not.toContain(GRACE_NAME);
     });
   });
 
@@ -420,13 +461,22 @@ test.describe("public-widgets-parity (M53)", () => {
         { route: "gallery", needle: "Ada Lovelace" },
       ];
 
+      // A *network-scheme* host origin, fulfilled locally rather than fetched:
+      // the previous `data:` host could never have worked, and not because of
+      // anything this app does. CSP says `frame-ancestors *` matches only
+      // ancestors with a network scheme, so Chromium blocks the frame outright
+      // ("Framing … violates … frame-ancestors *. Note that '*' matches only
+      // URLs with a network scheme") and the iframe stays empty. `page.route`
+      // intercepts before DNS, so this stays offline and deterministic while
+      // still being a genuinely different origin from the preview.
+      const HOST_ORIGIN = "https://embed-host.e2e";
+      let hostHtml = "";
+      await page.route(`${HOST_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: hostHtml }));
+
       for (const { route, needle } of targets) {
         await test.step(`/embed/${SLUG}/${route} renders inside a genuinely cross-origin host`, async () => {
-          // `data:` documents are opaque-origin — a stronger cross-origin proof
-          // than a same-scheme different-port host page would be, and it needs
-          // no scratch server of its own.
-          const host = `<!doctype html><html><body><iframe id="w" src="${BASE_URL}/embed/${SLUG}/${route}" style="width:390px;height:900px;border:0"></iframe></body></html>`;
-          await page.goto(`data:text/html,${encodeURIComponent(host)}`);
+          hostHtml = `<!doctype html><html><body><iframe id="w" src="${BASE_URL}/embed/${SLUG}/${route}" style="width:390px;height:900px;border:0"></iframe></body></html>`;
+          await page.goto(`${HOST_ORIGIN}/${route}`);
           const frame = page.frameLocator("#w");
           await expect(async () => {
             await expect(frame.getByText(needle).first()).toBeVisible({ timeout: 5_000 });

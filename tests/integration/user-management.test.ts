@@ -40,6 +40,14 @@ const MIGRATIONS = [
   "0004_review_operations", "0005_rate_limits", "0006_content_deliverables",
   "0007_email_compliance", "0008_speaker_roster_operations", "0009_product_auth",
   "0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold",
+  // M44 is the subject here, so this list stops at 0012 rather than tracking
+  // the journal — with one exception. 0016 adds `contacts.acceptance_seen_at`,
+  // which `getOrCreateContact`'s unqualified `.returning()` names on the
+  // invitation path below, so the column has to exist even though nothing here
+  // reads it. Skipping 0013-0015 is still deliberate: they are later modules
+  // this test is not about, and 0014's template backfill would change the
+  // `email_templates` rows the outbox assertions inspect.
+  "0016_speaker_moments",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");

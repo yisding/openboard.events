@@ -3,13 +3,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Eye } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
+import type { AnnounceBundle } from "../server/announce";
 import type { AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
+import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
 import DayView from "./day-view";
 import { ListView } from "./list-view";
@@ -32,6 +34,8 @@ import WeekView from "./week-view";
 export type AgendaPageProps = Omit<AgendaViewProps, "onEdit"> & {
   eventSlug: string;
   view: AgendaView;
+  /** M60 — null when nothing is published yet; the trigger renders nothing until then. */
+  announceBundle?: AnnounceBundle | null;
 };
 
 export function AgendaPage(props: AgendaPageProps) {
@@ -41,7 +45,7 @@ export function AgendaPage(props: AgendaPageProps) {
   return <QueryClientProvider client={client}><AgendaPageInner {...props} /></QueryClientProvider>;
 }
 
-function AgendaPageInner({ eventSlug, view, ...props }: AgendaPageProps) {
+function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: AgendaPageProps) {
   const router = useRouter();
   const params = useSearchParams();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,6 +72,19 @@ function AgendaPageInner({ eventSlug, view, ...props }: AgendaPageProps) {
     [sessions, editingId],
   );
 
+  // M58 — the command palette's session jump lands here as `?session=<id>`,
+  // one-shot like the Abstracts view's `submission`/`arm` params: consumed on
+  // arrival, then stripped so a later navigation or the back button doesn't
+  // reopen it.
+  useEffect(() => {
+    const target = params.get("session");
+    if (!target) return;
+    setEditingId(target);
+    const query = new URLSearchParams(params.toString());
+    query.delete("session");
+    router.replace(`?${query.toString()}`, { scroll: false });
+  }, [params, router]);
+
   // One search box, at the top, filtering what every view receives — rather than
   // a second one inside the List view that disagrees with it.
   const visible = useMemo(() => {
@@ -84,9 +101,12 @@ function AgendaPageInner({ eventSlug, view, ...props }: AgendaPageProps) {
         title="Agenda"
         description="Build the schedule, resolve conflicts, and publish with confidence."
         actions={(
-          <a className="button button-secondary" href={`/e/${eventSlug}/schedule`} target="_blank" rel="noreferrer">
-            <Eye size={16} aria-hidden /> Public preview
-          </a>
+          <>
+            <AnnounceBundleTrigger bundle={announceBundle} />
+            <a className="button button-secondary" href={`/e/${eventSlug}/schedule`} target="_blank" rel="noreferrer">
+              <Eye size={16} aria-hidden /> Public preview
+            </a>
+          </>
         )}
       />
 

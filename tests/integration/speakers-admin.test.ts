@@ -30,6 +30,12 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 // M51 added `contacts.workflow_status` — same blast radius as the P3-EMAIL
 // comment above: any bare `.returning()` off `contacts` now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M59 (drizzle/0016) added `contacts.acceptance_seen_at`. This harness applies
+// a hand-picked subset of migrations rather than the whole journal, so any
+// drizzle query that names every declared `contacts` column — an unqualified
+// `.returning()`, or a `select()` of the whole table — fails against a
+// database built without it. Applied last, as it is in the journal.
+const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000002");
@@ -68,6 +74,7 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSpeakerMoments);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

@@ -9,12 +9,14 @@ export { deliverableFiltersSchema, parseDeliverableFiltersForPage } from "./serv
 export type { BulkRemindInput, OrganizerCommentInput } from "./server/mutations";
 export { addOrganizerComment, bulkRemind, bulkRemindInputSchema, organizerCommentInputSchema } from "./server/mutations";
 
-// M52 — asynchronous latest-file ZIP export.
+// M52 — asynchronous, resumable latest-file ZIP export.
 export {
   createFileExportJob,
   createFileExportJobIn,
   getFileExportJob,
   getFileExportJobIn,
+  nudgeStalledFileExports,
+  nudgeStalledFileExportsIn,
   processFileExportJob,
   processFileExportJobIn,
   pruneExpiredFileExports,

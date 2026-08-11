@@ -869,25 +869,81 @@ export async function purgeOrphanedFileAssets(candidateIds: readonly string[]): 
 }
 
 /**
- * Publishes a server-generated ZIP as a new, already-ready `file_assets` row
- * (kind='attachment', private) — there is no staging/finalize step because
- * nothing here is a client's unverified upload; the Worker built these bytes
- * itself. The key is `buildObjectKey`'s own scheme, keyed on the job id, so
- * it is collision-safe by construction the same way every other file id is.
+ * The stable object key (and eventual `file_assets.id`) a streamed export
+ * publishes to — `buildObjectKey`'s own collision-safe scheme, keyed on a
+ * fileId decided once at the export's first processing step and persisted
+ * in the job row (`export_state.exportFileId`) so every later step, whether
+ * it runs in this invocation or a fresh one, writes to the same object.
  */
-export async function putExportZip(eventId: EventId, jobId: string, bytes: Uint8Array): Promise<{ fileId: FileId; r2Key: string }> {
-  const fileId = fileIdSchema.parse(crypto.randomUUID());
-  const filename = sanitizeFilename(`deliverables-export-${jobId}.zip`);
-  const key = buildObjectKey({ eventId, kind: "attachment", fileId, filename });
-  await filesBucket().put(key, bytes, { httpMetadata: { contentType: "application/zip" } });
+export function buildExportZipKey(eventId: EventId, exportFileId: string): string {
+  return buildObjectKey({ eventId, kind: "attachment", fileId: exportFileId, filename: `deliverables-export-${exportFileId}.zip` });
+}
+
+export type MultipartPart = { partNumber: number; etag: string };
+
+/**
+ * Begins an R2 multipart upload for a server-generated export ZIP. Each
+ * part is written by a separate, bounded `uploadExportPart` call — possibly
+ * from a later Worker invocation than this one — which is the whole reason
+ * this streams through multipart rather than one `bucket.put()`: R2 (like
+ * S3) requires every non-final part to be at least 5 MiB, so the caller
+ * batches entries up to that floor per part rather than holding the whole
+ * archive in memory at once.
+ */
+export async function beginExportMultipart(key: string): Promise<string> {
+  const upload = await filesBucket().createMultipartUpload(key, { httpMetadata: { contentType: "application/zip" } });
+  return upload.uploadId;
+}
+
+/**
+ * Uploads one part of an in-progress multipart export. Reattaches to
+ * `uploadId` via `resumeMultipartUpload` rather than holding the handle
+ * `beginExportMultipart` returned — multipart upload state lives in R2, not
+ * in this Worker's memory, so a step that runs in a fresh invocation (a
+ * later poll, a cron tick) can resume exactly where a previous one left off.
+ */
+export async function uploadExportPart(key: string, uploadId: string, partNumber: number, bytes: Uint8Array): Promise<MultipartPart> {
+  const upload = filesBucket().resumeMultipartUpload(key, uploadId);
+  const part = await upload.uploadPart(partNumber, bytes);
+  return { partNumber: part.partNumber, etag: part.etag };
+}
+
+/** Assembles every uploaded part into the final object. R2 validates part order/coverage itself; a mismatch throws. */
+export async function completeExportMultipart(key: string, uploadId: string, parts: readonly MultipartPart[]): Promise<void> {
+  const upload = filesBucket().resumeMultipartUpload(key, uploadId);
+  await upload.complete(parts);
+}
+
+/**
+ * Best-effort cleanup for an export that failed or expired mid-stream — an
+ * incomplete multipart upload's parts are billed as ordinary storage until
+ * completed or aborted, so a job that never finishes must not leave one
+ * dangling. Never thrown for a caller to catch: the job is already being
+ * marked `failed` (or its row deleted) either way, and an id R2 has already
+ * forgotten (e.g. past its own 7-day incomplete-upload lifecycle) means
+ * there is nothing left to abort.
+ */
+export async function abortExportMultipart(key: string, uploadId: string): Promise<void> {
+  await filesBucket().resumeMultipartUpload(key, uploadId).abort().catch(() => undefined);
+}
+
+/**
+ * Publishes the `file_assets` row for a completed streamed export
+ * (kind='attachment', private) — there is no staging/finalize step because
+ * nothing here is a client's unverified upload, and the bytes are already in
+ * R2 via the just-completed multipart upload; this only records them.
+ * `sizeBytes` is the caller's own running total (the streaming state's final
+ * offset plus its tail), not a fresh R2 `head()` — the archive was built
+ * byte-for-byte in this Worker, so its size was never in question.
+ */
+export async function publishExportAsset(input: { fileId: FileId; eventId: EventId; key: string; sizeBytes: number }): Promise<void> {
   await db.insert(fileAssets).values({
-    id: fileId,
-    eventId,
+    id: input.fileId,
+    eventId: input.eventId,
     kind: "attachment",
-    r2Key: key,
-    filename,
+    r2Key: input.key,
+    filename: `deliverables-export-${input.fileId}.zip`,
     mime: "application/zip",
-    sizeBytes: bytes.length,
+    sizeBytes: input.sizeBytes,
   });
-  return { fileId, r2Key: key };
 }

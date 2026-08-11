@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildZip, crc32, uniqueZipNames, type ZipEntry } from "./zip";
+import { appendZipBatch, beginZipStream, buildZip, crc32, finishZipStream, uniqueZipNames, uniqueZipNamesFrom, type ZipEntry } from "./zip";
 
 /**
  * A from-scratch reader, independent of `buildZip`'s own encoding logic, so
@@ -123,5 +123,67 @@ describe("uniqueZipNames", () => {
     const names = uniqueZipNames([{ group: "../../etc", filename: "../../passwd.txt" }]);
     expect(names[0]).not.toContain("..");
     expect(names[0]?.startsWith("/")).toBe(false);
+  });
+});
+
+describe("uniqueZipNamesFrom", () => {
+  it("continuing from an earlier call's `seen` state still de-duplicates across the split", () => {
+    // The same three items as the very first `uniqueZipNames` test above,
+    // split across two batches the way a resumable export would see them —
+    // must produce the identical names, proving the split is invisible to
+    // the archive's own uniqueness guarantee.
+    const first = uniqueZipNamesFrom({}, [{ group: "Ada Lovelace", filename: "deck.pdf" }]);
+    const second = uniqueZipNamesFrom(first.seen, [
+      { group: "Ada Lovelace", filename: "deck.pdf" },
+      { group: "Grace Hopper", filename: "deck.pdf" },
+    ]);
+    expect([...first.names, ...second.names]).toEqual(uniqueZipNames([
+      { group: "Ada Lovelace", filename: "deck.pdf" },
+      { group: "Ada Lovelace", filename: "deck.pdf" },
+      { group: "Grace Hopper", filename: "deck.pdf" },
+    ]));
+  });
+
+  it("an empty batch just passes `seen` through unchanged", () => {
+    const { names, seen } = uniqueZipNamesFrom({ "deck.pdf": 1 }, []);
+    expect(names).toEqual([]);
+    expect(seen).toEqual({ "deck.pdf": 1 });
+  });
+});
+
+describe("streaming ZIP (beginZipStream / appendZipBatch / finishZipStream)", () => {
+  it("splitting the same entries across several batches produces byte-identical output to building them all at once", () => {
+    const now = new Date("2026-08-10T12:00:00Z");
+    const entries: ZipEntry[] = [
+      { name: "a.pdf", data: crypto.getRandomValues(new Uint8Array(1000)) },
+      { name: "b.pdf", data: crypto.getRandomValues(new Uint8Array(2000)) },
+      { name: "c.pdf", data: new Uint8Array(0) },
+      { name: "d.pdf", data: crypto.getRandomValues(new Uint8Array(500)) },
+    ];
+    const wholeArchive = buildZip(entries, now);
+
+    // Batch boundaries deliberately don't line up with anything meaningful
+    // (one entry, then two, then one) — a resumable export's batches are
+    // sized by bytes read so far, not by entry count, so nothing about
+    // `appendZipBatch` should care where a batch happens to end.
+    let state = beginZipStream(now);
+    const parts: Uint8Array[] = [];
+    for (const batch of [[entries[0]], [entries[1], entries[2]], [entries[3]]]) {
+      const appended = appendZipBatch(state, batch as ZipEntry[]);
+      parts.push(appended.bytes);
+      state = appended.state;
+    }
+    const tail = finishZipStream(state);
+    const streamedArchive = new Uint8Array(parts.reduce((sum, p) => sum + p.length, 0) + tail.length);
+    let at = 0;
+    for (const part of [...parts, tail]) { streamedArchive.set(part, at); at += part.length; }
+
+    expect(streamedArchive).toEqual(wholeArchive);
+  });
+
+  it("an empty stream (no entries appended) still closes into a valid, empty archive", () => {
+    const state = beginZipStream(new Date("2026-08-10T12:00:00Z"));
+    const tail = finishZipStream(state);
+    expect(tail).toEqual(buildZip([]));
   });
 });

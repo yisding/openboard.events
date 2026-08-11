@@ -16,6 +16,9 @@ const migrationReviewOps = readFileSync(new URL("../../../../../drizzle/0004_rev
 // M51 added `contacts.workflow_status`; `updateProfileIn`'s unqualified
 // `.returning()` (every declared column) needs it to exist.
 const migrationRoster = readFileSync(new URL("../../../../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M59 added `contacts.acceptance_seen_at` — same reason as the roster
+// migration above: the unqualified `.returning()` needs every column to exist.
+const migrationSpeakerMoments = readFileSync(new URL("../../../../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("c2000000-0000-4000-8000-000000000001");
 const freshContact = contactIdSchema.parse("c2000000-0000-4000-8000-000000000010");
@@ -31,6 +34,7 @@ describe("speaker profile", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSpeakerMoments);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

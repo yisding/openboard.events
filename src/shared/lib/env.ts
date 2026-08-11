@@ -53,6 +53,16 @@ const envSchema = z.object({
   // actually needs to sign one, rather than the whole environment refusing
   // to parse until someone runs `wrangler secret put`.
   UNSUBSCRIBE_SECRET: optionalString,
+  // M59 — signs the "I'm speaking!" share-page token
+  // (`/speaking/[token]`), same dedicated-key posture as
+  // `UNSUBSCRIBE_SECRET` right above and for the same reason: the token is
+  // handed to whatever the speaker pastes it into (a tweet, a Slack
+  // message), so its lifecycle has nothing to do with an admin session's or
+  // an unsubscribe link's. Left optional for the same deploy-ordering
+  // reason — `share.ts` fails closed with a clear `INTERNAL` message the
+  // moment a share link is actually requested, rather than the whole
+  // environment refusing to parse until this is provisioned.
+  SPEAKER_SHARE_SECRET: optionalString,
   // M49 — signs the billing provider webhook (`/api/webhooks/billing`), same
   // shared-secret-HMAC posture as `RESEND_WEBHOOK_SECRET` above and left
   // optional for the same reason: no live payment provider is connected yet
@@ -152,6 +162,9 @@ const envSchema = z.object({
   // (see its schema comment) so a short value is the only way to fail here.
   if (env.UNSUBSCRIBE_SECRET && env.UNSUBSCRIBE_SECRET.length < 32) {
     context.addIssue({ code: "custom", path: ["UNSUBSCRIBE_SECRET"], message: "must be at least 32 characters" });
+  }
+  if (env.SPEAKER_SHARE_SECRET && env.SPEAKER_SHARE_SECRET.length < 32) {
+    context.addIssue({ code: "custom", path: ["SPEAKER_SHARE_SECRET"], message: "must be at least 32 characters" });
   }
 
   const expectedBucket = env.APP_ENV === "production" ? "sb-files" : env.APP_ENV === "preview" ? "sb-files-preview" : undefined;
