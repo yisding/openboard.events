@@ -3,6 +3,11 @@
 import { Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import {
+  claimBulkSendAttempt,
+  completeBulkSendAttempt,
+  type BulkSendAttempt,
+} from "../bulk-send-attempt";
+import {
   CONFIRMATION_STATUSES,
   SPEAKER_WORKFLOW_STATUSES,
   type ComposeBulkSpeakerEmailResult,
@@ -56,7 +61,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [previewContactId, setPreviewContactId] = useState<ContactId | "">("");
-  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string; sendId: string } | null>(null);
+  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string; attempt: BulkSendAttempt } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
   const [focusTarget, setFocusTarget] = useState<"subject" | "body">("body");
@@ -139,6 +144,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     const fingerprint = currentPreviewFingerprint;
     setPreview(null);
     try {
+      const attempt = await claimBulkSendAttempt(window.sessionStorage, `speaker-segment:${eventId}`, fingerprint);
       // Only the previewed recipient is ever rendered — sending the full
       // segment here would trip composeBulkSpeakerEmailInputSchema's
       // 200-recipient cap for any segment resolveSpeakerSegmentIn allows
@@ -154,7 +160,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         subject: rendered.preview.subject,
         bodyHtml: rendered.preview.bodyHtml,
         fingerprint,
-        sendId: crypto.randomUUID(),
+        attempt,
       });
     } catch {
       toast("Could not render a preview");
@@ -174,9 +180,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const batches = chunkContactIds(segment.contactIds);
       const results = [];
       for (const contactIds of batches) {
-        results.push(await compose.mutateAsync({ contactIds, subject, bodyHtml, mode: "send", sendId: currentPreview.sendId }));
+        results.push(await compose.mutateAsync({ contactIds, subject, bodyHtml, mode: "send", sendId: currentPreview.attempt.sendId }));
       }
       const sent = mergeBulkSendResults(results);
+      completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setResult(sent);
       // A completed attempt needs a fresh preview (and therefore a fresh
       // send id) before the organizer can intentionally send it again.

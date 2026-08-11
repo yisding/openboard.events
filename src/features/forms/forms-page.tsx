@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CalendarClock, Copy, ExternalLink, FileEdit, FileText, Plus, Send, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { BuilderEvent, BuilderForm, FormListRow } from "./builder-types";
-import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
 import { useToast } from "@/shared/ui/toast";
 
@@ -73,7 +73,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     </section>
     <section className="panel list-panel">
       <div className="list-toolbar">
-        <div className="tabs">{(["all", "open", "draft", "closed"] as const).map((value) => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value[0]?.toUpperCase()}{value.slice(1)}<span>{value === "all" ? forms.length : forms.filter((form) => form.status === value).length}</span></button>)}</div>
+        <div className="tabs" role="group" aria-label="Form filters">{(["all", "open", "draft", "closed"] as const).map((value) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{value[0]?.toUpperCase()}{value.slice(1)}<span>{value === "all" ? forms.length : forms.filter((form) => form.status === value).length}</span></button>)}</div>
         <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
       </div>
       {visible.length === 0 ? <EmptyState icon={<FileText />} title="No forms here" description="Create a form or clear the current filters." /> : <div className="form-cards">{visible.map((form) => <article className="form-list-card" key={form.id}>
@@ -96,10 +96,10 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       <div className="form-stack">
         <Field label="Internal form name" required><input autoFocus maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
         <Field label="Submission type" group><div className="choice-cards">
-          <button className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
-          <button className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
+          <button type="button" aria-pressed={kind === "abstract"} className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
+          <button type="button" aria-pressed={kind === "session"} className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
         </div></Field>
-        <label className="inline-setting"><div><b>Collect participant information</b><small>Add the required speaker identity section.</small></div><button className={`switch ${collectParticipants ? "on" : ""}`} onClick={() => setCollectParticipants((value) => !value)}><i /></button></label>
+        <div className="inline-setting"><div><b>Collect participant information</b><small>Add the required speaker identity section.</small></div><Switch label="Collect participant information" checked={collectParticipants} onClick={() => setCollectParticipants((value) => !value)} /></div>
       </div>
     </Modal>
   </>;

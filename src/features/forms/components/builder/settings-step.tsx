@@ -1,6 +1,6 @@
 "use client";
 
-import { Field } from "@/shared/ui/ui-kit";
+import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderEvent, BuilderForm, FormPatch } from "../../builder-types";
 import { CloseDateCard } from "./close-date-card";
 import { SuccessPageCard } from "./success-page-card";
@@ -42,11 +42,11 @@ export function SettingsStep({ event, form, onChange }: {
             <b>Set Submission Limit</b>
             <small>Overrides the event&apos;s per-user default for this form only.</small>
           </div>
-          <button
-            type="button"
-            className={`switch ${hasLimit ? "on" : ""}`}
+          <Switch
+            label="Set submission limit"
+            checked={hasLimit}
             onClick={() => onChange({ submissionLimit: hasLimit ? null : 1 })}
-          ><i /></button>
+          />
         </div>
         {hasLimit && (
           <Field label="Submission limit">

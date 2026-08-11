@@ -90,7 +90,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       toast("Saved");
       router.refresh();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The form could not be saved");
+      toast(error instanceof Error ? error.message : "The form could not be saved", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -125,7 +125,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       setLibraryOpen(false);
       setLibrarySearch("");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The field could not be added");
+      toast(error instanceof Error ? error.message : "The field could not be added", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -147,7 +147,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       setLibraryOpen(false);
       setCustomLabel("");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The question could not be added");
+      toast(error instanceof Error ? error.message : "The question could not be added", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -164,7 +164,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       setForm(next);
       toast("Question saved");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The question could not be saved");
+      toast(error instanceof Error ? error.message : "The question could not be saved", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -206,7 +206,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       }));
       setForm(next);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "The question order could not be saved");
+      toast(error instanceof Error ? error.message : "The question order could not be saved", { kind: "error" });
     } finally {
       setBusy(false);
     }

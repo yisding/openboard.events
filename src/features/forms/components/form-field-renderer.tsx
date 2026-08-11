@@ -169,7 +169,7 @@ function Input({
     case "checkbox": {
       const chosen = value?.t === "opts" ? value.v : [];
       return (
-        <fieldset className="choice-list field-control-group" aria-describedby={describedBy}>
+        <fieldset className="choice-list field-control-group" aria-describedby={describedBy} aria-invalid={invalid || undefined} tabIndex={invalid ? -1 : undefined}>
           <legend className="sr-only">{field.label}{field.required ? " (required)" : ""}</legend>
           {field.options.map((option) => (
             <label key={option.id} className="choice">
@@ -196,7 +196,7 @@ function Input({
       return <input id={id} {...controlProps} type="date" value={value?.t === "d" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "d", v: event.target.value } : undefined)} />;
     case "file":
       return uploadEventId ? (
-        <fieldset className="field-control-group" aria-describedby={describedBy}>
+        <fieldset className="field-control-group" aria-describedby={describedBy} aria-invalid={invalid || undefined} tabIndex={invalid ? -1 : undefined}>
         <legend className="sr-only">{field.label}{field.required ? " (required)" : ""}</legend>
         <FileUpload
           eventId={uploadEventId}

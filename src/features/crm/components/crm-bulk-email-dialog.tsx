@@ -1,14 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { composeCrmBulkEmailResultSchema, type ComposeCrmBulkEmailResult, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
+import {
+  bulkSendPreviewFingerprint,
+  canSendBulkMessage,
+  chunkBulkRecipientIds,
+  claimBulkSendAttempt,
+  completeBulkSendAttempt,
+  type BulkSendAttempt,
+} from "@/features/comms/bulk-send-attempt";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { CRM_BULK_BATCH_SIZE, mergeCrmBulkEmailResults } from "../bulk-email-helpers";
+
+type ApprovedPreview = {
+  result: NonNullable<ComposeCrmBulkEmailResult["preview"]>;
+  fingerprint: string;
+  attempt: BulkSendAttempt;
+};
 
 /**
  * M55 — CRM bulk communication (selected rows or a resolved segment).
@@ -45,7 +60,7 @@ export function CrmBulkEmailDialog({
   const [bodyHtml, setBodyHtml] = useState("");
   const previewCandidates = previewRecipients ?? recipients;
   const [previewId, setPreviewId] = useState(previewCandidates[0]?.id ?? "");
-  const [previewResult, setPreviewResult] = useState<ComposeCrmBulkEmailResult["preview"]>(null);
+  const [preview, setPreview] = useState<ApprovedPreview | null>(null);
   const [busyPreview, setBusyPreview] = useState(false);
   const [busySend, setBusySend] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
@@ -53,21 +68,43 @@ export function CrmBulkEmailDialog({
   const [sendResult, setSendResult] = useState<ComposeCrmBulkEmailResult | null>(null);
 
   const ready = subject.trim().length > 0 && bodyHtml.trim().length > 0;
+  const previewFingerprint = useMemo(() => bulkSendPreviewFingerprint({
+    contactIds: recipients.map((row) => row.id),
+    previewContactId: previewId,
+    subject,
+    bodyHtml,
+  }), [bodyHtml, previewId, recipients, subject]);
+  const currentPreview = preview?.fingerprint === previewFingerprint ? preview : null;
+  const canSend = canSendBulkMessage({
+    canCompose: ready,
+    capped: false,
+    previewFingerprint: preview?.fingerprint ?? null,
+    currentFingerprint: previewFingerprint,
+  });
+
+  function invalidatePreview() {
+    setPreview(null);
+    setSendResult(null);
+    setConfirmSend(false);
+  }
 
   function reset() {
-    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null); setConfirmSend(false);
+    setSubject(""); setBodyHtml(""); setPreview(null); setSendResult(null); setError(null); setConfirmSend(false);
   }
 
   async function runPreview() {
     if (!previewId) return;
     setBusyPreview(true);
     setError(null);
+    const fingerprint = previewFingerprint;
+    setPreview(null);
     try {
+      const attempt = await claimBulkSendAttempt(window.sessionStorage, `crm:${organizationId}`, fingerprint);
       const result = await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
         method: "POST",
-        body: { organizationContactIds: recipients.map((row) => row.id), subject, bodyHtml, mode: "preview", previewOrganizationContactId: previewId },
+        body: { organizationContactIds: [previewId], subject, bodyHtml, mode: "preview", previewOrganizationContactId: previewId },
       });
-      setPreviewResult(result.preview);
+      if (result.preview) setPreview({ result: result.preview, fingerprint, attempt });
     } catch (caught) {
       setError(isAppError(caught) ? caught.message : "Could not build a preview");
     } finally {
@@ -76,13 +113,23 @@ export function CrmBulkEmailDialog({
   }
 
   async function runSend(): Promise<boolean> {
+    if (!currentPreview || !canSend) {
+      setError("Preview this exact audience and message before sending");
+      return false;
+    }
     setBusySend(true);
     setError(null);
     try {
-      const result = await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
-        method: "POST",
-        body: { organizationContactIds: recipients.map((row) => row.id), subject, bodyHtml, mode: "send" },
-      });
+      const results = [];
+      const recipientIds = recipients.map((row) => row.id);
+      for (const organizationContactIds of chunkBulkRecipientIds(recipientIds, CRM_BULK_BATCH_SIZE)) {
+        results.push(await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
+          method: "POST",
+          body: { organizationContactIds, subject, bodyHtml, mode: "send", sendId: currentPreview.attempt.sendId },
+        }));
+      }
+      const result = mergeCrmBulkEmailResults(results);
+      completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setSendResult(result);
       toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
       router.refresh();
@@ -108,7 +155,7 @@ export function CrmBulkEmailDialog({
       ) : (
         <>
           <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-          <Button disabled={!ready || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${recipients.length}`}</Button>
+          <Button disabled={!canSend || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${recipients.length}`}</Button>
         </>
       )}
     >
@@ -134,10 +181,10 @@ export function CrmBulkEmailDialog({
         <div className="template-editor-grid">
           <div className="form-stack">
             <Field label="Subject">
-              <input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="A note for you" />
+              <input value={subject} onChange={(event) => { invalidatePreview(); setSubject(event.target.value); }} placeholder="A note for you" />
             </Field>
             <Field label="Message" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization.">
-              <textarea value={bodyHtml} onChange={(event) => setBodyHtml(event.target.value)} rows={8} />
+              <textarea value={bodyHtml} onChange={(event) => { invalidatePreview(); setBodyHtml(event.target.value); }} rows={8} />
             </Field>
             {error && <p className="field-error" role="alert">{error}</p>}
           </div>
@@ -148,15 +195,15 @@ export function CrmBulkEmailDialog({
                 ? { hint: `Showing the first ${previewCandidates.length} of ${recipients.length} — every recipient still gets the send.` }
                 : {})}
             >
-              <select value={previewId} onChange={(event) => { setPreviewId(event.target.value as OrganizationContactId); setPreviewResult(null); }}>
+              <select value={previewId} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value as OrganizationContactId); }}>
                 {previewCandidates.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
               </select>
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
-            {previewResult ? (
+            {currentPreview ? (
               <div style={{ marginTop: 12 }}>
-                <p><b>{previewResult.subject}</b></p>
-                <RichTextView html={previewResult.bodyHtml} />
+                <p><b>{currentPreview.result.subject}</b></p>
+                <RichTextView html={currentPreview.result.bodyHtml} />
               </div>
             ) : (
               <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient&rsquo;s resolved message, or the reason it will be skipped.</p>
