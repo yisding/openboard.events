@@ -8,6 +8,7 @@ import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
 import { readStarredIds, reconcileStarredIds, toggleStarredId, writeStarredIds } from "./itinerary-storage";
+import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
 
@@ -106,11 +107,13 @@ export function PublicItinerary({
     : null;
 
   const body = sessions.length === 0 ? (
-    <div className="public-empty">
-      <Star size={24} />
-      <h3>Schedule coming soon</h3>
-      <p>Sessions will appear here as soon as they&rsquo;re published — check back to build your itinerary.</p>
-    </div>
+    <PublicComingSoon
+      icon={Star}
+      title="Schedule coming soon"
+      description={`Sessions land closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile, then come back to build your itinerary.`}
+      linkHref={`/e/${eventSlug}/speakers`}
+      linkLabel="Speaker gallery"
+    />
   ) : (
     <>
       <div className="itinerary-toolbar">

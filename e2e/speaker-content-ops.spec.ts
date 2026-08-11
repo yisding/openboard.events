@@ -48,6 +48,13 @@ test.describe("speaker-content-ops", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.skip(!landed("M51"), waitingOn("M51"));
 
+  // These are single long round trips — roster, import, invite, a real browser
+  // upload through presign→PUT→finalize, bulk send — and the upload step alone
+  // is allowed 60 s. Playwright's 30 s default expired *inside* that wait, so
+  // the run reported "`.portal-uploads` not found" for an upload that simply
+  // had not been given its own stated budget. The assertions are unchanged.
+  test.beforeEach(({}, testInfo) => { testInfo.setTimeout(240_000); });
+
   test("an organizer builds a roster manually, by import, invites a speaker, sees an upload, and sends a bulk email", async ({ page, request }) => {
     const assertClean = expectNoConsoleErrors(page);
     await loginAsAdmin(request);
@@ -311,6 +318,12 @@ const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 test.describe("content-deliverables (M52)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.skip(!landed("M52"), waitingOn("M52"));
+
+  // Same budget as M51's block above, for the same reason: two real uploads,
+  // a comment exchange, a bulk reminder through the outbox, a restore/publish
+  // and a ZIP download do not fit in 30 s, and the 60 s upload waits inside
+  // them cannot even complete.
+  test.beforeEach(({}, testInfo) => { testInfo.setTimeout(240_000); });
 
   test("versions, comments, filtered reminders, session-content restore/publish, bio/headshot edit, and a grouped ZIP export", async ({ page, request }) => {
     const assertClean = expectNoConsoleErrors(page);

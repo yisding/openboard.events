@@ -7,8 +7,12 @@ import { useState } from "react";
 import type { EventId } from "@/shared/contracts";
 import type { DashboardOverview } from "../index";
 import { useDashboardOverview } from "../hooks/use-dashboard-overview";
+import { computeEventPhase } from "../lib/phase";
+import { AttentionQueue } from "./AttentionQueue";
+import { MilestoneBanner } from "./MilestoneBanner";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
 import { TodayPanel } from "./TodayPanel";
+import { WidgetBoundary } from "./WidgetBoundary";
 
 export type DashboardTab = "today" | "speakers";
 
@@ -20,14 +24,23 @@ export function DashboardTabs(props: { eventId: EventId; initialData: DashboardO
 function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live = true }: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
   const query = useDashboardOverview(eventId, initialData, live);
   const overview = query.data;
+  const phase = computeEventPhase(overview);
   return <main className="dashboard-page dashboard-live">
     <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
     {query.isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={() => void query.refetch()}><RefreshCw size={14} /> Retry</button></div>}
+    {/* M56 — the dashboard leads with this, above the tabs, so it is the
+        answer regardless of which tab is open. Below it, the two tabs stay
+        the same detail views they always were. */}
+    <WidgetBoundary name="attention"><AttentionQueue items={overview.attention} /></WidgetBoundary>
+    {/* M60 — one-time positive facts, distinct from the attention queue's
+        ongoing work: each stays true once crossed, so this is what
+        remembers "already celebrated" rather than recomputing urgency. */}
+    <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
     <nav className="dashboard-tabs" aria-label="Dashboard sections">
       <Link className={initialTab === "speakers" ? "active" : ""} href={`/events/${eventId}/dashboard?tab=speakers`}>Speaker Tracking</Link>
       <Link className={initialTab === "today" ? "active" : ""} href={`/events/${eventId}/dashboard?tab=today`}>Today</Link>
     </nav>
-    {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} />}
+    {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
   </main>;
 }
 

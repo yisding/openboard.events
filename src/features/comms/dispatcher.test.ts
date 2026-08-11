@@ -42,6 +42,9 @@ const migrationProductAuth = readFileSync(new URL("../../../drizzle/0009_product
 // both are required for the same reason `migrationProductAuth` is.
 const migrationTenancy = readFileSync(new URL("../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
+// M59 added `contacts.acceptance_seen_at`; `unsubscribeFromRemindersIn`'s
+// unqualified `.returning()` needs every declared column to exist.
+const migrationSpeakerMoments = readFileSync(new URL("../../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const emptyEventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
 const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
@@ -97,6 +100,7 @@ describe("communications outbox dispatcher", () => {
     await pglite.exec(migrationProductAuth);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
+    await pglite.exec(migrationSpeakerMoments);
     await pglite.query("INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Empty','empty','Online','UTC','2026-10-01T09:00:00Z','2026-10-01T17:00:00Z')", [eventId, emptyEventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);

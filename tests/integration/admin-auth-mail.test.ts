@@ -25,6 +25,14 @@ const MIGRATIONS = [
   "0000_init", "0001_views_triggers", "0002_admin_auth", "0003_jade_defaults",
   "0004_review_operations", "0005_rate_limits", "0006_content_deliverables",
   "0007_email_compliance", "0008_speaker_roster_operations", "0009_product_auth",
+  // M42 is the subject here, so this list stops at 0009 rather than tracking
+  // the journal — with one exception. 0016 adds `contacts.acceptance_seen_at`,
+  // and drizzle names every declared column of `contacts` in an unqualified
+  // `.returning()`/`select()`, so the column has to exist even though nothing
+  // below reads it. Skipping 0010-0015 is still deliberate: they are later
+  // modules this test is not about, and 0014's template backfill would change
+  // the very `email_templates` rows these assertions inspect.
+  "0016_speaker_moments",
 ];
 
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");

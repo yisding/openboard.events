@@ -1,17 +1,21 @@
 "use client";
 
-import { Mail, Plus, Search, Upload, Users, X } from "lucide-react";
+import { Bell, Mail, Plus, Search, Upload, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
+import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { useToast } from "@/shared/ui/toast";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 import { SpeakerCreateDialog } from "./speaker-create-dialog";
+import { SpeakerFlowDrawer } from "./speaker-flow-drawer";
 import { SpeakerHeadshot } from "./speaker-headshot";
 import { SpeakerImportDialog } from "./speaker-import-dialog";
 
@@ -64,13 +68,75 @@ export function SpeakersAdminView({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  const { toast } = useToast();
   const [draftSearch, setDraftSearch] = useState(q);
   useEffect(() => setDraftSearch(q), [q]);
   const [selected, setSelected] = useState<ContactListRow[]>([]);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
+  // M58 — bumped to select every row on screen: a command-palette verb
+  // ("Email speakers missing bio or headshot…") lands on `?missing=either&arm=1`
+  // and the bulk bar is already showing the count and its actions.
+  const [selectAllEpoch, setSelectAllEpoch] = useState(0);
+  useEffect(() => {
+    if (params.get("arm") !== "1") return;
+    setSelectAllEpoch((epoch) => epoch + 1);
+    const query = new URLSearchParams(params.toString());
+    query.delete("arm");
+    router.replace(`?${query.toString()}`, { scroll: false });
+  }, [params, router]);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [reminding, setReminding] = useState(false);
+  // M57 — the row a click opens: a flow-through slide-over over this page's
+  // rows, not a navigation. The full editable profile is one click further,
+  // from inside the drawer.
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
+  const rowIds = useMemo(() => rows.map((row) => row.contactId as string), [rows]);
+  useFlowKeyboardNav({ ids: rowIds, activeId: openContactId, onNavigate: setOpenContactId, onClose: () => setOpenContactId(null) });
+  const openIndex = openContactId ? rowIds.indexOf(openContactId) : -1;
+  const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
+
+  async function bulkRemind() {
+    // Reuses M52's generic bulk-reminder mutation (`sendRemindersNow` behind
+    // `/api/internal/deliverables/remind`) — it operates on any
+    // (taskId, contactId, submissionId) triple from `task_assignments_v`,
+    // not only file-request tasks, so nudging every open assignment for a
+    // batch of speakers is the same call the Files view already makes.
+    const targets = selected.filter((row) => row.openTasks > 0);
+    if (targets.length === 0) {
+      toast("Nothing to remind — every selected speaker is caught up");
+      return;
+    }
+    setReminding(true);
+    try {
+      const perSpeaker = await Promise.all(targets.map(async (row) => {
+        const response = await fetch(`/api/internal/comms/${eventId}/open-assignments?contactId=${row.contactId}`);
+        const payload = await response.json().catch(() => null) as { data?: Array<{ taskId: string; submissionId: string | null }> } | null;
+        return (payload?.data ?? []).map((assignment) => ({ taskId: assignment.taskId, contactId: row.contactId, submissionId: assignment.submissionId }));
+      }));
+      const flatTargets = perSpeaker.flat();
+      if (flatTargets.length === 0) {
+        toast("Nothing to remind — every selected speaker is caught up");
+        return;
+      }
+      const response = await fetch(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targets: flatTargets }),
+      });
+      const payload = await response.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
+      if (!response.ok || !payload?.data) {
+        toast("Could not send reminders — try again");
+        return;
+      }
+      toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} assignment${payload.data.total === 1 ? "" : "s"}`);
+      setSelected([]);
+      setSelectionEpoch((epoch) => epoch + 1);
+    } finally {
+      setReminding(false);
+    }
+  }
 
   const setParams = (patch: Record<string, string | null>, resetPage = true) => {
     const query = new URLSearchParams(params.toString());
@@ -145,13 +211,16 @@ export function SpeakersAdminView({
         </>}
       />
 
-      {selected.length > 0 && (
-        <div className="bulk-bar">
-          <span>{selected.length} selected</span>
+      <BulkActionBar
+        count={selected.length}
+        onClear={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
+        actions={<>
           <Button size="sm" onClick={() => setBulkEmailOpen(true)}><Mail size={14} /> Email selected</Button>
-          <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
-        </div>
-      )}
+          <Button size="sm" variant="secondary" disabled={reminding} onClick={() => void bulkRemind()}>
+            <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
+          </Button>
+        </>}
+      />
 
       <div className="abstract-status-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={!accepted} className={!accepted ? "active" : ""} onClick={() => setParams({ accepted: null })}>All</button>
@@ -166,10 +235,11 @@ export function SpeakersAdminView({
         data={rows}
         columnVisibilityKey={`speakers:${eventId}`}
         getRowId={(row) => row.contactId}
-        onRowClick={(row) => router.push(`/events/${eventId}/speakers/${row.contactId}`)}
+        onRowClick={(row) => setOpenContactId(row.contactId)}
         enableSelection
         onSelectionChange={setSelected}
         selectionEpoch={selectionEpoch}
+        selectAllEpoch={selectAllEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
         serverSorting={{
           state: [{ id: SORT_TO_STATE[sort], desc: dir === "desc" }],
@@ -222,6 +292,19 @@ export function SpeakersAdminView({
           open={bulkEmailOpen}
           selected={selected}
           onClose={() => { setBulkEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
+        />
+      )}
+      {openRow && (
+        <SpeakerFlowDrawer
+          eventId={eventId}
+          row={openRow}
+          onClose={() => setOpenContactId(null)}
+          nav={{
+            index: openIndex,
+            total: rowIds.length,
+            ...(rowIds[openIndex - 1] ? { onPrev: () => setOpenContactId(rowIds[openIndex - 1] as string) } : {}),
+            ...(rowIds[openIndex + 1] ? { onNext: () => setOpenContactId(rowIds[openIndex + 1] as string) } : {}),
+          }}
         />
       )}
     </main>

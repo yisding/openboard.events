@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../fixtures";
 import { resolveDashboardTab, resolveLocalDashboardEventId } from "../lib/dashboard-tab";
 import { DEMO_EVENT_ID } from "@/shared/demo/seed";
+import { AttentionQueue } from "./AttentionQueue";
 import { FormProgressCards } from "./FormProgressCards";
 import { OverdueList } from "./OverdueList";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
@@ -23,8 +24,29 @@ describe("dashboard components", () => {
     expect(speakerHtml).not.toContain("dashboard-missing-alert");
     expect(todayHtml).toContain("No submission forms yet");
     expect(todayHtml).toContain("No submissions yet");
-    expect(todayHtml).not.toContain("dashboard-attention-strip");
+    // The attention queue lives above the tabs now (`DashboardTabsInner`), not
+    // inside either tab panel — `TodayPanel` on its own never renders it.
+    expect(todayHtml).not.toContain("dashboard-attention-queue");
     expect(`${speakerHtml}${todayHtml}`).not.toContain("NaN");
+  });
+
+  it("renders nothing when there is nothing to attend to, and a ranked, clickable list when there is", () => {
+    expect(renderToStaticMarkup(React.createElement(AttentionQueue, { items: [] }))).toBe("");
+
+    const html = renderToStaticMarkup(React.createElement(AttentionQueue, { items: FIXTURE_OVERVIEW.attention }));
+    // Every item renders — no cap, no "+N more": this is the primary surface now.
+    for (const item of FIXTURE_OVERVIEW.attention) {
+      expect(html).toContain(`href="${item.href}"`);
+    }
+    // Ranked by count, most urgent first: the fixture's counts are 3, 7, 2 for
+    // unscheduled/awaiting-decision/missing-assets, so "awaiting a decision"
+    // (7) leads and "missing a bio or headshot" (2) trails.
+    const decisionIndex = html.indexOf("awaiting a decision");
+    const unscheduledIndex = html.indexOf("still need a time slot");
+    const missingIndex = html.indexOf("missing a bio or headshot");
+    expect(decisionIndex).toBeGreaterThan(-1);
+    expect(decisionIndex).toBeLessThan(unscheduledIndex);
+    expect(unscheduledIndex).toBeLessThan(missingIndex);
   });
 
   it("uses the event slug for public form links and the id for admin links", () => {

@@ -44,9 +44,15 @@ export function Modal({ open, onClose, title, description, children, footer, wid
   return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
-export function Drawer({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: ReactNode; title: string }) {
+/**
+ * `headerExtra` (M57) sits between the title and the close button — the
+ * flow-through drawers' `<FlowNavControls>` "3 of 24" + prev/next live here,
+ * so the keyboard shortcut has a visible, clickable equivalent without every
+ * caller reimplementing the title row.
+ */
+export function Drawer({ open, onClose, children, title, headerExtra }: { open: boolean; onClose: () => void; children: ReactNode; title: string; headerExtra?: ReactNode }) {
   if (!open) return null;
-  return <div className="drawer-layer"><button type="button" className="drawer-backdrop" aria-label="Close" onClick={onClose} /><aside className="drawer"><div className="drawer-title"><h2>{title}</h2><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></div>;
+  return <div className="drawer-layer"><button type="button" className="drawer-backdrop" aria-label="Close" onClick={onClose} /><aside className="drawer"><div className="drawer-title"><h2>{title}</h2>{headerExtra}<button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></div>;
 }
 
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {

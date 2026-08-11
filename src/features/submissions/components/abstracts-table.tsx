@@ -66,6 +66,7 @@ export function AbstractsTable({
   onSelectionChange,
   onRowClick,
   selectionEpoch,
+  selectAllEpoch,
 }: {
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
@@ -85,6 +86,8 @@ export function AbstractsTable({
   onSelectionChange?: (rows: SubmissionListRow[]) => void;
   onRowClick?: (row: SubmissionListRow) => void;
   selectionEpoch?: number;
+  /** M58 — bumped to select every row on screen, arming the bar from a palette verb. */
+  selectAllEpoch?: number;
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
   useEffect(() => setDraftSearch(search), [search]);
@@ -184,6 +187,7 @@ export function AbstractsTable({
         data={rows}
         enableSelection
         {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
+        {...(selectAllEpoch === undefined ? {} : { selectAllEpoch })}
         columnVisibilityKey="abstracts"
         getRowId={(row) => row.submissionId}
         {...(onSelectionChange ? { onSelectionChange } : {})}

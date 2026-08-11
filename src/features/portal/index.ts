@@ -33,7 +33,7 @@ export {
 export type { SpeakerProfileDTO } from "./profile/server/queries";
 export { getSpeakerProfile, getSpeakerProfileIn } from "./profile/server/queries";
 export type { ProfilePatch } from "./profile/server/mutations";
-export { profilePatchSchema, updateProfile, updateProfileIn } from "./profile/server/mutations";
+export { markAcceptanceSeen, markAcceptanceSeenIn, profilePatchSchema, updateProfile, updateProfileIn } from "./profile/server/mutations";
 
 // M23 — tasks + file requests admin. Counts and the completion matrix are read
 // straight off `task_assignments_v` (resolution #14, the fan-out law) — this

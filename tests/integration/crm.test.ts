@@ -41,6 +41,7 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
+const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 
 const orgA = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000001");
 const orgB = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000002");
@@ -55,7 +56,7 @@ let db: DbOrTx;
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
-    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm]) {
+    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments]) {
       await pglite.exec(migration);
     }
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;

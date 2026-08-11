@@ -15,7 +15,7 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Dash } from "./dash";
 
 /**
@@ -57,6 +57,13 @@ export type DataTableProps<Row> = {
   getRowId?: (row: Row, index: number) => string;
   /** Change this to clear the selection — the table owns that state, not the caller. */
   selectionEpoch?: number;
+  /**
+   * M58 — change this to select every row currently on screen (page-local,
+   * same rule as manual selection). The command palette's verb entries use
+   * this to open a list "pre-armed": the bulk bar is already showing a count
+   * and its action buttons, nothing left to click but the verb itself.
+   */
+  selectAllEpoch?: number;
   /**
    * Opt into server pagination when `data` is already one page. Other tables
    * retain the local pagination behavior by leaving this absent.
@@ -129,6 +136,7 @@ export function DataTable<Row>({
   pageSize = 25,
   getRowId,
   selectionEpoch,
+  selectAllEpoch,
   serverPagination,
   serverSorting,
 }: DataTableProps<Row>) {
@@ -230,6 +238,26 @@ export function DataTable<Row>({
       return Object.keys(visible).length === Object.keys(current).length ? current : visible;
     });
   }, [rows]);
+
+  // M58 — a ref, not a dependency: `selectAllEpoch` should select whatever is
+  // on screen the moment it changes, not re-select on every later page/filter
+  // change (that would fight a caller who deselects a row after arming).
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  // Fix (review P6): both call sites seed this with `useState(0)`, a defined
+  // number, so an `=== undefined` guard fires on every mount, not only on a
+  // real bump. Compare against the *previous* value instead — a ref that
+  // starts equal to the current prop means the mount render is always a
+  // no-op, and only a later change (0 -> 1, or undefined -> 1) selects rows.
+  const previousSelectAllEpochRef = useRef(selectAllEpoch);
+  useEffect(() => {
+    if (selectAllEpoch === previousSelectAllEpochRef.current) return;
+    previousSelectAllEpochRef.current = selectAllEpoch;
+    if (selectAllEpoch === undefined) return;
+    const next: Record<string, boolean> = {};
+    for (const row of rowsRef.current) next[row.id] = true;
+    setRowSelection(next);
+  }, [selectAllEpoch]);
 
   const selectedIds = useMemo(
     () => new Set(Object.entries(rowSelection).filter(([, selected]) => selected).map(([id]) => id)),

@@ -5,6 +5,7 @@ import { getOverview } from "@/features/dashboard";
 import { DashboardTabs } from "@/features/dashboard/index.client";
 import { DashboardLoadError, type DashboardTab } from "@/features/dashboard/components/DashboardTabs";
 import { resolveDashboardTab, resolveLocalDashboardEventId } from "@/features/dashboard/lib/dashboard-tab";
+import { computeEventPhase, defaultTabForPhase } from "@/features/dashboard/lib/phase";
 import { eventIdSchema, type EventId } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { FIXTURE_OVERVIEW } from "@/features/dashboard/fixtures";
@@ -23,7 +24,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     // `live=false` guarantees it never reaches a database/API boundary.
     const localEventId = eventId as EventId;
     const overview = { ...FIXTURE_OVERVIEW, event: { ...FIXTURE_OVERVIEW.event, id: localEventId } };
-    const initialTab = resolveDashboardTab(requestedTab, "speakers");
+    const initialTab = resolveDashboardTab(requestedTab, defaultTabForPhase(computeEventPhase(overview)));
     return <DashboardTabs eventId={localEventId} initialData={overview} initialTab={initialTab} firstName="Maya" live={false} />;
   }
   const parsedEventId = eventIdSchema.safeParse(requestedEventId);
@@ -37,7 +38,9 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     console.error("dashboard.overview_failed", { eventId, error });
     return <DashboardLoadError />;
   }
-  const defaultTab: DashboardTab = overview.speakerTracking.acceptedSpeakers > 0 ? "speakers" : "today";
+  // M56 — the default tab follows the event's lifecycle phase (same law as
+  // the widget reordering below it), not a bare "any accepted speaker" check.
+  const defaultTab: DashboardTab = defaultTabForPhase(computeEventPhase(overview));
   const initialTab = resolveDashboardTab(requestedTab, defaultTab);
   const firstName = session.name.trim().split(/\s+/, 1)[0] || "Organizer";
   return <DashboardTabs eventId={eventId} initialData={overview} initialTab={initialTab} firstName={firstName} />;

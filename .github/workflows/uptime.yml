@@ -14,6 +14,25 @@ name: Uptime
 # workflow's conclusion is failure. Wiring a Slack/PagerDuty webhook is a
 # single extra step appended to the `check` job below — nothing else here
 # would need to change.
+#
+# Which origins are polled is configuration, not source. Each environment reads
+# a repository variable (Settings → Secrets and variables → Actions →
+# Variables); an environment whose variable is empty is *skipped with a notice*
+# rather than polled and failed. That gate exists because "the alert is a failed
+# run" only works while every failure means something is actually broken: the
+# production Worker (`sb-web`) has never been deployed, so polling it every 15
+# minutes turned this workflow into a permanent red that nobody could
+# distinguish from a real preview outage — the exact failure mode an uptime
+# check is supposed to detect.
+#
+#   UPTIME_PREVIEW_URL     defaults to the deployed preview origin below.
+#   UPTIME_PRODUCTION_URL  unset — set it to https://sb-web.yi-ding.workers.dev
+#                          (or the custom domain) the day production first
+#                          deploys, and production starts being polled on the
+#                          next scheduled run with no change to this file.
+#
+# The intent is unchanged: both origins are meant to be polled. Only the
+# production half is deferred until there is a production to poll.
 
 on:
   schedule:
@@ -41,17 +60,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - environment: preview
-            url: https://sb-web-preview.yi-ding.workers.dev
-          - environment: production
-            url: https://sb-web.yi-ding.workers.dev
+        environment: [preview, production]
     steps:
+      # Resolve the origin first so an environment that has no deployed Worker
+      # yet skips cleanly instead of failing the run. See the header for why.
+      - name: Resolve origin
+        id: origin
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          PREVIEW_URL: ${{ vars.UPTIME_PREVIEW_URL || 'https://sb-web-preview.yi-ding.workers.dev' }}
+          PRODUCTION_URL: ${{ vars.UPTIME_PRODUCTION_URL }}
+        run: |
+          set -euo pipefail
+          case "$ENVIRONMENT" in
+            preview) url="$PREVIEW_URL" ;;
+            production) url="$PRODUCTION_URL" ;;
+            *) echo "::error::unknown environment $ENVIRONMENT"; exit 2 ;;
+          esac
+          if [[ -z "$url" ]]; then
+            echo "::notice title=Uptime skipped::No origin is configured for '$ENVIRONMENT', so there is nothing deployed to poll. Set the repository variable UPTIME_$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')_URL once it exists and this check starts running on the next schedule."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.origin.outputs.skip != 'true'
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/uptime-check.sh
           sparse-checkout-cone-mode: false
       - name: Poll /api/health
-        run: bash scripts/uptime-check.sh "${{ matrix.url }}"
+        if: steps.origin.outputs.skip != 'true'
+        run: bash scripts/uptime-check.sh "${{ steps.origin.outputs.url }}"

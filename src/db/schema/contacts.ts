@@ -11,6 +11,9 @@ export const contacts = pgTable("contacts", {
   // M51 — organizer pipeline bookkeeping, distinct from `confirmationStatus`
   // (drizzle/0008's header comment; never gates publication or notification).
   workflowStatus: speakerWorkflowStatusEnum("workflow_status").notNull().default("new"),
+  // M59 — set once the speaker has seen the acceptance-celebration moment on
+  // their portal home, so a repeat visit shows the ordinary home instead.
+  acceptanceSeenAt: timestamp("acceptance_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.email), unique().on(table.id, table.eventId)]);
 // P3-EMAIL: provider-driven suppression (Resend bounce/complaint webhook) —

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { AdminShell, type AdminShellEvent } from "@/features/shell/admin-shell";
+import { AdminShell, type AdminShellCounts, type AdminShellEvent } from "@/features/shell/admin-shell";
+import { getNavCounts, getReviewerQueueCount } from "@/features/shell/server/nav-counts";
 import { shortEventName } from "@/shared/lib/event-label";
 import { requireAdmin, requiredRoleForEventPath, type AdminSession } from "@/features/auth";
 import { getEvent } from "@/features/events";
@@ -48,5 +49,18 @@ export default async function EventLayout({ children, params }: { children: Reac
     if (!record) notFound();
     shellEvent = { id: record.id, slug: record.slug, name: record.name, shortName: shortEventName(record.name) };
   }
-  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} {...(shellEvent ? { event: shellEvent } : {})}>{children}</AdminShell>;
+  // M56 — real, actionable sidebar counts. Reviewers only ever see the review
+  // nav item, so they get their own outstanding-work count instead of the
+  // organizer figures they are not allowed to read (M50's closed reviewer
+  // surface list).
+  let counts: AdminShellCounts | undefined;
+  if (session) {
+    if (session.role === "reviewer") {
+      counts = { review: await getReviewerQueueCount(eventId, session.userId) };
+    } else {
+      const nav = await getNavCounts(eventId);
+      counts = { abstracts: nav.abstractsPending, speakers: nav.speakersMissing, tasks: nav.tasksOverdue };
+    }
+  }
+  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} {...(shellEvent ? { event: shellEvent } : {})} {...(counts ? { counts } : {})}>{children}</AdminShell>;
 }

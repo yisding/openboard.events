@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { CreditCard, ScrollText, Sparkles, Users as UsersIcon } from "lucide-react";
+import { Contact, CreditCard, ScrollText, Sparkles, Users as UsersIcon } from "lucide-react";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getEvent } from "@/features/events";
@@ -60,6 +60,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       title={organization.name}
       description="Your organization's events."
       actions={<>
+        <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
         <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>

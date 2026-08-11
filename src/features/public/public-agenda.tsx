@@ -1,15 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarPlus, Clock3, MapPin, Star } from "lucide-react";
+import { CalendarPlus, Clock3, MapPin, Radio, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Dash } from "@/shared/ui/app/dash";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
+import { computeLiveHighlight, EMPTY_LIVE_HIGHLIGHT, type LiveHighlight } from "./live-highlight";
+import { PublicComingSoon } from "./public-coming-soon";
 import type { EmbedFilters } from "./embed-config-types";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
+
+/** How often the live highlight re-checks the clock. A minute is "alive", not "chatty". */
+const LIVE_REFRESH_MS = 60_000;
+
+/**
+ * M60 — "Happening now / up next," computed on a client-only timer so the
+ * server-rendered (edge-cached) HTML never carries a highlight a CDN would
+ * then serve stale. Starting from `EMPTY_LIVE_HIGHLIGHT` (nothing marked)
+ * matches what the server rendered, so the first client render after
+ * hydration is not a mismatch — the real value lands one effect tick later.
+ */
+function useLiveHighlight(sessions: ReadonlyArray<{ id: string; startsAt: string; endsAt: string }>): LiveHighlight {
+  const [highlight, setHighlight] = useState<LiveHighlight>(EMPTY_LIVE_HIGHLIGHT);
+  useEffect(() => {
+    const tick = () => setHighlight(computeLiveHighlight(sessions, new Date()));
+    tick();
+    const interval = setInterval(tick, LIVE_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [sessions]);
+  return highlight;
+}
 
 function dayLabel(dayKey: string, timezone: string): { weekday: string; date: string } {
   const pivot = `${dayKey}T12:00:00.000Z`;
@@ -80,6 +103,7 @@ export function PublicAgenda({
   }, [schedule.sessions, filters.trackIds, filters.formatIds, filters.roomIds]);
 
   const days = useMemo(() => [...new Set(sessions.map((session) => session.dayKey))].sort(), [sessions]);
+  const live = useLiveHighlight(sessions);
 
   const initialSession = initialExpandedSessionId ? sessions.find((item) => item.id === initialExpandedSessionId) : undefined;
   const [day, setDay] = useState<string | undefined>(initialSession?.dayKey ?? days[0]);
@@ -131,11 +155,13 @@ export function PublicAgenda({
   }
 
   const body = days.length === 0 ? (
-    <div className="public-empty">
-      <Star size={24} />
-      <h3>Agenda coming soon</h3>
-      <p>The day-by-day program will appear here as soon as sessions are scheduled and published.</p>
-    </div>
+    <PublicComingSoon
+      icon={Star}
+      title="Agenda coming soon"
+      description={`The day-by-day program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
+      linkHref={`/e/${eventSlug}/speakers`}
+      linkLabel="Speaker gallery"
+    />
   ) : (
     <>
       <div className="schedule-controls">
@@ -157,13 +183,21 @@ export function PublicAgenda({
               <div>
                 {items.map((session) => {
                   const primary = session.speakers[0];
+                  const isLiveNow = live.nowSessionIds.has(session.id);
+                  const isUpNext = live.nextSessionId === session.id;
                   return (
                     <div key={session.id}>
-                      <article onClick={() => toggleExpanded(session.id)} role="button" tabIndex={0}
+                      <article
+                        className={isLiveNow ? "session-live-now" : isUpNext ? "session-up-next" : ""}
+                        onClick={() => toggleExpanded(session.id)} role="button" tabIndex={0}
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleExpanded(session.id)}>
                         <i className="session-stripe" style={{ background: session.track?.color ?? "var(--accent)" }} />
                         <div className="public-session-main">
-                          <span>{session.room ? session.room.name : "General session"}</span>
+                          <span>
+                            {session.room ? session.room.name : "General session"}
+                            {isLiveNow && <em className="live-now-badge"><Radio size={10} /> Happening now</em>}
+                            {!isLiveNow && isUpNext && <em className="up-next-badge">Up next</em>}
+                          </span>
                           <h3>{session.title}</h3>
                           {primary ? (
                             <div className="public-session-speaker">

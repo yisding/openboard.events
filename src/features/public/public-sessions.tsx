@@ -8,6 +8,7 @@ import { Dash } from "@/shared/ui/app/dash";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
+import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
 
@@ -108,11 +109,13 @@ export function PublicSessions({
   }
 
   const body = allSessions.length === 0 ? (
-    <div className="public-empty">
-      <Search size={24} />
-      <h3>Sessions coming soon</h3>
-      <p>The program will appear here as sessions are published.</p>
-    </div>
+    <PublicComingSoon
+      icon={Search}
+      title="Sessions coming soon"
+      description={`The program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
+      linkHref={`/e/${eventSlug}/speakers`}
+      linkLabel="Speaker gallery"
+    />
   ) : (
     <>
       <div className="sessions-filters">

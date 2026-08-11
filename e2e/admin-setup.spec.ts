@@ -86,9 +86,10 @@ test.describe("admin-setup", () => {
 
       await test.step("the new event's settings show every default email template", async () => {
         // 7 domain keys + portal_login + M50's two review keys + M51's
-        // speaker_bulk_message. This is what proves M11 called
+        // speaker_bulk_message + M42's two admin keys + M44's
+        // organization_invited. This is what proves M11 called
         // seedDefaultTemplates rather than creating the event bare.
-        expect(TEMPLATE_KEYS_PER_EVENT).toBe(11);
+        expect(TEMPLATE_KEYS_PER_EVENT).toBe(14);
         const slug = uniqueSlug("e2e-event");
         await page.getByLabel("Event name").fill("E2E created event");
         await page.getByLabel("Event slug").fill(slug);

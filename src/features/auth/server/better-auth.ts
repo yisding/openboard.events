@@ -1,4 +1,15 @@
-import { betterAuth } from "better-auth";
+// `better-auth/minimal`, not `better-auth`: the package's root entry initialises
+// through `context/init.ts`, which statically pulls in Kysely and the whole
+// dialect-detection path so that `database:` can be a raw connection. We never
+// use that door — `database:` below is always a `drizzleAdapter` — so on the
+// root entry Kysely was several hundred KiB of Workers bundle that no request
+// could ever reach. `better-auth/minimal` is upstream's supported entry for
+// exactly this case (see its own doc comment: "For minimal mode (without
+// Kysely), import from `better-auth/minimal`"). The only behaviour it removes
+// is raw-connection support and `runMigrations`, both of which throw a clear
+// BetterAuthError rather than misbehaving; we call neither — our schema is
+// owned by the journaled `drizzle/` migrations, never by Better Auth.
+import { betterAuth } from "better-auth/minimal";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";

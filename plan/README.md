@@ -113,7 +113,7 @@ These are PLAN.md's binding resolutions. Copy the signatures **character for cha
 
 ---
 
-## 5. Module index (50 work orders)
+## 5. Module index (58 work orders)
 
 Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN §6/§7 (see `execution.md` for the half-day wave table). **Slot day names are logical plan-days — Aug 8 2026 is a Saturday: plan-Fri = Sat 8/8, plan-Sat = Sun 8/9, plan-Sun = Mon 8/10, plan-Mon = Tue 8/11, plan-Tue = Wed 8/12 until 2 PM (CP4), plan-Wed = Wed 8/12 afternoon (PLAN §7, delta #21).** Hard deps are the solid edges of PLAN §5; *italic* deps are dashed — you start against a Phase-0 stub or fixture and swap in the real artifact when it lands.
 
@@ -163,6 +163,14 @@ Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN �
 | M39 | Airtable export | [M39](modules/M39-airtable-export.md) | WS-F | WS-F | Sat PM (base provisioning) → Tue | M | M03, M08 |
 | M40 | Public API + keys | [M40](modules/M40-public-api.md) | WS-F | WS-F | Mon PM (start) → Tue | M | M32, M38, M04 |
 | M41 | Speaker submission editing (edit-until-close) | [M41](modules/M41-speaker-edit-until-close.md) | WS-D | WS-D | Tue AM | M | M21, M15, M16, M18, M14 |
+| M42 | Product auth: Better Auth + Google | [M42](modules/M42-product-auth.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | L | P2's deployed-auth proof |
+| M43 | Organization tenancy | [M43](modules/M43-organization-tenancy.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | L | M42 |
+| M44 | User management | [M44](modules/M44-user-management.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | L | M42, M43 |
+| M45 | Self-serve onboarding | [M45](modules/M45-self-serve-onboarding.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | M | M43, M44 |
+| M46 | Email compliance & deliverability ops | [M46](modules/M46-email-compliance-ops.md) | P3/P5 compliance lane | Architect-assigned | P4 (alongside P3) | M | P2 email proof |
+| M47 | Data lifecycle & GDPR | [M47](modules/M47-data-lifecycle-gdpr.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | L | M43 |
+| M48 | Observability & ops | [M48](modules/M48-observability-ops.md) | P3/P5 compliance lane | Architect-assigned | P4 (start anytime) | M | — |
+| M49 | Billing | [M49](modules/M49-billing-scaffold.md) | Product/auth-chain lane | Architect-assigned | P4 (post-R3) | M | M43, M44 |
 | M50 | Review operations depth + reviewer provisioning | [M50](modules/M50-review-operations.md) | WS-C / WS-A / WS-B / WS-F | Architect-assigned | Post-R3 | L | M06a, M12, M17, M19, M34, M37 |
 | M51 | Standalone speaker roster operations | [M51](modules/M51-speaker-roster-operations.md) | WS-D / WS-F | Architect-assigned | Post-R3 | L | M06b, M07, M22, M27, M34, M37, M41 |
 | M52 | Content and deliverables lifecycle | [M52](modules/M52-content-deliverables-lifecycle.md) | WS-D / WS-E / WS-F | Architect-assigned | Post-R3 | XL | M07, M22, M23, M25, M28, M34, M36 |
@@ -170,8 +178,12 @@ Size: **S** ≈ 2h · **M** ≈ half-day · **L** ≈ day. Slots are from PLAN �
 | M54 | Assisted agenda placement | [M54](modules/M54-assisted-agenda-placement.md) | WS-E | WS-E | Post-M30/M51 | S | M04, M28, M29, M30, M51 |
 | M55 | Organization-level Speaker CRM | [M55](modules/M55-speaker-crm.md) | Product lane | Architect-assigned | Optional after M43/M44 | XL | M43, M44, M51, M37/M46 |
 
-The original recovery program contains 44 work orders. M50–M55 add six post-R3 product work orders;
-M42–M49 remain roadmap-only until they receive work orders.
+The original recovery program contains 44 work orders. M50–M55 add six post-R3 product work orders.
+M42–M49 (the P4 commercial layer) received their own retroactive work orders once they shipped —
+[M42](modules/M42-product-auth.md) through [M49](modules/M49-billing-scaffold.md) — each documenting
+what actually merged plus its remaining deployed-evidence acceptance criteria; see
+[`product-roadmap.md`](product-roadmap.md)'s P4 table for the original scope sketch and
+[`status.md`](status.md) §2f–§2g for the ledger.
 
 ---
 

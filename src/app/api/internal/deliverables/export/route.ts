@@ -19,9 +19,11 @@ const createInput = z.object({
 
 /**
  * Creates the job (server-derived latest-file selection, frozen) and kicks
- * off processing through `ctx.waitUntil` — the same fire-and-forget pattern
- * `nudgeOutbox` uses — so the response returns immediately with a `pending`
- * job the client polls via GET below.
+ * off its *first* processing step through `ctx.waitUntil` — the same
+ * fire-and-forget pattern `nudgeOutbox` uses — so the response returns
+ * immediately with a `pending` job the client polls via GET below. A job
+ * that needs more than one step (see `processFileExportJobIn`) is not fully
+ * built by this call; each subsequent poll advances it one step further.
  */
 const create = defineHandler({
   auth: tasksAdminAuth({ role: "organizer" }),

@@ -18,6 +18,12 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 // M51 added `contacts.workflow_status`; auto-confirming a speaker goes through
 // `updateContactFields`, whose bare `.returning()` selects every mapped column.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// M59 (drizzle/0016) added `contacts.acceptance_seen_at`. This harness applies
+// a hand-picked subset of migrations rather than the whole journal, so any
+// drizzle query that names every declared `contacts` column — an unqualified
+// `.returning()`, or a `select()` of the whole table — fails against a
+// database built without it. Applied last, as it is in the journal.
+const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("d1000000-0000-4000-8000-000000000001");
 const speaker = contactIdSchema.parse("d1000000-0000-4000-8000-000000000002");
@@ -64,6 +70,7 @@ describe("decide and notify", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSpeakerMoments);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Event','event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",

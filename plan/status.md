@@ -1,10 +1,11 @@
 # openboard — implementation status and recovery plan
 
-- **Snapshot:** rev. 12 — Mon Aug 10, 2026, afternoon. **PR #95 merged** (§2g): the P4 commercial chain complete under explicit owner authorization — M42 Better Auth + Google with revocable admin sessions and PBKDF2 rehash-on-login (migration `0009`), M43 organization tenancy with default-org backfill (`0010`), M44 user management + invitations + audit (`0011`), M45 self-serve onboarding, M47 GDPR export/erasure/retention, M49 billing scaffold (`0012`) — plus M55 Speaker CRM core (`0013`, partial), the five remaining deployed e2e failures fixed, the embed-cache regression fixed (options-from-config; embeds are ISR again), and M50/M52 finish passes (deployed-evidence remainders only). Migrations `0009`–`0014` are applied to `sb-dev`/`sb-test` after the batch-transaction fix (`8b566c0`: enum-recreate pattern in `0009`/`0011`), and `sb-test` was reseeded. The jose fallback remains shipping auth until the deployed Better Auth round-trip (S4 redo). No module is `DONE` yet under §1's rules: the deployed/browser AC queue is now the entire remaining surface.
+- **Snapshot:** rev. 13 — Mon Aug 10, 2026, night. This is a reconciliation pass, not a code run: it folds in the **rev. 13 deployed-demonstration run**, [`../docs/evidence/rev13-deployed-run.md`](../docs/evidence/rev13-deployed-run.md) (executed 21:22–22:10 UTC against the still-current preview), and corrects a set of drifted claims this ledger had accumulated. **The single current deployed baseline is version `3f42f894`, code = merge `7b9cf3a` (PR #95), `/api/health sha: 8b566c0`** — the preview was never redeployed and never rebuilt during either the evidence run or this reconciliation; every other version string below this line (`b1fdc14a`, `5e809b64`, `1da1951d`, `2794dd4`, `673eac6`, `c662345`) is a **prior-revision snapshot**, kept only where it is explicitly dated as historical. **CP0 is now fully green**: the two items it was missing (a browser R2 presign/PUT/CORS round-trip, a deployed admin-throttle probe) both closed this run (§1 R1 items 3–4, `DECISIONS.md` "Deployed auth-throttle proof"). Four modules had their **deployed-evidence remainders** closed by this run — **M06a, M06b, M07, M54** — recorded with linked evidence in §3's new closure table. *(Corrected during the rev.-13 review pass: an earlier draft of this line claimed those four "clear all of §1's four DONE rules". They do not, and §3 still opens "No module is `DONE`". What closed is rule 3, the deployed half, for the specific items each row names; each of the four still owes a rule-2 item that this run did not touch — M06a/M06b work-order AC sign-off, M07 production S3 credentials and the `staging/` lifecycle rule, M54 its concurrent-edit CAS criterion plus `worker:size`/`bundle:client`, which are red on the merged tree per §2h. Promoting any of them to `DONE` is a separate, evidenced act.)* A bundle-diet attempt (`4fe419a`) briefly cut the Worker's gzip footprint by 15% (2895.34 → 2457.76 KiB dry-run, per its own commit message) but broke every deployed route and was reverted five minutes later (`b27539a`); `worker:size` CI is red again on the merged tree (3085.96 KiB dry-run > the 3072 KiB Workers Free ceiling) until a second, differently-shaped fix — landed in-tree but **not yet committed** — merges. Full account in the new §2h. §3, §4, §6 and §8 are corrected for drift (stale `NOT STARTED` rows, a "no further code" claim that contradicts M55's own header, an "M50–M55 not started" line that PR #94/#95 already falsified, and checkpoint rows rewritten against the evidence file).
+- **Rev. 12 headline (unchanged):** **PR #95 merged** (§2g): the P4 commercial chain complete under explicit owner authorization — M42 Better Auth + Google with revocable admin sessions and PBKDF2 rehash-on-login (migration `0009`), M43 organization tenancy with default-org backfill (`0010`), M44 user management + invitations + audit (`0011`), M45 self-serve onboarding, M47 GDPR export/erasure/retention, M49 billing scaffold (`0012`) — plus M55 Speaker CRM core (`0013`, partial), the five remaining deployed e2e failures fixed, the embed-cache regression fixed (options-from-config; embeds are ISR again), and M50/M52 finish passes (deployed-evidence remainders only). Migrations `0009`–`0014` are applied to `sb-dev`/`sb-test` after the batch-transaction fix (`8b566c0`: enum-recreate pattern in `0009`/`0011`), and `sb-test` was reseeded. The jose fallback remains shipping auth until the deployed Better Auth round-trip (S4 redo).
 - **Rev. 11 headline (unchanged):** **PR #94 merged** (§2f): the P3→P5 roadmap run landed P3 compliance hardening (CSP/HSTS on every non-embed path, a CSRF origin-check chokepoint inside `defineHandler`, and DB-backed rate limits via `drizzle/0005_rate_limits.sql`), email compliance (a signature-verified Resend bounce/complaint webhook, List-Unsubscribe headers, suppression enforcement via `drizzle/0007_email_compliance.sql`), R2 orphan sweep + backup/rollback/PITR runbooks, the forms debt cleared (M12 generalized to `context='portal'`, M13b's rules UI mounted live in the builder, M14's `upsertDraft` open-check gap closed, M24 built on the generalized engine), e2e spec fixes (three real triaged SPEC-BUGs) plus the app fixes they exposed (admin-shell/portal-context demo-store 404s, a trailing-autosave 404), and the P5 product-completeness modules M50 (partial), M51, M52 (partial), M53, M54 — landing five additive migrations, `drizzle/0004`–`0008`, applied to `sb-dev`/`sb-test`. M42–M49 were blocked pending explicit owner re-authorization of the M42 hold (the Better Auth spike); M55 stayed blocked on tenancy (M43/M44) — both resolved at rev. 12.
 - **Rev. 10 headline (unchanged):** **the module-completion run landed** (§2e): a 45-agent orchestrated run implemented every code-completable remaining module — 16 complete, M13b/M14 partial, M24 blocked on an M12 scope contradiction — then merged the Jade+Ice palette (#92) and P6 plan (#91) from `main`, adapted all new surfaces to the `--accent` token family, and passed the full gate suite. All six e2e specs had real step bodies and all 17 `landed.ts` gates were flipped at that point.
 - **Rev. 7 headline (unchanged):** **The Saturday thin slice is green on the deployed preview** — a proposal submitted through the real CFP endpoint landed in Neon with its routing applied, and its confirmation email was delivered to a real Gmail inbox from the verified sending domain. The deployment evidence in §2a is from that deployment, not from PGlite.
-- **Baseline:** `main` at `c662345` (PR #94), **and the preview is deployed from it**: version `b1fdc14a` at `https://sb-web-preview.yi-ding.workers.dev` (2299 KiB gzip — inside the Workers Free budget but nearing the 2.5 MB warn line; `/api/health` returns `sha: c662345`, a live Neon `18.4` round-trip, and M48's comms-depth fields). Migrations `0000`–`0008` are applied to `sb-dev`/`sb-test`; the full demo world is seeded on `sb-test`. All 8 post-deploy smoke checks pass, zero skipped (M53 surface map). The deployed Playwright suite stands at **19 passed / 5 failed / 5 skipped** (§2f).
+- **Baseline (current, rev. 13):** `main` at `04df486`, working tree carrying several concurrent lanes' uncommitted changes (§2h). **The preview is deployed from merge `7b9cf3a` (PR #95)**: version `3f42f894` at `https://sb-web-preview.yi-ding.workers.dev`, `/api/health` returns `sha: 8b566c0` (the migration-batch fix on top of `7b9cf3a`), a live Neon round-trip. Migrations `0000`–`0014` are applied to `sb-dev`/`sb-test`; `sb-test` is reseeded (docs/evidence/rev13-deployed-run.md preamble). The deployed Playwright suite went from 1 failed/17 skipped/23 passed on the first as-merged run to 9 failed/3 skipped/29 passed once the M50–M54 gates were flipped, and down to zero net-unexplained failures after triage — see §1 of the evidence file for the run-by-run detail; M50/M51/M52 are the only specs still not cleanly green (Findings 1 and 4, `needs_owner` item 4). *(Historical: at rev. 11 the baseline was `main` at `c662345` (PR #94), preview version `b1fdc14a`, 2299 KiB gzip, 19 passed/5 failed/5 skipped — superseded by PR #95 at rev. 12.)*
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 - **Goal reframe (rev. 8):** the owner's target is now a **sellable product**, not only the judged demo. The judging bar remains the nearest milestone; the product bar beyond it lives in [`product-roadmap.md`](product-roadmap.md), and the audit that motivated it is [`../docs/product-readiness.md`](../docs/product-readiness.md).
 
@@ -391,11 +392,144 @@ applied the batch for real. Per module, with its migration:
   Proven with a full-batch single-transaction dry run against `sb-test`, then applied for real to
   `sb-dev` and `sb-test`; `sb-test` was reseeded afterward.
 
+### 2h. The bundle diet — one reverted attempt, one in-tree fix (added at rev. 13)
+
+**The incident.** `4fe419a` ("split shared first-party server code into one chunk") added a
+*named* `app-shared` `splitChunks` cacheGroup, measured 2895.34 → 2457.76 KiB gzip on a wrangler
+dry-run (−437 KiB, −15%), and broke every route on the deployed Worker; `b27539a` reverted it five
+minutes later. The cause is in `@opennextjs/cloudflare`: workerd cannot run webpack's dynamic
+chunk require, so OpenNext unrolls it into a static switch built from
+`readdirSync(...).filter((chunk) => /^\d+\.js$/.test(chunk))`. A *named* chunk lands as
+`chunks/app-shared.js`, fails that numeric filter, never enters the switch, and is therefore never
+seen by esbuild either — the Worker ships without it and the first request that needs it dies on
+`Unknown chunk <id>`. `next build`, `vitest` and the size gate all stayed green; the size gate got
+*greener*, because the artifact was smaller for exactly the wrong reason.
+
+**The in-tree fix (landed in the working tree, not yet committed).** Two parts, both narrow:
+
+- `next.config.ts` tunes the same `splitChunks` knobs without ever setting `name` — `minSize: 0`
+  and the two request caps lifted, guarded to the production **nodejs** server compilation
+  (`nextRuntime === "nodejs"`, so the single-entry edge/middleware build is untouched). Unnamed
+  chunks keep webpack's numeric ids and are picked up by OpenNext's patch like any other chunk.
+- `scripts/check-worker-size.sh` gains a completeness gate ahead of the size gate: every
+  `chunks/*.js` on disk must appear as an input of the bundled `handler.mjs` in esbuild's
+  metafile. That is the check that would have caught `4fe419a` before deploy.
+
+**What was measured, and how.** Two throwaway trees built from `git archive` — one at HEAD, one at
+HEAD plus the fix — summing `bytesInOutput` over
+`.open-next/server-functions/default/handler.mjs.meta.json`:
+
+| | HEAD | HEAD + fix |
+| --- | --- | --- |
+| `.next/server/app/**` bundled | 8325 KiB | **6622 KiB** (−1703) |
+| `.next/server/chunks/**` bundled | 2780 KiB | 2469 KiB |
+| total bundled input | 14395 KiB | **12382 KiB** (−2013) |
+| server chunks emitted | 66 | 179 |
+
+A wrangler dry-run on the fix tree reports **2242.45 KiB gzip** — inside both the 3072 KiB Workers
+Free ceiling and the 2560 KiB upgrade threshold. **There is no matching isolated-HEAD gzip
+measurement**, so this lane establishes the *uncompressed* HEAD→fix delta and an absolute gzip
+figure for the fix, not a gzip delta. The 3085.96 KiB working-tree figure quoted in §2 and §3 is
+from a different run against a dirty tree carrying several lanes' changes, and is not comparable
+with either column above.
+
+**Scope of the workerd proof.** The built artifact was served under workerd (`wrangler dev`
+against `.open-next`, never deployed) and answered **an 18-URL slice**: `/api/health`, `/login`,
+`/e/{slug}/agenda`, `/e/{slug}/speakers`, `/embed/{slug}/agenda`, `/portal/{slug}/login`, two
+public `/api/v1/**` reads, `/events`, five admin `/events/{id}/**` pages, `/organizations`, and
+three internal `/api/internal/**` reads. Seventeen returned 200 and `/organizations` returned
+307, with zero `Unknown chunk` / `Cannot find module` lines in the workerd log. That slice is 18
+of 209 built server entries (146 `route.js` + 63 `page.js`); **it is not "every route."** The
+all-routes claim rests on the metafile completeness gate above, which is a static check, not an
+execution proof.
+
+**Measurement hygiene, recorded against this lane.** The two *baseline* builds ran inside the
+shared working tree rather than an isolated one, while other lanes were active: `.next` (14:27),
+`.open-next` (14:28) and `.wrangler/worker-size.txt` (14:28) in the repo root carry matching
+mtimes. All three paths are gitignored, so no tracked file was touched, and the numbers in the
+table above were re-taken from the two isolated trees precisely because the in-repo artifact was
+not a clean baseline (it reports 8088 / 14063 KiB against HEAD's true 8325 / 14395). Until this
+pass, `.wrangler/worker-size.txt` held a shell "command not found" error rather than a size
+measurement — `check-worker-size.sh` now refuses to run when `wrangler` is off PATH instead of
+`tee`-ing that error into a file that looks like a result.
+
+**Gate re-run at fix time.** `pnpm worker:size` completes end to end on the current tree: the
+completeness gate reports all 66 chunks bundled, and the size gate reports **2901.34 KiB gzip** —
+a pass against the 3072 KiB ceiling, with the 2560 KiB upgrade-threshold warning. Two cautions on
+that number: it was taken against the **stale 14:27/14:28 in-repo `.open-next`**, which is a
+*pre-fix* build of a dirty tree, so it is neither the 2242.45 KiB fix-tree figure nor a clean HEAD
+baseline; and because it is a different artifact from whatever produced the 3085.96 KiB reading
+quoted in §2 and §3, it does **not** confirm or refute that the merged tree is over the ceiling.
+That question needs one build and one dry-run on a clean checkout of the merge, which this lane
+did not run.
+
+**Final integration gate (rev. 13, run on the full merged working tree).** The build the paragraph
+above asks for has now been run, in order and one process at a time, against the complete
+finish-everything tree — bundle diet, evidence/ledger docs, M55 UI, M52-ZIP and P6 together, not a
+single lane in isolation:
+
+| Gate | Result |
+| --- | --- |
+| `scripts/check-invariants.sh` | pass |
+| `tsc --noEmit` | pass |
+| `eslint . --max-warnings=0` | pass |
+| `vitest run` | 1299 passed / 153 files, 0 failed |
+| `next build` | pass |
+| `opennextjs-cloudflare build --env preview` | pass |
+| `pnpm worker:size` completeness gate | **all 196 server chunks bundled** |
+| `pnpm worker:size` size gate | **2300.80 KiB gzip** |
+
+So the merged tree is **not** over the ceiling: 2300.80 KiB is inside the 3072 KiB Workers Free
+limit *and* under the 2560 KiB upgrade threshold, with no warning emitted. That retires the
+3085.96 KiB figure quoted in §2/§3 and the 2901.34 KiB stale-artifact figure above — both were
+taken against pre-fix or dirty builds. It does not contradict the 2242.45 KiB fix-tree reading
+either: that tree was HEAD-plus-the-diet, while this one additionally carries M55, M52-ZIP and P6,
+so ~58 KiB gzip of net new feature code is the expected difference. The chunk count rose 179 → 196
+for the same reason. (Build was `--env preview`, dry-run `--env production`, as `check-worker-size.sh`
+hard-codes; the two envs differ only in `vars`/bucket names, not in bundled code.)
+
+**Workerd execution slice at final-gate time — narrower than the 18-URL slice above, and why.**
+The artifact was served under `wrangler dev --env preview` and answered 13 URLs. `/`, `/signup`
+and `/login` returned 200; `/events`, `/organizations` and `/portal/{slug}` returned 307;
+`/api/internal/events` and `/api/v1/{slug}/stats` returned 401; `/api/jobs/cleanup` 405;
+`/demo` and `/api/auth/session` 404. **`/api/health` returned 503 and `/submit/{slug}/{formId}`
+returned 500** — both because this machine's `.dev.vars` carries an *empty* `DATABASE_URL`
+(`DATABASE_URL_DIRECT`, `RESEND_API_KEY` and all three `R2_*` keys are empty too). The 503 is
+`/api/health`'s own `{"ok":false,...,"db":{"ok":false}}` catch-block JSON with
+`health check failed DATABASE_URL is not configured` in the log, and the 500 is a thrown
+`AppError: DATABASE_URL is required` — i.e. both are the application's own configuration errors
+reached *after* the route module loaded and ran, which is the opposite of the failure being
+guarded against. **There were zero `Unknown chunk` and zero `Cannot find module` lines across the
+whole run.** No DB-backed response was proven at this gate, because the Neon HTTP driver needs a
+real Neon HTTPS endpoint and none is reachable from here; the DB-backed half of the workerd proof
+still rests on the earlier 18-URL slice and on the deployed preview.
+
 ## 3. Module status by evidence
 
 No module is `DONE` as of this snapshot. As of rev. 9 no module is `PR-OPEN` — every open agent
 branch has merged — so what separates the merged modules from `DONE` is AC sign-off and deployed
 evidence, not merges.
+
+### Deployed-evidence remainders closed at rev. 13
+
+The rev. 13 run closed §1 **rule 3** — the deployed half — for the four items below. It did **not**
+make any of these modules `DONE`: the "still owed" column is what rule 2 (work-order AC against the
+merged tree) and, for M07, rule 3's own remaining infrastructure items still require. This table
+exists so rule 4 is satisfiable — the evidence is linked here rather than asserted in a preamble.
+
+| Module | What closed, and where the evidence is | Still owed before `DONE` |
+|---|---|---|
+| M06a | The **deployed admin sign-in throttle**: six paced attempts on `sb-web-preview` → five 401s then a 429 (`RATE_LIMITED`), i.e. the documented five-per-email+IP-per-15-min policy on the deployed application. [`rev13-deployed-run.md` §3b](../docs/evidence/rev13-deployed-run.md). This is the CP0 / R1 item 4 bullet open since rev. 5. | Work-order AC sign-off against the merged tree. Also read Finding 2 there: unpaced, the same probe returns Cloudflare 1102/503 before the throttle answers |
+| M06b | The **phone-width** item this ledger's cell named: `portal-tasks.spec.ts` at `viewport 390×844` — which signs in through the real portal login path — passed against the preview, with no sideways scroll on portal home, the task list or the task detail. [`rev13-deployed-run.md` §6](../docs/evidence/rev13-deployed-run.md). *Caveat worth keeping:* M06b's own work order (`M06b-portal-auth.md:111`) has **no** phone-width criterion — that cell was a ledger-side addition, so this closes a ledger item, not a work-order one | Work-order AC sign-off against the merged tree, i.e. the command list at `M06b-portal-auth.md:113-121` — in particular the two-event simultaneous-session test and the 6th-wrong-OTP rejection. The deployed OTP/magic-link half was already proven at rev. 7 (§2a) |
+| M07 | Both deployed file items: a **real browser presign → PUT → finalize** from a Chromium page against the preview (the only place CORS is actually exercised), [§6](../docs/evidence/rev13-deployed-run.md); and the **`curl -I /f/{id}` header check** on a real seeded R2 object in `sb-files-preview` — 200, `image/png`, `cache-control: public, max-age=31536000, immutable`, [§4](../docs/evidence/rev13-deployed-run.md) | **Production S3 credentials** and an **R2 lifecycle rule on the `staging/` prefix** — neither touched by this run, both still rule-3 items |
+| M54 | The **deployed assisted-placement AC**: Auto-place previewed both rows, the blacked-out speaker's row carried its unavailability reason, one accepted row applied through the audited `moveSession`, and the placement survived a reload. [`rev13-deployed-run.md` §1f](../docs/evidence/rev13-deployed-run.md), run 6 | The concurrent-edit criterion (a `moveSession` CAS failing visibly under a racing edit) is not covered by that spec; `check-worker-size.sh` / `check-client-bundle.ts` are still unrun for this module, and `worker:size` is red on the merged tree (§2h) |
+
+Two related gates are recorded here because they are easy to misread as closures and are not:
+`e2e/helpers/landed.ts` now has **M50, M51 and M52 at `true`** on the strength of each gate's own
+stated deployed/data condition, but those three specs have **never passed end-to-end** — M50 on a
+real app/seed gap (no reviewer has a `contacts` row, so reminders enqueue 0), M52 on a defect
+localised to the portal upload's `attach()` POST, M51 on non-idempotent arrange steps plus the
+preview's 503s. See [`rev13-deployed-run.md` §1g, §8 Findings 1/4/6 and `needs_owner` 3–4](../docs/evidence/rev13-deployed-run.md), and the long comment in `landed.ts` itself.
 
 ### Merged, AC verification pending
 
@@ -411,14 +545,14 @@ evidence, not merges.
 |---|---|---|
 | M03 | PR #10 — schema, views, transition trigger, Drizzle modules, clients; migrations applied to a disposable Neon branch, then `sb-dev` and `sb-test` | `sb-prod`; the open view-semantics findings; a green `Deploy` workflow run that migrates through the journal |
 | M04 (server half) | PR #10 — `defineHandler`, `enqueueEmail`, query/log/assert helpers, API client | AC sign-off |
-| M06a | PR #11 — sessions, guards, middleware, throttle, bootstrap; **deployed sign-in proven at rev. 7** (§2a) | AC sign-off; the deployed auth-throttle proof |
-| M06b | PR #12 — OTP/magic link, tokens, sessions, impersonation; **deployed OTP session and delivered `portal_login` email proven at rev. 7** (§2a) | AC sign-off, including the phone-width AC |
+| M06a | PR #11 — sessions, guards, middleware, throttle, bootstrap; **deployed sign-in proven at rev. 7** (§2a); **deployed auth-throttle proven at rev. 13** (§3 closure table) | AC sign-off |
+| M06b | PR #12 — OTP/magic link, tokens, sessions, impersonation; **deployed OTP session and delivered `portal_login` email proven at rev. 7** (§2a); **deployed 390 px portal pass at rev. 13** (§3 closure table) | AC sign-off — the `M06b-portal-auth.md:113-121` command list, notably the two-event session test and the 6th-wrong-OTP rejection |
 
 ### Merged since rev. 5, AC verification pending
 
 | Modules | Evidence on `main` | Missing before `DONE` |
 |---|---|---|
-| M07 | PRs #15 + #17 — policy table, staging→published keys, the four routes, orphan sweep, and CI grep #11 | A **browser** presign/PUT/CORS round-trip on the preview, the `curl -I /f/{id}` header check, production S3 credentials, and an R2 lifecycle rule on the `staging/` prefix |
+| M07 | PRs #15 + #17 — policy table, staging→published keys, the four routes, orphan sweep, and CI grep #11; **the browser presign/PUT/CORS round-trip and the `curl -I /f/{id}` header check both proven deployed at rev. 13** (§3 closure table) | Production S3 credentials, and an R2 lifecycle rule on the `staging/` prefix |
 | M34 | PR #16 — dispatcher, templates, renderer, Resend integration, comms seed; **Gmail delivery through a deployed dispatch proven at rev. 7** (§2a) | The Outlook probe, calendar-invite delivery, DMARC confirmation, and a production sending key |
 | M05a | PR #24 — the core primitives and the kitchen sink | Six list surfaces actually consuming `<DataTable>`; the `(admin)` route group, deliberately unclaimed |
 | M09 | PR #20 — orchestrator, ids, stubs, target verification | A run against a real database, then the eight per-feature bodies, which belong to their own lanes |
@@ -441,7 +575,7 @@ evidence, not merges.
 
 | Modules | Evidence on `main` | Missing before `DONE` |
 |---|---|---|
-| M01 | App scaffold, health route, pinned Next/OpenNext, validation CI; **preview is live** at `https://sb-web-preview.yi-ding.workers.dev` (deployed version `5e809b64`, 1679 KiB gzip — earlier snapshots measured 1206.45 KiB; use §2a's figure as current). Resend probe and revalidate-60 **proven at rev. 7** (§4 CP0) | Browser R2 presign/CORS, a deployed application-throttle proof, and a green `Deploy` workflow run from `main` |
+| M01 | App scaffold, health route, pinned Next/OpenNext, validation CI; **preview is live** at `https://sb-web-preview.yi-ding.workers.dev`. **Current deployed version (rev. 13): `3f42f894`** (code = merge `7b9cf3a`; size not re-measured post-deploy — see §2h for the working-tree `worker:size` gate state, 3085.96 KiB dry-run, red pending the in-tree fix). *(Historical: `5e809b64` at rev. 7/9, 1679 KiB gzip; `b1fdc14a` at rev. 11, 2299 KiB gzip.)* Resend probe and revalidate-60 **proven at rev. 7** (§4 CP0) | A green `Deploy` workflow run from `main` (Browser R2 presign/CORS and the deployed application-throttle proof are **done** — §1 R1 items 3–4, `DECISIONS.md` "Deployed auth-throttle proof") |
 | M05a | Demo admin shell, event resolution, accessible controls, stub routes; the core primitives and kitchen sink landed in #24 | Six list surfaces actually consuming `<DataTable>`; the `(admin)` route group, deliberately unclaimed because those route files belong to six lanes |
 | M08 | Secret-guarded job routes, trigger worker, canonical config; **a preview jobs tick reached the web Worker and returned `{ ok: true, stats: { noop: 1 } }` in 1 ms CPU** | Production `CRON_SECRET` on both Workers, tail evidence, and AC-gated stub swaps |
 | M09 | Typed browser fixture seed; the orchestrator, ids, stubs and target verification landed in #20 | A run against a real database, the eight per-feature bodies, and judge credentials that exist |
@@ -466,14 +600,14 @@ PR #12 used M06b's documented contingency and created `src/features/portal/serve
 
 | Checkpoint | Status | Evidence |
 |---|---|---|
-| CP0 — deployed skeleton and existential spikes | **GREEN except the R2 browser probe and auth-throttle proof** | Preview URL live; real Neon round-trip; bundle inside the Free budget; jobs tick; embed `frame-ancestors` proven by curl; **edge cacheability proven** (`s-maxage`, `x-nextjs-cache: HIT`); **the delta #17 header gate passed at rev. 9** — `dmarc=pass` with aligned SPF/DKIM identities on a Gmail delivery (`DECISIONS.md`, Sun Aug 9). Missing: a browser R2 presign/CORS upload and a deployed application auth-throttle proof |
-| CP1 — contracts/schema/foundation freeze | **NEARLY GREEN** | Contracts merged; the stack merged; migrations applied to `sb-dev` and `sb-test` **from the repo's own SQL**; seed loads; **admin login works on the deployed preview**; the six-spec Playwright skeleton runs; **the freeze declaration is now recorded in `DECISIONS.md`** (rev. 8). Missing: `sb-prod` and a green `Deploy` workflow run |
+| CP0 — deployed skeleton and existential spikes | **GREEN, rev. 13** | Preview URL live; real Neon round-trip; bundle inside the Free budget (though `worker:size` on the merged tree needs §2h's fix to stay that way); jobs tick; embed `frame-ancestors` proven by curl; **edge cacheability proven** (`s-maxage`, `x-nextjs-cache: HIT`); **the delta #17 header gate passed at rev. 9** — `dmarc=pass` with aligned SPF/DKIM identities on a Gmail delivery (`DECISIONS.md`, Sun Aug 9). **Both remaining items closed at rev. 13**: a browser R2 presign/CORS upload (`docs/evidence/rev13-deployed-run.md` §6, via `portal-tasks.spec.ts`) and a deployed application auth-throttle proof (§3b of the same file; `DECISIONS.md` "Deployed auth-throttle proof") |
+| CP1 — contracts/schema/foundation freeze | **NEARLY GREEN** | Contracts merged; the stack merged; migrations applied to `sb-dev` and `sb-test` **from the repo's own SQL**; seed loads; **admin login works on the deployed preview**; the six-spec Playwright skeleton ran at CP1 exit (nine full specs exist now — §1's "six specs" correction in §6); **the freeze declaration is now recorded in `DECISIONS.md`** (rev. 8). Missing: `sb-prod` and a green `Deploy` workflow run |
 | **Sat thin slice — CFP to Abstracts** | **GREEN on the server path** | A deployed submit stored a submission with routing applied and delivered its confirmation email. The Abstracts *table* reads the database; its drawer and bulk actions do not yet |
-| CP2 — golden spine | **PARTIAL — every server/UI half is now merged; what is missing is deployed proof** | Green: real OTP, submit, one **delivered** email, public schedule and gallery. Merged since rev. 8: the accept/notify server half (#57), the decision UI (#61 bar, #79/#84 drawer), the review server and UI (M19, #78–#85), and the portal task runtime (M25, #88). The **50-concurrent load run is done** (#73/#75): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md`. Missing: the deployed accept→notify→email round-trip, a deployed reviewer scoring pass, a deployed portal task completion, and the golden-path Playwright spec — the redeploy that blocked them is **done** (version `1da1951d` from `673eac6`, smoke green with zero skips) |
-| CP3 — full judged feature surface | **NOT ATTEMPTED** | Deployed portal upload/task, scheduling/conflict, embed, ICS lifecycle, reminder scan, tracking dashboard |
-| CP4 — feature freeze/release proof | **NOT ATTEMPTED** | Six e2e specs, load/perf record, post-deploy smoke on production, security review, docs/spend and submission checklist |
+| CP2 — golden spine | **GREEN on deployed evidence, rev. 13** | Green: real OTP, submit, one **delivered** email, public schedule and gallery. Merged since rev. 8: the accept/notify server half (#57), the decision UI (#61 bar, #79/#84 drawer), the review server and UI (M19, #78–#85), and the portal task runtime (M25, #88). The **50-concurrent load run is done** (#73/#75): 50/50 `200 ok`, p95 27703 ms, zero duplicate codes, recorded in `DECISIONS.md`. **Closed at rev. 13** (`docs/evidence/rev13-deployed-run.md`): the deployed accept→notify→email round-trip (§5, one `submission_accepted` row, real Resend id, idempotent second press), a deployed reviewer scoring pass (§7, 3/3 agreement with the hand-computed average), and a deployed portal task completion (§6, browser presign→PUT→finalize through `portal-tasks.spec.ts` in both full suite runs). Missing: a single combined judge-script cold run (R4 exit item) — the current baseline is version `3f42f894` from merge `7b9cf3a`, smoke green *(historical: version `1da1951d` from `673eac6` at rev. 9/10)* |
+| CP3 — full judged feature surface | **PARTIAL, rev. 13** | **Proven deployed:** portal upload/task (evidence §6), embed framing/cacheability/parity across all five public widgets (evidence §1e, four green describe blocks), and assisted scheduling with conflict detection (M54's auto-place, evidence §1f, deterministic preview + one applied `moveSession` row + a useful blacked-out-speaker reason, surviving reload). **Not attempted:** manual drag-and-drop placement's own deployed pass (M30, subordinate per §6), ICS invite dispatch/cancellation-replay lifecycle beyond the itinerary's selected-session export, reminder scan (M36), and the tracking dashboard's judged count-change proof (M38) |
+| CP4 — feature freeze/release proof | **PARTIAL, rev. 13** | **Nine** e2e specs exist (not six — every doc naming "six specs" is corrected in this revision) and six of the nine ran clean on the deployed preview in the rev. 13 run; M50/M51/M52 remain unverified (Findings 1 and 4, `needs_owner` item 4 in the evidence file) rather than red-for-cause. The 50-concurrent load/perf record is done (`DECISIONS.md`). **Not attempted:** post-deploy smoke *on production* (only the preview has been exercised), a security review, `docs/spend/`, and the submission checklist's production-only items |
 
-A daily claim may now say **end to end on the deployed preview** for the CFP submit path and for email delivery. It may not yet say it for review, decisions, portal tasks, or scheduling.
+A daily claim may now say **end to end on the deployed preview** for the CFP submit path, email delivery, review scoring, accept→notify→email, portal task completion, browser R2 upload, all five public widgets/embeds, and assisted agenda placement. It may not yet say it for review-reminder dispatch (Finding 1), the M51/M52 deployed reruns, or anything production.
 
 ## 5. Recovery gates
 

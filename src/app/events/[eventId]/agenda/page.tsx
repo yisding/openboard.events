@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { detectConflicts, getSchedulableSessions, listAgendaVocabulary, listSessions } from "@/features/agenda";
 import { AgendaPage } from "@/features/agenda/index.client";
+import { getAnnounceBundle } from "@/features/agenda/server/announce";
 import { parseDay, parseView } from "@/features/agenda/store";
 import { requireAdmin } from "@/features/auth";
 // M18 owns every read of `submissions`; the tray only filters on `alreadyPromoted`.
@@ -41,13 +42,16 @@ export default async function Page({
   `)).rows?.[0];
   if (!event) notFound();
 
-  const [sessions, schedulable, vocabulary, accepted] = await Promise.all([
+  const [sessions, schedulable, vocabulary, accepted, announceBundle] = await Promise.all([
     listSessions(eventId),
     // Day-scoped when a tab is selected, so a large conference does not compute
     // the whole conference's conflicts to paint one day.
     getSchedulableSessions(eventId, day),
     listAgendaVocabulary(eventId),
     getAcceptedForScheduling(eventId),
+    // M60 — the "ready to announce" trigger; cheap to compute even when
+    // nothing is published yet (it just reports `hasPublishedSchedule: false`).
+    getAnnounceBundle(eventId),
   ]);
 
   return (
@@ -68,6 +72,7 @@ export default async function Page({
       formats={vocabulary.formats}
       speakers={vocabulary.speakers}
       accepted={accepted}
+      announceBundle={announceBundle}
     />
   );
 }

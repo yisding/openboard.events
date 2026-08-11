@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { contacts, sessionFormats, submissionParticipants, submissions, tracks } from "@/db/schema";
+import { contacts, forms, sessionFormats, submissionParticipants, submissions, tracks } from "@/db/schema";
 import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type SubmissionStatus } from "@/shared/contracts";
 
 /**
@@ -43,6 +43,8 @@ export type PortalSubmissionRow = {
   trackColor: string | null;
   submittedAt: string | null;
   updatedAt: string;
+  /** M59 — the draft-resume banner's countdown target; null once the form has no deadline. */
+  formClosesAt: string | null;
 };
 
 export type PortalParticipant = {
@@ -80,6 +82,7 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
       formatName: sessionFormats.name,
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
+      formClosesAt: forms.closesAt,
     })
     .from(submissions)
     .innerJoin(
@@ -91,6 +94,7 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
     )
     .leftJoin(tracks, eq(tracks.id, submissions.trackId))
     .leftJoin(sessionFormats, eq(sessionFormats.id, submissions.formatId))
+    .leftJoin(forms, eq(forms.id, submissions.formId))
     .where(and(eq(submissions.eventId, eventId), eq(submissionParticipants.contactId, contactId)))
     // Submitted first and newest first; drafts have no submitted_at and belong at
     // the end, not ahead of real submissions because they were touched recently.
@@ -108,6 +112,7 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
     formatName: row.formatName,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
+    formClosesAt: row.formClosesAt ? row.formClosesAt.toISOString() : null,
   }));
 }
 
@@ -136,6 +141,7 @@ export async function getMySubmissionIn(
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
       descriptionHtml: submissions.descriptionHtml,
+      formClosesAt: forms.closesAt,
     })
     .from(submissions)
     .innerJoin(
@@ -147,6 +153,7 @@ export async function getMySubmissionIn(
     )
     .leftJoin(tracks, eq(tracks.id, submissions.trackId))
     .leftJoin(sessionFormats, eq(sessionFormats.id, submissions.formatId))
+    .leftJoin(forms, eq(forms.id, submissions.formId))
     .where(and(
       eq(submissions.eventId, eventId),
       eq(submissions.id, submissionId),
@@ -183,6 +190,7 @@ export async function getMySubmissionIn(
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     descriptionHtml: row.descriptionHtml,
+    formClosesAt: row.formClosesAt ? row.formClosesAt.toISOString() : null,
     participants: participants.map((participant) => ({
       contactId: participant.contactId,
       name: displayName(participant.firstName, participant.lastName, participant.email),
