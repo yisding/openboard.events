@@ -22,8 +22,9 @@ criterion has been demonstrated against a deployed environment**, and the ledger
 [`plan/status.md`](plan/status.md) is the source of truth — read it before trusting a claim below.
 
 **What is proven against the deployed preview:** a real Neon-backed health check; admin sign-in
-through Better Auth with server-side session revocation (Google OAuth is wired and verified to
-the consent screen; the interactive login itself is a demo-time step); portal OTP login; a CFP submission stored with routing applied; email delivered to a
+through Better Auth with server-side session revocation (Google OAuth is wired and its
+callback is accepted by Google — verified to the sign-in redirect, per the evidence file §11.1;
+the interactive login itself is a demo-time step); portal OTP login; a CFP submission stored with routing applied; email delivered to a
 real Gmail inbox from a verified sending domain (SPF/DKIM/DMARC aligned); accept → notify → a real
 Resend send; reviewer scoring with a rating that matches a hand-computed average; a browser-driven
 R2 file upload (presign → PUT → finalize); all five public/embed surfaces (sessions, agenda,

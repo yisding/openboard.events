@@ -916,3 +916,37 @@ The one line left from that item — "a real Google login remains a human step" 
 now joined by a narrower prerequisite: **add
 `https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google` to the Google OAuth client's
 Authorised redirect URIs** before that human step is even attemptable.
+
+
+## 11. Post-recording updates (2026-08-11, main session)
+
+### 11.1 Google redirect URI accepted (supersedes the §10.6 boundary)
+
+After §10.6 recorded `Error 400: redirect_uri_mismatch`, the owner added
+`https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google` to the OAuth client's
+authorized redirect URIs. Re-probe (2026-08-11, main session):
+
+    curl -s -o /dev/null -w "%{http_code}" "https://accounts.google.com/o/oauth2/v2/auth?client_id=<GOOGLE_CLIENT_ID>&redirect_uri=https%3A%2F%2Fsb-web-preview.yi-ding.workers.dev%2Fapi%2Fauth%2Fcallback%2Fgoogle&response_type=code&scope=openid%20email%20profile"
+    -> HTTP 302 (into the Google sign-in flow); response contains no redirect_uri_mismatch / invalid_client marker
+
+Google now accepts the client_id + redirect_uri pair and serves the sign-in flow. The remaining
+step — a human completing the interactive Google login through to the app callback — is
+demo-time material, not an automatable probe.
+
+### 11.2 Production provisioning (post-rev. 12; the ledger's rev. 13 pass will absorb this)
+
+Executed from the main session on 2026-08-10/11, superseding the ledger's "sb-prod pending" state:
+
+- `sb-prod` migrated through the full journal via `pnpm db:migrate` (drizzle bookkeeping shows
+  17 of 17 entries; 80 tables; the 0010 default organization backfill present).
+- `sb-web` (production) deployed; `sb-jobs` (production) deployed as version `071b989e`.
+- Six production secrets installed on `sb-web`: fresh `SESSION_SECRET` and `CRON_SECRET`
+  (generated, never reused from preview; the same `CRON_SECRET` installed on `sb-jobs`),
+  pooled `sb-prod` `DATABASE_URL`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+- First smoke found two deploy-blocking defects, both fixed on `main`: Cloudflare error 1042 on
+  every route (`global_fetch_strictly_public` added to the production env, commit `47f9580`) and
+  a /bin/sh syntax error from `EMAIL_FROM`'s angle brackets passing through opennextjs-cloudflare's
+  shell-concatenated wrangler spawn (`EMAIL_FROM` moved to config vars, commit `d13c6a7`).
+- The production redeploy carrying both fixes — and therefore the first healthy production
+  smoke (`post-deploy-smoke.sh --production`, which also asserts `/api/test/login` is absent;
+  that check already passed on the first attempt) — is still pending.
