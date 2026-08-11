@@ -31,6 +31,7 @@ import {
 import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
 
 type CreateFormInput = {
+  id?: FormId | undefined;
   internalName: string;
   kind: "abstract" | "session";
   collectParticipants: boolean;
@@ -212,12 +213,12 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
   // leaving a half-created form when the caller supplies a foreign event id.
   if (!eventRows[0]) throw new AppError("NOT_FOUND", "Event not found");
 
-  const formId = formIdSchema.parse(crypto.randomUUID());
+  const formId = input.id ?? formIdSchema.parse(crypto.randomUUID());
   const rows: FormAuthoringRows = context === "cfp" ? cfpAuthoringRows(formId, trackRows, formatRows, tagRows) : portalAuthoringRows(formId);
   const snapshot = compileFormSnapshot(rows);
   const now = new Date();
   const internalName = input.internalName.trim();
-  await dbOrTx.insert(forms).values({
+  const [inserted] = await dbOrTx.insert(forms).values({
     id: formId,
     eventId,
     context,
@@ -237,7 +238,11 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     ],
     createdAt: now,
     updatedAt: now,
-  });
+  }).onConflictDoNothing({ target: forms.id }).returning();
+  // A stable create id is the operation's idempotency key. If this row already
+  // exists for the event, the original create committed and only its response
+  // was lost; never append a second set of sections/fields/versions.
+  if (!inserted) return getFormForBuilderIn(dbOrTx, eventId, formId, context);
   await dbOrTx.insert(formSections).values(rows.sections.map((section) => ({ ...section, eventId, formId, descriptionHtml: section.descriptionHtml })));
   if (rows.fields.length > 0) {
     await dbOrTx.insert(formFields).values(rows.fields.map((field) => ({

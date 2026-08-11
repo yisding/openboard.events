@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eventIdSchema } from "@/shared/contracts";
 import { db } from "@/db/client";
 import { listFileRequestsIn, tasksAdminAuth } from "@/features/portal/tasks-admin/server/queries";
-import { saveFileRequestIn, saveFileRequestInputSchema } from "@/features/portal/tasks-admin/server/mutations";
+import { createFileRequestIn, saveFileRequestInputSchema } from "@/features/portal/tasks-admin/server/mutations";
 import { defineHandler } from "@/shared/server/handler";
 
 const list = defineHandler({
@@ -15,7 +15,7 @@ const list = defineHandler({
 const create = defineHandler({
   auth: tasksAdminAuth({ role: "organizer" }),
   input: saveFileRequestInputSchema,
-  handler: async ({ eventId, input }) => saveFileRequestIn(db, eventIdSchema.parse(eventId), input),
+  handler: async ({ eventId, input }) => createFileRequestIn(db, eventIdSchema.parse(eventId), input),
 });
 
 export function GET(request: NextRequest): Promise<Response> {

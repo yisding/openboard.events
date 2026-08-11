@@ -106,7 +106,7 @@ export function TaskList({
           <strong>{counts.done}/{counts.all}</strong>
           <span>tasks complete</span>
         </div>
-        <ProgressBar value={counts.all === 0 ? 100 : Math.round((counts.done / counts.all) * 100)} tone="green" />
+        <ProgressBar label="Task completion" value={counts.all === 0 ? 100 : Math.round((counts.done / counts.all) * 100)} tone="green" />
       </div>
 
       <div className="abstract-status-tabs">

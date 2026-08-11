@@ -4,10 +4,12 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, submissionIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, fileRequestIdSchema, submissionIdSchema, taskIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { endOfDayInTz } from "@/shared/lib/time";
 import {
+  createFileRequestIn,
+  createTaskIn,
   deleteFileRequestIn,
   reopenCompletionIn,
   saveFileRequestIn,
@@ -108,6 +110,21 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     const matrixAfter = await getTaskCompletionMatrixIn(db, eventId, taskId);
     expect(matrixAfter).toHaveLength(3);
     expect(matrixAfter.some((row) => row.submissionId === lateTalk && row.contactId === lateContact)).toBe(true);
+  });
+
+  it("replays task and file-request collection creates by stable client id", async () => {
+    const stableTaskId = taskIdSchema.parse("d5000000-0000-4000-8000-000000000090");
+    const stableRequestId = fileRequestIdSchema.parse("d5000000-0000-4000-8000-000000000091");
+    const stableTask = taskInput({ id: stableTaskId, name: "Retry-safe task", targetType: "contact" });
+    const stableRequest = saveFileRequestInputSchema.parse({ id: stableRequestId, title: "Retry-safe files", targetType: "contact" });
+
+    await expect(createTaskIn(db, eventId, stableTask)).resolves.toMatchObject({ id: stableTaskId });
+    await expect(createTaskIn(db, eventId, stableTask)).resolves.toMatchObject({ id: stableTaskId });
+    await expect(createFileRequestIn(db, eventId, stableRequest)).resolves.toMatchObject({ id: stableRequestId });
+    await expect(createFileRequestIn(db, eventId, stableRequest)).resolves.toMatchObject({ id: stableRequestId });
+
+    expect(await count("portal_tasks", `id = '${stableTaskId}'`)).toBe(1);
+    expect(await count("file_requests", `id = '${stableRequestId}'`)).toBe(1);
   });
 
   it("reads counts from task_assignments_v, never re-derived", async () => {

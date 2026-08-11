@@ -5,6 +5,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { eventDayKey } from "@/shared/lib/time";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
 
@@ -93,12 +94,17 @@ export function TaskEditor({
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const editorRef = useRef<HTMLDivElement>(null);
+  const createRequestId = useRef(createStableCreateRequestId());
 
   useEffect(() => {
-    if (open) {
-      setDraft(draftFromTask(task, timezone));
-      setFieldErrors({});
+    if (!open) {
+      createRequestId.current.reset();
+      return;
     }
+    if (task) createRequestId.current.reset();
+    else createRequestId.current.begin();
+    setDraft(draftFromTask(task, timezone));
+    setFieldErrors({});
   }, [open, task, timezone]);
 
   useEffect(() => {
@@ -110,6 +116,11 @@ export function TaskEditor({
 
   function clearFieldError(field: string) {
     setFieldErrors((current) => withoutFieldError(current, field));
+  }
+
+  function closeEditor() {
+    createRequestId.current.reset();
+    onClose();
   }
 
   function setMode(mode: TaskDraft["completionMode"]) {
@@ -148,7 +159,7 @@ export function TaskEditor({
       const response = await fetch(draft.id ? `/api/internal/tasks/${draft.id}?eventId=${eventId}` : `/api/internal/tasks?eventId=${eventId}`, {
         method: draft.id ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(createRequestId.current.payload(draft.id, {
           name: draft.name,
           descriptionHtml: draft.descriptionHtml,
           targetType: draft.targetType,
@@ -157,7 +168,7 @@ export function TaskEditor({
           fileRequestId: draft.fileRequestId,
           dueAt: draft.dueAt,
           isActive: draft.isActive,
-        }),
+        })),
       });
       const payload = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
       const saved = taskDtoSchema.safeParse(payload?.data);
@@ -168,6 +179,7 @@ export function TaskEditor({
       }
       toast(draft.id ? "Task updated" : "Task created");
       await onSaved(saved.data);
+      createRequestId.current.reset();
     } catch {
       toast("That task could not be saved", { kind: "error" });
     } finally {
@@ -178,12 +190,12 @@ export function TaskEditor({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeEditor}
       title={draft.id ? "Edit task" : "Create a task"}
       description="Assign once to accepted speakers or per accepted submission."
       wide
       footer={<>
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
         <Button disabled={!draft.name.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create task"}</Button>
       </>}
     >

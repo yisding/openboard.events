@@ -46,7 +46,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
       toast("Session revoked");
     } catch (caught) {
       setSessions((current) => [...current, removed]);
-      toast(isAppError(caught) ? caught.message : "That revoke failed");
+      toast(isAppError(caught) ? caught.message : "That revoke failed", { kind: "error" });
     }
   }
 
@@ -58,7 +58,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
       setSessions([]);
       window.location.href = "/login";
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That did not complete");
+      toast(isAppError(caught) ? caught.message : "That did not complete", { kind: "error" });
     }
   }
 

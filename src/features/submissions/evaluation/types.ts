@@ -81,7 +81,10 @@ function refinePlan<Schema extends z.ZodType<{ scaleMin: number; scaleMax: numbe
 
 export const planInputSchema = refinePlan(planFields);
 export type PlanInput = z.infer<typeof planInputSchema>;
-export const planCreateInputSchema = refinePlan(planFields.omit({ planId: true }));
+// Creation requires the caller's stable id. Replaying a POST after an
+// ambiguous transport failure then targets the same upsert instead of creating
+// a second round (or colliding on its name).
+export const planCreateInputSchema = refinePlan(planFields.extend({ planId: planIdSchema }));
 export type PlanCreateInput = z.infer<typeof planCreateInputSchema>;
 export type CriterionInput = z.infer<typeof criterionInputSchema>;
 

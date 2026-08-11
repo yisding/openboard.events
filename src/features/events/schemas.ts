@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LIMITS, plainTextLength } from "@/shared/contracts";
+import { eventIdSchema, LIMITS, plainTextLength } from "@/shared/contracts";
 
 /**
  * Pure zod schemas + small constants for the events feature. This file has no
@@ -34,6 +34,9 @@ const themeText = z.string().trim().max(4000)
  * already-UTC instants and stores them.
  */
 export const createEventInputSchema = z.object({
+  // Callers that need retry-safe creation generate this once and replay it.
+  // Legacy callers may omit it and retain the server-generated id behavior.
+  id: eventIdSchema.optional(),
   name: z.string().trim().min(1, "Event name is required").max(200),
   slug: z.string().trim().max(200).optional(),
   eventType: z.enum(EVENT_TYPES).default("conference"),

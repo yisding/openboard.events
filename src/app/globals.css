@@ -1358,9 +1358,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .crm-merge-choice small{display:block;margin-bottom:4px}
 }
 
-@media(max-width:768px){
-  /* Preserve the useful recipient, subject, status, and action on phones. The
-     full template and timestamp remain available in the detail drawer. */
+@media(max-width:899px){
+  /* Preserve the useful recipient, subject, status, and action where the
+     desktop sidebar leaves too little room for the full table. The full
+     template and timestamp remain available in the detail drawer. */
   .comms-table{width:100%!important;table-layout:fixed}
   .comms-table th:nth-child(3),.comms-table td:nth-child(3),.comms-table th:nth-child(5),.comms-table td:nth-child(5){display:none}
   .comms-table th:first-child{width:38%}

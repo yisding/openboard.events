@@ -52,6 +52,28 @@ describe("OnboardingWizard event step accessibility", () => {
 });
 
 describe("onboarding form publication recovery", () => {
+  it("recovers a committed form create when the stable-id replay returns the original draft", async () => {
+    const draft = { id: "stable-form", status: "draft", updatedAt: "2026-08-11T00:00:00.000Z" };
+    let committed = false;
+    const create = vi.fn(async () => {
+      if (!committed) {
+        committed = true;
+        throw new Error("response lost");
+      }
+      return draft;
+    });
+    const onCreated = vi.fn();
+    const reconcile = vi.fn(async () => draft);
+
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onCreated }))
+      .rejects.toThrow("response lost");
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onCreated }))
+      .resolves.toEqual(draft);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(onCreated).toHaveBeenCalledOnce();
+    expect(onCreated).toHaveBeenCalledWith(draft);
+  });
+
   it("retains a created draft and retries only publication", async () => {
     const draft = { id: "form-1", status: "draft", updatedAt: "2026-08-11T00:00:00.000Z" };
     const open = { ...draft, status: "open", updatedAt: "2026-08-11T00:00:01.000Z" };

@@ -2,7 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PUBLISHED_SCHEDULE_FIXTURE } from "@/shared/fixtures/sessions";
-import { PublicItinerary } from "./public-itinerary";
+import { myScheduleEmptyCopy, PublicItinerary } from "./public-itinerary";
 
 Object.assign(globalThis, { React });
 
@@ -13,6 +13,17 @@ Object.assign(globalThis, { React });
 // toggle, the My Schedule filter and export affordances are present, and the
 // export starts disabled with nothing starred yet (pre-hydration state).
 describe("PublicItinerary", () => {
+  it("distinguishes no stars from stars hidden by embed filters", () => {
+    expect(myScheduleEmptyCopy(0)).toMatchObject({
+      title: "No starred sessions yet",
+      hiddenByEmbed: false,
+    });
+    expect(myScheduleEmptyCopy(2)).toMatchObject({
+      title: "Your starred sessions are outside this embed",
+      hiddenByEmbed: true,
+    });
+  });
+
   it("renders every published session with a star toggle and the My Schedule control", () => {
     const html = renderToStaticMarkup(React.createElement(PublicItinerary, {
       eventSlug: "openboard-summit",

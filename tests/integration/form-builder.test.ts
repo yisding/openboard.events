@@ -15,7 +15,7 @@ import {
   updateFormIn,
   updateSectionIn,
 } from "@/features/forms";
-import { eventIdSchema, formSnapshotSchema } from "@/shared/contracts";
+import { eventIdSchema, formIdSchema, formSnapshotSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -24,6 +24,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000001");
+const retryEventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000002");
 
 function required<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
@@ -43,6 +44,10 @@ describe("database-backed form builder", () => {
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Builder Conf','builder-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
       [eventId],
+    );
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Retry Builder Conf','retry-builder-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [retryEventId],
     );
     await pglite.query("INSERT INTO tracks(event_id,name,sort_order) VALUES($1,'AI Agents',0)", [eventId]);
     await pglite.query("INSERT INTO session_formats(event_id,name,sort_order) VALUES($1,'Workshop',0)", [eventId]);
@@ -65,6 +70,22 @@ describe("database-backed form builder", () => {
     const stored = await pglite.query<{ snapshot: unknown }>("SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1", [form.id]);
     expect(formSnapshotSchema.parse(stored.rows[0]?.snapshot).sections).toHaveLength(2);
     expect(await listFormsIn(database, eventId)).toMatchObject([{ id: form.id, submissionCount: 0, draftCount: 0, currentVersion: 1 }]);
+  });
+
+  it("replays a committed form create by stable client id without appending authoring rows", async () => {
+    const stableFormId = formIdSchema.parse("ad000000-0000-4000-8000-000000000090");
+    const input = { id: stableFormId, internalName: "Retry-safe CFP", kind: "abstract" as const, collectParticipants: true };
+
+    const first = await createFormIn(database, retryEventId, input);
+    const retry = await createFormIn(database, retryEventId, input);
+    expect(retry.id).toBe(first.id);
+
+    const forms = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM forms WHERE id=$1", [stableFormId]);
+    const sections = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM form_sections WHERE form_id=$1", [stableFormId]);
+    const versions = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM form_versions WHERE form_id=$1", [stableFormId]);
+    expect(forms.rows[0]?.n).toBe(1);
+    expect(sections.rows[0]?.n).toBe(2);
+    expect(versions.rows[0]?.n).toBe(1);
   });
 
   it("publishes one immutable version for every save and sanitizes organizer HTML", async () => {

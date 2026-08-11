@@ -4,6 +4,7 @@ import {
   CFP_PORTAL_REDIRECT_MS,
   cfpFlowSteps,
   cfpStepHeading,
+  focusCfpAccountControl,
   hasIncompleteParticipantEmail,
   participantEmail,
   participantFieldIds,
@@ -22,6 +23,17 @@ const fieldId = (key: string) => {
 };
 
 describe("CFP validation routing", () => {
+  it("moves focus into and back out of the verification-code substep", () => {
+    const focusEmail = vi.fn();
+    const focusCode = vi.fn();
+    focusCfpAccountControl(true, { focus: focusEmail }, { focus: focusCode });
+    expect(focusCode).toHaveBeenCalledOnce();
+    expect(focusEmail).not.toHaveBeenCalled();
+
+    focusCfpAccountControl(false, { focus: focusEmail }, { focus: focusCode });
+    expect(focusEmail).toHaveBeenCalledOnce();
+  });
+
   it("omits the speaker step when participant collection is disabled", () => {
     expect(cfpFlowSteps(false)).toEqual(["account", "submission", "review"]);
     expect(cfpFlowSteps(true)).toContain("speaker");

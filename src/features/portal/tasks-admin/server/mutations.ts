@@ -91,7 +91,12 @@ function toTaskDto(row: TaskRow): TaskDTO {
  * closed `APP_ERROR_CODES` enum has no `TASK_LOCKED`, and this is the same
  * "structure frozen by existing responses" meaning.
  */
-export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTaskInput): Promise<TaskDTO> {
+export async function saveTaskIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveTaskInput,
+  options: { createIfMissing?: boolean } = {},
+): Promise<TaskDTO> {
   const timezone = await getEventTimezoneIn(dbOrTx, eventId);
   const formId = input.formId ?? null;
   const fileRequestId = input.fileRequestId ?? null;
@@ -103,12 +108,12 @@ export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTa
       formId: portalTasks.formId,
       fileRequestId: portalTasks.fileRequestId,
     }).from(portalTasks).where(and(eq(portalTasks.id, input.id), eq(portalTasks.eventId, eventId))).limit(1);
-    if (!existing) throw new AppError("NOT_FOUND", "Task not found");
+    if (!existing && !options.createIfMissing) throw new AppError("NOT_FOUND", "Task not found");
 
-    const shapeChanged = existing.targetType !== input.targetType
+    const shapeChanged = existing !== undefined && (existing.targetType !== input.targetType
       || existing.completionMode !== input.completionMode
       || (existing.formId ?? null) !== formId
-      || (existing.fileRequestId ?? null) !== fileRequestId;
+      || (existing.fileRequestId ?? null) !== fileRequestId);
     if (shapeChanged) {
       const completions = await dbOrTx.execute<{ n: number }>(sql`
         SELECT count(*)::int AS n FROM task_completions WHERE task_id = ${input.id} AND event_id = ${eventId}
@@ -157,6 +162,12 @@ export async function saveTaskIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveTa
   if (!row) throw new AppError("INTERNAL", "The task could not be saved");
   return toTaskDto(row);
 }
+
+/** POST/create variant: a supplied id is an idempotency key and may insert on
+ * its first use. PATCH continues through `saveTaskIn` and never creates a
+ * missing path id. */
+export const createTaskIn = (dbOrTx: DbOrTx, eventId: EventId, input: SaveTaskInput): Promise<TaskDTO> =>
+  saveTaskIn(dbOrTx, eventId, input, { createIfMissing: true });
 
 export async function deleteTaskIn(dbOrTx: DbOrTx, eventId: EventId, taskId: TaskId): Promise<void> {
   const result = await dbOrTx.execute<{ id: string }>(sql`
@@ -216,7 +227,18 @@ function toFileRequestDto(row: FileRequestRow): FileRequestDTO {
   };
 }
 
-export async function saveFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, input: SaveFileRequestInput): Promise<FileRequestDTO> {
+export async function saveFileRequestIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveFileRequestInput,
+  options: { createIfMissing?: boolean } = {},
+): Promise<FileRequestDTO> {
+  if (input.id && !options.createIfMissing) {
+    const [existing] = await dbOrTx.select({ id: fileRequests.id }).from(fileRequests)
+      .where(and(eq(fileRequests.id, input.id), eq(fileRequests.eventId, eventId)))
+      .limit(1);
+    if (!existing) throw new AppError("NOT_FOUND", "File request not found");
+  }
   const instructionsHtml = sanitize(input.instructionsHtml ?? "");
   const extensions = [...new Set(input.acceptedExtensions.map((extension) => extension.replace(/^\./, "")))];
   const extensionsSql = sql`ARRAY[${sql.join(extensions.map((extension) => sql`${extension}`), sql`, `)}]::text[]`;
@@ -238,6 +260,10 @@ export async function saveFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, input:
   return toFileRequestDto(row);
 }
 
+/** Collection POST counterpart to `saveFileRequestIn`; see `createTaskIn`. */
+export const createFileRequestIn = (dbOrTx: DbOrTx, eventId: EventId, input: SaveFileRequestInput): Promise<FileRequestDTO> =>
+  saveFileRequestIn(dbOrTx, eventId, input, { createIfMissing: true });
+
 /**
  * RESTRICT is the backstop (`file_requests.id` is FK'd from `portal_tasks`
  * `ON DELETE RESTRICT`), but this precheck is what turns a constraint
@@ -258,8 +284,10 @@ export async function deleteFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, id: 
 }
 
 export const saveTask = (eventId: EventId, input: SaveTaskInput) => saveTaskIn(db, eventId, input);
+export const createTask = (eventId: EventId, input: SaveTaskInput) => createTaskIn(db, eventId, input);
 export const deleteTask = (eventId: EventId, taskId: TaskId) => deleteTaskIn(db, eventId, taskId);
 export const reopenCompletion = (eventId: EventId, taskId: TaskId, contactId: ContactId, submissionId: SubmissionId | null) =>
   reopenCompletionIn(db, eventId, taskId, contactId, submissionId);
 export const saveFileRequest = (eventId: EventId, input: SaveFileRequestInput) => saveFileRequestIn(db, eventId, input);
+export const createFileRequest = (eventId: EventId, input: SaveFileRequestInput) => createFileRequestIn(db, eventId, input);
 export const deleteFileRequest = (eventId: EventId, id: string) => deleteFileRequestIn(db, eventId, id);

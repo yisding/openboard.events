@@ -308,7 +308,7 @@ export function ReviewQueueView({
       <div className="evaluation-summary review-summary">
         <article className="review-progress-card">
           <div><span>Your progress</span><b>Finished {progress.scored} of {progress.total}</b></div>
-          <ProgressBar value={progress.total === 0 ? 0 : Math.round((progress.scored / progress.total) * 100)} />
+          <ProgressBar label="Your review progress" value={progress.total === 0 ? 0 : Math.round((progress.scored / progress.total) * 100)} />
         </article>
       </div>
 

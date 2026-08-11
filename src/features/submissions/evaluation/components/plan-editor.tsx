@@ -190,6 +190,7 @@ export function PlanEditor({
   const router = useRouter();
   const { toast } = useToast();
   const [draft, setDraft] = useState<PlanDraft>(plan ? draftFrom(plan) : emptyDraft(nextRound));
+  const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
   const [saving, setSaving] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
 
@@ -199,6 +200,7 @@ export function PlanEditor({
     setSaving(true);
     try {
       const body = {
+        ...(!plan ? { planId: createPlanId } : {}),
         name: draft.name,
         round: draft.round,
         scaleMin: draft.scaleMin,

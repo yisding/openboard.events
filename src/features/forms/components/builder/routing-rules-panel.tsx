@@ -145,7 +145,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
       setEditing(null);
       toast("Routing rule saved");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That routing rule did not save");
+      toast(isAppError(caught) ? caught.message : "That routing rule did not save", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -163,7 +163,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
       setRules((current) => current.map((candidate) => candidate.id === rule.id ? saved : candidate));
     } catch {
       setRules(previous);
-      toast("That change did not save");
+      toast("That change did not save", { kind: "error" });
     }
   }
 
@@ -177,7 +177,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
       toast("Routing rule deleted");
     } catch {
       setRules((current) => [...current, removed].sort((a, b) => a.sortOrder - b.sortOrder));
-      toast("That delete failed — the rule has been restored");
+      toast("That delete failed — the rule has been restored", { kind: "error" });
     }
   }
 
@@ -196,7 +196,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
       });
     } catch {
       setRules(rules);
-      toast("That reorder did not save — the previous order has been restored");
+      toast("That reorder did not save — the previous order has been restored", { kind: "error" });
     }
   }
 

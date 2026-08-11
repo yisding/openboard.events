@@ -69,6 +69,7 @@ export const saveResourcePageInputSchema = z.object({
 export type SaveResourcePageInput = z.infer<typeof saveResourcePageInputSchema>;
 /** Named to match the work order's Provides block; identical shape to `SaveResourcePageInput`. */
 export type ResourcePageInput = SaveResourcePageInput;
+export const createResourcePageRequestSchema = saveResourcePageInputSchema;
 
 /**
  * What the API routes actually accept: the save input plus R11's stale-write
@@ -80,6 +81,54 @@ export const saveResourcePageRequestSchema = saveResourcePageInputSchema.extend(
   expectedUpdatedAt: z.string().optional(),
 });
 export type SaveResourcePageRequest = z.infer<typeof saveResourcePageRequestSchema>;
+
+/** Collection-create semantics. When `id` is supplied it is a durable request
+ * key: the first POST inserts it, and every replay returns that same page
+ * without rewriting it. */
+export async function createResourcePageIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveResourcePageInput,
+): Promise<{ pageId: string }> {
+  if (input.id) {
+    const existing = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM resource_pages WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    const row = (existing.rows ?? [])[0];
+    if (row) return { pageId: row.id };
+  }
+
+  const slug = slugify((input.slug?.trim() || input.title));
+  assertValidSlug(slug);
+  const bodyHtml = sanitize(input.bodyHtml ?? "", { profile: "wide" });
+  const summary = excerptFromHtml(bodyHtml);
+  try {
+    const result = await dbOrTx.execute<{ id: string }>(sql`
+      INSERT INTO resource_pages (id, event_id, title, slug, summary, body_html, published, sort_order)
+      VALUES (
+        COALESCE(${input.id ?? null}::uuid, gen_random_uuid()), ${eventId}, ${input.title}, ${slug}, ${summary}, ${bodyHtml}, ${input.published},
+        COALESCE(${input.sortOrder ?? null}::int, (SELECT coalesce(max(sort_order) + 1, 0) FROM resource_pages WHERE event_id = ${eventId}))
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `);
+    const row = (result.rows ?? [])[0];
+    if (row) return { pageId: row.id };
+
+    // A concurrent replay may win after the pre-read but before the INSERT.
+    const recovered = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM resource_pages WHERE id = ${input.id ?? null}::uuid AND event_id = ${eventId}
+    `);
+    const recoveredRow = (recovered.rows ?? [])[0];
+    if (recoveredRow) return { pageId: recoveredRow.id };
+    throw new AppError("NOT_FOUND", "Resource page not found");
+  } catch (error) {
+    if (isConstraintViolation(error, RESOURCE_SLUG_UNIQUE)) {
+      throw new AppError("VALIDATION", "That URL is already used", { fieldErrors: { slug: "That URL is already used" } });
+    }
+    throw error;
+  }
+}
 
 /**
  * Create or update in one statement — not one of the eight audited `withTx`
@@ -100,44 +149,31 @@ export async function saveResourcePageIn(
   input: SaveResourcePageInput,
   expectedUpdatedAt?: string,
 ): Promise<{ pageId: string }> {
+  if (!input.id) return createResourcePageIn(dbOrTx, eventId, input);
   const slug = slugify((input.slug?.trim() || input.title));
   assertValidSlug(slug);
   const bodyHtml = sanitize(input.bodyHtml ?? "", { profile: "wide" });
   const summary = excerptFromHtml(bodyHtml);
 
   try {
-    if (input.id) {
-      const staleGuard = expectedUpdatedAt
-        ? sql`AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt}::timestamptz)`
-        : sql.empty();
-      const result = await dbOrTx.execute<{ id: string }>(sql`
-        UPDATE resource_pages
-        SET title = ${input.title}, slug = ${slug}, summary = ${summary}, body_html = ${bodyHtml},
-            published = ${input.published}, updated_at = now()
-        WHERE id = ${input.id} AND event_id = ${eventId} ${staleGuard}
-        RETURNING id
-      `);
-      const row = (result.rows ?? [])[0];
-      if (row) return { pageId: row.id };
-
-      const existing = await dbOrTx.execute<{ id: string }>(sql`
-        SELECT id FROM resource_pages WHERE id = ${input.id} AND event_id = ${eventId}
-      `);
-      if ((existing.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Resource page not found");
-      throw new AppError("STALE_WRITE", "This page changed since you opened it");
-    }
-
+    const staleGuard = expectedUpdatedAt
+      ? sql`AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt}::timestamptz)`
+      : sql.empty();
     const result = await dbOrTx.execute<{ id: string }>(sql`
-      INSERT INTO resource_pages (event_id, title, slug, summary, body_html, published, sort_order)
-      VALUES (
-        ${eventId}, ${input.title}, ${slug}, ${summary}, ${bodyHtml}, ${input.published},
-        COALESCE(${input.sortOrder ?? null}::int, (SELECT coalesce(max(sort_order) + 1, 0) FROM resource_pages WHERE event_id = ${eventId}))
-      )
+      UPDATE resource_pages
+      SET title = ${input.title}, slug = ${slug}, summary = ${summary}, body_html = ${bodyHtml},
+          published = ${input.published}, updated_at = now()
+      WHERE id = ${input.id} AND event_id = ${eventId} ${staleGuard}
       RETURNING id
     `);
     const row = (result.rows ?? [])[0];
-    if (!row) throw new AppError("INTERNAL", "The page could not be saved");
-    return { pageId: row.id };
+    if (row) return { pageId: row.id };
+
+    const existing = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM resource_pages WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    if ((existing.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Resource page not found");
+    throw new AppError("STALE_WRITE", "This page changed since you opened it");
   } catch (error) {
     if (isConstraintViolation(error, RESOURCE_SLUG_UNIQUE)) {
       throw new AppError("VALIDATION", "That URL is already used", { fieldErrors: { slug: "That URL is already used" } });
@@ -180,6 +216,8 @@ export const saveResourcePage = (
   input: SaveResourcePageInput,
   expectedUpdatedAt?: string,
 ): Promise<{ pageId: string }> => saveResourcePageIn(db, eventId, input, expectedUpdatedAt);
+export const createResourcePage = (eventId: EventId, input: SaveResourcePageInput): Promise<{ pageId: string }> =>
+  createResourcePageIn(db, eventId, input);
 export const deleteResourcePage = (eventId: EventId, pageId: string): Promise<void> => deleteResourcePageIn(db, eventId, pageId);
 export const reorderResourcePages = (eventId: EventId, orderedIds: string[]): Promise<void> =>
   reorderResourcePagesIn(db, eventId, orderedIds);

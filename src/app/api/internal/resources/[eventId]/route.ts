@@ -4,10 +4,10 @@ import { db } from "@/db/client";
 import { adminAuth } from "@/features/auth";
 import { listResourcePagesIn } from "@/features/portal/resources/server/queries";
 import {
+  createResourcePageIn,
+  createResourcePageRequestSchema,
   reorderResourcePagesIn,
   reorderResourcePagesInputSchema,
-  saveResourcePageIn,
-  saveResourcePageRequestSchema,
 } from "@/features/portal/resources/server/mutations";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -21,11 +21,8 @@ const list = defineHandler({
 
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: saveResourcePageRequestSchema,
-  handler: async ({ eventId, input }) => {
-    const { expectedUpdatedAt, ...pageInput } = input;
-    return saveResourcePageIn(db, eventIdSchema.parse(eventId), pageInput, expectedUpdatedAt);
-  },
+  input: createResourcePageRequestSchema,
+  handler: async ({ eventId, input }) => createResourcePageIn(db, eventIdSchema.parse(eventId), input),
 });
 
 /** PATCH on the collection = reorder — the whole list renumbered in one statement, never a per-row drag event. */

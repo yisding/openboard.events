@@ -61,4 +61,23 @@ describe("round and reviewer save recovery", () => {
     });
     expect(saveReviewers).not.toHaveBeenCalled();
   });
+
+  it("replays a stable-id plan create after its committed response is lost, then saves reviewers", async () => {
+    const stablePlanId = "b2000000-0000-4000-8000-000000000097";
+    let committed = false;
+    const savePlan = vi.fn(async () => {
+      if (!committed) {
+        committed = true;
+        return { ok: false as const, kind: "transport" as const, message: "That round did not save" };
+      }
+      return { ok: true as const, data: { planId: stablePlanId } };
+    });
+    const saveReviewers = vi.fn(async () => ({ ok: true as const, data: {} }));
+
+    await expect(completePlanAndReviewerSave(null, savePlan, saveReviewers)).resolves.toMatchObject({ ok: false, kind: "transport" });
+    await expect(completePlanAndReviewerSave(null, savePlan, saveReviewers)).resolves.toEqual({ ok: true, planId: stablePlanId });
+    expect(savePlan).toHaveBeenCalledTimes(2);
+    expect(saveReviewers).toHaveBeenCalledOnce();
+    expect(saveReviewers).toHaveBeenCalledWith(stablePlanId);
+  });
 });

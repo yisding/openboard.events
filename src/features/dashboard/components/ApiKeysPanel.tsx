@@ -51,7 +51,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
       setCreating(false);
       setLabel("");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That key did not create");
+      toast(isAppError(caught) ? caught.message : "That key did not create", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -67,7 +67,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
       toast(`${removed.name} revoked`);
     } catch {
       setKeys((current) => [removed, ...current]);
-      toast("That revoke failed — the key has been restored");
+      toast("That revoke failed — the key has been restored", { kind: "error" });
     }
   }
 
@@ -76,7 +76,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
       await navigator.clipboard.writeText(value);
       toast("Key copied");
     } catch {
-      toast("Could not copy — select and copy the key manually");
+      toast("Could not copy — select and copy the key manually", { kind: "error" });
     }
   }
 

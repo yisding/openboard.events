@@ -78,7 +78,7 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
                 </div>
                 <div className="admin-task-progress">
                   <div><b>{task.completed}/{task.assigned}</b><span>{progress}%</span></div>
-                  <ProgressBar value={progress} tone={progress > 75 ? "green" : "accent"} />
+                  <ProgressBar label={`Completion for ${task.title}`} value={progress} tone={progress > 75 ? "green" : "accent"} />
                 </div>
               </article>
             );

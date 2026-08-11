@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import { eventIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import {
+  createResourcePageIn,
   deleteResourcePageIn,
   reorderResourcePagesIn,
   saveResourcePageIn,
@@ -59,6 +60,20 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     // The excerpt is computed off the sanitized body, so a stripped script's
     // text content never leaks into it either.
     expect(page?.summary).toBe("Welcome Check in at the Speaker Lounge.");
+  });
+
+  it("replays a collection create by stable client id without duplicating or rewriting it", async () => {
+    const stableId = "d6000000-0000-4000-8000-000000000090";
+    const input = pageInput({ id: stableId, title: "Retry-safe resource", slug: "retry-safe-resource" });
+
+    await expect(createResourcePageIn(db, eventId, input)).resolves.toEqual({ pageId: stableId });
+    await expect(createResourcePageIn(db, eventId, { ...input, title: "Changed retry body" })).resolves.toEqual({ pageId: stableId });
+
+    const rows = await pglite.query<{ n: number; title: string }>(
+      "SELECT count(*)::int AS n, min(title) AS title FROM resource_pages WHERE id=$1",
+      [stableId],
+    );
+    expect(rows.rows[0]).toMatchObject({ n: 1, title: "Retry-safe resource" });
   });
 
   it("slug uniqueness is scoped per event: the same slug is rejected within an event but allowed in another", async () => {

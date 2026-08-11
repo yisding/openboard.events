@@ -20,6 +20,7 @@ import {
 } from "@/features/submissions";
 import {
   eventIdSchema,
+  planIdSchema,
   submissionIdSchema,
   trackIdSchema,
   userIdSchema,
@@ -130,15 +131,27 @@ describe("evaluation plans and reviewer routing", () => {
     expect(active?.progress).toEqual({ scored: 0, total: 3 });
   });
 
-  it("does not accept a caller-supplied plan id when creating a round", () => {
+  it("requires and preserves a stable caller-supplied plan id when creating a round", () => {
+    const planId = "b2000000-0000-4000-8000-000000000099";
     const parsed = planCreateInputSchema.parse({
       name: "Round 1",
       scaleMin: 1,
       scaleMax: 5,
-      planId: "b2000000-0000-4000-8000-000000000099",
+      planId,
     });
 
-    expect(parsed).not.toHaveProperty("planId");
+    expect(parsed.planId).toBe(planId);
+  });
+
+  it("replays a committed create against the same stable id", async () => {
+    const stablePlanId = planIdSchema.parse("b2000000-0000-4000-8000-000000000098");
+    const input = planInput({ planId: stablePlanId, name: "Retry-safe round", round: 8 });
+
+    await expect(savePlanIn(db, eventId, input)).resolves.toEqual({ planId: stablePlanId });
+    await expect(savePlanIn(db, eventId, input)).resolves.toEqual({ planId: stablePlanId });
+
+    const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM evaluation_plans WHERE id=$1", [stablePlanId]);
+    expect(rows.rows[0]?.n).toBe(1);
   });
 
   it("prefers an open round, then the lowest, as the active one", async () => {

@@ -202,7 +202,7 @@ export function PlansView({
       cell: ({ row }) => (
         <div className="plan-progress">
           <span>{row.original.progress.scored}/{row.original.progress.total}</span>
-          <ProgressBar value={row.original.progress.total === 0 ? 0 : Math.round((row.original.progress.scored / row.original.progress.total) * 100)} />
+          <ProgressBar label={`Review progress for ${row.original.name}`} value={row.original.progress.total === 0 ? 0 : Math.round((row.original.progress.scored / row.original.progress.total) * 100)} />
         </div>
       ),
     },

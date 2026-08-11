@@ -121,6 +121,7 @@ export function OnboardingWizard({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [event, setEvent] = useState<EventDTO | null>(null);
+  const [eventCreateId] = useState(() => crypto.randomUUID());
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const previousStepRef = useRef(step);
@@ -144,6 +145,7 @@ export function OnboardingWizard({
   const [formLink, setFormLink] = useState("");
   const [published, setPublished] = useState(false);
   const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(null);
+  const [formCreateId] = useState(() => crypto.randomUUID());
 
   function fail(summary: string, fields: Record<string, string> = {}) {
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
@@ -179,7 +181,7 @@ export function OnboardingWizard({
     try {
       const created = await api(`organizations/${organizationId}/onboarding/event`, eventDtoSchema, {
         method: "POST",
-        body: { name: name.trim(), slug: slug.trim() || undefined, eventType, timezone, startsAt, endsAt },
+        body: { id: eventCreateId, name: name.trim(), slug: slug.trim() || undefined, eventType, timezone, startsAt, endsAt },
       });
       setEvent(created);
       toast(`${created.name} created`);
@@ -222,7 +224,7 @@ export function OnboardingWizard({
         create: () => requestData<BuilderFormLite>(`/api/internal/forms?eventId=${event.id}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
+          body: JSON.stringify({ id: formCreateId, internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
         }),
         reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
         publish: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
