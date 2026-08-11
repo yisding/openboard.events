@@ -25,7 +25,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
-import { restoreFailedVocabDeletion } from "./vocab-state";
+import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 type VocabSaveResult = { ok: boolean; item: VocabItem };
@@ -80,14 +80,16 @@ function hasDuration(item: VocabItem): item is SessionFormatDTO {
 }
 
 function Row({
-  item, reorderable, onSave, onDelete,
+  item, reorderable, reorderDisabled, deleteDisabled, onSave, onDelete,
 }: {
   item: VocabItem;
   reorderable: boolean;
+  reorderDisabled: boolean;
+  deleteDisabled: boolean;
   onSave: (patch: Record<string, unknown>) => Promise<VocabSaveResult>;
   onDelete: () => void;
 }) {
-  const sortable = useSortable({ id: item.id, disabled: !reorderable });
+  const sortable = useSortable({ id: item.id, disabled: !reorderable || reorderDisabled });
   const [name, setName] = useState(item.name);
   // On-palette jade, matching `CUSTOM_TRACK_COLOR` in the onboarding wizard.
   // The previous default was indigo (#6366f1), which is not in the palette at
@@ -101,7 +103,7 @@ function Row({
   return (
     <div ref={sortable.setNodeRef} style={style} className="vocab-row">
       {reorderable && (
-        <button type="button" className="icon-button" aria-label={`Reorder ${item.name}`} {...sortable.attributes} {...sortable.listeners}>
+        <button type="button" className="icon-button" aria-label={`Reorder ${item.name}`} disabled={reorderDisabled} {...sortable.attributes} {...sortable.listeners}>
           <GripVertical size={15} />
         </button>
       )}
@@ -170,7 +172,7 @@ function Row({
           }}
         />
       )}
-      <button type="button" aria-label={`Remove ${item.name}`} onClick={onDelete}>
+      <button type="button" aria-label={`Remove ${item.name}`} disabled={deleteDisabled} onClick={onDelete}>
         <Trash2 size={15} />
       </button>
     </div>
@@ -193,6 +195,9 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<VocabItem | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const reorderPending = useRef(false);
+  const reorderGeneration = useRef(0);
   const saveQueue = useRef(new KeyedSerialQueue());
   const persistedItems = useRef(new Map<string, VocabItem>(initialItems.map((item) => [item.id, item])));
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -210,7 +215,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       setNewName("");
       toast(`${copy.title.slice(0, -1)} added`);
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : `That ${copy.title.toLowerCase().slice(0, -1)} did not save`);
+      toast(caught instanceof Error ? caught.message : `That ${copy.title.toLowerCase().slice(0, -1)} did not save`, { kind: "error" });
     } finally {
       setAdding(false);
     }
@@ -228,14 +233,14 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         router.refresh();
         return { ok: true, item: saved };
       } catch (caught) {
-        toast(isAppError(caught) ? caught.message : "That change did not save");
+        toast(isAppError(caught) ? caught.message : "That change did not save", { kind: "error" });
         return { ok: false, item: persistedItems.current.get(itemId) ?? fallbackItem };
       }
     });
   }
 
   async function confirmDelete() {
-    if (!pendingDelete) return;
+    if (!pendingDelete || !canDeleteVocabItem(reorderPending.current)) return;
     const removed = pendingDelete;
     const originalIndex = items.findIndex((item) => item.id === removed.id);
     setItems((current) => current.filter((row) => row.id !== removed.id));
@@ -252,17 +257,23 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         originalIndex,
         persistedItems.current.get(removed.id),
       ));
-      toast("That delete failed — it has been restored");
+      toast("That delete failed — it has been restored", { kind: "error" });
     }
   }
 
   async function onDragEnd(event: DragEndEvent) {
+    if (reorderPending.current) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = items.findIndex((item) => item.id === active.id);
     const toIndex = items.findIndex((item) => item.id === over.id);
     if (fromIndex === -1 || toIndex === -1) return;
     const reordered = arrayMove(items, fromIndex, toIndex);
+    const previousOrder = items.map((item) => item.id);
+    const generation = reorderGeneration.current + 1;
+    reorderGeneration.current = generation;
+    reorderPending.current = true;
+    setReordering(true);
     setItems(reordered);
     try {
       await api(`events/${eventId}/vocab/${kind}/reorder`, reorderedSchema, {
@@ -270,8 +281,15 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         body: { orderedIds: reordered.map((item) => item.id) },
       });
     } catch {
-      setItems(items);
-      toast("That reorder did not save — the previous order has been restored");
+      if (reorderGeneration.current === generation) {
+        setItems((current) => restoreVocabOrder(current, previousOrder));
+      }
+      toast("That reorder did not save — the previous order has been restored", { kind: "error" });
+    } finally {
+      if (reorderGeneration.current === generation) {
+        reorderPending.current = false;
+        setReordering(false);
+      }
     }
   }
 
@@ -292,8 +310,12 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
                   key={item.id}
                   item={item}
                   reorderable={reorderable}
+                  reorderDisabled={reordering}
+                  deleteDisabled={!canDeleteVocabItem(reordering)}
                   onSave={(patch) => saveItem(item.id, patch, item)}
-                  onDelete={() => setPendingDelete(item)}
+                  onDelete={() => {
+                    if (canDeleteVocabItem(reorderPending.current)) setPendingDelete(item);
+                  }}
                 />
               ))}
             </div>

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { composeBulkSpeakerEmailInputSchema, contactIdSchema } from "@/shared/contracts";
 import {
+  acceptedBulkSendCount,
   bulkSendPreviewFingerprint,
+  bulkSendResultToastOptions,
   canSendBulkMessage,
   chunkContactIds,
   claimBulkSendAttempt,
@@ -80,11 +82,12 @@ describe("chunkContactIds (M46 — batching a resolved segment for compose's 200
 describe("mergeBulkSendResults", () => {
   it("sums queued/skipped and concatenates errors across batches, in batch order", () => {
     const merged = mergeBulkSendResults([
-      { queued: 180, skipped: 15, errors: [{ contactId: id(1), reason: "Not found in this event" }], preview: null },
-      { queued: 40, skipped: 5, errors: [{ contactId: id(2), reason: "Not found in this event" }], preview: null },
+      { queued: 180, alreadyQueued: 5, skipped: 15, errors: [{ contactId: id(1), reason: "Not found in this event" }], preview: null },
+      { queued: 40, alreadyQueued: 2, skipped: 5, errors: [{ contactId: id(2), reason: "Not found in this event" }], preview: null },
     ]);
     expect(merged).toEqual({
       queued: 220,
+      alreadyQueued: 7,
       skipped: 20,
       errors: [
         { contactId: id(1), reason: "Not found in this event" },
@@ -92,10 +95,17 @@ describe("mergeBulkSendResults", () => {
       ],
       preview: null,
     });
+    expect(acceptedBulkSendCount(merged)).toBe(227);
   });
 
   it("returns the zero identity for no batches", () => {
-    expect(mergeBulkSendResults([])).toEqual({ queued: 0, skipped: 0, errors: [], preview: null });
+    expect(mergeBulkSendResults([])).toEqual({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: null });
+  });
+
+  it("marks only wholly failed send results as errors", () => {
+    expect(bulkSendResultToastOptions({ queued: 0, alreadyQueued: 0, errors: ["failed"] })).toEqual({ kind: "error" });
+    expect(bulkSendResultToastOptions({ queued: 1, alreadyQueued: 0, errors: ["partial"] })).toBeUndefined();
+    expect(bulkSendResultToastOptions({ queued: 0, alreadyQueued: 0, errors: [] })).toBeUndefined();
   });
 });
 

@@ -3,6 +3,8 @@
 import { Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import {
+  acceptedBulkSendCount,
+  bulkSendResultToastOptions,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
   type BulkSendAttempt,
@@ -119,7 +121,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       setPreviewContactId(resolved.preview[0]?.contactId ?? "");
     } catch {
       if (resolveGeneration.current !== generation) return;
-      toast("Could not resolve this segment");
+      toast("Could not resolve this segment", { kind: "error" });
     }
   }
 
@@ -163,7 +165,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         attempt,
       });
     } catch {
-      toast("Could not render a preview");
+      toast("Could not render a preview", { kind: "error" });
     }
   }
 
@@ -188,10 +190,14 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       // A completed attempt needs a fresh preview (and therefore a fresh
       // send id) before the organizer can intentionally send it again.
       setPreview(null);
-      toast(`Queued ${sent.queued} · Skipped ${sent.skipped}${sent.errors.length > 0 ? ` · ${sent.errors.length} error(s)` : ""}`);
+      const accepted = acceptedBulkSendCount(sent);
+      toast(
+        `${accepted} accepted · ${sent.queued} newly queued${sent.alreadyQueued > 0 ? ` · ${sent.alreadyQueued} recovered from this attempt` : ""} · ${sent.skipped} skipped${sent.errors.length > 0 ? ` · ${sent.errors.length} error(s)` : ""}`,
+        bulkSendResultToastOptions(sent),
+      );
       return true;
     } catch {
-      toast("Could not send this message");
+      toast("Could not send this message", { kind: "error" });
       return false;
     }
   }
@@ -281,7 +287,8 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             <div>
               <span className="metric-icon accent"><Users size={18} /></span>
               <p>
-                <b>Queued {result.queued} · Skipped {result.skipped}</b>
+                <b>{acceptedBulkSendCount(result)} accepted · {result.skipped} skipped</b>
+                <small>{result.queued} newly queued{result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} already queued by this attempt` : ""}</small>
                 {result.errors.length > 0 && <small>{result.errors.length} recipient(s) could not be rendered — check the comms log for details.</small>}
               </p>
             </div>

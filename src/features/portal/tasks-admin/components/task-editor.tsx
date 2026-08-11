@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
 import { eventDayKey } from "@/shared/lib/time";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
 
@@ -20,6 +21,13 @@ export type TaskDraft = {
 };
 
 const COMPLETION_MODES = ["manual", "form", "file_request"] as const;
+
+export function withoutFieldError(errors: Record<string, string>, field: string): Record<string, string> {
+  if (!errors[field]) return errors;
+  const next = { ...errors };
+  delete next[field];
+  return next;
+}
 
 /**
  * `Field.hint` is `hint?: string` under `exactOptionalPropertyTypes` — the prop
@@ -78,7 +86,7 @@ export function TaskEditor({
   forms: FormOption[];
   fileRequests: FileRequestDTO[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved: TaskDTO) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [draft, setDraft] = useState<TaskDraft>(() => draftFromTask(task, timezone));
@@ -100,6 +108,10 @@ export function TaskEditor({
 
   const availableFileRequests = fileRequests.filter((request) => request.targetType === draft.targetType);
 
+  function clearFieldError(field: string) {
+    setFieldErrors((current) => withoutFieldError(current, field));
+  }
+
   function setMode(mode: TaskDraft["completionMode"]) {
     setDraft((current) => ({
       ...current,
@@ -107,6 +119,9 @@ export function TaskEditor({
       formId: mode === "form" ? current.formId : null,
       fileRequestId: mode === "file_request" ? current.fileRequestId : null,
     }));
+    clearFieldError("completionMode");
+    clearFieldError("formId");
+    clearFieldError("fileRequestId");
   }
 
   function onModeKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -144,14 +159,15 @@ export function TaskEditor({
           isActive: draft.isActive,
         }),
       });
-      const payload = await response.json().catch(() => null) as { error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
-      if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
+      const saved = taskDtoSchema.safeParse(payload?.data);
+      if (!response.ok || !saved.success) {
         setFieldErrors(payload?.error?.fieldErrors ?? {});
         toast(payload?.error?.message ?? "That task could not be saved", { kind: "error" });
         return;
       }
       toast(draft.id ? "Task updated" : "Task created");
-      onSaved();
+      await onSaved(saved.data);
     } catch {
       toast("That task could not be saved", { kind: "error" });
     } finally {
@@ -173,11 +189,11 @@ export function TaskEditor({
     >
       <div ref={editorRef} className="form-stack">
         <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
-          <input autoFocus aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Upload final slides" />
+          <input required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearFieldError("name"); }} placeholder="e.g. Upload final slides" />
         </Field>
 
         <Field label="Description" error={fieldErrors.descriptionHtml} errorId="task-description-error">
-          <RichTextEditor ariaInvalid={Boolean(fieldErrors.descriptionHtml)} {...(fieldErrors.descriptionHtml ? { ariaDescribedBy: "task-description-error" } : {})} value={draft.descriptionHtml} onChange={(html) => setDraft((current) => ({ ...current, descriptionHtml: html }))} placeholder="What should speakers do?" />
+          <RichTextEditor ariaLabel="Task description" ariaInvalid={Boolean(fieldErrors.descriptionHtml)} {...(fieldErrors.descriptionHtml ? { ariaDescribedBy: "task-description-error" } : {})} value={draft.descriptionHtml} onChange={(html) => { setDraft((current) => ({ ...current, descriptionHtml: html })); clearFieldError("descriptionHtml"); }} placeholder="What should speakers do?" />
         </Field>
 
         <div className="form-grid">
@@ -187,7 +203,7 @@ export function TaskEditor({
               aria-describedby={fieldErrors.targetType ? "task-target-error" : undefined}
               value={draft.targetType}
               disabled={locked}
-              onChange={(event) => setDraft((current) => ({ ...current, targetType: event.target.value as TaskDraft["targetType"], fileRequestId: null }))}
+              onChange={(event) => { setDraft((current) => ({ ...current, targetType: event.target.value as TaskDraft["targetType"], fileRequestId: null })); clearFieldError("targetType"); clearFieldError("fileRequestId"); }}
             >
               <option value="contact">Accepted speakers</option>
               <option value="submission">Accepted submissions</option>
@@ -199,7 +215,7 @@ export function TaskEditor({
               aria-invalid={Boolean(fieldErrors.dueAt) || undefined}
               aria-describedby={fieldErrors.dueAt ? "task-due-date-error" : undefined}
               value={draft.dueAt ?? ""}
-              onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value || null }))}
+              onChange={(event) => { setDraft((current) => ({ ...current, dueAt: event.target.value || null })); clearFieldError("dueAt"); }}
             />
           </Field>
         </div>
@@ -217,7 +233,7 @@ export function TaskEditor({
 
         {draft.completionMode === "form" && (
           <Field label="Form" required error={fieldErrors.formId} errorId="task-form-error" {...hintProp(forms.length === 0 ? "No portal forms yet — create one first." : undefined)}>
-            <select aria-invalid={Boolean(fieldErrors.formId) || undefined} aria-describedby={fieldErrors.formId ? "task-form-error" : undefined} disabled={locked} value={draft.formId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, formId: event.target.value || null }))}>
+            <select required aria-invalid={Boolean(fieldErrors.formId) || undefined} aria-describedby={fieldErrors.formId ? "task-form-error" : undefined} disabled={locked} value={draft.formId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, formId: event.target.value || null })); clearFieldError("formId"); }}>
               <option value="">Choose a form…</option>
               {forms.map((form) => <option key={form.id} value={form.id}>{form.internalName}</option>)}
             </select>
@@ -226,7 +242,7 @@ export function TaskEditor({
 
         {draft.completionMode === "file_request" && (
           <Field label="File request" required error={fieldErrors.fileRequestId} errorId="task-file-request-error" {...hintProp(availableFileRequests.length === 0 ? "No matching file requests yet — create one first." : undefined)}>
-            <select aria-invalid={Boolean(fieldErrors.fileRequestId) || undefined} aria-describedby={fieldErrors.fileRequestId ? "task-file-request-error" : undefined} disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, fileRequestId: event.target.value || null }))}>
+            <select required aria-invalid={Boolean(fieldErrors.fileRequestId) || undefined} aria-describedby={fieldErrors.fileRequestId ? "task-file-request-error" : undefined} disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, fileRequestId: event.target.value || null })); clearFieldError("fileRequestId"); }}>
               <option value="">Choose a file request…</option>
               {availableFileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
             </select>

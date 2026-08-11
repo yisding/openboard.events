@@ -33,7 +33,7 @@ export function SuccessPageCard({ form, onChange }: {
         />
       </div>
       <Field label="Customize the success page message:">
-        <RichTextEditor value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} />
+        <RichTextEditor ariaLabel="Success page message" value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} />
       </Field>
     </div>
   );

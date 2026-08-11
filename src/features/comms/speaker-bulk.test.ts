@@ -181,12 +181,22 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     };
 
     const first = await composeBulkSpeakerEmailIn(tx, eventId, input);
+    const idempotencyKey = `${eventId}:speaker_bulk:${ada}:${sendId}`;
+    // Model the ambiguous partial failure this retry path exists to heal: the
+    // durable message row committed, but its outbox/log row did not.
+    await pglite.query("DELETE FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey]);
+    const missingLog = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey],
+    );
+    expect(missingLog.rows[0]?.n).toBe(0);
+
     const retry = await composeBulkSpeakerEmailIn(tx, eventId, input);
 
     expect(first.queued).toBe(1);
+    expect(first.alreadyQueued).toBe(0);
     expect(retry.queued).toBe(0);
+    expect(retry.alreadyQueued).toBe(1);
 
-    const idempotencyKey = `${eventId}:speaker_bulk:${ada}:${sendId}`;
     const logs = await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey],
     );

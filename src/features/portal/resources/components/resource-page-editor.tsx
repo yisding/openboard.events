@@ -136,7 +136,7 @@ export function ResourcePageEditor({
     >
       <div className="form-stack">
         <Field label="Title" required {...hintProp(fieldErrors.title)}>
-          <input autoFocus value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
+          <input required value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
         </Field>
 
         <Field label="URL" {...hintProp(fieldErrors.slug ?? `…/resources/${draft.slug || "…"}`)}>
@@ -149,7 +149,7 @@ export function ResourcePageEditor({
             <button type="button" role="tab" aria-selected={mode === "source"} className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>HTML source</button>
           </div>
           {mode === "rich"
-            ? <RichTextEditor value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
+            ? <RichTextEditor ariaLabel="Resource page body" value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
             : (
               <textarea
                 className="html-source-editor"

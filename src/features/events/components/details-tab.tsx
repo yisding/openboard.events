@@ -8,8 +8,20 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { eventDtoSchema, LIMITS, plainTextLength, type EventDTO } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
+import { RESERVED_SLUGS } from "@/shared/lib/slug";
 import { EVENT_TYPES, type EventType } from "../schemas";
 import { BrandingPanel } from "./branding-panel";
+
+const EVENT_SLUG_PATTERN = /^[a-z0-9](-?[a-z0-9])*$/;
+
+export function eventSlugValidationError(value: string): string | null {
+  const candidate = value.trim();
+  if (!candidate) return "Event slug is required";
+  if (candidate.length > 200) return "Event slug must be 200 characters or fewer";
+  if (!EVENT_SLUG_PATTERN.test(candidate)) return "Slug must be lowercase letters, numbers and single hyphens";
+  if ((RESERVED_SLUGS as readonly string[]).includes(candidate)) return `“${candidate}” is a reserved word and cannot be used as a slug`;
+  return null;
+}
 
 function browserTimeZones(): string[] {
   try {
@@ -46,6 +58,8 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
 
   async function save() {
     if (!name.trim()) return setError("Event name is required");
+    const slugError = eventSlugValidationError(slug);
+    if (slugError) return setError(slugError);
     if (!startsAt || !endsAt) return setError("Starts At and Ends At are both required — clearing one is not a valid save");
     if (themeOverLimit) return setError(`Theme must be ${LIMITS.THEME} characters or fewer`);
     setSaving(true);
@@ -99,10 +113,10 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
       )}
       <div className="form-stack">
         <Field label="Event name" required>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <input required value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Event slug" required hint="Used in your public URLs: /submit/{slug}/… — renaming after a CFP link is shared means existing links 404">
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} />
+          <input required value={slug} onChange={(e) => setSlug(e.target.value)} />
         </Field>
         <div className="form-grid">
           <Field label="Event type">
@@ -111,7 +125,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
             </select>
           </Field>
           <Field label="Timezone" required>
-            <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            <select required value={timezone} onChange={(e) => setTimezone(e.target.value)}>
               {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
             </select>
           </Field>
@@ -126,10 +140,10 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
         </div>
         <div className="form-grid">
           <Field label="Starts At" required>
-            <DateTimePicker value={startsAt} onChange={setStartsAt} tz={timezone} clearable={false} />
+            <DateTimePicker required value={startsAt} onChange={setStartsAt} tz={timezone} clearable={false} />
           </Field>
           <Field label="Ends At" required>
-            <DateTimePicker value={endsAt} onChange={setEndsAt} tz={timezone} clearable={false} />
+            <DateTimePicker required value={endsAt} onChange={setEndsAt} tz={timezone} clearable={false} />
           </Field>
         </div>
         <Field label="Theme" hint={`${themeCount} / ${LIMITS.THEME}`}>

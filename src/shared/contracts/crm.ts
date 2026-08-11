@@ -347,6 +347,7 @@ export type ComposeCrmBulkEmailInput = z.infer<typeof composeCrmBulkEmailInputSc
 
 export const composeCrmBulkEmailResultSchema = z.object({
   queued: z.number().int(),
+  alreadyQueued: z.number().int(),
   skipped: z.number().int(),
   errors: z.array(z.object({ organizationContactId: organizationContactIdSchema, reason: z.string() })),
   preview: z.object({ recipientEmail: z.email(), recipientName: z.string(), subject: z.string(), bodyHtml: z.string() }).nullable(),

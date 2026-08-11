@@ -16,6 +16,18 @@ export type BulkSendAttempt = {
   storageKey: string;
 };
 
+export function acceptedBulkSendCount(result: { queued: number; alreadyQueued: number }): number {
+  return result.queued + result.alreadyQueued;
+}
+
+export function bulkSendResultToastOptions(result: {
+  queued: number;
+  alreadyQueued: number;
+  errors: readonly unknown[];
+}): { kind: "error" } | undefined {
+  return acceptedBulkSendCount(result) === 0 && result.errors.length > 0 ? { kind: "error" } : undefined;
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 /** A preview is approval for one exact audience/message combination. */
@@ -45,11 +57,12 @@ export function mergeBulkSendResults(results: readonly ComposeBulkSpeakerEmailRe
   return results.reduce<ComposeBulkSpeakerEmailResult>(
     (acc, result) => ({
       queued: acc.queued + result.queued,
+      alreadyQueued: acc.alreadyQueued + result.alreadyQueued,
       skipped: acc.skipped + result.skipped,
       errors: [...acc.errors, ...result.errors],
       preview: acc.preview ?? result.preview,
     }),
-    { queued: 0, skipped: 0, errors: [], preview: null },
+    { queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: null },
   );
 }
 

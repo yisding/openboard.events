@@ -7,6 +7,7 @@ import {
   deleteResourcePage,
   fetchResourcePages,
   persistResourcePageOrder,
+  restoreResourcePageOrder,
 } from "./resources/components/resource-pages-admin-view";
 
 function source(path: string): string {
@@ -82,10 +83,12 @@ describe("portal accessibility regressions", () => {
   });
 
   it("handles a non-OK refresh while recovering a failed reorder", async () => {
+    const rollback = vi.fn();
     const onError = vi.fn();
     const onRefreshError = vi.fn();
     const refreshRequest = vi.fn(async () => new Response(null, { status: 503 }));
     const effects = {
+      rollback,
       onError,
       refresh: async () => { await fetchResourcePages("event-1", refreshRequest); },
       onRefreshError,
@@ -93,9 +96,24 @@ describe("portal accessibility regressions", () => {
     const reorderRequest = vi.fn(async () => new Response(null, { status: 500 }));
 
     await expect(completeResourcePageReorder("event-1", ["page-2", "page-1"], effects, reorderRequest)).resolves.toBe(false);
+    expect(rollback).toHaveBeenCalledOnce();
+    expect(rollback.mock.invocationCallOrder[0]).toBeLessThan(refreshRequest.mock.invocationCallOrder[0] ?? Infinity);
     expect(onError).toHaveBeenCalledOnce();
     expect(refreshRequest).toHaveBeenCalledOnce();
     expect(onRefreshError).toHaveBeenCalledOnce();
+  });
+
+  it("restores resource order without discarding concurrent edits, additions, or deletions", () => {
+    const current = [
+      { id: "page-3", title: "Edited while reordering" },
+      { id: "page-1", title: "First" },
+      { id: "page-4", title: "Added while reordering" },
+    ];
+
+    const restored = restoreResourcePageOrder(current, ["page-1", "page-2", "page-3"]);
+
+    expect(restored).toEqual([current[1], current[0], current[2]]);
+    expect(restored[1]).toBe(current[0]);
   });
 
   it("focuses server-invalid task and submission fields and clears a corrected field error", () => {

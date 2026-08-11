@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { restoreFailedVocabDeletion, restoreVocabItemAtIndex } from "./vocab-state";
+import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabItemAtIndex, restoreVocabOrder } from "./vocab-state";
 
 describe("restoreVocabItemAtIndex", () => {
   it("puts a failed middle deletion back at its original position", () => {
@@ -23,5 +23,26 @@ describe("restoreVocabItemAtIndex", () => {
     const persisted = { id: "b", name: "Saved name" };
     expect(restoreFailedVocabDeletion([{ id: "a", name: "A" }], removed, 1, persisted))
       .toEqual([{ id: "a", name: "A" }, persisted]);
+  });
+});
+
+describe("restoreVocabOrder", () => {
+  it("restores persisted order while preserving concurrent edits, additions, and deletions", () => {
+    expect(restoreVocabOrder([
+      { id: "c", name: "C edited" },
+      { id: "a", name: "A" },
+      { id: "d", name: "D added" },
+    ], ["a", "b", "c"])).toEqual([
+      { id: "a", name: "A" },
+      { id: "c", name: "C edited" },
+      { id: "d", name: "D added" },
+    ]);
+  });
+});
+
+describe("canDeleteVocabItem", () => {
+  it("blocks deletion while a reorder mutation is pending", () => {
+    expect(canDeleteVocabItem(true)).toBe(false);
+    expect(canDeleteVocabItem(false)).toBe(true);
   });
 });

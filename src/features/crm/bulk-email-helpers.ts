@@ -6,10 +6,11 @@ export function mergeCrmBulkEmailResults(results: readonly ComposeCrmBulkEmailRe
   return results.reduce<ComposeCrmBulkEmailResult>(
     (acc, result) => ({
       queued: acc.queued + result.queued,
+      alreadyQueued: acc.alreadyQueued + result.alreadyQueued,
       skipped: acc.skipped + result.skipped,
       errors: [...acc.errors, ...result.errors],
       preview: acc.preview ?? result.preview,
     }),
-    { queued: 0, skipped: 0, errors: [], preview: null },
+    { queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: null },
   );
 }

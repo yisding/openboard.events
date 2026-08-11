@@ -2,8 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { z } from "zod";
 import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
+
+const reviewerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
+
+export function normalizeReviewerEmail(value: string): string | null {
+  const parsed = reviewerEmailSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 /**
  * Adding a reviewer to the event.
@@ -20,26 +29,35 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [busy, setBusy] = useState(false);
+  const normalizedEmail = normalizeReviewerEmail(email);
 
   async function invite() {
+    const validEmail = normalizeReviewerEmail(email);
+    if (!validEmail) {
+      setEmailError("Enter a valid email address");
+      return;
+    }
+    setEmailError("");
     setBusy(true);
     try {
-      const response = await fetch(`/api/internal/evaluation/${eventId}/reviewers`, {
+      const result = await evaluationRequest<{ email: string; createdUser: boolean }>(`/api/internal/evaluation/${eventId}/reviewers`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, name, password, role: "reviewer" }),
-      });
-      const payload = await response.json().catch(() => null) as { data?: { email: string; createdUser: boolean }; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "That reviewer was not added");
+        body: JSON.stringify({ email: validEmail, name, password, role: "reviewer" }),
+      }, "That reviewer was not added");
+      if (!result.ok) {
+        toast(evaluationFailureMessage(result), { kind: "error" });
         return;
       }
-      toast(payload.data.createdUser
-        ? `${payload.data.email} can now sign in as a reviewer — send them the password you set`
-        : `${payload.data.email} already had an account and is now on this event`);
+      toast(result.data.createdUser
+        ? `${result.data.email} can now sign in as a reviewer — send them the password you set`
+        : `${result.data.email} already had an account and is now on this event`);
       onClose();
       router.refresh();
+    } catch {
+      toast("That reviewer was not added — check your connection and try again", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -48,14 +66,14 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   return (
     <Drawer open onClose={onClose} title="Invite a reviewer">
       <div className="form-stack">
-        <Field label="Email" required>
-          <input autoFocus type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="reviewer@example.com" />
+        <Field label="Email" required error={emailError} errorId="reviewer-email-error">
+          <input required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} placeholder="reviewer@example.com" />
         </Field>
         <Field label="Name">
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ada Lovelace" />
         </Field>
         <Field label="Initial password" required hint="At least 12 characters. Share it with them directly — it is never emailed.">
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
+          <input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
         </Field>
         <p className="portal-note">
           Reviewers get the lowest role on this event: their queue and the proposals assigned to them, and no organizer settings.
@@ -65,7 +83,7 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
 
       <div className="drawer-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={busy || email.trim() === "" || password.length < 12} onClick={invite}>
+        <Button disabled={busy || normalizedEmail === null || password.length < 12} onClick={invite}>
           {busy ? "Adding…" : "Add reviewer"}
         </Button>
       </div>

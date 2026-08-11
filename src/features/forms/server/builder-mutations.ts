@@ -13,6 +13,7 @@ import {
   type FormAuthoringRows,
   type FormContext,
   type FormId,
+  type MapsToTarget,
   type TaskTarget,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -41,7 +42,13 @@ type CreateFormInput = {
   context?: FormContext | undefined;
   targetType?: TaskTarget | null | undefined;
 };
-type CreateFieldInput = { sectionId: string; label: string; fieldType: (typeof COMMITTED_FIELD_TYPES)[number] };
+type CreateFieldInput = {
+  sectionId: string;
+  label: string;
+  fieldType: (typeof COMMITTED_FIELD_TYPES)[number];
+  mapsTo?: MapsToTarget | null | undefined;
+  optionLabels?: string[] | undefined;
+};
 
 function fieldKey(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "question";
@@ -361,6 +368,21 @@ export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     reviewVisibility: "identity",
     sortOrder: section.fields.length,
   };
+  const nextMapsTo = input.mapsTo ?? null;
+  assertUniqueMapsTo(fields, field.id, nextMapsTo);
+  assertMapsToMatchesTarget(form.targetType, nextMapsTo);
+  field.mapsTo = nextMapsTo;
+  if (["dropdown", "multiselect"].includes(field.fieldType)
+    && (input.optionLabels !== undefined || nextMapsTo === "submission.track_id" || nextMapsTo === "submission.format_id")) {
+    field.options = await reconcileOptions(
+      dbOrTx,
+      eventId,
+      field,
+      input.optionLabels ?? field.options.map((entry) => entry.label),
+      nextMapsTo,
+      field.fieldType,
+    );
+  }
   const hypothetical = { ...form, sections: form.sections.map((candidate) => candidate.id === section.id ? { ...candidate, fields: [...candidate.fields, field] } : candidate) };
   const snapshot = nextSnapshot(hypothetical);
   const now = new Date();

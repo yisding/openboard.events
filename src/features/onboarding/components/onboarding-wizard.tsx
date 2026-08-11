@@ -48,6 +48,40 @@ function browserTimeZones(): string[] {
 // reader rather than a schema, and this wizard follows that precedent
 // instead of inventing a client-side validator for a type it does not own.
 type BuilderFormLite = { id: string; status: string; updatedAt: string };
+
+export async function createOrPublishOnboardingForm(input: {
+  existing: BuilderFormLite | null;
+  publishNow: boolean;
+  create: () => Promise<BuilderFormLite>;
+  reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
+  publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
+  onCreated: (form: BuilderFormLite) => void;
+}): Promise<BuilderFormLite> {
+  let form = input.existing ?? await input.create();
+  if (!input.existing) input.onCreated(form);
+  // A previous PATCH may have committed even if its response was lost. Always
+  // reconcile an existing form before deciding whether to publish or continue
+  // as a draft, so neither path trusts a stale status/updatedAt pair.
+  else form = await input.reconcile(form);
+
+  if (!input.publishNow || form.status === "open") return form;
+  try {
+    return await input.publish(form);
+  } catch (publishError) {
+    // A transport failure cannot tell us whether the server committed. If the
+    // form is now open, treat the operation as successful; otherwise retain the
+    // original publication error. A failed GET remains retryable because the
+    // next attempt reconciles before issuing another PATCH.
+    try {
+      const current = await input.reconcile(form);
+      if (current.status === "open") return current;
+    } catch {
+      // Preserve the more useful mutation failure below.
+    }
+    throw publishError;
+  }
+}
+
 async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   const payload = await response.json() as { data?: T; error?: { message?: string } };
@@ -109,6 +143,7 @@ export function OnboardingWizard({
   const [creatingForm, setCreatingForm] = useState(false);
   const [formLink, setFormLink] = useState("");
   const [published, setPublished] = useState(false);
+  const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(null);
 
   function fail(summary: string, fields: Record<string, string> = {}) {
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
@@ -178,27 +213,38 @@ export function OnboardingWizard({
 
   async function createFormStep() {
     if (!event || creatingForm) return;
+    let hasCreatedForm = createdForm !== null;
     setCreatingForm(true);
     try {
-      const form = await requestData<BuilderFormLite>(`/api/internal/forms?eventId=${event.id}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
-      });
-      let finalForm = form;
-      if (publishNow) {
-        finalForm = await requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
+      const finalForm = await createOrPublishOnboardingForm({
+        existing: createdForm,
+        publishNow,
+        create: () => requestData<BuilderFormLite>(`/api/internal/forms?eventId=${event.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
+        }),
+        reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
+        publish: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ expectedUpdatedAt: form.updatedAt, patch: { status: "open" } }),
-        });
-      }
-      setPublished(publishNow);
+        }),
+        onCreated: (form) => {
+          hasCreatedForm = true;
+          setCreatedForm(form);
+        },
+      });
+      const isPublished = finalForm.status === "open";
+      setCreatedForm(finalForm);
+      setPublished(isPublished);
       setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
-      toast(publishNow ? "Your call for speakers is live" : "Form created as a draft");
+      toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
+      toast(hasCreatedForm
+        ? `The form is saved, but publication could not be confirmed: ${caught instanceof Error ? caught.message : "try again"}`
+        : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);
     }
@@ -292,14 +338,14 @@ export function OnboardingWizard({
         <div className="cfp-step form-stack">
           <p className="onboarding-lede">This creates a ready-to-use call for speakers form with the standard submission and participant questions — edit anything later in the form builder.</p>
           <Field label="Form name">
-            <input value={formName} onChange={(event) => setFormName(event.target.value)} />
+            <input value={formName} disabled={createdForm !== null} onChange={(event) => setFormName(event.target.value)} />
           </Field>
           <label className="onboarding-toggle">
             <input type="checkbox" checked={publishNow} onChange={(event) => setPublishNow(event.target.checked)} />
             Publish immediately so the link is shareable right away
           </label>
           <footer className="cfp-actions">
-            <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Creating…" : "Create form"} <ArrowRight size={16} /></Button>
+            <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}

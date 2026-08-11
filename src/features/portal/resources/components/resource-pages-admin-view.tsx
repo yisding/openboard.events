@@ -73,13 +73,17 @@ export async function completeResourcePageDelete(
 export async function completeResourcePageReorder(
   eventId: string,
   orderedIds: string[],
-  effects: { onError: () => void; refresh: () => Promise<void>; onRefreshError: () => void },
+  effects: { rollback: () => void; onError: () => void; refresh: () => Promise<void>; onRefreshError: () => void },
   request: Requester = fetch,
 ): Promise<boolean> {
   try {
     await persistResourcePageOrder(eventId, orderedIds, request);
     return true;
   } catch {
+    // The PATCH is authoritative. Restore the last known saved order before a
+    // best-effort GET so a second network failure cannot leave an unsaved order
+    // looking successful.
+    effects.rollback();
     effects.onError();
     try {
       await effects.refresh();
@@ -88,6 +92,20 @@ export async function completeResourcePageReorder(
     }
     return false;
   }
+}
+
+export function restoreResourcePageOrder<T extends { id: string }>(
+  current: readonly T[],
+  previousIds: readonly string[],
+): T[] {
+  const byId = new Map(current.map((page) => [page.id, page]));
+  const restored = previousIds.flatMap((id) => {
+    const page = byId.get(id);
+    if (!page) return [];
+    byId.delete(id);
+    return [page];
+  });
+  return [...restored, ...current.filter((page) => byId.has(page.id))];
 }
 
 /**
@@ -146,27 +164,21 @@ export function ResourcePagesAdminView({
     setEditingPage(null);
   }
 
-  // Reads and writes `pages` through the functional `setPages` updater rather
-  // than closing over the `pages` value, so this callback's identity does not
-  // have to change (and the `columns` memo below does not have to recompute)
-  // on every reorder — only on an `eventId`/`reordering`/`toast` change.
   const move = useCallback(async (index: number, delta: number) => {
     if (reordering) return;
-    let orderedIds: string[] | null = null;
-    setPages((current) => {
-      const nextIndex = index + delta;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-      const reordered = [...current];
-      const [item] = reordered.splice(index, 1);
-      if (!item) return current;
-      reordered.splice(nextIndex, 0, item);
-      orderedIds = reordered.map((page) => page.id);
-      return reordered;
-    });
-    if (!orderedIds) return;
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= pages.length) return;
+    const previousIds = pages.map((page) => page.id);
+    const reordered = [...pages];
+    const [item] = reordered.splice(index, 1);
+    if (!item) return;
+    reordered.splice(nextIndex, 0, item);
+    const orderedIds = reordered.map((page) => page.id);
+    setPages(reordered);
     setReordering(true);
     try {
       await completeResourcePageReorder(eventId, orderedIds, {
+        rollback: () => setPages((current) => restoreResourcePageOrder(current, previousIds)),
         onError: () => toast("Could not reorder pages", { kind: "error" }),
         refresh,
         onRefreshError: () => toast("Could not refresh pages after the failed reorder", { kind: "error" }),
@@ -174,7 +186,7 @@ export function ResourcePagesAdminView({
     } finally {
       setReordering(false);
     }
-  }, [eventId, reordering, toast, refresh]);
+  }, [eventId, pages, reordering, toast, refresh]);
 
   async function remove(page: ResourcePageRow): Promise<boolean> {
     return completeResourcePageDelete(eventId, page, {

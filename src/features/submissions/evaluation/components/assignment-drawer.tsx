@@ -6,6 +6,7 @@ import { formatCode } from "@/features/submissions/index.client";
 import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AssignableSubmission, PlanDTO } from "../types";
+import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
 /**
  * Handing work out.
@@ -68,19 +69,20 @@ export function AssignmentDrawer({
   async function assign() {
     setBusy(true);
     try {
-      const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
+      const result = await evaluationRequest<{ assigned: number; removed: number }>(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reviewerUserIds: reviewerIds, submissionIds: selected, mode }),
-      });
-      const payload = await response.json().catch(() => null) as { data?: { assigned: number; removed: number }; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Those assignments did not save");
+      }, "Those assignments did not save");
+      if (!result.ok) {
+        toast(evaluationFailureMessage(result), { kind: "error" });
         return;
       }
-      toast(`${payload.data.assigned} assigned${payload.data.removed > 0 ? `, ${payload.data.removed} taken back` : ""}`);
+      toast(`${result.data.assigned} assigned${result.data.removed > 0 ? `, ${result.data.removed} taken back` : ""}`);
       onClose();
       router.refresh();
+    } catch {
+      toast("Those assignments did not save — check your connection and try again", { kind: "error" });
     } finally {
       setBusy(false);
     }

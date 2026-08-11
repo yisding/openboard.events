@@ -30,6 +30,16 @@ function attribute(source: ts.SourceFile, node: Opening, name: string): ts.JsxAt
   return node.attributes.properties.find((property): property is ts.JsxAttribute => ts.isJsxAttribute(property) && property.name.getText(source) === name);
 }
 
+function expectPressedExpressions(source: ts.SourceFile, expressions: readonly string[]) {
+  const pressed = elements(source, "button").filter((node) => attribute(source, node, "aria-pressed"));
+  for (const expression of expressions) {
+    expect(
+      pressed.filter((node) => attribute(source, node, "aria-pressed")?.initializer?.getText(source) === `{${expression}}`),
+      `${source.fileName}: aria-pressed={${expression}}`,
+    ).toHaveLength(1);
+  }
+}
+
 describe("organizer navigation selected state", () => {
   it("parses named, pressed in-place settings, form, and task filter groups", () => {
     const settings = parse("./events/components/settings-shell.tsx");
@@ -38,17 +48,28 @@ describe("organizer navigation selected state", () => {
 
     const settingsNav = elements(settings, "nav").find((node) => attribute(settings, node, "className")?.getText(settings).includes("settings-nav"));
     expect(settingsNav && attribute(settings, settingsNav, "aria-label")).toBeDefined();
-    expect(elements(settings, "button").filter((node) => attribute(settings, node, "aria-pressed"))).toHaveLength(1);
+    expectPressedExpressions(settings, ["tab === id"]);
 
     const formGroup = elements(forms, "div").find((node) => attribute(forms, node, "aria-label")?.getText(forms).includes("Form filters"));
     expect(formGroup && attribute(forms, formGroup, "role")?.initializer?.getText(forms)).toBe('"group"');
-    // One mapped filter button syntax node renders four filters, alongside the
-    // two submission-kind buttons.
-    expect(elements(forms, "button").filter((node) => attribute(forms, node, "aria-pressed"))).toHaveLength(3);
+    expectPressedExpressions(forms, ["tab === value", 'kind === "abstract"', 'kind === "session"']);
 
     const taskNav = elements(tasks, "nav").find((node) => attribute(tasks, node, "aria-label")?.getText(tasks).includes("Task filters"));
     expect(taskNav).toBeDefined();
-    expect(elements(tasks, "button").filter((node) => attribute(tasks, node, "aria-pressed"))).toHaveLength(4);
+    expectPressedExpressions(tasks, ['tab === "all"', 'tab === "contact"', 'tab === "group"', 'tab === "submission"']);
+  });
+
+  it("exposes every audited choice, chip, day, and template selection", () => {
+    const expectations = [
+      ["./forms/form-builder.tsx", ['form.kind === "abstract"', 'form.kind === "session"', "newType === item.type"]],
+      ["./portal/form-builder/components/portal-forms-page.tsx", ['targetType === "contact"', 'targetType === "submission"']],
+      ["./portal/form-builder/components/portal-form-builder.tsx", ["customType === type"]],
+      ["./portal/tasks-admin/components/file-requests-view.tsx", ["draft.targetType === type"]],
+      ["./agenda/components/agenda-toolbar.tsx", ["day === null", "day === key"]],
+      ["./comms/components/templates-tab.tsx", ["row.key === selectedKey"]],
+    ] as const;
+
+    for (const [path, expressions] of expectations) expectPressedExpressions(parse(path), expressions);
   });
 
   it("renders aria-current only for the exact CRM destination", () => {

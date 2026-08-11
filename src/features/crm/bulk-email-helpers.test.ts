@@ -32,11 +32,12 @@ describe("CRM bulk batching", () => {
 
   it("merges per-batch outcomes", () => {
     const results: ComposeCrmBulkEmailResult[] = [
-      { queued: 490, skipped: 10, errors: [], preview: null },
-      { queued: 498, skipped: 1, errors: [{ organizationContactId: id(2), reason: "Not linked" }], preview: null },
+      { queued: 490, alreadyQueued: 4, skipped: 10, errors: [], preview: null },
+      { queued: 498, alreadyQueued: 3, skipped: 1, errors: [{ organizationContactId: id(2), reason: "Not linked" }], preview: null },
     ];
     expect(mergeCrmBulkEmailResults(results)).toEqual({
       queued: 988,
+      alreadyQueued: 7,
       skipped: 11,
       errors: [{ organizationContactId: id(2), reason: "Not linked" }],
       preview: null,

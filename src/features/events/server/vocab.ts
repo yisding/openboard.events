@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { db, type DbOrTx } from "@/db/client";
-import { rooms, sessionFormats, tags, tracks } from "@/db/schema";
+import { db, withTx, type DbOrTx } from "@/db/client";
+import { embeds, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
   roomDtoSchema,
   sessionFormatDtoSchema,
@@ -169,9 +169,32 @@ export const patchVocabItem = (eventId: EventId, kind: VocabKind, id: string, in
  */
 export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string): Promise<void> {
   const table = kind === "tracks" ? tracks : kind === "rooms" ? rooms : kind === "formats" ? sessionFormats : tags;
+  const filterKey = kind === "tracks" ? "trackIds" : kind === "rooms" ? "roomIds" : kind === "formats" ? "formatIds" : null;
+  if (filterKey) {
+    // Mutate only the affected JSON array from the row version PostgreSQL
+    // locks for this UPDATE. A read/modify/write loop could overwrite a
+    // concurrent style/field/filter edit with the stale object it selected.
+    await dbOrTx.update(embeds).set({
+      filters: sql`jsonb_set(
+        ${embeds.filters},
+        ARRAY[${filterKey}]::text[],
+        COALESCE((
+          SELECT jsonb_agg(entries.value ORDER BY entries.position)
+          FROM jsonb_array_elements(${embeds.filters} -> ${filterKey}) WITH ORDINALITY AS entries(value, position)
+          WHERE entries.value <> to_jsonb(${id}::text)
+        ), '[]'::jsonb),
+        false
+      )`,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(embeds.eventId, eventId),
+      sql`jsonb_typeof(${embeds.filters} -> ${filterKey}) = 'array'`,
+      sql`(${embeds.filters} -> ${filterKey}) @> jsonb_build_array(${id}::text)`,
+    ));
+  }
   await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
 }
-export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => deleteVocabItemIn(db, eventId, kind, id);
+export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => withTx((tx) => deleteVocabItemIn(tx, eventId, kind, id));
 
 /**
  * Renumbers the whole list 0..n-1 in one statement — no fractional ranks, no

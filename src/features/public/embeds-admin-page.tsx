@@ -6,6 +6,7 @@ import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
@@ -45,12 +46,20 @@ export function EmbedsAdminPage({
   tracks: TrackDTO[]; formats: SessionFormatDTO[]; rooms: RoomDTO[];
 }) {
   const { toast } = useToast();
+  const filterVocabulary: EmbedFilterVocabulary = {
+    trackIds: new Set(tracks.map((track) => track.id)),
+    formatIds: new Set(formats.map((format) => format.id)),
+    roomIds: new Set(rooms.map((room) => room.id)),
+  };
   const [configs, setConfigs] = useState(initialConfigs);
   const [styleDrafts, setStyleDrafts] = useState<Record<CanonicalEmbedContentType, EmbedStyle>>(
     () => Object.fromEntries(initialConfigs.map((config) => [config.contentType, config.style])) as Record<CanonicalEmbedContentType, EmbedStyle>,
   );
   const [filterDrafts, setFilterDrafts] = useState<Record<CanonicalEmbedContentType, EmbedFilters>>(
-    () => Object.fromEntries(initialConfigs.map((config) => [config.contentType, config.filters])) as Record<CanonicalEmbedContentType, EmbedFilters>,
+    () => Object.fromEntries(initialConfigs.map((config) => [
+      config.contentType,
+      sanitizeEmbedFilters(config.filters, filterVocabulary),
+    ])) as Record<CanonicalEmbedContentType, EmbedFilters>,
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
@@ -95,7 +104,9 @@ export function EmbedsAdminPage({
     // snippets is a display convenience for a human skimming the tag; the
     // routes themselves never read it) — an already-placed iframe picks up
     // a style or filter/field-visibility change right after this save.
-    const updated = await patch(config, { style: styleFor(config.contentType), filters: filtersFor(config.contentType) });
+    const filters = sanitizeEmbedFilters(filtersFor(config.contentType), filterVocabulary);
+    setFilterDrafts((current) => ({ ...current, [config.contentType]: filters }));
+    const updated = await patch(config, { style: styleFor(config.contentType), filters });
     if (updated) toast("Embed settings saved");
   }
 

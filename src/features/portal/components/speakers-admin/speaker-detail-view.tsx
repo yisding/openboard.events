@@ -185,7 +185,7 @@ function BioField({ eventId, contactId, bioHtml, onSaved }: {
   }
   return (
     <div>
-      <RichTextEditor value={draft} onChange={setDraft} maxChars={LIMITS.BIO} placeholder="Tell attendees about this speaker…" />
+      <RichTextEditor ariaLabel="Speaker biography" value={draft} onChange={setDraft} maxChars={LIMITS.BIO} placeholder="Tell attendees about this speaker…" />
       <div className="speaker-email-row" style={{ marginTop: 8 }}>
         <Button
           size="sm"
