@@ -20,7 +20,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 /** A preview is approval for one exact audience/message combination. */
 export function bulkSendPreviewFingerprint(input: BulkSendPreviewFingerprintInput): string {
-  return JSON.stringify([input.contactIds, input.previewContactId, input.subject, input.bodyHtml]);
+  return JSON.stringify([[...input.contactIds].sort(), input.previewContactId, input.subject, input.bodyHtml]);
 }
 
 export function canSendBulkMessage(input: {

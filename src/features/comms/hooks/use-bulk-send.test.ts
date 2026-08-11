@@ -19,6 +19,19 @@ const original = bulkSendPreviewFingerprint({
 });
 
 describe("bulk-send preview approval", () => {
+  it("treats the same audience as identical when recipient ordering changes", () => {
+    const contactIds = [id(2), id(1)];
+    const reordered = bulkSendPreviewFingerprint({
+      contactIds,
+      previewContactId: id(1),
+      subject: "Welcome",
+      bodyHtml: "<p>Hello</p>",
+    });
+
+    expect(reordered).toBe(original);
+    expect(contactIds).toEqual([id(2), id(1)]);
+  });
+
   it("approves only the exact audience, preview recipient, and message that was rendered", () => {
     expect(canSendBulkMessage({ canCompose: true, capped: false, previewFingerprint: original, currentFingerprint: original })).toBe(true);
 
