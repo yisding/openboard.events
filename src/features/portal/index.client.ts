@@ -6,5 +6,8 @@
  */
 export type { TaskCompletionRow } from "./task-runtime/server/queries";
 export { TaskResponseViewer, TaskUploadViewer } from "./task-runtime/components/task-viewers";
-export { TaskList, taskHref } from "./task-runtime/components/task-list";
+export { TaskList } from "./task-runtime/components/task-list";
+// Not from `task-list` any more: a `"use client"` module's exports cannot be
+// called by a server component, and `SpeakerHomeHero` has to call this one.
+export { taskHref } from "./lib/task-href";
 export { TaskDetailView } from "./task-runtime/components/task-detail";

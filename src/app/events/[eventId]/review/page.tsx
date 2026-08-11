@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { listReviewerPlans, listReviewQueue } from "@/features/submissions";
 import { ReviewQueueView } from "@/features/submissions/evaluation/components/review-queue-view";
@@ -34,10 +37,19 @@ export default async function Page({
 
   const queue = await listReviewQueue(eventId, reviewerId, planId);
 
+  // The round's window is a deadline, and a deadline is rendered in the event's
+  // zone like every other time in the product (`TzTime`). Read here rather than
+  // formatted in the view, which is a client component: a `toLocaleString()`
+  // there runs in UTC on the server and in the viewer's zone in the browser, so
+  // the two disagree and React throws #418 on hydration — which is what this
+  // page did until the timezone reached it.
+  const [event] = await db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1);
+
   return (
     <ReviewQueueView
       key={queue.plan?.id ?? "no-review-round"}
       eventId={eventId}
+      timezone={event?.timezone ?? "America/Los_Angeles"}
       plan={queue.plan}
       // Open rounds first: switching to a closed one is deliberate, not the
       // default a reviewer lands on.

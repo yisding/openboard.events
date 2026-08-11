@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { formatCode } from "@/features/submissions/index.client";
+import { taskHref } from "@/features/portal/lib/task-href";
 import type { MyTaskDTO } from "../server/queries";
 
 /**
@@ -26,12 +27,6 @@ const MODE_CTA = { manual: "Mark complete", form: "Complete form", file_request:
 
 type Tab = "all" | "mine" | "submissions";
 type Filter = "open" | "completed" | "overdue" | "all";
-
-/** The URL that completes exactly this assignment, submission and all. */
-export function taskHref(eventSlug: string, task: MyTaskDTO): string {
-  const query = task.submissionId ? `?submissionId=${task.submissionId}` : "";
-  return `/portal/${encodeURIComponent(eventSlug)}/tasks/${task.taskId}${query}`;
-}
 
 function TaskCard({ task, eventSlug, timezone }: { task: MyTaskDTO; eventSlug: string; timezone: string }) {
   return (

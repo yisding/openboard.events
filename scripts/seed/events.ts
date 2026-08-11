@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { eventMembers, events, organizationMembers, organizations, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
+import { contacts, eventMembers, events, organizationMembers, organizations, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
 import { DEFAULT_ORGANIZATION_ID } from "@/shared/contracts";
 import { EVENT_TIMEZONE, eventLocal, type SeedCtx } from "./lib/helpers";
 
@@ -136,6 +136,32 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     await tx.insert(organizationMembers)
       .values({ userId, organizationId: DEFAULT_ORGANIZATION_ID, role: admin.role === "reviewer" ? "reviewer" : "organizer" })
       .onConflictDoNothing({ target: [organizationMembers.userId, organizationMembers.organizationId] });
+    // A reviewer the outbox can address. `createEventReviewerIn` (M50, the
+    // product's own reviewer-provisioning path) creates or reuses a `contacts`
+    // row for exactly this reason — "the invitation is addressed to a contact,
+    // because the outbox is" — and the seed wrote `users` + `event_members`
+    // directly, so seeded reviewers had no contact row at all.
+    //
+    // That is not cosmetic: `sendReviewRemindersIn` counts a reviewer with no
+    // contact as `skipped` rather than inventing one, so on the seeded world
+    // "Remind everyone" enqueued nothing, wrote no `communication_logs` row,
+    // and `e2e/review-operations.spec.ts` could never see the reminder it
+    // asserts. Seeding the row the real path would have created makes the
+    // feature reachable instead of asserting around it.
+    //
+    // Every seeded admin, not only the two reviewers: the seeded Round 2 puts
+    // the organizer on its reviewer panel, and one unaddressable member is
+    // enough to make `skipped` non-zero for the whole round.
+    //
+    // Left `unconfirmed` with no bio, headshot or submission, so it stays out
+    // of `published_speakers_v` and every accepted-speaker surface: this is
+    // staff, not a speaker.
+    const [first = admin.name, ...rest] = admin.name.split(" ");
+    for (const memberEventId of [ctx.eventId, ctx.emptyEventId]) {
+      await tx.insert(contacts)
+        .values({ id: ctx.id("contact", `staff-${admin.key}-${memberEventId}`), eventId: memberEventId, email: admin.email, firstName: first, lastName: rest.join(" ") })
+        .onConflictDoUpdate({ target: contacts.id, set: { firstName: first, lastName: rest.join(" "), updatedAt: new Date() } });
+    }
   }
 
   ctx.log(`seeded 2 events, ${TRACKS.length} tracks, ${ROOMS.length} rooms, ${FORMATS.length} formats, ${TAGS.length} tags, ${ADMINS.length} admins`);
