@@ -143,6 +143,14 @@ file didn't anticipate:
 
 ### 4a. DEMOTE 700 → 600 (46 sites: 45 CSS + 1 inline)
 
+Two scopes are in play throughout this document and are easy to conflate:
+**CSS-only** (143 declarations, §1's original grep, what §5's projection table
+below is computed against) and **full population** (145 declarations — the 143
+CSS plus the 2 inline `700`s in `event-switcher.tsx`, §1's "Full population
+for this audit"). Of this section's 46 demotions, 45 are CSS (counted against
+the 143/62) and 1 is inline (`event-switcher.tsx:92`, counted only in the
+145-declaration full population, not in §5's CSS-only math).
+
 | Selector | File / area | Renders as (verified in JSX) | Why demote |
 | --- | --- | --- | --- |
 | `.data-table th` | Abstracts/admin tables | `<th>` column header, 10px, muted, uppercase | Already bold from `<th>`'s UA default; the explicit 700 stacks *extra* weight onto a label repeated 5–9× per table. Also the single highest-reach selector here — every `.data-table` in the app. |
@@ -158,8 +166,7 @@ file didn't anticipate:
 | `.attention-banner a` | Dashboard | "Review now"-style CTA link in a banner | Peer link classes (`.metric-card footer a`, `.panel-header a`) are already 600 — this is the inconsistent one. |
 | `.metric-trend` | Dashboard stat cards | Small "+12%" trend indicator next to a stat icon | Secondary annotation sitting beside the primary stat number, which is *already* bold via `<strong>` — the trend shouldn't match it. |
 | `.tiny-chip` | Dashboard (deadline countdown) | Colored pill chip | Peer chip `.preview-fallback-badge` is already 600 — inconsistent. |
-| `.header-avatar` *(see note)* | — | — | Moved to exemption list, see §4b — listed here only to flag it was considered and excluded. |
-| `.settings-nav button.active` | *(dup, see above)* | | |
+| `.header-avatar` *(see note)* | — | — | Moved to exemption list, see §4b — listed here only to flag it was considered and excluded; not one of the 46. |
 | `.dashboard-stale-banner button` | Live dashboard | "Retry" text-button inside an amber warning banner | The button itself is a plain action link, not the alert message; peer text-buttons (`.text-button`, `.session-card-toggle`) are 600. |
 | `.dashboard-tabs a` | Live dashboard tab bar | **Every** tab label, active and inactive alike | **Notable consistency finding:** every other tab-set in the app (`.tabs button`, `.agenda-view-tabs button`, `.abstract-status-tabs button`, `.drawer-tabs button`, `.crm-subnav a`) is 600 for *all* tabs, using color alone to mark `.active`. `.dashboard-tabs a` is the one outlier that bolds inactive tabs too. |
 | `.dashboard-widget-title a` | Live dashboard | "View all" link on a widget header | Link; peer `.panel-header a` is 600. |
@@ -239,6 +246,9 @@ locked roles, not moving weight.
 
 ## 5. Projected outcome if the pullback lands as proposed
 
+**CSS-only** (the 143-declaration population from §1's original grep — this
+table, matching that scope, does not include the 2 inline `700`s):
+
 | Weight | Before | After | Before % | After % |
 | --- | ---: | ---: | ---: | ---: |
 | 400 | 5 | 5 | 3% | 3% |
@@ -248,8 +258,23 @@ locked roles, not moving weight.
 | 800 | 40 | **41** | 28% | **29%** |
 | Total | 143 | 143 | | |
 
-(46 CSS+inline sites move 700→600 net of the 1 reclassified to 800: 32 + 45 = 77 at 600;
-62 − 45 − 1 = 16 remain at 700; 40 + 1 = 41 at 800.)
+(45 of the 46 §4a demotions are CSS, net of the 1 reclassified to 800: 32 + 45
+= 77 at 600; 62 − 45 − 1 = 16 remain at 700; 40 + 1 = 41 at 800. The 46th
+demotion — the inline `event-switcher.tsx:92` declaration — is part of the
+145-declaration full population, not this CSS-only table.)
+
+**Full population** (145 declarations — the 143 CSS above plus the 2 inline
+`700`s in `event-switcher.tsx`; one demotes per §4a, one is KEEP-exempt per
+§4b):
+
+| Weight | Before | After |
+| --- | ---: | ---: |
+| 400 | 5 | 5 |
+| 500 | 4 | 4 |
+| 600 | 32 | **78** |
+| 700 | 64 | **17** |
+| 800 | 40 | **41** |
+| Total | 145 | 145 |
 
 This lands close to the research file's own benchmark reading of Carbon/Linear ("the
 boldest weight reserved, single-digit-to-low-teens usage") — 700 drops from the plurality

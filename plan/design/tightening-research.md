@@ -199,7 +199,10 @@ already the minority, correctly.
 
 ### Verdict for this app
 
-**Measured:** collecting every `gap:`, `padding:`/`padding-*:`, `margin:`/`margin-*:` px
+**Measured:** collecting every `gap:` (including `column-gap:`/`row-gap:` — the pattern
+below matches the `gap:` substring regardless of prefix, so these fold into the same
+values, but the command has been made explicit about it rather than relying on that),
+`padding:`/`padding-*:`, `margin:`/`margin-*:` px
 value in `globals.css` and taking the distinct set returns **53 different pixel
 values** (1px to 96px, plus one 236px outlier), including a long run of *odd, off-grid*
 numbers with no apparent tier: 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 31, 35, 42,
@@ -218,7 +221,8 @@ sits between Linear's and Atlassian's actual shipped scales):
 - **Macro tier (landing/portal "generous" density only — section rhythm, hero padding):**
   48, 64, 96
 
-That's 10 numbers total across two purposes, replacing 51. Every value outside that list
+That's 11 numbers total across two purposes (4 micro + 4 core + 3 macro), replacing 51 —
+matches the eleven-step grid `design-system.md` T4 shipped. Every value outside that list
 is a fold-in target for the mechanical sweep, snapping to the nearest tier member — e.g.
 `7px`→`8px`, `35px`→`32px`, `45px`→`48px`, `66px`→`64px`, `90px`→`96px`. The one
 legitimate exception class, per Atlassian's own spacing doc, is **1–2px optical nudges**
@@ -342,26 +346,30 @@ floor, per the doc's own "known deviations" section).
 > so the mistake stays visible: an unanchored grep for a CSS property matches
 > every longhand ending in that property.
 
-Not all 27 are necessarily bugs — `color` also drives `currentColor` for inline SVG
-icons via `stroke`/`fill: currentColor`, and a few sampled sites (e.g. `.tabs
-button.active { border-color: var(--accent) }` paired with a *separate*
-`color: var(--accent-dark)` on the same selector) show the pattern already used
-correctly nearby. But every one of the 27 is a candidate that needs an eyes-on check:
-**is this `color` driving real text, or an icon?** If text: swap to `--accent-dark`. If
-an icon: confirm it never sits directly on `--canvas` (the one context the doc's own
+**Post-correction, this paragraph's "27" is superseded by the anchored count of one** —
+kept below in its original form only where it documents *method* (`currentColor` on
+inline SVG icons, the `--canvas` contrast check), not as an open worklist:
+`color` also drives `currentColor` for inline SVG icons via `stroke`/`fill:
+currentColor`, and a few sampled sites (e.g. `.tabs button.active { border-color:
+var(--accent) }` paired with a *separate* `color: var(--accent-dark)` on the same
+selector) show the pattern already used correctly nearby. The one real site
+(`.comms-rail button.active`, per the correction above) needed exactly this check:
+**is this `color` driving real text, or an icon?** It was text, and is now
+`--accent-dark`. The same check applies to any future `color: var(--accent)` the
+anchored command below turns up: if text, swap to `--accent-dark`; if an icon,
+confirm it never sits directly on `--canvas` (the one context the doc's own
 deviation note does *not* cover) — icons on `--surface`/white are fine at 3.06:1 for
 non-text, icons on `--canvas` at 2.90:1 are not.
 
 **Token-usage tally for context** (`grep -oE -- "--accent[a-z-]*"`): `--accent-dark`
-155 uses, `--accent` 61 uses (of which the 27 above are the `color:` subset; the
-remaining ~34 are legitimate `background`/`border-color`/`box-shadow` fill uses),
-`--accent-soft` 45, `--accent-border` 21, `--accent-faint` 18, `--accent-bright` 12,
-`--accent-hover` 3. The text-role token (`--accent-dark`) outnumbering the fill-role
-token (`--accent`) 2.5:1 is expected and healthy — text is more common than discrete
-fills in any UI — which makes the 27 `color: var(--accent)` sites the actual anomaly to
-resolve, not a sign of over-accenting generally. **No new semantic colors and no new
-accent budget are indicated by this research; the existing budget is right, it just has
-27 sites to audit for correct token choice.**
+155 uses, `--accent` 61 uses (of which **one** is the `color:` text-role violation
+identified by the anchored grep; the remaining ~60 are legitimate
+`background`/`border-color`/`box-shadow`/`accent-color` fill uses), `--accent-soft` 45,
+`--accent-border` 21, `--accent-faint` 18, `--accent-bright` 12, `--accent-hover` 3. The
+text-role token (`--accent-dark`) outnumbering the fill-role token (`--accent`) 2.5:1 is
+expected and healthy — text is more common than discrete fills in any UI. **No new
+semantic colors and no new accent budget are indicated by this research; the existing
+budget is right, it just had one site to correct — not 27.**
 
 ---
 
@@ -378,8 +386,10 @@ accent budget are indicated by this research; the existing budget is right, it j
    micro-tier `2/4/6/8` + core-tier `12/16/24/32` for admin surfaces, macro-tier
    `48/64/96` reserved for portal/landing generous density. Snap the ~40 off-grid values
    found to their nearest tier member; leave `1px`/`2px` optical nudges alone.
-4. **Accent-as-text audit** (low risk, 27 sites): resolve each `color: var(--accent)`
-   site to `--accent-dark` (text) or confirm-and-leave (icon not on `--canvas`).
+4. **Accent-as-text audit** (low risk, **1** site once the grep is anchored — see the
+   §5 correction; the original "27" was `border-color:`/`accent-color:` tail-matches, not
+   real hits): resolve each `color: var(--accent)` site to `--accent-dark` (text) or
+   confirm-and-leave (icon not on `--canvas`).
 5. **Breakpoint consolidation** (highest regression risk — sequence last, verify hardest):
    merge the 11 ad-hoc breakpoints toward 480/768/1024/1280, re-screenshot every affected
    surface at 390/768/1024/1440 after the change specifically, since this is the one
@@ -408,14 +418,23 @@ grep -oE "font-size:\s*[0-9.]+px" src/app/globals.css | sed -E 's/font-size:\s*/
 # font-weight distribution
 grep -oE "font-weight:\s*[0-9]+" src/app/globals.css | sed -E 's/font-weight:\s*//' | sort -n | uniq -c
 
-# distinct spacing (gap/padding/margin) px values
-grep -oE "(gap|padding(-[a-z]+)?|margin(-[a-z]+)?):\s*[0-9]+px" src/app/globals.css | sed -E 's/^[a-z-]+:\s*//' | sort -n -u
+# distinct spacing (gap/column-gap/row-gap/padding/margin) px values.
+# column-gap: and row-gap: already fall through the `gap` branch below via
+# substring matching (`grep -oE` extracts "gap:Npx" regardless of what
+# precedes it), but they're listed explicitly so the pattern documents its own
+# coverage instead of relying on that.
+grep -oE "(gap|column-gap|row-gap|padding(-[a-z]+)?|margin(-[a-z]+)?):\s*[0-9]+px" src/app/globals.css | sed -E 's/^[a-z-]+:\s*//' | sort -n -u
 
 # breakpoints declared (media-query triggers only, not element max-width properties)
 grep -oE "@media\s*\(\s*max-width:\s*[0-9]+px\s*\)" src/app/globals.css | grep -oE "[0-9]+" | sort -n -u
 
-# bare --accent used as text color (candidates for --accent-dark)
-grep -noE "color:\s*var\(--accent\)[^-]" src/app/globals.css
+# bare --accent used as text color (candidates for --accent-dark).
+# NB: an earlier, unanchored version of this pattern (`color:\s*var\(--accent\)[^-]`)
+# also matched the tails of `border-color:` and `accent-color:`, inflating the
+# real count of 1 to a reported 27 — see the §5 correction above. Anchored to
+# the `color` property itself, excluding any trailing letter that would mean
+# it's actually a longer property name:
+grep -noE "(^|[;{[:space:]])color:\s*var\(--accent\)[^-a-z]" src/app/globals.css
 
 # accent-family token usage counts
 grep -oE -- "--accent[a-z-]*" src/app/globals.css | sort | uniq -c | sort -rn

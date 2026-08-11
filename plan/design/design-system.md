@@ -847,8 +847,12 @@ breaches one; if a fold-in would, the fold-in loses.
 Run from the repo root after each stage. Expected values are post-pass.
 
 ```bash
-# T1 — font sizes: expect exactly 11 steps + 3px/6px SVG + 0
+# T1 — font sizes: expect exactly 11 steps + 3px/6px SVG
 grep -oE "font-size:\s*[0-9.]+px" src/app/globals.css | sed -E 's/font-size:\s*//' | sort -n -u
+# T1 — the zero-size exemption: `.agenda-view-tabs button` hides its label at
+# the tab-icon breakpoint. The pixel grep above can never report this — a
+# unitless `0` has no `px` to match — so it needs its own check.
+grep -c "\.agenda-view-tabs button{font-size:0}" src/app/globals.css  # expect 1
 # T1 — both clamps identical
 grep -c "clamp(40px, *5vw, *72px)" src/app/globals.css        # expect 2
 grep -oE "font-size:\s*clamp\([^)]*\)" src/app/globals.css | sort -u  # expect 1 line
@@ -864,18 +868,49 @@ grep -rhoE "fontWeight:\s*[0-9]+" src --include=*.tsx | sort | uniq -c
 grep -oE "(gap|column-gap|row-gap|padding(-[a-z]+)?|margin(-[a-z]+)?):[^;}]*" src/app/globals.css \
   | grep -oE "[0-9]+px" | sort -n -u
 
-# T5 — breakpoints: expect exactly 480, 768, 1024, 1280
+# T5 — breakpoints: expect exactly 480, 768, 1024, 1280. The rule is
+# max-width only — the app has no min-width, width, or range-syntax media
+# queries — so the width-extraction grep is intentionally scoped to that
+# form. The second command is what enforces the scoping claim: it must
+# return nothing (aside from prefers-reduced-motion, which isn't a
+# breakpoint) or a new query form has appeared that the first command is
+# blind to.
 grep -oE "@media[^{]*max-width:\s*[0-9]+px" src/app/globals.css | grep -oE "[0-9]+px" | sort -n -u
+grep -noE "@media\([^)]*\)" src/app/globals.css | grep -vE "max-width|prefers-reduced-motion"  # expect no output
 
 # T6 — accent as text: every hit must be an SVG on --surface/#fff
 # NB: this pattern also matches the tails of `border-color:` and
 # `accent-color:`, which is why it once reported "27 sites" when there was
 # really one. Anchor it to catch only the `color` property itself:
 grep -noE "(^|[;{[:space:]])color:\s*var\(--accent\)[^-a-z]" src/app/globals.css
-# T6 — no raw hex outside :root, gradients and #fff on fills
-grep -nE "#[0-9a-fA-F]{3,8}" src/app/globals.css | grep -v "^\s*--" | grep -vi "gradient"
+# T6 — no raw hex outside :root, gradients and #fff on fills.
+# The naive version of this check (`grep -v "^\s*--" | grep -vi gradient`)
+# has two real bugs, not just style: piping through `-n` first prepends
+# "123:" to every line, so the `^\s*--` anchor meant to skip token
+# declarations no longer matches anything and the whole :root block leaks
+# through as false positives; and a plain "does the line say gradient"
+# filter cannot bound a `linear-gradient(...)` call once one of its stops is
+# itself a `var(...)` call, since the naive non-greedy match closes on that
+# inner paren instead of the outer one. Strip comments, custom-property hex
+# declarations, gradient() calls (allowing one level of nested parens), and
+# permitted `#fff` fills before matching:
+perl -0777 -pe '
+  s{/\*.*?\*/}{}gs;
+  s{--[a-zA-Z0-9-]+:\s*\#[0-9a-fA-F]{3,8}}{}g;
+  s{[a-z-]*gradient\((?:[^()]|\([^()]*\))*\)}{}g;
+  s{fill:\s*\#fff\b}{}g;
+' src/app/globals.css | grep -noE "#[0-9a-fA-F]{3,8}"
 grep -rnE "#[0-9a-fA-F]{6}" src --include=*.tsx | grep -v "seed.ts"
 ```
+
+Run against the current stylesheet, the corrected command is not zero: it
+reports 79 raw-hex matches across 60 lines, almost all of them pre-existing
+component rules (`.admin-sidebar`, `.toast`, `.rich-text`, `.stat-tile--warning`,
+`.donut__total`, `.file-drop`, and dozens more) that this pass never touched.
+This pass's T6 scope was the `ColorChip`/`.rating` demotions and the three
+named off-token files above — not a stylesheet-wide retokenization. The
+command is a lint aid for catching *new* raw hex and for auditing the sites
+this pass actually claims, not a promise that the stylesheet is hex-free.
 
 Screenshot verification is part of the definition of done, not a follow-up:
 390 / 768 / 1024 / 1440 on landing, login, dashboard, abstracts (list and open
@@ -893,11 +928,17 @@ this file and under the 44px floor only once a phone renders it). So the
 definition of done includes a **rendered-DOM sweep** over the same surfaces and
 widths, asserting on `getComputedStyle` and `getBoundingClientRect`:
 
-1. every text-bearing element's `font-size` is one of the eleven steps (or the
-   clamp exemption), and none is below 10px;
+1. every text-bearing element's `font-size` is one of the eleven steps, or one
+   of [T1](#t1-type-scale--eleven-steps)'s three exhaustive exemptions (the
+   display clamp, the `.dashboard-donut` SVG user units at 3px/6px, or
+   `.agenda-view-tabs button`'s `font-size: 0`), and none of the eleven steps
+   is below 10px;
 2. every `font-weight` is 400, 600 or 700;
-3. every `gap`/`padding*`/`margin*` is on the eleven-step grid, after filtering
-   computed `auto` margins;
+3. every `gap`/`padding*`/`margin*` is on the eleven-step grid, or one of
+   [T4](#t4-spacing--eleven-steps-in-three-tiers)'s exhaustive exemptions
+   (1px nudges, offsets that mirror a fixed component dimension, negative
+   margins compensating a `transform: scale()`, or a computed `margin: auto`)
+   — all four must be filtered out, not just `auto`;
 4. `document.documentElement.scrollWidth <= innerWidth` — no page-level
    horizontal overflow (elements overflowing *inside* an `overflow:auto`
    container are correct and must not be reported: the abstracts table and the
@@ -946,7 +987,15 @@ someone gives them one.
 - Font sizes come from the eleven-step scale; line-heights from the five steps;
   weights from the three steps; gaps, padding and margins from the eleven-step
   spacing grid; media queries from the four canonical breakpoints. A value not
-  on one of those lists is a bug, not a decision.
+  on one of those lists is a bug, not a decision — **unless it falls under a
+  named exemption**, in which case it stays as written. The exemptions are
+  closed lists, not precedent: [T1](#t1-type-scale--eleven-steps)'s three
+  (display clamp, SVG user units, `font-size: 0`) and
+  [T4](#t4-spacing--eleven-steps-in-three-tiers)'s four (1px nudges, mirrored
+  offsets, `transform: scale()` corrections, computed `margin: auto`) are the
+  only ones a future extension may lean on without adding a new one here
+  first — verification and any future audit must exclude them rather than
+  flag or "fix" them.
 - Colour that is not jade must carry a status. See
   [T6](#t6-colour-restraint--the-accent-budget) for the per-screen budget.
 - Dark mode is not implemented. See below for what it would actually take.

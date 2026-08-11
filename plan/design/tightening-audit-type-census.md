@@ -60,11 +60,12 @@ grep -oE "font-size:\s*[0-9.]+px" src/app/globals.css | sed -E 's/font-size:\s*/
 | **48px** | **1** | on scale |
 
 Total: 661 `NNpx` rule-instances, 23 distinct values (matches the research file's own
-count exactly) — 15 documented steps present and correctly used 653 times, 2 SVG-exempt
-values used twice, and **6 distinct off-scale values used 8 times**: `10.5` (×1), `15`
-(×2), `22` (×2), `26` (×1), `34` (×1), `38` (×1). No step is missing from the codebase —
-all fifteen documented sizes are in active use — so this is purely a drift/leak problem,
-not a gap in the scale.
+count exactly) — 15 documented steps present and correctly used **651** times (summing
+the "on scale" rows above; this does **not** include the two SVG-exempt declarations),
+2 SVG-exempt values used twice, and **6 distinct off-scale values used 8 times**: `10.5`
+(×1), `15` (×2), `22` (×2), `26` (×1), `34` (×1), `38` (×1). 651 + 2 + 8 = 661. No step is
+missing from the codebase — all fifteen documented sizes are in active use — so this is
+purely a drift/leak problem, not a gap in the scale.
 
 One more literal value the plain-`px` grep also catches but that isn't a reading size at
 all: **`font-size:0`** (1 instance, line 679 inside the `max-width:520px` media block) —

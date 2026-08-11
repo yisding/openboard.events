@@ -179,11 +179,16 @@ instead. This is the shared portal header, so it reproduces on **every**
 portal page (home, tasks, submissions, profile, resources) at this width,
 not just the two screenshotted.
 
-**Fix:** raise the breakpoint from `760px` to `768px` (or slightly past it,
-`769px`/`800px`, to give margin rather than land on the boundary again) at
-`globals.css` line 678. This is the single cleanest instance of the
-research doc's "consolidate toward 768" recommendation — one number, one
-selector, fixes a confirmed, reproducible page-level overflow.
+**Fix — shipped as `768px`.** The alternatives once considered here
+(`769px`/`800px`, to land past the boundary rather than on it) are
+superseded: the binding breakpoint set is exactly `480`, `768`, `1024`,
+`1280` (`design-system.md` T5), and `769px`/`800px` are not members of it.
+`.portal-header nav`'s collapse now fires at `max-width: 768px`
+(`globals.css`, `.portal-mobile-menu`'s block), which is what the "at
+exactly 768px" defect in this finding needed — the width itself, not a
+margin past it. This was the single cleanest instance of the research doc's
+"consolidate toward 768" recommendation — one number, one selector, fixing
+a confirmed, reproducible page-level overflow.
 
 ---
 
@@ -214,11 +219,24 @@ scroll hint) — a user has to discover by accident that "Submitted" and part
 of "Tags" exist. At 390px it's cramped further still (screenshot
 `03-dashboard-390.png`).
 
-**Fix:** apply the same pattern already proven on `.abstracts-table` —
-hide the `Tags` and/or `Speakers` columns below ~1024px
-(`.dashboard-recent .data-table th:nth-child(5), .dashboard-recent .data-table td:nth-child(5) { display: none }`
-for Tags, extending to Speakers below 768px if still tight), rather than
-leaving a silent scroll container.
+**Fix — shipped, but with a known gap this finding correctly flags.**
+`globals.css` now hides `Tags` below 1280px, `Speakers` below 1024px, and
+`Source` below 768px on `.dashboard-recent`, so the silent scroll container
+is gone. It did **not** ship with the semantic column-class metadata pattern
+`abstracts-table.tsx` uses (`meta: { className: "abstracts-col-*" }`, read by
+`DataTable` and targeted in CSS as `.abstracts-col-track` etc. — see the
+`declare module "@tanstack/react-table"` comment in `data-table.tsx`, which
+names this exact table as the cautionary example: "the demo `.abstracts-table`
+vs. the database-backed one — same feature, different column order"). Instead
+it uses `.dashboard-recent .data-table th:nth-child(5)` /
+`th:nth-child(4)` / `th:nth-child(1)`, because `RecentSubmissionsTable.tsx` is
+a hand-rolled `<table>`, not a `DataTable` caller — there is no per-column
+meta to hook a class onto without first moving it onto `DataTable`. That
+migration is real work (columns/rows through `ColumnDef`, not a CSS-only
+change) and is out of this pass's scope; recorded here as the follow-up
+`nth-child` fragility this finding correctly anticipated — a future column
+reorder in this table will silently hide the wrong field, exactly as
+`data-table.tsx`'s own comment warns.
 
 ---
 
@@ -245,12 +263,22 @@ itself is clickable, not the padded area around it), and `.mobile-close` at
 30×20px is the *only* way to dismiss the full-screen mobile nav overlay
 short of tapping the scrim.
 
-**Fix:** widen the checkbox's hit area with padding on its `<td>` (keep the
-14px visual box, add `padding: 15px 11px` so the effective tap target
-reaches ~44px, matching how `--focus-ring` already treats other small
-controls per `design-system.md`), and give `.mobile-close` explicit
-`width: 40px; height: 40px` to match `.mobile-menu`'s own 36px+padding
-sizing instead of shrink-wrapping the icon.
+**Fix — shipped, and not the padding approach originally sketched above.**
+Padding on the `<td>` was never going to work: a native checkbox ignores
+`padding` and derives its box from `width`/`height` alone (measured in
+Chrome), so a padded cell around a 14×14 checkbox stays a 14×14 hit area no
+matter how generous the padding is — the stopped-propagation click on the
+cell doesn't help either, since only the checkbox itself receives it. The
+shipped fix instead wraps the checkbox in `.checkbox-hit`, a grid-centred
+`<label>` (`globals.css`, "T7 — touch-target floor") that owns the hit area
+while the control keeps its 14px glyph: `display: grid; place-items: center;
+min-width/min-height: 32px` above 768px, `44px` at ≤768px (`min-*` beats the
+control's own fixed size, so desktop sizing is untouched). Clicking anywhere
+in the label toggles the checkbox natively, no extra handler. `.mobile-close`
+is now included in the ≤768px block's `.icon-button, .mobile-menu,
+.mobile-close, .portal-mobile-menu { min-width: 44px; min-height: 44px; }` —
+44×44, not the `40×40` this finding proposed as an intermediate step; it
+clears the floor outright rather than narrowing the gap.
 
 ---
 

@@ -140,13 +140,21 @@ one legitimately semantic use — `.portal-task-card.completed >
 (`globals.css` "completed" state, a real status) — is untouched; only the
 three *mode* variants (not the *completed* state) are in scope.
 
-## Finding C — Track-color chips: right in the schedule grid, noise everywhere else
+## Finding C — Track-color chips: right in the schedule grid, noise everywhere else — SHIPPED
 
 `ColorChip` (`src/shared/ui/app/color-chip.tsx`) renders an organizer-chosen,
 arbitrary-hex track/format color as both the chip's tint background and its
-text color. Its own doc comment is explicit about intent: "must look
-identical in the agenda, the abstracts table and the public page." Grepping
-every call site splits cleanly into two very different situations:
+text color, when a `color` prop is passed. At the time this finding was
+written, its doc comment claimed a single cross-surface contract — "must
+look identical in the agenda, the abstracts table and the public page" —
+that the proposal below directly contradicted (colored in one place,
+neutral in another). That was a real bug in the doc, not in the component:
+the two are irreconcilable as a single contract. The fix that shipped in the
+same pass resolved it by making the split explicit rather than incidental —
+`color-chip.tsx`'s doc comment now states the two-tier contract on its face:
+colored only on the schedule/agenda surfaces where track color is the scan
+mechanism, plain `.track-chip` everywhere else. Grepping every call site
+splits cleanly into two very different situations:
 
 **Where it earns its color** — the schedule/agenda grid surfaces that
 `experience-design.md` names outright as "the schedule is the beauty moment...
@@ -157,43 +165,57 @@ grid for "which sessions are Workshops" benefits from color-blocking in a way
 gray text cannot replace. **Keep these as-is**, they are the one place in the
 research's own framing where "gray would not do."
 
-**Where it's decorative noise** — dense *data tables*, where color competes
-with a semantic column already doing the real signaling job:
+**Where it was decorative noise, now demoted** — dense *data tables*, where
+color competed with a semantic column already doing the real signaling job.
+All four sites below shipped in the same pass this finding proposed them in;
+none currently passes `color`/`tag.color`, confirmed against the current
+`src/app/globals.css` and each call site's source:
 
-- `src/features/submissions/components/abstracts-table.tsx:127-133` — the
-  Track column sits directly next to a `StatusBadge` (status-semantic
-  color) and a Rating column (`.rating` is hardcoded `color: var(--amber)`,
-  `globals.css` — amber for a star rating, not a warning). Three independent
-  color systems fight for attention in one row; verified live in the
-  kitchen-sink fixture render (`Evals` green-ish, `Infra` amber-ish, `Agents`
-  purple — see screenshot note above) — the purple `Agents` chip in
-  particular reads like a fourth "status," which it is not.
-- `src/features/submissions/evaluation/components/plans-view.tsx:116-120` —
-  same pattern, a "Scope" column of colored track chips next to a Round
-  number and a Window column.
-- `src/features/crm/components/directory-view.tsx:126` — a *second*, separate
+- `src/features/submissions/components/abstracts-table.tsx` — the Track
+  column sat directly next to a `StatusBadge` (status-semantic color) and a
+  Rating column. Three independent color systems fought for attention in one
+  row; verified live in the kitchen-sink fixture render (`Evals` green-ish,
+  `Infra` amber-ish, `Agents` purple — see screenshot note above) — the
+  purple `Agents` chip in particular read like a fourth "status," which it
+  was not. `ColorChip` no longer receives `color` here; it renders plain
+  `.track-chip`.
+- `src/features/submissions/evaluation/components/plans-view.tsx` — same
+  pattern, a "Scope" column of colored track chips next to a Round number
+  and a Window column. Also demoted — `ColorChip` here no longer receives
+  `color` either.
+- `src/features/crm/components/directory-view.tsx` — a *second*, separate
   arbitrary-color-chip system for CRM contact **tags** (`crmTagDtoSchema`
-  has a free-form `color: z.string()`), rendered in the contacts table. This
-  is the highest-density case in the app: a contact can carry several tags,
-  so a single row can show several independently-hued chips at once, in a
-  table whose whole job is fast left-to-right scanning.
-- Lower priority — `src/features/portal/components/submissions-view/submission-list.tsx:45`
-  and `submission-detail.tsx:38` (speaker-facing "my submissions" — one card
-  per submission, not a scanning table, so the color collision is much
-  milder; note the adjacent Format chip in the same markup already renders
-  neutral via the *default* `.track-chip` CSS with no color override —
-  proof the neutral baseline already exists in the same component).
+  still carries a free-form `color: z.string()` in the contract, but the
+  table cell no longer reads it). This was the highest-density case in the
+  app: a contact can carry several tags, so a single row could show several
+  independently-hued chips at once, in a table whose whole job is fast
+  left-to-right scanning.
+- `src/features/portal/components/submissions-view/submission-list.tsx` and
+  `submission-detail.tsx` (speaker-facing "my submissions" — one card per
+  submission, not a scanning table, so the color collision was much milder;
+  the adjacent Format chip in the same markup already rendered neutral via
+  the *default* `.track-chip` CSS with no color override, which is what the
+  fix generalized to the track chip too).
 
-**`.track-chip`'s own default CSS is the answer already sitting in the
+**`.rating` — a fifth site in the same family, added to this pass.** The
+Rating column referenced above (`.rating` in `globals.css`) was itself
+hardcoded to `color: var(--amber)` — amber spent on a star-rating *value*,
+not a warning, competing with the genuinely semantic amber the Status column
+needs a few pixels away. It is now `color: var(--ink)`; the star glyph
+carries the meaning. This is the same row as the `ColorChip` demotion above,
+which is why the two are recorded together — the row now has exactly one
+semantic color system (`StatusBadge`) instead of three.
+
+**`.track-chip`'s own default CSS was the answer already sitting in the
 file**: `globals.css` — `.track-chip{padding:4px 7px;background:var(--fill);
 border-radius:5px;color:var(--muted);font-size:10px}`. `ColorChip` only
-overrides this with an inline `style` when `color` is present. The
-proposed demotion for the four table/list bullets above is mechanical: stop
-passing `color={row.trackColor}` (or `tag.color`) into the colored path for
-those specific call sites — render the label with plain `.track-chip` (or
-the CRM tag's existing `.chip` class) so it reads exactly like every other
-neutral tag in the same table, and reserve the colored variant for the
-agenda/schedule call sites where it is the load-bearing visual. This is a
+overrides this with an inline `style` when `color` is present. The demotion
+for the four table/list bullets above was mechanical: stop passing
+`color={row.trackColor}` (or `tag.color`) into the colored path for those
+specific call sites — the label renders with plain `.track-chip` (or the
+CRM tag's existing `.chip` class) so it reads exactly like every other
+neutral tag in the same table, and the colored variant is reserved for the
+agenda/schedule call sites where it is the load-bearing visual. This was a
 prop-level change (stop forwarding `color`), not a component redesign —
 `ColorChip` itself stays as the schedule surfaces' component.
 
@@ -290,7 +312,7 @@ To keep this audit honest about what's *working*, not just what's wrong:
 | --- | --- | --- | --- | --- |
 | A | Neutralize 3-of-4 tiles in each of 6 rainbow KPI/summary rows | `dashboard-page.tsx`, `KpiRow.tsx`, `speakers-page.tsx`, `directory-view.tsx`, `forms-page.tsx` + 1 new neutral `.metric-icon`/`.summary-icon` modifier in `globals.css` | Low — visual only, no data/logic change | ~20 tile edits |
 | B | Drop mode-based tint on `.task-mode-icon`/`.portal-task-icon`, keep shape-only | `globals.css` (2 rule blocks), no `.tsx` changes needed | Low | 2 CSS edits |
-| C | Stop forwarding `color` into `ColorChip` for table/list contexts (abstracts table, evaluation plans scope, CRM tag chips); keep it in agenda/schedule views | `abstracts-table.tsx`, `plans-view.tsx`, `directory-view.tsx` (tag chip), optionally `submission-list.tsx`/`submission-detail.tsx` | Low-medium — verify no test asserts on chip color in these specific tables | 3-5 call-site edits |
+| C | **Shipped.** Stop forwarding `color` into `ColorChip` for table/list contexts (abstracts table, evaluation plans scope, CRM tag chips); keep it in agenda/schedule views. Includes `.rating`'s `--amber` → `--ink` demotion (same row, same color-competition problem) | `abstracts-table.tsx`, `plans-view.tsx`, `directory-view.tsx` (tag chip), `submission-list.tsx`, `submission-detail.tsx`, `globals.css` (`.rating`) | Low-medium — verify no test asserts on chip color in these specific tables | 5 call-site edits + 1 CSS edit |
 | D | Swap raw hex to `var(--green)`/`var(--amber)`/`var(--red)` in `ConfirmationMix.tsx` + `rich-primitives.tsx`; move `CUSTOM_TRACK_COLOR` onto an on-palette hex | `ConfirmationMix.tsx`, `rich-primitives.tsx`, `onboarding-wizard.tsx` | Low | 3 one-line edits |
 
 None of these touch `--accent`'s fills-only rule, the `--accent-dark`
