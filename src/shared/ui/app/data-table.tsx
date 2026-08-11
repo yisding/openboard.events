@@ -313,14 +313,19 @@ export function DataTable<Row>({
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
                 {enableSelection && (
-                  <th style={{ width: 38 }}>
-                    <input
-                      type="checkbox"
-                      aria-label="Select every row on this page"
-                      checked={table.getIsAllPageRowsSelected()}
-                      ref={(node) => { if (node) node.indeterminate = table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected(); }}
-                      onChange={table.getToggleAllPageRowsSelectedHandler()}
-                    />
+                  <th style={{ width: 44 }}>
+                    {/* `.checkbox-hit` carries the 44x44 touch target the bare
+                        14px control cannot — padding does not grow a native
+                        checkbox. The label toggles it with no extra handler. */}
+                    <label className="checkbox-hit">
+                      <input
+                        type="checkbox"
+                        aria-label="Select every row on this page"
+                        checked={table.getIsAllPageRowsSelected()}
+                        ref={(node) => { if (node) node.indeterminate = table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected(); }}
+                        onChange={table.getToggleAllPageRowsSelectedHandler()}
+                      />
+                    </label>
                   </th>
                 )}
                 {group.headers.map((header) => {
@@ -371,12 +376,14 @@ export function DataTable<Row>({
                 >
                   {enableSelection && (
                     <td onClick={(event) => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label="Select row"
-                        checked={row.getIsSelected()}
-                        onChange={row.getToggleSelectedHandler()}
-                      />
+                      <label className="checkbox-hit">
+                        <input
+                          type="checkbox"
+                          aria-label="Select row"
+                          checked={row.getIsSelected()}
+                          onChange={row.getToggleSelectedHandler()}
+                        />
+                      </label>
                     </td>
                   )}
                   {row.getVisibleCells().map((cell) => (

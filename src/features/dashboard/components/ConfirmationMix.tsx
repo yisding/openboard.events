@@ -3,9 +3,9 @@ import type { DashboardOverview } from "../index";
 import { DashboardEmpty, WidgetTitle } from "./TopSpeakersList";
 
 const items = [
-  { key: "confirmed", label: "Confirmed", color: "#00a878" },
-  { key: "unconfirmed", label: "Unconfirmed", color: "#d98324" },
-  { key: "declined", label: "Declined", color: "#c04b4b" },
+  { key: "confirmed", label: "Confirmed", color: "var(--accent)" },
+  { key: "unconfirmed", label: "Unconfirmed", color: "var(--amber)" },
+  { key: "declined", label: "Declined", color: "var(--red)" },
 ] as const;
 
 export function ConfirmationMix({ mix }: { mix: DashboardOverview["speakerTracking"]["confirmationMix"] }) {

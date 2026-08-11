@@ -130,7 +130,7 @@ export function AbstractsTable({
       enableSorting: false,
       sortingFn: nullsLast,
       cell: ({ row }) => row.original.trackName
-        ? <ColorChip label={row.original.trackName} color={row.original.trackColor} />
+        ? <ColorChip label={row.original.trackName} />
         : <Dash />,
     },
     {

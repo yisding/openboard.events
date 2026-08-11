@@ -81,13 +81,13 @@ is how the product feels like it knows where you are without any inference machi
 1. **Two densities, deliberately.** Admin surfaces are compact and information-dense — density
    *is* the operator aesthetic — while portal and public pages go generous: whitespace, large
    type, event imagery. The contrast makes each look intentional. This does not override
-   `design-system.md`'s open density issue: its 8px floor and the planned coordinated re-scale
+   `design-system.md`'s open density issue: its 10px floor and the planned coordinated re-scale
    stand; "compact" means tight layout, never sub-floor type.
 2. **One accent, spent only on action and status.** The accent goes to the primary action and
    the attention strip; status stays on the fixed semantic chip set (`color-chip` is the
    enforcement point). Scarce color is trusted color.
 3. **Hierarchy through the type ramp, not boxes.** No nested cards-in-cards; prefer the
-   fifteen-step size scale, whitespace grouping, and single hairline dividers. Dashboard
+   eleven-step size scale, whitespace grouping, and single hairline dividers. Dashboard
    numbers big, labels small and muted, no card chrome competing with content.
 4. **Motion only at meaningful transitions.** Slide-overs easing in, a count ticking on change,
    the acceptance-moment celebration — nothing else animates. CSS transitions only; the

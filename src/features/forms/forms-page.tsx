@@ -67,9 +67,9 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     />
     <section className="summary-row">
       <article><span className="summary-icon accent"><FileText size={19} /></span><div><strong>{forms.length}</strong><small>Total forms</small></div></article>
-      <article><span className="summary-icon green"><Send size={19} /></span><div><strong>{forms.filter((form) => form.status === "open").length}</strong><small>Currently open</small></div></article>
-      <article><span className="summary-icon blue"><Users size={19} /></span><div><strong>{totalSubmissions}</strong><small>Submissions</small></div></article>
-      <article><span className="summary-icon amber"><CalendarClock size={19} /></span><div><strong>{totalDrafts}</strong><small>Speaker drafts</small></div></article>
+      <article><span className="summary-icon"><Send size={19} /></span><div><strong>{forms.filter((form) => form.status === "open").length}</strong><small>Currently open</small></div></article>
+      <article><span className="summary-icon"><Users size={19} /></span><div><strong>{totalSubmissions}</strong><small>Submissions</small></div></article>
+      <article><span className="summary-icon"><CalendarClock size={19} /></span><div><strong>{totalDrafts}</strong><small>Speaker drafts</small></div></article>
     </section>
     <section className="panel list-panel">
       <div className="list-toolbar">

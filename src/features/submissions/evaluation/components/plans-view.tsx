@@ -115,7 +115,7 @@ export function PlansView({
         ? <span>All tracks</span>
         : <span className="chip-row">
             {row.original.trackIds.map((trackId) => (
-              <ColorChip key={trackId} label={trackName.get(trackId)?.name ?? "Unknown track"} color={trackName.get(trackId)?.color ?? null} />
+              <ColorChip key={trackId} label={trackName.get(trackId)?.name ?? "Unknown track"} />
             ))}
           </span>,
     },
