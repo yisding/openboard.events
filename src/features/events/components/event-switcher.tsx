@@ -8,6 +8,14 @@ import { eventDtoSchema, type EventDTO, type EventId } from "@/shared/contracts"
 import { api } from "@/shared/lib/api-client";
 import { formatInZone } from "@/shared/lib/time";
 
+type SwitcherEvent = {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+};
+
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   return (words[0]?.[0] ?? "?").toUpperCase() + (words[1]?.[0] ?? "").toUpperCase();
@@ -19,16 +27,25 @@ function initials(name: string): string {
  * the shell that eventually mounts this (M05a's sidebar slot) does not own
  * this feature's data fetching.
  */
-export function EventSwitcher({ eventId, initialEvent }: { eventId: EventId; initialEvent?: { name: string; detail: string } }) {
+export function EventSwitcher({
+  eventId,
+  initialEvent,
+  demoEvents,
+}: {
+  eventId: EventId;
+  initialEvent?: { name: string; detail: string };
+  demoEvents?: SwitcherEvent[];
+}) {
   const [open, setOpen] = useState(false);
-  const [events, setEvents] = useState<EventDTO[] | null>(null);
+  const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const events = demoEvents ?? remoteEvents;
 
   useEffect(() => {
-    if (!open || events) return;
-    void api("events", z.array(eventDtoSchema)).then(setEvents).catch(() => setEvents([]));
-  }, [open, events]);
+    if (demoEvents || !open || remoteEvents) return;
+    void api("events", z.array(eventDtoSchema)).then(setRemoteEvents).catch(() => setRemoteEvents([]));
+  }, [demoEvents, open, remoteEvents]);
 
   useEffect(() => {
     function onClickOutside(event: MouseEvent) {
@@ -86,12 +103,12 @@ export function EventSwitcher({ eventId, initialEvent }: { eventId: EventId; ini
             </Link>
           ))}
           <Link
-            href="/events/new"
+            href={demoEvents ? "/events" : "/events/new"}
             role="menuitem"
             onClick={() => setOpen(false)}
             style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textDecoration: "none" }}
           >
-            + Create event
+            {demoEvents ? "All events" : "+ Create event"}
           </Link>
         </div>
       )}

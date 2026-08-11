@@ -44,6 +44,9 @@ export function TaskDetailView({
   const [commentDraft, setCommentDraft] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
   const [recentUpload, setRecentUpload] = useState<UploadedMeta | null>(null);
+  const optimisticUpload = recentUpload && !task.uploads.some((upload) => upload.filename === recentUpload.filename)
+    ? recentUpload
+    : null;
 
   const backHref = `/portal/${encodeURIComponent(eventSlug)}/tasks`;
 
@@ -164,10 +167,10 @@ export function TaskDetailView({
           />
           {(recentUpload || task.uploads.length > 0) && (
             <ul className="portal-uploads" aria-live="polite">
-              {recentUpload && !task.uploads.some((upload) => upload.filename === recentUpload.filename) && (
+              {optimisticUpload && (
                 <li>
                   <Paperclip size={15} />
-                  <span>{recentUpload.filename}</span>
+                  <span>{optimisticUpload.filename}</span>
                   <em>Latest</em>
                 </li>
               )}
@@ -177,7 +180,7 @@ export function TaskDetailView({
                   <span>{upload.filename} <small>v{upload.version}</small></span>
                   <TzTime instant={upload.uploadedAt} tz={timezone} style="date" />
                   {/* Nothing is deleted; `isLatest` is server-derived (M52). */}
-                  {upload.isLatest && !recentUpload && <em>Latest</em>}
+                  {upload.isLatest && !optimisticUpload && <em>Latest</em>}
                 </li>
               ))}
             </ul>
