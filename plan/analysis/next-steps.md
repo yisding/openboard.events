@@ -9,15 +9,15 @@ implementation steps.
 
 The core server-backed paths are now present across CFP intake, review, speaker
 operations, portal tasks, agenda scheduling, public pages, embeds, and the
-organization CRM. The remaining work is concentrated in a small number of
-integration defects and deployment proofs:
+organization CRM. The upload handoff and CFP participant/draft implementation
+are complete on this branch; the remaining work is concentrated in deployment
+proofs and integration runs:
 
-- The public CFP wizard still submits only the primary participant. Co-speaker
-  entry and role persistence need to be completed.
-- Draft restoration works at the server boundary, but the speaker-facing resume
-  state needs a clear, deliberate UI path.
-- File presign → PUT → finalize completes, but the subsequent task attachment
-  request does not reliably refresh the task's visible upload state.
+- Upload attachment now returns the stored version and refreshes the task only
+  after attachment succeeds; a fresh R2-backed run remains.
+- The CFP wizard now supports repeatable co-speakers, scoped answers, saved
+  draft restoration, and role-aware review; close-date and deployed browser
+  verification remain.
 - The review, speaker-roster, and deliverables flows need a clean reset/reseed and
   redeployed run after their latest seed and UI changes.
 - Assisted agenda placement needs a two-tab stale-write proof; public surfaces
@@ -27,37 +27,25 @@ integration defects and deployment proofs:
 
 ## Ordered work queue
 
-### 1. Close the upload attachment loop
+### 1. Close the upload attachment loop — implementation complete; deployment proof next
 
 Owner: M25/M52 portal task runtime and deliverables owners.
 
-1. Reproduce the failure in `TaskDetailView.attach()` with a real file asset.
-2. Make the attachment request surface its HTTP error instead of silently
-   returning to the page.
-3. Refresh or replace the task detail data only after the attachment mutation
-   succeeds; show the new version, latest marker, and completion state immediately.
-4. Add a regression test for the complete sequence: presign, upload, finalize,
-   attach, reload, and organizer visibility.
-5. Run the existing speaker-content flow against a real R2 binding.
+1. Run the existing speaker-content flow against a real R2 binding.
+2. Confirm organizer inspection/download after the speaker attaches a file.
 
 Done when a speaker's first upload appears in the task detail without a manual
 reload, the organizer can inspect/download it, and a second upload displays both
 versions with exactly one marked latest.
 
-### 2. Finish participant and draft UX
+### 2. Finish participant and draft UX — implementation complete; boundary proof next
 
 Owner: M15, with M16/M17 contracts unchanged.
 
-1. Add repeatable co-speaker rows to the participant step: name/email, role, order,
-   and primary-participant semantics.
-2. Validate duplicate emails, missing names, and the single-primary invariant in
-   the browser and on the server.
-3. Keep participant answer normalization in the existing submit pipeline; do not
-   add a second participant write path.
-4. Make the saved-draft state explicit: show when the draft was last saved and
-   offer a clear resume path after the speaker authenticates again.
-5. Cover close-date behavior for both draft saves and edits, including the exact
+1. Cover close-date behavior for both draft saves and edits, including the exact
    deadline boundary.
+2. Run the authenticated browser flow against the deployed form and verify a
+   restored co-speaker appears with its role and answers.
 
 Done when a proposal with a co-speaker survives reload, appears with role labels
 in organizer review, and a speaker can leave and return to an unmistakable saved
@@ -139,8 +127,8 @@ scoped, and a merge can be investigated from its audit record.
 The critical path is:
 
 ```text
-upload attach fix
-  → clean seed/redeploy
+implemented upload attach + participant/draft flows
+  → clean seed/redeploy and deployed proof
   → review + roster + deliverables runs
   → agenda/public verification
   → operational tails
@@ -156,8 +144,8 @@ publication-query, task-assignment, and CAS boundaries.
 
 - [ ] Current `main` deployed with all pending migrations.
 - [ ] Fresh `sb-test` reset/reseed is repeatable.
-- [ ] CFP co-speaker and draft-resume flows complete.
-- [ ] File attachment and versioning flow completes across speaker and organizer.
+- [x] CFP co-speaker and draft-resume implementation is complete; deployed proof remains.
+- [x] File attachment and versioning implementation is complete; fresh R2 proof remains.
 - [ ] Review, roster, and deliverables flows pass from the fresh seed.
 - [ ] Agenda conflict, assisted placement, and stale-write checks pass.
 - [ ] Five public surfaces and embeds pass phone/keyboard/cross-origin checks.
