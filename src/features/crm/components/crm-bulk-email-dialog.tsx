@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { composeCrmBulkEmailResultSchema, type ComposeCrmBulkEmailResult, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -47,13 +48,14 @@ export function CrmBulkEmailDialog({
   const [previewResult, setPreviewResult] = useState<ComposeCrmBulkEmailResult["preview"]>(null);
   const [busyPreview, setBusyPreview] = useState(false);
   const [busySend, setBusySend] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<ComposeCrmBulkEmailResult | null>(null);
 
   const ready = subject.trim().length > 0 && bodyHtml.trim().length > 0;
 
   function reset() {
-    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null);
+    setSubject(""); setBodyHtml(""); setPreviewResult(null); setSendResult(null); setError(null); setConfirmSend(false);
   }
 
   async function runPreview() {
@@ -73,7 +75,7 @@ export function CrmBulkEmailDialog({
     }
   }
 
-  async function runSend() {
+  async function runSend(): Promise<boolean> {
     setBusySend(true);
     setError(null);
     try {
@@ -84,14 +86,17 @@ export function CrmBulkEmailDialog({
       setSendResult(result);
       toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
       router.refresh();
+      return true;
     } catch (caught) {
       setError(isAppError(caught) ? caught.message : "That did not go through");
+      return false;
     } finally {
       setBusySend(false);
     }
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={() => { reset(); onClose(); }}
@@ -103,7 +108,7 @@ export function CrmBulkEmailDialog({
       ) : (
         <>
           <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-          <Button disabled={!ready || busySend} onClick={() => void runSend()}>{busySend ? "Sending…" : `Send to ${recipients.length}`}</Button>
+          <Button disabled={!ready || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${recipients.length}`}</Button>
         </>
       )}
     >
@@ -160,5 +165,14 @@ export function CrmBulkEmailDialog({
         </div>
       )}
     </Modal>
+    <ConfirmDialog
+      open={confirmSend}
+      title={`Send this message to ${recipients.length} contact${recipients.length === 1 ? "" : "s"}?`}
+      body="This queues one email per contact through their most recently linked event. Contacts without an event link, plus suppressed or unsubscribed addresses, are skipped."
+      confirmLabel={`Send to ${recipients.length}`}
+      onConfirm={async () => { if (await runSend()) setConfirmSend(false); }}
+      onCancel={() => setConfirmSend(false)}
+    />
+    </>
   );
 }

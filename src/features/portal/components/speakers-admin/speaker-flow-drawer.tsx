@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ContactListRow, SpeakerDetailDTO } from "@/features/portal";
+import { participantRoleLabel } from "../../lib/participant-role";
 import { SendReminderDialog } from "@/features/comms/components/send-reminder-dialog";
 import { eventIdSchema } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
@@ -68,7 +69,7 @@ export function SpeakerFlowDrawer({
         open
         onClose={onClose}
         title={row.name}
-        {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+        {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={row.name} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
       >
         <div className="submission-drawer">
           <header className="drawer-hero">
@@ -116,7 +117,7 @@ export function SpeakerFlowDrawer({
               {detail?.submissions.map((submission) => (
                 <Link key={submission.submissionId} className="mini-session" href={`/events/${eventId}/abstracts?submission=${submission.submissionId}`}>
                   <span>SESS-{submission.code}</span>
-                  <b>{submission.title}{submission.isPrimary ? "" : " (co-speaker)"}</b>
+                  <b>{submission.title}{submission.isPrimary ? "" : ` (${participantRoleLabel(submission.role)})`}</b>
                   <StatusBadge value={submission.portalStatus} />
                 </Link>
               ))}

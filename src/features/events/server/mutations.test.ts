@@ -8,7 +8,7 @@ import { DEFAULT_ORGANIZATION_ID, organizationIdSchema, userIdSchema, type Event
 import { isAppError } from "@/shared/lib/errors";
 import { createEventIn, updateEventIn } from "./mutations";
 import { getEventIn, listVocabIn } from "./queries";
-import { deleteVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
+import { deleteVocabItemIn, patchVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 // M50 added `reviewer_invited`/`review_reminder` to `template_key`, which
@@ -231,6 +231,12 @@ describe("database-backed event mutations", () => {
     await saveVocabItemIn(database, event.id, "tracks", { id: first.id, name: "AI Agents (renamed)", color: "#123456" });
     const afterUpdate = await listVocabIn(database, event.id, "tracks");
     expect(afterUpdate.find((track) => track.id === first.id)?.name).toBe("AI Agents (renamed)");
+
+    // PATCH is genuinely partial: editing another inline field never has to
+    // restate (and potentially revert) the latest name.
+    await patchVocabItemIn(database, event.id, "tracks", first.id, { color: "#abcdef" });
+    const afterPartialUpdate = await listVocabIn(database, event.id, "tracks");
+    expect(afterPartialUpdate.find((track) => track.id === first.id)).toMatchObject({ name: "AI Agents (renamed)", color: "#abcdef" });
 
     // Reorder to [third, first, second] and confirm it sticks.
     await reorderVocabIn(database, event.id, "tracks", [third.id, first.id, second.id]);

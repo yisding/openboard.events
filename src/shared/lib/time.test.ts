@@ -22,6 +22,7 @@ describe("event timezone API", () => {
   it.each(["Pacific/Auckland", "Pacific/Kiritimati"])("keeps a day key on the same calendar date in %s", (timeZone) => {
     const rendered = formatDayKeyInZone("2026-09-15", timeZone, { weekday: "short", month: "short", day: "numeric" });
     expect(rendered).toContain("Tue, Sep 15");
+    expect(rendered).not.toMatch(/\b(?:PDT|PST|GMT|UTC)\b/);
     expect(rendered).not.toContain("Sep 16");
   });
 

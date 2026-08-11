@@ -21,6 +21,9 @@ export function DateTimePicker({
   clearable = true,
   id,
   disabled = false,
+  required = false,
+  invalid = false,
+  ariaDescribedBy,
 }: {
   value: string | null;
   onChange: (next: string | null) => void;
@@ -29,6 +32,9 @@ export function DateTimePicker({
   clearable?: boolean;
   id?: string;
   disabled?: boolean;
+  required?: boolean;
+  invalid?: boolean;
+  ariaDescribedBy?: string;
 }) {
   const dateISO = value ? eventDayKey(value, tz) : "";
   const { hour, minute } = value ? hourMinuteInZone(value, tz) : { hour: 0, minute: 0 };
@@ -53,6 +59,9 @@ export function DateTimePicker({
         type={mode === "date" ? "date" : "datetime-local"}
         value={localValue}
         disabled={disabled}
+        required={required}
+        aria-invalid={invalid || undefined}
+        aria-describedby={ariaDescribedBy}
         onChange={(event) => emit(event.target.value)}
       />
       {/* The zone label is not decoration: without it the field is ambiguous. */}

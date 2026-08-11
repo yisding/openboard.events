@@ -162,6 +162,11 @@ export const composeBulkSpeakerEmailInputSchema = z.object({
   // nothing; "send" enqueues one email per selected contact.
   mode: z.enum(["preview", "send"]),
   previewContactId: contactIdSchema.optional(),
+  // A segmented send spans several bounded requests. Reusing one caller-
+  // generated id across those requests and any retry makes every recipient
+  // idempotent even when the browser cannot tell whether a failed request
+  // committed before its connection dropped.
+  sendId: z.uuid().optional(),
 });
 export type ComposeBulkSpeakerEmailInput = z.infer<typeof composeBulkSpeakerEmailInputSchema>;
 

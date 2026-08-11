@@ -1234,6 +1234,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .speaker-gallery article.featured .speaker-portrait{height:165px}
 }
 
+.communications-tabs button{min-height:44px;display:inline-flex;align-items:center;gap:6px}
+.communications-tabs button span{min-width:18px;padding:2px 5px;border-radius:8px;background:var(--fill-strong);font-size:10px;text-align:center}
+.communications-tabs button.active span{background:var(--accent-soft)}
+
+@media(max-width:860px){
+  .admin-sidebar:not(.open){overflow:hidden}
+}
+
 @media(max-width:650px){
   .data-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:10px;overflow:visible}
   .data-toolbar .table-search{flex:1 0 100%;width:100%}
@@ -1270,6 +1278,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .comms-table th:nth-child(4){width:68px}
   .comms-table th:last-child{width:48px}
   .comms-table td{min-width:0;overflow:hidden}
+  .comms-table .submission-title-cell{min-width:0;width:100%;max-width:none}
   .comms-table .recipient-cell>span{display:none}
   .comms-table .recipient-cell>b,.comms-table .submission-title-cell b,.comms-table .submission-title-cell span{overflow:hidden;text-overflow:ellipsis}
   .comms-table .submission-title-cell b,.comms-table .submission-title-cell span{white-space:nowrap}

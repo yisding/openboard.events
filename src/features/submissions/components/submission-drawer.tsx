@@ -64,7 +64,7 @@ export function SubmissionDrawer({
   canEdit?: boolean;
   onClose: () => void;
   /** M57 — keyboard/click next-prev across the table's current rows. */
-  nav?: { index: number; total: number; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
+  nav?: { index: number; total: number; itemLabel?: string | undefined; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -192,7 +192,7 @@ export function SubmissionDrawer({
       open
       onClose={onClose}
       title={detail ? formatCode(detail.code) : "Submission"}
-      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={nav.itemLabel} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
       {error && <p className="portal-note" role="alert">{error}</p>}
       {!detail && !error && <p className="portal-note">Loading…</p>}

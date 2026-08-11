@@ -25,9 +25,10 @@ import {
 import { useMemo, useRef, useState } from "react";
 import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contracts";
 import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
@@ -62,6 +63,10 @@ const addableTypes: Array<{ type: (typeof COMMITTED_FIELD_TYPES)[number]; label:
   { type: "file", label: "File upload", description: "PDF, slides, or document" },
 ];
 
+export function withRequiredSpeakerRole(roles: BuilderForm["participantRoles"]): BuilderForm["participantRoles"] {
+  return roles.map((role) => role.role === "speaker" && !role.enabled ? { ...role, enabled: true } : role);
+}
+
 async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   const payload = await response.json() as { data?: T; error?: { message?: string } };
@@ -87,6 +92,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [newLabel, setNewLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
@@ -126,7 +132,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function run(action: () => Promise<BuilderForm>, success: string, savedTargets: BuilderDirtyTarget[] = []) {
-    if (busy) return;
+    if (busy) return false;
     const savedRevisions = new Map(savedTargets.map((target) => [target, dirtyRevisions.current.get(target)]));
     setBusy(true);
     try {
@@ -139,8 +145,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       setDirty(remaining.size > 0);
       toast(success);
       router.refresh();
+      return true;
     } catch (error) {
       toast(error instanceof Error ? error.message : "The form could not be saved", { kind: "error" });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -156,7 +164,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       if (!section) return;
       await run(async () => {
         let current = form;
-        if (step === "participant") current = await patchForm({ participantRoles: form.participantRoles }, current);
+        if (step === "participant") current = await patchForm({ participantRoles: withRequiredSpeakerRole(form.participantRoles) }, current);
         return requestData(`/api/internal/forms/${form.id}/sections/${section.id}?eventId=${event.id}`, json("PATCH", {
           expectedUpdatedAt: current.updatedAt,
           patch: { title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml },
@@ -224,8 +232,11 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function deleteField(field: BuilderField) {
-    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("DELETE", { expectedUpdatedAt: form.updatedAt })), "Question removed", [`field:${field.id}`]);
-    setSelected(null);
+    const deleted = await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("DELETE", { expectedUpdatedAt: form.updatedAt })), "Question removed", [`field:${field.id}`]);
+    if (deleted) {
+      setSelected(null);
+      setPendingDelete(null);
+    }
   }
 
   async function moveField(section: BuilderSection, fieldId: string, delta: -1 | 1) {
@@ -268,18 +279,26 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
         <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </main>
-      <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => void deleteField(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
+      <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
     <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    <ConfirmDialog
+      open={pendingDelete !== null}
+      title={pendingDelete ? `Delete “${pendingDelete.label}”?` : "Delete question?"}
+      body="This question and its draft configuration will be permanently removed."
+      confirmLabel="Delete question"
+      onConfirm={async () => { if (pendingDelete) await deleteField(pendingDelete); }}
+      onCancel={() => setPendingDelete(null)}
+    />
   </div>;
 }
 
 function SetupStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
-  return <section className="builder-step"><header><div className="step-number">1</div><div><h2>Submission setup</h2><p>Choose the submission type and whether to collect participant details.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="Submission type" group><div className="choice-cards"><button disabled={form.hasNonDraftSubmissions} className={form.kind === "abstract" ? "active" : ""} onClick={() => onChange({ kind: "abstract" })}><FileText size={20} /><b>Abstracts</b><small>Proposals reviewed before scheduling</small></button><button disabled={form.hasNonDraftSubmissions} className={form.kind === "session" ? "active" : ""} onClick={() => onChange({ kind: "session" })}><Users size={20} /><b>Sessions</b><small>Complete session submissions</small></button></div></Field><div className="inline-setting"><div><b>Collect participant information</b><small>Speaker identity fields remain protected.</small></div><button disabled={form.hasNonDraftSubmissions} className={`switch ${form.collectParticipants ? "on" : ""}`} onClick={() => onChange({ collectParticipants: !form.collectParticipants })}><i /></button></div><div className="setting-note"><FileText size={18} /><div><b>No payments step</b><p>Payments are outside this form’s scope.</p></div></div></div></section>;
+  return <section className="builder-step"><header><div className="step-number">1</div><div><h2>Submission setup</h2><p>Choose the submission type and whether to collect participant details.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="Submission type" group><div className="choice-cards"><button disabled={form.hasNonDraftSubmissions} className={form.kind === "abstract" ? "active" : ""} onClick={() => onChange({ kind: "abstract" })}><FileText size={20} /><b>Abstracts</b><small>Proposals reviewed before scheduling</small></button><button disabled={form.hasNonDraftSubmissions} className={form.kind === "session" ? "active" : ""} onClick={() => onChange({ kind: "session" })}><Users size={20} /><b>Sessions</b><small>Complete session submissions</small></button></div></Field><div className="inline-setting"><div><b>Collect participant information</b><small>Speaker identity fields remain protected.</small></div><Switch label="Collect participant information" checked={form.collectParticipants} disabled={form.hasNonDraftSubmissions} onClick={() => onChange({ collectParticipants: !form.collectParticipants })} /></div><div className="setting-note"><FileText size={18} /><div><b>No payments step</b><p>Payments are outside this form’s scope.</p></div></div></div></section>;
 }
 
 function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
-  return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome screen</h2><p>Set the public title, heading, and opening message.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="External form title" required hint={`${form.externalTitle.length}/255`}><input maxLength={255} value={form.externalTitle} onChange={(current) => onChange({ externalTitle: current.target.value })} /></Field><Field label="Page heading" required hint={`${form.pageHeading.length}/15`}><input maxLength={15} value={form.pageHeading} onChange={(current) => onChange({ pageHeading: current.target.value })} /></Field><div className="inline-setting"><div><b>Show welcome message</b><small>Speakers see this before starting.</small></div><button className={`switch ${form.showWelcome ? "on" : ""}`} onClick={() => onChange({ showWelcome: !form.showWelcome })}><i /></button></div>{form.showWelcome && <Field label="Welcome message"><RichTextEditor value={form.welcomeHtml} onChange={(welcomeHtml) => onChange({ welcomeHtml })} maxChars={5000} /></Field>}</div></section>;
+  return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome screen</h2><p>Set the public title, heading, and opening message.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="External form title" required hint={`${form.externalTitle.length}/255`}><input maxLength={255} value={form.externalTitle} onChange={(current) => onChange({ externalTitle: current.target.value })} /></Field><Field label="Page heading" required hint={`${form.pageHeading.length}/15`}><input maxLength={15} value={form.pageHeading} onChange={(current) => onChange({ pageHeading: current.target.value })} /></Field><div className="inline-setting"><div><b>Show welcome message</b><small>Speakers see this before starting.</small></div><Switch label="Show welcome message" checked={form.showWelcome} onClick={() => onChange({ showWelcome: !form.showWelcome })} /></div>{form.showWelcome && <Field label="Welcome message"><RichTextEditor value={form.welcomeHtml} onChange={(welcomeHtml) => onChange({ welcomeHtml })} maxChars={5000} /></Field>}</div></section>;
 }
 
 function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void }) {
@@ -290,8 +309,14 @@ function FieldsStep({ section, participant, form, selected, onSelect, onSectionC
   {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
 }
 
-function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
-  return <div className="builder-card"><h3>Participant roles</h3><div className="toggle-list">{form.participantRoles.map((role) => <div key={role.role}><div><b>{role.role.replaceAll("_", "-")}</b><p>Allow this role on submitted proposals.</p></div><button className={`switch ${role.enabled ? "on" : ""}`} onClick={() => onChange({ participantRoles: form.participantRoles.map((candidate) => candidate.role === role.role ? { ...candidate, enabled: !candidate.enabled } : candidate) })}><i /></button></div>)}</div></div>;
+export function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {
+  return <div className="builder-card"><h3>Participant roles</h3><div className="toggle-list">{form.participantRoles.map((role) => {
+    const label = role.role.replaceAll("_", "-");
+    if (role.role === "speaker") {
+      return <div key={role.role}><div><b>{label}</b><p>The primary speaker is always required.</p></div><span className="switch on" aria-hidden="true"><i /></span></div>;
+    }
+    return <div key={role.role}><div><b>{label}</b><p>Allow this role on submitted proposals.</p></div><Switch label={`Allow ${label} role`} checked={role.enabled} onClick={() => onChange({ participantRoles: withRequiredSpeakerRole(form.participantRoles.map((candidate) => candidate.role === role.role ? { ...candidate, enabled: !candidate.enabled } : candidate)) })} /></div>;
+  })}</div></div>;
 }
 
 function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { field: BuilderField; form: BuilderForm; onChange: (patch: Partial<BuilderField>) => void; onSave: () => void; onDelete: () => void; busy: boolean }) {
@@ -305,7 +330,7 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
     <Field label="Response type"><select disabled={field.locked || lockedStructure} value={field.fieldType} onChange={(current) => onChange({ fieldType: current.target.value as FieldType })}>{addableTypes.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}</select></Field>
     <Field label="Help text"><textarea value={field.helpText} onChange={(current) => onChange({ helpText: current.target.value })} /></Field>
     {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
-    <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><button disabled={field.locked || lockedStructure} className={`switch ${field.required ? "on" : ""}`} onClick={() => onChange({ required: !field.required })}><i /></button></div>
+    <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><Switch label={`Require ${field.label}`} checked={field.required} disabled={field.locked || lockedStructure} onClick={() => onChange({ required: !field.required })} /></div>
     <Field label="Blind review" hint={field.locked ? "Locked identity fields are always hidden from anonymized reviewers." : "Anonymized rounds show only the answers marked as proposal content. Anything left as identity is withheld."}><select disabled={field.locked} value={field.reviewVisibility} onChange={(current) => onChange({ reviewVisibility: current.target.value as ReviewVisibility })}><option value="identity">Identity — hide from anonymized reviewers</option><option value="content">Proposal content — show to anonymized reviewers</option></select></Field>
     {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
     {!field.locked && <Field label="Maps to"><select disabled={lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}><option value="">No system mapping</option>{MAPS_TO_TARGETS.map((target) => <option key={target} value={target}>{target}</option>)}</select></Field>}

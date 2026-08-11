@@ -8,6 +8,7 @@ import type { ContactFilters, ContactListRow } from "@/features/portal";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
@@ -87,17 +88,19 @@ export function SpeakersAdminView({
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [confirmReminders, setConfirmReminders] = useState(false);
   const [reminding, setReminding] = useState(false);
   // M57 — the row a click opens: a flow-through slide-over over this page's
   // rows, not a navigation. The full editable profile is one click further,
   // from inside the drawer.
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const rowIds = useMemo(() => rows.map((row) => row.contactId as string), [rows]);
+  const reminderTargetCount = selected.filter((row) => row.openTasks > 0).length;
   useFlowKeyboardNav({ ids: rowIds, activeId: openContactId, onNavigate: setOpenContactId, onClose: () => setOpenContactId(null) });
   const openIndex = openContactId ? rowIds.indexOf(openContactId) : -1;
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
 
-  async function bulkRemind() {
+  async function bulkRemind(): Promise<boolean> {
     // Reuses M52's generic bulk-reminder mutation (`sendRemindersNow` behind
     // `/api/internal/deliverables/remind`) — it operates on any
     // (taskId, contactId, submissionId) triple from `task_assignments_v`,
@@ -106,7 +109,7 @@ export function SpeakersAdminView({
     const targets = selected.filter((row) => row.openTasks > 0);
     if (targets.length === 0) {
       toast("Nothing to remind — every selected speaker is caught up");
-      return;
+      return false;
     }
     setReminding(true);
     try {
@@ -119,7 +122,7 @@ export function SpeakersAdminView({
       const flatTargets = perSpeaker.flat();
       if (flatTargets.length === 0) {
         toast("Nothing to remind — every selected speaker is caught up");
-        return;
+        return false;
       }
       const response = await fetch(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
@@ -129,13 +132,15 @@ export function SpeakersAdminView({
       const payload = await response.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
       if (!response.ok || !payload?.data) {
         toast("Could not send reminders — try again", { kind: "error" });
-        return;
+        return false;
       }
       toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} assignment${payload.data.total === 1 ? "" : "s"}`);
       setSelected([]);
       setSelectionEpoch((epoch) => epoch + 1);
+      return true;
     } catch {
       toast("Could not load or send reminders — try again", { kind: "error" });
+      return false;
     } finally {
       setReminding(false);
     }
@@ -219,7 +224,7 @@ export function SpeakersAdminView({
         onClear={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         actions={<>
           <Button size="sm" onClick={() => setBulkEmailOpen(true)}><Mail size={14} /> Email selected</Button>
-          <Button size="sm" variant="secondary" disabled={reminding} onClick={() => void bulkRemind()}>
+          <Button size="sm" variant="secondary" disabled={reminding || reminderTargetCount === 0} onClick={() => setConfirmReminders(true)}>
             <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
           </Button>
         </>}
@@ -311,6 +316,14 @@ export function SpeakersAdminView({
           }}
         />
       )}
+      <ConfirmDialog
+        open={confirmReminders}
+        title={`Send reminders to ${reminderTargetCount} speaker${reminderTargetCount === 1 ? "" : "s"}?`}
+        body="This immediately queues a reminder for every open assignment belonging to the selected speakers. Suppression and current task state are rechecked before delivery."
+        confirmLabel="Queue reminders"
+        onConfirm={async () => { if (await bulkRemind()) setConfirmReminders(false); }}
+        onCancel={() => setConfirmReminders(false)}
+      />
     </main>
   );
 }

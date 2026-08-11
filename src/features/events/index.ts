@@ -18,12 +18,14 @@ export {
   VOCAB_LABELS,
   vocabInputSchemaFor,
   vocabItemInputSchema,
+  vocabItemPatchSchema,
   vocabKindSchema,
   type CreateEventInput,
   type EventType,
   type UpdateEventInput,
   type VocabInput,
   type VocabKind,
+  type VocabPatch,
 } from "./schemas";
 
 export {
@@ -54,6 +56,8 @@ export {
   deleteVocabItemIn,
   reorderVocab,
   reorderVocabIn,
+  patchVocabItem,
+  patchVocabItemIn,
   saveVocabItem,
   saveVocabItemIn,
   updateEvent,

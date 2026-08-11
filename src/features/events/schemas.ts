@@ -107,10 +107,10 @@ export const tagInputSchema = z.object({
 });
 
 /**
- * The route-level shape: a superset of every kind's fields, all optional
- * except `name`. `saveVocabItemIn` re-validates strictly against the
- * kind-specific schema above before it touches the database, the same
- * two-layer split the form builder uses for its field patches.
+ * The create route shape: a superset of every kind's fields, with `name`
+ * required. The PATCH variant below makes those fields optional, and both
+ * server mutations re-validate against the kind-specific schema before they
+ * touch the database.
  */
 export const vocabItemInputSchema = z.object({
   id: z.uuid().optional(),
@@ -121,6 +121,12 @@ export const vocabItemInputSchema = z.object({
   defaultDurationMins: z.int().min(5).max(600).optional(),
 });
 export type VocabInput = z.infer<typeof vocabItemInputSchema>;
+
+export const vocabItemPatchSchema = vocabItemInputSchema
+  .omit({ id: true })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, "At least one field is required");
+export type VocabPatch = z.infer<typeof vocabItemPatchSchema>;
 
 export const reorderVocabBodySchema = z.object({
   orderedIds: z.array(z.uuid()).min(1),
@@ -133,6 +139,11 @@ export function vocabInputSchemaFor(kind: VocabKind) {
     case "formats": return formatInputSchema;
     case "tags": return tagInputSchema;
   }
+}
+
+export function vocabPatchSchemaFor(kind: VocabKind) {
+  const fields = vocabInputSchemaFor(kind).omit({ id: true }).partial();
+  return fields.refine((patch) => Object.keys(patch).length > 0, "At least one field is required");
 }
 
 export const VOCAB_LABELS: Record<VocabKind, string> = {

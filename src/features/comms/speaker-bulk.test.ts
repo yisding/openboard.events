@@ -166,4 +166,28 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     expect(stored.rows[0]?.body_html).not.toContain("<script>");
     expect(stored.rows[0]?.body_html).toContain("ok");
   });
+
+  it("deduplicates a retried send when the caller reuses its send id", async () => {
+    const sendId = "91000000-0000-4000-8000-000000000001";
+    const input = {
+      contactIds: [ada],
+      subject: "Retry-safe update",
+      bodyHtml: "<p>Hello {{speaker.first_name}}</p>",
+      mode: "send" as const,
+      sendId,
+    };
+
+    await composeBulkSpeakerEmailIn(tx, eventId, input);
+    await composeBulkSpeakerEmailIn(tx, eventId, input);
+
+    const idempotencyKey = `${eventId}:speaker_bulk:${ada}:${sendId}`;
+    const logs = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey],
+    );
+    const messages = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM speaker_bulk_messages WHERE idempotency_key=$1", [idempotencyKey],
+    );
+    expect(logs.rows[0]?.n).toBe(1);
+    expect(messages.rows[0]?.n).toBe(1);
+  });
 });

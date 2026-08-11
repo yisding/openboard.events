@@ -12,6 +12,8 @@ import { getEventIn } from "./queries";
 export {
   deleteVocabItem,
   deleteVocabItemIn,
+  patchVocabItem,
+  patchVocabItemIn,
   reorderVocab,
   reorderVocabIn,
   saveVocabItem,
