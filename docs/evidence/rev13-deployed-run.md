@@ -646,3 +646,273 @@ why 4/5/3 land where they do once the seeded Round 1 scores are averaged in.
    M50, M51 and M52 have not yet gone green end-to-end — Findings 1 and the item above — so if the
    next run does not close them, the honest move is to send those three gates back to `false`
    *together with* the steps they gate, per the file's own rule.
+
+---
+
+## 10. S4 redo — completed after secrets install
+
+Executed **Mon Aug 10, 2026, 19:19–19:23 PDT (2026-08-11T02:19:38Z–2026-08-11T02:23:30Z)** against
+the same live preview (`sb-web-preview.yi-ding.workers.dev`, `/api/health` now reports
+`sha: a534665, env: preview`) and the same Neon `sb-test` branch, after the owner installed
+`ADMIN_AUTH_PROVIDER=better-auth` and the `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+`BETTER_AUTH_URL` worker secrets that §2/§9 of this document recorded as the blocking owner
+action. **No secret value is recorded anywhere below** — only status codes, header/body shapes and
+non-secret database columns. `wrangler.jsonc`'s `vars` block still carries none of these four keys
+in plaintext (`grep` for them returns nothing), confirming they were installed as worker secrets,
+not committed.
+
+Environment for every command below:
+
+```bash
+set -a; . .dev.vars; set +a
+export NEON_TEST_URL="$(neon connection-string sb-test --project-id ancient-truth-16438557)"
+export BASE=https://sb-web-preview.yi-ding.workers.dev
+```
+
+`psql` is not installed on this box; SQL below went through a five-line `@neondatabase/serverless`
+tagged-query script (`sql.query(text)`, one call per line printed pipe-delimited) run via
+`node <script>.mjs "<sql>"` with `NEON_TEST_URL` in the environment — functionally the same as the
+prior run's `psql -At -F' | '`, just without a local `psql` binary. The script was scratch, lived
+only for this run, and was deleted before finishing (see the close-out note at the end of this
+section).
+
+### 10.0. Endpoint discovery (before guessing anything)
+
+Read `src/features/auth/server/better-auth.ts` and `src/app/api/auth/[...action]/route.ts` first,
+per instruction. What they establish, load-bearing for everything below:
+
+- `basePath: "/api/auth"`, `cookiePrefix: "openboard_admin"` (`better-auth.ts:83,100`) — so the
+  session cookie is `__Secure-openboard_admin.session_token` once `useSecureCookies` is true
+  (`APP_ENV !== "local"`, true on the preview).
+- The catch-all route keeps two **stable, provider-agnostic** shapes on top of native Better Auth:
+  `POST /api/auth/sign-in` (`{email,password}` → `{data:{signedIn:true}}` or 401) and
+  `POST /api/auth/sign-out`. Everything else falls through to Better Auth's own handler when
+  `ADMIN_AUTH_PROVIDER=better-auth`, native path names unchanged: `POST /sign-in/email`,
+  `POST /sign-in/social`, `GET /callback/:provider`, `GET|POST /get-session`.
+  `THROTTLED_BETTER_AUTH_PATHS = {"sign-in/email"}` is the one native path the app wraps with its
+  own throttle (`route.ts:42`), because a client posting straight to it would otherwise skip
+  `admin_login_attempts` entirely.
+- M44's session-management surface is **not** part of the `/api/auth/**` catch-all — it is
+  `src/app/api/internal/me/sessions/**`: `GET /api/internal/me/sessions` (list, self only),
+  `DELETE /api/internal/me/sessions/{sessionId}` (revoke one, scoped to the caller's own `userId`
+  so a guessed id from someone else 404s), `POST /api/internal/me/sessions/revoke-all` (sign out
+  everywhere). All three sit behind `authenticatedAuth()`, i.e. they need a live session to call at
+  all — `src/features/auth/server/sessions.ts`.
+- Google's own client id and the exact `redirect_uri` Better Auth will send are computed at request
+  time inside `signInSocial`, not stored anywhere readable in this repo — the only way to see them
+  is to make the deployed call, which §10.4 does.
+
+### 10.1. The blocking fact from §2a no longer holds
+
+```
+2026-08-11T02:20:19Z
+GET  /api/auth/get-session      200   (was 404)
+GET  /api/auth/sign-in/email    404   (expected — that path is POST-only; see 10.4's proof this isn't the old wrapper 404)
+GET  /api/auth/callback/google  302   (was 404)
+GET  /api/auth/sign-in/social   404   (expected — POST-only, same reason)
+POST /api/auth/sign-in/email {}  →  400 {"message":"[body.email] Invalid input; [body.password] Invalid input","code":"VALIDATION_ERROR"}
+```
+
+The last line is the tell: the old boundary answered every native path with this app's own
+`{"error":{"code":"NOT_FOUND"}}` 404 wrapper regardless of body. A `VALIDATION_ERROR` for a bad body
+is Better Auth's **own** Zod-shaped error, reachable only once `ADMIN_AUTH_PROVIDER=better-auth` is
+actually selected. The two "expected 404"s above are a routing fact (GET on a POST-only endpoint),
+not the old boundary — confirmed by every other GET (`get-session`, `callback/google`) now returning
+Better Auth's real response instead of the fallback 404.
+
+### 10.2. Credentials had to be (re)created — `pnpm admin:bootstrap` against `sb-test`
+
+Same as §2b: the suite's own `--wipe` clears `users.password_hash` by design, and this run's earlier
+probes had already found `admin_accounts` empty. Bootstrapped the same fixed-email fixtures the rest
+of this document already depends on (`organizer@openboard.dev`, `reviewer@openboard.dev`) rather than
+minting a throwaway account — the code's supported path (`scripts/bootstrap-admin.ts`) only knows
+those two addresses, and `TEST_AUTH`/the e2e suite already assume they exist. No new user id was
+created that needs deleting.
+
+```
+2026-08-11T02:21:05Z
+DATABASE_URL="$NEON_TEST_URL" BOOTSTRAP_EVENT_ID=9677e5d3-ccfc-5270-9b22-e551f8b4c57d \
+  BOOTSTRAP_ADMIN_PASSWORD=<redacted, 20 chars, random> BOOTSTRAP_REVIEWER_PASSWORD=<redacted, 20 chars, random> \
+  pnpm admin:bootstrap
+→ Admin bootstrap complete for event 9677e5d3-ccfc-5270-9b22-e551f8b4c57d
+```
+
+`2026-08-11T02:21:18Z`, pre-sign-in read-back — legacy hash on both sides, the exact precondition
+AC 1's rehash needs:
+
+| email | `users.password_hash` prefix | `admin_accounts.provider_id` | `admin_accounts.password` prefix |
+|---|---|---|---|
+| organizer@openboard.dev | `pbkdf2-sha256$10…` | `credential` | `pbkdf2-sha256$10…` |
+| reviewer@openboard.dev | `pbkdf2-sha256$10…` | `credential` | `pbkdf2-sha256$10…` |
+
+(`10…` is `100000$…` truncated by the 16-char prefix; `PBKDF2_ITERATIONS = 100_000` in both
+`admin-password.ts` and `fallback-session.ts`, confirmed by reading both files — the work factor is
+unchanged across schemes, only the salt size and the scheme tag differ, per `admin-password.ts`'s own
+header comment.)
+
+### 10.3. Proof 1 — deployed email+password round-trip (PASS)
+
+```
+2026-08-11T02:21:25Z
+POST /api/auth/sign-in  (wrong password)  → 401 {"error":{"code":"UNAUTHORIZED","message":"Invalid email or password"}}
+POST /api/auth/sign-in  (real credential) → 200 {"data":{"signedIn":true}}
+  Set-Cookie: __Secure-openboard_admin.session_token=…; Max-Age=604800; Secure; HttpOnly (Better Auth's own cookie, cookiePrefix "openboard_admin" — confirms §10.0's prediction, not the fallback's `ob_admin`)
+
+2026-08-11T02:21:35Z
+GET  /api/internal/submissions/9677e5d3-…/counts  with the cookie → 200 {"data":{"all":21,"draft":2,"pending":10,"accept_queue":2,"decline_queue":1,"accepted":3,"declined":2,"withdrawn":1}}
+GET  the same route with no cookie                → 401 {"error":{"code":"UNAUTHORIZED","message":"Sign in required"}}
+GET  /api/auth/get-session  with the cookie        → 200 {"session":{"id":"b9f00adf-f2a7-452b-949a-8b38827671e1","userId":"13c102d7-3c07-5bd2-8d44-d0954a4b767a","expiresAt":"2026-08-18T02:21:27.627Z",…},"user":{"email":"organizer@openboard.dev",…}}
+```
+
+A real Better Auth session (`admin_sessions.id = b9f00adf-…`), not the fallback's stateless JWT — the
+`get-session` body shape (nested `session`/`user`, a session `id`) only exists under this provider.
+**Deployed email+password round-trip: PASS.**
+
+### 10.4. Proof 2 — revocation (PASS)
+
+The M44 surface identified in §10.0, exercised against the session just created. Listing first
+(`GET /api/internal/me/sessions`) rather than assuming the `get-session` token doubles as the row id
+— Better Auth's session token and the `admin_sessions.id` primary key are different values, and the
+M44 route wants the latter:
+
+```
+2026-08-11T02:21:57Z
+GET /api/internal/me/sessions → 200 {"data":[{"id":"b9f00adf-f2a7-452b-949a-8b38827671e1","ipAddress":"","userAgent":"curl/8.21.0","createdAt":"2026-08-11T02:21:27.627Z","expiresAt":"2026-08-18T02:21:27.627Z"}]}
+
+2026-08-11T02:22:04Z
+DELETE /api/internal/me/sessions/b9f00adf-f2a7-452b-949a-8b38827671e1  (same cookie) → 200 {"data":{"revoked":true}}
+GET  /api/auth/get-session                        replaying the same cookie → 200 null
+GET  /api/internal/submissions/9677e5d3-…/counts   replaying the same cookie → 401 {"error":{"code":"UNAUTHORIZED","message":"Sign in required"}}
+```
+
+Confirmed server-side, not just by the response shape:
+
+```
+q "SELECT count(*) FROM admin_sessions WHERE id='b9f00adf-f2a7-452b-949a-8b38827671e1'"  →  0
+```
+
+This is the exact gap §2b reproduced on the fallback provider (`revokeAdminSessions` returning 0,
+the stale cookie still working) now closed: the row is gone, `get-session` answers `null`, and the
+admin API the round-trip proved working two minutes earlier now 401s on the identical cookie.
+**Revocation proof: PASS.**
+
+### 10.5. Proof 3 — rehash-on-login (PASS)
+
+`2026-08-11T02:21:46Z`, read back immediately after the §10.3 sign-in (no separate action — AC 1
+fires inside the `sign-in/email` post-hook, `better-auth.ts:192-199`):
+
+| email | `admin_accounts.provider_id` | `admin_accounts.password` prefix | `admin_accounts.updated_at` |
+|---|---|---|---|
+| organizer@openboard.dev | `credential` | `pbkdf2-sha256-v2$100…` (was `pbkdf2-sha256$10…`) | `2026-08-10T19:21:27-07:00` |
+
+`users.password_hash` for the same row is still the legacy `pbkdf2-sha256$10…` — expected and
+correct: `rehashLegacyCredential` only ever writes `admin_accounts.password` (the row Better Auth
+reads); `users.password_hash` is the *fallback* provider's credential and is mirrored only on a
+password reset or self-serve signup (`mirrorCredentialToFallback`), neither of which happened here.
+**Format changed, in place, on first sign-in, exactly as documented: PASS.**
+
+### 10.6. Proof 4 — Google (app side PASS, human/Google side blocked one step later than before)
+
+```
+2026-08-11T02:22:19Z
+POST /api/auth/sign-in/social  {"provider":"google"}  → 200
+  location: https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=51472692627-99hkg8e7paiicsq1qpkac7f334jko7tm.apps.googleusercontent.com&state=…&scope=email+profile+openid&redirect_uri=https%3A%2F%2Fsb-web-preview.yi-ding.workers.dev%2Fapi%2Fauth%2Fcallback%2Fgoogle&code_challenge_method=S256&code_challenge=…&include_granted_scopes=true
+  body: {"url":"<same URL>","redirect":true}
+  Set-Cookie: __Secure-openboard_admin.state=…; Max-Age=300; HttpOnly; Secure; SameSite=Lax
+```
+
+Better Auth's `signInSocial` (`node_modules/better-auth/dist/api/routes/sign-in.mjs:107-208`, read to
+confirm) sets a `Location` header and returns `{url, redirect:true}` as a 200 rather than issuing a
+literal HTTP 3xx itself — the app's own client SDK is expected to `window.location = url` after
+reading the body, so "the sign-in-with-Google entry route" on this deployment is this POST, not a
+browser-followable GET. (`GET /api/auth/sign-in/social` is 404 for exactly the reason §10.1 flags —
+POST-only route.) The **redirect_uri is correct**: `https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google`, matching `BETTER_AUTH_URL` exactly as required, and the `client_id` is a live
+value read from the installed secret rather than a placeholder.
+
+The callback leg is independently confirmed live and native, not the old 404 wrapper:
+
+```
+2026-08-11T02:23:30Z
+GET /api/auth/callback/google  (no code/state — nothing to complete) → 302
+  location: https://sb-web-preview.yi-ding.workers.dev/api/auth/error?error=state_not_found
+```
+
+Per instruction, followed the Google URL itself — a plain, read-only `GET`, no credentials submitted,
+nothing signed in:
+
+```
+2026-08-11T02:22:58Z
+GET <the accounts.google.com URL above>  → final 200 at
+  https://accounts.google.com/signin/oauth/error?authError=…&client_id=51472692627-…
+
+Page title: "Error 400: redirect_uri_mismatch"
+Decoded error text (readable substrings inside the authError blob):
+  "You can't sign in to this app because it doesn't comply with Google's OAuth 2.0 policy.
+   If you're the app developer, register the redirect URI in the Google Cloud Console."
+  redirect_uri echoed back: https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google
+```
+
+**Google rejects the redirect_uri.** The app's half of AC — constructing a correct authorization URL
+with the right `client_id` and `redirect_uri` once the worker secrets are installed — is proven, live,
+on the deployment. The remaining boundary moved from "the preview holds no Google credentials at
+all" (§2c) to a strictly narrower one: **the owner has not yet added
+`https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google` to the OAuth client's
+Authorised redirect URIs in the Google Cloud Console** for client id
+`51472692627-99hkg8e7paiicsq1qpkac7f334jko7tm.apps.googleusercontent.com`. Once that is added, a real
+Google consent screen and completing the login are still a human step, per instruction — that part
+was never going to be scriptable.
+
+### 10.7. jose fallback unaffected (code inspection, PASS)
+
+No live probe possible against the same deployment (it now runs `better-auth`), so this is the
+code-inspection check the instruction allows:
+
+- `ADMIN_AUTH_PROVIDER: z.enum(["fallback","better-auth"]).default("fallback")` —
+  `src/shared/lib/env.ts:101`. Nothing in `.dev.vars` sets it (confirmed by listing its keys), so
+  local dev and any environment that doesn't explicitly opt in stays on `fallback` by default.
+- `getAdminIdentity()` (`admin.ts:55-61`) branches on that one flag: only when it reads
+  `"better-auth"` does it lazily `import("./better-auth")` at all; otherwise it reads the
+  `ADMIN_COOKIE` and calls `verifyAdminToken` — the same jose/PBKDF2 path as every prior rev. The
+  import is lazy specifically "so the fallback path never pulls Better Auth into the request, and so
+  a `fallback` deployment does not pay for it at all" (the function's own comment).
+  `authenticateAdmin`/`throttleAdminLogin`/`DUMMY_PASSWORD_HASH` in the same file are untouched by
+  this run — read, not edited.
+- The preview and local/demo are separate deployment targets with separate secret stores (Cloudflare
+  worker secrets vs. `.dev.vars`); installing `ADMIN_AUTH_PROVIDER=better-auth` on
+  `sb-web-preview` has no mechanism to reach a local `pnpm dev` process. **Confirmed by inspection,
+  not by a redundant live probe** — there is nothing to demonstrate at runtime here beyond a config
+  default already exercised by this codebase's own test suite.
+
+### 10.8. Close-out
+
+- `admin_sessions` on `sb-test` is back to 0 rows (the one row this run created was deleted by the
+  revocation proof itself, not by a separate cleanup step).
+- No new user was created — `organizer@openboard.dev` / `reviewer@openboard.dev` are the same fixed
+  fixtures the rest of this document already relies on, bootstrapped the code's supported way. Their
+  ids (`organizer` = `13c102d7-3c07-5bd2-8d44-d0954a4b767a`) are recorded above rather than deleted,
+  per instruction, since there is no self-serve "delete my own admin account" route in this codebase
+  and deleting a shared fixture would break the rest of the suite.
+- The `q.mjs` scratch script (a 12-line `@neondatabase/serverless` wrapper, needed because this box
+  has no `psql`) lived under the repo root only long enough to run these queries and was deleted
+  before this section was written; `git status` is clean of it.
+- `TEST_AUTH` was not touched. No migration ran. No `wrangler.jsonc`, secret, or deployed artifact
+  was changed by this run — every write was to `sb-test` (`admin:bootstrap`, the sign-in that
+  triggered the rehash, the session row and its own revocation) and, in the working tree, to this
+  file.
+
+**Summary — which of the five S4 proofs passed:**
+
+| # | Proof | Result |
+|---|---|---|
+| 1 | Endpoint discovery from source (no guessing) | Done — §10.0 |
+| 2 | Deployed email+password round-trip | **PASS** — §10.3 |
+| 3 | Revocation (cookie fails after delete) | **PASS** — §10.4 |
+| 4 | Rehash-on-login (`pbkdf2-sha256$…` → `pbkdf2-sha256-v2$…`) | **PASS** — §10.5 |
+| 5 | Google entry redirect (client_id + redirect_uri correct) | **App side PASS**, Google itself 400s `redirect_uri_mismatch` — owner step recorded, §10.6 |
+| 6 | jose fallback unaffected (`APP_ENV=local` demo paths) | **PASS by code inspection** — §10.7 |
+
+`needs_owner` update: §9 item 1 is now satisfied (secrets installed, all four deployed proofs run).
+The one line left from that item — "a real Google login remains a human step" — still holds, and is
+now joined by a narrower prerequisite: **add
+`https://sb-web-preview.yi-ding.workers.dev/api/auth/callback/google` to the Google OAuth client's
+Authorised redirect URIs** before that human step is even attemptable.

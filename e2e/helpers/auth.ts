@@ -18,9 +18,17 @@ export async function loginAsAdmin(target: Page | APIRequestContext, email: stri
   const request = "request" in target ? target.request : target;
   const response = await request.post("/api/test/login", { data: { email } });
   if (!response.ok()) {
+    // The route's own sentence when it has one — it is the only thing that can
+    // tell "TEST_AUTH is not in this build" apart from "this build runs an auth
+    // provider that ignores the cookie this route mints", and the two need
+    // opposite fixes. Guessing between them cost a whole triage pass once.
+    const explanation = await response.json()
+      .then((body: { error?: { message?: string } }) => body.error?.message ?? "")
+      .catch(() => "");
     throw new Error(
       `/api/test/login returned ${response.status()} for ${email}. `
-      + "Deploy the preview with TEST_AUTH=1 and seed the user, or the spec has nothing to sign in as.",
+      + (explanation
+        || "Deploy the preview with TEST_AUTH=1 and seed the user, or the spec has nothing to sign in as."),
     );
   }
 }

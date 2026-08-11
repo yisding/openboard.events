@@ -340,19 +340,30 @@ test.describe("review-operations", () => {
       expect(reviewer?.completed ?? 0).toBeGreaterThan(0);
       expect(reviewer?.recused ?? 0).toBeGreaterThan(0);
 
-      const before = await queryRows<{ n: number }>(
-        "SELECT count(*)::int AS n FROM communication_logs WHERE event_id = $1 AND template_key = 'review_reminder'",
-        [EVENT],
-      );
-      await apiData<{ enqueued: number; skipped: number }>(request, `${API}/plans/${round2.id}/reminders`, {
+      const result = await apiData<{ enqueued: number; skipped: number }>(request, `${API}/plans/${round2.id}/reminders`, {
         method: "POST",
         data: { reviewerUserIds: null },
       });
-      const after = await queryRows<{ n: number }>(
+      const after = Number((await queryRows<{ n: number }>(
         "SELECT count(*)::int AS n FROM communication_logs WHERE event_id = $1 AND template_key = 'review_reminder'",
         [EVENT],
-      );
-      expect(Number(after[0]?.n ?? 0)).toBeGreaterThan(Number(before[0]?.n ?? 0));
+      ))[0]?.n ?? 0);
+
+      // Every reviewer with outstanding work is reminded, and none is skipped:
+      // `sendReviewRemindersIn` skips a reviewer with no `contacts` row rather
+      // than inventing one, so a non-zero `skipped` means the round holds a
+      // reviewer the outbox cannot address — the exact provisioning gap that
+      // made this assertion unreachable on the seeded world.
+      expect(result.skipped, "a reviewer the outbox cannot address is a provisioning gap, not a pass").toBe(0);
+      expect(result.enqueued, "the round still has outstanding reviewers to remind").toBeGreaterThan(0);
+
+      // `>= enqueued`, not `> before`: the reminder is idempotent per minute
+      // bucket on purpose (`idem.reviewReminder`'s `cycle`), so a Playwright
+      // retry seconds after the first attempt re-issues the same key and
+      // collapses onto the rows already written. The claim that survives that —
+      // and the one worth making — is that the outbox holds a reminder for
+      // every reviewer this call named.
+      expect(after, "the enqueued reminders must be in the outbox").toBeGreaterThanOrEqual(result.enqueued);
     });
 
     assertClean();

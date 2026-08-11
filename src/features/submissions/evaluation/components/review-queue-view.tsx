@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, SubmissionDetailDTO } from "@/shared/contracts";
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
+import { formatTzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { nextUnscored } from "../queue";
@@ -54,21 +55,35 @@ function previewOverall(plan: PlanDTO, specs: CriterionSpec[], draft: Draft): nu
   return plan.criteria.length === 0 ? draft.overall : weightedMean(specs, draft.values);
 }
 
-function windowNotice(window: ReviewWindow | null, plan: PlanDTO): string | null {
+/**
+ * The window banner, in the *event's* zone.
+ *
+ * `toLocaleString()` is not an option here even though this reads like display
+ * trivia. This is a client component that Next server-renders first: on the
+ * Worker that call formats in UTC, in the browser it formats in the viewer's
+ * zone, the two strings differ and React tears the tree down with #418
+ * ("hydration failed … server rendered text didn't match"). It also renders the
+ * wrong hour to anyone outside the event's zone, which is the reason `TzTime`
+ * exists at all — `formatTzTime` is the same formatter, for the strings that
+ * cannot be an element.
+ */
+function windowNotice(window: ReviewWindow | null, plan: PlanDTO, timezone: string): string | null {
   if (!window) return null;
+  const at = (instant: string) => formatTzTime(instant, timezone, "dateTime");
   if (window.state === "before_open") {
-    return `This round opens ${window.opensAt ? new Date(window.opensAt).toLocaleString() : "later"}. Nothing is readable until then.`;
+    return `This round opens ${window.opensAt ? at(window.opensAt) : "later"}. Nothing is readable until then.`;
   }
   if (window.state === "closed" || !window.canSave) {
     return plan.status === "closed"
       ? "This round is closed. Your reviews stay readable, but scores can no longer change."
-      : `This round closed ${window.closesAt ? new Date(window.closesAt).toLocaleString() : ""}. Your reviews stay readable, but scores can no longer change.`;
+      : `This round closed ${window.closesAt ? at(window.closesAt) : ""}. Your reviews stay readable, but scores can no longer change.`;
   }
-  return window.closesAt ? `Open until ${new Date(window.closesAt).toLocaleString()}.` : null;
+  return window.closesAt ? `Open until ${at(window.closesAt)}.` : null;
 }
 
 export function ReviewQueueView({
   eventId,
+  timezone,
   plan,
   plans,
   rows,
@@ -76,6 +91,8 @@ export function ReviewQueueView({
   window: reviewWindow,
 }: {
   eventId: string;
+  /** The event's zone — every rendered time in the product uses it, not the viewer's. */
+  timezone: string;
   plan: PlanDTO | null;
   /** Every round this reviewer can switch between, open ones first. */
   plans: PlanDTO[];
@@ -238,7 +255,7 @@ export function ReviewQueueView({
     );
   }
 
-  const notice = windowNotice(reviewWindow, plan);
+  const notice = windowNotice(reviewWindow, plan, timezone);
   const preview = previewOverall(plan, specs, draft);
   const complete = isReviewComplete(specs, draft.values, plan.criteria.length > 0 ? preview : draft.overall, { min: plan.scaleMin, max: plan.scaleMax });
 

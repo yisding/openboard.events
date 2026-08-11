@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CalendarClock, CheckCircle2, PartyPopper, Share2 } from "lucide-react";
-import { taskHref } from "@/features/portal/task-runtime/components/task-list";
+import { taskHref } from "@/features/portal/lib/task-href";
 import type { PortalHero } from "@/features/portal/lib/portal-hero";
 import { formatInZone } from "@/shared/lib/time";
 
