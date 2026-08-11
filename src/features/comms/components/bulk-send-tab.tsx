@@ -56,7 +56,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [previewContactId, setPreviewContactId] = useState<ContactId | "">("");
-  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string } | null>(null);
+  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string; sendId: string } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
   const [focusTarget, setFocusTarget] = useState<"subject" | "body">("body");
@@ -150,14 +150,19 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         mode: "preview",
         previewContactId,
       });
-      if (rendered.preview) setPreview({ subject: rendered.preview.subject, bodyHtml: rendered.preview.bodyHtml, fingerprint });
+      if (rendered.preview) setPreview({
+        subject: rendered.preview.subject,
+        bodyHtml: rendered.preview.bodyHtml,
+        fingerprint,
+        sendId: crypto.randomUUID(),
+      });
     } catch {
       toast("Could not render a preview");
     }
   }
 
   async function onSend(): Promise<boolean> {
-    if (!segment || !canSend) {
+    if (!segment || !currentPreview || !canSend) {
       toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending");
       return false;
     }
@@ -169,10 +174,13 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const batches = chunkContactIds(segment.contactIds);
       const results = [];
       for (const contactIds of batches) {
-        results.push(await compose.mutateAsync({ contactIds, subject, bodyHtml, mode: "send" }));
+        results.push(await compose.mutateAsync({ contactIds, subject, bodyHtml, mode: "send", sendId: currentPreview.sendId }));
       }
       const sent = mergeBulkSendResults(results);
       setResult(sent);
+      // A completed attempt needs a fresh preview (and therefore a fresh
+      // send id) before the organizer can intentionally send it again.
+      setPreview(null);
       toast(`Queued ${sent.queued} · Skipped ${sent.skipped}${sent.errors.length > 0 ? ` · ${sent.errors.length} error(s)` : ""}`);
       return true;
     } catch {
