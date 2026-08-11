@@ -159,12 +159,9 @@ export const organizationContactSegments = pgTable("organization_contact_segment
 /**
  * The immutable merge audit record (guardrail: "explicit primary, reference
  * counts, audit trail, and a tested recovery procedure"). `fieldSnapshot` is
- * every column `organization_contacts` carried on the losing row *before*
- * the merge overwrote nothing on it (the loser is never written to, only
- * tombstoned via `merged_into_id` — see that column's comment) — recovery is
- * therefore: clear `merged_into_id` on the loser, and reference rows can be
- * pointed back using this same snapshot plus `referenceCounts` as a checklist.
- * This table has no update/delete path anywhere in `src/features/crm`.
+ * the losing contact plus a private compare-and-restore snapshot captured by
+ * the merge transaction. This table has no update/delete path anywhere in
+ * `src/features/crm`.
  */
 export const organizationContactMerges = pgTable("organization_contact_merges", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -176,6 +173,21 @@ export const organizationContactMerges = pgTable("organization_contact_merges", 
   referenceCounts: jsonb("reference_counts").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index("organization_contact_merges_org_idx").on(table.organizationId, table.createdAt)]);
+
+/** Append-only proof that a merge recovery completed. Keeping this separate
+ * from the immutable merge audit means an audit row never changes state while
+ * repeated recovery attempts remain easy to reject and inspect. */
+export const organizationContactMergeRecoveries = pgTable("organization_contact_merge_recoveries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  mergeId: uuid("merge_id").notNull().references(() => organizationContactMerges.id, { onDelete: "cascade" }),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  referenceCounts: jsonb("reference_counts").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique().on(table.mergeId),
+  index("organization_contact_merge_recoveries_org_idx").on(table.organizationId, table.createdAt),
+]);
 
 /**
  * The sourcing kanban: one row per prospect-to-event effort. `stage` is

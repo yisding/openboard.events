@@ -1,19 +1,27 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import {
   organizationContactActivity,
   organizationContactLinks,
   organizationContactMerges,
+  organizationContactMergeRecoveries,
   organizationContactNotes,
   organizationContactPipeline,
+  organizationContactTags,
   organizationContactTagLinks,
   organizationContacts,
 } from "@/db/schema";
 import {
   crmMergeAuditDtoSchema,
+  crmMergeAuditDetailDtoSchema,
   crmMergeReferenceCountsSchema,
   crmMergePreviewDtoSchema,
+  organizationContactDtoSchema,
+  organizationContactIdSchema,
   type CrmMergeAuditDTO,
+  type CrmMergeAuditDetailDTO,
+  type CrmMergeId,
   type CrmMergePreviewDTO,
   type CrmMergeReferenceCounts,
   type MergeCrmContactsInput,
@@ -25,6 +33,83 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getOrganizationContactIn } from "./queries";
+
+type MergeContactFields = Pick<OrganizationContactDTO, "firstName" | "lastName" | "company" | "jobTitle" | "bioHtml" | "linkedinUrl" | "twitterUrl" | "websiteUrl" | "source" | "customFields">;
+type MergeRecoverySnapshot = {
+  primaryBefore: MergeContactFields;
+  primaryAfter: MergeContactFields;
+  references: {
+    links: string[];
+    tags: Array<{ tagId: string; primaryHadTag: boolean }>;
+    notes: string[];
+    activity: string[];
+    pipeline: string[];
+  };
+};
+
+const mergeContactFieldsSchema = organizationContactDtoSchema.pick({
+  firstName: true, lastName: true, company: true, jobTitle: true, bioHtml: true,
+  linkedinUrl: true, twitterUrl: true, websiteUrl: true, source: true, customFields: true,
+});
+const mergeRecoverySnapshotSchema = z.object({
+  primaryBefore: mergeContactFieldsSchema,
+  primaryAfter: mergeContactFieldsSchema,
+  references: z.object({
+    links: z.array(z.uuid()),
+    tags: z.array(z.object({ tagId: z.uuid(), primaryHadTag: z.boolean() })),
+    notes: z.array(z.uuid()),
+    activity: z.array(z.uuid()),
+    pipeline: z.array(z.uuid()),
+  }),
+});
+
+function contactFields(contact: OrganizationContactDTO): MergeContactFields {
+  return {
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    company: contact.company,
+    jobTitle: contact.jobTitle,
+    bioHtml: contact.bioHtml,
+    linkedinUrl: contact.linkedinUrl,
+    twitterUrl: contact.twitterUrl,
+    websiteUrl: contact.websiteUrl,
+    source: contact.source,
+    customFields: contact.customFields,
+  };
+}
+
+function resolvedPrimaryFields(primary: OrganizationContactDTO, merged: OrganizationContactDTO, input: MergeCrmContactsInput): MergeContactFields {
+  const wantsMerged = (field: MergeableField) => input.fieldResolutions[field] === "merged";
+  return {
+    firstName: wantsMerged("firstName") ? fieldValue(merged, "firstName") ?? "" : primary.firstName,
+    lastName: wantsMerged("lastName") ? fieldValue(merged, "lastName") ?? "" : primary.lastName,
+    company: wantsMerged("company") ? fieldValue(merged, "company") : primary.company,
+    jobTitle: wantsMerged("jobTitle") ? fieldValue(merged, "jobTitle") : primary.jobTitle,
+    bioHtml: wantsMerged("bioHtml") ? fieldValue(merged, "bioHtml") : primary.bioHtml,
+    linkedinUrl: wantsMerged("linkedinUrl") ? fieldValue(merged, "linkedinUrl") : primary.linkedinUrl,
+    twitterUrl: wantsMerged("twitterUrl") ? fieldValue(merged, "twitterUrl") : primary.twitterUrl,
+    websiteUrl: wantsMerged("websiteUrl") ? fieldValue(merged, "websiteUrl") : primary.websiteUrl,
+    source: primary.source,
+    customFields: { ...merged.customFields, ...primary.customFields },
+  };
+}
+
+function normalizedCustomFields(value: Record<string, string>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))));
+}
+
+function fieldsMatch(contact: OrganizationContactDTO, expected: MergeContactFields): boolean {
+  return contact.firstName === expected.firstName
+    && contact.lastName === expected.lastName
+    && contact.company === expected.company
+    && contact.jobTitle === expected.jobTitle
+    && contact.bioHtml === expected.bioHtml
+    && contact.linkedinUrl === expected.linkedinUrl
+    && contact.twitterUrl === expected.twitterUrl
+    && contact.websiteUrl === expected.websiteUrl
+    && contact.source === expected.source
+    && normalizedCustomFields(contact.customFields) === normalizedCustomFields(expected.customFields);
+}
 
 /**
  * M55 — duplicate merge. The guardrail calls this "a high-risk operation":
@@ -41,9 +126,9 @@ import { getOrganizationContactIn } from "./queries";
  * `src/db/schema/crm.ts`'s comment on that column) — every reassigned child
  * row's foreign key stays valid, and the audit row's `field_snapshot` plus
  * `reference_counts` is the recovery checklist: clear `merged_into_id`, then
- * use the snapshot to decide what (if anything) to point back. There is no
- * automated "unmerge" — the recovery procedure is a documented manual/future
- * step, not a guarantee this module makes today.
+ * use the immutable recovery snapshot to compare the primary and point the
+ * reassigned references back. Recovery is itself transactional and writes a
+ * separate append-only receipt.
  */
 
 const FIELD_NAMES = ["firstName", "lastName", "company", "jobTitle", "bioHtml", "linkedinUrl", "twitterUrl", "websiteUrl"] as const;
@@ -53,17 +138,42 @@ function fieldValue(contact: OrganizationContactDTO, field: MergeableField): str
   return contact[field] ?? null;
 }
 
-async function countReferencesIn(dbOrTx: DbOrTx, mergedContactId: string): Promise<CrmMergeReferenceCounts> {
+async function countReferencesIn(dbOrTx: DbOrTx, organizationId: OrganizationId, mergedContactId: string): Promise<CrmMergeReferenceCounts> {
   const [links, tags, notes, activity, pipeline] = await Promise.all([
-    dbOrTx.select().from(organizationContactLinks).where(eq(organizationContactLinks.organizationContactId, mergedContactId)),
-    dbOrTx.select().from(organizationContactTagLinks).where(eq(organizationContactTagLinks.organizationContactId, mergedContactId)),
-    dbOrTx.select().from(organizationContactNotes).where(eq(organizationContactNotes.organizationContactId, mergedContactId)),
-    dbOrTx.select().from(organizationContactActivity).where(eq(organizationContactActivity.organizationContactId, mergedContactId)),
-    dbOrTx.select().from(organizationContactPipeline).where(eq(organizationContactPipeline.organizationContactId, mergedContactId)),
+    dbOrTx.select().from(organizationContactLinks).where(and(eq(organizationContactLinks.organizationId, organizationId), eq(organizationContactLinks.organizationContactId, mergedContactId))),
+    dbOrTx.select().from(organizationContactTagLinks).where(and(eq(organizationContactTagLinks.organizationId, organizationId), eq(organizationContactTagLinks.organizationContactId, mergedContactId))),
+    dbOrTx.select().from(organizationContactNotes).where(and(eq(organizationContactNotes.organizationId, organizationId), eq(organizationContactNotes.organizationContactId, mergedContactId))),
+    dbOrTx.select().from(organizationContactActivity).where(and(eq(organizationContactActivity.organizationId, organizationId), eq(organizationContactActivity.organizationContactId, mergedContactId))),
+    dbOrTx.select().from(organizationContactPipeline).where(and(eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.organizationContactId, mergedContactId))),
   ]);
   return crmMergeReferenceCountsSchema.parse({
     eventLinks: links.length, tags: tags.length, notes: notes.length, activity: activity.length, pipelineEntries: pipeline.length,
   });
+}
+
+async function loadMergeRecoverySnapshotIn(dbOrTx: DbOrTx, organizationId: OrganizationId, primaryContactId: OrganizationContactId, mergedContactId: OrganizationContactId): Promise<MergeRecoverySnapshot["references"]> {
+  const [links, mergedTags, primaryTags, notes, activity, pipeline] = await Promise.all([
+    dbOrTx.select({ id: organizationContactLinks.id }).from(organizationContactLinks)
+      .where(and(eq(organizationContactLinks.organizationId, organizationId), eq(organizationContactLinks.organizationContactId, mergedContactId))),
+    dbOrTx.select({ tagId: organizationContactTagLinks.tagId }).from(organizationContactTagLinks)
+      .where(and(eq(organizationContactTagLinks.organizationId, organizationId), eq(organizationContactTagLinks.organizationContactId, mergedContactId))),
+    dbOrTx.select({ tagId: organizationContactTagLinks.tagId }).from(organizationContactTagLinks)
+      .where(and(eq(organizationContactTagLinks.organizationId, organizationId), eq(organizationContactTagLinks.organizationContactId, primaryContactId))),
+    dbOrTx.select({ id: organizationContactNotes.id }).from(organizationContactNotes)
+      .where(and(eq(organizationContactNotes.organizationId, organizationId), eq(organizationContactNotes.organizationContactId, mergedContactId))),
+    dbOrTx.select({ id: organizationContactActivity.id }).from(organizationContactActivity)
+      .where(and(eq(organizationContactActivity.organizationId, organizationId), eq(organizationContactActivity.organizationContactId, mergedContactId))),
+    dbOrTx.select({ id: organizationContactPipeline.id }).from(organizationContactPipeline)
+      .where(and(eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.organizationContactId, mergedContactId))),
+  ]);
+  const primaryTagIds = new Set(primaryTags.map((row) => row.tagId));
+  return {
+    links: links.map((row) => row.id),
+    tags: mergedTags.map((row) => ({ tagId: row.tagId, primaryHadTag: primaryTagIds.has(row.tagId) })),
+    notes: notes.map((row) => row.id),
+    activity: activity.map((row) => row.id),
+    pipeline: pipeline.map((row) => row.id),
+  };
 }
 
 async function loadMergePairIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: { primaryContactId: OrganizationContactId; mergedContactId: OrganizationContactId }) {
@@ -77,7 +187,7 @@ async function loadMergePairIn(dbOrTx: DbOrTx, organizationId: OrganizationId, i
 
 export async function previewCrmMergeIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: PreviewCrmMergeInput): Promise<CrmMergePreviewDTO> {
   const { primary, merged } = await loadMergePairIn(dbOrTx, organizationId, input);
-  const referenceCounts = await countReferencesIn(dbOrTx, merged.id);
+  const referenceCounts = await countReferencesIn(dbOrTx, organizationId, merged.id);
   const fieldConflicts = FIELD_NAMES
     .map((field) => ({ field, primaryValue: fieldValue(primary, field), mergedValue: fieldValue(merged, field) }))
     .filter(({ primaryValue, mergedValue }) => mergedValue && mergedValue !== primaryValue);
@@ -90,7 +200,8 @@ export const previewCrmMerge = (organizationId: OrganizationId, input: PreviewCr
  * see `mergeOrganizationContacts` below, this run's caller of `withTx`. */
 export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: OrganizationId, input: MergeCrmContactsInput, actorUserId: UserId | null): Promise<CrmMergeAuditDTO> {
   const { primary, merged } = await loadMergePairIn(tx, organizationId, input);
-  const referenceCounts = await countReferencesIn(tx, merged.id);
+  const referenceCounts = await countReferencesIn(tx, organizationId, merged.id);
+  const references = await loadMergeRecoverySnapshotIn(tx, organizationId, primary.id, merged.id);
 
   // Field-by-field resolution: "merged" overwrites the primary's current
   // value with the losing contact's; anything unlisted (or "primary") keeps
@@ -113,6 +224,11 @@ export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: Orga
   // by this generic path (an organizer wanting the merged side's value for
   // a specific custom field can still set it manually after merging).
   patch.customFields = { ...merged.customFields, ...primary.customFields };
+  const recoverySnapshot: MergeRecoverySnapshot = {
+    primaryBefore: contactFields(primary),
+    primaryAfter: resolvedPrimaryFields(primary, merged, input),
+    references,
+  };
 
   await tx.update(organizationContacts).set(patch)
     .where(and(eq(organizationContacts.organizationId, organizationId), eq(organizationContacts.id, primary.id)));
@@ -124,26 +240,27 @@ export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: Orga
   // every other child table has no such collision risk and is a plain
   // `UPDATE`.
   await tx.update(organizationContactLinks).set({ organizationContactId: primary.id })
-    .where(eq(organizationContactLinks.organizationContactId, merged.id));
+    .where(and(eq(organizationContactLinks.organizationId, organizationId), eq(organizationContactLinks.organizationContactId, merged.id)));
   await tx.execute(sql`
     INSERT INTO organization_contact_tag_links (organization_id, organization_contact_id, tag_id)
-    SELECT organization_id, ${primary.id}::uuid, tag_id FROM organization_contact_tag_links WHERE organization_contact_id = ${merged.id}
+    SELECT organization_id, ${primary.id}::uuid, tag_id FROM organization_contact_tag_links
+    WHERE organization_id = ${organizationId}::uuid AND organization_contact_id = ${merged.id}::uuid
     ON CONFLICT (organization_contact_id, tag_id) DO NOTHING
   `);
-  await tx.delete(organizationContactTagLinks).where(eq(organizationContactTagLinks.organizationContactId, merged.id));
+  await tx.delete(organizationContactTagLinks).where(and(eq(organizationContactTagLinks.organizationId, organizationId), eq(organizationContactTagLinks.organizationContactId, merged.id)));
   await tx.update(organizationContactNotes).set({ organizationContactId: primary.id })
-    .where(eq(organizationContactNotes.organizationContactId, merged.id));
+    .where(and(eq(organizationContactNotes.organizationId, organizationId), eq(organizationContactNotes.organizationContactId, merged.id)));
   await tx.update(organizationContactActivity).set({ organizationContactId: primary.id })
-    .where(eq(organizationContactActivity.organizationContactId, merged.id));
+    .where(and(eq(organizationContactActivity.organizationId, organizationId), eq(organizationContactActivity.organizationContactId, merged.id)));
   await tx.update(organizationContactPipeline).set({ organizationContactId: primary.id })
-    .where(eq(organizationContactPipeline.organizationContactId, merged.id));
+    .where(and(eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.organizationContactId, merged.id)));
 
   const [auditRow] = await tx.insert(organizationContactMerges).values({
     organizationId,
     primaryContactId: primary.id,
     mergedContactId: merged.id,
     actorUserId: actorUserId ?? null,
-    fieldSnapshot: merged,
+    fieldSnapshot: { mergedContact: merged, recovery: recoverySnapshot },
     referenceCounts,
   }).returning();
   if (!auditRow) throw new AppError("INTERNAL", "Merge audit insert did not return a row");
@@ -165,6 +282,159 @@ export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: Orga
     id: auditRow.id, primaryContactId: auditRow.primaryContactId, mergedContactId: auditRow.mergedContactId,
     actorUserId: auditRow.actorUserId, referenceCounts, createdAt: auditRow.createdAt.toISOString(),
   });
+}
+
+function recoveryFromFieldSnapshot(value: unknown): MergeRecoverySnapshot | null {
+  if (typeof value !== "object" || value === null || !("recovery" in value)) return null;
+  const parsed = mergeRecoverySnapshotSchema.safeParse((value as { recovery: unknown }).recovery);
+  return parsed.success ? parsed.data : null;
+}
+
+async function getMergeAuditRowIn(dbOrTx: DbOrTx, organizationId: OrganizationId, mergeId: CrmMergeId) {
+  const [row] = await dbOrTx.select().from(organizationContactMerges)
+    .where(and(eq(organizationContactMerges.organizationId, organizationId), eq(organizationContactMerges.id, mergeId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Organization-scoped audit lookup used by the recovery UI and operational
+ * tooling. Old audits remain visible but are explicitly marked unavailable
+ * because they predate the compare-and-restore snapshot. */
+export async function getCrmMergeAuditIn(dbOrTx: DbOrTx, organizationId: OrganizationId, mergeId: CrmMergeId): Promise<CrmMergeAuditDetailDTO | null> {
+  const row = await getMergeAuditRowIn(dbOrTx, organizationId, mergeId);
+  if (!row) return null;
+  const [recovery] = await dbOrTx.select({ id: organizationContactMergeRecoveries.id })
+    .from(organizationContactMergeRecoveries)
+    .where(and(eq(organizationContactMergeRecoveries.organizationId, organizationId), eq(organizationContactMergeRecoveries.mergeId, mergeId)))
+    .limit(1);
+  const snapshot = recoveryFromFieldSnapshot(row.fieldSnapshot);
+  return crmMergeAuditDetailDtoSchema.parse({
+    id: row.id,
+    primaryContactId: row.primaryContactId,
+    mergedContactId: row.mergedContactId,
+    actorUserId: row.actorUserId,
+    referenceCounts: row.referenceCounts,
+    createdAt: row.createdAt.toISOString(),
+    recoveryStatus: recovery ? "recovered" : snapshot ? "recoverable" : "unavailable",
+    canRecover: !recovery && snapshot !== null,
+  });
+}
+
+export const getCrmMergeAudit = (organizationId: OrganizationId, mergeId: CrmMergeId): Promise<CrmMergeAuditDetailDTO | null> =>
+  getCrmMergeAuditIn(db, organizationId, mergeId);
+
+/** Restore one merge only when the primary still has the exact post-merge
+ * field state. This compare-and-restore guard prevents a recovery request from
+ * silently overwriting edits made after the merge. References that were
+ * deleted after the merge are left deleted; surviving references identified by
+ * the immutable snapshot are moved back in the same transaction. */
+export async function recoverCrmMergeIn(tx: TxDb, organizationId: OrganizationId, mergeId: CrmMergeId, actorUserId: UserId | null): Promise<CrmMergeAuditDetailDTO> {
+  const auditRow = await getMergeAuditRowIn(tx, organizationId, mergeId);
+  if (!auditRow) throw new AppError("NOT_FOUND", "Merge audit not found");
+  const snapshot = recoveryFromFieldSnapshot(auditRow.fieldSnapshot);
+  if (!snapshot) throw new AppError("CONFLICT", "This merge does not have a recoverable snapshot");
+
+  const [existingRecovery] = await tx.select({ id: organizationContactMergeRecoveries.id })
+    .from(organizationContactMergeRecoveries)
+    .where(and(eq(organizationContactMergeRecoveries.organizationId, organizationId), eq(organizationContactMergeRecoveries.mergeId, mergeId)))
+    .limit(1);
+  if (existingRecovery) throw new AppError("CONFLICT", "This merge was already recovered");
+
+  const primary = await getOrganizationContactIn(tx, organizationId, organizationContactIdSchema.parse(auditRow.primaryContactId));
+  const merged = await getOrganizationContactIn(tx, organizationId, organizationContactIdSchema.parse(auditRow.mergedContactId));
+  if (!primary || !merged) throw new AppError("NOT_FOUND", "A contact referenced by this merge no longer exists");
+  if (primary.mergedIntoId) throw new AppError("CONFLICT", "The primary contact was merged again; recovery is no longer safe");
+  if (merged.mergedIntoId !== primary.id) throw new AppError("CONFLICT", "This contact is not currently tombstoned by this merge");
+  if (!fieldsMatch(primary, snapshot.primaryAfter)) {
+    throw new AppError("CONFLICT", "The primary contact changed after the merge; review the audit before recovering");
+  }
+
+  await tx.update(organizationContacts).set({
+    firstName: snapshot.primaryBefore.firstName,
+    lastName: snapshot.primaryBefore.lastName,
+    company: snapshot.primaryBefore.company,
+    jobTitle: snapshot.primaryBefore.jobTitle,
+    bioHtml: snapshot.primaryBefore.bioHtml,
+    linkedinUrl: snapshot.primaryBefore.linkedinUrl,
+    twitterUrl: snapshot.primaryBefore.twitterUrl,
+    websiteUrl: snapshot.primaryBefore.websiteUrl,
+    source: snapshot.primaryBefore.source,
+    customFields: snapshot.primaryBefore.customFields,
+    updatedAt: new Date(),
+  }).where(and(eq(organizationContacts.organizationId, organizationId), eq(organizationContacts.id, primary.id)));
+
+  if (snapshot.references.links.length > 0) {
+    await tx.update(organizationContactLinks).set({ organizationContactId: merged.id }).where(and(
+      eq(organizationContactLinks.organizationId, organizationId),
+      eq(organizationContactLinks.organizationContactId, primary.id),
+      inArray(organizationContactLinks.id, snapshot.references.links),
+    ));
+  }
+  if (snapshot.references.notes.length > 0) {
+    await tx.update(organizationContactNotes).set({ organizationContactId: merged.id }).where(and(
+      eq(organizationContactNotes.organizationId, organizationId),
+      eq(organizationContactNotes.organizationContactId, primary.id),
+      inArray(organizationContactNotes.id, snapshot.references.notes),
+    ));
+  }
+  if (snapshot.references.activity.length > 0) {
+    await tx.update(organizationContactActivity).set({ organizationContactId: merged.id }).where(and(
+      eq(organizationContactActivity.organizationId, organizationId),
+      eq(organizationContactActivity.organizationContactId, primary.id),
+      inArray(organizationContactActivity.id, snapshot.references.activity),
+    ));
+  }
+  if (snapshot.references.pipeline.length > 0) {
+    await tx.update(organizationContactPipeline).set({ organizationContactId: merged.id }).where(and(
+      eq(organizationContactPipeline.organizationId, organizationId),
+      eq(organizationContactPipeline.organizationContactId, primary.id),
+      inArray(organizationContactPipeline.id, snapshot.references.pipeline),
+    ));
+  }
+
+  // A tag shared by both contacts was deduplicated during merge. Recovery
+  // restores the losing contact's copy and deliberately leaves the primary's
+  // copy intact, preserving any tag state added after the merge.
+  for (const tag of snapshot.references.tags) {
+    const [tagRow] = await tx.select({ id: organizationContactTags.id }).from(organizationContactTags)
+      .where(and(eq(organizationContactTags.organizationId, organizationId), eq(organizationContactTags.id, tag.tagId)))
+      .limit(1);
+    if (!tagRow) continue;
+    if (!tag.primaryHadTag) {
+      // The merge-created copy has the transaction's merge timestamp. A tag
+      // added later has a newer timestamp and is intentionally preserved.
+      await tx.delete(organizationContactTagLinks).where(and(
+        eq(organizationContactTagLinks.organizationId, organizationId),
+        eq(organizationContactTagLinks.organizationContactId, primary.id),
+        eq(organizationContactTagLinks.tagId, tag.tagId),
+        lte(organizationContactTagLinks.createdAt, auditRow.createdAt),
+      ));
+    }
+    await tx.insert(organizationContactTagLinks).values({ organizationId, organizationContactId: merged.id, tagId: tag.tagId }).onConflictDoNothing();
+  }
+
+  const [untombstoned] = await tx.update(organizationContacts).set({ mergedIntoId: null, updatedAt: new Date() }).where(and(
+    eq(organizationContacts.organizationId, organizationId),
+    eq(organizationContacts.id, merged.id),
+    eq(organizationContacts.mergedIntoId, primary.id),
+  )).returning({ id: organizationContacts.id });
+  if (!untombstoned) throw new AppError("CONFLICT", "This merge changed while recovery was in progress");
+
+  const [receipt] = await tx.insert(organizationContactMergeRecoveries).values({
+    organizationId,
+    mergeId,
+    actorUserId: actorUserId ?? null,
+    referenceCounts: auditRow.referenceCounts,
+  }).returning({ id: organizationContactMergeRecoveries.id });
+  if (!receipt) throw new AppError("INTERNAL", "Merge recovery receipt did not return a row");
+
+  const result = await getCrmMergeAuditIn(tx, organizationId, mergeId);
+  if (!result) throw new AppError("INTERNAL", "Recovered merge audit could not be reloaded");
+  return result;
+}
+
+export function recoverCrmMerge(organizationId: OrganizationId, mergeId: CrmMergeId, actorUserId: UserId | null): Promise<CrmMergeAuditDetailDTO> {
+  return withTx((tx) => recoverCrmMergeIn(tx, organizationId, mergeId, actorUserId));
 }
 
 export function mergeOrganizationContacts(organizationId: OrganizationId, input: MergeCrmContactsInput, actorUserId: UserId | null): Promise<CrmMergeAuditDTO> {
