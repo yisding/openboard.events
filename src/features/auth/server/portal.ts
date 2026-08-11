@@ -51,15 +51,21 @@ async function resolveEvent(dbOrTx: DbOrTx, eventSlug: string): Promise<{ id: Ev
   return { id: event.id as EventId, slug: event.slug };
 }
 
-async function createPortalSessionRow(dbOrTx: DbOrTx, contactId: ContactId, eventId: EventId, impersonatedByUserId: UserId | null) {
+export async function createPortalSessionRowIn(dbOrTx: DbOrTx, contactId: ContactId, eventId: EventId, impersonatedByUserId: UserId | null) {
   const raw = toBase64Url(randomBytes(32));
-  const expiresAt = new Date(Date.now() + PORTAL_SESSION_SECONDS * 1_000);
+  // Use the application clock explicitly for both timestamps. PostgreSQL's
+  // `now()` is the transaction-start timestamp, so relying on the column
+  // default here can make a session inserted after token consumption appear
+  // older than `portal_tokens.consumed_at` to the retry-recovery query below.
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + PORTAL_SESSION_SECONDS * 1_000);
   await dbOrTx.insert(portalSessions).values({
     contactId,
     eventId,
     tokenHash: await sha256(raw),
     impersonatedByUserId,
     expiresAt,
+    createdAt,
   });
   return { raw, expiresAt };
 }
@@ -73,7 +79,7 @@ export async function createConcurrentPortalRecoverySessionIn(
   eventId: EventId,
   impersonatedByUserId: UserId | null,
 ) {
-  const session = await createPortalSessionRow(dbOrTx, concurrent.contactId, eventId, impersonatedByUserId);
+  const session = await createPortalSessionRowIn(dbOrTx, concurrent.contactId, eventId, impersonatedByUserId);
   return { raw: session.raw, contactId: concurrent.contactId, email: concurrent.email, alreadySignedIn: true as const };
 }
 
@@ -152,7 +158,7 @@ export async function requirePortal(eventSlug: string): Promise<PortalSession> {
 }
 
 export async function ensurePortalSession(contactId: ContactId, eventId: EventId): Promise<void> {
-  const session = await createPortalSessionRow(db, contactId, eventId, null);
+  const session = await createPortalSessionRowIn(db, contactId, eventId, null);
   await setPortalCookie(eventId, session.raw);
 }
 
@@ -248,7 +254,7 @@ export async function verifyPortalLogin(args: { eventSlug: string; raw?: string;
       if (!concurrent) throw new AppError("UNAUTHORIZED", "That code or link is invalid or expired");
       return createConcurrentPortalRecoverySessionIn(tx, concurrent, event.id, admin?.userId ?? null);
     }
-    const session = await createPortalSessionRow(tx, consumed.contactId, event.id, admin?.userId ?? null);
+    const session = await createPortalSessionRowIn(tx, consumed.contactId, event.id, admin?.userId ?? null);
     const [contact] = await tx.select({ email: contacts.email }).from(contacts)
       .where(and(eq(contacts.id, consumed.contactId), eq(contacts.eventId, event.id)))
       .limit(1);

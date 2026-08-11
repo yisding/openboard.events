@@ -20,6 +20,7 @@ import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { DayTabs } from "./day-view/day-tabs";
+import { agendaDayDndContextId } from "./day-view/dnd-context-id";
 import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
 import { UnscheduledPanel } from "./day-view/unscheduled-panel";
 
@@ -166,7 +167,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
           />
         )
         : (
-          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
+          <DndContext id={agendaDayDndContextId(eventId, selectedDay)} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
             <div className="dv-layout">
               <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} />
               <div className="dv-scroll">

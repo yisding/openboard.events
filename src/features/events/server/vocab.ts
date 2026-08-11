@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { db, type DbOrTx } from "@/db/client";
-import { rooms, sessionFormats, tags, tracks } from "@/db/schema";
+import { db, withTx, type DbOrTx } from "@/db/client";
+import { embeds, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
   roomDtoSchema,
   sessionFormatDtoSchema,
@@ -169,9 +169,23 @@ export const patchVocabItem = (eventId: EventId, kind: VocabKind, id: string, in
  */
 export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string): Promise<void> {
   const table = kind === "tracks" ? tracks : kind === "rooms" ? rooms : kind === "formats" ? sessionFormats : tags;
+  const filterKey = kind === "tracks" ? "trackIds" : kind === "rooms" ? "roomIds" : kind === "formats" ? "formatIds" : null;
+  if (filterKey) {
+    const configs = await dbOrTx.select({ id: embeds.id, filters: embeds.filters }).from(embeds).where(eq(embeds.eventId, eventId));
+    for (const config of configs) {
+      const filters = config.filters && typeof config.filters === "object" && !Array.isArray(config.filters)
+        ? { ...(config.filters as Record<string, unknown>) }
+        : {};
+      const ids = filters[filterKey];
+      if (!Array.isArray(ids) || !ids.includes(id)) continue;
+      filters[filterKey] = ids.filter((candidate) => candidate !== id);
+      await dbOrTx.update(embeds).set({ filters, updatedAt: new Date() })
+        .where(and(eq(embeds.id, config.id), eq(embeds.eventId, eventId)));
+    }
+  }
   await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
 }
-export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => deleteVocabItemIn(db, eventId, kind, id);
+export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => withTx((tx) => deleteVocabItemIn(tx, eventId, kind, id));
 
 /**
  * Renumbers the whole list 0..n-1 in one statement — no fractional ranks, no

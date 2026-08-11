@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { CalendarClock, CheckCircle2, FileText, MoreHorizontal, Plus, Search, Upload, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, ProgressBar, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import type { TaskDTO } from "@/shared/contracts";
 import type { AdminTaskDTO, FileRequestDTO, FormOption, TaskTabCounts } from "../server/queries";
 import { FileRequestsView } from "./file-requests-view";
 import { TaskEditor } from "./task-editor";
@@ -18,6 +19,48 @@ const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Ma
 const MODE_ICON: Record<AdminTaskDTO["completionMode"], typeof CheckCircle2> = { manual: CheckCircle2, form: FileText, file_request: Upload };
 
 type Tab = "all" | "contact" | "group" | "submission";
+
+export function mergeSavedTask(tasks: AdminTaskDTO[], saved: TaskDTO): AdminTaskDTO[] {
+  const previous = tasks.find((task) => task.id === saved.id);
+  const next = { ...saved, counts: previous?.counts ?? { completed: 0, open: 0, overdue: 0 } };
+  return previous
+    ? tasks.map((task) => task.id === saved.id ? next : task)
+    : [...tasks, next];
+}
+
+export function applyFileRequestChangeToList(
+  requests: FileRequestDTO[],
+  change: { kind: "saved"; request: FileRequestDTO } | { kind: "deleted"; id: string },
+): FileRequestDTO[] {
+  if (change.kind === "deleted") return requests.filter((request) => request.id !== change.id);
+  return requests.some((request) => request.id === change.request.id)
+    ? requests.map((request) => request.id === change.request.id ? change.request : request)
+    : [...requests, change.request];
+}
+
+export function menuDestinationForKey(key: string, current: number, count: number): number | null {
+  if (count <= 0) return null;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (key === "ArrowDown") return (current + 1) % count;
+  if (key === "ArrowUp") return (current - 1 + count) % count;
+  return null;
+}
+
+export async function applyAuthoritativeChange(
+  applyLocal: () => void,
+  refresh: () => Promise<void>,
+  onRefreshError: () => void,
+): Promise<boolean> {
+  applyLocal();
+  try {
+    await refresh();
+    return true;
+  } catch {
+    onRefreshError();
+    return false;
+  }
+}
 
 export function TasksAdminView({
   eventId,
@@ -67,41 +110,50 @@ export function TasksAdminView({
   const matrixTask = matrixIndex !== -1 ? filtered[matrixIndex] : undefined;
 
   async function refresh() {
-    try {
-      const response = await fetch(`/api/internal/tasks?eventId=${eventId}`);
-      const payload = await response.json().catch(() => null) as { data?: AdminTaskDTO[] } | null;
-      if (!response.ok || !payload?.data) throw new Error("task refresh failed");
-      const all = payload.data;
-      setTasks(all);
-      const contact = all.filter((task) => task.targetType === "contact").length;
-      const submission = all.filter((task) => task.targetType === "submission").length;
-      setTabCounts({ all: contact + submission, contact, group: 0, submission });
-      router.refresh();
-    } catch {
-      toast("Could not refresh tasks — showing the last saved list");
-    }
+    const response = await fetch(`/api/internal/tasks?eventId=${eventId}`);
+    const payload = await response.json().catch(() => null) as { data?: AdminTaskDTO[] } | null;
+    if (!response.ok || !payload?.data) throw new Error("task refresh failed");
+    const all = payload.data;
+    setTasks(all);
+    const contact = all.filter((task) => task.targetType === "contact").length;
+    const submission = all.filter((task) => task.targetType === "submission").length;
+    setTabCounts({ all: contact + submission, contact, group: 0, submission });
+    router.refresh();
   }
 
   async function remove(task: AdminTaskDTO) {
     const result = await taskMutation(`/api/internal/tasks/${task.id}?eventId=${eventId}`, { method: "DELETE" }, "That task could not be deleted");
-    if (!result.ok) { toast(result.message); return; }
+    if (!result.ok) { toast(result.message, { kind: "error" }); return; }
     toast(`${task.name} deleted`);
     setPendingDelete(null);
-    await refresh();
+    await applyAuthoritativeChange(() => {
+      setTasks((current) => current.filter((candidate) => candidate.id !== task.id));
+      setTabCounts((current) => ({
+        ...current,
+        all: Math.max(0, current.all - 1),
+        [task.targetType]: Math.max(0, current[task.targetType] - 1),
+      }));
+    }, refresh, () => toast("Task deleted, but the list could not be refreshed", { kind: "error" }));
   }
 
   // Owned here, not inside `FileRequestsView` — a request created while that
   // section is open has to be immediately selectable in the task editor's
   // "File request" dropdown, which only holds if both read the same list.
   async function refreshFileRequests() {
-    try {
-      const response = await fetch(`/api/internal/file-requests?eventId=${eventId}`);
-      const payload = await response.json().catch(() => null) as { data?: FileRequestDTO[] } | null;
-      if (!response.ok || !payload?.data) throw new Error("file request refresh failed");
-      setFileRequests(payload.data);
-    } catch {
-      toast("Could not refresh file requests — showing the last saved list");
-    }
+    const response = await fetch(`/api/internal/file-requests?eventId=${eventId}`);
+    const payload = await response.json().catch(() => null) as { data?: FileRequestDTO[] } | null;
+    if (!response.ok || !payload?.data) throw new Error("file request refresh failed");
+    setFileRequests(payload.data);
+  }
+
+  async function applyFileRequestChange(change: { kind: "saved"; request: FileRequestDTO } | { kind: "deleted"; id: string }) {
+    await applyAuthoritativeChange(
+      () => setFileRequests((current) => applyFileRequestChangeToList(current, change)),
+      refreshFileRequests,
+      () => toast(change.kind === "saved"
+        ? "File request saved, but the list could not be refreshed"
+        : "File request deleted, but the list could not be refreshed", { kind: "error" }),
+    );
   }
 
   return (
@@ -175,7 +227,7 @@ export function TasksAdminView({
         </>
       )}
 
-      {section === "file_requests" && <FileRequestsView eventId={eventId} requests={fileRequests} onChanged={refreshFileRequests} />}
+      {section === "file_requests" && <FileRequestsView eventId={eventId} requests={fileRequests} onChanged={applyFileRequestChange} />}
 
       <TaskEditor
         eventId={eventId}
@@ -186,7 +238,23 @@ export function TasksAdminView({
         forms={forms}
         fileRequests={fileRequests}
         onClose={() => { setCreating(false); setEditing(null); }}
-        onSaved={async () => { setCreating(false); setEditing(null); await refresh(); }}
+        onSaved={async (saved) => {
+          const previous = tasks.find((task) => task.id === saved.id);
+          setCreating(false);
+          setEditing(null);
+          await applyAuthoritativeChange(() => {
+            setTasks((current) => mergeSavedTask(current, saved));
+            if (!previous) {
+              setTabCounts((current) => ({ ...current, all: current.all + 1, [saved.targetType]: current[saved.targetType] + 1 }));
+            } else if (previous.targetType !== saved.targetType) {
+              setTabCounts((current) => ({
+                ...current,
+                [previous.targetType]: Math.max(0, current[previous.targetType] - 1),
+                [saved.targetType]: current[saved.targetType] + 1,
+              }));
+            }
+          }, refresh, () => toast("Task saved, but the list could not be refreshed", { kind: "error" }));
+        }}
       />
 
       {matrixTask && (
@@ -216,18 +284,61 @@ export function TasksAdminView({
   );
 }
 
-function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDelete: () => void }) {
+export function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const close = useCallback((restoreFocus: boolean) => {
+    setOpen(false);
+    if (restoreFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => itemRefs.current[0]?.focus());
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) close(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [close, open]);
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+      return;
+    }
+    if (event.key === "Tab") {
+      // Let the browser move focus first; removing the focused menuitem during
+      // keydown can strand focus on <body> instead of the next row control.
+      window.setTimeout(() => setOpen(false), 0);
+      return;
+    }
+    const items = itemRefs.current.filter((item): item is HTMLButtonElement => item !== null);
+    const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
+    const destination = menuDestinationForKey(event.key, current, items.length);
+    if (destination === null) return;
+    event.preventDefault();
+    items[destination]?.focus();
+  }
+
   return (
-    <div className="task-row-menu">
-      <button type="button" className="icon-button" aria-label={`Actions for ${task.name}`} onClick={() => setOpen((current) => !current)}>
+    <div ref={containerRef} className="task-row-menu">
+      <button ref={triggerRef} type="button" className="icon-button" aria-label={`Actions for ${task.name}`} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (!open && event.key === "ArrowDown") { event.preventDefault(); setOpen(true); } }}>
         <MoreHorizontal size={18} />
       </button>
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "100%", zIndex: 10, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow-sm)", minWidth: 140, padding: 4 }}>
-          <button type="button" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onView(); }}>View responses</button>
-          <button type="button" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
-          <button type="button" className="menu-item" style={{ ...menuItemStyle, color: "var(--red)" }} onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
+        <div id={menuId} role="menu" aria-label={`Actions for ${task.name}`} onKeyDown={onMenuKeyDown} style={{ position: "absolute", right: 0, top: "100%", zIndex: 10, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow-sm)", minWidth: 140, padding: 4 }}>
+          <button ref={(node) => { itemRefs.current[0] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onView(); }}>View responses</button>
+          <button ref={(node) => { itemRefs.current[1] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
+          <button ref={(node) => { itemRefs.current[2] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={{ ...menuItemStyle, color: "var(--red)" }} onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
         </div>
       )}
     </div>

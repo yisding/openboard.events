@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { templateVariablePaths } from "@/features/comms/components/sample-vars";
 import { unknownTokensClientSide } from "@/features/comms/components/validate-client";
 import {
+  acceptedBulkSendCount,
   bulkSendPreviewFingerprint,
+  bulkSendResultToastOptions,
   canSendBulkMessage,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
@@ -141,7 +143,10 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
       });
       completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setSendResult(result);
-      toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
+      toast(
+        `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
+        bulkSendResultToastOptions(result),
+      );
       router.refresh();
       return true;
     } catch (sendError) {
@@ -174,8 +179,8 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
           <div className="notify-bar">
             <div>
               <p>
-                <b>{sendResult.queued} queued</b>
-                <small>{sendResult.skipped} skipped (unsubscribed or suppressed) · {sendResult.errors.length} could not be sent</small>
+                <b>{acceptedBulkSendCount(sendResult)} accepted</b>
+                <small>{sendResult.queued} newly queued{sendResult.alreadyQueued > 0 ? ` · ${sendResult.alreadyQueued} already queued by this attempt` : ""} · {sendResult.skipped} skipped (unsubscribed or suppressed) · {sendResult.errors.length} could not be sent</small>
               </p>
             </div>
           </div>

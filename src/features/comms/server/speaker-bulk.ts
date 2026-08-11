@@ -115,6 +115,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     const rendered = renderTemplateContent("speaker_bulk_message", input.subject, bodyHtml, varsFor(event, row, env));
     return {
       queued: 0,
+      alreadyQueued: 0,
       skipped: 0,
       errors: [],
       preview: {
@@ -128,11 +129,23 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
 
   const sendId = input.sendId;
   let queued = 0;
+  let alreadyQueued = 0;
   let skipped = 0;
   const errors: ComposeBulkSpeakerEmailResult["errors"] = [];
   for (const contactId of input.contactIds) {
     const row = recipients.get(contactId);
     if (!row) { errors.push({ contactId, reason: "Not found in this event" }); continue; }
+    const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
+    const [existing] = await dbOrTx.select({ id: speakerBulkMessages.id }).from(speakerBulkMessages)
+      .where(eq(speakerBulkMessages.idempotencyKey, idempotencyKey)).limit(1);
+    if (existing) {
+      // The first response may have been lost after the message insert. Count
+      // that recipient as accepted by this attempt and retry enqueueing so a
+      // rarer failure between the message and outbox inserts still self-heals.
+      await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
+      alreadyQueued += 1;
+      continue;
+    }
     // Same policy `buildContext` enforces at send time (P3-EMAIL): a hard
     // bounce/complaint blocks everything, and a bulk message is
     // non-essential, so the contact's own unsubscribe also withholds it.
@@ -149,7 +162,6 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
       errors.push({ contactId, reason: error instanceof Error ? error.message : "Could not render this message" });
       continue;
     }
-    const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
     const inserted = await dbOrTx.insert(speakerBulkMessages).values({
       eventId, contactId, idempotencyKey, subject: input.subject, bodyHtml,
     }).onConflictDoNothing({ target: speakerBulkMessages.idempotencyKey }).returning();
@@ -158,8 +170,9 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     // insert and outbox insert can heal itself. Only a newly-created message,
     // however, counts as newly queued in this response.
     if (inserted.length > 0) queued += 1;
+    else alreadyQueued += 1;
   }
-  return { queued, skipped, errors, preview: null };
+  return { queued, alreadyQueued, skipped, errors, preview: null };
 }
 
 export function composeBulkSpeakerEmail(eventId: EventId, input: ComposeBulkSpeakerEmailInput): Promise<ComposeBulkSpeakerEmailResult> {

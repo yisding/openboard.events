@@ -8,6 +8,7 @@ import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
+import { evaluationRequest, type EvaluationRequestResult } from "./evaluation-request";
 
 /**
  * Creating and editing a round. Rounds are ordered plans rather than a state
@@ -148,6 +149,28 @@ function TrackScope({
   );
 }
 
+export type PlanReviewerSaveResult =
+  | { ok: true; planId: string }
+  | { ok: false; message: string; pendingReviewerPlanId: string | null };
+
+/** Two-stage round saves can be retried safely: once the round write succeeds,
+ * its id is retained and later attempts run only the reviewer replacement. */
+export async function completePlanAndReviewerSave(
+  pendingReviewerPlanId: string | null,
+  savePlan: () => Promise<EvaluationRequestResult<{ planId: string }>>,
+  saveReviewers: (planId: string) => Promise<EvaluationRequestResult<unknown>>,
+): Promise<PlanReviewerSaveResult> {
+  const planResult = pendingReviewerPlanId
+    ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
+    : await savePlan();
+  if (!planResult.ok) return { ok: false, message: planResult.message, pendingReviewerPlanId: null };
+
+  const reviewerResult = await saveReviewers(planResult.data.planId);
+  return reviewerResult.ok
+    ? { ok: true, planId: planResult.data.planId }
+    : { ok: false, message: reviewerResult.message, pendingReviewerPlanId: planResult.data.planId };
+}
+
 export function PlanEditor({
   eventId,
   plan,
@@ -168,6 +191,7 @@ export function PlanEditor({
   const { toast } = useToast();
   const [draft, setDraft] = useState<PlanDraft>(plan ? draftFrom(plan) : emptyDraft(nextRound));
   const [saving, setSaving] = useState(false);
+  const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
 
   const patch = (next: Partial<PlanDraft>) => setDraft((current) => ({ ...current, ...next }));
 
@@ -199,36 +223,35 @@ export function PlanEditor({
         // the first one sees rather than an overwrite they never learn about.
         ...(plan ? { expectedUpdatedAt: plan.updatedAt } : {}),
       };
-      const response = await fetch(
-        plan ? `/api/internal/evaluation/${eventId}/plans/${plan.id}` : `/api/internal/evaluation/${eventId}/plans`,
-        { method: plan ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      const result = await completePlanAndReviewerSave(
+        pendingReviewerPlanId,
+        () => evaluationRequest<{ planId: string }>(
+          plan ? `/api/internal/evaluation/${eventId}/plans/${plan.id}` : `/api/internal/evaluation/${eventId}/plans`,
+          { method: plan ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          "That round did not save",
+        ),
+        (savedPlanId) => evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            reviewers: draft.reviewers.map((reviewer) => ({
+              userId: reviewer.userId,
+              trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
+            })),
+          }),
+        }, "The round saved, but its reviewers did not"),
       );
-      const payload = await response.json().catch(() => null) as { data?: { planId: string }; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "That round did not save");
+      if (!result.ok) {
+        setPendingReviewerPlanId(result.pendingReviewerPlanId);
+        toast(result.message, { kind: "error" });
+        if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
-
-      // Reviewers are a separate full-set replace, so a failure here leaves the
-      // round saved and says which half went wrong.
-      const assign = await fetch(`/api/internal/evaluation/${eventId}/plans/${payload.data.planId}/reviewers`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          reviewers: draft.reviewers.map((reviewer) => ({
-            userId: reviewer.userId,
-            trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
-          })),
-        }),
-      });
-      if (!assign.ok) {
-        const failure = await assign.json().catch(() => null) as { error?: { message?: string } } | null;
-        toast(failure?.error?.message ?? "The round saved, but its reviewers did not");
-      } else {
-        toast(plan ? `${draft.name} updated` : `${draft.name} created`);
-      }
+      toast(plan ? `${draft.name} updated` : `${draft.name} created`);
       onClose();
       router.refresh();
+    } catch {
+      toast("That round did not save — check your connection and try again", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -244,8 +267,14 @@ export function PlanEditor({
   return (
     <Drawer open onClose={onClose} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
       <div className="form-stack">
+        {pendingReviewerPlanId && (
+          <p className="portal-note" role="alert">
+            <b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.
+          </p>
+        )}
+        <fieldset disabled={pendingReviewerPlanId !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "contents" }}>
         <Field label="Round name" required>
-          <input autoFocus value={draft.name} onChange={(event) => patch({ name: event.target.value })} placeholder="e.g. Round 1 · Program committee" />
+          <input autoFocus required value={draft.name} onChange={(event) => patch({ name: event.target.value })} placeholder="e.g. Round 1 · Program committee" />
         </Field>
 
         <div className="field-row">
@@ -362,6 +391,7 @@ export function PlanEditor({
             <Plus size={15} /> Add criterion
           </Button>
         </section>
+        </fieldset>
 
         <section>
           <h3>Reviewers</h3>
@@ -398,7 +428,7 @@ export function PlanEditor({
       <div className="drawer-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
-          {saving ? "Saving…" : plan ? "Save round" : "Create round"}
+          {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
         </Button>
       </div>
     </Drawer>

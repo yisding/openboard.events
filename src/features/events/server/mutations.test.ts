@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
@@ -250,9 +251,19 @@ describe("database-backed event mutations", () => {
 
     expect(await codeOf(reorderVocabIn(database, event.id, "tracks", [third.id, first.id]))).toBe("VALIDATION");
 
+    const preservedRoomId = "93000000-0000-4000-8000-000000000001";
+    const [embed] = await database.insert(schema.embeds).values({
+      eventId: event.id,
+      name: "Filtered sessions",
+      contentType: "session_list",
+      filters: { trackIds: [second.id], roomIds: [preservedRoomId] },
+    }).returning();
+    if (!embed) throw new Error("expected embed fixture");
     await deleteVocabItemIn(database, event.id, "tracks", second.id);
     const afterDelete = await listVocabIn(database, event.id, "tracks");
     expect(afterDelete.map((track) => track.id)).toEqual([third.id, first.id]);
+    const [cleanedEmbed] = await database.select({ filters: schema.embeds.filters }).from(schema.embeds).where(eq(schema.embeds.id, embed.id));
+    expect(cleanedEmbed?.filters).toEqual({ trackIds: [], roomIds: [preservedRoomId] });
 
     // A second delete of the same id is a silent no-op, not an error.
     await expect(deleteVocabItemIn(database, event.id, "tracks", second.id)).resolves.toBeUndefined();

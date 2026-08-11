@@ -63,7 +63,11 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
 
   const section = form.sections[0] ?? null;
   const targetType = form.targetType ?? "contact";
-  const library = standardFieldsFor(targetType).filter((item) => item.label.toLowerCase().includes(librarySearch.trim().toLowerCase()));
+  const usedMappings = new Set(form.sections.flatMap((candidate) => candidate.fields).map((field) => field.mapsTo).filter(Boolean));
+  const library = standardFieldsFor(targetType).filter((item) => (
+    !usedMappings.has(item.mapsTo)
+    && item.label.toLowerCase().includes(librarySearch.trim().toLowerCase())
+  ));
   const selectedField = section?.fields.find((field) => field.id === selectedFieldId) ?? null;
 
   function apiPath(path: string): string {
@@ -100,26 +104,14 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
     if (!section || busy) return;
     setBusy(true);
     try {
-      const beforeIds = new Set(form.sections.flatMap((candidate) => candidate.fields).map((field) => field.id));
-      let next = await requestData<BuilderForm>(apiPath("/fields"), json("POST", {
+      const next = await requestData<BuilderForm>(apiPath("/fields"), json("POST", {
         expectedUpdatedAt: form.updatedAt,
         sectionId: section.id,
         label: item.label,
         fieldType: item.fieldType,
+        mapsTo: item.mapsTo,
+        ...(item.defaultOptionLabels ? { optionLabels: [...item.defaultOptionLabels] } : {}),
       }));
-      // The field the POST just created is the one live field id that
-      // wasn't there a moment ago — safer than matching on label, which an
-      // organizer could have already reused for an unrelated custom field.
-      const created = next.sections.flatMap((candidate) => candidate.fields).find((field) => !beforeIds.has(field.id));
-      if (created) {
-        next = await requestData<BuilderForm>(apiPath(`/fields/${created.id}`), json("PATCH", {
-          expectedUpdatedAt: next.updatedAt,
-          patch: {
-            mapsTo: item.mapsTo,
-            ...(item.defaultOptionLabels ? { optionLabels: [...item.defaultOptionLabels] } : {}),
-          },
-        }));
-      }
       setForm(next);
       toast(`${item.label} added`);
       setLibraryOpen(false);
@@ -230,10 +222,10 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         <header><div className="step-number">1</div><div><h2>Setup</h2><p>Name this form for your team and speakers.</p></div></header>
         <div className="builder-card form-stack">
           <Field label="Internal form name" required hint={`${internalName.length}/255`}>
-            <input maxLength={255} value={internalName} onChange={(current) => { setInternalName(current.target.value); setDirty(true); }} />
+            <input required maxLength={255} value={internalName} onChange={(current) => { setInternalName(current.target.value); setDirty(true); }} />
           </Field>
           <Field label="Public title" required hint={`${externalTitle.length}/255`}>
-            <input maxLength={255} value={externalTitle} onChange={(current) => { setExternalTitle(current.target.value); setDirty(true); }} />
+            <input required maxLength={255} value={externalTitle} onChange={(current) => { setExternalTitle(current.target.value); setDirty(true); }} />
           </Field>
           <div className="inline-setting">
             <div><b>Edits</b><small>What this form updates — fixed at creation.</small></div>
@@ -282,7 +274,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
               <div><b>{item.label}</b><small>{committedTypeLabel(item.fieldType)}</small></div>
             </button>
           ))}
-          {library.length === 0 && <p>No library fields match &ldquo;{librarySearch}&rdquo;.</p>}
+          {library.length === 0 && <p>{librarySearch.trim() ? <>No library fields match &ldquo;{librarySearch}&rdquo;.</> : "All standard fields for this form have already been added."}</p>}
         </div>
       </div>
     </Modal>
@@ -295,11 +287,11 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       footer={<><Button variant="secondary" onClick={() => setCustomOpen(false)}>Cancel</Button><Button disabled={!customLabel.trim() || busy} onClick={() => void addCustomField()}>Add question</Button></>}
     >
       <div className="form-stack">
-        <Field label="Question label" required><input autoFocus value={customLabel} onChange={(current) => setCustomLabel(current.target.value)} placeholder="What would you like to ask?" /></Field>
+        <Field label="Question label" required><input autoFocus required value={customLabel} onChange={(current) => setCustomLabel(current.target.value)} placeholder="What would you like to ask?" /></Field>
         <Field label="Response type" group>
           <div className="type-grid">
             {COMMITTED_FIELD_TYPES.map((type) => (
-              <button key={type} className={customType === type ? "active" : ""} onClick={() => setCustomType(type)}>
+              <button type="button" aria-pressed={customType === type} key={type} className={customType === type ? "active" : ""} onClick={() => setCustomType(type)}>
                 <span>{typeIcon(type)}</span><div><b>{committedTypeLabel(type)}</b></div>
               </button>
             ))}
@@ -360,7 +352,7 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
       </>}
     >
       <div className="form-stack">
-        <Field label="Label" required><input maxLength={255} value={label} onChange={(current) => setLabel(current.target.value)} /></Field>
+        <Field label="Label" required><input required maxLength={255} value={label} onChange={(current) => setLabel(current.target.value)} /></Field>
         <Field label="Help text"><textarea value={helpText} onChange={(current) => setHelpText(current.target.value)} /></Field>
         {acceptsMaxChars && <Field label="Maximum characters"><input type="number" min={1} value={maxChars ?? ""} onChange={(current) => setMaxChars(current.target.value ? Number(current.target.value) : null)} /></Field>}
         {isOptions && (

@@ -74,7 +74,7 @@ describe("M24 portal form builder", () => {
     expect(mapsToTargetSchema.safeParse("").success).toBe(false);
   });
 
-  it("adds every contact-target library field via createFieldIn+updateFieldIn(mapsTo) with no visibility rule", async () => {
+  it("adds every contact-target library field atomically with its canonical mapping", async () => {
     const form = await createFormIn(database, eventId, {
       internalName: "Update Your Information",
       kind: "abstract",
@@ -85,9 +85,12 @@ describe("M24 portal form builder", () => {
     const section = required(form.sections[0], "questions section");
     let current = form;
     for (const item of standardFieldsFor("contact")) {
-      current = await createFieldIn(database, eventId, form.id, { sectionId: section.id, label: item.label, fieldType: item.fieldType }, current.updatedAt);
-      const created = required(current.sections.flatMap((s) => s.fields).find((field) => field.label === item.label), `created ${item.label}`);
-      current = await updateFieldIn(database, eventId, form.id, created.id, { mapsTo: item.mapsTo }, current.updatedAt);
+      current = await createFieldIn(database, eventId, form.id, {
+        sectionId: section.id,
+        label: item.label,
+        fieldType: item.fieldType,
+        mapsTo: item.mapsTo,
+      }, current.updatedAt);
     }
     const fields = current.sections.flatMap((s) => s.fields);
     expect(fields).toHaveLength(5);
@@ -98,6 +101,16 @@ describe("M24 portal form builder", () => {
     expect(bio.fieldType).toBe("richtext");
     const headshot = required(fields.find((field) => field.mapsTo === "contact.headshot_file_id"), "headshot field");
     expect(headshot.fieldType).toBe("file");
+
+    const beforeDuplicate = current.sections.flatMap((candidate) => candidate.fields).length;
+    await expect(createFieldIn(database, eventId, form.id, {
+      sectionId: section.id,
+      label: "Bio again",
+      fieldType: "richtext",
+      mapsTo: "contact.bio_html",
+    }, current.updatedAt)).rejects.toMatchObject({ code: "VALIDATION" });
+    const afterDuplicate = await getFormForBuilderIn(database, eventId, form.id);
+    expect(afterDuplicate.sections.flatMap((candidate) => candidate.fields)).toHaveLength(beforeDuplicate);
   });
 
   it("rejects setting a maps_to whose target doesn't match the form's own target_type (review finding: mis-mapped write-back)", async () => {
@@ -135,13 +148,14 @@ describe("M24 portal form builder", () => {
     });
     const section = required(form.sections[0], "questions section");
     const levelItem = required(standardFieldsFor("submission").find((item) => item.mapsTo === "submission.level"), "level library item");
-    let current = await createFieldIn(database, eventId, form.id, { sectionId: section.id, label: levelItem.label, fieldType: levelItem.fieldType }, form.updatedAt);
-    const created = required(current.sections.flatMap((s) => s.fields).find((field) => field.label === levelItem.label), "level field");
-    current = await updateFieldIn(database, eventId, form.id, created.id, {
+    const current = await createFieldIn(database, eventId, form.id, {
+      sectionId: section.id,
+      label: levelItem.label,
+      fieldType: levelItem.fieldType,
       mapsTo: levelItem.mapsTo,
       optionLabels: [...required(levelItem.defaultOptionLabels, "level default options")],
-    }, current.updatedAt);
-    const level = required(current.sections.flatMap((s) => s.fields).find((field) => field.id === created.id), "saved level field");
+    }, form.updatedAt);
+    const level = required(current.sections.flatMap((s) => s.fields).find((field) => field.mapsTo === levelItem.mapsTo), "saved level field");
     expect(level.options.map((option) => option.label)).toEqual(["Beginner", "Intermediate", "Advanced"]);
     expect(level.options.every((option) => !option.trackId && !option.formatId && !option.tagId)).toBe(true);
   });

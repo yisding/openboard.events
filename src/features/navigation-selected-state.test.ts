@@ -51,6 +51,22 @@ describe("organizer navigation selected state", () => {
     expect(elements(tasks, "button").filter((node) => attribute(tasks, node, "aria-pressed"))).toHaveLength(4);
   });
 
+  it("exposes every audited choice, chip, day, and template selection", () => {
+    const expectations = [
+      ["./forms/form-builder.tsx", 3],
+      ["./portal/form-builder/components/portal-forms-page.tsx", 2],
+      ["./portal/form-builder/components/portal-form-builder.tsx", 1],
+      ["./portal/tasks-admin/components/file-requests-view.tsx", 1],
+      ["./agenda/components/agenda-toolbar.tsx", 2],
+      ["./comms/components/templates-tab.tsx", 1],
+    ] as const;
+
+    for (const [path, minimum] of expectations) {
+      const file = parse(path);
+      expect(elements(file, "button").filter((node) => attribute(file, node, "aria-pressed")).length, path).toBeGreaterThanOrEqual(minimum);
+    }
+  });
+
   it("renders aria-current only for the exact CRM destination", () => {
     const organizationId = organizationIdSchema.parse("00000000-0000-4000-8000-000000000001");
     const directory = renderToStaticMarkup(React.createElement(CrmNav, { organizationId, active: "directory" }));

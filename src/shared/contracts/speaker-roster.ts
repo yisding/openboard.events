@@ -186,6 +186,7 @@ export type BulkSpeakerEmailPreview = z.infer<typeof bulkSpeakerEmailPreviewSche
 
 export const composeBulkSpeakerEmailResultSchema = z.object({
   queued: z.number().int(),
+  alreadyQueued: z.number().int(),
   skipped: z.number().int(),
   errors: z.array(z.object({ contactId: contactIdSchema, reason: z.string() })),
   preview: bulkSpeakerEmailPreviewSchema.nullable(),

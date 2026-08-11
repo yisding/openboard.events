@@ -5,8 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { consumeToken, issuePortalToken, requestPortalLoginIn } from "@/features/auth";
-import { findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
-import { sha256 } from "@/features/auth/server/crypto";
+import { createPortalSessionRowIn, findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
 import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/server/secret-payload";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
@@ -62,12 +61,16 @@ describe("portal authentication", () => {
     await expect(consumeToken(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toBeNull();
   });
 
-  it("recognizes a concurrently consumed OTP when its portal session already exists", async () => {
+  it("recognizes a consumed OTP and its session inside one transaction", async () => {
     const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "magic_link", ttl: "PT15M", withOtp: true });
     if (!issued.otp) throw new Error("expected OTP");
-    await expect(consumeToken(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, eventId: eventA });
-    await tx.insert(schema.portalSessions).values({ eventId: eventA, contactId: contactA, tokenHash: await sha256("concurrent-session"), expiresAt: new Date(Date.now() + 60_000) });
-    await expect(findConcurrentPortalSignInIn(tx, { contactId: contactA, code: issued.otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, email: "speaker@example.com" });
+    const otp = issued.otp;
+    await testDb.transaction(async (inner) => {
+      const transaction = inner as unknown as TxDb;
+      await expect(consumeToken(transaction, { contactId: contactA, code: otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, eventId: eventA });
+      await createPortalSessionRowIn(transaction, contactA, eventA, null);
+      await expect(findConcurrentPortalSignInIn(transaction, { contactId: contactA, code: otp }, { eventId: eventA, purpose: "magic_link" })).resolves.toEqual({ contactId: contactA, email: "speaker@example.com" });
+    });
     await expect(findConcurrentPortalSignInIn(tx, { contactId: contactA, code: "000000" }, { eventId: eventA, purpose: "magic_link" })).resolves.toBeNull();
   });
 

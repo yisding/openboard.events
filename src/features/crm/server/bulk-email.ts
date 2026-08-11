@@ -64,7 +64,7 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
     const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(link.eventId), {
       mode: "preview", contactIds: [contactIdSchema.parse(link.contactId)], subject: input.subject, bodyHtml: input.bodyHtml, previewContactId: contactIdSchema.parse(link.contactId),
     });
-    return composeCrmBulkEmailResultSchema.parse({ queued: 0, skipped: 0, errors: [], preview: result.preview });
+    return composeCrmBulkEmailResultSchema.parse({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: result.preview });
   }
 
   const byEvent = new Map<string, string[]>();
@@ -77,6 +77,7 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
   }
 
   let queued = 0;
+  let alreadyQueued = 0;
   let skipped = 0;
   for (const [eventId, contactIds] of byEvent) {
     const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(eventId), {
@@ -84,11 +85,12 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
       sendId: input.sendId,
     });
     queued += result.queued;
+    alreadyQueued += result.alreadyQueued;
     skipped += result.skipped;
     for (const error of result.errors) errors.push({ organizationContactId: findOrganizationContactId(links, error.contactId) ?? error.contactId, reason: error.reason });
   }
 
-  return composeCrmBulkEmailResultSchema.parse({ queued, skipped, errors, preview: null });
+  return composeCrmBulkEmailResultSchema.parse({ queued, alreadyQueued, skipped, errors, preview: null });
 }
 
 function findOrganizationContactId(links: Map<string, { eventId: string; contactId: string }>, contactId: string): string | undefined {

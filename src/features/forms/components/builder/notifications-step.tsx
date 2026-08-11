@@ -69,7 +69,7 @@ export function NotificationsStep({ form, onChange }: {
               />
             </Field>
             <Field label="Body">
-              <RichTextEditor value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} maxChars={5000} />
+              <RichTextEditor ariaLabel="Confirmation email body" value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} maxChars={5000} />
             </Field>
           </div>
         )}

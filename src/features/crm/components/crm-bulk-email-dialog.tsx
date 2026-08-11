@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { composeCrmBulkEmailResultSchema, type ComposeCrmBulkEmailResult, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
 import {
+  acceptedBulkSendCount,
   bulkSendPreviewFingerprint,
+  bulkSendResultToastOptions,
   canSendBulkMessage,
   chunkBulkRecipientIds,
   claimBulkSendAttempt,
@@ -131,7 +133,10 @@ export function CrmBulkEmailDialog({
       const result = mergeCrmBulkEmailResults(results);
       completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setSendResult(result);
-      toast(`${result.queued} queued${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`);
+      toast(
+        `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
+        bulkSendResultToastOptions(result),
+      );
       router.refresh();
       return true;
     } catch (caught) {
@@ -164,8 +169,8 @@ export function CrmBulkEmailDialog({
           <div className="notify-bar">
             <div>
               <p>
-                <b>{sendResult.queued} queued</b>
-                <small>{sendResult.skipped} skipped · {sendResult.errors.length} could not be sent</small>
+                <b>{acceptedBulkSendCount(sendResult)} accepted</b>
+                <small>{sendResult.queued} newly queued{sendResult.alreadyQueued > 0 ? ` · ${sendResult.alreadyQueued} already queued by this attempt` : ""} · {sendResult.skipped} skipped · {sendResult.errors.length} could not be sent</small>
               </p>
             </div>
           </div>

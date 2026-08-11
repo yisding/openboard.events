@@ -13,3 +13,16 @@ export function restoreFailedVocabDeletion<T extends { id: string }>(
 ): T[] {
   return restoreVocabItemAtIndex(current, latestPersisted ?? removed, originalIndex);
 }
+
+/** Restore the last persisted relative order without discarding rows added,
+ * deleted, or edited while the reorder request was in flight. */
+export function restoreVocabOrder<T extends { id: string }>(current: readonly T[], persistedIds: readonly string[]): T[] {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  const restored = persistedIds.flatMap((id) => {
+    const item = byId.get(id);
+    if (!item) return [];
+    byId.delete(id);
+    return [item];
+  });
+  return [...restored, ...current.filter((item) => byId.has(item.id))];
+}

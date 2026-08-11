@@ -99,10 +99,10 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
       )}
       <div className="form-stack">
         <Field label="Event name" required>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <input required value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Event slug" required hint="Used in your public URLs: /submit/{slug}/… — renaming after a CFP link is shared means existing links 404">
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} />
+          <input required value={slug} onChange={(e) => setSlug(e.target.value)} />
         </Field>
         <div className="form-grid">
           <Field label="Event type">
@@ -111,7 +111,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
             </select>
           </Field>
           <Field label="Timezone" required>
-            <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            <select required value={timezone} onChange={(e) => setTimezone(e.target.value)}>
               {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
             </select>
           </Field>
@@ -126,10 +126,10 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
         </div>
         <div className="form-grid">
           <Field label="Starts At" required>
-            <DateTimePicker value={startsAt} onChange={setStartsAt} tz={timezone} clearable={false} />
+            <DateTimePicker required value={startsAt} onChange={setStartsAt} tz={timezone} clearable={false} />
           </Field>
           <Field label="Ends At" required>
-            <DateTimePicker value={endsAt} onChange={setEndsAt} tz={timezone} clearable={false} />
+            <DateTimePicker required value={endsAt} onChange={setEndsAt} tz={timezone} clearable={false} />
           </Field>
         </div>
         <Field label="Theme" hint={`${themeCount} / ${LIMITS.THEME}`}>

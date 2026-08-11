@@ -131,11 +131,11 @@ export function PortalFormsPage({ event, initialForms }: { event: BuilderEvent; 
       footer={<><Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}
     >
       <div className="form-stack">
-        <Field label="Internal form name" required><input autoFocus maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Update Your Information" /></Field>
+        <Field label="Internal form name" required><input autoFocus required maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Update Your Information" /></Field>
         <Field label="What does this form edit?" hint="Cannot be changed after creation." group>
           <div className="choice-cards">
-            <button className={targetType === "contact" ? "active" : ""} onClick={() => setTargetType("contact")}><Contact2 size={20} /><b>Contact</b><small>Bio, headshot, pronouns, company, job title</small></button>
-            <button className={targetType === "submission" ? "active" : ""} onClick={() => setTargetType("submission")}><FileText size={20} /><b>Submission</b><small>Session title, description, level</small></button>
+            <button type="button" aria-pressed={targetType === "contact"} className={targetType === "contact" ? "active" : ""} onClick={() => setTargetType("contact")}><Contact2 size={20} /><b>Contact</b><small>Bio, headshot, pronouns, company, job title</small></button>
+            <button type="button" aria-pressed={targetType === "submission"} className={targetType === "submission" ? "active" : ""} onClick={() => setTargetType("submission")}><FileText size={20} /><b>Submission</b><small>Session title, description, level</small></button>
           </div>
         </Field>
       </div>

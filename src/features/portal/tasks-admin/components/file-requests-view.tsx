@@ -44,7 +44,7 @@ export function FileRequestsView({
 }: {
   eventId: string;
   requests: FileRequestDTO[];
-  onChanged: () => void | Promise<void>;
+  onChanged: (change: { kind: "saved"; request: FileRequestDTO } | { kind: "deleted"; id: string }) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState<FileRequestDTO | null>(null);
@@ -72,7 +72,7 @@ export function FileRequestsView({
     if (saving) return;
     setSaving(true);
     try {
-      const result = await taskMutation(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
+      const result = await taskMutation<FileRequestDTO>(draft.id ? `/api/internal/file-requests/${draft.id}?eventId=${eventId}` : `/api/internal/file-requests?eventId=${eventId}`, {
         method: draft.id ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -83,10 +83,12 @@ export function FileRequestsView({
           maxSizeMb: draft.maxSizeMb,
         }),
       }, "That file request could not be saved");
-      if (!result.ok) { toast(result.message); return; }
+      if (!result.ok) { toast(result.message, { kind: "error" }); return; }
+      const saved = result.payload?.data;
+      if (!saved) { toast("That file request was saved, but its response could not be read", { kind: "error" }); return; }
       toast(draft.id ? "File request updated" : "File request created");
       closeEditor();
-      await onChanged();
+      await onChanged({ kind: "saved", request: saved });
     } finally {
       setSaving(false);
     }
@@ -95,10 +97,10 @@ export function FileRequestsView({
   async function remove(request: FileRequestDTO) {
     const result = await taskMutation(`/api/internal/file-requests/${request.id}?eventId=${eventId}`, { method: "DELETE" }, "That file request could not be deleted");
     // A RESTRICT constraint refusal reads as this friendly message, never a raw 500.
-    if (!result.ok) { toast(result.message); return; }
+    if (!result.ok) { toast(result.message, { kind: "error" }); return; }
     toast(`${request.title} deleted`);
     setPendingDelete(null);
-    await onChanged();
+    await onChanged({ kind: "deleted", id: request.id });
   }
 
   return (
@@ -144,12 +146,12 @@ export function FileRequestsView({
       >
         <div className="form-stack">
           <Field label="Title" required>
-            <input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
+            <input autoFocus required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
           </Field>
           <Field label="Type" group>
             <div className="choice-cards compact">
               {(["contact", "submission"] as const).map((type) => (
-                <button type="button" key={type} className={draft.targetType === type ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, targetType: type }))}>
+                <button type="button" aria-pressed={draft.targetType === type} key={type} className={draft.targetType === type ? "active" : ""} onClick={() => setDraft((current) => ({ ...current, targetType: type }))}>
                   <b>{type === "contact" ? "Speakers" : "Submissions"}</b>
                   <small>{type === "contact" ? "Once per accepted speaker" : "Once per accepted submission"}</small>
                 </button>
@@ -157,7 +159,7 @@ export function FileRequestsView({
             </div>
           </Field>
           <Field label="Instructions">
-            <RichTextEditor value={draft.instructionsHtml} onChange={(html) => setDraft((current) => ({ ...current, instructionsHtml: html }))} placeholder="What should speakers upload?" />
+            <RichTextEditor ariaLabel="File request instructions" value={draft.instructionsHtml} onChange={(html) => setDraft((current) => ({ ...current, instructionsHtml: html }))} placeholder="What should speakers upload?" />
           </Field>
           <div className="form-grid">
             <Field label="Accepted extensions" hint="Comma separated, no dots">

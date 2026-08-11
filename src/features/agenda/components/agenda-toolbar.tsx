@@ -94,13 +94,13 @@ export function AgendaToolbar({
       {DAY_SCOPED.has(view) && days.length > 0 && (
         <div className="agenda-daybar">
           <div>
-            <button type="button" className={day === null ? "active" : ""} onClick={() => onDay(null)}>
+            <button type="button" aria-pressed={day === null} className={day === null ? "active" : ""} onClick={() => onDay(null)}>
               <span>All</span><b>{days.length}</b><small>days</small>
             </button>
             {days.map((key) => {
               const label = dayTabLabel(key);
               return (
-                <button key={key} type="button" className={day === key ? "active" : ""} onClick={() => onDay(key)}>
+                <button key={key} type="button" aria-pressed={day === key} className={day === key ? "active" : ""} onClick={() => onDay(key)}>
                   <span>{label.weekday}</span>
                   <b>{label.day}</b>
                   <small>{label.month}</small>

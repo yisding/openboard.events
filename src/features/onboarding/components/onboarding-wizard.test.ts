@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { organizationIdSchema } from "@/shared/contracts";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { OnboardingStepHeading, OnboardingWizard } from "./onboarding-wizard";
+import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -48,5 +48,23 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(focus).toHaveBeenCalledOnce();
     cancel();
     expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(23);
+  });
+});
+
+describe("onboarding form publication recovery", () => {
+  it("retains a created draft and retries only publication", async () => {
+    const draft = { id: "form-1", status: "draft", updatedAt: "2026-08-11T00:00:00.000Z" };
+    const open = { ...draft, status: "open", updatedAt: "2026-08-11T00:00:01.000Z" };
+    const create = vi.fn(async () => draft);
+    const publish = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(open);
+    const onCreated = vi.fn();
+
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: true, create, publish, onCreated })).rejects.toThrow("offline");
+    expect(onCreated).toHaveBeenCalledWith(draft);
+    await expect(createOrPublishOnboardingForm({ existing: draft, publishNow: true, create, publish, onCreated })).resolves.toEqual(open);
+    expect(create).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledTimes(2);
   });
 });

@@ -211,6 +211,7 @@ describe("organization-level speaker CRM (M55)", () => {
     };
     const sent = await composeCrmBulkEmailIn(db, orgA, sendInput);
     expect(sent.queued).toBe(1);
+    expect(sent.alreadyQueued).toBe(0);
     expect(sent.errors).toEqual([]);
     const [loggedRow] = (await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM communication_logs WHERE template_key='speaker_bulk_message'",
@@ -236,6 +237,7 @@ describe("organization-level speaker CRM (M55)", () => {
       sendId: "96000000-0000-4000-8000-000000000002",
     });
     expect(suppressed.queued).toBe(0);
+    expect(suppressed.alreadyQueued).toBe(0);
     expect(suppressed.skipped).toBe(1);
   });
 

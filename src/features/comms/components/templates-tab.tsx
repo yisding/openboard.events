@@ -125,7 +125,7 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
     <div className="comms-templates">
       <nav className="comms-rail" aria-label="Template keys">
         {templates.map((row) => (
-          <button key={row.key} type="button" className={row.key === selectedKey ? "active" : ""} onClick={() => selectKey(row.key)}>
+          <button key={row.key} type="button" aria-pressed={row.key === selectedKey} className={row.key === selectedKey ? "active" : ""} onClick={() => selectKey(row.key)}>
             <i className={row.enabled ? "enabled" : ""} />
             {humanizeKey(row.key)}
           </button>

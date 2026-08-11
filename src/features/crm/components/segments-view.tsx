@@ -25,6 +25,20 @@ import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";
 
 const EMPTY_FILTER: CrmSegmentFilter = {};
 
+export async function resolveCrmEmailAudience(load: () => Promise<ResolvedCrmSegment>): Promise<{
+  result: ResolvedCrmSegment | null;
+  error: string | null;
+}> {
+  try {
+    const result = await load();
+    return result.organizationContactIds.length > 0
+      ? { result, error: null }
+      : { result, error: "No contacts currently match this segment" };
+  } catch (caught) {
+    return { result: null, error: isAppError(caught) ? caught.message : "Could not resolve this segment — try again" };
+  }
+}
+
 function filterSummary(filter: CrmSegmentFilter, tags: CrmTagDTO[], events: OrganizationEventRow[]): string {
   const parts: string[] = [];
   if (filter.search) parts.push(`"${filter.search}"`);
@@ -89,7 +103,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
       reset();
       onClose();
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That segment did not save");
+      toast(isAppError(caught) ? caught.message : "That segment did not save", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -118,7 +132,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
           <div className="chip-picker">
             {tags.length === 0 && <p className="long-copy">No tags yet.</p>}
             {tags.map((tag) => (
-              <button key={tag.id} type="button" className={filter.tagIds?.includes(tag.id) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, tagIds: toggleInArray(current.tagIds, tag.id) }))}>
+              <button key={tag.id} type="button" aria-pressed={filter.tagIds?.includes(tag.id) ?? false} className={filter.tagIds?.includes(tag.id) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, tagIds: toggleInArray(current.tagIds, tag.id) }))}>
                 {tag.name}
               </button>
             ))}
@@ -127,7 +141,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
         <Field label="Events" hint="Linked to any of these." group>
           <div className="chip-picker">
             {events.map((event) => (
-              <button key={event.id} type="button" className={filter.eventIds?.includes(event.id) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, eventIds: toggleInArray(current.eventIds, event.id) }))}>
+              <button key={event.id} type="button" aria-pressed={filter.eventIds?.includes(event.id) ?? false} className={filter.eventIds?.includes(event.id) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, eventIds: toggleInArray(current.eventIds, event.id) }))}>
                 {event.name}
               </button>
             ))}
@@ -136,7 +150,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
         <Field label="Pipeline stage" group>
           <div className="chip-picker">
             {CRM_PIPELINE_STAGES.map((stage) => (
-              <button key={stage} type="button" className={filter.pipelineStage?.includes(stage) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, pipelineStage: toggleInArray(current.pipelineStage, stage) }))}>
+              <button key={stage} type="button" aria-pressed={filter.pipelineStage?.includes(stage) ?? false} className={filter.pipelineStage?.includes(stage) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, pipelineStage: toggleInArray(current.pipelineStage, stage) }))}>
                 {stage}
               </button>
             ))}
@@ -145,7 +159,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
         <Field label="Source" group>
           <div className="chip-picker">
             {CRM_CONTACT_SOURCES.map((source) => (
-              <button key={source} type="button" className={filter.source?.includes(source) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, source: toggleInArray(current.source, source) }))}>
+              <button key={source} type="button" aria-pressed={filter.source?.includes(source) ?? false} className={filter.source?.includes(source) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, source: toggleInArray(current.source, source) }))}>
                 {source.replaceAll("_", " ")}
               </button>
             ))}
@@ -181,6 +195,7 @@ export function SegmentsView({
   tags: CrmTagDTO[];
   events: OrganizationEventRow[];
 }) {
+  const { toast } = useToast();
   const [segments, setSegments] = useState(initialSegments);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [resolved, setResolved] = useState<Record<string, ResolvedCrmSegment | undefined>>({});
@@ -192,6 +207,27 @@ export function SegmentsView({
     try {
       const result = await api(`organizations/${organizationId}/crm/segments/${segmentId}/resolve`, resolvedCrmSegmentSchema);
       setResolved((current) => ({ ...current, [segmentId]: result }));
+    } catch (caught) {
+      toast(isAppError(caught) ? caught.message : "Could not resolve this segment — try again", { kind: "error" });
+    } finally {
+      setResolving(null);
+    }
+  }
+
+  async function email(segment: CrmSegmentDTO) {
+    setResolving(segment.id);
+    setEmailSegment(null);
+    try {
+      const outcome = await resolveCrmEmailAudience(() => api(
+        `organizations/${organizationId}/crm/segments/${segment.id}/resolve`,
+        resolvedCrmSegmentSchema,
+      ));
+      if (outcome.result) setResolved((current) => ({ ...current, [segment.id]: outcome.result as ResolvedCrmSegment }));
+      if (outcome.error) {
+        toast(outcome.error, { kind: "error" });
+        return;
+      }
+      setEmailSegment(segment);
     } finally {
       setResolving(null);
     }
@@ -239,8 +275,8 @@ export function SegmentsView({
                 <Button size="sm" variant="secondary" onClick={() => void resolve(segment.id)} disabled={resolving === segment.id}>
                   <Users size={14} /> {resolving === segment.id ? "Resolving…" : result ? `${result.matchedCount} match` : "View members"}
                 </Button>
-                <Button size="sm" onClick={() => { setEmailSegment(segment); if (!result) void resolve(segment.id); }} disabled={result?.matchedCount === 0}>
-                  <Mail size={14} /> Email segment
+                <Button size="sm" onClick={() => void email(segment)} disabled={resolving === segment.id}>
+                  <Mail size={14} /> {resolving === segment.id ? "Resolving…" : "Email segment"}
                 </Button>
               </div>
             </header>
