@@ -165,15 +165,12 @@ CREATE TABLE organization_contact_segments (
   UNIQUE (organization_id, name)
 );
 
--- The immutable merge audit record. `field_snapshot` is the losing row's
--- columns exactly as they were before the merge (the loser is never written
--- to, only tombstoned via `organization_contacts.merged_into_id`), and
--- `reference_counts` is how many rows of each kind
+-- The immutable merge audit record. `field_snapshot` contains the losing
+-- contact plus a private compare-and-restore snapshot captured by the merge
+-- transaction. `reference_counts` is how many rows of each kind
 -- (links/tags/notes/activity/pipeline) were reassigned onto the primary.
--- Recovery procedure: clear `merged_into_id` on the loser, then use this
--- snapshot plus `reference_counts` as the checklist for pointing reassigned
--- rows back — there is no automated "unmerge" mutation. No update/delete
--- path anywhere in `src/features/crm` touches this table once written.
+-- No update/delete path anywhere in `src/features/crm` touches this table once
+-- written. The append-only recovery receipt is added by migration 0017.
 CREATE TABLE organization_contact_merges (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

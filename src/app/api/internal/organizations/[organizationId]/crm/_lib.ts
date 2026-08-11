@@ -1,4 +1,4 @@
-import { crmPipelineIdSchema, organizationContactIdSchema, organizationIdSchema, type CrmPipelineId, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
+import { crmMergeIdSchema, crmPipelineIdSchema, organizationContactIdSchema, organizationIdSchema, type CrmMergeId, type CrmPipelineId, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import type { RouteParams } from "@/shared/server/handler";
 
@@ -20,4 +20,10 @@ export function requirePipelineId(params: RouteParams): CrmPipelineId {
   const raw = params.pipelineId;
   if (typeof raw !== "string") throw new AppError("VALIDATION", "pipelineId route parameter is required");
   return crmPipelineIdSchema.parse(raw);
+}
+
+export function requireCrmMergeId(params: RouteParams): CrmMergeId {
+  const raw = params.mergeId;
+  if (typeof raw !== "string") throw new AppError("VALIDATION", "mergeId route parameter is required");
+  return crmMergeIdSchema.parse(raw);
 }

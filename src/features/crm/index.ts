@@ -56,10 +56,14 @@ export {
 } from "./server/mutations";
 
 export {
+  getCrmMergeAudit,
+  getCrmMergeAuditIn,
   mergeOrganizationContacts,
   mergeOrganizationContactsIn,
   previewCrmMerge,
   previewCrmMergeIn,
+  recoverCrmMerge,
+  recoverCrmMergeIn,
 } from "./server/merge";
 
 export { importCrmContactsCsv, importCrmContactsCsvIn } from "./server/csv-import";

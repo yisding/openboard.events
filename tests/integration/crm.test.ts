@@ -6,7 +6,7 @@ import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { composeCrmBulkEmailIn } from "@/features/crm/server/bulk-email";
 import { importCrmContactsCsvIn } from "@/features/crm/server/csv-import";
-import { mergeOrganizationContactsIn, previewCrmMergeIn } from "@/features/crm/server/merge";
+import { getCrmMergeAuditIn, mergeOrganizationContactsIn, previewCrmMergeIn, recoverCrmMergeIn } from "@/features/crm/server/merge";
 import {
   createCrmNoteIn,
   createCrmPipelineEntryIn,
@@ -42,6 +42,7 @@ const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
+const migrationCrmMergeRecovery = readFileSync(new URL("../../drizzle/0017_crm_merge_recovery.sql", import.meta.url), "utf8");
 
 const orgA = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000001");
 const orgB = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000002");
@@ -56,7 +57,7 @@ let db: DbOrTx;
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
-    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments]) {
+    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery]) {
       await pglite.exec(migration);
     }
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
@@ -166,6 +167,8 @@ describe("organization-level speaker CRM (M55)", () => {
     const audit = await mergeOrganizationContactsIn(tx, orgA, { primaryContactId: primaryId, mergedContactId: duplicateId, fieldResolutions: {} }, actorUserId);
     expect(audit.referenceCounts.tags).toBe(1);
     expect(audit.referenceCounts.pipelineEntries).toBe(1);
+    const auditDetail = await getCrmMergeAuditIn(db, orgA, audit.id);
+    expect(auditDetail).toMatchObject({ recoveryStatus: "recoverable", canRecover: true, mergedContactId: duplicateId });
 
     // The merged identity is tombstoned, not deleted, and drops out of the directory.
     const directory = await listOrganizationContactsIn(db, orgA, { limit: 200, offset: 0 });
@@ -258,5 +261,39 @@ describe("organization-level speaker CRM (M55)", () => {
     )).rows;
     expect(row?.company).toBe("Acme");
     expect(row?.custom_fields).toEqual({ shirtSize: "M" });
+  });
+
+  it("recovers a merge only when the primary is unchanged, restoring the audited identity and references", async () => {
+    const tag = await createCrmTagIn(db, orgA, { name: "Recovery", color: "#123456" });
+    const primaryId = await createOrganizationContactIn(db, orgA, { email: "recovery.primary@example.com", firstName: "Primary", lastName: "Before" });
+    const mergedId = await createOrganizationContactIn(db, orgA, { email: "recovery.merged@example.com", firstName: "Merged", lastName: "Restored" });
+    await createCrmNoteIn(db, orgA, mergedId, { bodyHtml: "<p>restore this note</p>" }, actorUserId);
+    await setCrmContactTagsIn(db, orgA, mergedId, { tagIds: [tag.id] });
+    const pipelineEntry = await createCrmPipelineEntryIn(db, orgA, { organizationContactId: mergedId, targetEventId: eventA2 });
+    await pushOrganizationContactToEventIn(db, orgA, mergedId, eventA2);
+
+    const audit = await mergeOrganizationContactsIn(db as unknown as TxDb, orgA, {
+      primaryContactId: primaryId, mergedContactId: mergedId, fieldResolutions: { lastName: "merged" },
+    }, actorUserId);
+    expect((await getOrganizationContactHistoryIn(db, orgA, primaryId))?.contact.lastName).toBe("Restored");
+
+    const recovered = await recoverCrmMergeIn(db as unknown as TxDb, orgA, audit.id, actorUserId);
+    expect(recovered).toMatchObject({ recoveryStatus: "recovered", canRecover: false });
+    const primaryHistory = await getOrganizationContactHistoryIn(db, orgA, primaryId);
+    expect(primaryHistory?.contact.lastName).toBe("Before");
+    expect(primaryHistory?.tags.some((row) => row.id === tag.id)).toBe(false);
+
+    const mergedHistory = await getOrganizationContactHistoryIn(db, orgA, mergedId);
+    expect(mergedHistory?.tags.some((row) => row.id === tag.id)).toBe(true);
+    expect(mergedHistory?.notes).toHaveLength(1);
+    expect(mergedHistory?.events.some((row) => row.eventId === eventA2)).toBe(true);
+    const [pipelineRow] = (await pglite.query<{ organization_contact_id: string }>(
+      "SELECT organization_contact_id FROM organization_contact_pipeline WHERE id=$1", [pipelineEntry.id],
+    )).rows;
+    expect(pipelineRow?.organization_contact_id).toBe(mergedId);
+    expect((await listOrganizationContactsIn(db, orgA, { search: "recovery.merged", limit: 10, offset: 0 })).rows.some((row) => row.id === mergedId)).toBe(true);
+
+    await expect(recoverCrmMergeIn(db as unknown as TxDb, orgA, audit.id, actorUserId))
+      .rejects.toSatisfy((e) => isAppError(e) && e.code === "CONFLICT");
   });
 });

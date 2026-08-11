@@ -279,6 +279,18 @@ export const crmMergeAuditDtoSchema = z.object({
 });
 export type CrmMergeAuditDTO = z.infer<typeof crmMergeAuditDtoSchema>;
 
+export const crmMergeRecoveryStatusSchema = z.enum(["recoverable", "recovered", "unavailable"]);
+export type CrmMergeRecoveryStatus = z.infer<typeof crmMergeRecoveryStatusSchema>;
+
+/** Organization-scoped audit lookup. The recovery flag is derived from the
+ * append-only recovery record and the snapshot captured at merge time; the
+ * snapshot itself is intentionally never returned to the browser. */
+export const crmMergeAuditDetailDtoSchema = crmMergeAuditDtoSchema.extend({
+  recoveryStatus: crmMergeRecoveryStatusSchema,
+  canRecover: z.boolean(),
+});
+export type CrmMergeAuditDetailDTO = z.infer<typeof crmMergeAuditDetailDtoSchema>;
+
 // --- Segments ------------------------------------------------------------
 
 /** AND semantics across every provided field, same convention M46's
