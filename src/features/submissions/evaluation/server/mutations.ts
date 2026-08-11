@@ -1,16 +1,18 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type {
-  CriterionSpec,
-  CriterionValues,
-  EventId,
-  PlanId,
-  ReviewId,
-  SubmissionId,
-  TrackId,
-  UserId,
+import {
+  criterionIdSchema,
+  type CriterionSpec,
+  type CriterionValues,
+  type EventId,
+  type PlanId,
+  type ReviewId,
+  type SubmissionId,
+  type TrackId,
+  type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { stableUuid } from "@/shared/server/stable-uuid";
 import { isReviewComplete, isValidCriterionValue, normalizeCriterionValues, reviewWindow, weightedMean } from "../scoring";
 import type { AssignmentInput, PlanInput, ReviewInput, ReviewerAssignmentInput } from "../types";
 
@@ -257,7 +259,13 @@ export async function savePlanIn(
   assertCriteriaWithinScale(input);
 
   const criteria = input.criteria.map((criterion, index) => ({
-    id: criterion.id,
+    // A stable create id must cover its child graph too. The editor normally
+    // keeps criterion ids after the first response, but a retry after a lost
+    // response still has null ids; deriving them prevents delete/reinsert from
+    // changing the keys stored in review score JSON.
+    id: criterion.id ?? (input.planId
+      ? criterionIdSchema.parse(stableUuid(input.planId, `criterion:${index}`))
+      : null),
     label: criterion.label,
     weight: criterion.weight,
     sort_order: index,
@@ -268,7 +276,11 @@ export async function savePlanIn(
     max_value: criterion.maxValue,
   }));
   const keepIds = criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
-  await assertCriteriaInPlan(dbOrTx, eventId, input.planId, keepIds);
+  // Ownership validation applies to ids the caller claimed already exist;
+  // server-derived ids represent new criteria and therefore are not expected
+  // to be present in the plan yet.
+  const claimedIds = input.criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
+  await assertCriteriaInPlan(dbOrTx, eventId, input.planId, claimedIds);
   await assertScoringShapeEditable(dbOrTx, eventId, input);
 
   let rows: Array<{ id: string }>;

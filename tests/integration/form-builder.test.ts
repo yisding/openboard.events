@@ -82,10 +82,65 @@ describe("database-backed form builder", () => {
 
     const forms = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM forms WHERE id=$1", [stableFormId]);
     const sections = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM form_sections WHERE form_id=$1", [stableFormId]);
+    const fields = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM form_fields WHERE form_id=$1", [stableFormId]);
     const versions = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM form_versions WHERE form_id=$1", [stableFormId]);
     expect(forms.rows[0]?.n).toBe(1);
     expect(sections.rows[0]?.n).toBe(2);
+    expect(fields.rows[0]?.n).toBe(12);
     expect(versions.rows[0]?.n).toBe(1);
+  });
+
+  it("repairs a partially committed stable form create, including a legacy section id", async () => {
+    const stableFormId = formIdSchema.parse("ad000000-0000-4000-8000-000000000091");
+    const legacyAbstractId = "ad000000-0000-4000-8000-000000000092";
+    await pglite.query(
+      `INSERT INTO forms(id,event_id,context,internal_name,external_title,status,kind,collect_participants,current_version)
+       VALUES($1,$2,'cfp','Partially stored CFP','Partially stored CFP','draft','abstract',true,1)`,
+      [stableFormId, retryEventId],
+    );
+    await pglite.query(
+      "INSERT INTO form_sections(id,event_id,form_id,key,title,page_heading,sort_order) VALUES($1,$2,$3,'abstract','Stored abstract','Submission',0)",
+      [legacyAbstractId, retryEventId, stableFormId],
+    );
+    await pglite.query(
+      "INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,1,'{}'::jsonb)",
+      [retryEventId, stableFormId],
+    );
+
+    const repaired = await createFormIn(database, retryEventId, {
+      id: stableFormId, internalName: "Ignored retry copy", kind: "abstract", collectParticipants: true,
+    });
+
+    expect(repaired.internalName).toBe("Partially stored CFP");
+    expect(repaired.sections).toHaveLength(2);
+    expect(repaired.sections.flatMap((section) => section.fields)).toHaveLength(12);
+    expect(repaired.sections.find((section) => section.key === "abstract")?.id).toBe(legacyAbstractId);
+    const versions = await pglite.query<{ n: number; snapshot: unknown }>(
+      "SELECT count(*) OVER()::int AS n, snapshot FROM form_versions WHERE form_id=$1",
+      [stableFormId],
+    );
+    expect(versions.rows[0]?.n).toBe(1);
+    expect(formSnapshotSchema.parse(versions.rows[0]?.snapshot).sections.flatMap((section) => section.fields)).toHaveLength(12);
+  });
+
+  it("converges overlapping stable form creates on one complete authoring graph", async () => {
+    const stableFormId = formIdSchema.parse("ad000000-0000-4000-8000-000000000093");
+    const input = { id: stableFormId, internalName: "Overlapping CFP", kind: "abstract" as const, collectParticipants: true };
+
+    const [first, second] = await Promise.all([
+      createFormIn(database, retryEventId, input),
+      createFormIn(database, retryEventId, input),
+    ]);
+
+    expect(second.id).toBe(first.id);
+    const counts = await pglite.query<{ sections: number; fields: number; versions: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM form_sections WHERE form_id=$1) AS sections,
+         (SELECT count(*)::int FROM form_fields WHERE form_id=$1) AS fields,
+         (SELECT count(*)::int FROM form_versions WHERE form_id=$1) AS versions`,
+      [stableFormId],
+    );
+    expect(counts.rows[0]).toEqual({ sections: 2, fields: 12, versions: 1 });
   });
 
   it("publishes one immutable version for every save and sanitizes organizer HTML", async () => {

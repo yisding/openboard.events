@@ -37,6 +37,21 @@ export function myScheduleEmptyCopy(starredCount: number): {
     };
 }
 
+export function FilteredItineraryEmptyState({ eventSlug, starredCount }: { eventSlug: string; starredCount: number }) {
+  const emptyCopy = myScheduleEmptyCopy(starredCount);
+  const hasHiddenStars = emptyCopy.hiddenByEmbed;
+  return (
+    <PublicComingSoon
+      icon={Star}
+      title={hasHiddenStars ? emptyCopy.title : "No itinerary sessions match this embed"}
+      description={hasHiddenStars
+        ? emptyCopy.description
+        : "Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."}
+      {...(hasHiddenStars ? { linkHref: `/e/${eventSlug}/itinerary`, linkLabel: "Open the full itinerary" } : {})}
+    />
+  );
+}
+
 /**
  * Schedule Itinerary — the M53 anonymous, no-account "My Schedule": star any
  * number of sessions, persisted in `localStorage` keyed by event slug
@@ -133,11 +148,7 @@ export function PublicItinerary({
       linkLabel="Speaker gallery"
     />
   ) : sessions.length === 0 ? (
-    <PublicComingSoon
-      icon={Star}
-      title="No itinerary sessions match this embed"
-      description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
-    />
+    <FilteredItineraryEmptyState eventSlug={eventSlug} starredCount={hydrated ? starred.length : 0} />
   ) : (
     <>
       <div className="itinerary-toolbar">

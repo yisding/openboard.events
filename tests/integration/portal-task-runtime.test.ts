@@ -38,6 +38,7 @@ const talkTwo = submissionIdSchema.parse("c4000000-0000-4000-8000-000000000021")
 const pendingTalk = submissionIdSchema.parse("c4000000-0000-4000-8000-000000000022");
 const headshotTask = "c4000000-0000-4000-8000-000000000030";
 const slidesTask = "c4000000-0000-4000-8000-000000000031";
+const secondSlidesTask = "c4000000-0000-4000-8000-000000000033";
 const profileTask = "c4000000-0000-4000-8000-000000000032";
 const slidesRequest = "c4000000-0000-4000-8000-000000000040";
 const deck = "c4000000-0000-4000-8000-000000000041";
@@ -296,6 +297,31 @@ describe("portal task runtime", () => {
     expect(detail?.uploads).toHaveLength(1);
     expect(detail?.fileRequest?.maxSizeMb).toBe(25);
     expect(detail?.completed).toBe(true);
+  });
+
+  it("completes each task when two tasks share a request, slot, and replayed asset", async () => {
+    await pglite.query(
+      "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,file_request_id,sort_order) VALUES($1,$2,'Confirm final slides','submission','file_request',$3,3)",
+      [secondSlidesTask, eventId, slidesRequest],
+    );
+    try {
+      const first = await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
+      const second = await completeTaskViaUpload(eventId, ada, secondSlidesTask, talkOne, deck);
+
+      expect(second.fileUploadId).toBe(first.fileUploadId);
+      expect(await count("file_uploads")).toBe(1);
+      const completions = await pglite.query<{ task_id: string; file_upload_id: string }>(
+        "SELECT task_id, file_upload_id FROM task_completions WHERE contact_id=$1 AND submission_id=$2 ORDER BY task_id",
+        [ada, talkOne],
+      );
+      expect(completions.rows).toEqual([
+        { task_id: slidesTask, file_upload_id: first.fileUploadId },
+        { task_id: secondSlidesTask, file_upload_id: first.fileUploadId },
+      ]);
+      expect((await getMyTask(eventId, ada, secondSlidesTask, talkOne))?.completed).toBe(true);
+    } finally {
+      await pglite.query("DELETE FROM portal_tasks WHERE id=$1", [secondSlidesTask]);
+    }
   });
 
   it("M52: numbers versions and marks exactly one latest per re-upload, newest first", async () => {

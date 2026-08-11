@@ -56,6 +56,25 @@ describe("defineHandler", () => {
     expect(await response.json()).toEqual({ error: { code: "CONFLICT", message: "Already exists", data: { id: "duplicate" } } });
   });
 
+  it("serializes AppError field errors independently from diagnostic details", async () => {
+    const route = defineHandler({
+      auth: publicGuard,
+      input: z.object({}),
+      handler: async () => {
+        throw new AppError("VALIDATION", "That URL is already used", { constraint: "resource_pages_event_slug_unique" }, { slug: "That URL is already used" });
+      },
+    });
+    const response = await route(new NextRequest("https://example.test/resource"));
+    expect(await response.json()).toEqual({
+      error: {
+        code: "VALIDATION",
+        message: "That URL is already used",
+        data: { constraint: "resource_pages_event_slug_unique" },
+        fieldErrors: { slug: "That URL is already used" },
+      },
+    });
+  });
+
   it("passes route params to auth and adopts its resolved event", async () => {
     const eventId = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
     const route = defineHandler({

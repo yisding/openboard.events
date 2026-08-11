@@ -2,7 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PUBLISHED_SCHEDULE_FIXTURE } from "@/shared/fixtures/sessions";
-import { myScheduleEmptyCopy, PublicItinerary } from "./public-itinerary";
+import { FilteredItineraryEmptyState, myScheduleEmptyCopy, PublicItinerary } from "./public-itinerary";
 
 Object.assign(globalThis, { React });
 
@@ -61,5 +61,16 @@ describe("PublicItinerary", () => {
 
     expect(html).toContain("No itinerary sessions match this embed");
     expect(html).not.toContain("Schedule coming soon");
+  });
+
+  it("keeps a full-itinerary recovery action when embed filters hide starred sessions", () => {
+    const html = renderToStaticMarkup(React.createElement(FilteredItineraryEmptyState, {
+      eventSlug: "openboard-summit",
+      starredCount: 2,
+    }));
+
+    expect(html).toContain("Your starred sessions are outside this embed");
+    expect(html).toContain('href="/e/openboard-summit/itinerary"');
+    expect(html).toContain("Open the full itinerary");
   });
 });

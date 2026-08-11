@@ -19,6 +19,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import { sanitize } from "@/shared/lib/sanitize";
+import { stableUuid } from "@/shared/server/stable-uuid";
 import type { BuilderField, BuilderForm, BuilderStep, FieldPatch, FormPatch, SectionPatch } from "../builder-types";
 import {
   assertMapsToMatchesTarget,
@@ -133,10 +134,15 @@ export function compileAndPublish(eventId: EventId, formId: FormId): Promise<{ v
 }
 
 function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string }[], formatRows: { id: string; name: string }[], tagRows: { id: string; name: string }[]): FormAuthoringRows {
-  const abstractId = sectionIdSchema.parse(crypto.randomUUID());
-  const participantId = sectionIdSchema.parse(crypto.randomUUID());
+  const abstractId = sectionIdSchema.parse(stableUuid(formId, "section:abstract"));
+  const participantId = sectionIdSchema.parse(stableUuid(formId, "section:participant"));
   type AuthoredOption = FormAuthoringRows["fields"][number]["options"][number];
-  const option = (label: string, binding: Partial<Omit<AuthoredOption, "id" | "label">> = {}): AuthoredOption => ({ id: crypto.randomUUID(), label, ...binding });
+  let optionIndex = 0;
+  const option = (label: string, binding: Partial<Omit<AuthoredOption, "id" | "label">> = {}): AuthoredOption => ({
+    id: stableUuid(formId, `option:${optionIndex++}`),
+    label,
+    ...binding,
+  });
   const base: Pick<FormAuthoringRows["fields"][number], "required" | "locked" | "maxChars" | "helpText" | "options" | "visibility" | "mapsTo" | "reviewVisibility" | "deletedAt"> = {
     required: false,
     locked: false,
@@ -152,7 +158,7 @@ function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string 
   };
   const authored = (sectionId: typeof abstractId, key: string, label: string, fieldType: FormAuthoringRows["fields"][number]["fieldType"], sortOrder: number, patch: Partial<FormAuthoringRows["fields"][number]> = {}): FormAuthoringRows["fields"][number] => ({
     ...base,
-    id: fieldIdSchema.parse(crypto.randomUUID()),
+    id: fieldIdSchema.parse(stableUuid(formId, `field:${key}`)),
     sectionId,
     key,
     label,
@@ -188,7 +194,7 @@ function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string 
 // field-CRUD mutations below (`createFieldIn`) — this module only owns the
 // empty skeleton a portal form starts from, one section, zero fields.
 function portalAuthoringRows(formId: FormId): FormAuthoringRows {
-  const questionsId = sectionIdSchema.parse(crypto.randomUUID());
+  const questionsId = sectionIdSchema.parse(stableUuid(formId, "section:questions"));
   return {
     form: { id: formId, context: "portal", version: 1 },
     sections: [
@@ -215,7 +221,6 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
 
   const formId = input.id ?? formIdSchema.parse(crypto.randomUUID());
   const rows: FormAuthoringRows = context === "cfp" ? cfpAuthoringRows(formId, trackRows, formatRows, tagRows) : portalAuthoringRows(formId);
-  const snapshot = compileFormSnapshot(rows);
   const now = new Date();
   const internalName = input.internalName.trim();
   const [inserted] = await dbOrTx.insert(forms).values({
@@ -239,13 +244,39 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     createdAt: now,
     updatedAt: now,
   }).onConflictDoNothing({ target: forms.id }).returning();
-  // A stable create id is the operation's idempotency key. If this row already
-  // exists for the event, the original create committed and only its response
-  // was lost; never append a second set of sections/fields/versions.
-  if (!inserted) return getFormForBuilderIn(dbOrTx, eventId, formId, context);
-  await dbOrTx.insert(formSections).values(rows.sections.map((section) => ({ ...section, eventId, formId, descriptionHtml: section.descriptionHtml })));
-  if (rows.fields.length > 0) {
-    await dbOrTx.insert(formFields).values(rows.fields.map((field) => ({
+  const [storedForm] = await dbOrTx.select({
+    eventId: forms.eventId,
+    context: forms.context,
+    currentVersion: forms.currentVersion,
+  }).from(forms).where(eq(forms.id, formId)).limit(1);
+  if (!storedForm || storedForm.eventId !== eventId || storedForm.context !== context) {
+    throw new AppError("NOT_FOUND", "Form not found");
+  }
+  // A replay can observe the parent after a prior attempt committed only part
+  // of its authoring graph. Stable child ids plus conflict-safe inserts repair
+  // that graph; a form edited beyond its initial version must never be reset.
+  if (!inserted && storedForm.currentVersion !== 1) {
+    return getFormForBuilderIn(dbOrTx, eventId, formId, context);
+  }
+  await dbOrTx.insert(formSections)
+    .values(rows.sections.map((section) => ({ ...section, eventId, formId, descriptionHtml: section.descriptionHtml })))
+    .onConflictDoNothing();
+
+  // Older partial attempts may already have a section with the canonical key
+  // but a random id. Resolve the persisted ids before repairing its fields.
+  const storedSections = await dbOrTx.select({ id: formSections.id, key: formSections.key })
+    .from(formSections)
+    .where(and(eq(formSections.eventId, eventId), eq(formSections.formId, formId)));
+  const storedSectionByKey = new Map(storedSections.map((section) => [section.key, section.id]));
+  const generatedSectionKey = new Map(rows.sections.map((section) => [section.id, section.key]));
+  const repairedFields = rows.fields.map((field) => {
+    const sectionKey = generatedSectionKey.get(field.sectionId);
+    const sectionId = sectionKey ? storedSectionByKey.get(sectionKey) : undefined;
+    if (!sectionId) throw new AppError("INTERNAL", "Form section repair failed");
+    return { ...field, sectionId: sectionIdSchema.parse(sectionId) };
+  });
+  if (repairedFields.length > 0) {
+    await dbOrTx.insert(formFields).values(repairedFields.map((field) => ({
       id: field.id,
       eventId,
       formId,
@@ -262,9 +293,14 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
       mapsTo: field.mapsTo,
       reviewVisibility: field.reviewVisibility ?? "identity",
       sortOrder: field.sortOrder,
-    })));
+    }))).onConflictDoNothing();
   }
-  await dbOrTx.insert(formVersions).values({ eventId, formId, version: 1, snapshot });
+  const repaired = await getFormForBuilderIn(dbOrTx, eventId, formId, context);
+  const snapshot = compileFormSnapshot(authoringRows(repaired, 1));
+  await dbOrTx.insert(formVersions).values({ eventId, formId, version: 1, snapshot }).onConflictDoUpdate({
+    target: [formVersions.formId, formVersions.version],
+    set: { snapshot },
+  });
   return getFormForBuilderIn(dbOrTx, eventId, formId, context);
 }
 

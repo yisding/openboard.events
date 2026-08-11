@@ -83,7 +83,13 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
       .catch((thrown: unknown) => thrown);
     expect(isAppError(dup) && dup.code).toBe("VALIDATION");
     expect(isAppError(dup) && dup.message).toBe("That URL is already used");
-    expect(isAppError(dup) && (dup.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBe("That URL is already used");
+    expect(isAppError(dup) && dup.fieldErrors?.slug).toBe("That URL is already used");
+
+    const editable = await saveResourcePageIn(db, eventId, pageInput({ title: "Editable", slug: "editable" }));
+    const updateDup = await saveResourcePageIn(db, eventId, pageInput({ id: editable.pageId, title: "Editable", slug: "venue-travel" }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(updateDup) && updateDup.code).toBe("VALIDATION");
+    expect(isAppError(updateDup) && updateDup.fieldErrors?.slug).toBe("That URL is already used");
 
     // A different event can use the identical slug — the unique constraint is
     // (event_id, slug), never slug alone.
@@ -95,7 +101,7 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     const rejected = await saveResourcePageIn(db, eventId, pageInput({ title: "Admin", slug: "admin" }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
-    expect(isAppError(rejected) && (rejected.details as { fieldErrors?: Record<string, string> })?.fieldErrors?.slug).toBeTruthy();
+    expect(isAppError(rejected) && rejected.fieldErrors?.slug).toBe("That word is reserved");
   });
 
   it("sanitizes on save through the wide profile: an allowlisted iframe survives, a script and an onerror handler do not", async () => {

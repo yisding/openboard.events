@@ -31,13 +31,13 @@ function isConstraintViolation(error: unknown, constraintName: string): boolean 
 
 function assertValidSlug(slug: string): void {
   if (!SLUG_PATTERN.test(slug)) {
-    throw new AppError("VALIDATION", "URL must be lowercase letters, numbers and single hyphens", {
-      fieldErrors: { slug: "Use lowercase letters, numbers and hyphens" },
+    throw new AppError("VALIDATION", "URL must be lowercase letters, numbers and single hyphens", undefined, {
+      slug: "Use lowercase letters, numbers and hyphens",
     });
   }
   if ((RESERVED_SLUGS as readonly string[]).includes(slug)) {
-    throw new AppError("VALIDATION", `“${slug}” is a reserved word and cannot be used as a URL`, {
-      fieldErrors: { slug: "That word is reserved" },
+    throw new AppError("VALIDATION", `“${slug}” is a reserved word and cannot be used as a URL`, undefined, {
+      slug: "That word is reserved",
     });
   }
 }
@@ -124,7 +124,7 @@ export async function createResourcePageIn(
     throw new AppError("NOT_FOUND", "Resource page not found");
   } catch (error) {
     if (isConstraintViolation(error, RESOURCE_SLUG_UNIQUE)) {
-      throw new AppError("VALIDATION", "That URL is already used", { fieldErrors: { slug: "That URL is already used" } });
+      throw new AppError("VALIDATION", "That URL is already used", undefined, { slug: "That URL is already used" });
     }
     throw error;
   }
@@ -176,7 +176,7 @@ export async function saveResourcePageIn(
     throw new AppError("STALE_WRITE", "This page changed since you opened it");
   } catch (error) {
     if (isConstraintViolation(error, RESOURCE_SLUG_UNIQUE)) {
-      throw new AppError("VALIDATION", "That URL is already used", { fieldErrors: { slug: "That URL is already used" } });
+      throw new AppError("VALIDATION", "That URL is already used", undefined, { slug: "That URL is already used" });
     }
     throw error;
   }

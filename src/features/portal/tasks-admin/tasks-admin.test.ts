@@ -112,19 +112,44 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     expect(matrixAfter.some((row) => row.submissionId === lateTalk && row.contactId === lateContact)).toBe(true);
   });
 
-  it("replays task and file-request collection creates by stable client id", async () => {
+  it("returns the original task and file request on create replay without touching updated_at", async () => {
     const stableTaskId = taskIdSchema.parse("d5000000-0000-4000-8000-000000000090");
     const stableRequestId = fileRequestIdSchema.parse("d5000000-0000-4000-8000-000000000091");
-    const stableTask = taskInput({ id: stableTaskId, name: "Retry-safe task", targetType: "contact" });
-    const stableRequest = saveFileRequestInputSchema.parse({ id: stableRequestId, title: "Retry-safe files", targetType: "contact" });
+    const stableTask = taskInput({ id: stableTaskId, name: "Original task", descriptionHtml: "<p>Original</p>", targetType: "contact" });
+    const stableRequest = saveFileRequestInputSchema.parse({
+      id: stableRequestId, title: "Original files", targetType: "contact",
+      instructionsHtml: "<p>Original instructions</p>", acceptedExtensions: ["pdf"], maxSizeMb: 25,
+    });
 
-    await expect(createTaskIn(db, eventId, stableTask)).resolves.toMatchObject({ id: stableTaskId });
-    await expect(createTaskIn(db, eventId, stableTask)).resolves.toMatchObject({ id: stableTaskId });
-    await expect(createFileRequestIn(db, eventId, stableRequest)).resolves.toMatchObject({ id: stableRequestId });
-    await expect(createFileRequestIn(db, eventId, stableRequest)).resolves.toMatchObject({ id: stableRequestId });
+    await expect(createTaskIn(db, eventId, stableTask)).resolves.toMatchObject({ id: stableTaskId, name: "Original task" });
+    await expect(createFileRequestIn(db, eventId, stableRequest)).resolves.toMatchObject({ id: stableRequestId, title: "Original files" });
+    const preservedTimestamp = "2020-01-02T03:04:05.000Z";
+    await pglite.query("UPDATE portal_tasks SET updated_at=$2 WHERE id=$1", [stableTaskId, preservedTimestamp]);
+    await pglite.query("UPDATE file_requests SET updated_at=$2 WHERE id=$1", [stableRequestId, preservedTimestamp]);
+
+    const replayedTask = await createTaskIn(db, eventId, taskInput({
+      id: stableTaskId, name: "Stale retry copy", descriptionHtml: "<p>Stale</p>", targetType: "contact", isActive: false,
+    }));
+    const replayedRequest = await createFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      id: stableRequestId, title: "Stale retry files", targetType: "contact",
+      instructionsHtml: "<p>Stale</p>", acceptedExtensions: ["zip"], maxSizeMb: 400,
+    }));
+
+    expect(replayedTask).toMatchObject({ id: stableTaskId, name: "Original task", descriptionHtml: "<p>Original</p>", isActive: true });
+    expect(replayedRequest).toMatchObject({
+      id: stableRequestId, title: "Original files", instructionsHtml: "<p>Original instructions</p>",
+      acceptedExtensions: ["pdf"], maxSizeMb: 25,
+    });
+    expect(replayedRequest.updatedAt).toBe(preservedTimestamp);
 
     expect(await count("portal_tasks", `id = '${stableTaskId}'`)).toBe(1);
     expect(await count("file_requests", `id = '${stableRequestId}'`)).toBe(1);
+    const taskRow = await pglite.query<{ name: string; updated_at: string }>("SELECT name, updated_at FROM portal_tasks WHERE id=$1", [stableTaskId]);
+    const requestRow = await pglite.query<{ title: string; updated_at: string }>("SELECT title, updated_at FROM file_requests WHERE id=$1", [stableRequestId]);
+    expect(taskRow.rows[0]?.name).toBe("Original task");
+    expect(new Date(taskRow.rows[0]?.updated_at ?? 0).toISOString()).toBe(preservedTimestamp);
+    expect(requestRow.rows[0]?.title).toBe("Original files");
+    expect(new Date(requestRow.rows[0]?.updated_at ?? 0).toISOString()).toBe(preservedTimestamp);
   });
 
   it("reads counts from task_assignments_v, never re-derived", async () => {

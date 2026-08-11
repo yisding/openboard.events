@@ -28,6 +28,19 @@ export function focusResourceFieldError(
   schedule(() => container?.querySelector('[aria-invalid="true"]')?.focus());
 }
 
+export async function recoverStaleResourcePage(
+  reload: () => void | Promise<void>,
+  onFailure: () => void,
+): Promise<boolean> {
+  try {
+    await reload();
+    return true;
+  } catch {
+    onFailure();
+    return false;
+  }
+}
+
 /**
  * Create/edit a resource page. The rich text toolbar never offers an iframe —
  * `RichTextEditor` sanitizes with the narrow `default` profile on every
@@ -119,18 +132,20 @@ export function ResourcePageEditor({
         },
       );
       const payload = await response.json().catch(() => null) as {
-        error?: { code?: string; message?: string; data?: { fieldErrors?: Record<string, string> } };
+        error?: { code?: string; message?: string; fieldErrors?: Record<string, string>; data?: { fieldErrors?: Record<string, string> } };
       } | null;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by saving
         // again: somebody else's edit landed first, so say so and let the list
         // refetch rather than silently overwriting it.
         toast("This page changed since you opened it. Reloading the latest version — please re-apply your edit.", { kind: "error" });
-        onSaved();
+        await recoverStaleResourcePage(onSaved, () => {
+          toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
+        });
         return;
       }
       if (!response.ok) {
-        const nextFieldErrors = payload?.error?.data?.fieldErrors ?? {};
+        const nextFieldErrors = payload?.error?.fieldErrors ?? payload?.error?.data?.fieldErrors ?? {};
         setFieldErrors(nextFieldErrors);
         if (Object.keys(nextFieldErrors).length > 0) focusResourceFieldError(formRef.current);
         toast(payload?.error?.message ?? "That page could not be saved", { kind: "error" });
