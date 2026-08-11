@@ -138,7 +138,7 @@ export function EventSwitcher({
           <Link
             href={demoEvents ? "/events" : "/events/new"}
             onClick={() => setOpen(false)}
-            style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 700, color: "var(--accent-dark)", textDecoration: "none" }}
+            style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 600, color: "var(--accent-dark)", textDecoration: "none" }}
           >
             {demoEvents ? "All events" : "+ Create event"}
           </Link>

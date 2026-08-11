@@ -68,7 +68,7 @@ export function BillingPanel({
       </header>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <strong style={{ fontSize: 20 }}>{plan.name}</strong>
-        <span style={{ color: "var(--muted)", fontSize: 12 }}>{formatPrice(plan.priceCents)}</span>
+        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(plan.priceCents)}</span>
         <StatusBadge value={subscription.status} />
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>via {subscription.provider}</span>
       </div>

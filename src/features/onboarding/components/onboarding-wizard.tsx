@@ -13,7 +13,7 @@ import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 
 const DEFAULT_TZ = "America/Los_Angeles";
-const CUSTOM_TRACK_COLOR = "#6366f1";
+const CUSTOM_TRACK_COLOR = "#00a878";
 const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Main Stage", color: "#00a878" },
   { name: "Workshops", color: "#2a6486" },

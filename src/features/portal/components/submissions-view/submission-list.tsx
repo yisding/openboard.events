@@ -43,7 +43,7 @@ export function SubmissionList({
             <Link href={`/portal/${encodeURIComponent(eventSlug)}/submissions/${row.submissionId}`}>{row.title}</Link>
           </h2>
           <div className="portal-submission__vocab">
-            {row.trackName && <ColorChip label={row.trackName} color={row.trackColor} />}
+            {row.trackName && <ColorChip label={row.trackName} />}
             {row.formatName && <span className="track-chip">{row.formatName}</span>}
           </div>
           <footer>

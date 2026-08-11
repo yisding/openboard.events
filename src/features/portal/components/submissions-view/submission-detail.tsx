@@ -36,7 +36,7 @@ export function SubmissionDetail({
         <StatusBadge value={submission.status} />
         <h1>{submission.title}</h1>
         <div className="portal-submission__vocab">
-          {submission.trackName && <ColorChip label={submission.trackName} color={submission.trackColor} />}
+          {submission.trackName && <ColorChip label={submission.trackName} />}
           {submission.formatName && <span className="track-chip">{submission.formatName}</span>}
         </div>
         <p>
