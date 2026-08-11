@@ -1,5 +1,5 @@
 import type { ScheduledSessionDTO } from "@/shared/contracts";
-import { hourMinuteInZone } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone } from "@/shared/lib/time";
 
 /**
  * Pure grid layout math for the Day view. No React, no server calls — every
@@ -15,6 +15,8 @@ import { hourMinuteInZone } from "@/shared/lib/time";
 
 /** One grid row per 15-minute increment — the brief's snap granularity. */
 export const SLOT_MINUTES = 15;
+
+const MINUTES_PER_DAY = 24 * 60;
 
 /**
  * PROPOSED — not a literal number in any doc. Chosen to equal the slot size so
@@ -39,6 +41,29 @@ export type GridRange = { gridStartMinutes: number; gridEndMinutes: number };
 export function minutesSinceMidnightInZone(instant: string, timeZone: string): number {
   const { hour, minute } = hourMinuteInZone(instant, timeZone);
   return hour * 60 + minute;
+}
+
+/**
+ * An instant's position on `day`'s grid: minutes from that day's midnight on the
+ * **wall clock** of the event's zone, so an instant on the next calendar day
+ * comes back >= 1440 and `localWallTimeAt` rolls it correctly onto that day.
+ *
+ * Wall clock rather than elapsed minutes, which is the whole reason this exists.
+ * A session ending at 00:00 the next morning has `minutesSinceMidnightInZone` 0
+ * — below its own start, which would make `clampResize` reorder the edges — so
+ * the end has to carry a day offset. Deriving that offset from the *elapsed*
+ * UTC duration instead is wrong across a DST transition: in America/New_York on
+ * the fall-back day a 00:30-02:30 session runs three elapsed hours, which would
+ * place its end at 03:30 and shift the session by an hour the moment either
+ * edge is dragged. The calendar-day difference keeps both readings in the same
+ * wall-clock frame the grid is drawn in.
+ */
+export function minutesFromDayStartInZone(instant: string, day: string, timeZone: string): number {
+  const dayOffset = Math.round(
+    (Date.parse(`${eventDayKey(instant, timeZone)}T00:00:00.000Z`) - Date.parse(`${day}T00:00:00.000Z`))
+    / (MINUTES_PER_DAY * 60_000),
+  );
+  return minutesSinceMidnightInZone(instant, timeZone) + dayOffset * MINUTES_PER_DAY;
 }
 
 /**
@@ -85,8 +110,6 @@ export function gridRowToMinutes(row: number, gridStartMinutes: number): number 
 export function gridRowCount(range: GridRange): number {
   return Math.max(1, Math.round((range.gridEndMinutes - range.gridStartMinutes) / SLOT_MINUTES));
 }
-
-const MINUTES_PER_DAY = 24 * 60;
 
 /** `yyyy-MM-dd` shifted by whole calendar days. Pure date arithmetic on the day
  * key — no zone involved, because the key *is* the wall date and

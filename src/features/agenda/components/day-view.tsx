@@ -20,7 +20,7 @@ import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { DayTabs } from "./day-view/day-tabs";
-import { clampResize, computeGridRange, localWallTimeAt, minutesSinceMidnightInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
+import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
 import { UnscheduledPanel } from "./day-view/unscheduled-panel";
 
 type DragData =
@@ -121,14 +121,13 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     const deltaSlots = pixelDeltaToSlotDelta(deltaPx);
     if (deltaSlots === 0) return; // a jiggle under half a row changes nothing (edge case #5)
 
-    const startMinutes = minutesSinceMidnightInZone(session.startsAt, event.timezone);
-    // Derive the end from the session's own duration rather than its clock time.
-    // A session ending at 00:00 of the next day has `minutesSinceMidnightInZone` 0,
-    // which is < startMinutes; clampResize would then reorder the edges and
-    // localWallTimeAt would drop the next-day component. A duration offset keeps the
-    // end value >= 1440 for cross-midnight sessions, which localWallTimeAt rolls
-    // correctly onto the following calendar day.
-    const endMinutes = startMinutes + Math.round((Date.parse(session.endsAt) - Date.parse(session.startsAt)) / 60_000);
+    // Both edges are read as wall-clock minutes from the selected day's midnight,
+    // never as elapsed UTC time: a session ending at 00:00 the next morning has to
+    // come back as 1440 rather than 0 (or clampResize reorders the edges), and a
+    // session spanning a DST transition has to keep the end time the grid draws
+    // rather than gaining or losing the hour the clock skipped.
+    const startMinutes = minutesFromDayStartInZone(session.startsAt, selectedDay, event.timezone);
+    const endMinutes = minutesFromDayStartInZone(session.endsAt, selectedDay, event.timezone);
     const next = clampResize(edge === "resize-start" ? "start" : "end", startMinutes, endMinutes, deltaSlots);
 
     move.mutate({

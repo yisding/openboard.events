@@ -75,12 +75,23 @@ export function SubmissionDrawer({
   const [rowVersion, setRowVersion] = useState<number | null>(null);
   const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Bumped to re-run the loader for the *same* submission — `router.refresh()`
+   * re-renders the server tree but cannot reach this client-side fetch, so a
+   * stale-write conflict needs its own reload signal. */
+  const [reloadToken, setReloadToken] = useState(0);
 
+  // Blanking belongs to *opening a different submission*, not to reloading the
+  // one on screen: a reload after a 409 has to keep the message explaining why
+  // it is reloading, which the loader below would otherwise clear out from under
+  // the organizer.
   useEffect(() => {
-    let cancelled = false;
     setDetail(null);
     setError("");
     setSaveError("");
+  }, [eventId, submissionId]);
+
+  useEffect(() => {
+    let cancelled = false;
     fetch(`/api/internal/submissions/${eventId}/${submissionId}`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: SubmissionDetailDTO; error?: { message?: string } } | null;
@@ -101,9 +112,10 @@ export function SubmissionDrawer({
     // `vocabulary` is intentionally excluded: it is an event-scoped object rebuilt
     // with a fresh identity on every server render (the page is force-dynamic), so
     // including it would re-run this loader on every router.refresh() — wiping the
-    // organizer's unsaved edits and the STALE_WRITE message set right before a refresh.
+    // organizer's unsaved edits on refreshes that have nothing to do with them.
+    // `reloadToken` is how a reload is asked for deliberately instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, submissionId]);
+  }, [eventId, submissionId, reloadToken]);
 
   const patch = values && original ? toPatch(values, original) : {};
   const dirty = Object.keys(patch).length > 0;
@@ -125,7 +137,11 @@ export function SubmissionDrawer({
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by
         // pressing Save again: their copy is behind, so say so and reload it.
+        // The reload has to be explicit — `router.refresh()` alone leaves this
+        // drawer holding the same fields and the same row version, so every
+        // retry would keep conflicting until it was closed and reopened.
         setSaveError("This abstract changed since you opened it. Reloading the latest version — please re-apply your edit.");
+        setReloadToken((token) => token + 1);
         router.refresh();
         return;
       }
@@ -135,6 +151,10 @@ export function SubmissionDrawer({
       }
       setRowVersion(payload.data.rowVersion);
       setOriginal(values);
+      // The PATCH answers with the new row version and nothing else, but the
+      // header reads `detail` — without this a saved title goes on showing the
+      // old one for as long as the drawer stays open.
+      setDetail((current) => current && { ...current, title: values.title });
       toast("Abstract saved");
       router.refresh();
     } finally {
