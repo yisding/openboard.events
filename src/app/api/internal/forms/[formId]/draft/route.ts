@@ -55,7 +55,7 @@ const save = defineHandler({
     formVersion: input.formVersion,
     contactId: contactIdSchema.parse(session?.actorId),
     answers: input.answers,
-    participants: input.participants,
+    ...(input.participants ? { participants: input.participants } : {}),
   }),
 });
 
