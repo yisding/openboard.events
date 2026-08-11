@@ -13,8 +13,11 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#007454", size = "md" }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl" }) {
-  return <span className={`person-avatar person-avatar-${size}`} style={{ background: color }}>{initials}</span>;
+export function Avatar({ initials, color = "#007454", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
+  const style = imageUrl
+    ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
+    : { background: color };
+  return <span className={`person-avatar person-avatar-${size}`} style={style}>{imageUrl ? null : initials}</span>;
 }
 
 export function ProgressBar({ value, tone = "accent" }: { value: number; tone?: "accent" | "green" | "amber" }) {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
@@ -10,6 +11,9 @@ import { requireAdmin } from "@/features/auth";
 // M18 owns every read of `submissions`; the tray only filters on `alreadyPromoted`.
 import { getAcceptedForScheduling } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
+import { DEMO_EVENT_SLUG } from "@/shared/demo/seed";
+import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { PageHeader } from "@/shared/ui/ui-kit";
 
 export const metadata: Metadata = { title: "Agenda" };
 export const dynamic = "force-dynamic";
@@ -30,7 +34,24 @@ export default async function Page({
   params: Promise<{ eventId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const eventId = eventIdSchema.parse((await params).eventId);
+  const { eventId: rawEventId } = await params;
+  if (isCredentialFreeLocalDemo()) {
+    return (
+      <>
+        <PageHeader eyebrow="PROGRAM" title="Agenda" description="Build the schedule, resolve conflicts, and publish with confidence." />
+        <div className="panel settings-section">
+          <h2>Explore the published schedule</h2>
+          <p className="long-copy">
+            Drag-and-drop scheduling needs a connected database, so it is not available in the credential-free local demo.
+            The public schedule uses the local event fixtures and supports day, track, room, and format filtering.
+          </p>
+          <Link className="button" href={`/e/${DEMO_EVENT_SLUG}/agenda`}>Open public schedule</Link>
+        </div>
+      </>
+    );
+  }
+
+  const eventId = eventIdSchema.parse(rawEventId);
   await requireAdmin(eventId, "reviewer");
 
   const query = await searchParams;
