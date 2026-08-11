@@ -13,6 +13,7 @@ import {
   listEventMembersIn,
   listPlansIn,
   listSubmissionsIn,
+  planCreateInputSchema,
   planInputSchema,
   savePlanIn,
   submissionFiltersSchema,
@@ -127,6 +128,17 @@ describe("evaluation plans and reviewer routing", () => {
     expect(active?.criteria.map((criterion) => criterion.weight)).toEqual([1, 3]);
     // Three of the four seeded submissions are scorable; the draft is not.
     expect(active?.progress).toEqual({ scored: 0, total: 3 });
+  });
+
+  it("does not accept a caller-supplied plan id when creating a round", () => {
+    const parsed = planCreateInputSchema.parse({
+      name: "Round 1",
+      scaleMin: 1,
+      scaleMax: 5,
+      planId: "b2000000-0000-4000-8000-000000000099",
+    });
+
+    expect(parsed).not.toHaveProperty("planId");
   });
 
   it("prefers an open round, then the lowest, as the active one", async () => {

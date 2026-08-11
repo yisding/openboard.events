@@ -412,7 +412,8 @@ export async function assignReviewersIn(
   if (new Set(assignments.map((assignment) => assignment.userId)).size !== assignments.length) {
     throw new AppError("VALIDATION", "A reviewer can only be assigned once per evaluation plan");
   }
-  for (const assignment of assignments) await assertTracksInEvent(dbOrTx, eventId, assignment.trackIds);
+  const trackIds = [...new Set(assignments.flatMap((assignment) => assignment.trackIds ?? []))];
+  await assertTracksInEvent(dbOrTx, eventId, trackIds);
   const incoming = assignments.map((assignment) => ({
     user_id: assignment.userId,
     track_ids: normalizeTracks(assignment.trackIds),
