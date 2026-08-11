@@ -122,7 +122,13 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     if (deltaSlots === 0) return; // a jiggle under half a row changes nothing (edge case #5)
 
     const startMinutes = minutesSinceMidnightInZone(session.startsAt, event.timezone);
-    const endMinutes = minutesSinceMidnightInZone(session.endsAt, event.timezone);
+    // Derive the end from the session's own duration rather than its clock time.
+    // A session ending at 00:00 of the next day has `minutesSinceMidnightInZone` 0,
+    // which is < startMinutes; clampResize would then reorder the edges and
+    // localWallTimeAt would drop the next-day component. A duration offset keeps the
+    // end value >= 1440 for cross-midnight sessions, which localWallTimeAt rolls
+    // correctly onto the following calendar day.
+    const endMinutes = startMinutes + Math.round((Date.parse(session.endsAt) - Date.parse(session.startsAt)) / 60_000);
     const next = clampResize(edge === "resize-start" ? "start" : "end", startMinutes, endMinutes, deltaSlots);
 
     move.mutate({

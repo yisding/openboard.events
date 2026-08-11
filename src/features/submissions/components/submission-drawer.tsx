@@ -98,7 +98,12 @@ export function SubmissionDrawer({
     // A reviewer clicking down a list opens several in a row; a late response
     // for one they have already moved past must not replace what they are reading.
     return () => { cancelled = true; };
-  }, [eventId, submissionId, vocabulary]);
+    // `vocabulary` is intentionally excluded: it is an event-scoped object rebuilt
+    // with a fresh identity on every server render (the page is force-dynamic), so
+    // including it would re-run this loader on every router.refresh() — wiping the
+    // organizer's unsaved edits and the STALE_WRITE message set right before a refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, submissionId]);
 
   const patch = values && original ? toPatch(values, original) : {};
   const dirty = Object.keys(patch).length > 0;
