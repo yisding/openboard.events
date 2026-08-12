@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CriterionKind } from "@/shared/contracts";
-import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
+import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
@@ -123,7 +123,7 @@ function draftFrom(plan: PlanDTO): PlanDraft {
   };
 }
 
-/** A `<select multiple>` of tracks, where selecting nothing means every track. */
+/** A `<Select multiple>` of tracks, where selecting nothing means every track. */
 function TrackScope({
   tracks,
   value,
@@ -137,14 +137,14 @@ function TrackScope({
 }) {
   return (
     <Field label={label} hint="Select none for every track">
-      <select
+      <Select
         multiple
         value={value}
         size={Math.min(tracks.length, 4)}
         onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}
       >
         {tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
-      </select>
+      </Select>
     </Field>
   );
 }
@@ -318,10 +318,10 @@ export function PlanEditor({
         </div>
 
         <Field label="Status">
-          <select value={draft.status} onChange={(event) => patch({ status: event.target.value === "closed" ? "closed" : "open" })}>
+          <Select value={draft.status} onChange={(event) => patch({ status: event.target.value === "closed" ? "closed" : "open" })}>
             <option value="open">Open — reviewers can score</option>
             <option value="closed">Closed — scores are final</option>
-          </select>
+          </Select>
         </Field>
 
         <section>
@@ -341,7 +341,7 @@ export function PlanEditor({
                 />
               </Field>
               <Field label="Type">
-                <select
+                <Select
                   value={criterion.kind}
                   onChange={(event) => patch({
                     criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
@@ -350,7 +350,7 @@ export function PlanEditor({
                   <option value="numeric">Number on the scale</option>
                   <option value="select">Choice</option>
                   <option value="text">Written feedback</option>
-                </select>
+                </Select>
               </Field>
               <Field label="Weight" {...(criterion.kind === "text" ? { hint: "Written feedback never enters the mean" } : {})}>
                 <input

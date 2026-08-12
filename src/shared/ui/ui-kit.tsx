@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
 export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
@@ -10,6 +10,29 @@ export function Button({ variant = "primary", size = "md", type = "button", clas
 
 export function Switch({ checked, label, className, ...props }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-checked" | "aria-label" | "role" | "type"> & { checked: boolean; label: string }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={cn("switch", checked && "on", className)} {...props}><i /></button>;
+}
+
+/**
+ * The kit's dropdown. It *is* a native `<select>` — deliberately, because the
+ * native element brings keyboard type-ahead, `Esc` to close, and the platform's
+ * own picker on touch devices, and a hand-rolled listbox has to re-earn all
+ * three. What the kit adds is the chrome: `.select-control` turns off the OS
+ * arrow and draws the kit's chevron, so a dropdown stops being the one control
+ * on the page that the operating system designed.
+ *
+ * Nothing is wrapped around the element. Several rules in the stylesheet reach
+ * a select as a *direct child* (`.field-invalid > select`, `.sessions-filters >
+ * select`), so a wrapper would silently drop their styling at 75 call sites.
+ *
+ * `<select multiple>` keeps native rendering: an always-open listbox has no
+ * closed state to put a chevron on.
+ *
+ * Long or searchable option lists (speaker pickers, track selectors on large
+ * events) still want a filterable listbox with type-ahead. That is a second
+ * primitive, not a change to this one — see #115.
+ */
+export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select className={cn("select-control", className)} {...props} />;
 }
 
 export function StatusBadge({ value }: { value: string }) {

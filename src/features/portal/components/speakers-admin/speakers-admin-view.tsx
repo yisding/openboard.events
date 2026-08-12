@@ -12,7 +12,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
-import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 import { SpeakerCreateDialog } from "./speaker-create-dialog";
@@ -272,7 +272,7 @@ export function SpeakersAdminView({
               />
               {draftSearch && <button type="button" aria-label="Clear search" onClick={() => { setDraftSearch(""); setParams({ q: null }); }}><X size={14} /></button>}
             </form>
-            <select
+            <Select
               className="compact-select"
               aria-label="Filter by confirmation"
               value={confirmation ?? "all"}
@@ -280,7 +280,7 @@ export function SpeakersAdminView({
             >
               <option value="all">All confirmations</option>
               {CONFIRMATION_STATUSES.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase()}{status.slice(1)}</option>)}
-            </select>
+            </Select>
             <span className="row-count">{total} shown</span>
           </>
         }

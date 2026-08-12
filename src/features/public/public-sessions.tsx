@@ -11,6 +11,7 @@ import type { EmbedFilters } from "./embed-config-types";
 import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
+import { Select } from "@/shared/ui/ui-kit";
 
 const ALL = "All";
 
@@ -130,22 +131,22 @@ export function PublicSessions({
           {search && <button type="button" aria-label="Clear session search" onClick={() => setSearch("")}><X size={14} /></button>}
         </label>
         {tracks.length > 0 && (
-          <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Filter by track">
+          <Select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Filter by track">
             <option value={ALL}>All tracks</option>
             {tracks.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
+          </Select>
         )}
         {formats.length > 0 && (
-          <select value={format} onChange={(e) => setFormat(e.target.value)} aria-label="Filter by format">
+          <Select value={format} onChange={(e) => setFormat(e.target.value)} aria-label="Filter by format">
             <option value={ALL}>All formats</option>
             {formats.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
+          </Select>
         )}
         {locations.length > 0 && (
-          <select value={location} onChange={(e) => setLocation(e.target.value)} aria-label="Filter by location">
+          <Select value={location} onChange={(e) => setLocation(e.target.value)} aria-label="Filter by location">
             <option value={ALL}>All locations</option>
             {locations.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
+          </Select>
         )}
       </div>
       <div className="sessions-grid">

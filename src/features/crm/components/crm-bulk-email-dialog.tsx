@@ -15,7 +15,7 @@ import {
 } from "@/features/comms/bulk-send-attempt";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -200,9 +200,9 @@ export function CrmBulkEmailDialog({
                 ? { hint: `Showing the first ${previewCandidates.length} of ${recipients.length} — every recipient still gets the send.` }
                 : {})}
             >
-              <select value={previewId} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value as OrganizationContactId); }}>
+              <Select value={previewId} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value as OrganizationContactId); }}>
                 {previewCandidates.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-              </select>
+              </Select>
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
             {currentPreview ? (

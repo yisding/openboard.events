@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -280,14 +280,14 @@ export function OnboardingWizard({
           </Field>
           <div className="form-grid">
             <Field label="Event type" error={fieldErrors.eventType} errorId="onboarding-event-type-error">
-              <select id="onboarding-event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
+              <Select id="onboarding-event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
                 {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
-              </select>
+              </Select>
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
-              <select id="onboarding-event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
+              <Select id="onboarding-event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
                 {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-              </select>
+              </Select>
             </Field>
           </div>
           <div className="form-grid">

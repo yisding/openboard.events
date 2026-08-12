@@ -91,7 +91,7 @@ describe("audited form metadata", () => {
         ["input", "form.pageHeading"], ["input", "section.title"], ["input", "section.pageHeading"],
       ] },
       { path: "./events/components/details-tab.tsx", controls: [
-        ["input", "name"], ["input", "slug"], ["select", "timezone"],
+        ["input", "name"], ["input", "slug"], ["Select", "timezone"],
         ["DateTimePicker", "startsAt"], ["DateTimePicker", "endsAt"],
       ] },
       { path: "./portal/form-builder/components/portal-forms-page.tsx", controls: [["input", "name"]] },
@@ -101,7 +101,7 @@ describe("audited form metadata", () => {
       { path: "./portal/resources/components/resource-page-editor.tsx", controls: [["input", "draft.title"]] },
       { path: "./portal/tasks-admin/components/file-requests-view.tsx", controls: [["input", "draft.title"]] },
       { path: "./portal/tasks-admin/components/task-editor.tsx", controls: [
-        ["input", "draft.name"], ["select", "draft.formId"], ["select", "draft.fileRequestId"],
+        ["input", "draft.name"], ["Select", "draft.formId"], ["Select", "draft.fileRequestId"],
       ] },
       { path: "./submissions/evaluation/components/plan-editor.tsx", controls: [["input", "draft.name"]] },
       { path: "./submissions/evaluation/components/reviewer-invite-dialog.tsx", controls: [["input", "email"], ["input", "password"]] },

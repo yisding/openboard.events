@@ -9,7 +9,7 @@ import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
-import { Button, Drawer, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 type State = "all" | "open" | "overdue" | "completed";
@@ -267,19 +267,19 @@ export function FilesAdminView({
             <input value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
             {draftSearch && <button type="button" onClick={clearSearch}><X size={14} /></button>}
           </label>
-          <select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
+          <Select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
             {fileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
-          </select>
-          <select value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
+          </Select>
+          <Select value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
             <option value="">All tasks</option>
             {tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
-          </select>
-          <select value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
+          </Select>
+          <Select value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
             <option value="">Any version state</option>
             <option value="yes">Has a file</option>
             <option value="no">Missing a file</option>
-          </select>
+          </Select>
           <span className="row-count">{displayRows.length} shown</span>
         </div>
         {selected.length > 0 && (
@@ -288,7 +288,7 @@ export function FilesAdminView({
             <Button size="sm" variant="secondary" disabled={reminding} onClick={() => void bulkRemind()}>
               <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
             </Button>
-            <select
+            <Select
               aria-label="Group export by"
               disabled={exporting}
               defaultValue="none"
@@ -298,7 +298,7 @@ export function FilesAdminView({
               <option value="none">No grouping</option>
               <option value="speaker">Grouped by speaker</option>
               <option value="session">Grouped by session</option>
-            </select>
+            </Select>
             <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
           </div>
         )}

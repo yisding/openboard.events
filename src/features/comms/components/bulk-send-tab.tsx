@@ -20,7 +20,7 @@ import {
   type SpeakerWorkflowStatus,
 } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import {
@@ -266,9 +266,9 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             )}
             {segment && segment.preview.length > 0 && (
               <Field label="Preview as">
-                <select value={previewContactId} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
+                <Select value={previewContactId} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
                   {segment.preview.map((recipient) => <option key={recipient.contactId} value={recipient.contactId}>{recipient.name} ({recipient.email})</option>)}
-                </select>
+                </Select>
               </Field>
             )}
             <div className="bulk-send-actions">

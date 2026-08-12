@@ -23,7 +23,7 @@ import {
   type TrackDTO,
   type TrackId,
 } from "@/shared/contracts";
-import { Button, EmptyState, Switch } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Select, Switch } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -367,10 +367,10 @@ function RuleEditorBody({
     <div className="visibility-rule-editor__body">
       <label className="match-select">
         <span>Match</span>
-        <select value={draft.match} onChange={(event) => onChange({ ...draft, match: event.target.value as "all" | "any" })}>
+        <Select value={draft.match} onChange={(event) => onChange({ ...draft, match: event.target.value as "all" | "any" })}>
           <option value="all">all of the following</option>
           <option value="any">any of the following</option>
-        </select>
+        </Select>
       </label>
       <div className="condition-rows">
         {draft.conditions.map((condition, index) => (
@@ -393,14 +393,14 @@ function RuleEditorBody({
       <label className="match-select">
         <span>Then set Track</span>
         {tracks.length === 0 ? (
-          <select disabled value="">
+          <Select disabled value="">
             <option value="">Add tracks in Settings</option>
-          </select>
+          </Select>
         ) : (
-          <select value={draft.setTrackId ?? ""} onChange={(event) => onChange({ ...draft, setTrackId: event.target.value ? (event.target.value as RoutingRuleInput["setTrackId"]) : null })}>
+          <Select value={draft.setTrackId ?? ""} onChange={(event) => onChange({ ...draft, setTrackId: event.target.value ? (event.target.value as RoutingRuleInput["setTrackId"]) : null })}>
             <option value="">No track</option>
             {tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
-          </select>
+          </Select>
         )}
       </label>
 

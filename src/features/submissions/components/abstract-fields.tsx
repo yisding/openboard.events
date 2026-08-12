@@ -3,7 +3,7 @@
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
-import { Field } from "@/shared/ui/ui-kit";
+import { Field, Select } from "@/shared/ui/ui-kit";
 
 /**
  * The abstract's typed columns, in the order the screenshot puts them. Add and
@@ -42,7 +42,7 @@ export const EMPTY_ABSTRACT_FIELDS: AbstractFieldValues = {
   tagIds: [],
 };
 
-/** `""` is the "no choice" option in a `<select>`; the column wants `null`. */
+/** `""` is the "no choice" option in a `<Select>` dropdown; the column wants `null`. */
 function orNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -126,17 +126,17 @@ export function AbstractFields({
       </Field>
 
       <Field label="Track">
-        <select value={values.trackId} disabled={disabled} onChange={(event) => set("trackId", event.target.value)}>
+        <Select value={values.trackId} disabled={disabled} onChange={(event) => set("trackId", event.target.value)}>
           <option value="">No track</option>
           {vocabulary.tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
-        </select>
+        </Select>
       </Field>
 
       <Field label="Format">
-        <select value={values.formatId} disabled={disabled} onChange={(event) => set("formatId", event.target.value)}>
+        <Select value={values.formatId} disabled={disabled} onChange={(event) => set("formatId", event.target.value)}>
           <option value="">No format</option>
           {vocabulary.formats.map((format) => <option key={format.id} value={format.id}>{format.name}</option>)}
-        </select>
+        </Select>
       </Field>
 
       <Field label="Level">

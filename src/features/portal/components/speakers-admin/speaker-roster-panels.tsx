@@ -8,7 +8,7 @@ import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus, type Unavailabil
 import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 function toDatetimeLocalValue(utcIso: string, timeZone: string): string {
@@ -132,10 +132,10 @@ function AddLogisticsFieldRow({ eventId, onCreated }: { eventId: string; onCreat
       <Field label="Key" hint="lowercase_with_underscores"><input value={key} onChange={(event) => setKey(event.target.value)} /></Field>
       <Field label="Label"><input value={label} onChange={(event) => setLabel(event.target.value)} /></Field>
       <Field label="Type">
-        <select value={fieldType} onChange={(event) => setFieldType(event.target.value as "text" | "select")}>
+        <Select value={fieldType} onChange={(event) => setFieldType(event.target.value as "text" | "select")}>
           <option value="text">Text</option>
           <option value="select">Select</option>
-        </select>
+        </Select>
       </Field>
       <Field label="Options" hint="comma separated, if select"><input value={options} onChange={(event) => setOptions(event.target.value)} disabled={fieldType !== "select"} /></Field>
       <Button size="sm" disabled={saving || !key.trim() || !label.trim()} onClick={() => void create()}>{saving ? "Adding…" : "Add"}</Button>
@@ -173,10 +173,10 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
           return (
             <Field key={field.id} label={field.label}>
               {field.fieldType === "select" ? (
-                <select defaultValue={current} onBlur={(event) => { if (event.target.value !== current) void save(field.id, event.target.value); }}>
+                <Select defaultValue={current} onBlur={(event) => { if (event.target.value !== current) void save(field.id, event.target.value); }}>
                   <option value="">—</option>
                   {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
+                </Select>
               ) : (
                 <input defaultValue={current} disabled={saving === field.id} onBlur={(event) => { if (event.target.value !== current) void save(field.id, event.target.value); }} />
               )}

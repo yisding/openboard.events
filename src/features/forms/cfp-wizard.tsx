@@ -9,6 +9,7 @@ import { Brand } from "@/shared/ui/brand";
 import type { DemoAnswers as Answers, DemoAnswerValue as AnswerValue } from "@/shared/demo/types";
 import type { FormFieldRecord, SpeakerRecord, SubmissionRecord } from "@/shared/demo/types";
 import { formatInZone } from "@/shared/lib/time";
+import { Select } from "@/shared/ui/ui-kit";
 
 const wizardSteps = ["Welcome", "Account", "Submission", "Participant", "Review"];
 
@@ -188,7 +189,7 @@ function PublicField({ field, value, onChange, error }: { field: FormFieldRecord
       {field.type === "textarea" || field.type === "richtext"
         ? <textarea required={field.required} aria-invalid={Boolean(error)} value={String(value ?? "")} maxLength={field.maxChars ?? undefined} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
         : field.type === "dropdown"
-          ? <select required={field.required} aria-invalid={Boolean(error)} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">{field.placeholder || "Select one"}</option>{field.options.map((option) => <option key={option}>{option}</option>)}</select>
+          ? <Select required={field.required} aria-invalid={Boolean(error)} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">{field.placeholder || "Select one"}</option>{field.options.map((option) => <option key={option}>{option}</option>)}</Select>
           : field.type === "file"
             ? <><input type="file" required={field.required} aria-invalid={Boolean(error)} onChange={(event) => onChange(event.target.files?.[0]?.name ?? "")} />{isAnswered(value) && <small className="file-selected">Attached: {String(value)} (stored as a file reference in this demo)</small>}</>
             : <input type={field.type === "email" ? "email" : field.type === "url" ? "url" : "text"} required={field.required} aria-invalid={Boolean(error)} value={String(value ?? "")} maxLength={field.maxChars ?? undefined} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />}

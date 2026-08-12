@@ -14,7 +14,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations } from "../hooks/use-session-mutations";
@@ -232,22 +232,22 @@ export function SessionFormDialog({
 
           <div className="form-grid">
             <Field label="Format">
-              <select value={draft.formatId} onChange={(changed) => setDraft((current) => ({ ...current, formatId: changed.target.value }))}>
+              <Select value={draft.formatId} onChange={(changed) => setDraft((current) => ({ ...current, formatId: changed.target.value }))}>
                 <option value="">No format</option>
                 {formats.map((format) => <option key={String(format.id)} value={String(format.id)}>{format.name}</option>)}
-              </select>
+              </Select>
             </Field>
             <Field label="Track">
-              <select value={draft.trackId} onChange={(changed) => setDraft((current) => ({ ...current, trackId: changed.target.value }))}>
+              <Select value={draft.trackId} onChange={(changed) => setDraft((current) => ({ ...current, trackId: changed.target.value }))}>
                 <option value="">No track</option>
                 {tracks.map((track) => <option key={String(track.id)} value={String(track.id)}>{track.name}</option>)}
-              </select>
+              </Select>
             </Field>
             <Field label="Room">
-              <select value={draft.roomId} onChange={(changed) => setDraft((current) => ({ ...current, roomId: changed.target.value }))}>
+              <Select value={draft.roomId} onChange={(changed) => setDraft((current) => ({ ...current, roomId: changed.target.value }))}>
                 <option value="">No room</option>
                 {rooms.map((room) => <option key={String(room.id)} value={String(room.id)}>{room.name}</option>)}
-              </select>
+              </Select>
             </Field>
           </div>
 
@@ -295,13 +295,13 @@ export function SessionFormDialog({
           </Field>
 
           <Field label="Status">
-            <select
+            <Select
               value={draft.status}
               onChange={(changed) => setDraft((current) => ({ ...current, status: changed.target.value === "published" ? "published" : "draft" }))}
             >
               <option value="draft">Draft — not on the public schedule</option>
               <option value="published">Published — visible and speakers notified</option>
-            </select>
+            </Select>
           </Field>
 
           {/* M52: attributed content history + restore. Restoring content

@@ -12,7 +12,7 @@ import {
   type ImportCrmContactsCsvResult,
   type OrganizationId,
 } from "@/shared/contracts";
-import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -174,15 +174,15 @@ export function CrmImportDialog({ organizationId, open, onClose }: { organizatio
       {step === "map" && (
         <div className="form-stack">
           <Field label="Email column" required>
-            <select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
+            <Select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
               <option value="">Select a column…</option>
               {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
-            </select>
+            </Select>
           </Field>
           <div className="form-grid">
             {CRM_CSV_FIELDS.map((field) => (
               <Field key={field} label={FIELD_LABELS[field]}>
-                <select
+                <Select
                   value={fieldColumns[field] ?? NONE}
                   onChange={(event) => setFieldColumns((current) => {
                     const next = { ...current };
@@ -192,7 +192,7 @@ export function CrmImportDialog({ organizationId, open, onClose }: { organizatio
                 >
                   <option value={NONE}>— not in this file —</option>
                   {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
-                </select>
+                </Select>
               </Field>
             ))}
           </div>

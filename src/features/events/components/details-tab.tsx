@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -181,14 +181,14 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
         </Field>
         <div className="form-grid">
           <Field label="Event type">
-            <select value={eventType} onChange={(e) => setEventType(e.target.value as EventType)}>
+            <Select value={eventType} onChange={(e) => setEventType(e.target.value as EventType)}>
               {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Timezone" required>
-            <select required value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            <Select required value={timezone} onChange={(e) => setTimezone(e.target.value)}>
               {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
         <div className="form-grid">

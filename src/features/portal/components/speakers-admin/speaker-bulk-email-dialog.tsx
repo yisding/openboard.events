@@ -17,7 +17,7 @@ import type { ContactListRow } from "@/features/portal";
 import type { ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 type FocusTarget = "subject" | "body";
@@ -204,9 +204,9 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected }: {
           </div>
           <aside className="template-editor__preview">
             <Field label="Preview recipient">
-              <select value={previewContactId} onChange={(event) => { invalidatePreview(); setPreviewContactId(event.target.value); }}>
+              <Select value={previewContactId} onChange={(event) => { invalidatePreview(); setPreviewContactId(event.target.value); }}>
                 {selected.map((row) => <option key={row.contactId} value={row.contactId}>{row.name}</option>)}
-              </select>
+              </Select>
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
             {currentPreview ? (

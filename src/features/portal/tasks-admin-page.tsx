@@ -4,7 +4,7 @@ import { CalendarClock, CheckCircle2, FileText, Plus, Search, Upload, Users } fr
 import { useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
 import type { TaskRecord } from "@/shared/demo/types";
-import { Button, Field, Modal, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 export function TasksAdminPage({ eventId }: { eventId: string }) {
@@ -127,10 +127,10 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
           </Field>
           <div className="form-grid">
             <Field label="Target">
-              <select value={target} onChange={(event) => setTarget(event.target.value as TaskRecord["target"])}>
+              <Select value={target} onChange={(event) => setTarget(event.target.value as TaskRecord["target"])}>
                 <option value="contact">Accepted speakers</option>
                 <option value="submission">Accepted submissions</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Due date"><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></Field>
           </div>

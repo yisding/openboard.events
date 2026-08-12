@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -149,14 +149,14 @@ export function EventForm() {
       </Field>
       <div className="form-grid">
         <Field label="Event type" error={fieldErrors.eventType} errorId="event-type-error">
-          <select id="event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
+          <Select id="event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
             {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
-          </select>
+          </Select>
         </Field>
         <Field label="Timezone" required error={fieldErrors.timezone} errorId="event-timezone-error">
-          <select id="event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
+          <Select id="event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
             {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-          </select>
+          </Select>
         </Field>
       </div>
       <div className="form-grid">

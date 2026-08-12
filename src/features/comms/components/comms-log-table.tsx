@@ -8,7 +8,7 @@ import { COMM_STATUSES, TEMPLATE_KEYS, type CommLogId, type CommLogRow, type Com
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
-import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useCommLog } from "../hooks/use-comm-log";
 import { LogDetailSheet } from "./log-detail-sheet";
 import { SendReminderDialog } from "./send-reminder-dialog";
@@ -94,14 +94,14 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
                 {search && <button type="button" onClick={() => setSearch("")}><X size={14} /></button>}
               </label>
             )}
-            <select className="filter-button" value={status} onChange={(event) => setStatus(event.target.value as CommStatus | "")} aria-label="Filter by status">
+            <Select className="filter-button" value={status} onChange={(event) => setStatus(event.target.value as CommStatus | "")} aria-label="Filter by status">
               <option value="">All statuses</option>
               {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-            <select className="filter-button" value={templateKey} onChange={(event) => setTemplateKey(event.target.value as TemplateKey | "")} aria-label="Filter by template">
+            </Select>
+            <Select className="filter-button" value={templateKey} onChange={(event) => setTemplateKey(event.target.value as TemplateKey | "")} aria-label="Filter by template">
               <option value="">All templates</option>
               {TEMPLATE_KEYS.map((key) => <option key={key} value={key}>{humanizeKey(key)}</option>)}
-            </select>
+            </Select>
             {contactId && (
               <Button size="sm" variant="secondary" onClick={() => setSendingTo(true)}><Send size={14} /> Send reminder now</Button>
             )}

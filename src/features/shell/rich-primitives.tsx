@@ -7,7 +7,7 @@ import { FileUpload } from "@/shared/ui/app/file-upload";
 import { StatTile } from "@/shared/ui/app/stat-tile";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { PageHeader } from "@/shared/ui/ui-kit";
+import { Field, PageHeader, Select } from "@/shared/ui/ui-kit";
 
 const TIMEZONE = "America/Los_Angeles";
 const DEMO_EVENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -20,6 +20,7 @@ export function RichPrimitives() {
   const [deadline, setDeadline] = useState<string | null>("2026-10-12T16:00:00.000Z");
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<string | null>(null);
+  const [track, setTrack] = useState("ai-agents");
   const [bio, setBio] = useState("<p>Paste a <script>alert(1)</script> here and watch it not survive.</p>");
 
   return (
@@ -64,6 +65,43 @@ export function RichPrimitives() {
             <DateTimePicker value={dueDate} onChange={setDueDate} tz={TIMEZONE} mode="date" />
             <small>Emits {dueDate ?? "null"}</small>
           </label>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 className="section-title">Select — the kit&apos;s chevron, not the OS arrow</h2>
+        <p>
+          A native <code>&lt;select&gt;</code> underneath, so keyboard type-ahead, <kbd>Esc</kbd> and the
+          platform picker on touch all still work. What changes is the chrome: no OS arrow, and the same
+          border, focus ring and disabled treatment as every other control. Compare the four states below —
+          they should differ from each other and from nothing else on the page.
+        </p>
+        <div style={{ display: "grid", gap: 12, maxWidth: 460 }}>
+          <Field label="Track">
+            <Select value={track} onChange={(event) => setTrack(event.target.value)}>
+              <option value="ai-agents">AI Agents</option>
+              <option value="infrastructure">Infrastructure</option>
+              <option value="safety">Safety</option>
+            </Select>
+          </Field>
+          <Field label="Room" hint="Disabled — the kit's disabled treatment, not the OS one">
+            <Select disabled value="main-stage">
+              <option value="main-stage">Main Stage</option>
+            </Select>
+          </Field>
+          <Field label="Format" error="Pick a format before saving" errorId="kitchen-sink-format-error">
+            <Select aria-describedby="kitchen-sink-format-error" defaultValue="">
+              <option value="">Select a format…</option>
+              <option value="keynote">Keynote · 45 min</option>
+            </Select>
+          </Field>
+          <Field label="Track scope" hint="multiple — an always-open listbox keeps native rendering, with no chevron">
+            <Select multiple size={3} defaultValue={[]}>
+              <option value="ai-agents">AI Agents</option>
+              <option value="infrastructure">Infrastructure</option>
+              <option value="safety">Safety</option>
+            </Select>
+          </Field>
         </div>
       </section>
 

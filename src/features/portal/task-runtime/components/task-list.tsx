@@ -3,7 +3,7 @@
 import { CheckCircle2, ClipboardCheck, FileText, Upload } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
+import { ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { formatCode } from "@/features/submissions/index.client";
 import { taskHref } from "@/features/portal/lib/task-href";
@@ -131,12 +131,12 @@ export function TaskList({
         </div>
         <label className="table-search">
           <span className="sr-only">Filter tasks</span>
-          <select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} aria-label="Filter tasks">
+          <Select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} aria-label="Filter tasks">
             <option value="open">Open</option>
             <option value="completed">Completed</option>
             <option value="overdue">Overdue</option>
             <option value="all">Everything</option>
-          </select>
+          </Select>
         </label>
       </div>
 

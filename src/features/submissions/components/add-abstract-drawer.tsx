@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import {
   AbstractFields,
@@ -99,9 +99,9 @@ export function AddAbstractDrawer({
       {error && <p className="portal-note" role="alert">{error}</p>}
       <div className="form-stack">
         <Field label="Status">
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <Select value={status} onChange={(event) => setStatus(event.target.value)}>
             {STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          </Select>
         </Field>
       </div>
       <AbstractFields values={values} onChange={setValues} vocabulary={vocabulary} timezone={timezone} disabled={busy} />

@@ -14,7 +14,7 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
-import { Button, EmptyState, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -130,9 +130,9 @@ export function TeamPanel({
       header: "Role",
       accessorKey: "role",
       cell: ({ row }) => canManage
-        ? <select value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
+        ? <Select value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
             {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
-          </select>
+          </Select>
         : <StatusBadge value={row.original.role} />,
     },
     {
@@ -193,10 +193,10 @@ export function TeamPanel({
         <input type="email" value={inviteEmail} placeholder="teammate@example.com" onChange={(event) => setInviteEmail(event.target.value)} autoFocus />
       </Field>
       <Field label="Role" required>
-        <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as MemberRole)}>
+        <Select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as MemberRole)}>
           <option value="organizer">Organizer</option>
           <option value="reviewer">Reviewer</option>
-        </select>
+        </Select>
       </Field>
     </Modal>
 

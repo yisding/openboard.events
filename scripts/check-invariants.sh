@@ -31,6 +31,12 @@ check_forbidden "dangerouslySetInnerHTML" src --glob '*.tsx' --glob '!src/shared
 check_forbidden "runtime\\s*=\\s*['\"]edge" src
 check_forbidden "process\\.env\\." src --glob '!src/shared/lib/env.ts' --glob '!src/app/page.tsx'
 check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/time.ts'
+# DD-1 (#115): one dropdown design. A raw `<select>` renders the operating
+# system's arrow and popup next to designed controls, which is the most repeated
+# visual inconsistency the product had. `<Select>` from the kit is a native
+# select underneath — it keeps type-ahead, Esc and the mobile picker — but wears
+# the kit's chrome. The kit itself is the one place the raw element may appear.
+check_forbidden "<select[[:space:]/>]" src --glob '*.tsx' --glob '!src/shared/ui/ui-kit.tsx'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
 # Grep #11: no direct R2 access outside the storage module. A hand-rolled presign
 # elsewhere would bypass the kind policy, the key scheme and the finalize check.

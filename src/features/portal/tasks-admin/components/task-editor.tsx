@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
-import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
@@ -210,7 +210,7 @@ export function TaskEditor({
 
         <div className="form-grid">
           <Field label="Target" error={fieldErrors.targetType} errorId="task-target-error" {...hintProp(locked ? "This task has completions — create a new task to change who it targets." : undefined)}>
-            <select
+            <Select
               aria-invalid={Boolean(fieldErrors.targetType) || undefined}
               aria-describedby={fieldErrors.targetType ? "task-target-error" : undefined}
               value={draft.targetType}
@@ -219,7 +219,7 @@ export function TaskEditor({
             >
               <option value="contact">Accepted speakers</option>
               <option value="submission">Accepted submissions</option>
-            </select>
+            </Select>
           </Field>
           <Field label="Due date" error={fieldErrors.dueAt} errorId="task-due-date-error">
             <input
@@ -245,19 +245,19 @@ export function TaskEditor({
 
         {draft.completionMode === "form" && (
           <Field label="Form" required error={fieldErrors.formId} errorId="task-form-error" {...hintProp(forms.length === 0 ? "No portal forms yet — create one first." : undefined)}>
-            <select required aria-invalid={Boolean(fieldErrors.formId) || undefined} aria-describedby={fieldErrors.formId ? "task-form-error" : undefined} disabled={locked} value={draft.formId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, formId: event.target.value || null })); clearFieldError("formId"); }}>
+            <Select required aria-invalid={Boolean(fieldErrors.formId) || undefined} aria-describedby={fieldErrors.formId ? "task-form-error" : undefined} disabled={locked} value={draft.formId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, formId: event.target.value || null })); clearFieldError("formId"); }}>
               <option value="">Choose a form…</option>
               {forms.map((form) => <option key={form.id} value={form.id}>{form.internalName}</option>)}
-            </select>
+            </Select>
           </Field>
         )}
 
         {draft.completionMode === "file_request" && (
           <Field label="File request" required error={fieldErrors.fileRequestId} errorId="task-file-request-error" {...hintProp(availableFileRequests.length === 0 ? "No matching file requests yet — create one first." : undefined)}>
-            <select required aria-invalid={Boolean(fieldErrors.fileRequestId) || undefined} aria-describedby={fieldErrors.fileRequestId ? "task-file-request-error" : undefined} disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, fileRequestId: event.target.value || null })); clearFieldError("fileRequestId"); }}>
+            <Select required aria-invalid={Boolean(fieldErrors.fileRequestId) || undefined} aria-describedby={fieldErrors.fileRequestId ? "task-file-request-error" : undefined} disabled={locked} value={draft.fileRequestId ?? ""} onChange={(event) => { setDraft((current) => ({ ...current, fileRequestId: event.target.value || null })); clearFieldError("fileRequestId"); }}>
               <option value="">Choose a file request…</option>
               {availableFileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
-            </select>
+            </Select>
           </Field>
         )}
 

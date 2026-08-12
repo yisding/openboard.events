@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCode } from "@/features/submissions/index.client";
-import { Button, Drawer, Field } from "@/shared/ui/ui-kit";
+import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
@@ -111,10 +111,10 @@ export function AssignmentDrawer({
           )}
 
         <Field label="Filter by track" hint="Narrows the list below; it does not change what gets assigned.">
-          <select value={trackFilter} onChange={(event) => setTrackFilter(event.target.value)}>
+          <Select value={trackFilter} onChange={(event) => setTrackFilter(event.target.value)}>
             <option value="">Every track in this round</option>
             {tracks.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
+          </Select>
         </Field>
 
         <section>
@@ -142,10 +142,10 @@ export function AssignmentDrawer({
         </section>
 
         <Field label="Mode">
-          <select value={mode} onChange={(event) => setMode(event.target.value === "replace" ? "replace" : "add")}>
+          <Select value={mode} onChange={(event) => setMode(event.target.value === "replace" ? "replace" : "add")}>
             <option value="add">Add to the selected reviewers&apos; queues</option>
             <option value="replace">Replace their queues with exactly this selection</option>
-          </select>
+          </Select>
         </Field>
         <p className="portal-note">
           Recusals are never undone by either mode — a reviewer who declared a conflict stays off that submission.
