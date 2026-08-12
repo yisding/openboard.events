@@ -7,6 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
@@ -157,12 +158,17 @@ export function PlansView({
       header: "Window",
       enableSorting: false,
       accessorFn: (plan) => plan.opensAt ?? "",
+      // Read in the event's zone, so the column agrees with the editor that
+      // wrote it. `toLocaleString()` renders in the *viewer's* zone, which is
+      // the same defect this change set is closing on the input side — a window
+      // saved correctly for 09:00 in Los Angeles read 17:00 to an organizer in
+      // London, and nothing on screen said which one it meant.
       cell: ({ row }) => (
         <div className="plan-window">
           <span>
-            {row.original.opensAt ? new Date(row.original.opensAt).toLocaleString() : "Open now"}
+            {row.original.opensAt ? <TzTime instant={row.original.opensAt} tz={timezone} /> : "Open now"}
             {" → "}
-            {row.original.closesAt ? new Date(row.original.closesAt).toLocaleString() : "No close date"}
+            {row.original.closesAt ? <TzTime instant={row.original.closesAt} tz={timezone} /> : "No close date"}
           </span>
           {row.original.anonymizeAuthors && <small>Blind review</small>}
         </div>
@@ -226,7 +232,7 @@ export function PlansView({
   // `remind` is stable enough for the row actions; the columns only need to be
   // rebuilt when the vocabulary or the busy flag changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [trackName, busy]);
+  ], [trackName, busy, timezone]);
 
   return (
     <main className="page">
