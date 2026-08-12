@@ -120,6 +120,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         onView={(next) => navigate({ view: next })}
         onDay={(next) => navigate({ day: next })}
         onCreate={() => setCreating(true)}
+        eventId={String(props.eventId)}
       />
 
       {view === "list"

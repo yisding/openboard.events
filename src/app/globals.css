@@ -1046,6 +1046,15 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .agenda-speaker-picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px}
 .agenda-speaker-picker label{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600}
 .agenda-speaker-picker input{width:14px;height:14px;accent-color:var(--accent)}
+/* #117 — creating a speaker without leaving the dialog you are in. It expands
+   in place under the picker rather than opening a second modal. */
+.speaker-picker-add{margin-top:8px}
+.speaker-quick-add{display:grid;gap:12px;margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-raised)}
+.speaker-quick-add-actions{display:flex;justify-content:flex-end;gap:8px}
+/* #117 — the agenda's pointer to the other off-CFP path. Secondary to
+   "Add Session" on purpose: it leaves the surface, so it should not look like
+   a peer of the button that does not. */
+.agenda-invited-link{font-size:11px;font-weight:600;color:var(--accent-dark);white-space:nowrap}
 .agenda-conflict-chip{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;border-radius:5px;background:var(--red-soft);color:var(--red);font-size:10px;font-weight:600}
 
 /* M13b: visibility-rule editor + routing-rules panel */

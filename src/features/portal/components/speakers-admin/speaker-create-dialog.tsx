@@ -31,10 +31,21 @@ export function SpeakerCreateDialog({ eventId, open, onClose }: { eventId: strin
     setSaving(true);
     setError(null);
     try {
+      // Only what was filled in. `createSpeaker` is idempotent on email and
+      // patches whatever it is given, so sending `firstName: ""` for an address
+      // already on the event blanks that contact's existing name, title and
+      // company — "add" against a known email is an update, and an update must
+      // not carry fields the organizer never touched.
       const response = await fetch(`/api/internal/speakers/${eventId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, firstName, lastName, jobTitle, company }),
+        body: JSON.stringify({
+          email,
+          ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+          ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+          ...(jobTitle.trim() ? { jobTitle: jobTitle.trim() } : {}),
+          ...(company.trim() ? { company: company.trim() } : {}),
+        }),
       });
       const json = await response.json() as { data?: SpeakerDetailDTO; error?: { message?: string } };
       if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not add that speaker");
