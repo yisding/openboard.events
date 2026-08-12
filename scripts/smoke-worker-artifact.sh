@@ -100,6 +100,23 @@ probe() {
   echo "ok    GET $path -> $status"
 }
 
+probe_redirect() {
+  local path="$1"
+  local expected_status="$2"
+  local expected_path="$3"
+  local result
+  local status
+  local destination
+  result="$(curl --silent --show-error --output /dev/null --write-out $'%{http_code}\t%{redirect_url}' --max-time 15 "$base_url$path")" || result=$'000\t'
+  IFS=$'\t' read -r status destination <<< "$result"
+  if [[ "$status" != "$expected_status" || "$destination" != "$base_url$expected_path" ]]; then
+    echo "worker artifact smoke failed: GET $path returned $status -> ${destination:-<none>}; expected $expected_status -> $base_url$expected_path" >&2
+    tail -80 "$log_file" >&2
+    exit 1
+  fi
+  echo "ok    GET $path -> $status -> $expected_path"
+}
+
 # These routes span the root page, two separate auth page entries, middleware,
 # and an API route. Health intentionally returns 503 because this isolated
 # smoke supplies no database; reaching that application response proves the
@@ -107,7 +124,11 @@ probe() {
 # below even if Next turns one into an otherwise ambiguous HTTP 500.
 probe "/" "200"
 probe "/login" "200"
-probe "/signup" "200"
+# This is a production-built artifact, so even with local bindings it does not
+# activate the development-only credential-free demo. Signup is Better Auth-
+# only; fallback must return users to its working sign-in entry point instead
+# of rendering a form whose POST is closed.
+probe_redirect "/signup" "307" "/login"
 probe "/events" "200|302|307"
 probe "/api/health" "503"
 

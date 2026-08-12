@@ -19,11 +19,20 @@ export default function HomePage() {
   // human-readable slugs that don't exist in a real database. Every other
   // target (preview, production, or a local run wired to Postgres) needs
   // URLs that resolve against the seeded world instead.
-  const demoMode = isCredentialFreeLocalDemo();
-  const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
+  const env = getEnv();
+  const demoMode = isCredentialFreeLocalDemo(env);
+  const signupEnabled = env.ADMIN_AUTH_PROVIDER === "better-auth";
   const cfpHref = demoMode ? "/submit/ai-engineer/technical-talks" : `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
   // The M53 canonical public agenda surface.
   const agendaHref = demoMode ? "/e/ai-engineer/schedule" : "/e/ai-engineer-sandbox-event/agenda";
+  const workspaceHref = signupEnabled ? "/signup" : demoMode ? "/events" : "/login";
+  const workspaceNavLabel = signupEnabled ? "Create workspace" : demoMode ? "Open demo" : "Open workspace";
+  const workspaceHeroLabel = signupEnabled ? "Create your workspace" : demoMode ? "Explore the live demo" : "Open your workspace";
+  const workspaceProof = signupEnabled
+    ? "Go from signup to a live CFP in one guided setup"
+    : demoMode
+      ? "Seeded with a complete AI Engineer event"
+      : "Sign in to manage your event workspace";
 
   return (
     <main className="landing">
@@ -34,9 +43,7 @@ export default function HomePage() {
           <a href="#story">Why Openboard</a>
           <Link href={cfpHref}>View sample CFP</Link>
           <Link className="button button-secondary" href="/login">Sign in</Link>
-          <Link className="button button-primary" href={signupEnabled ? "/signup" : "/events"}>
-            {signupEnabled ? "Create workspace" : "Open demo"} <ArrowRight size={16} />
-          </Link>
+          <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
         </div>
       </nav>
 
@@ -46,13 +53,11 @@ export default function HomePage() {
           <h1>Every speaker. Every session. <span>One calm command center.</span></h1>
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
-            <Link className="button button-primary button-lg" href={signupEnabled ? "/signup" : "/events"}>
-              {signupEnabled ? "Create your workspace" : "Explore the live demo"} <ArrowRight size={18} />
-            </Link>
+            <Link className="button button-primary button-lg" href={workspaceHref}>{workspaceHeroLabel} <ArrowRight size={18} /></Link>
             <Link className="button button-secondary button-lg" href={cfpHref}>View a sample CFP</Link>
             <Link className="button button-ghost button-lg" href={agendaHref}>See the public agenda</Link>
           </div>
-          <div className="hero-proof"><CheckCircle2 size={17} /> Go from signup to a live CFP in one guided setup</div>
+          <div className="hero-proof"><CheckCircle2 size={17} /> {workspaceProof}</div>
         </div>
         <div className="hero-art" aria-label="Openboard dashboard preview">
           <div className="hero-glow" />
