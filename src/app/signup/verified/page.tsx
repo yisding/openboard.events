@@ -19,11 +19,11 @@ export default async function VerifiedEmailPage({ searchParams }: { searchParams
       {failed ? <>
         <p>The confirmation link may be expired or invalid. Enter your email and we will send a fresh one.</p>
         <ActivationResendForm next={next} />
+        <p><Link href="/login">Back to sign in</Link></p>
       </> : <>
         <p>Your account is active. Sign in to continue setting up your workspace.</p>
         <Link className="button button-primary button-lg" href={`/login?next=${encodeURIComponent(next)}`}>Continue to sign in</Link>
       </>}
-      <p><Link href="/login">Back to sign in</Link></p>
     </div></div></section>
   </main>;
 }

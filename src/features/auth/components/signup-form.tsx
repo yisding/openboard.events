@@ -75,8 +75,8 @@ export function SignupForm() {
     <label className="field"><span>Your name</span><input name="name" autoComplete="name" required maxLength={160} type="text" /></label>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
-    <label className="field"><span>Password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" /></label>
-    <small>At least 12 characters.</small>
+    <label className="field"><span>Password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" aria-describedby="signup-password-help" /></label>
+    <small id="signup-password-help">Use at least 12 characters.</small>
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
     <p><a href="/login">Already have an account? Sign in</a></p>

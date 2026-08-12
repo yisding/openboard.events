@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard } from "./onboarding-wizard";
+import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -35,6 +35,15 @@ describe("onboarding organization access", () => {
     expect(reservation).toBeGreaterThan(0);
     expect(reservation).toBeLessThan(creation);
     expect(wizard).toContain("initialState?.formId ?? crypto.randomUUID()");
+  });
+
+  it("reveals the optional URL field before focusing a server-side slug error", () => {
+    expect(wizard).toContain('if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true');
+    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
+  });
+
+  it("does not advance while a custom track is still being saved", () => {
+    expect(wizard).toContain("disabled={advancing || addingTrack}");
   });
 });
 
@@ -74,10 +83,11 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('id="onboarding-event-ends-at"');
     expect(html).toContain('type="submit"');
     expect(html).toContain('aria-current="step"');
-    expect(html).toContain('class="sr-only">Step 1: Event basics</h2>');
+    expect(html).toContain('class="sr-only">Step 1: Event details</h2>');
+    expect(html).toContain('<summary>Customize public URL</summary>');
   });
 
-  it("resumes at vocabulary with the server-loaded event and tracks", () => {
+  it("resumes at tracks with the server-loaded event and tracks", () => {
     const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
       organizationId,
       organizationName: "Test organization",
@@ -97,8 +107,9 @@ describe("OnboardingWizard event step accessibility", () => {
       },
     }));
 
-    expect(html).toContain('class="sr-only">Step 2: Vocabulary</h2>');
-    expect(html).toContain("Add a few tracks");
+    expect(html).toContain('class="sr-only">Step 2: Tracks</h2>');
+    expect(html).toContain("Tracks help organize submissions");
+    expect(html).toContain('aria-label="Event details, completed"');
     expect(html).toContain("AI");
     expect(html).not.toContain('id="onboarding-event-name"');
   });
@@ -133,7 +144,7 @@ describe("OnboardingWizard event step accessibility", () => {
       headingRef: React.createRef<HTMLHeadingElement>(),
     }));
     expect(html).toContain('tabindex="-1"');
-    expect(html).toContain("Step 2: Vocabulary");
+    expect(html).toContain("Step 2: Tracks");
 
     const focus = vi.fn();
     const scheduler = {
@@ -144,6 +155,16 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(focus).toHaveBeenCalledOnce();
     cancel();
     expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(23);
+  });
+});
+
+describe("OnboardingWizard first-use defaults", () => {
+  it("uses the browser timezone when supported and otherwise falls back safely", () => {
+    const supported = ["Europe/London", "America/Los_Angeles"];
+    expect(preferredTimeZone("Europe/London", supported)).toBe("Europe/London");
+    expect(preferredTimeZone("UTC", supported)).toBe("UTC");
+    expect(preferredTimeZone("Not/A_Zone", supported)).toBe("America/Los_Angeles");
+    expect(preferredTimeZone(undefined, supported)).toBe("America/Los_Angeles");
   });
 });
 

@@ -12,7 +12,7 @@ the real database-backed surfaces.
 | Invitation signup | `/join?token=…` → `/signup?next=…` | Token-bound in this slice; email matching alone no longer grants membership |
 | Organization creation | Better Auth user hook → organization + owner + free entitlement | Functional; signup now collects the intended organization name |
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
-| First vocabulary | onboarding step 2 | Functional; optional tracks |
+| First tracks | onboarding step 2 | Functional and explicitly optional |
 | First CFP | onboarding step 3 → create/publish form | Functional and retry-aware while the page remains open |
 | First value | onboarding step 4 → copy public submission link | Functional |
 
@@ -50,6 +50,10 @@ the real database-backed surfaces.
 - Moved eventless password recovery onto the same platform auth outbox.
 - Added shared database-backed limits for signup, verification resend, and
   password-reset requests; provider-isolate limits are now defense in depth.
+- Simplified the first-event wizard around customer language and defaults:
+  browser-local timezone selection, an optional collapsed URL customization,
+  plain-language Tracks/Share steps, visible completed-step state, and a
+  compact single-card layout on desktop and mobile.
 
 ## Remaining launch gaps, in priority order
 
@@ -57,7 +61,7 @@ the real database-backed surfaces.
    account through public signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
    verification link, signs in, names and provisions the organization, creates
-   an event and vocabulary, publishes a form, and opens the returned link in an
+   an event and optional tracks, publishes a form, and opens the returned link in an
    unauthenticated browser. The preview mailbox variable is configured; the
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before
