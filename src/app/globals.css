@@ -1236,9 +1236,10 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .reviewer-progress li{font-size:11px}
 .reviewer-progress small{color:var(--muted);font-size:10px}
 .reviewer-progress .reviewer-load-bar{display:block;width:64px;margin-top:4px}
-.reviewer-assignment{display:block;padding:8px 0;border-bottom:1px solid var(--fill);font-size:11px}
+.reviewer-assignment{display:grid;grid-template-columns:16px minmax(0,1fr);column-gap:8px;row-gap:2px;align-items:center;min-height:44px;padding:8px 0;border-bottom:1px solid var(--fill);font-size:11px;cursor:pointer}
 .reviewer-assignment:last-child{border-bottom:0}
-.reviewer-assignment input[type="checkbox"]{margin-right:8px}
+.reviewer-assignment input[type="checkbox"]{grid-column:1;grid-row:1/3;width:16px;height:16px;margin:0;padding:0;accent-color:var(--accent)}
+.reviewer-assignment b,.reviewer-assignment small{grid-column:2;min-width:0}
 .reviewer-assignment small{color:var(--muted);font-size:10px}
 .drawer-body section>h3{margin:0 0 12px;font-size:12.5px}
 .drawer-body .portal-note{margin:0;line-height:1.5}
