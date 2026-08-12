@@ -79,13 +79,13 @@ describe("bulkPublishPreflight", () => {
   it("wires the list through a blocker alert and confirmation before mutation", () => {
     const source = readFileSync(new URL("./list-view.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("bulkPublishPreflight(selected, conflicts)");
+    expect(source).toContain("bulkPublishPreflight(rows, conflicts)");
     expect(source).toContain('role="alert"');
     expect(source).toContain("Unscheduled sessions are not visible on the public schedule.");
     expect(source).toContain("<ConfirmDialog");
     expect(source).toContain("They will become visible on the public schedule.");
     expect(source).toContain("publishing does not resolve them");
-    expect(source).toContain('onClick={reviewPublish}>Publish selected</Button>');
+    expect(source).toContain('onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>');
     expect(source).toContain("if (pendingPublish && await bulk(true, pendingPublish.candidates))");
   });
 });
