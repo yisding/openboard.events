@@ -5,6 +5,7 @@ import { historyTraversalDelta, isSameNavigationDestination, shouldInterceptNavi
 describe("shell unsaved-work guard wiring", () => {
   it("covers links, browser navigation, and document unloads", () => {
     const source = readFileSync(new URL("./unsaved-work-guard.tsx", import.meta.url), "utf8");
+    const rootLayout = readFileSync(new URL("../../../app/layout.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('onClickCapture={captureLink}');
     expect(source).toContain('navigation.addEventListener("navigate", guardNavigation)');
@@ -16,6 +17,7 @@ describe("shell unsaved-work guard wiring", () => {
     expect(sameDestination).toBeGreaterThan(-1);
     expect(sameDestination).toBeLessThan(source.indexOf("const fallback = historyFallbackRef.current"));
     expect(source).toContain("if (!shouldInterceptNavigation(event)) return;");
+    expect(rootLayout).toContain("<HistoryPositionTracker /><KonamiListener />{children}");
   });
 
   it("keeps same-document actions guarded and leaves reloads to beforeunload", () => {

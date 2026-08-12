@@ -66,6 +66,48 @@ export function historyTraversalDelta(currentState: unknown, targetState: unknow
   return current === null || target === null ? null : target - current;
 }
 
+/**
+ * Mounted once by the root layout so routes visited before a guarded shell
+ * (notably /events) already carry positions when dirty work begins later.
+ * Cross-document entries never reach this popstate fallback; beforeunload owns
+ * those transitions.
+ */
+export function HistoryPositionTracker() {
+  useEffect(() => {
+    const history = window.history;
+    let currentPosition = historyPosition(history.state) ?? 0;
+    if (historyPosition(history.state) === null) {
+      history.replaceState(withHistoryPosition(history.state, currentPosition), "", window.location.href);
+    }
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+    const trackedPushState: History["pushState"] = (data, unused, url) => {
+      currentPosition += 1;
+      return originalPushState.call(history, withHistoryPosition(data, currentPosition), unused, url);
+    };
+    const trackedReplaceState: History["replaceState"] = (data, unused, url) => {
+      currentPosition = historyPosition(data) ?? currentPosition;
+      return originalReplaceState.call(history, withHistoryPosition(data, currentPosition), unused, url);
+    };
+    const trackTraversal = (event: PopStateEvent) => {
+      const nextPosition = historyPosition(event.state);
+      if (nextPosition !== null) currentPosition = nextPosition;
+    };
+
+    history.pushState = trackedPushState;
+    history.replaceState = trackedReplaceState;
+    globalThis.addEventListener("popstate", trackTraversal, { capture: true });
+    return () => {
+      globalThis.removeEventListener("popstate", trackTraversal, { capture: true });
+      if (history.pushState === trackedPushState) history.pushState = originalPushState;
+      if (history.replaceState === trackedReplaceState) history.replaceState = originalReplaceState;
+    };
+  }, []);
+
+  return null;
+}
+
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const guardsRef = useRef(new Set<symbol>());
@@ -74,7 +116,6 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   const allowNextRef = useRef(false);
   const allowNextUnloadRef = useRef(false);
   const historyFallbackRef = useRef<HistoryFallback | null>(null);
-  const historyPositionRef = useRef(0);
   const hasUnsavedWork = guardCount > 0;
 
   const register = useCallback((token: symbol, active: boolean) => {
@@ -125,41 +166,6 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     // replacing this decision would make “Discard” perform a different action
     // than the one the organizer was asked to confirm.
     setPending((current) => current ?? { confirm: action, cancel: () => undefined });
-  }, []);
-
-  useEffect(() => {
-    const history = window.history;
-    const initialPosition = historyPosition(history.state) ?? 0;
-    historyPositionRef.current = initialPosition;
-    if (historyPosition(history.state) === null) {
-      history.replaceState(withHistoryPosition(history.state, initialPosition), "", window.location.href);
-    }
-
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-    const trackedPushState: History["pushState"] = (data, unused, url) => {
-      const nextPosition = historyPositionRef.current + 1;
-      historyPositionRef.current = nextPosition;
-      return originalPushState.call(history, withHistoryPosition(data, nextPosition), unused, url);
-    };
-    const trackedReplaceState: History["replaceState"] = (data, unused, url) => {
-      const nextPosition = historyPosition(data) ?? historyPositionRef.current;
-      historyPositionRef.current = nextPosition;
-      return originalReplaceState.call(history, withHistoryPosition(data, nextPosition), unused, url);
-    };
-    const trackTraversal = (event: PopStateEvent) => {
-      const nextPosition = historyPosition(event.state);
-      if (nextPosition !== null) historyPositionRef.current = nextPosition;
-    };
-
-    history.pushState = trackedPushState;
-    history.replaceState = trackedReplaceState;
-    globalThis.addEventListener("popstate", trackTraversal, { capture: true });
-    return () => {
-      globalThis.removeEventListener("popstate", trackTraversal, { capture: true });
-      if (history.pushState === trackedPushState) history.pushState = originalPushState;
-      if (history.replaceState === trackedReplaceState) history.replaceState = originalReplaceState;
-    };
   }, []);
 
   useEffect(() => {
