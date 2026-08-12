@@ -268,6 +268,14 @@ dependency on the decision-loop path) rather than sequenced behind items 1–5.
 
 ### Contain the demo fork while it drains
 
+> **Annotation, 2026-08-12 — closed by deletion rather than by containment.** The fork never
+> needed its monotonic-drain lint: the whole adapter was removed. `cfp-wizard.tsx` (with its
+> private second `evaluateVisibility`) and `src/shared/demo/` are deleted, `agenda/conflicts.ts`
+> types against `@/shared/contracts`, the remaining former `@/shared/demo/types` importers moved to
+> `@/features/portal/types`, and no file imports `@/shared/demo`. The sequencing amendment above is
+> settled too — the public pages render the `published_*` views server-side. The analysis below is
+> kept as the record of why the fork was worth removing.
+
 The demo adapter is not just unfinished wiring; it has already forked logic the architecture
 forbids forking:
 

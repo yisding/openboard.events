@@ -14,6 +14,16 @@ Two frequency classes matter. **Daily loops** are walked dozens of times per day
 window — every extra click multiplies. **One-time setups** are walked once per event — they can
 be longer, but they must never dead-end, because a stuck setup is a lost customer.
 
+> **Annotation, 2026-08-12 — the "demo-only" verdicts below are historical.** Every **Current
+> state** paragraph here was written against the Aug 9 tree, when most surfaces rendered from the
+> localStorage browser demo. That demo has since been **deleted**: the `DemoProvider`, the
+> `useDemo()` components, `src/shared/demo/`, and the `isCredentialFreeLocalDemo()` predicate are
+> gone, and every surface each paragraph calls "demo-only" now reads and writes Postgres (agenda,
+> communications, evaluation, speakers/tasks/resources admin, portal profile/tasks/resources, and
+> the public schedule and speaker pages, which are server-rendered from the `published_*` views).
+> The flows, friction lists and **ease bars** are unchanged and still the bar; only the wiring
+> verdicts are stale. `plan/status.md` is the current record of what is *proven* where.
+
 ---
 
 ## Persona 1 — Organizer (the buyer; lives in the app for weeks)

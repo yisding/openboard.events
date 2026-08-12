@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emailFromAddress, isCredentialFreeLocalDemo, parseEnv, WEB_DEPLOY_SECRET_NAMES } from "./env";
+import { emailFromAddress, parseEnv, WEB_DEPLOY_SECRET_NAMES } from "./env";
 
 const deployed = {
   APP_BASE_URL: "https://example.com",
@@ -22,12 +22,10 @@ const deployed = {
 };
 
 describe("parseEnv", () => {
-  it("accepts credential-free local demo defaults", () => {
+  it("accepts bare local defaults", () => {
     const env = parseEnv({});
     expect(env.APP_ENV).toBe("local");
     expect(env.BILLING_MODE).toBe("disabled");
-    expect(isCredentialFreeLocalDemo(env, "development")).toBe(true);
-    expect(isCredentialFreeLocalDemo(env, "production")).toBe(false);
   });
 
   it("accepts the isolated preview contract", () => {

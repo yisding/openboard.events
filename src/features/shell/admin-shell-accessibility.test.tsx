@@ -11,10 +11,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/shared/demo/demo-provider", () => ({
-  useDemo: () => ({ state: { events: [] }, hydrated: true }),
-}));
-
 vi.mock("@/features/shell/components/command-palette", () => ({
   CommandPalette: () => <button type="button">Search</button>,
 }));

@@ -46,16 +46,10 @@ describe("speaker profile unsaved-work guard", () => {
   it("mounts the shared guard around portal navigation and sign-out", () => {
     const shell = readFileSync(new URL("../../portal-shell.tsx", import.meta.url), "utf8");
 
-    expect(shell).toContain("<UnsavedWorkGuardProvider><div className=\"portal-shell\">");
+    expect(shell).toContain("<UnsavedWorkGuardProvider>");
+    expect(shell).toContain('<div className="portal-shell">');
     expect(shell.indexOf("<UnsavedWorkGuardProvider>")).toBeLessThan(shell.indexOf("<SignOutButton"));
-    expect(shell).toContain("const open=openPath===pathname");
-  });
-
-  it("guards the credential-free demo profile", () => {
-    const demo = readFileSync(new URL("../../portal-profile.tsx", import.meta.url), "utf8");
-
-    expect(demo).toContain("useUnsavedWorkGuard(textDraftChanged(currentText, savedText))");
-    expect(demo).toContain("setSavedText(currentText)");
+    expect(shell).toContain("const open = openPath === pathname");
   });
 
   it("guards browser-history traversal without probing adjacent entries", () => {
@@ -73,11 +67,11 @@ describe("speaker profile unsaved-work guard", () => {
     expect(guard).not.toContain("restorationDirection");
   });
 
-  it("guards the owned impersonation exit without breaking modified clicks", () => {
+  it("guards the owned impersonation return without breaking modified clicks", () => {
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
 
     expect(banner).toContain("data-unsaved-guard-owned");
     expect(banner).toContain("event.metaKey || event.ctrlKey");
-    expect(banner).toContain("onExit?.()");
+    expect(banner).toContain("router.push(backHref)");
   });
 });

@@ -5,7 +5,6 @@ import SignupPage from "./page";
 
 const runtime = vi.hoisted(() => ({
   authProvider: "better-auth" as "better-auth" | "fallback",
-  demoMode: false,
 }));
 const redirect = vi.hoisted(() => vi.fn((destination: string): never => {
   throw new Error(`redirect:${destination}`);
@@ -14,7 +13,6 @@ const redirect = vi.hoisted(() => vi.fn((destination: string): never => {
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/shared/lib/env", () => ({
   getEnv: () => ({ ADMIN_AUTH_PROVIDER: runtime.authProvider }),
-  isCredentialFreeLocalDemo: () => runtime.demoMode,
 }));
 vi.mock("@/features/auth/components/signup-form", () => ({
   SignupForm: () => <div>signup form</div>,
@@ -25,7 +23,6 @@ Object.assign(globalThis, { React });
 describe("signup entry route", () => {
   beforeEach(() => {
     runtime.authProvider = "better-auth";
-    runtime.demoMode = false;
     redirect.mockClear();
   });
 
@@ -34,15 +31,7 @@ describe("signup entry route", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("returns the credential-free fallback to its working demo", () => {
-    runtime.authProvider = "fallback";
-    runtime.demoMode = true;
-
-    expect(() => renderToStaticMarkup(<SignupPage />)).toThrow("redirect:/events");
-    expect(redirect).toHaveBeenCalledWith("/events");
-  });
-
-  it("returns database-backed fallback deployments to sign-in", () => {
+  it("returns non-Better-Auth deployments to sign-in", () => {
     runtime.authProvider = "fallback";
 
     expect(() => renderToStaticMarkup(<SignupPage />)).toThrow("redirect:/login");

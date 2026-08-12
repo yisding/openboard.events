@@ -13,9 +13,62 @@ type SignupRequest = {
   next: string;
 };
 
+type GoogleSignupRequest = {
+  organizationName: string;
+  invitationToken: string | null;
+  legalConsent: SignupLegalConsent | null;
+  legalConsentAccepted: boolean;
+  /** Already normalized by `safeInternalPath` in the signup page. */
+  next: string;
+};
+
 export type SignupTransition =
   | { destination: string; refresh: boolean }
   | { error: string };
+
+export type GoogleSignupTransition = { url: string } | { error: string };
+
+/** Start the explicit, workspace-aware Google account-creation handoff. */
+export async function beginGoogleSignup(
+  input: GoogleSignupRequest,
+  request: typeof fetch = fetch,
+): Promise<GoogleSignupTransition> {
+  let response: Response;
+  try {
+    response = await request("/api/auth/sign-up/google", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...(input.invitationToken
+          ? { invitationToken: input.invitationToken }
+          : { organizationName: input.organizationName }),
+        next: input.next,
+        ...(input.legalConsent ? {
+          legalConsentAccepted: input.legalConsentAccepted,
+          acceptedTermsVersion: input.legalConsent.termsVersion,
+          acknowledgedPrivacyVersion: input.legalConsent.privacyVersion,
+        } : {}),
+      }),
+    });
+  } catch {
+    return { error: "Google signup is temporarily unavailable" };
+  }
+  const body = await response.json().catch(() => null) as {
+    url?: string;
+    error?: { message?: string };
+    message?: string;
+  } | null;
+  if (!response.ok) {
+    return { error: body?.error?.message || body?.message || "Could not start Google signup" };
+  }
+  try {
+    const url = new URL(body?.url ?? "");
+    if (url.protocol !== "https:") throw new Error("insecure OAuth destination");
+    return { url: url.toString() };
+  } catch {
+    return { error: "Google signup is temporarily unavailable" };
+  }
+}
 
 /** Account creation commits once, then waits for proof of mailbox control. */
 export async function signupAndAwaitVerification(

@@ -1492,6 +1492,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .login-form-panel>div>:is(form,div)>p a{color:var(--accent-dark);font-weight:600}
 .google-signin{width:100%}
 .google-mark{width:18px;height:18px;flex:0 0 18px}
+.auth-provider-back{width:100%}
 .auth-divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 .auth-divider::before,.auth-divider::after{content:"";height:1px;flex:1;background:var(--line)}
 .auth-help{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12.5px;line-height:1.45}

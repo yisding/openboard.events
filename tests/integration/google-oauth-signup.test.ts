@@ -2,11 +2,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { users } from "@/db/schema";
+import { userLegalAcceptances, users } from "@/db/schema";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
+import { OAUTH_SIGNUP_INTENT_COOKIE, sealOAuthSignupIntent } from "@/features/auth/server/oauth-signup-intent";
+import { toBase64Url } from "@/features/auth/server/crypto";
 import { parseEnv } from "@/shared/lib/env";
 
 /**
@@ -45,6 +47,15 @@ function googleProfile(email: string, accountId: string) {
       scope: "openid email profile",
     },
   ] as const;
+}
+
+function unsignedGoogleIdToken(profile: { sub: string; email: string; name: string }) {
+  const encode = (value: unknown) => toBase64Url(new TextEncoder().encode(JSON.stringify(value)));
+  return `${encode({ alg: "none", typ: "JWT" })}.${encode({
+    ...profile,
+    email_verified: true,
+    picture: "https://lh3.googleusercontent.com/a/example",
+  })}.signature`;
 }
 
 describe("Google OAuth signup", () => {
@@ -92,6 +103,47 @@ describe("Google OAuth signup", () => {
       [(organizations.rows[0] as { id: string }).id],
     );
     expect((subscription.rows[0] as { plan_id: string }).plan_id).toBe("free");
+  });
+
+  it("returns an existing Google identity to the invitation acceptance URL", async () => {
+    const invitationPath = "/join?token=existing-user-invitation";
+    const start = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        provider: "google",
+        callbackURL: invitationPath,
+        newUserCallbackURL: "/organizations",
+        requestSignUp: true,
+      }),
+    }));
+    const authorization = new URL(((await start.json()) as { url: string }).url);
+    const stateCookies = start.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    const idToken = unsignedGoogleIdToken({
+      sub: "108234567890123456789",
+      email: "new.organizer@gmail.com",
+      name: "New Organizer",
+    });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      access_token: "ya29.test-existing-user-access-token",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "openid email profile",
+      id_token: idToken,
+    })));
+
+    try {
+      const callback = new URL("http://localhost:3000/api/auth/callback/google");
+      callback.searchParams.set("code", "existing-user-authorization-code");
+      callback.searchParams.set("state", authorization.searchParams.get("state") ?? "");
+      const response = await auth.handler(new Request(callback, { headers: { cookie: stateCookies } }));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(invitationPath);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
   });
 
   it("re-applying 0020 repairs a wiped billing catalog and signup works again", async () => {
@@ -146,5 +198,77 @@ describe("Google OAuth signup", () => {
       .rejects.toThrow(/Terms of Service/u);
     await expect(database.select({ id: users.id }).from(users).where(eq(users.email, email)))
       .resolves.toHaveLength(0);
+  });
+
+  it("completes an explicit Google callback with the encrypted workspace and consent context", async () => {
+    const reviewedEnv = parseEnv({
+      APP_ENV: "local",
+      APP_BASE_URL: "http://localhost:3000",
+      SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
+      ADMIN_AUTH_PROVIDER: "better-auth",
+      GOOGLE_CLIENT_ID: "test-google-client-id",
+      GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+      LEGAL_TERMS_URL: "https://openboard.example/terms",
+      LEGAL_TERMS_VERSION: "terms-2026-08",
+      LEGAL_PRIVACY_URL: "https://openboard.example/privacy",
+      LEGAL_PRIVACY_VERSION: "privacy-2026-08",
+    });
+    const guarded = buildAdminAuth(reviewedEnv, { database });
+    const start = await guarded.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({ provider: "google", callbackURL: "/organizations", requestSignUp: true }),
+    }));
+    const authorization = new URL(((await start.json()) as { url: string }).url);
+    const stateCookies = start.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    const intent = await sealOAuthSignupIntent({
+      provider: "google",
+      organizationName: "OAuth Events",
+      legalVersions: { termsVersion: "terms-2026-08", privacyVersion: "privacy-2026-08" },
+    }, reviewedEnv.SESSION_SECRET as string);
+    const email = "explicit.oauth.organizer@gmail.com";
+    const accountId = "108234567890123456792";
+    const idToken = unsignedGoogleIdToken({ sub: accountId, email, name: "OAuth Organizer" });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://oauth2.googleapis.com/token");
+      return Response.json({
+        access_token: "ya29.test-access-token",
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "openid email profile",
+        id_token: idToken,
+      });
+    }));
+
+    try {
+      const callback = new URL("http://localhost:3000/api/auth/callback/google");
+      callback.searchParams.set("code", "test-authorization-code");
+      callback.searchParams.set("state", authorization.searchParams.get("state") ?? "");
+      const response = await guarded.handler(new Request(callback, {
+        headers: { cookie: `${stateCookies}; ${OAUTH_SIGNUP_INTENT_COOKIE}=${intent}` },
+      }));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/organizations");
+      const [user] = await database.select({ id: users.id, emailVerified: users.emailVerified })
+        .from(users).where(eq(users.email, email)).limit(1);
+      expect(user?.emailVerified).toBe(true);
+      const organization = await pglite.query(
+        "SELECT o.name FROM organizations o JOIN organization_members m ON m.organization_id = o.id WHERE m.user_id = $1",
+        [user?.id],
+      );
+      expect((organization.rows[0] as { name: string }).name).toBe("OAuth Events");
+      const acceptance = await database.select({
+        termsVersion: userLegalAcceptances.termsVersion,
+        privacyVersion: userLegalAcceptances.privacyVersion,
+      }).from(userLegalAcceptances).where(eq(userLegalAcceptances.userId, user?.id ?? ""));
+      expect(acceptance).toEqual([{
+        termsVersion: "terms-2026-08",
+        privacyVersion: "privacy-2026-08",
+      }]);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
   });
 });

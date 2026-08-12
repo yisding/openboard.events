@@ -1,18 +1,12 @@
 import type { Metadata } from "next";
 import { listMyTasks, requirePortalContext } from "@/features/portal";
 import { TaskList } from "@/features/portal/task-runtime/components/task-list";
-import { PortalTasks } from "@/features/portal/portal-tasks";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Your tasks" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ eventSlug: string }> }) {
   const { eventSlug } = await params;
-  // The credential-free demo has no database to read; everywhere else these are
-  // the speaker's real assignments.
-  if (isCredentialFreeLocalDemo()) return <PortalTasks />;
-
   const { event, contact } = await requirePortalContext(eventSlug);
   const tasks = await listMyTasks(event.id, contact.id);
 

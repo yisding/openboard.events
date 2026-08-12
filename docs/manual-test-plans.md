@@ -23,11 +23,13 @@ gaps**, and §0.8 before filing a design defect — three are already catalogued
 | Env | What it is | Use it for |
 |---|---|---|
 | **A — local, database-backed** | `pnpm dev` against a Postgres/Neon branch you own, seeded with `pnpm seed` | Default for every plan. Everything except real email delivery and R2 CORS |
-| **B — browser demo** | `/` → **Open demo**. No credentials, no database; state in `localStorage`; **Reset demo** on `/events` restores the seed | Design sweeps (MTP-08), usability sessions (MTP-09), demos. **Never** for a plan step that asserts a database, an email, or a file object |
 | **C — deployed preview** | `https://sb-web-preview.yi-ding.workers.dev`, or your own deploy | Real email delivery, R2 presign/PUT under CORS, edge-cache headers, throttles behind a real IP |
 
-Env B renders every screen from typed fixtures. That makes it the *best* environment for the design
-plans (fast, resettable, no setup) and an invalid one for anything a server must prove.
+There used to be an **Env B — browser demo** (`/` → **Open demo**; localStorage fixtures, no
+credentials, no database), used for the design sweeps because it was fast and resettable. It was
+deleted from the codebase on 2026-08-12: the environment no longer exists, and every plan that
+named it now runs on Env A. `pnpm seed --wipe` replaces **Reset demo** — slower, but it resets the
+only state the app has left.
 
 ### 0.2 Setup A — local, database-backed (do this once)
 
@@ -120,8 +122,9 @@ Resend — that log line is the artifact for local email assertions.
 | Formats | Keynote 45, Talk 30, Workshop 90, Panel 45, Break 15 |
 | Event timezone | `America/Los_Angeles`; seeded times are local wall-clock in that zone |
 
-Contrary to `docs/demo-script.md`, `pnpm seed` does **not** print the public CFP path — take it from
-this table, or from **Copy public link** on the admin Forms list.
+`pnpm seed` does **not** print the public CFP path — take it from this table, or from
+**Copy public link** on the admin Forms list. (`docs/demo-script.md` used to claim the seed printed
+it; corrected 2026-08-12.)
 
 ### 0.5 The submission status model (used heavily in MTP-06)
 
@@ -371,7 +374,7 @@ having walked away for a day — and that what lands in the database is exactly 
 | 8 | **Submission B (the routing case).** Start a second proposal. Set *Format* = **Workshop**, answer the Workshop duration follow-up, set *Track* = **Platforms**, complete Title, Description, First/Last, Email, and submit **with Workshop still selected** | Success page with the next `SESS-n` code |
 | 9 | Check Submission B as organizer | Track reads **AI Agents**, tag **Tooling** — the routing rule overrode the speaker's *Platforms* answer |
 | 10 | Open both submissions' answers | B has every answer including the conditional. A has no orphaned Workshop-duration answer — absent, not blank |
-| 11 | *(Env C)* Repeat steps 1–8 with a real inbox | The OTP email arrives from the verified domain and the code works. `424242` is rejected — that shortcut is Env B only |
+| 11 | *(Env C)* Repeat steps 1–8 with a real inbox | The OTP email arrives from the verified domain and the code works. There is no fixed-code shortcut in any environment; on Env A the same real code is surfaced in the login UI by `EMAIL_FALLBACK_UI=1` |
 
 ### §2 Validation and content
 
@@ -715,13 +718,14 @@ every view (list/day/week/track/room). Specifically:
 # Part II — The design bar
 
 MTP-08 and MTP-09 are the plans that fail a product for being unfinished rather than broken. Run
-MTP-08 on Env B (fast and resettable); run MTP-09 wherever the operator can be given a real task.
+MTP-08 on Env A against a freshly seeded database (it used to run on the retired browser demo);
+run MTP-09 wherever the operator can be given a real task.
 
 ---
 
 ## MTP-08 — Control, state, and consistency sweep
 
-**Environments:** B for breadth, A to confirm anything suspicious · **Duration:** ~120 min ·
+**Environments:** A (seeded), C to confirm anything suspicious · **Duration:** ~120 min ·
 **Cadence:** every release, and after any change to `globals.css` or `ui-kit.tsx`.
 
 **Objective.** Inventory every interactive control on every surface and hold each to §0.7. This is
@@ -866,9 +870,9 @@ threshold outside the core flow is zero S1.
 | # | Action | Expected result |
 |---|---|---|
 | 1 | `pnpm install` on a clean clone | Completes; `pnpm@11.8.0` resolved |
-| 2 | `pnpm dev` with **no** `.dev.vars` | The app still starts; `/` offers **Open demo** rather than crashing |
-| 3 | Open demo; browse `/events` → the event → Dashboard, Abstracts, Agenda | Every screen renders from fixtures; no error overlay |
-| 4 | **Reset demo** on `/events` | The demo world returns to seed state |
+| 2 | `pnpm dev` with **no** `.dev.vars` | The dev server boots and `/` renders — the landing page needs no database. (Until 2026-08-12 this step continued into a credential-free browser demo; that mode is deleted) |
+| 3 | With still no `.dev.vars`, open `/events` | Redirected to sign-in, or a database error — **never** a fixture-rendered screen. Nothing in the app renders without Postgres |
+| 4 | Stop the server | — |
 | 5 | Fill `.dev.vars` per §0.2; `pnpm db:migrate` | Applies through the journal; re-running is a no-op |
 | 6 | `APP_ENV=local pnpm seed --wipe` | `wiped N tables`, a line per module, row counts, credentials, both event ids. Exit 0 |
 | 7 | `pnpm seed` again without `--wipe` | Idempotent — identical row counts, no duplicate-key error |

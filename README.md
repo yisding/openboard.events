@@ -7,7 +7,7 @@ public schedule/speaker/embed pages, and dashboards — plus a commercial layer 
 user management, Better Auth incl. Google sign-in, a billing scaffold, GDPR tooling) and an
 experience layer of dashboards, flow-through lists, and a command palette on top.
 
-- **Deployed preview (seeded demo world):** <https://sb-web-preview.yi-ding.workers.dev>
+- **Deployed preview (seeded sample event, real database):** <https://sb-web-preview.yi-ding.workers.dev>
 - **Judge/reviewer walkthrough:** [`docs/demo-script.md`](docs/demo-script.md)
 - **Public API reference:** [`docs/api.md`](docs/api.md)
 - **Build history and current status:** [`plan/`](plan/), starting with
@@ -106,7 +106,7 @@ Prerequisites: Node.js 22 (pinned in `.node-version`), pnpm (`packageManager` pi
 pnpm install
 cp .dev.vars.example .dev.vars     # fill in DATABASE_URL / DATABASE_URL_DIRECT and SESSION_SECRET
 pnpm db:migrate                    # applies drizzle/ to whatever DATABASE_URL_DIRECT points at
-pnpm seed                          # loads the demo world; pass --wipe to reset first
+pnpm seed                          # loads the sample event; pass --wipe to reset first
 pnpm dev                           # http://localhost:3000
 ```
 
@@ -123,10 +123,12 @@ See [`docs/admin-bootstrap.md`](docs/admin-bootstrap.md) and
 [`docs/provisioning.md`](docs/provisioning.md) (Neon/R2/Resend/Cloudflare setup) for the full
 flow.
 
-**No credentials? No database?** The app still starts. Open `/` and choose **Open demo** for a
-credential-free, database-free local demo mode — every screen renders from a typed in-browser
-fixture set with changes persisted to `localStorage`, and **Reset demo** on `/events` restores the
-seed.
+**A database is required.** Openboard has one runtime path — every screen reads and writes
+Postgres. The credential-free browser demo (`Open demo` on `/`, a localStorage fixture store,
+**Reset demo**) was removed on 2026-08-12; without `DATABASE_URL` the app starts but its pages
+error rather than falling back to fixtures. Point `.dev.vars` at a Neon branch (or any Postgres)
+and run `pnpm seed` — that is the local walkthrough environment, and
+[`docs/demo-script.md`](docs/demo-script.md) walks it.
 
 ## Testing
 

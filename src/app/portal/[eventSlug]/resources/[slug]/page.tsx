@@ -3,17 +3,12 @@ import { notFound } from "next/navigation";
 import { requirePortalContext } from "@/features/portal";
 import { getResourcePage } from "@/features/portal/resources";
 import { ResourcePageDetailView } from "@/features/portal/resources/components/portal-resource-detail";
-import { PortalResourceDetail } from "@/features/portal/portal-resources";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Resource" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ eventSlug: string; slug: string }> }) {
   const { eventSlug, slug } = await params;
-  // The credential-free demo has no database to read.
-  if (isCredentialFreeLocalDemo()) return <PortalResourceDetail slug={slug} />;
-
   const { event } = await requirePortalContext(eventSlug);
   const page = await getResourcePage(event.id, slug, { publishedOnly: true });
   // A draft and a slug that never existed produce the identical 404 — never a
