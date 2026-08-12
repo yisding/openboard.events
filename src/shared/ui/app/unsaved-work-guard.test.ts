@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
-import { holdHistoryTraversal, isSameNavigationDestination, shouldInterceptNavigation } from "./unsaved-work-guard";
+import { describe, expect, it } from "vitest";
+import { historyTraversalDelta, isSameNavigationDestination, shouldInterceptNavigation } from "./unsaved-work-guard";
 
 describe("shell unsaved-work guard wiring", () => {
   it("covers links, browser navigation, and document unloads", () => {
@@ -29,25 +29,12 @@ describe("shell unsaved-work guard wiring", () => {
     expect(shouldInterceptNavigation({ ...navigation, destination: { sameDocument: false }, navigationType: "push" })).toBe(false);
   });
 
-  it("holds a history target in place and restores it only on confirmation", async () => {
-    const replaceState = vi.fn();
-    const replay = vi.fn();
-    const targetState = { __NA: true, page: "target" };
-    const decision = holdHistoryTraversal(
-      { replaceState },
-      "https://openboard.events/current",
-      { __NA: true, guarded: true },
-      "https://openboard.events/target",
-      targetState,
-      replay,
-    );
+  it("computes exact backward, forward, and history-menu traversal deltas", () => {
+    const current = { __openboardHistoryPosition: 4 };
 
-    expect(replaceState).toHaveBeenCalledOnce();
-    decision.cancel();
-    expect(replaceState).toHaveBeenCalledOnce();
-    await decision.confirm();
-    expect(replaceState).toHaveBeenLastCalledWith(targetState, "", "https://openboard.events/target");
-    expect(replay).toHaveBeenCalledWith(targetState);
+    expect(historyTraversalDelta(current, { __openboardHistoryPosition: 3 })).toBe(-1);
+    expect(historyTraversalDelta(current, { __openboardHistoryPosition: 7 })).toBe(3);
+    expect(historyTraversalDelta(current, { page: "legacy" })).toBeNull();
   });
 
   it("guards sign-out before the authentication request and mounts at the event shell", () => {

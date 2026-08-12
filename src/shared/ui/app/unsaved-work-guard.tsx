@@ -32,6 +32,7 @@ type NavigationEventLike = Event & {
 type NavigationTarget = EventTarget & { addEventListener: EventTarget["addEventListener"]; removeEventListener: EventTarget["removeEventListener"] };
 
 const HISTORY_GUARD_MARKER = "__openboardUnsavedWork";
+const HISTORY_POSITION = "__openboardHistoryPosition";
 
 type HistoryFallback = { leave: (action?: () => void) => void };
 
@@ -47,22 +48,22 @@ export function shouldInterceptNavigation(event: Pick<NavigationEventLike, "canI
     && !event.hashChange;
 }
 
-export function holdHistoryTraversal(
-  history: Pick<History, "replaceState">,
-  currentUrl: string,
-  markerState: unknown,
-  targetUrl: string,
-  targetState: unknown,
-  replay: (state: unknown) => void,
-): PendingDecision {
-  history.replaceState(markerState, "", currentUrl);
-  return {
-    confirm: () => {
-      history.replaceState(targetState, "", targetUrl);
-      replay(targetState);
-    },
-    cancel: () => undefined,
-  };
+function historyPosition(state: unknown): number | null {
+  if (typeof state !== "object" || state === null) return null;
+  const position = (state as Record<string, unknown>)[HISTORY_POSITION];
+  return typeof position === "number" && Number.isFinite(position) ? position : null;
+}
+
+function withHistoryPosition(state: unknown, position: number): Record<string, unknown> {
+  return typeof state === "object" && state !== null
+    ? { ...state, [HISTORY_POSITION]: position }
+    : { [HISTORY_POSITION]: position };
+}
+
+export function historyTraversalDelta(currentState: unknown, targetState: unknown): number | null {
+  const current = historyPosition(currentState);
+  const target = historyPosition(targetState);
+  return current === null || target === null ? null : target - current;
 }
 
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   const allowNextRef = useRef(false);
   const allowNextUnloadRef = useRef(false);
   const historyFallbackRef = useRef<HistoryFallback | null>(null);
+  const historyPositionRef = useRef(0);
   const hasUnsavedWork = guardCount > 0;
 
   const register = useCallback((token: symbol, active: boolean) => {
@@ -123,6 +125,41 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     // replacing this decision would make “Discard” perform a different action
     // than the one the organizer was asked to confirm.
     setPending((current) => current ?? { confirm: action, cancel: () => undefined });
+  }, []);
+
+  useEffect(() => {
+    const history = window.history;
+    const initialPosition = historyPosition(history.state) ?? 0;
+    historyPositionRef.current = initialPosition;
+    if (historyPosition(history.state) === null) {
+      history.replaceState(withHistoryPosition(history.state, initialPosition), "", window.location.href);
+    }
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+    const trackedPushState: History["pushState"] = (data, unused, url) => {
+      const nextPosition = historyPositionRef.current + 1;
+      historyPositionRef.current = nextPosition;
+      return originalPushState.call(history, withHistoryPosition(data, nextPosition), unused, url);
+    };
+    const trackedReplaceState: History["replaceState"] = (data, unused, url) => {
+      const nextPosition = historyPosition(data) ?? historyPositionRef.current;
+      historyPositionRef.current = nextPosition;
+      return originalReplaceState.call(history, withHistoryPosition(data, nextPosition), unused, url);
+    };
+    const trackTraversal = (event: PopStateEvent) => {
+      const nextPosition = historyPosition(event.state);
+      if (nextPosition !== null) historyPositionRef.current = nextPosition;
+    };
+
+    history.pushState = trackedPushState;
+    history.replaceState = trackedReplaceState;
+    globalThis.addEventListener("popstate", trackTraversal, { capture: true });
+    return () => {
+      globalThis.removeEventListener("popstate", trackTraversal, { capture: true });
+      if (history.pushState === trackedPushState) history.pushState = originalPushState;
+      if (history.replaceState === trackedReplaceState) history.replaceState = originalReplaceState;
+    };
   }, []);
 
   useEffect(() => {
@@ -191,36 +228,35 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
       };
       historyFallbackRef.current = { leave };
+      let returningTraversal: { delta: number } | null = null;
       const guardHistory = (event: PopStateEvent) => {
         if (allowNextRef.current) {
           allowNextRef.current = false;
+          const returned = returningTraversal;
+          returningTraversal = null;
+          if (returned) {
+            setPending((current) => current ?? {
+              confirm: () => leave(() => {
+                allowNextRef.current = true;
+                window.history.go(returned.delta);
+              }),
+              cancel: () => undefined,
+            });
+          }
           return;
         }
         const state = event.state as Record<string, unknown> | null;
         if (state?.[HISTORY_GUARD_MARKER] === marker) return;
+        const delta = historyTraversalDelta(markerState, event.state);
+        if (delta === null || delta === 0) return;
         event.stopImmediatePropagation();
-        const targetState = event.state;
-        const targetUrl = window.location.href;
-        // Popstate is delivered after a same-document traversal. Temporarily
-        // turn the traversed entry into the guarded page instead of probing in
-        // either direction, which could cross into an unrelated document.
-        // Confirm restores the exact target entry and replays the event for
-        // Next; cancel intentionally leaves this one entry replaced.
-        const decision = holdHistoryTraversal(
-          window.history,
-          currentUrl,
-          markerState,
-          targetUrl,
-          targetState,
-          (replayState) => {
-            allowNextRef.current = true;
-            window.dispatchEvent(new PopStateEvent("popstate", { state: replayState }));
-          },
-        );
-        setPending((current) => current ?? {
-          confirm: () => leave(decision.confirm),
-          cancel: decision.cancel,
-        });
+        // Every entry created while this shell is mounted has a monotonic
+        // position. Return by the exact inverse delta, then offer the decision
+        // from the still-guarded entry; this never searches adjacent history
+        // and therefore cannot wander into a different document.
+        returningTraversal = { delta };
+        allowNextRef.current = true;
+        window.history.go(-delta);
       };
       globalThis.addEventListener("popstate", guardHistory, { capture: true });
       return () => {

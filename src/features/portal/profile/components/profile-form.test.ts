@@ -67,9 +67,10 @@ describe("speaker profile unsaved-work guard", () => {
     expect(guard).toContain("window.history.replaceState(previousState");
     expect(guard).toContain("fallback.leave(action)");
     expect(guard).toContain("event.stopImmediatePropagation()");
-    expect(guard).toContain("const decision = holdHistoryTraversal(");
-    expect(guard).toContain('new PopStateEvent("popstate", { state: replayState })');
-    expect(guard).not.toContain("window.history.go(");
+    expect(guard).toContain("const delta = historyTraversalDelta(markerState, event.state)");
+    expect(guard).toContain("window.history.go(-delta)");
+    expect(guard).toContain("window.history.go(returned.delta)");
+    expect(guard).not.toContain("restorationDirection");
   });
 
   it("guards the owned impersonation exit without breaking modified clicks", () => {
