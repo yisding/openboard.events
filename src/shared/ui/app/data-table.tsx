@@ -297,7 +297,11 @@ export function DataTable<Row>({
   const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
-    <section className="data-panel">
+    <section className="data-panel" aria-busy={isLoading}>
+      {isLoading && (
+        <p className="sr-only" role="status">Loading table data…</p>
+      )}
+
       {(toolbar || columnVisibilityKey) && (
         <div className="data-toolbar">
           {toolbar}
