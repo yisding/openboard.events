@@ -69,6 +69,8 @@ jobs:
       R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
       EMAIL_FROM: ${{ vars.EMAIL_FROM }}
       EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
+      E2E_SIGNUP_EMAIL: ${{ vars.E2E_SIGNUP_EMAIL }}
+      E2E_RESEND_API_KEY: ${{ secrets.E2E_RESEND_API_KEY }}
       NEXT_PUBLIC_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       DEPLOY_ENV: ${{ matrix.environment }}
       SMOKE_EVENT_SLUG: ${{ vars.SMOKE_EVENT_SLUG || 'ai-engineer-sandbox-event' }}
@@ -155,3 +157,27 @@ jobs:
             smoke_args+=(--production)
           fi
           bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"
+      - name: Explain a skipped self-service journey
+        if: >-
+          steps.freshness.outputs.current == 'true' &&
+          matrix.environment == 'preview' &&
+          (env.E2E_SIGNUP_EMAIL == '' || env.E2E_RESEND_API_KEY == '')
+        run: echo "::warning::self-service browser proof skipped; configure preview E2E_SIGNUP_EMAIL and E2E_RESEND_API_KEY"
+      - name: Install Chromium for the self-service journey
+        if: >-
+          steps.freshness.outputs.current == 'true' &&
+          matrix.environment == 'preview' &&
+          env.E2E_SIGNUP_EMAIL != '' &&
+          env.E2E_RESEND_API_KEY != ''
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Prove signup to first public CFP on preview
+        if: >-
+          steps.freshness.outputs.current == 'true' &&
+          matrix.environment == 'preview' &&
+          env.E2E_SIGNUP_EMAIL != '' &&
+          env.E2E_RESEND_API_KEY != ''
+        env:
+          E2E_BASE_URL: ${{ env.APP_BASE_URL }}
+          NEON_TEST_URL: ${{ env.DATABASE_URL_DIRECT }}
+          E2E_SEED: "0"
+        run: pnpm exec playwright test e2e/self-service-onboarding.spec.ts

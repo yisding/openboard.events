@@ -267,6 +267,7 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
   | `NEON_TEST_URL` | `sb-test` URL used only by protected preview E2E | unset |
+  | `E2E_RESEND_API_KEY` | preview-only, read-capable Resend key for the sent-email delivery probe | unset |
 
 - [ ] Add these environment variables:
 
@@ -275,6 +276,7 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   | `APP_BASE_URL` | exact preview origin | exact production origin |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `E2E_BASE_URL` | `https://sb-web-preview.yi-ding.workers.dev` | unset |
+  | `E2E_SIGNUP_EMAIL` | dedicated address included in preview's exact email allowlist | unset |
   | `EMAIL_FROM` | omit while email is logged | verified production sender |
   | `EMAIL_ALLOWLIST` | only for deliberate real-send tests | unset |
 
