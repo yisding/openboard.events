@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import type { BuilderEvent, BuilderForm, FormListRow } from "./builder-types";
 import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
-import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
+import { createStableCreateRequestId, type StableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { useToast } from "@/shared/ui/toast";
 
 export class FormCreateRequestError extends Error {
@@ -15,6 +15,20 @@ export class FormCreateRequestError extends Error {
     super(message);
     this.name = "FormCreateRequestError";
   }
+}
+
+export function formCreateOutcomeUnknown(error: unknown): boolean {
+  return error instanceof FormCreateRequestError && error.outcomeUnknown;
+}
+
+export function openFormCreateLifecycle(requestId: StableCreateRequestId, outcomeUnknown: boolean): void {
+  if (outcomeUnknown) return;
+  requestId.reset();
+  requestId.begin();
+}
+
+export function closeFormCreateLifecycle(requestId: StableCreateRequestId, outcomeUnknown: boolean): void {
+  if (!outcomeUnknown) requestId.reset();
 }
 
 export async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
@@ -25,7 +39,10 @@ export async function requestData<T>(path: string, init?: RequestInit): Promise<
     throw new FormCreateRequestError("Could not reach the server", true);
   }
   const payload = await response.json().catch(() => null) as { data?: T; error?: { message?: string } } | null;
-  if (!response.ok) throw new FormCreateRequestError(payload?.error?.message ?? "The form could not be saved", false);
+  if (!response.ok) throw new FormCreateRequestError(
+    payload?.error?.message ?? "The form could not be saved",
+    response.status >= 500,
+  );
   if (payload?.data === undefined) throw new FormCreateRequestError("The server response could not be confirmed", true);
   return payload.data;
 }
@@ -50,15 +67,12 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   }), [forms, search, tab]);
 
   function openCreate() {
-    if (!createOutcomeUnknown.current) {
-      createRequestId.current.reset();
-      createRequestId.current.begin();
-    }
+    openFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);
     setCreating(true);
   }
 
   function closeCreate() {
-    if (!createOutcomeUnknown.current) createRequestId.current.reset();
+    closeFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);
     setCreating(false);
   }
 
@@ -77,7 +91,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       router.push(`/events/${event.id}/forms/${form.id}`);
       router.refresh();
     } catch (error) {
-      if (error instanceof FormCreateRequestError && error.outcomeUnknown) createOutcomeUnknown.current = true;
+      createOutcomeUnknown.current = formCreateOutcomeUnknown(error);
       toast(error instanceof Error ? error.message : "The form could not be created", { kind: "error" });
       setBusy(false);
     }

@@ -83,11 +83,12 @@ describe("stable create request ids", () => {
     expect(eventSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(1);
     expect(eventSource.indexOf("createRequestId.current.reset()")).toBeGreaterThan(eventSource.indexOf('await api("events"'));
 
-    expect(formsSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(3);
+    expect(formsSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(1);
     expect(formsSource).toContain("function openCreate() {");
     expect(formsSource).toContain("function closeCreate() {");
-    expect(formsSource.match(/if \(!createOutcomeUnknown\.current\)/gu)).toHaveLength(2);
-    expect(formsSource).toContain("createOutcomeUnknown.current = true");
+    expect(formsSource).toContain("openFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);");
+    expect(formsSource).toContain("closeFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);");
+    expect(formsSource).toContain("createOutcomeUnknown.current = formCreateOutcomeUnknown(error);");
     expect(formsSource.indexOf("createRequestId.current.reset()", formsSource.indexOf("async function createForm")))
       .toBeGreaterThan(formsSource.indexOf("await requestData<BuilderForm>"));
   });
