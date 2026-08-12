@@ -77,6 +77,8 @@ const adaContact = "c5000000-0000-4000-8000-000000000042";
 const one = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000030");
 const two = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000031");
 const three = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000032");
+const missingSubmission = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000039");
+const missingReviewer = userIdSchema.parse("c5000000-0000-4000-8000-000000000029");
 
 const formId = formIdSchema.parse("c5000000-0000-4000-8000-000000000050");
 const abstractSection = sectionIdSchema.parse("c5000000-0000-4000-8000-000000000051");
@@ -356,6 +358,38 @@ describe("review operations", () => {
     const refusedSave = await submitReviewIn(db, eventId, planId, three, ada, verdict({ overallScore: 4 }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(refusedSave) && refusedSave.code).toBe("FORBIDDEN");
+  });
+
+  it("leaves queues unchanged when a replacement contains a stale submission", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+
+    const rejected = await assignSubmissionsIn(db, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [two, missingSubmission],
+      mode: "replace",
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+    expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).toEqual([one]);
+  });
+
+  it("leaves queues unchanged when a replacement names a reviewer outside the round", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+
+    const rejected = await assignSubmissionsIn(db, eventId, {
+      planId,
+      reviewerUserIds: [ada, missingReviewer],
+      submissionIds: [two],
+      mode: "replace",
+    }).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+    expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).toEqual([one]);
   });
 
   it("keeps the committee roster out of a reviewer's own payload", async () => {
