@@ -51,16 +51,20 @@ describe("form create request outcomes", () => {
   it("preserves the stable id across dismiss, reopen, and retry after a 5xx", async () => {
     const generate = vi.fn(() => "10000000-0000-4000-8000-000000000501");
     const requestId = createStableCreateRequestId(generate);
+    let resolveFirst: ((response: Response) => void) | undefined;
     const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ error: { message: "Write outcome unknown" } }, { status: 500 }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFirst = resolve; }))
       .mockResolvedValueOnce(Response.json({ data: { id: "10000000-0000-4000-8000-000000000501" } }));
     vi.stubGlobal("fetch", fetcher);
 
     openFormCreateLifecycle(requestId, false);
     const first = requestId.payload(undefined, { internalName: "Main CFP" });
-    const failure = await requestData("/forms", { method: "POST", body: JSON.stringify(first) }).catch((error: unknown) => error);
+    const pending = requestData("/forms", { method: "POST", body: JSON.stringify(first) });
+    expect(closeFormCreateLifecycle(requestId, false, true)).toBe(false);
+    resolveFirst?.(Response.json({ error: { message: "Write outcome unknown" } }, { status: 500 }));
+    const failure = await pending.catch((error: unknown) => error);
     const outcomeUnknown = formCreateOutcomeUnknown(failure);
-    closeFormCreateLifecycle(requestId, outcomeUnknown);
+    expect(closeFormCreateLifecycle(requestId, outcomeUnknown, false)).toBe(true);
     openFormCreateLifecycle(requestId, outcomeUnknown);
     const retry = requestId.payload(undefined, { internalName: "Main CFP" });
 
@@ -86,7 +90,7 @@ describe("form create request outcomes", () => {
     const rejected = requestId.payload(undefined, { internalName: "Main CFP" });
     const failure = await requestData("/forms", { method: "POST", body: JSON.stringify(rejected) }).catch((error: unknown) => error);
     const outcomeUnknown = formCreateOutcomeUnknown(failure);
-    closeFormCreateLifecycle(requestId, outcomeUnknown);
+    expect(closeFormCreateLifecycle(requestId, outcomeUnknown, false)).toBe(true);
     openFormCreateLifecycle(requestId, outcomeUnknown);
     const nextLifecycle = requestId.payload(undefined, { internalName: "Main CFP" });
 

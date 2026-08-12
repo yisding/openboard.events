@@ -27,8 +27,14 @@ export function openFormCreateLifecycle(requestId: StableCreateRequestId, outcom
   requestId.begin();
 }
 
-export function closeFormCreateLifecycle(requestId: StableCreateRequestId, outcomeUnknown: boolean): void {
+export function closeFormCreateLifecycle(
+  requestId: StableCreateRequestId,
+  outcomeUnknown: boolean,
+  busy: boolean,
+): boolean {
+  if (busy) return false;
   if (!outcomeUnknown) requestId.reset();
+  return true;
 }
 
 export async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
@@ -72,7 +78,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   }
 
   function closeCreate() {
-    closeFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);
+    if (!closeFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current, busy)) return;
     setCreating(false);
   }
 
@@ -138,7 +144,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
         </div>
       </article>)}</div>}
     </section>
-    <Modal open={creating} onClose={closeCreate} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
+    <Modal open={creating} onClose={closeCreate} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" disabled={busy} onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
       <div className="form-stack">
         <Field label="Internal form name" required><input autoFocus required maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
         <Field label="Submission type" group><div className="choice-cards">
