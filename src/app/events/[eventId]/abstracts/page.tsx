@@ -4,11 +4,9 @@ import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { listSpeakerOptions } from "@/features/portal";
-import { AbstractsPage } from "@/features/submissions/abstracts-page";
 import { AbstractsView } from "@/features/submissions/components/abstracts-view";
 import { getStatusCounts, getSubmissionVocabulary, listSubmissions, parseSubmissionFiltersForPage } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Abstracts" };
 export const dynamic = "force-dynamic";
@@ -21,10 +19,6 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { eventId: rawEventId } = await params;
-  // The credential-free demo has no database to read; everywhere else this is
-  // the event's real submissions.
-  if (isCredentialFreeLocalDemo()) return <AbstractsPage eventId={rawEventId} />;
-
   const eventId = eventIdSchema.parse(rawEventId);
   // Any member may read the submissions they are reviewing, so no role is
   // required here — the layout's guard has already established membership.

@@ -1,7 +1,14 @@
 import { eventIdSchema } from "@/shared/contracts";
-import { DEMO_EVENT_ID } from "@/shared/demo/seed";
-import type { SpeakerRecord } from "@/shared/demo/types";
-import type { DashboardOverview } from "./index";
+import type { DashboardOverview } from "../index";
+
+/**
+ * Test-only `DashboardOverview` values.
+ *
+ * These used to live in `features/dashboard/fixtures.ts` and doubled as the
+ * browser demo's dashboard data. The demo is gone, so they are what they always
+ * really were: two hand-written overviews — one populated, one empty — that let
+ * the phase/tab logic and the dashboard panels be exercised without a database.
+ */
 
 const EVENT_ID = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 
@@ -73,48 +80,6 @@ export const FIXTURE_OVERVIEW: DashboardOverview = {
     submittedAt: "2026-08-08T01:00:00.000Z",
   }],
 };
-
-/** Records behind local dashboard contact links; ids intentionally match the overview rows. */
-export const FIXTURE_DASHBOARD_SPEAKERS: SpeakerRecord[] = [
-  {
-    id: "a0000000-0000-4000-8000-000000000004",
-    eventId: DEMO_EVENT_ID,
-    firstName: "Ada",
-    lastName: "Lovelace",
-    email: "ada@example.com",
-    company: "Analytical Engines",
-    title: "Programmer",
-    bio: "Pioneer of general-purpose computing.",
-    location: "London",
-    website: "",
-    linkedin: "",
-    avatar: "AL",
-    avatarColor: "#007454",
-    hasHeadshot: true,
-    confirmation: "confirmed",
-    profileCompletion: 100,
-    tags: [],
-  },
-  {
-    id: "a0000000-0000-4000-8000-000000000005",
-    eventId: DEMO_EVENT_ID,
-    firstName: "Grace",
-    lastName: "Hopper",
-    email: "grace@example.com",
-    company: "US Navy",
-    title: "Computer scientist",
-    bio: "Built compilers and made computing more accessible.",
-    location: "New York, NY",
-    website: "",
-    linkedin: "",
-    avatar: "GH",
-    avatarColor: "#2a8471",
-    hasHeadshot: true,
-    confirmation: "confirmed",
-    profileCompletion: 100,
-    tags: [],
-  },
-];
 
 export const EMPTY_FIXTURE_OVERVIEW: DashboardOverview = {
   event: {
