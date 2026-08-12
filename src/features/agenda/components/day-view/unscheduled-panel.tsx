@@ -4,44 +4,75 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import type { NameLookup } from "../../store";
 
 /**
- * The Day view's own drag source for "drag from tray to schedule" — deliberately
- * separate from `unscheduled-tray.tsx` (M28-owned, rendered alongside this view
- * by `agenda-page.tsx`, static/click-to-edit only). Duplicating the unscheduled
- * list here keeps the entire drag interaction inside the one `<DndContext>`
- * `day-view.tsx` owns end-to-end, with zero edits to a file M28 owns — the
- * trade-off is that an unscheduled session appears in both panels while the Day
- * view is open, which is intentional per the work order rather than an oversight.
+ * The Day view's own drag source for its Unscheduled and Needs a room trays.
+ * It is deliberately separate from `unscheduled-tray.tsx`, which lives outside
+ * this view's DndContext. An explicit Edit action also keeps every tray row
+ * usable without requiring a precise pointer drag.
  */
-function UnscheduledCard({ session, lookup }: { session: ScheduledSessionDTO; lookup: NameLookup }) {
+function TrayCard({
+  session,
+  lookup,
+  type,
+  timezone,
+  onEdit,
+}: {
+  session: ScheduledSessionDTO;
+  lookup: NameLookup;
+  type: "session" | "unscheduled";
+  timezone?: string;
+  onEdit?: (id: string) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: String(session.id),
-    data: { type: "unscheduled", session },
+    data: { type, session },
   });
   const track = lookup.track(session.trackId);
   const speakers = lookup.speakers(session.speakerIds);
 
   return (
-    <button
-      type="button"
+    <div
       ref={setNodeRef}
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, touchAction: "none" }}
       className={isDragging ? "dv-unscheduled-card dv-unscheduled-card--dragging" : "dv-unscheduled-card"}
-      {...attributes}
-      {...listeners}
     >
-      <GripVertical size={13} aria-hidden />
-      <div>
-        <b>{session.title}</b>
-        <span>{track?.name ?? "No track"}{speakers.length > 0 ? ` · ${speakers.join(", ")}` : ""}</span>
+      <div className="dv-tray-drag" {...attributes} {...listeners}>
+        <GripVertical size={13} aria-hidden />
+        <div>
+          <b>{session.title}</b>
+          <span>
+            {timezone && session.startsAt
+              ? <><TzTime instant={session.startsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} /> · </>
+              : null}
+            {track?.name ?? "No track"}{speakers.length > 0 ? ` · ${speakers.join(", ")}` : ""}
+          </span>
+        </div>
       </div>
-    </button>
+      {onEdit && (
+        <button
+          type="button"
+          className="dv-tray-edit"
+          onClick={() => onEdit(String(session.id))}
+        >Edit</button>
+      )}
+    </div>
   );
 }
 
-export function UnscheduledPanel({ sessions, lookup }: { sessions: ScheduledSessionDTO[]; lookup: NameLookup }) {
+export function UnscheduledPanel({
+  sessions,
+  lookup,
+  canPlace,
+  onEdit,
+}: {
+  sessions: ScheduledSessionDTO[];
+  lookup: NameLookup;
+  canPlace: boolean;
+  onEdit?: (id: string) => void;
+}) {
   return (
     <aside className="dv-unscheduled-panel">
       <header>
@@ -52,10 +83,38 @@ export function UnscheduledPanel({ sessions, lookup }: { sessions: ScheduledSess
         ? <p className="dash">Everything is placed.</p>
         : (
           <>
-            <p className="dv-unscheduled-hint">Drag onto the grid to place.</p>
-            {sessions.map((session) => <UnscheduledCard key={String(session.id)} session={session} lookup={lookup} />)}
+            <p className="dv-unscheduled-hint">{canPlace ? "Drag onto the grid to place." : "Add a room before placing sessions."}</p>
+            {sessions.map((session) => <TrayCard key={String(session.id)} session={session} lookup={lookup} type="unscheduled" {...(onEdit ? { onEdit } : {})} />)}
           </>
         )}
+    </aside>
+  );
+}
+
+export function NeedsRoomPanel({
+  sessions,
+  lookup,
+  timezone,
+  canPlace,
+  onEdit,
+}: {
+  sessions: ScheduledSessionDTO[];
+  lookup: NameLookup;
+  timezone: string;
+  canPlace: boolean;
+  onEdit?: (id: string) => void;
+}) {
+  if (sessions.length === 0) return null;
+  return (
+    <aside className="dv-unscheduled-panel dv-needs-room-panel">
+      <header>
+        <h3>Needs a room</h3>
+        <span>{sessions.length}</span>
+      </header>
+      <p className="dv-unscheduled-hint">{canPlace ? "Drag into a room to place." : "Add a room, then place these timed sessions."}</p>
+      {sessions.map((session) => (
+        <TrayCard key={String(session.id)} session={session} lookup={lookup} type="session" timezone={timezone} {...(onEdit ? { onEdit } : {})} />
+      ))}
     </aside>
   );
 }

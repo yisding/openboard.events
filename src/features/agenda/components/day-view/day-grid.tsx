@@ -89,7 +89,12 @@ export function DayGrid({
     return built;
   }, [rooms, range]);
 
-  const placed = useMemo(() => sessions.filter((session) => session.startsAt !== null && session.endsAt !== null), [sessions]);
+  const roomIds = useMemo(() => new Set(rooms.map((room) => String(room.id))), [rooms]);
+  const placed = useMemo(() => sessions.filter((session) =>
+    session.startsAt !== null
+    && session.endsAt !== null
+    && session.roomId !== null
+    && roomIds.has(String(session.roomId))), [sessions, roomIds]);
 
   return (
     <div
@@ -114,7 +119,7 @@ export function DayGrid({
 
       {placed.map((session) => {
         const roomIndex = rooms.findIndex((room) => String(room.id) === String(session.roomId));
-        if (roomIndex === -1) return null; // a room-less scheduled session has no column to render in
+        if (roomIndex === -1) return null; // Defensive: Day view also exposes this row in Needs a room.
         const startMinutes = minutesSinceMidnightInZone(session.startsAt as string, timezone);
         const endMinutes = minutesSinceMidnightInZone(session.endsAt as string, timezone);
         const startRow = Math.max(1, minutesToGridRow(startMinutes, range.gridStartMinutes)) + 1;

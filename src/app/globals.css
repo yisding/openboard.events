@@ -1190,16 +1190,22 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    unrelated pre-existing `.day-grid`/`.calendar-session` demo mockup rules. */
 .dv-root{display:flex;flex-direction:column;gap:12px;min-width:0}
 .dv-layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;align-items:start}
+.dv-side-panels{display:grid;gap:12px;min-width:0}
 .dv-unscheduled-panel{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:12px}
 .dv-unscheduled-panel>header{display:flex;justify-content:space-between;align-items:center}
 .dv-unscheduled-panel h3{font-size:11.5px;margin:0}
 .dv-unscheduled-panel header span{min-width:18px;height:18px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);display:grid;place-items:center;font-size:10px}
 .dv-unscheduled-hint{font-size:10px;color:var(--muted);margin:6px 0}
-.dv-unscheduled-card{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface);margin-top:6px;padding:8px;display:grid;grid-template-columns:13px 1fr;gap:6px;align-items:center;text-align:left;cursor:grab}
-.dv-unscheduled-card>svg{color:var(--muted)}
+.dv-unscheduled-card{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface);margin-top:6px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;text-align:left}
+.dv-tray-drag{min-width:0;display:grid;grid-template-columns:13px minmax(0,1fr);gap:6px;align-items:center;cursor:grab}
+.dv-tray-drag>svg{color:var(--muted)}
 .dv-unscheduled-card b{display:block;font-size:10px;line-height:1.4}
 .dv-unscheduled-card span{display:block;font-size:10px;color:var(--muted);margin-top:4px}
 .dv-unscheduled-card--dragging{opacity:.45}
+.dv-tray-edit{border:0;background:transparent;color:var(--accent-dark);font-size:10px;font-weight:650;min-width:44px;min-height:44px;padding:0 6px;cursor:pointer}
+.dv-tray-edit:hover{text-decoration:underline}
+.dv-no-rooms{min-height:360px;border:1px solid var(--line);border-radius:9px;background:var(--surface);display:grid;place-items:center;padding:24px}
+.dv-no-rooms .empty-state{padding:24px;max-width:440px}
 .dv-scroll{min-width:0;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
 .dv-grid{display:grid;position:relative;min-width:600px}
 .dv-grid-corner{border-bottom:1px solid var(--line);background:var(--surface-raised)}
@@ -1218,7 +1224,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-resize-handle{position:absolute;left:0;right:0;height:6px;cursor:ns-resize;z-index:3}
 .dv-resize-handle--top{top:0}
 .dv-resize-handle--bottom{bottom:0}
-@media(max-width:1024px){.dv-layout{grid-template-columns:minmax(0,1fr)}.dv-unscheduled-panel{display:flex;overflow-x:auto;gap:6px}.dv-unscheduled-panel>header{min-width:70px;display:block}.dv-unscheduled-card{min-width:160px;margin-top:0}}
+@media(max-width:1024px){.dv-layout{grid-template-columns:minmax(0,1fr)}.dv-unscheduled-panel{display:flex;overflow-x:auto;gap:6px}.dv-unscheduled-panel>header{min-width:70px;display:block}.dv-unscheduled-card{min-width:190px;margin-top:0}}
 /* M27 — speakers admin inline email edit */
 .speaker-email-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .speaker-email-row span{font-size:11.5px}

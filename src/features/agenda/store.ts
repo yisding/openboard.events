@@ -142,6 +142,22 @@ export function scheduledOnDay(
     session.startsAt !== null && (day === null || eventDayKey(session.startsAt, timezone) === day));
 }
 
+/**
+ * Timed sessions whose room is missing or was deleted. These are still real
+ * scheduled work and must stay visible in Day view instead of falling through
+ * a room-column lookup.
+ */
+export function scheduledNeedingRoom(
+  sessions: readonly ScheduledSessionDTO[],
+  rooms: readonly RoomDTO[],
+): ScheduledSessionDTO[] {
+  const roomIds = new Set(rooms.map((room) => String(room.id)));
+  return sessions.filter((session) =>
+    session.startsAt !== null
+    && session.endsAt !== null
+    && (session.roomId === null || !roomIds.has(String(session.roomId))));
+}
+
 export type NameLookup = {
   room: (id: string | null) => string | null;
   track: (id: string | null) => TrackDTO | null;
