@@ -71,13 +71,16 @@ function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all"
 }
 
 describe("AbstractsTable status filter accessibility", () => {
-  it("exposes the selected status and gives each visible count a meaningful label", () => {
+  it("exposes the selected status and gives each tab a complete accessible name without offscreen overflow", () => {
     const html = renderTable([ROW], "pending");
 
     expect(html).toContain('role="group" aria-label="Filter abstracts by status"');
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-    expect(html).toMatch(/aria-pressed="true"[^>]*class="active"[^>]*>Pending <span aria-hidden="true">1<\/span><span class="sr-only">1 abstract<\/span>/);
-    expect(html).toContain('<span aria-hidden="true">0</span><span class="sr-only">0 abstracts</span>');
+    expect(html).toMatch(/aria-label="Pending, 1 abstract" aria-pressed="true"[^>]*class="active"[^>]*>Pending <span aria-hidden="true">1<\/span>/);
+    expect(html).toContain('aria-label="Accepted, 0 abstracts"');
+    const statusTabsHtml = html.match(/^<div class="abstract-status-tabs"[\s\S]*?<\/div>/)?.[0];
+    expect(statusTabsHtml).toBeDefined();
+    expect(statusTabsHtml).not.toContain('class="sr-only"');
   });
 });
 
