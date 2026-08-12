@@ -24,7 +24,7 @@ import {
   listOrganizationContactsIn,
   resolveCrmSegmentIn,
 } from "@/features/crm/server/queries";
-import { eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
+import { crmNoteIdSchema, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 /**
@@ -117,6 +117,23 @@ describe("organization-level speaker CRM (M55)", () => {
     expect(orgBDirectory.rows.some((r) => r.id === adaId)).toBe(false);
   });
 
+  it("creates a note and its activity exactly once when a stable request is retried", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, { email: "notes@example.com", firstName: "Note", lastName: "Keeper" });
+    const noteId = crmNoteIdSchema.parse("c55a0000-0000-4000-8000-0000000000d1");
+    const input = { noteId, bodyHtml: "<p>Follow up after the conference</p>" };
+
+    const first = await createCrmNoteIn(db, orgA, contactId, input, actorUserId);
+    const retry = await createCrmNoteIn(db, orgA, contactId, input, actorUserId);
+
+    expect(retry).toEqual(first);
+    const [counts] = (await pglite.query<{ notes: number; activities: number }>(`
+      SELECT
+        (SELECT count(*)::int FROM organization_contact_notes WHERE id=$1) AS notes,
+        (SELECT count(*)::int FROM organization_contact_activity WHERE organization_contact_id=$2 AND kind='note_added') AS activities
+    `, [noteId, contactId])).rows;
+    expect(counts).toEqual({ notes: 1, activities: 1 });
+  });
+
   it("imports a mixed CSV: creates new rows, matches existing ones, and dedupes within the file", async () => {
     const csvText = [
       "email,firstName,lastName",
@@ -155,7 +172,10 @@ describe("organization-level speaker CRM (M55)", () => {
 
     const duplicateId = await createOrganizationContactIn(db, orgA, { email: "ada.alt@example.com", firstName: "Ada", lastName: "L." });
     await setCrmContactTagsIn(db, orgA, duplicateId, { tagIds: [tag.id] });
-    await createCrmNoteIn(db, orgA, duplicateId, { bodyHtml: "<p>met at a conference</p>" }, actorUserId);
+    await createCrmNoteIn(db, orgA, duplicateId, {
+      noteId: crmNoteIdSchema.parse("c55a0000-0000-4000-8000-0000000000d2"),
+      bodyHtml: "<p>met at a conference</p>",
+    }, actorUserId);
     const pipelineEntry = await createCrmPipelineEntryIn(db, orgA, { organizationContactId: duplicateId, targetEventId: eventA1 });
     await pushOrganizationContactToEventIn(db, orgA, duplicateId, eventA1);
 
@@ -285,7 +305,10 @@ describe("organization-level speaker CRM (M55)", () => {
     const tag = await createCrmTagIn(db, orgA, { name: "Recovery", color: "#123456" });
     const primaryId = await createOrganizationContactIn(db, orgA, { email: "recovery.primary@example.com", firstName: "Primary", lastName: "Before" });
     const mergedId = await createOrganizationContactIn(db, orgA, { email: "recovery.merged@example.com", firstName: "Merged", lastName: "Restored" });
-    await createCrmNoteIn(db, orgA, mergedId, { bodyHtml: "<p>restore this note</p>" }, actorUserId);
+    await createCrmNoteIn(db, orgA, mergedId, {
+      noteId: crmNoteIdSchema.parse("c55a0000-0000-4000-8000-0000000000d3"),
+      bodyHtml: "<p>restore this note</p>",
+    }, actorUserId);
     await setCrmContactTagsIn(db, orgA, mergedId, { tagIds: [tag.id] });
     const pipelineEntry = await createCrmPipelineEntryIn(db, orgA, { organizationContactId: mergedId, targetEventId: eventA2 });
     await pushOrganizationContactToEventIn(db, orgA, mergedId, eventA2);

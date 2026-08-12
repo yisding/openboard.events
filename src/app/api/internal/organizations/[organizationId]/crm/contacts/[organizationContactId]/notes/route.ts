@@ -12,8 +12,7 @@ const create = defineHandler({
     const organizationId = requireOrganizationId(params);
     const organizationContactId = requireOrganizationContactId(params);
     const actorUserId = session?.actorId ? userIdSchema.parse(session.actorId) : null;
-    await createCrmNote(organizationId, organizationContactId, input, actorUserId);
-    return { created: true };
+    return createCrmNote(organizationId, organizationContactId, input, actorUserId);
   },
 });
 

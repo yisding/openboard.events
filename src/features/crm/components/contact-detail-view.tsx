@@ -3,11 +3,12 @@
 import { ArrowLeft, GitMerge, Search, Send, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import type { OrganizationEventRow } from "@/features/organizations";
 import {
   directoryPageDtoSchema,
+  crmNoteDtoSchema,
   organizationContactHistoryDtoSchema,
   pushOrganizationContactToEventResultSchema,
   type CrmCustomFieldDTO,
@@ -19,10 +20,12 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Avatar, Button, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { CrmNav } from "./crm-nav";
 import { MergeWizardDialog } from "./merge-wizard-dialog";
 
@@ -42,7 +45,6 @@ const ACTIVITY_LABEL: Record<string, string> = {
 };
 
 const updatedSchema = z.object({ updated: z.boolean() });
-const createdSchema = z.object({ created: z.boolean() });
 
 type Tab = "overview" | "history" | "notes" | "activity";
 
@@ -55,6 +57,16 @@ function initialsFor(contact: { firstName: string; lastName: string; email: stri
   if (parts.length >= 2) return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
   if (parts.length === 1) return (parts[0] ?? "").slice(0, 2).toUpperCase();
   return contact.email.slice(0, 2).toUpperCase();
+}
+
+/** A committed write never becomes a failed write merely because its follow-up read failed. */
+export async function reconcileCommittedCrmWrite(refresh: () => Promise<void>): Promise<boolean> {
+  try {
+    await refresh();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** A minimal in-page search to pick the *other* contact for a merge — the
@@ -147,6 +159,7 @@ export function ContactDetailView({
   const [tagBusy, setTagBusy] = useState(false);
   const [noteBody, setNoteBody] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
+  const noteCreateId = useRef(createStableCreateRequestId());
   const [pushEventId, setPushEventId] = useState(events[0]?.id ?? "");
   const [pushBusy, setPushBusy] = useState(false);
   const [mergeSearchOpen, setMergeSearchOpen] = useState(false);
@@ -155,10 +168,21 @@ export function ContactDetailView({
   const fieldKeys = Object.keys(originalFields) as (keyof typeof originalFields)[];
   const fieldsDirty = fieldKeys.some((key) => fields[key] !== originalFields[key]);
   const customDirty = customFields.some((field) => customValues[field.key] !== (contact.customFields[field.key] ?? ""));
+  useUnsavedWorkGuard(fieldsDirty || customDirty || noteBody.trim().length > 0);
 
   async function refresh() {
     const next = await api(`organizations/${organizationId}/crm/contacts/${contact.id}`, organizationContactHistoryDtoSchema);
     setHistory(next);
+  }
+
+  async function finishCommittedWrite(success: string) {
+    const reconciled = await reconcileCommittedCrmWrite(refresh);
+    if (reconciled) {
+      toast(success);
+      router.refresh();
+      return;
+    }
+    toast(`${success}, but the latest contact history could not be reloaded. Refresh before making another change.`, { kind: "error" });
   }
 
   async function saveFields() {
@@ -172,11 +196,10 @@ export function ContactDetailView({
       const patch = Object.fromEntries(fieldKeys.filter((key) => fields[key] !== originalFields[key]).map((key) => [key, fields[key]]));
       if (Object.keys(patch).length === 0) return;
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}`, updatedSchema, { method: "PATCH", body: patch });
-      await refresh();
-      toast("Contact updated");
-      router.refresh();
+      setHistory((current) => ({ ...current, contact: { ...current.contact, ...patch } }));
+      await finishCommittedWrite("Contact saved");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That did not save");
+      toast(isAppError(caught) ? caught.message : "That did not save", { kind: "error" });
     } finally {
       setSavingFields(false);
     }
@@ -187,10 +210,13 @@ export function ContactDetailView({
     try {
       const patch = Object.fromEntries(customFields.filter((field) => customValues[field.key] !== (contact.customFields[field.key] ?? "")).map((field) => [field.key, customValues[field.key] ?? ""]));
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}`, updatedSchema, { method: "PATCH", body: { customFields: patch } });
-      await refresh();
-      toast("Custom fields updated");
+      setHistory((current) => ({
+        ...current,
+        contact: { ...current.contact, customFields: { ...current.contact.customFields, ...patch } },
+      }));
+      await finishCommittedWrite("Custom fields saved");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That did not save");
+      toast(isAppError(caught) ? caught.message : "That did not save", { kind: "error" });
     } finally {
       setSavingCustom(false);
     }
@@ -203,9 +229,10 @@ export function ContactDetailView({
     setTagBusy(true);
     try {
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}/tags`, updatedSchema, { method: "PUT", body: { tagIds: nextIds } });
-      await refresh();
+      setHistory((current) => ({ ...current, tags: allTags.filter((tag) => nextIds.includes(tag.id)) }));
+      await finishCommittedWrite("Tags saved");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That tag change failed");
+      toast(isAppError(caught) ? caught.message : "That tag change failed", { kind: "error" });
     } finally {
       setTagBusy(false);
     }
@@ -215,12 +242,18 @@ export function ContactDetailView({
     if (!noteBody.trim() || noteBusy) return;
     setNoteBusy(true);
     try {
-      await api(`organizations/${organizationId}/crm/contacts/${contact.id}/notes`, createdSchema, { method: "POST", body: { bodyHtml: noteBody } });
+      const note = await api(`organizations/${organizationId}/crm/contacts/${contact.id}/notes`, crmNoteDtoSchema, {
+        method: "POST",
+        body: { noteId: noteCreateId.current.begin(), bodyHtml: noteBody },
+      });
+      setHistory((current) => current.notes.some((existing) => existing.id === note.id)
+        ? current
+        : { ...current, notes: [note, ...current.notes] });
       setNoteBody("");
-      await refresh();
-      toast("Note added");
+      noteCreateId.current.reset();
+      await finishCommittedWrite("Note saved");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That note did not save");
+      toast(isAppError(caught) ? caught.message : "That note did not save", { kind: "error" });
     } finally {
       setNoteBusy(false);
     }
@@ -231,10 +264,10 @@ export function ContactDetailView({
     setPushBusy(true);
     try {
       const result = await api(`organizations/${organizationId}/crm/contacts/${contact.id}/push`, pushOrganizationContactToEventResultSchema, { method: "POST", body: { eventId: pushEventId } });
-      toast(result.alreadyLinked ? "Already linked to that event" : result.created ? "Pushed as a new speaker" : "Linked to the existing speaker record");
-      await refresh();
+      const success = result.alreadyLinked ? "Already linked to that event" : result.created ? "Pushed as a new speaker" : "Linked to the existing speaker record";
+      await finishCommittedWrite(success);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That push failed");
+      toast(isAppError(caught) ? caught.message : "That push failed", { kind: "error" });
     } finally {
       setPushBusy(false);
     }
