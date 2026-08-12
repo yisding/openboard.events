@@ -1481,7 +1481,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .login-form-panel>div>:is(form,div){display:grid;gap:16px}
 .login-form-panel>div>:is(form,div) h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
 .login-form-panel>div>:is(form,div)>p{margin:0;color:var(--muted)}
-.login-form-panel>div>:is(form,div)>p:last-child a{color:var(--accent-dark);font-weight:600}
+.login-form-panel>div>:is(form,div)>p a{color:var(--accent-dark);font-weight:600}
 .google-signin{width:100%}
 .google-mark{width:18px;height:18px;flex:0 0 18px}
 .auth-divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}

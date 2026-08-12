@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { Brand } from "@/shared/ui/brand";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
+
+// Signup availability is a runtime Cloudflare binding. Do not freeze the
+// provider gate into the build-time prerendered homepage.
+export const dynamic = "force-dynamic";
 
 // `seedId("form", "form-a")` — scripts/seed/lib/ids.ts derives every seeded
 // row's id from a SHA-1 (uuidv5) of a fixed namespace plus this literal key,
@@ -20,6 +24,7 @@ export default function HomePage() {
   // target (preview, production, or a local run wired to Postgres) needs
   // URLs that resolve against the seeded world instead.
   const demoMode = isCredentialFreeLocalDemo();
+  const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
   const cfpHref = demoMode ? "/submit/ai-engineer/technical-talks" : `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
   // The M53 canonical public agenda surface.
   const agendaHref = demoMode ? "/e/ai-engineer/schedule" : "/e/ai-engineer-sandbox-event/agenda";
@@ -31,8 +36,11 @@ export default function HomePage() {
         <div className="landing-links">
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
-          <Link className="button button-secondary" href={cfpHref}>View CFP</Link>
-          <Link className="button button-primary" href="/events">Open demo <ArrowRight size={16} /></Link>
+          <Link href={cfpHref}>View sample CFP</Link>
+          <Link className="button button-secondary" href="/login">Sign in</Link>
+          <Link className="button button-primary" href={signupEnabled ? "/signup" : "/events"}>
+            {signupEnabled ? "Create workspace" : "Open demo"} <ArrowRight size={16} />
+          </Link>
         </div>
       </nav>
 
@@ -42,10 +50,13 @@ export default function HomePage() {
           <h1>Every speaker. Every session. <span>One calm command center.</span></h1>
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
-            <Link className="button button-primary button-lg" href="/events">Explore the live demo <ArrowRight size={18} /></Link>
+            <Link className="button button-primary button-lg" href={signupEnabled ? "/signup" : "/events"}>
+              {signupEnabled ? "Create your workspace" : "Explore the live demo"} <ArrowRight size={18} />
+            </Link>
+            <Link className="button button-secondary button-lg" href={cfpHref}>View a sample CFP</Link>
             <Link className="button button-ghost button-lg" href={agendaHref}>See the public agenda</Link>
           </div>
-          <div className="hero-proof"><CheckCircle2 size={17} /> Seeded with a complete AI Engineer event</div>
+          <div className="hero-proof"><CheckCircle2 size={17} /> Go from signup to a live CFP in one guided setup</div>
         </div>
         <div className="hero-art" aria-label="Openboard dashboard preview">
           <div className="hero-glow" />

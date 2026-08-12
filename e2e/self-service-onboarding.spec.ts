@@ -82,7 +82,10 @@ test.describe("self-service signup to first value", () => {
     await removePriorTestAccount(SIGNUP_EMAIL);
 
     await test.step("create an account and receive a real verification message", async () => {
-      await page.goto("/signup");
+      await page.goto("/");
+      await expect(page.getByRole("link", { name: "Create your workspace", exact: true })).toBeVisible();
+      await page.getByRole("link", { name: "Create your workspace", exact: true }).click();
+      await expect(page).toHaveURL(/\/signup$/);
       await page.getByLabel("Your name").fill(personName);
       await page.getByLabel("Organization name").fill(organizationName);
       await page.getByLabel("Email address").fill(SIGNUP_EMAIL);

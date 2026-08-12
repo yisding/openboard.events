@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
-import { safeInternalPath } from "../safe-next";
+import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { signupAndAwaitVerification } from "../signup-request";
 
@@ -31,6 +32,7 @@ export function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"), "/organizations");
+  const loginHref = authPathWithNext("/login", next);
   const invitationToken = invitationTokenFromNextPath(next);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -79,6 +81,6 @@ export function SignupForm() {
     <small id="signup-password-help">Use at least 12 characters.</small>
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
-    <p><a href="/login">Already have an account? Sign in</a></p>
+    <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
   </form>;
 }
