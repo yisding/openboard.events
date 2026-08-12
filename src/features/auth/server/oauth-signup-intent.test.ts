@@ -6,6 +6,7 @@ import {
   openOAuthSignupIntent,
   sealOAuthSignupIntent,
 } from "./oauth-signup-intent";
+import { fromBase64Url, toBase64Url } from "./crypto";
 
 const secret = "oauth-signup-test-secret-at-least-32-bytes";
 const now = Date.UTC(2026, 7, 12, 12, 0, 0);
@@ -36,8 +37,10 @@ describe("encrypted OAuth signup intent", () => {
     }, secret, now);
     expect(token).not.toContain("invitation");
 
-    const replacement = token.endsWith("a") ? "b" : "a";
-    await expect(openOAuthSignupIntent(`${token.slice(0, -1)}${replacement}`, secret, now + 1_000))
+    const tamperedEnvelope = fromBase64Url(token);
+    const tamperedByte = Math.floor(tamperedEnvelope.length / 2);
+    tamperedEnvelope[tamperedByte] = (tamperedEnvelope[tamperedByte] ?? 0) ^ 1;
+    await expect(openOAuthSignupIntent(toBase64Url(tamperedEnvelope), secret, now + 1_000))
       .resolves.toBeNull();
     await expect(openOAuthSignupIntent(token, `${secret}-wrong`, now + 1_000)).resolves.toBeNull();
   });
