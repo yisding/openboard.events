@@ -1,12 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCode } from "@/features/submissions/index.client";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
+
+type AssignmentMode = "add" | "replace";
+
+export function canSubmitAssignments({
+  loaded,
+  hasLoadError,
+  busy,
+  reviewerCount,
+  selectedCount,
+  mode,
+  currentAssignmentCount,
+}: {
+  loaded: boolean;
+  hasLoadError: boolean;
+  busy: boolean;
+  reviewerCount: number;
+  selectedCount: number;
+  mode: AssignmentMode;
+  currentAssignmentCount: number;
+}) {
+  if (!loaded || hasLoadError || busy || reviewerCount === 0) return false;
+  if (selectedCount > 0) return true;
+  return mode === "replace" && currentAssignmentCount > 0;
+}
+
+export function needsEmptyReplacementConfirmation({
+  mode,
+  selectedCount,
+  currentAssignmentCount,
+}: {
+  mode: AssignmentMode;
+  selectedCount: number;
+  currentAssignmentCount: number;
+}) {
+  return mode === "replace" && selectedCount === 0 && currentAssignmentCount > 0;
+}
 
 /**
  * Handing work out.
@@ -28,26 +65,51 @@ export function AssignmentDrawer({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const targetKey = `${eventId}:${plan.id}`;
+  const currentTargetRef = useRef(targetKey);
+  currentTargetRef.current = targetKey;
   const [submissions, setSubmissions] = useState<AssignableSubmission[] | null>(null);
+  const [loadedTarget, setLoadedTarget] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reviewerIds, setReviewerIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [trackFilter, setTrackFilter] = useState("");
-  const [mode, setMode] = useState<"add" | "replace">("add");
+  const [mode, setMode] = useState<AssignmentMode>("add");
   const [busy, setBusy] = useState(false);
+  const [confirmEmptyReplace, setConfirmEmptyReplace] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setSubmissions(null);
+    setLoadedTarget(null);
+    setLoadError("");
+    setReviewerIds([]);
+    setSelected([]);
+    setTrackFilter("");
+    setMode("add");
+    setBusy(false);
+    setConfirmEmptyReplace(false);
     fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: { submissions: AssignableSubmission[] }; error?: { message?: string } } | null;
         if (cancelled) return;
-        if (!response.ok || !payload?.data) setLoadError(payload?.error?.message ?? "Could not load this round's submissions");
-        else setSubmissions(payload.data.submissions);
+        if (!response.ok || !payload?.data) {
+          setSubmissions(null);
+          setLoadError(payload?.error?.message ?? "Could not load this round's submissions");
+        } else {
+          setLoadError("");
+          setSubmissions(payload.data.submissions);
+          setLoadedTarget(targetKey);
+        }
       })
-      .catch(() => { if (!cancelled) setLoadError("Could not load this round's submissions"); });
+      .catch(() => {
+        if (!cancelled) {
+          setSubmissions(null);
+          setLoadError("Could not load this round's submissions");
+        }
+      });
     return () => { cancelled = true; };
-  }, [eventId, plan.id]);
+  }, [eventId, plan.id, targetKey]);
 
   const tracks = useMemo(() => {
     const seen = new Map<string, string>();
@@ -66,7 +128,26 @@ export function AssignmentDrawer({
     list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id]
   ), []);
 
-  async function assign() {
+  const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
+  const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
+  const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
+  const controlsDisabled = !assignmentsLoaded || Boolean(loadError) || busy;
+  const canAssign = canSubmitAssignments({
+    loaded: assignmentsLoaded,
+    hasLoadError: Boolean(loadError),
+    busy,
+    reviewerCount: reviewerIds.length,
+    selectedCount: selected.length,
+    mode,
+    currentAssignmentCount,
+  });
+
+  async function saveAssignments() {
+    if (!submissions || loadError || loadedTarget !== targetKey) {
+      toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
+      return false;
+    }
+    const saveTarget = targetKey;
     setBusy(true);
     try {
       const result = await evaluationRequest<{ assigned: number; removed: number }>(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
@@ -74,22 +155,44 @@ export function AssignmentDrawer({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reviewerUserIds: reviewerIds, submissionIds: selected, mode }),
       }, "Those assignments did not save");
+      if (currentTargetRef.current !== saveTarget) return result.ok;
       if (!result.ok) {
         toast(evaluationFailureMessage(result), { kind: "error" });
-        return;
+        return false;
       }
       toast(`${result.data.assigned} assigned${result.data.removed > 0 ? `, ${result.data.removed} taken back` : ""}`);
+      setConfirmEmptyReplace(false);
       onClose();
       router.refresh();
+      return true;
     } catch {
-      toast("Those assignments did not save — check your connection and try again", { kind: "error" });
+      if (currentTargetRef.current === saveTarget) {
+        toast("Those assignments did not save — check your connection and try again", { kind: "error" });
+      }
+      return false;
     } finally {
-      setBusy(false);
+      if (currentTargetRef.current === saveTarget) setBusy(false);
     }
   }
 
+  async function assign() {
+    if (!submissions || loadError || loadedTarget !== targetKey) {
+      toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
+      return;
+    }
+    if (!canAssign) return;
+    if (needsEmptyReplacementConfirmation({ mode, selectedCount: selected.length, currentAssignmentCount })) {
+      setConfirmEmptyReplace(true);
+      return;
+    }
+    await saveAssignments();
+  }
+
+  const reviewerNames = selectedReviewers.map((reviewer) => reviewer.name || reviewer.email).join(", ");
+
   return (
-    <Drawer open onClose={onClose} title={`Assign work · ${plan.name}`}>
+    <>
+      <Drawer open onClose={onClose} title={`Assign work · ${plan.name}`}>
       <div className="form-stack">
         {plan.reviewers.length === 0
           ? <p className="portal-note">Add reviewers to this round before assigning work to them.</p>
@@ -101,6 +204,7 @@ export function AssignmentDrawer({
                   <input
                     type="checkbox"
                     checked={reviewerIds.includes(reviewer.userId)}
+                    disabled={controlsDisabled}
                     onChange={() => setReviewerIds((current) => toggle(current, reviewer.userId))}
                   />
                   <b>{reviewer.name || reviewer.email}</b>{" "}
@@ -111,7 +215,7 @@ export function AssignmentDrawer({
           )}
 
         <Field label="Filter by track" hint="Narrows the list below; it does not change what gets assigned.">
-          <Select value={trackFilter} onChange={(event) => setTrackFilter(event.target.value)}>
+          <Select disabled={controlsDisabled} value={trackFilter} onChange={(event) => setTrackFilter(event.target.value)}>
             <option value="">Every track in this round</option>
             {tracks.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </Select>
@@ -123,16 +227,17 @@ export function AssignmentDrawer({
           {!submissions && !loadError && <p className="portal-note">Loading this round&apos;s submissions…</p>}
           {submissions && visible.length === 0 && <p className="portal-note">No submissions match this filter.</p>}
           <span className="row-actions">
-            <Button size="sm" variant="secondary" onClick={() => setSelected(visible.map((submission) => submission.submissionId))}>
+            <Button disabled={controlsDisabled} size="sm" variant="secondary" onClick={() => setSelected(visible.map((submission) => submission.submissionId))}>
               Select all shown
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelected([])}>Clear</Button>
+            <Button disabled={controlsDisabled} size="sm" variant="ghost" onClick={() => setSelected([])}>Clear</Button>
           </span>
           {visible.map((submission) => (
             <label key={submission.submissionId} className="reviewer-assignment">
               <input
                 type="checkbox"
                 checked={selected.includes(submission.submissionId)}
+                disabled={controlsDisabled}
                 onChange={() => setSelected((current) => toggle(current, submission.submissionId))}
               />
               <b>{formatCode(submission.code)} {submission.title}</b>{" "}
@@ -142,7 +247,7 @@ export function AssignmentDrawer({
         </section>
 
         <Field label="Mode">
-          <Select value={mode} onChange={(event) => setMode(event.target.value === "replace" ? "replace" : "add")}>
+          <Select disabled={controlsDisabled} value={mode} onChange={(event) => setMode(event.target.value === "replace" ? "replace" : "add")}>
             <option value="add">Add to the selected reviewers&apos; queues</option>
             <option value="replace">Replace their queues with exactly this selection</option>
           </Select>
@@ -154,10 +259,20 @@ export function AssignmentDrawer({
 
       <div className="drawer-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={busy || reviewerIds.length === 0 || (mode === "add" && selected.length === 0)} onClick={assign}>
+        <Button disabled={!canAssign} onClick={assign}>
           {busy ? "Assigning…" : "Assign"}
         </Button>
       </div>
-    </Drawer>
+      </Drawer>
+      <ConfirmDialog
+        key={targetKey}
+        open={confirmEmptyReplace}
+        title="Empty the selected reviewer queues?"
+        body={`This removes ${currentAssignmentCount} live assignment${currentAssignmentCount === 1 ? "" : "s"} from ${reviewerNames}. Their queues will be empty.`}
+        confirmLabel="Empty reviewer queues"
+        onConfirm={async () => { await saveAssignments(); }}
+        onCancel={() => setConfirmEmptyReplace(false)}
+      />
+    </>
   );
 }
