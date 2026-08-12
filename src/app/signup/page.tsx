@@ -6,6 +6,8 @@ import { Brand } from "@/shared/ui/brand";
 import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Create your workspace" };
+// Keep the page in lockstep with the runtime auth provider used by the API.
+export const dynamic = "force-dynamic";
 
 export default function SignupPage() {
   const env = getEnv();

@@ -3,6 +3,10 @@ import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { Brand } from "@/shared/ui/brand";
 import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
+// Signup availability is a runtime Cloudflare binding. Do not freeze the
+// provider gate into the build-time prerendered homepage.
+export const dynamic = "force-dynamic";
+
 // `seedId("form", "form-a")` — scripts/seed/lib/ids.ts derives every seeded
 // row's id from a SHA-1 (uuidv5) of a fixed namespace plus this literal key,
 // so it is the same id on every seed run against every database. It is the
