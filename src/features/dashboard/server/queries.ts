@@ -129,13 +129,14 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
           f.id AS form_id,
           f.internal_name AS name,
           f.status::text AS status,
+          f.opens_at,
           f.closes_at,
           count(s.id) FILTER (WHERE s.status <> 'draft')::int AS submitted,
           count(s.id) FILTER (WHERE s.status = 'draft')::int AS drafts
         FROM forms f
         LEFT JOIN submissions s ON s.form_id = f.id AND s.event_id = f.event_id
         WHERE f.event_id = ${eventId} AND f.context = 'cfp'
-        GROUP BY f.id, f.internal_name, f.status, f.closes_at
+        GROUP BY f.id, f.internal_name, f.status, f.opens_at, f.closes_at
         ORDER BY f.created_at, f.id
       ),
       forms_json AS (
@@ -144,6 +145,7 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
             'formId', form_id,
             'name', name,
             'status', status,
+            'opensAt', opens_at,
             'closesAt', closes_at,
             'submitted', submitted,
             'drafts', drafts

@@ -20,7 +20,7 @@ describe("computeMilestones", () => {
 
   it("acknowledges a closed CFP with submissions", () => {
     const result = computeMilestones(overview({
-      forms: [{ formId: "f1", name: "CFP", status: "closed", closesAt: null, submitted: 12, drafts: 2 }],
+      forms: [{ formId: "f1", name: "CFP", status: "closed", availability: "closed", opensAt: null, closesAt: null, submitted: 12, drafts: 2 }],
     }));
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ id: "cfp_closed", detail: "12 submissions received." });
@@ -28,14 +28,14 @@ describe("computeMilestones", () => {
 
   it("does not acknowledge a CFP that is still open", () => {
     const result = computeMilestones(overview({
-      forms: [{ formId: "f1", name: "CFP", status: "open", closesAt: null, submitted: 12, drafts: 2 }],
+      forms: [{ formId: "f1", name: "CFP", status: "open", availability: "live", opensAt: null, closesAt: null, submitted: 12, drafts: 2 }],
     }));
     expect(result.find((m) => m.id === "cfp_closed")).toBeUndefined();
   });
 
   it("does not acknowledge a closed CFP with zero submissions", () => {
     const result = computeMilestones(overview({
-      forms: [{ formId: "f1", name: "CFP", status: "closed", closesAt: null, submitted: 0, drafts: 0 }],
+      forms: [{ formId: "f1", name: "CFP", status: "closed", availability: "closed", opensAt: null, closesAt: null, submitted: 0, drafts: 0 }],
     }));
     expect(result.find((m) => m.id === "cfp_closed")).toBeUndefined();
   });
@@ -64,7 +64,7 @@ describe("computeMilestones", () => {
 
   it("can report all three milestones at once, each with its own href", () => {
     const result = computeMilestones(overview({
-      forms: [{ formId: "f1", name: "CFP", status: "closed", closesAt: null, submitted: 8, drafts: 0 }],
+      forms: [{ formId: "f1", name: "CFP", status: "closed", availability: "closed", opensAt: null, closesAt: null, submitted: 8, drafts: 0 }],
       statusCounts: { ...BASE_STATUS_COUNTS, accepted: 5, declined: 3 },
       kpis: { submissions: 8, acceptedSpeakers: 5, scheduledSessions: 5, unscheduledAccepted: 0 },
     }));

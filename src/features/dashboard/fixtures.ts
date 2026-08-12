@@ -52,6 +52,8 @@ export const FIXTURE_OVERVIEW: DashboardOverview = {
     formId: "a0000000-0000-4000-8000-000000000003",
     name: "Technical talks",
     status: "open",
+    availability: "live",
+    opensAt: null,
     closesAt: "2026-08-31T07:00:00.000Z",
     submitted: 23,
     drafts: 2,
