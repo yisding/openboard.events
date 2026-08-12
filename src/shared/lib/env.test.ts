@@ -13,6 +13,8 @@ const deployed = {
   RESEND_WEBHOOK_SECRET: "w".repeat(32),
   UNSUBSCRIBE_SECRET: "u".repeat(32),
   SPEAKER_SHARE_SECRET: "p".repeat(32),
+  GOOGLE_CLIENT_ID: "google-client-id",
+  GOOGLE_CLIENT_SECRET: "google-client-secret",
 };
 
 describe("parseEnv", () => {
@@ -50,6 +52,18 @@ describe("parseEnv", () => {
       EMAIL_FROM: "events@example.com",
       TEST_AUTH: "1",
     })).toThrow(/TEST_AUTH/);
+  });
+
+  it("requires Google credentials whenever deployed Better Auth is enabled", () => {
+    const preview = {
+      ...deployed,
+      APP_ENV: "preview",
+      R2_BUCKET_NAME: "sb-files-preview",
+      ADMIN_AUTH_PROVIDER: "better-auth",
+    };
+    expect(() => parseEnv(preview)).not.toThrow();
+    expect(() => parseEnv({ ...preview, GOOGLE_CLIENT_ID: undefined })).toThrow(/GOOGLE_CLIENT_ID/);
+    expect(() => parseEnv({ ...preview, GOOGLE_CLIENT_SECRET: undefined })).toThrow(/GOOGLE_CLIENT_SECRET/);
   });
 
   it("keeps the deferred Airtable cron disabled until a real adapter exists", () => {
