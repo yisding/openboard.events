@@ -634,6 +634,10 @@ test.describe("content-deliverables (M52)", () => {
         buffer: Buffer.from(PNG_1X1_BASE64, "base64"),
       });
       await expect(page.getByRole("button", { name: "Try saving again", exact: true })).toBeVisible();
+      const anotherPicker = page.waitForEvent("filechooser");
+      await page.getByRole("button", { name: "Choose another file", exact: true }).click();
+      await (await anotherPicker).setFiles([]);
+      await expect(page.getByRole("button", { name: "Try saving again", exact: true }), "cancelling another pick must retain the uploaded candidate's save retry").toBeVisible();
       const savesBeforeAbandoning = saveCalls;
       failPresign = true;
       await page.locator('.file-upload input[type="file"]').setInputFiles({

@@ -202,9 +202,8 @@ export function FileUpload({
   const shownFileId = uploaded?.fileId ?? currentFileId ?? null;
 
   function chooseAnotherFile() {
-    setPendingAssociation(null);
-    setError("");
-    setPhase(shownFileId ? "done" : "idle");
+    // A cancelled picker emits no change event, so preserve the current error
+    // and any retryable association until upload() receives an actual file.
     inputRef.current?.click();
   }
 
