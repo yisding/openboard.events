@@ -70,12 +70,18 @@ describe("signup hook input", () => {
     });
   });
 
-  it("rejects missing, stale, and tampered Google proof when policy is active", async () => {
+  it("rejects missing Google signup proof even before policy activation", async () => {
+    await expect(resolveSignupHookInput(parseEnv(base), {
+      path: "/callback/google",
+      getCookie: () => null,
+    }, now)).rejects.toThrow(/expired or could not be verified/u);
     await expect(resolveSignupHookInput(reviewed, {
       path: "/callback/google",
       getCookie: () => null,
-    }, now)).rejects.toThrow(LEGAL_CONSENT_ERROR);
+    }, now)).rejects.toThrow(/expired or could not be verified/u);
+  });
 
+  it("rejects stale and tampered Google proof when policy is active", async () => {
     const stale = await sealOAuthSignupIntent({
       provider: "google",
       organizationName: "Acme",
@@ -93,11 +99,7 @@ describe("signup hook input", () => {
     }, now + 1_000)).rejects.toThrow(/expired or could not be verified/u);
   });
 
-  it("preserves implicit Google signup only while consent is dormant", async () => {
-    await expect(resolveSignupHookInput(parseEnv(base), {
-      path: "/callback/google",
-      getCookie: () => null,
-    }, now)).resolves.toEqual({ provisioning: {}, consent: null });
+  it("keeps non-signup user creation closed when reviewed policy is active", async () => {
     await expect(resolveSignupHookInput(reviewed, null, now)).rejects.toThrow(LEGAL_CONSENT_ERROR);
   });
 });

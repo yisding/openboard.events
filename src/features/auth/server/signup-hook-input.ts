@@ -71,12 +71,10 @@ export async function resolveSignupHookInput(
 
   if (context && isGoogleCallback(context)) {
     const token = context.getCookie?.(OAUTH_SIGNUP_INTENT_COOKIE) ?? null;
-    if (!token) {
-      if (required) rejectConsent();
-      // Consent is dormant, so preserve Better Auth's existing implicit
-      // Google signup door. It will use the provider-profile workspace name.
-      return { provisioning: {}, consent: null };
-    }
+    // A new Google identity must have started from our explicit signup page.
+    // Existing identities never enter the user-create hook, so rejecting a
+    // callback without this proof cannot break ordinary Google sign-in.
+    if (!token) throw new APIError("BAD_REQUEST", { message: OAUTH_INTENT_ERROR });
     const secret = env.SESSION_SECRET;
     const intent = secret ? await openOAuthSignupIntent(token, secret, now) : null;
     if (!intent) throw new APIError("BAD_REQUEST", { message: OAUTH_INTENT_ERROR });

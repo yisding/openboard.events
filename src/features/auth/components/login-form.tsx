@@ -12,6 +12,13 @@ type LoginFormProps = {
   signupEnabled?: boolean;
 };
 
+export function googleSignInErrorMessage(code: string | null): string {
+  if (!code) return "";
+  return code === "signup_disabled"
+    ? "We couldn’t find an Openboard account for that Google address."
+    : "Google sign-in did not finish. Try again or continue with email.";
+}
+
 export function LoginForm({ googleEnabled = false, signupEnabled = false }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -19,7 +26,8 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
   const signupHref = authPathWithNext("/signup", requestedNext);
   const forgotPasswordHref = authPathWithNext("/login/forgot", requestedNext);
   const [pending, setPending] = useState<"password" | "google" | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => googleSignInErrorMessage(searchParams.get("error")));
+  const [googleSignupRequired, setGoogleSignupRequired] = useState(() => searchParams.get("error") === "signup_disabled");
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -27,13 +35,17 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
   async function signInWithGoogle() {
     setPending("google");
     setError("");
+    setGoogleSignupRequired(false);
     try {
+      const next = safeInternalPath(requestedNext);
       const response = await fetch("/api/auth/sign-in/social", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           provider: "google",
-          callbackURL: safeInternalPath(searchParams.get("next")),
+          callbackURL: next,
+          errorCallbackURL: authPathWithNext("/login", requestedNext),
+          requestSignUp: false,
         }),
       });
       const body = await response.json().catch(() => null) as { url?: string } | null;
@@ -53,6 +65,7 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
     event.preventDefault();
     setPending("password");
     setError("");
+    setGoogleSignupRequired(false);
     setUnverifiedEmail("");
     setVerificationSent(false);
     const data = new FormData(event.currentTarget);
@@ -122,7 +135,9 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
     </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <label className="field"><span>Password</span><input name="password" autoComplete="current-password" required minLength={8} type="password" /></label>
-    {error && <p className="field-error" role="alert">{error}</p>}
+    {error && <p className="field-error" role="alert">
+      {error}{googleSignupRequired && <> <Link href={signupHref}>Create your workspace</Link> to continue.</>}
+    </p>}
     {unverifiedEmail && (verificationSent
       ? <p className="auth-inline-success" role="status">A fresh confirmation link is on its way.</p>
       : <button className="button button-secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</button>)}

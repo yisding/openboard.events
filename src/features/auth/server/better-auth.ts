@@ -25,7 +25,7 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
-import { signupLegalConsent, type SignupLegalConsent } from "../legal-consent";
+import type { SignupLegalConsent } from "../legal-consent";
 import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
@@ -81,16 +81,15 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
   const database = deps.database ?? db;
   const secret = env.SESSION_SECRET;
   if (!secret) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin authentication");
-  const legalConsent = signupLegalConsent(env);
   const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
     ? { google: {
       clientId: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
-      // Preserve the existing self-service OAuth door while consent is
-      // dormant. Once reviewed policies activate, only the explicit signup
-      // handoff may set requestSignUp=true; its callback-only encrypted intent
-      // is revalidated by the user-create hooks below.
-      ...(legalConsent ? { disableImplicitSignUp: true } : {}),
+      // Account creation always starts on `/signup`, where the customer names
+      // the workspace (or presents an invitation) before `requestSignUp=true`
+      // is added by our same-origin handoff. The ordinary `/login` flow never
+      // creates a user just because Google returned an unknown identity.
+      disableImplicitSignUp: true,
     } }
     : {};
 

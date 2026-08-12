@@ -92,8 +92,9 @@ one visibility rule, one routing rule) → set deadline and per-user limit → p
 → publish → copy the public link.
 
 **Current state:** the public landing and sign-in screens lead into self-service account creation.
-Email verification provisions the workspace and continues directly into M45's durable guided
-event setup: details → optional tracks → persistent CFP form → shareable public link. Preview and
+Email or explicit Google signup provisions the named workspace and continues directly into M45's
+durable guided event setup: details → optional tracks → persistent CFP form → shareable public
+link. Google sign-in cannot silently create a workspace for an unknown identity. Preview and
 copy-link actions use the same published form a speaker receives, and the dashboard guides the
 organizer until its first proposal arrives.
 

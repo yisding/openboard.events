@@ -149,15 +149,22 @@ describe("Google signup handoff", () => {
     expect(expired).toContain("Max-Age=0");
   });
 
-  it("expires an abandoned signup intent when an ordinary Google transaction starts", async () => {
+  it("expires abandoned intent and forces an ordinary Google transaction to remain sign-in only", async () => {
     const request = new NextRequest("http://localhost:3000/api/auth/sign-in/social", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "google", callbackURL: "/organizations" }),
+      body: JSON.stringify({ provider: "google", callbackURL: "/organizations", requestSignUp: true }),
     });
-    const handler = vi.fn(async () => Response.json({ url: "https://accounts.google.com/auth" }, {
-      headers: { "set-cookie": "openboard_admin.oauth_state=fresh; Path=/; HttpOnly; SameSite=Lax" },
-    }));
+    const handler = vi.fn(async (forwarded: Request) => {
+      await expect(forwarded.json()).resolves.toMatchObject({
+        provider: "google",
+        callbackURL: "/organizations",
+        requestSignUp: false,
+      });
+      return Response.json({ url: "https://accounts.google.com/auth" }, {
+        headers: { "set-cookie": "openboard_admin.oauth_state=fresh; Path=/; HttpOnly; SameSite=Lax" },
+      });
+    });
     const response = await handleSocialSignIn(request, dormant, handler);
 
     expect(handler).toHaveBeenCalledOnce();
