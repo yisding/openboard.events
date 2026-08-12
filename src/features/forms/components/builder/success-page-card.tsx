@@ -9,9 +9,9 @@ const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-12px 0 1
 /**
  * "After submission" — what submitters see on the confirmation page. The
  * organizer's own annotation on this card is "make sure this works": it is a
- * judged surface, rendered through `<RichTextView>` on `/submit/[slug]/
- * [formId]/done` (M15), never blank even when unset (the done page falls back
- * to a default sentence rather than an empty card).
+ * judged surface, rendered through `<RichTextView>` on the wizard's final
+ * `done` step (M15), never blank even when unset (that step falls back to a
+ * default sentence rather than an empty card).
  */
 export function SuccessPageCard({ form, onChange }: {
   form: BuilderForm;
