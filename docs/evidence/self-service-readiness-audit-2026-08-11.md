@@ -86,6 +86,10 @@ the real database-backed surfaces.
   and exact reviewed policy versions across OAuth; the callback revalidates
   them before provisioning, records consent, and sends an invitee directly to
   the invited workspace without creating an unwanted personal organization.
+- Closed Google sign-in as an alternate account-creation door. Unknown Google
+  identities now return to sign-in with a direct workspace-creation recovery;
+  only the explicit signup handoff can request a new account, and its sealed
+  workspace or invitation context is required even before policy activation.
 
 ## Remaining launch gaps, in priority order
 

@@ -81,7 +81,7 @@ describe("Google OAuth signup", () => {
   afterAll(async () => pglite.close());
 
   it("creates the user, the google account, and a provisioned organization in one callback", async () => {
-    expect(auth.options.socialProviders?.google?.disableImplicitSignUp).toBeUndefined();
+    expect(auth.options.socialProviders?.google?.disableImplicitSignUp).toBe(true);
     const ctx = await auth.$context;
     const [profile, account] = googleProfile("new.organizer@gmail.com", "108234567890123456789");
     const result = await ctx.internalAdapter.createOAuthUser(profile, account);
@@ -103,6 +103,94 @@ describe("Google OAuth signup", () => {
       [(organizations.rows[0] as { id: string }).id],
     );
     expect((subscription.rows[0] as { plan_id: string }).plan_id).toBe("free");
+  });
+
+  it("refuses to create an unknown Google identity through ordinary sign-in", async () => {
+    const email = "ordinary-login-only@gmail.com";
+    const start = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        provider: "google",
+        callbackURL: "/organizations",
+        errorCallbackURL: "/login?next=%2Forganizations",
+        requestSignUp: false,
+      }),
+    }));
+    const authorization = new URL(((await start.json()) as { url: string }).url);
+    const stateCookies = start.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    const idToken = unsignedGoogleIdToken({
+      sub: "108234567890123456794",
+      email,
+      name: "Unknown Organizer",
+    });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      access_token: "ya29.test-unknown-user-access-token",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "openid email profile",
+      id_token: idToken,
+    })));
+
+    try {
+      const callback = new URL("http://localhost:3000/api/auth/callback/google");
+      callback.searchParams.set("code", "unknown-user-authorization-code");
+      callback.searchParams.set("state", authorization.searchParams.get("state") ?? "");
+      const response = await auth.handler(new Request(callback, { headers: { cookie: stateCookies } }));
+
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("location") ?? "", "http://localhost:3000");
+      expect(location.pathname).toBe("/login");
+      expect(location.searchParams.get("next")).toBe("/organizations");
+      expect(location.searchParams.get("error")).toBe("signup_disabled");
+      await expect(database.select({ id: users.id }).from(users).where(eq(users.email, email)))
+        .resolves.toHaveLength(0);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
+  });
+
+  it("continues to sign in an existing Google identity through the ordinary door", async () => {
+    const start = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        provider: "google",
+        callbackURL: "/organizations",
+        errorCallbackURL: "/login?next=%2Forganizations",
+        requestSignUp: false,
+      }),
+    }));
+    const authorization = new URL(((await start.json()) as { url: string }).url);
+    const stateCookies = start.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    const idToken = unsignedGoogleIdToken({
+      sub: "108234567890123456789",
+      email: "new.organizer@gmail.com",
+      name: "New Organizer",
+    });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      access_token: "ya29.test-existing-login-access-token",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "openid email profile",
+      id_token: idToken,
+    })));
+
+    try {
+      const callback = new URL("http://localhost:3000/api/auth/callback/google");
+      callback.searchParams.set("code", "existing-login-authorization-code");
+      callback.searchParams.set("state", authorization.searchParams.get("state") ?? "");
+      const response = await auth.handler(new Request(callback, { headers: { cookie: stateCookies } }));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/organizations");
+      expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith("openboard_admin.session_token=")))
+        .toBe(true);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
   });
 
   it("returns an existing Google identity to the invitation acceptance URL", async () => {

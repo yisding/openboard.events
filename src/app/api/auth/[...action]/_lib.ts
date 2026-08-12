@@ -96,8 +96,22 @@ export async function handleSocialSignIn(
   env: Pick<RuntimeEnv, "APP_ENV">,
   handler: BetterAuthRequestHandler,
 ): Promise<Response> {
-  const isGoogle = googleSocialSchema.safeParse(await request.clone().json().catch(() => null)).success;
-  const result = await handler(request);
+  const body = await request.clone().json().catch(() => null);
+  const isGoogle = googleSocialSchema.safeParse(body).success;
+  let forwarded: Request = request;
+  if (isGoogle && body && typeof body === "object") {
+    const headers = new Headers(request.headers);
+    headers.delete("content-length");
+    // This route is the ordinary sign-in door. Even a hand-written request
+    // cannot turn it into account creation; `/sign-up/google` calls the Better
+    // Auth handler directly with a sealed signup intent and requestSignUp=true.
+    forwarded = new Request(request.url, {
+      method: request.method,
+      headers,
+      body: JSON.stringify({ ...body, requestSignUp: false }),
+    });
+  }
+  const result = await handler(forwarded);
   return isGoogle ? expireOAuthSignupIntent(result, env) : result;
 }
 
