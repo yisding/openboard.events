@@ -110,7 +110,10 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         : { [HISTORY_GUARD_MARKER]: marker };
       window.history.replaceState(markerState, "", currentUrl);
       let restoringGuard = false;
-      let restorationForwardSteps = 0;
+      let restorationDirection: 1 | -1 = 1;
+      let restorationOffset = 0;
+      let expectedRestorationOffset = 0;
+      let restorationTimer: ReturnType<typeof setTimeout> | null = null;
       let active = true;
       const leave = (action?: () => void) => {
         if (!active) {
@@ -135,9 +138,25 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
       };
       historyFallbackRef.current = { leave };
+      const clearRestorationTimer = () => {
+        if (restorationTimer !== null) clearTimeout(restorationTimer);
+        restorationTimer = null;
+      };
       const restoreGuard = () => {
-        restorationForwardSteps += 1;
-        window.history.forward();
+        expectedRestorationOffset = restorationOffset + restorationDirection;
+        window.history.go(restorationDirection);
+        clearRestorationTimer();
+        restorationTimer = setTimeout(() => {
+          restorationTimer = null;
+          if (!restoringGuard) return;
+          if (restorationDirection === 1) {
+            // The attempted target was in Forward history and the forward
+            // probe reached that stack's boundary. Walk backward from there;
+            // the protected marker is guaranteed to be on this side.
+            restorationDirection = -1;
+            restoreGuard();
+          }
+        }, 250);
       };
       const guardHistory = (event: PopStateEvent) => {
         if (allowNextRef.current) {
@@ -146,17 +165,19 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
         const state = event.state as Record<string, unknown> | null;
         if (restoringGuard) {
+          clearRestorationTimer();
           event.stopImmediatePropagation();
+          restorationOffset = expectedRestorationOffset;
           if (state?.[HISTORY_GUARD_MARKER] !== marker) {
             restoreGuard();
             return;
           }
           restoringGuard = false;
-          const backSteps = Math.max(1, restorationForwardSteps);
+          const requestedDelta = -restorationOffset;
           setPending((current) => current ?? {
             confirm: () => leave(() => {
               allowNextRef.current = true;
-              window.history.go(-backSteps);
+              window.history.go(requestedDelta);
             }),
             cancel: () => undefined,
           });
@@ -165,11 +186,13 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         if (state?.[HISTORY_GUARD_MARKER] === marker) return;
         event.stopImmediatePropagation();
         restoringGuard = true;
-        restorationForwardSteps = 0;
+        restorationDirection = 1;
+        restorationOffset = 0;
         restoreGuard();
       };
       globalThis.addEventListener("popstate", guardHistory, { capture: true });
       return () => {
+        clearRestorationTimer();
         globalThis.removeEventListener("popstate", guardHistory, { capture: true });
         if (active) leave();
       };

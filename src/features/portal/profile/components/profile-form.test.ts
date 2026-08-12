@@ -57,8 +57,9 @@ describe("speaker profile unsaved-work guard", () => {
     expect(guard).toContain("window.history.replaceState(previousState");
     expect(guard).toContain("fallback.leave(action)");
     expect(guard).toContain("event.stopImmediatePropagation()");
-    expect(guard).toContain("Math.max(1, restorationForwardSteps)");
-    expect(guard).toContain("window.history.go(-backSteps)");
+    expect(guard).toContain("restorationDirection = -1");
+    expect(guard).toContain("const requestedDelta = -restorationOffset");
+    expect(guard).toContain("window.history.go(requestedDelta)");
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
     expect(banner).toContain("data-unsaved-guard-owned");
     expect(banner).toContain("event.metaKey || event.ctrlKey");
