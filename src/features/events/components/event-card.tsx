@@ -2,7 +2,7 @@ import { ArrowRight, CalendarDays, MapPin } from "lucide-react";
 import Link from "next/link";
 import type { EventDTO } from "@/shared/contracts";
 import { eventInitials } from "@/shared/lib/event-label";
-import { formatInZone } from "@/shared/lib/time";
+import { formatDateRangeInZone } from "@/shared/lib/time";
 
 export function EventCard({ event }: { event: EventDTO }) {
   return (
@@ -22,7 +22,7 @@ export function EventCard({ event }: { event: EventDTO }) {
         <div className="event-meta">
           <span>
             <CalendarDays size={16} />
-            {formatInZone(event.startsAt, event.timezone, "date")} – {formatInZone(event.endsAt, event.timezone, "date")}
+            {formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone)}
           </span>
           {event.location && (
             <span>

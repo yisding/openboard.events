@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { useEffect } from "react";
-import { formatInZone } from "@/shared/lib/time";
+import { formatDateRangeInZone } from "@/shared/lib/time";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 export type EmbedOptions = { theme: "light" | "dark"; header: boolean; accent: string };
@@ -60,9 +60,7 @@ function EmbedResizer() {
 
 function dateRange(event: PublicEventInfo): string | null {
   if (!event.startsAt || !event.endsAt) return null;
-  const start = formatInZone(event.startsAt, event.timezone, { month: "short", day: "numeric" });
-  const end = formatInZone(event.endsAt, event.timezone, { month: "short", day: "numeric", year: "numeric" });
-  return `${start} – ${end}`;
+  return formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone);
 }
 
 export type PublicSurface = "sessions" | "agenda" | "itinerary" | "speakers" | "gallery";

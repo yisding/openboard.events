@@ -84,3 +84,43 @@ export function hourMinuteInZone(utc: Date | string | number, timeZone: string):
 export function zoneAbbreviation(utc: Date | string | number, timeZone: string): string {
   return formatInTimeZone(asDate(utc), timeZone, "zzz");
 }
+
+type LocalDateParts = { year: string; month: string; day: string };
+
+function localDateParts(utc: Date | string | number, timeZone: string): LocalDateParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).formatToParts(asDate(utc));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return { year: value("year"), month: value("month"), day: value("day") };
+}
+
+/**
+ * A compact event date range with one zone label when both endpoints share it.
+ *
+ * `formatInZone(..., "date")` correctly labels every standalone date, but
+ * joining two of those strings repeats the zone and makes the range read like
+ * “Oct 16, 2026 PDT – Oct 18, 2026 PDT”. Public heroes, event cards, and the
+ * event switcher all need the range-shaped version instead. A range crossing a
+ * DST boundary keeps both labels because they genuinely differ.
+ */
+export function formatDateRangeInZone(
+  startsAt: Date | string | number,
+  endsAt: Date | string | number,
+  timeZone: string,
+): string {
+  const start = localDateParts(startsAt, timeZone);
+  const end = localDateParts(endsAt, timeZone);
+  const startZone = zoneAbbreviation(startsAt, timeZone);
+  const endZone = zoneAbbreviation(endsAt, timeZone);
+  const full = (date: LocalDateParts) => `${date.month} ${date.day}, ${date.year}`;
+
+  if (startZone !== endZone) return `${full(start)} ${startZone} – ${full(end)} ${endZone}`;
+  if (start.year === end.year && start.month === end.month && start.day === end.day) return `${full(start)} ${endZone}`;
+  if (start.year === end.year && start.month === end.month) return `${start.month} ${start.day} – ${end.day}, ${end.year} ${endZone}`;
+  if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year} ${endZone}`;
+  return `${full(start)} – ${full(end)} ${endZone}`;
+}
