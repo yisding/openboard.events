@@ -45,4 +45,13 @@ describe("speaker roster responsive forms", () => {
     expect(tablet).toContain(`${responsiveSelector}{grid-template-columns:repeat(2,minmax(0,1fr))}`);
     expect(mobile).toContain(`${responsiveSelector}{grid-template-columns:1fr}`);
   });
+
+  it("fits status controls into the speaker detail panel on phones", () => {
+    const mobile = mediaBlockContaining(css, "@media(max-width:768px)", ".confirmation-options{");
+    const narrow = mediaBlockContaining(css, "@media(max-width:340px)", ".confirmation-options{");
+
+    expect(mobile).toContain(".confirmation-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}");
+    expect(mobile).toContain(".confirmation-options button{min-width:0;padding-inline:6px}");
+    expect(narrow).toContain(".confirmation-options{grid-template-columns:repeat(2,minmax(0,1fr))}");
+  });
 });
