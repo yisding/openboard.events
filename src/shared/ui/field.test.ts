@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Field, ProgressBar, Segmented, Switch } from "./ui-kit";
+import { Avatar, Field, ProgressBar, Segmented, Switch } from "./ui-kit";
 
 Object.assign(globalThis, { React });
 
@@ -85,5 +85,21 @@ describe("stateful button controls", () => {
     expect(html).toContain('aria-label="Task content type"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-pressed="false"');
+  });
+});
+
+describe("Avatar", () => {
+  it("renders a centered monogram placeholder without exposing duplicate text", () => {
+    const html = renderToStaticMarkup(React.createElement(Avatar, { initials: "al", size: "xl" }));
+    expect(html).toContain("person-avatar-placeholder");
+    expect(html).toContain("person-avatar-xl");
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain(">AL</span>");
+  });
+
+  it("uses a person glyph instead of a question-mark placeholder when initials are unavailable", () => {
+    const html = renderToStaticMarkup(React.createElement(Avatar, { initials: "" }));
+    expect(html).toContain("person-avatar-icon");
+    expect(html).not.toContain(">?</span>");
   });
 });

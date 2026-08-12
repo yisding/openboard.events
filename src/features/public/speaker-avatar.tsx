@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { Avatar } from "@/shared/ui/ui-kit";
 
 // A confirmed speaker's headshot, or an initials placeholder when the seed
 // (deliberately) has none. Reused by both the schedule's speaker chips and the
@@ -21,5 +22,5 @@ export function SpeakerAvatar({ name, headshotUrl, size = "sm", color }: { name:
     const px = SIZE_PX[size];
     return <Image src={headshotUrl} alt={name} width={px} height={px} className={className} style={{ objectFit: "cover" }} unoptimized />;
   }
-  return <span className={className} style={{ background: color ?? "var(--accent-dark)" }}>{initialsOf(name)}</span>;
+  return <Avatar initials={initialsOf(name)} size={size} {...(color ? { color } : {})} />;
 }

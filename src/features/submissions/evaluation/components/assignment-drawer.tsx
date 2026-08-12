@@ -219,7 +219,7 @@ export function AssignmentDrawer({
   return (
     <>
       <Drawer open onClose={onClose} title={`Assign work · ${plan.name}`}>
-      <div className="form-stack">
+        <div className="form-stack drawer-body">
         {plan.reviewers.length === 0
           ? <p className="portal-note">Add reviewers to this round before assigning work to them.</p>
           : (
@@ -284,14 +284,13 @@ export function AssignmentDrawer({
         <p className="portal-note">
           Recusals are never undone by either mode — a reviewer who declared a conflict stays off that submission.
         </p>
-      </div>
-
-      <div className="drawer-actions">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={!canAssign} onClick={assign}>
-          {assignLabel}
-        </Button>
-      </div>
+          <div className="drawer-actions">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button disabled={!canAssign} onClick={assign}>
+              {assignLabel}
+            </Button>
+          </div>
+        </div>
       </Drawer>
       <ConfirmDialog
         key={targetKey}
