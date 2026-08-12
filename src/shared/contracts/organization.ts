@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { memberRoleSchema } from "./enums";
-import { organizationAuditLogIdSchema, organizationIdSchema, organizationInvitationIdSchema, userIdSchema } from "./ids";
+import { eventIdSchema, organizationAuditLogIdSchema, organizationIdSchema, organizationInvitationIdSchema, userIdSchema } from "./ids";
 
 /**
  * M43 — organization tenancy contracts.
@@ -42,6 +42,14 @@ export const organizationMemberDtoSchema = z.object({
   createdAt: iso,
 });
 export type OrganizationMemberDTO = z.infer<typeof organizationMemberDtoSchema>;
+
+/** One organization event whose access the current actor is allowed to manage for a teammate. */
+export const manageableEventAccessDtoSchema = z.object({
+  eventId: eventIdSchema,
+  eventName: z.string(),
+  role: memberRoleSchema.nullable(),
+});
+export type ManageableEventAccessDTO = z.infer<typeof manageableEventAccessDtoSchema>;
 
 /**
  * M44 — a pending or resolved team invitation. Never carries the raw token

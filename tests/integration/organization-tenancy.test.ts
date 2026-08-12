@@ -18,9 +18,12 @@ import {
   listOrganizationMemberIdsIn,
   listOrganizationMembersIn,
   listOrganizationsForUserIn,
+  listManageableEventAccessForMemberIn,
+  removeExplicitEventAccessIn,
   removeOrganizationMemberIn,
   resolvePrimaryOrganizationIn,
   setOrganizationMemberIn,
+  setExplicitEventAccessIn,
 } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
 
@@ -417,6 +420,86 @@ describe("organization tenancy (M43)", () => {
     it("rejects an organization id that is not a uuid before it reaches the database", () => {
       expect(organizationIdSchema.safeParse("not-a-uuid").success).toBe(false);
       expect(organizationIdSchema.safeParse(DEFAULT_ORGANIZATION_ID).success).toBe(true);
+    });
+  });
+
+  describe("explicit event access management", () => {
+    it("requires both organization and event authority, preserves stronger roles, and removes only explicit non-owner access", async () => {
+      const otherOrg = await createOrganizationIn(db, ownerUserId, { name: "Access Other", slug: "access-other" });
+      const otherEvent = eventIdSchema.parse("c4300000-0000-4000-8000-000000000091");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,timezone,starts_at,ends_at) VALUES($1,$2,'Other Access Event','other-access-event','UTC','2026-11-15T16:00:00Z','2026-11-17T01:00:00Z')",
+        [otherEvent, otherOrg.id],
+      );
+      await pglite.query(
+        "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'organizer'),($1,$3,'organizer')",
+        [organizerUserId, legacyEventB, otherEvent],
+      );
+      try {
+        // The organization organizer sees only Legacy A: they organize it.
+        // Legacy B is included only after the explicit test fixture above.
+        const manageable = await listManageableEventAccessForMemberIn(
+          db,
+          DEFAULT_ORGANIZATION_ID,
+          organizerUserId,
+          reviewerUserId,
+        );
+        expect(manageable.map((row) => [row.eventId, row.role])).toEqual([
+          [legacyEventA, "reviewer"],
+          [legacyEventB, null],
+        ]);
+
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId, "organizer",
+        )).resolves.toBe("organizer");
+        // A weaker repeat never demotes the explicit organizer grant.
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId, "reviewer",
+        )).resolves.toBe("organizer");
+        await expect(authorizeAdmin(db, identityOf(reviewerUserId, "reviewer@example.com"), legacyEventA, "organizer"))
+          .resolves.toMatchObject({ role: "organizer" });
+
+        // Organization ownership is insufficient when the actor is only a
+        // reviewer on the event, and a non-member cannot be granted access.
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, ownerUserId, reviewerUserId, "reviewer",
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, outsiderUserId, "reviewer",
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        // Even an event the actor organizes cannot cross the organization id
+        // named by the request.
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, otherEvent, organizerUserId, reviewerUserId, "reviewer",
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        // Existing ownership survives a weaker grant and is never removable
+        // through Team access management.
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventB, organizerUserId, ownerUserId, "reviewer",
+        )).resolves.toBe("owner");
+        await expect(removeExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventB, organizerUserId, ownerUserId,
+        )).rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(removeExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, organizerUserId,
+        )).rejects.toMatchObject({ code: "VALIDATION" });
+
+        await removeExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId,
+        );
+        await expect(authorizeAdmin(db, identityOf(reviewerUserId, "reviewer@example.com"), legacyEventA))
+          .rejects.toMatchObject({ code: "FORBIDDEN" });
+      } finally {
+        await pglite.query(
+          "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'reviewer') ON CONFLICT(user_id,event_id) DO UPDATE SET role='reviewer'",
+          [reviewerUserId, legacyEventA],
+        );
+        await pglite.query("DELETE FROM event_members WHERE user_id=$1 AND event_id IN ($2,$3)", [organizerUserId, legacyEventB, otherEvent]);
+        await pglite.query("DELETE FROM events WHERE id=$1", [otherEvent]);
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [otherOrg.id]);
+      }
     });
   });
 });

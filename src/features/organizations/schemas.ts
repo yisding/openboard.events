@@ -36,5 +36,9 @@ export type InviteOrganizationMemberInput = z.infer<typeof inviteOrganizationMem
 export const changeOrganizationMemberRoleInputSchema = z.object({ role: memberRoleSchema });
 export type ChangeOrganizationMemberRoleInput = z.infer<typeof changeOrganizationMemberRoleInputSchema>;
 
+/** Event ownership is transferred inside the event; Team can grant only working roles. */
+export const eventAccessRoleInputSchema = z.object({ role: memberRoleSchema.exclude(["owner"]) });
+export type EventAccessRoleInput = z.infer<typeof eventAccessRoleInputSchema>;
+
 export const acceptOrganizationInvitationInputSchema = z.object({ token: z.string().min(1) });
 export type AcceptOrganizationInvitationInput = z.infer<typeof acceptOrganizationInvitationInputSchema>;
