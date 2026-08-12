@@ -114,7 +114,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
     });
 
-    await test.step("create the first event and vocabulary", async () => {
+    await test.step("create the first event and tracks", async () => {
       await page.getByLabel("Event name").fill(eventName);
       await page.getByLabel("Starts").fill(localInput(30, "09:00"));
       await page.getByLabel("Ends").fill(localInput(31, "17:00"));

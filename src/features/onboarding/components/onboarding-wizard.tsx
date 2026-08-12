@@ -143,6 +143,7 @@ export function OnboardingWizard({
   const [eventCreateId] = useState(() => crypto.randomUUID());
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const slugDetailsRef = useRef<HTMLDetailsElement>(null);
   const previousStepRef = useRef(step);
 
   useEffect(() => {
@@ -177,6 +178,7 @@ export function OnboardingWizard({
     setFieldErrors(fields);
     if (!summary && Object.keys(fields).length === 0) return;
     const firstInvalid = Object.keys(fields).find((key) => RENDERED_FIELDS.has(key));
+    if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true;
     requestAnimationFrame(() => {
       if (firstInvalid) document.getElementById(FIELD_IDS[firstInvalid] ?? "")?.focus();
       else summaryRef.current?.focus();
@@ -346,7 +348,7 @@ export function OnboardingWizard({
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
             <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
           </Field>
-          <details className="onboarding-advanced">
+          <details ref={slugDetailsRef} className="onboarding-advanced">
             <summary>Customize public URL</summary>
             <Field label="Event slug" hint="Optional — leave blank to generate it from the event name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
               <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />

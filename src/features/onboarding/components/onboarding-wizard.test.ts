@@ -36,6 +36,11 @@ describe("onboarding organization access", () => {
     expect(reservation).toBeLessThan(creation);
     expect(wizard).toContain("initialState?.formId ?? crypto.randomUUID()");
   });
+
+  it("reveals the optional URL field before focusing a server-side slug error", () => {
+    expect(wizard).toContain('if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true');
+    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
+  });
 });
 
 describe("OnboardingWizard event step accessibility", () => {
