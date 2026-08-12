@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { Brand } from "@/shared/ui/brand";
 import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 /**
  * M44 — the organization-scoped surfaces (team, audit log). Same gate shape
@@ -14,7 +13,7 @@ import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
  * is required differs by page in a way this shared layout does not know.
  */
 export default async function OrganizationLayout({ children }: { children: React.ReactNode }) {
-  if (!isCredentialFreeLocalDemo() && !(await getAdminSession())) {
+  if (!(await getAdminSession())) {
     const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"), "/organizations");
     redirect(`/login?next=${encodeURIComponent(requestPath)}`);
   }
