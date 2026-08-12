@@ -1,15 +1,19 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { db } from "@/db/client";
 import {
   ADMIN_COOKIE,
   adminCookieOptions,
   authenticateAdmin,
   clearAdminLoginThrottle,
+  nudgeAdminAuthEmailOutbox,
   signAdminToken,
   throttleAdminLogin,
 } from "@/features/auth";
 import { isAppError } from "@/shared/lib/errors";
 import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { checkRateLimit } from "@/shared/server/rate-limit";
 import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from "@/shared/demo/seed";
 
 /**
@@ -41,6 +45,13 @@ const unauthorized = () => NextResponse.json({ error: { code: "UNAUTHORIZED", me
  * control left. Every password-guessable native path belongs here.
  */
 const THROTTLED_BETTER_AUTH_PATHS = new Set(["sign-in/email"]);
+
+type PublicEmailPolicy = { ipLimit: number; emailLimit: number; windowMs: number };
+const PUBLIC_EMAIL_PATHS = new Map<string, PublicEmailPolicy>([
+  ["sign-up/email", { ipLimit: 10, emailLimit: 4, windowMs: 60 * 60 * 1000 }],
+  ["send-verification-email", { ipLimit: 20, emailLimit: 5, windowMs: 10 * 60 * 1000 }],
+  ["request-password-reset", { ipLimit: 20, emailLimit: 5, windowMs: 10 * 60 * 1000 }],
+]);
 
 function clientIp(request: NextRequest): string {
   return request.headers.get("cf-connecting-ip")
@@ -74,7 +85,13 @@ async function betterAuthSignIn(request: NextRequest, credentials: z.infer<typeo
     body: JSON.stringify({ email: credentials.email, password: credentials.password }),
   });
   const result = await betterAuthHandler(forwarded);
-  if (!result.ok) return unauthorized();
+  if (!result.ok) {
+    const body = await result.json().catch(() => null) as { code?: string } | null;
+    if (result.status === 403 && body?.code === "EMAIL_NOT_VERIFIED") {
+      return NextResponse.json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Confirm your email before signing in" } }, { status: 403 });
+    }
+    return unauthorized();
+  }
   return withCookies(result, { data: { signedIn: true } }, 200);
 }
 
@@ -122,7 +139,46 @@ async function throttledBetterAuthPost(request: NextRequest): Promise<Response> 
     if (parsed.success) attemptKey = await throttleAdminLogin(parsed.data.email, clientIp(request));
     const forwarded = new Request(request.url, { method: "POST", headers: request.headers, body: raw });
     const response = await betterAuthHandler(forwarded);
-    if (response.ok && attemptKey) await clearAdminLoginThrottle(attemptKey);
+    const unverified = response.status === 403
+      && (await response.clone().json().catch(() => null) as { code?: string } | null)?.code === "EMAIL_NOT_VERIFIED";
+    // EMAIL_NOT_VERIFIED is reached only after the credential was accepted.
+    // Do not let a user lock themselves out while looking for their link.
+    if ((response.ok || unverified) && attemptKey) await clearAdminLoginThrottle(attemptKey);
+    return response;
+  } catch (error) {
+    const limited = rateLimited(error);
+    if (limited) return limited;
+    throw error;
+  }
+}
+
+function nudgeAuthMail(): void {
+  try {
+    const context = getCloudflareContext();
+    nudgeAdminAuthEmailOutbox(context.ctx.waitUntil.bind(context.ctx));
+  } catch {
+    // `next dev` and unit tests have no Cloudflare execution context. Starting
+    // the drain still makes log-mode activation usable; cron remains the
+    // delivery guarantee in deployed environments.
+    nudgeAdminAuthEmailOutbox(() => undefined);
+  }
+}
+
+async function rateLimitedPublicEmailPost(request: NextRequest, path: string): Promise<Response> {
+  const raw = await request.text();
+  const parsed = parseJson(raw);
+  const email = parsed && typeof parsed === "object" && typeof (parsed as { email?: unknown }).email === "string"
+    ? (parsed as { email: string }).email.trim().toLowerCase()
+    : null;
+  const policy = PUBLIC_EMAIL_PATHS.get(path);
+  try {
+    if (policy && email && z.email().safeParse(email).success) {
+      const ip = clientIp(request);
+      await checkRateLimit(db, { key: `auth-email:${path}:ip:${ip}`, limit: policy.ipLimit, windowMs: policy.windowMs });
+      await checkRateLimit(db, { key: `auth-email:${path}:email:${email}`, limit: policy.emailLimit, windowMs: policy.windowMs });
+    }
+    const response = await betterAuthHandler(new Request(request.url, { method: "POST", headers: request.headers, body: raw }));
+    if (response.ok) nudgeAuthMail();
     return response;
   } catch (error) {
     const limited = rateLimited(error);
@@ -165,7 +221,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
       const identity = betterAuth ? null : await authenticateAdmin(input.data.email, input.data.password, clientIp(request));
       if (betterAuth) {
         const response = await betterAuthSignIn(request, input.data);
-        if (response.status === 200 && attemptKey) await clearAdminLoginThrottle(attemptKey);
+        if ((response.status === 200 || response.status === 403) && attemptKey) await clearAdminLoginThrottle(attemptKey);
         return response;
       }
       if (!identity) return unauthorized();
@@ -180,6 +236,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   if (betterAuth && THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);
+  if (betterAuth && PUBLIC_EMAIL_PATHS.has(path)) return rateLimitedPublicEmailPost(request, path);
   if (betterAuth) return betterAuthHandler(request);
   return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
 }

@@ -2,6 +2,16 @@ import type { DbOrTx } from "@/db/client";
 import { emailTemplates, reminderRules } from "@/db/schema";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 
+/**
+ * Event organizers can edit event mail. Product authentication mail now uses
+ * a platform-level fixed template because it may be sent before an event
+ * exists; leaving those two keys in the event editor would be a control that
+ * no longer affects anything.
+ */
+export const EVENT_EDITABLE_TEMPLATE_KEYS: TemplateKey[] = TEMPLATE_KEYS.filter(
+  (key) => key !== "admin_password_reset" && key !== "admin_email_verification",
+);
+
 export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml: string }> = {
   submission_received: {
     subject: "We received your submission — {{submission.title}}",

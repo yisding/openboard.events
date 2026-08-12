@@ -22,7 +22,7 @@ import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
-import { sendAdminAuthEmail } from "./admin-mail";
+import { sendAdminAuthEmailIn } from "./admin-mail";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -126,6 +126,11 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       enabled: true,
       minPasswordLength: 12,
       autoSignIn: false,
+      // A password proves knowledge of a secret, not control of the mailbox
+      // that owns the account. New accounts stay sessionless until the link
+      // sent below is used; existing unverified accounts get the same clear
+      // recovery path on sign-in.
+      requireEmailVerification: true,
       resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
       // Resetting a password ends every other session for that account. A
       // reset is what somebody does when they believe their credential leaked.
@@ -152,7 +157,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
         verify: verifyAdminPassword,
       },
       sendResetPassword: async ({ user, token }) => {
-        await sendAdminAuthEmail({
+        await sendAdminAuthEmailIn(database, {
           templateKey: "admin_password_reset",
           userId: user.id as UserId,
           email: user.email,
@@ -165,30 +170,23 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
         }, env);
       },
     },
-    /**
-     * Configured, but *not yet reachable* — stated plainly rather than left to
-     * be discovered. `sendOnSignUp` is false and nothing else in `src/`,
-     * `e2e/` or `scripts/` calls `/api/auth/send-verification-email`, so the
-     * `admin_email_verification` template has no live sender today.
-     *
-     * Turning `sendOnSignUp` on would not fix that, it would make it worse:
-     * `sendAdminAuthEmailIn` addresses admin mail from the organizer's oldest
-     * `event_members` row, and a self-serve signup (M44) has an organization
-     * but no event yet — so the mail would be skipped and logged rather than
-     * sent. Wiring verification properly means giving admin mail an
-     * organization-scoped address path, which belongs to whoever owns that
-     * change, not to a flag flip here.
-     */
     emailVerification: {
-      sendOnSignUp: false,
+      expiresIn: 60 * 60,
+      sendOnSignUp: true,
+      // Correct-password sign-in returns a structured "verify first" state;
+      // the UI owns an explicit resend action. Avoid silently sending another
+      // message on every password attempt.
+      sendOnSignIn: false,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: async ({ user, token }) => {
-        await sendAdminAuthEmail({
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendAdminAuthEmailIn(database, {
           templateKey: "admin_email_verification",
           userId: user.id as UserId,
           email: user.email,
           name: user.name,
-          url: `${baseUrl(env)}/api/auth/verify-email?token=${encodeURIComponent(token)}&callbackURL=${encodeURIComponent("/login")}`,
+          // Use Better Auth's URL intact so the callbackURL selected by the
+          // signup/resend UI survives the email round-trip.
+          url,
           expiresIn: "1 hour",
         }, env);
       },

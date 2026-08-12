@@ -14,13 +14,8 @@ export type SignupTransition =
   | { destination: string; refresh: boolean }
   | { error: string };
 
-/**
- * Account creation and immediate sign-in are two separate commits. Once the
- * first succeeds, a failed sign-in must send the new user through the normal
- * login page rather than invite them to submit signup again for an account
- * that now already exists.
- */
-export async function signupWithImmediateSignIn(
+/** Account creation commits once, then waits for proof of mailbox control. */
+export async function signupAndAwaitVerification(
   input: SignupRequest,
   request: typeof fetch = fetch,
 ): Promise<SignupTransition> {
@@ -33,6 +28,7 @@ export async function signupWithImmediateSignIn(
         email: input.email,
         password: input.password,
         name: input.name,
+        callbackURL: "/signup/verified?confirmed=1&next=%2Forganizations",
         ...(input.invitationToken ? { invitationToken: input.invitationToken } : { organizationName: input.organizationName }),
       }),
     });
@@ -45,21 +41,12 @@ export async function signupWithImmediateSignIn(
     return { error: body?.message || "Could not create that account" };
   }
 
-  // Invitation signup consumes its bearer token while creating the account.
-  // Preserve the organization destination returned by that successful write;
-  // sending a sign-in retry back to `input.next` could revisit a spent token.
-  const destination = signupDestination(input.next, signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER));
-  const loginDestination = `/login?next=${encodeURIComponent(destination)}`;
-  try {
-    const signedIn = await request("/api/auth/sign-in", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: input.email, password: input.password }),
-    });
-    if (!signedIn.ok) return { destination: loginDestination, refresh: false };
-  } catch {
-    return { destination: loginDestination, refresh: false };
-  }
-
-  return { destination, refresh: true };
+  // An invitation token is consumed while the account is created. A generic
+  // duplicate-signup response carries no organization header, so never put a
+  // spent `/join?token=…` back into the activation journey; `/organizations`
+  // resolves a new invitee's sole workspace safely.
+  const requestedDestination = input.invitationToken ? "/organizations" : input.next;
+  const destination = signupDestination(requestedDestination, signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER));
+  const params = new URLSearchParams({ email: input.email.trim().toLowerCase(), next: destination });
+  return { destination: `/signup/check-email?${params.toString()}`, refresh: false };
 }

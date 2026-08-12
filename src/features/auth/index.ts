@@ -11,8 +11,19 @@ export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/toke
 export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-payload";
 export type { AdminLinkPayload } from "./server/secret-payload";
 export { openAdminLinkPayload, sealAdminLinkPayload } from "./server/secret-payload";
+export { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./server/secret-payload";
 export type { AdminAuthTemplateKey } from "./server/admin-mail";
-export { sendAdminAuthEmail, sendAdminAuthEmailIn } from "./server/admin-mail";
+export {
+  dispatchAdminAuthEmailOutbox,
+  dispatchAdminAuthEmailOutboxIn,
+  getAdminAuthFallbackLink,
+  getAdminAuthFallbackLinkIn,
+  nudgeAdminAuthEmailOutbox,
+  recordAdminAuthEmailSuppression,
+  recordAdminAuthEmailSuppressionIn,
+  sendAdminAuthEmail,
+  sendAdminAuthEmailIn,
+} from "./server/admin-mail";
 export { adminAuth, apiKeyAuth, authenticatedAuth, cronAuth, organizationAuth, portalAuth, publicAuth } from "./server/guards";
 // M43 — organization-scoped guards. `requireAdmin`/`authorizeAdmin` above are
 // unchanged; these compose the same identity, the same role ladder and the

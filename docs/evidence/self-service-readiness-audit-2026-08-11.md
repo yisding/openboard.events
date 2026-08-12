@@ -8,7 +8,7 @@ the real database-backed surfaces.
 
 | Stage | Current path | Readiness |
 |---|---|---|
-| Account creation | `/signup` → Better Auth email signup → sign in | Functional; deployed auth mounting is smoke-tested |
+| Account creation | `/signup` → check inbox → verify email → sign in | Functional; session creation is blocked until the address is verified |
 | Invitation signup | `/join?token=…` → `/signup?next=…` | Token-bound in this slice; email matching alone no longer grants membership |
 | Organization creation | Better Auth user hook → organization + owner + free entitlement | Functional; signup now collects the intended organization name |
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
@@ -37,31 +37,32 @@ the real database-backed surfaces.
   for wrong-address rejection, token consumption, role assignment, organization
   naming, and destination propagation.
 
+## Closed in follow-up slices — updated 2026-08-12
+
+- Added durable onboarding checkpoints and recovery so refreshes, sign-outs,
+  stable-id retries, and lost mutation responses resume the same event rather
+  than creating a duplicate.
+- Added a persistent dashboard activation guide that carries an organizer from
+  an absent/draft/scheduled/live form to the first public submission.
+- Added product-level, encrypted, retryable authentication mail that works
+  before an event exists. Password signup now requires verified email control,
+  with check-inbox, resend, expired-link, and unverified-sign-in states.
+- Moved eventless password recovery onto the same platform auth outbox.
+- Added shared database-backed limits for signup, verification resend, and
+  password-reset requests; provider-isolate limits are now defense in depth.
+
 ## Remaining launch gaps, in priority order
 
-1. **Verified email activation.** `emailVerification.sendOnSignUp` is off because
-   admin auth mail currently needs an event-scoped outbox row, while a new
-   organization has no event. General signup therefore does not yet prove control
-   of the address. Add a platform-level transactional auth-mail path, require
-   verification before sign-in, and provide resend/expired-link UI.
-2. **Durable onboarding resume.** The wizard keeps its event, step, tracks, and
-   form in client state. Reloading after event creation restarts at step 1 and can
-   lead a user to create a second event. Derive progress from server state and
-   resume at the first incomplete step.
-3. **End-to-end first-user proof.** Add a browser test that creates a unique
+1. **End-to-end first-user proof.** Add a browser test that creates a unique
    account, names its organization, creates an event and form, publishes it, and
    opens the returned public link. Run the same flow against preview with a
    controlled test mailbox before production promotion.
-4. **Durable signup abuse controls.** Better Auth's current deployed limiter is
-   isolate-local memory. Back signup and verification sends with a shared,
-   atomic limit (and add bot protection if public traffic warrants it).
-5. **Recovery before first event.** Password-reset email is skipped for an
-   account with no event membership, so a user who loses access during the first
-   setup cannot recover without support. The platform auth-mail path must cover
-   this case too.
-6. **Launch consent and product signals.** Link reviewed Terms and Privacy text
+2. **Launch consent and product signals.** Link reviewed Terms and Privacy text
    from signup, record the accepted versions, and emit funnel events for signup,
    verification, event creation, form publication, and first public visit.
+3. **Traffic-dependent bot defense.** Shared atomic limits now protect the
+   public auth mail endpoints. Add a challenge only if launch traffic shows that
+   rate limits alone are insufficient; it is no longer a correctness blocker.
 
 Billing remains deliberately outside this journey while the provider is a
 disabled scaffold. Reaching first value means publishing a working CFP link; it

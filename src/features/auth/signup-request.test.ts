@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SIGNUP_ORGANIZATION_HEADER } from "./signup-context";
-import { signupWithImmediateSignIn } from "./signup-request";
+import { signupAndAwaitVerification } from "./signup-request";
 
 const organizationId = "00000000-0000-4000-8000-000000000001";
 const input = {
@@ -19,33 +19,28 @@ function successfulSignup(): Response {
   });
 }
 
-describe("signupWithImmediateSignIn", () => {
-  it("continues to the organization after both signup steps succeed", async () => {
-    const request = vi.fn()
-      .mockResolvedValueOnce(successfulSignup())
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+describe("signupAndAwaitVerification", () => {
+  it("continues to a check-inbox step without creating a session", async () => {
+    const request = vi.fn().mockResolvedValueOnce(successfulSignup());
 
-    await expect(signupWithImmediateSignIn(input, request)).resolves.toEqual({
-      destination: `/organizations/${organizationId}`,
-      refresh: true,
-    });
-    expect(request).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([
-    ["rejects", () => Promise.reject(new TypeError("offline"))],
-    ["returns a failure", () => Promise.resolve(new Response(null, { status: 503 }))],
-  ])("routes the already-created account to login when immediate sign-in %s", async (_label, signIn) => {
-    const request = vi.fn()
-      .mockResolvedValueOnce(successfulSignup())
-      .mockImplementationOnce(signIn);
-
-    await expect(signupWithImmediateSignIn(input, request)).resolves.toEqual({
-      destination: `/login?next=${encodeURIComponent(`/organizations/${organizationId}`)}`,
+    await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
+      destination: `/signup/check-email?email=new-owner%40example.com&next=%2Forganizations%2F${organizationId}`,
       refresh: false,
     });
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(request.mock.calls[1]?.[0]).toBe("/api/auth/sign-in");
+    expect(request).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
+      callbackURL: "/signup/verified?confirmed=1&next=%2Forganizations",
+    });
+  });
+
+  it("does not revisit a consumed invitation when a generic signup response has no organization header", async () => {
+    const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
+      destination: "/signup/check-email?email=new-owner%40example.com&next=%2Forganizations",
+      refresh: false,
+    });
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("keeps a signup rejection on the signup form with the server message", async () => {
@@ -54,7 +49,7 @@ describe("signupWithImmediateSignIn", () => {
       headers: { "content-type": "application/json" },
     }));
 
-    await expect(signupWithImmediateSignIn(input, request)).resolves.toEqual({
+    await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
       error: "That email is already registered",
     });
     expect(request).toHaveBeenCalledOnce();
@@ -63,7 +58,7 @@ describe("signupWithImmediateSignIn", () => {
   it("keeps a signup network failure on the signup form", async () => {
     const request = vi.fn().mockRejectedValue(new TypeError("offline"));
 
-    await expect(signupWithImmediateSignIn(input, request)).resolves.toEqual({
+    await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
       error: "Signup is temporarily unavailable",
     });
     expect(request).toHaveBeenCalledOnce();

@@ -1,55 +1,68 @@
-import { asc, eq } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
-import { eventMembers } from "@/db/schema";
-import { idem, type EventId, type TemplateKey, type UserId } from "@/shared/contracts";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { db, type DbOrTx } from "@/db/client";
+import { adminAuthEmailOutbox } from "@/db/schema";
+import type { JobStats, TemplateKey, UserId } from "@/shared/contracts";
+import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
-import { enqueueEmail } from "@/shared/server/enqueue-email";
-import { AppError } from "@/shared/lib/errors";
-import { getOrCreateContact } from "@/features/portal";
-import { sealAdminLinkPayload } from "./secret-payload";
-
-/**
- * M42 — Better Auth's password-reset and email-verification mail, delivered
- * through the one outbox this codebase has (`enqueueEmail`), not through a
- * second sending path.
- *
- * The outbox is event-scoped and addressed to a `contacts` row, so admin mail
- * is too: it borrows the organizer's own event and the contact row for their
- * address, which is exactly the arrangement M50's reviewer invitation already
- * uses ("the invitation is addressed to a contact, because the outbox is",
- * `reviewers.ts`). One communication log per human, one dispatcher, one
- * suppression and bounce policy — rather than a shadow mailer that none of
- * P3-EMAIL's compliance work applies to.
- */
+import { emailLayout } from "@/features/comms/server/layout";
+import { sendViaResend, type EmailMessage } from "@/features/comms/server/resend";
+import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./secret-payload";
 
 export type AdminAuthTemplateKey = Extract<TemplateKey, "admin_password_reset" | "admin_email_verification">;
+type OutboxRow = typeof adminAuthEmailOutbox.$inferSelect;
+type Sender = (message: EmailMessage) => Promise<string>;
+export type AdminAuthOutboxStats = JobStats & { claimed: number; sent: number; skipped: number; failed: number; retried: number };
 
-/**
- * `enqueueEmail` is typed against `TxDb` because its other callers are the
- * audited transactional writers. This path is a single `INSERT … ON CONFLICT DO
- * NOTHING` and must not become a ninth `withTx` (PLAN resolution #4) — the same
- * cast, for the same reason, as `reviewers.ts#asOutboxWriter`.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
+const TEMPLATES: Record<AdminAuthTemplateKey, {
+  subject: string;
+  intro: string;
+  action: string;
+  outro: string;
+}> = {
+  admin_email_verification: {
+    subject: "Confirm your email for Openboard",
+    intro: "Confirm this address to finish setting up your Openboard account.",
+    action: "Confirm your email",
+    outro: "If you did not create this account, you can ignore this email.",
+  },
+  admin_password_reset: {
+    subject: "Reset your Openboard password",
+    intro: "Someone asked to reset the password for your Openboard account.",
+    action: "Choose a new password",
+    outro: "If this was not you, you can ignore this email — your password has not changed.",
+  },
+};
+
+function requiredSecret(env: RuntimeEnv): string {
+  if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth mail");
+  return env.SESSION_SECRET;
 }
 
-/**
- * The event an admin's auth mail is sent "from".
- *
- * Deterministic by construction — oldest membership, then event id — so a retry
- * picks the same event and therefore the same contact and the same idempotency
- * key. Ordering by anything role-dependent would let a role change silently
- * move an organizer's reset mail to a different event.
- */
-async function homeEventId(dbOrTx: DbOrTx, userId: UserId): Promise<EventId | null> {
-  const [membership] = await dbOrTx.select({ eventId: eventMembers.eventId })
-    .from(eventMembers)
-    .where(eq(eventMembers.userId, userId))
-    .orderBy(asc(eventMembers.createdAt), asc(eventMembers.eventId))
-    .limit(1);
-  return (membership?.eventId as EventId | undefined) ?? null;
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function allowlisted(email: string, env: RuntimeEnv): boolean {
+  if (env.EMAIL_MODE !== "send" || !env.EMAIL_ALLOWLIST) return true;
+  const normalized = email.toLowerCase();
+  return env.EMAIL_ALLOWLIST.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean)
+    .some((entry) => entry.startsWith("@") ? normalized.endsWith(entry) : normalized === entry);
+}
+
+function render(row: OutboxRow, url: string, expiresIn: string): { subject: string; html: string; text: string } {
+  const template = TEMPLATES[row.templateKey as AdminAuthTemplateKey];
+  if (!template) throw new AppError("VALIDATION", "Unsupported admin auth email template");
+  const name = row.recipientName.trim();
+  const greeting = name ? `<p>Hi ${escapeHtml(name)},</p>` : "<p>Hi,</p>";
+  const body = `${greeting}<p>${template.intro}</p><p><a href="${escapeHtml(url)}">${template.action}</a>. The link expires in ${escapeHtml(expiresIn)}.</p><p>${template.outro}</p>`;
+  const html = emailLayout(body, row.templateKey as AdminAuthTemplateKey, { eventName: "Openboard" });
+  const text = `${name ? `Hi ${name},\n\n` : "Hi,\n\n"}${template.intro}\n\n${template.action}: ${url}\nThis link expires in ${expiresIn}.\n\n${template.outro}\n\nOpenboard`;
+  return { subject: template.subject, html, text };
+}
+
+function redactCredentials(value: string): string {
+  return value.replace(/([?&](?:amp;)?token=)[^"'&\s<]+/giu, "$1[redacted]");
 }
 
 export async function sendAdminAuthEmailIn(
@@ -63,42 +76,219 @@ export async function sendAdminAuthEmailIn(
     expiresIn: string;
   },
   env: RuntimeEnv = getEnv(),
-): Promise<{ queued: boolean }> {
-  const eventId = await homeEventId(dbOrTx, args.userId);
-  if (!eventId) {
-    // An account with no `event_members` row has no event to send from and no
-    // admin surface to sign in to, so there is nothing useful to deliver. Log
-    // it and return quietly: Better Auth's forgot-password endpoint answers
-    // identically whether or not an address exists, and throwing here would
-    // turn that into an account-enumeration oracle.
-    log({ level: "warn", msg: "admin auth email skipped: no event membership", requestId: args.userId, feature: "auth", code: args.templateKey });
-    return { queued: false };
-  }
-
-  const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), eventId, args.email.trim().toLowerCase());
-  const linkId = crypto.randomUUID();
-  const idempotencyKey = idem.adminAuthLink(eventId, args.templateKey, args.userId, linkId);
-  const secretPayloadCiphertext = await sealAdminLinkPayload(
+): Promise<{ queued: true; messageId: string }> {
+  const messageId = crypto.randomUUID();
+  const secretPayloadCiphertext = await sealPlatformAdminLinkPayload(
     { url: args.url, expiresIn: args.expiresIn },
-    { eventId, contactId, linkId },
+    { userId: args.userId, messageId },
     requiredSecret(env),
   );
-
-  await enqueueEmail(asOutboxWriter(dbOrTx), {
-    eventId,
+  await dbOrTx.insert(adminAuthEmailOutbox).values({
+    id: messageId,
+    userId: args.userId,
+    recipientEmail: args.email.trim().toLowerCase(),
+    recipientName: args.name.trim(),
     templateKey: args.templateKey,
-    contactId,
-    idempotencyKey,
+    idempotencyKey: `admin-auth:${args.templateKey}:${args.userId}:${messageId}`,
     secretPayloadCiphertext,
   });
-  return { queued: true };
-}
-
-function requiredSecret(env: RuntimeEnv): string {
-  const secret = env.SESSION_SECRET;
-  if (!secret) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth mail");
-  return secret;
+  return { queued: true, messageId };
 }
 
 export const sendAdminAuthEmail = (args: Parameters<typeof sendAdminAuthEmailIn>[1], env?: RuntimeEnv) =>
   sendAdminAuthEmailIn(db, args, env ?? getEnv());
+
+function emptyStats(): AdminAuthOutboxStats {
+  return { claimed: 0, sent: 0, skipped: 0, failed: 0, retried: 0 };
+}
+
+async function claimRows(dbOrTx: DbOrTx, requestedBudget: number): Promise<OutboxRow[]> {
+  const budget = Number.isFinite(requestedBudget) ? Math.min(Math.max(Math.trunc(requestedBudget), 1), 50) : 50;
+  const candidates = dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
+    eq(adminAuthEmailOutbox.status, "queued"),
+    lte(adminAuthEmailOutbox.nextAttemptAt, sql`now()`),
+    or(isNull(adminAuthEmailOutbox.lockedUntil), lt(adminAuthEmailOutbox.lockedUntil, sql`now()`)),
+  )).orderBy(asc(adminAuthEmailOutbox.createdAt), asc(adminAuthEmailOutbox.id)).limit(budget).for("update", { skipLocked: true });
+  return dbOrTx.update(adminAuthEmailOutbox).set({
+    lockedUntil: sql`now() + interval '3 minutes'`,
+    attempts: sql`${adminAuthEmailOutbox.attempts} + 1`,
+  }).where(inArray(adminAuthEmailOutbox.id, candidates)).returning();
+}
+
+function errorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+}
+
+function terminal(row: OutboxRow, error: unknown): boolean {
+  if (row.attempts >= 6) return true;
+  if (isAppError(error) && error.code === "VALIDATION") return true;
+  return errorMessage(error).includes("email sending is not configured");
+}
+
+async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<"failed" | "retried"> {
+  const isTerminal = terminal(row, error);
+  const delayMinutes = Math.min(2 ** row.attempts, 60);
+  await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: isTerminal ? "failed" : "queued",
+    error: errorMessage(error),
+    lockedUntil: null,
+    ...(isTerminal
+      ? { secretPayloadCiphertext: null }
+      : { nextAttemptAt: sql`now() + ${delayMinutes} * interval '1 minute'` }),
+  }).where(eq(adminAuthEmailOutbox.id, row.id));
+  return isTerminal ? "failed" : "retried";
+}
+
+async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: Sender): Promise<"sent" | "skipped"> {
+  const [suppressed] = await dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
+    eq(adminAuthEmailOutbox.recipientEmail, row.recipientEmail),
+    inArray(adminAuthEmailOutbox.status, ["bounced", "complained"]),
+  )).limit(1);
+  if (suppressed) {
+    await dbOrTx.update(adminAuthEmailOutbox).set({
+      status: "skipped",
+      error: "recipient suppressed after bounce or complaint",
+      lockedUntil: null,
+      secretPayloadCiphertext: null,
+    }).where(eq(adminAuthEmailOutbox.id, row.id));
+    return "skipped";
+  }
+  if (!allowlisted(row.recipientEmail, env)) {
+    await dbOrTx.update(adminAuthEmailOutbox).set({
+      status: "skipped",
+      error: "not in EMAIL_ALLOWLIST",
+      lockedUntil: null,
+      secretPayloadCiphertext: null,
+    }).where(eq(adminAuthEmailOutbox.id, row.id));
+    return "skipped";
+  }
+  if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "Admin auth link payload is missing");
+  const payload = await openPlatformAdminLinkPayload(
+    row.secretPayloadCiphertext,
+    { userId: row.userId as UserId, messageId: row.id },
+    requiredSecret(env),
+  );
+  const rendered = render(row, payload.url, payload.expiresIn);
+  const keepCredential = env.APP_ENV !== "production" && env.EMAIL_MODE === "log" && env.EMAIL_FALLBACK_UI === "1";
+  await dbOrTx.update(adminAuthEmailOutbox).set({
+    subjectRendered: rendered.subject,
+    bodyRenderedHtml: keepCredential ? rendered.html : redactCredentials(rendered.html),
+  }).where(eq(adminAuthEmailOutbox.id, row.id));
+
+  let providerMessageId = "log-mode";
+  if (env.EMAIL_MODE === "send") {
+    if (!env.RESEND_API_KEY || !env.EMAIL_FROM) throw new Error("email sending is not configured");
+    const apiKey = env.RESEND_API_KEY;
+    const from = env.EMAIL_FROM;
+    providerMessageId = await sender({
+      apiKey,
+      from,
+      to: row.recipientEmail,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      idempotencyKey: row.idempotencyKey,
+    });
+  }
+  await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: "sent",
+    providerMessageId,
+    sentAt: sql`now()`,
+    error: null,
+    lockedUntil: null,
+    secretPayloadCiphertext: null,
+  }).where(eq(adminAuthEmailOutbox.id, row.id));
+  return "sent";
+}
+
+export async function dispatchAdminAuthEmailOutboxIn(
+  dbOrTx: DbOrTx,
+  budget = 50,
+  options?: { env?: RuntimeEnv; sender?: Sender },
+): Promise<AdminAuthOutboxStats> {
+  const env = options?.env ?? getEnv();
+  const sender = options?.sender ?? ((message: EmailMessage) => sendViaResend(message));
+  const rows = await claimRows(dbOrTx, budget);
+  const stats = emptyStats();
+  stats.claimed = rows.length;
+  for (const row of rows) {
+    try {
+      const outcome = await deliver(dbOrTx, row, env, sender);
+      stats[outcome] += 1;
+    } catch (error) {
+      const outcome = await failRow(dbOrTx, row, error);
+      stats[outcome] += 1;
+    }
+  }
+  return stats;
+}
+
+export function dispatchAdminAuthEmailOutbox(budget = 50): Promise<AdminAuthOutboxStats> {
+  return dispatchAdminAuthEmailOutboxIn(db, budget);
+}
+
+/** The same explicit local/preview escape hatch as speaker portal login. */
+export async function getAdminAuthFallbackLinkIn(
+  dbOrTx: DbOrTx,
+  email: string,
+  env: RuntimeEnv = getEnv(),
+): Promise<string | null> {
+  if (env.APP_ENV === "production" || env.EMAIL_MODE !== "log" || env.EMAIL_FALLBACK_UI !== "1") return null;
+  const [row] = await dbOrTx.select().from(adminAuthEmailOutbox).where(and(
+    eq(adminAuthEmailOutbox.recipientEmail, email.trim().toLowerCase()),
+    eq(adminAuthEmailOutbox.templateKey, "admin_email_verification"),
+  )).orderBy(desc(adminAuthEmailOutbox.createdAt), desc(adminAuthEmailOutbox.id)).limit(1);
+  if (!row) return null;
+  if (row.secretPayloadCiphertext) {
+    const payload = await openPlatformAdminLinkPayload(
+      row.secretPayloadCiphertext,
+      { userId: row.userId as UserId, messageId: row.id },
+      requiredSecret(env),
+    );
+    return payload.url;
+  }
+  const href = /<a\s+href="([^"]+)"/iu.exec(row.bodyRenderedHtml ?? "")?.[1];
+  if (!href) return null;
+  const decoded = href.replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&#39;", "'");
+  try {
+    const url = new URL(decoded);
+    return url.searchParams.has("token") ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminAuthFallbackLink(email: string): Promise<string | null> {
+  return getAdminAuthFallbackLinkIn(db, email);
+}
+
+/** Provider bounce/complaint target for product-level auth messages. */
+export async function recordAdminAuthEmailSuppressionIn(
+  dbOrTx: DbOrTx,
+  args: { providerMessageId: string; reason: "bounce" | "complaint" },
+): Promise<boolean> {
+  const [updated] = await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: args.reason === "bounce" ? "bounced" : "complained",
+  }).where(and(
+    eq(adminAuthEmailOutbox.providerMessageId, args.providerMessageId),
+    eq(adminAuthEmailOutbox.status, "sent"),
+  )).returning();
+  return Boolean(updated);
+}
+
+export function recordAdminAuthEmailSuppression(args: { providerMessageId: string; reason: "bounce" | "complaint" }): Promise<boolean> {
+  return recordAdminAuthEmailSuppressionIn(db, args);
+}
+
+/** Best-effort latency polish; the scheduled outbox job remains the guarantee. */
+export function nudgeAdminAuthEmailOutbox(waitUntil: (promise: Promise<unknown>) => void): void {
+  const drain = dispatchAdminAuthEmailOutbox(10).catch((error: unknown) => {
+    log({ level: "warn", msg: `admin auth outbox nudge failed: ${errorMessage(error)}`, requestId: "-", feature: "auth" });
+  });
+  try {
+    waitUntil(drain);
+  } catch {
+    // No Cloudflare execution context in tests/next dev; the promise is
+    // already running and the scheduled job recovers it if the process ends.
+  }
+}

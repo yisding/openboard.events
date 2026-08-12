@@ -155,6 +155,13 @@
       "when": 1786249140000,
       "tag": "0021_onboarding_progress",
       "breakpoints": false
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786508400000,
+      "tag": "0022_admin_auth_email_outbox",
+      "breakpoints": false
     }
   ]
 }

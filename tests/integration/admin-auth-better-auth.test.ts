@@ -5,13 +5,14 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminSessions, adminVerifications, eventMembers, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER } from "@/features/auth/signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "@/features/auth/server/admin-password";
 import { upsertCredentialAccount } from "@/features/auth/server/credential-account";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
+import { getAdminAuthFallbackLinkIn } from "@/features/auth/server/admin-mail";
 import {
   createOrganizationIn,
   getOrganizationMemberRoleIn,
@@ -49,7 +50,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -99,6 +100,12 @@ describe("M42 admin auth on Better Auth", () => {
     // Now upgrade the populated database, exactly as the deployed branches will.
     await apply(M42_MIGRATION);
     for (const name of POST_M42_MIGRATIONS) await apply(name);
+
+    // These are accounts that predate this activation slice. The tests below
+    // exercise session/rehash behavior rather than activation, so treat their
+    // already-established addresses as verified; the new self-serve account
+    // created later remains false and proves the new gate end to end.
+    await pglite.query("UPDATE users SET email_verified=true WHERE id IN ($1,$2,$3)", [legacyUser, modernUser, reviewerUser]);
 
     database = drizzle(pglite, { schema }) as unknown as typeof RepositoryDb;
     auth = buildAdminAuth(env, { database });
@@ -262,7 +269,7 @@ describe("M42 admin auth on Better Auth", () => {
   // covered in depth by `tests/integration/user-management.test.ts`; this
   // case only pins that the endpoint itself now succeeds and that the
   // account it creates is real, on this same Better Auth instance.
-  it("opens self-serve signup (M44) — the account is created and can sign in", async () => {
+  it("creates a self-serve account without a session, blocks sign-in, then activates it by email", async () => {
     const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
@@ -271,7 +278,54 @@ describe("M42 admin auth on Better Auth", () => {
     expect(response.ok).toBe(true);
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
+    expect(stranger?.emailVerified).toBe(false);
+    await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(403);
+    expect(await database.select().from(adminSessions).where(eq(adminSessions.userId, stranger?.id ?? ""))).toHaveLength(0);
+
+    let queued = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
+    expect(queued).toHaveLength(1);
+
+    const resent = await auth.handler(new Request("http://localhost:3000/api/auth/send-verification-email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email: "stranger@example.com",
+        callbackURL: "/signup/verified?confirmed=1&next=%2Forganizations",
+      }),
+    }));
+    expect(resent.ok).toBe(true);
+    queued = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
+    expect(queued).toHaveLength(2);
+    const link = await getAdminAuthFallbackLinkIn(database, "stranger@example.com", env);
+    if (!link) throw new Error("expected a local verification link");
+    expect(new URL(link).searchParams.get("callbackURL")).toBe("/signup/verified?confirmed=1&next=%2Forganizations");
+    const verified = await auth.handler(new Request(link));
+    expect(verified.status).toBe(302);
+    expect((await database.select({ emailVerified: users.emailVerified }).from(users).where(eq(users.id, stranger?.id ?? "")))[0]?.emailVerified).toBe(true);
     await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(200);
+  });
+
+  it("queues password recovery for an eventless account without revealing whether an address exists", async () => {
+    const requestReset = (email: string) => auth.handler(new Request("http://localhost:3000/api/auth/request-password-reset", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({ email }),
+    }));
+    const before = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.templateKey, "admin_password_reset"));
+
+    const existing = await requestReset("stranger@example.com");
+    const unknown = await requestReset("nobody@example.com");
+    expect(existing.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    await expect(existing.clone().json()).resolves.toEqual(await unknown.clone().json());
+
+    const after = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.templateKey, "admin_password_reset"));
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)).toMatchObject({ recipientEmail: "stranger@example.com", status: "queued" });
   });
 
   it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {

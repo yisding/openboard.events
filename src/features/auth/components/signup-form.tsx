@@ -5,16 +5,14 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
-import { signupWithImmediateSignIn } from "../signup-request";
+import { signupAndAwaitVerification } from "../signup-request";
 
 /**
  * M44 — self-serve signup. Posts straight to Better Auth's own
  * `/api/auth/sign-up/email` (forwarded transparently by the catch-all route,
- * the same way `ResetPasswordForm` posts to `/api/auth/reset-password`), then
- * signs in with the same credentials through the stable `/api/auth/sign-in`
- * envelope `LoginForm` uses — `emailAndPassword.autoSignIn` stays `false`
- * (DECISIONS.md's M42 guardrails), so this is what turns a successful signup
- * into an established session without touching that setting.
+ * the same way `ResetPasswordForm` posts to `/api/auth/reset-password`). The
+ * account remains sessionless until its product-level confirmation email is
+ * used; the successful response advances to an explicit check-inbox state.
  *
  * The account that lands here already has an organization: the Better Auth
  * `databaseHooks.user.create.after` hook provisions one or, when the user
@@ -47,7 +45,7 @@ export function SignupForm() {
     const name = String(data.get("name") ?? "");
     const organizationName = String(data.get("organizationName") ?? "");
     try {
-      const transition = await signupWithImmediateSignIn({
+      const transition = await signupAndAwaitVerification({
         email,
         password,
         name,
