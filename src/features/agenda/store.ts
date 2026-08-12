@@ -65,7 +65,6 @@ export function defaultScheduledRange(
   const requestedDurationMs = Number.isFinite(preferredDurationMs) && preferredDurationMs > 0
     ? preferredDurationMs
     : 30 * 60_000;
-  const durationMs = Math.min(requestedDurationMs, availableMs);
   const validDays = eventDayKeys(event.startsAt, event.endsAt, event.timezone);
 
   let candidateStartMs = eventStartMs;
@@ -75,8 +74,15 @@ export function defaultScheduledRange(
     candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
   }
 
-  const latestStartMs = eventEndMs - durationMs;
-  const startsAtMs = Math.min(Math.max(candidateStartMs, eventStartMs), latestStartMs);
+  let startsAtMs = Math.max(candidateStartMs, eventStartMs);
+  // Keep the selected-day start whenever any event time remains after it. A
+  // partial final day shortens the session instead of pulling it earlier than
+  // the time the organizer selected. Only a candidate at/after the event end
+  // needs the latest valid fallback because it has no positive interval left.
+  if (startsAtMs >= eventEndMs) {
+    startsAtMs = eventEndMs - Math.min(requestedDurationMs, availableMs);
+  }
+  const durationMs = Math.min(requestedDurationMs, eventEndMs - startsAtMs);
   return {
     startsAt: new Date(startsAtMs).toISOString(),
     endsAt: new Date(startsAtMs + durationMs).toISOString(),

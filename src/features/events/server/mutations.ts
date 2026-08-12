@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { emailTemplates, eventMembers, events, sessionFormats } from "@/db/schema";
+import { emailTemplates, eventMembers, events, sessionFormats, sessions } from "@/db/schema";
 import { seedDefaultTemplates } from "@/features/comms";
 import { eventIdSchema, type EventDTO, type EventId, type OrganizationId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -233,6 +233,16 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
     throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
   }
 
+  // Keep the inverse of the agenda write invariant in the same event UPDATE:
+  // changing event bounds cannot strand a session that is already scheduled.
+  // Unscheduled rows have both times NULL and are intentionally ignored.
+  const scheduledSessionsFit = bundlesDates ? sql`NOT EXISTS (
+    SELECT 1 FROM ${sessions}
+    WHERE ${sessions.eventId} = ${eventId}
+      AND ${sessions.startsAt} IS NOT NULL
+      AND (${sessions.startsAt} < ${effectiveStartsAt} OR ${sessions.endsAt} > ${effectiveEndsAt})
+  )` : sql`true`;
+
   let updated;
   try {
     // Every column is re-stated from `patch` or `current` in one object
@@ -256,13 +266,42 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
         rowVersion: sql`${events.rowVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(and(eq(events.id, eventId), eq(events.rowVersion, expectedRowVersion)))
+      .where(and(eq(events.id, eventId), eq(events.rowVersion, expectedRowVersion), scheduledSessionsFit))
       .returning();
   } catch (error) {
     if (isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
     throw error;
   }
-  if (!updated) throw new AppError("STALE_WRITE", "This event changed since you loaded it. Refresh to see the latest.");
+  if (!updated) {
+    // Preserve optimistic-concurrency precedence: if the event changed, this
+    // is stale even when the proposed bounds would also reject a session.
+    const [latest] = await dbOrTx.select({ rowVersion: events.rowVersion })
+      .from(events)
+      .where(eq(events.id, eventId))
+      .limit(1);
+    if (!latest) throw new AppError("NOT_FOUND", "Event not found");
+    if (latest.rowVersion !== expectedRowVersion) {
+      throw new AppError("STALE_WRITE", "This event changed since you loaded it. Refresh to see the latest.");
+    }
+    if (bundlesDates) {
+      const [stranded] = await dbOrTx.select({ id: sessions.id })
+        .from(sessions)
+        .where(and(
+          eq(sessions.eventId, eventId),
+          isNotNull(sessions.startsAt),
+          or(lt(sessions.startsAt, effectiveStartsAt), gt(sessions.endsAt, effectiveEndsAt)),
+        ))
+        .limit(1);
+      if (stranded) {
+        throw new AppError(
+          "VALIDATION",
+          "These dates would leave scheduled sessions outside the event. Move or unschedule them first.",
+          { field: "startsAt" },
+        );
+      }
+    }
+    throw new AppError("STALE_WRITE", "This event changed since you loaded it. Refresh to see the latest.");
+  }
   return getEventIn(dbOrTx, eventId) as Promise<EventDTO>;
 }
 export const updateEvent = (eventId: EventId, patch: UpdateEventInput, expectedRowVersion: number): Promise<EventDTO> =>

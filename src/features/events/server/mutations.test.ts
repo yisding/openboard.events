@@ -218,6 +218,77 @@ describe("database-backed event mutations", () => {
     }, event.rowVersion))).toBe("VALIDATION");
   });
 
+  it.each([
+    {
+      label: "start",
+      startsAt: "2026-09-15T17:30:00.000Z",
+      endsAt: "2026-09-17T01:00:00.000Z",
+    },
+    {
+      label: "end",
+      startsAt: "2026-09-15T16:00:00.000Z",
+      endsAt: "2026-09-15T17:30:00.000Z",
+    },
+  ])("rejects a $label bound that would strand a scheduled session without changing either row", async ({ label, startsAt, endsAt }) => {
+    const event = await createEventIn(database, actorUserId, baseInput({
+      name: `Stranded ${label} Conf`,
+      slug: `stranded-${label}-conf`,
+    }));
+    const [session] = await database.insert(schema.sessions).values({
+      eventId: event.id,
+      title: "Scheduled talk",
+      slug: "scheduled-talk",
+      startsAt: new Date("2026-09-15T17:00:00.000Z"),
+      endsAt: new Date("2026-09-15T18:00:00.000Z"),
+    }).returning();
+    if (!session) throw new Error("expected a scheduled session fixture");
+
+    const failure = await updateEventIn(database, event.id, {
+      startsAt,
+      endsAt,
+      timezone: "America/Los_Angeles",
+    }, event.rowVersion).catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      code: "VALIDATION",
+      message: "These dates would leave scheduled sessions outside the event. Move or unschedule them first.",
+    });
+
+    const unchangedEvent = await getEventIn(database, event.id);
+    expect(unchangedEvent).toMatchObject({
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      rowVersion: event.rowVersion,
+    });
+    const [unchangedSession] = await database.select().from(schema.sessions).where(eq(schema.sessions.id, session.id));
+    expect(unchangedSession).toMatchObject({
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      rowVersion: session.rowVersion,
+    });
+  });
+
+  it("allows event bounds exactly matching the earliest start and latest end", async () => {
+    const event = await createEventIn(database, actorUserId, baseInput({ name: "Exact Bounds Conf", slug: "exact-bounds-conf" }));
+    await database.insert(schema.sessions).values({
+      eventId: event.id,
+      title: "Boundary talk",
+      slug: "boundary-talk",
+      startsAt: new Date("2026-09-15T17:00:00.000Z"),
+      endsAt: new Date("2026-09-15T18:00:00.000Z"),
+    });
+
+    const updated = await updateEventIn(database, event.id, {
+      startsAt: "2026-09-15T17:00:00.000Z",
+      endsAt: "2026-09-15T18:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    }, event.rowVersion);
+    expect(updated).toMatchObject({
+      startsAt: "2026-09-15T17:00:00.000Z",
+      endsAt: "2026-09-15T18:00:00.000Z",
+      rowVersion: event.rowVersion + 1,
+    });
+  });
+
   it("round-trips vocabulary create, duplicate-name rejection, update, delete and whole-list reorder", async () => {
     const event = await createEventIn(database, actorUserId, baseInput({ name: "Vocab Conf", slug: "vocab-conf" }));
 

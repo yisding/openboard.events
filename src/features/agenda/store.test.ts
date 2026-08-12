@@ -25,4 +25,15 @@ describe("defaultScheduledRange", () => {
       endsAt: "2026-10-03T20:20:00.000Z",
     });
   });
+
+  it("keeps the selected start and shortens the duration on a partial final day", () => {
+    expect(defaultScheduledRange({
+      timezone: "America/Los_Angeles",
+      startsAt: "2026-09-15T16:00:00.000Z",
+      endsAt: "2026-09-16T16:10:00.000Z",
+    }, "2026-09-16", 30 * 60_000)).toEqual({
+      startsAt: "2026-09-16T16:00:00.000Z",
+      endsAt: "2026-09-16T16:10:00.000Z",
+    });
+  });
 });
