@@ -108,6 +108,19 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
         if: steps.freshness.outputs.current == 'true'
+      - name: Derive seeded smoke fixture ids
+        if: steps.freshness.outputs.current == 'true'
+        # Seeded ids are deterministic uuidv5 values, so the fixtures the smoke
+        # test asserts against are derived from the seed source at deploy time.
+        # An environment that sets its own SMOKE_* variable still wins — the
+        # derivation only fills ids the environment left empty.
+        run: |
+          while IFS='=' read -r name value; do
+            if [[ "$name" == SMOKE_* && -n "$value" && -z "${!name:-}" ]]; then
+              echo "$name=$value" >> "$GITHUB_ENV"
+              echo "::notice::derived $name=$value from the seed source"
+            fi
+          done < <(pnpm --silent smoke:fixture-ids)
       - name: Validate protected deployment inputs
         if: steps.freshness.outputs.current == 'true'
         run: |
