@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, SubmissionDetailDTO } from "@/shared/contracts";
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { nextUnscored } from "../queue";
@@ -24,6 +26,14 @@ import type { PlanDTO, ReviewQueueRow } from "../types";
  */
 
 type Draft = { values: CriterionValues; overall: number | null; comment: string };
+
+export function isReviewDraftDirty(draft: Draft, saved: Draft) {
+  if (draft.overall !== saved.overall || draft.comment !== saved.comment) return true;
+  const canonicalValues = (values: CriterionValues) => Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, value]) => [id, value]);
+  return JSON.stringify(canonicalValues(draft.values)) !== JSON.stringify(canonicalValues(saved.values));
+}
 
 function draftFrom(row: ReviewQueueRow | undefined): Draft {
   return {
@@ -102,13 +112,18 @@ export function ReviewQueueView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const { allowNextNavigation } = useGuardedAction();
   const [activeId, setActiveId] = useState(rows[0]?.submissionId ?? "");
   const [detail, setDetail] = useState<SubmissionDetailDTO | null>(null);
   const [detailError, setDetailError] = useState("");
   const [draft, setDraft] = useState<Draft>(() => draftFrom(rows[0]));
+  const [savedDraft, setSavedDraft] = useState<Draft>(() => draftFrom(rows[0]));
   const [saving, setSaving] = useState(false);
   const [recusing, setRecusing] = useState(false);
   const [recusalReason, setRecusalReason] = useState("");
+  const [pendingNavigation, setPendingNavigation] = useState<
+    { kind: "submission"; id: string } | { kind: "round"; id: string } | null
+  >(null);
 
   const active = useMemo(() => rows.find((row) => row.submissionId === activeId), [rows, activeId]);
   const specs = useMemo(() => plan ? specsOf(plan) : [], [plan]);
@@ -118,12 +133,47 @@ export function ReviewQueueView({
   );
   const canSave = reviewWindow?.canSave ?? false;
 
-  const open = useCallback((submissionId: string) => {
+  const openNow = useCallback((submissionId: string) => {
+    const nextDraft = draftFrom(rows.find((row) => row.submissionId === submissionId));
     setActiveId(submissionId);
-    setDraft(draftFrom(rows.find((row) => row.submissionId === submissionId)));
+    setDraft(nextDraft);
+    setSavedDraft(nextDraft);
     setRecusing(false);
     setRecusalReason("");
   }, [rows]);
+
+  const draftDirty = isReviewDraftDirty(draft, savedDraft);
+  const hasUnsavedWork = draftDirty || recusalReason.trim() !== "";
+  useUnsavedWorkGuard(hasUnsavedWork);
+
+  const requestOpen = useCallback((submissionId: string) => {
+    if (saving || submissionId === activeId) return;
+    if (hasUnsavedWork) {
+      setPendingNavigation({ kind: "submission", id: submissionId });
+      return;
+    }
+    openNow(submissionId);
+  }, [saving, activeId, hasUnsavedWork, openNow]);
+
+  const requestRound = useCallback((planId: string) => {
+    if (saving || planId === plan?.id) return;
+    if (hasUnsavedWork) {
+      setPendingNavigation({ kind: "round", id: planId });
+      return;
+    }
+    router.push(`?planId=${planId}`);
+  }, [saving, plan?.id, hasUnsavedWork, router]);
+
+  const discardAndNavigate = useCallback(() => {
+    if (!pendingNavigation) return;
+    const destination = pendingNavigation;
+    setPendingNavigation(null);
+    if (destination.kind === "submission") openNow(destination.id);
+    else {
+      allowNextNavigation();
+      router.push(`?planId=${destination.id}`);
+    }
+  }, [pendingNavigation, openNow, router, allowNextNavigation]);
 
   const setValue = useCallback((criterionId: string, value: CriterionValue | undefined) => {
     setDraft((current) => {
@@ -179,15 +229,16 @@ export function ReviewQueueView({
           ? `${formatCode(active.code)} submitted — this round's answers do not produce a score`
           : `${formatCode(active.code)} scored ${payload.data.overallScore}`);
 
+      setSavedDraft(draft);
       const next = nextUnscored(rows, active.submissionId);
-      if (next) open(next.submissionId);
+      if (next) openNow(next.submissionId);
       router.refresh();
     } catch {
       toast("Could not reach the server. Your review was not saved.", { kind: "error" });
     } finally {
       setSaving(false);
     }
-  }, [plan, active, eventId, draft, rows, open, router, toast]);
+  }, [plan, active, eventId, draft, rows, openNow, router, toast]);
 
   const recuse = useCallback(async () => {
     if (!plan || !active || recusalReason.trim() === "") return;
@@ -225,7 +276,7 @@ export function ReviewQueueView({
       if (event.key === "n") {
         const index = rows.findIndex((row) => row.submissionId === active.submissionId);
         const next = rows[index + 1];
-        if (next) open(next.submissionId);
+        if (next) requestOpen(next.submissionId);
         return;
       }
       const value = Number(event.key);
@@ -244,7 +295,7 @@ export function ReviewQueueView({
     }
     globalThis.addEventListener("keydown", onKey);
     return () => globalThis.removeEventListener("keydown", onKey);
-  }, [plan, active, rows, scale, open]);
+  }, [plan, active, rows, scale, requestOpen]);
 
   if (!plan) {
     return (
@@ -268,7 +319,8 @@ export function ReviewQueueView({
       <Field label="Round">
         <Select
           value={plan.id}
-          onChange={(event) => router.push(`?planId=${event.target.value}`)}
+          disabled={saving}
+          onChange={(event) => requestRound(event.target.value)}
           aria-label="Review round"
         >
           {plans.map((option) => (
@@ -333,7 +385,8 @@ export function ReviewQueueView({
                   key={row.submissionId}
                   type="button"
                   className={row.submissionId === activeId ? "active" : ""}
-                  onClick={() => open(row.submissionId)}
+                  disabled={saving}
+                  onClick={() => requestOpen(row.submissionId)}
                 >
                   <div>
                     <span>{formatCode(row.code)}</span>
@@ -492,7 +545,7 @@ export function ReviewQueueView({
                     />
                     <span className="row-actions">
                       <Button size="sm" disabled={saving || recusalReason.trim() === ""} onClick={recuse}>Confirm recusal</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setRecusing(false)}>Cancel</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setRecusing(false); setRecusalReason(""); }}>Cancel</Button>
                     </span>
                   </Field>
                 ) : (
@@ -507,6 +560,14 @@ export function ReviewQueueView({
           )}
         </section>
       )}
+      <ConfirmDialog
+        open={pendingNavigation !== null}
+        title="Discard this unsaved review?"
+        body="Your unsaved score, notes, or recusal reason will be lost if you leave this proposal."
+        confirmLabel="Discard and continue"
+        onConfirm={discardAndNavigate}
+        onCancel={() => setPendingNavigation(null)}
+      />
     </main>
   );
 }

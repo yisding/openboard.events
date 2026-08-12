@@ -177,6 +177,8 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   | `R2_ACCESS_KEY_ID` | preview bucket credential |
   | `R2_SECRET_ACCESS_KEY` | preview bucket credential |
   | `RESEND_API_KEY` | domain-scoped sending key (preview runs `EMAIL_MODE=send` behind a one-address allowlist since #50) |
+  | `GOOGLE_CLIENT_ID` | Google OAuth web-client identifier |
+  | `GOOGLE_CLIENT_SECRET` | Google OAuth web-client secret |
 
   ```bash
   pnpm exec wrangler secret put DATABASE_URL --env preview
@@ -188,6 +190,8 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   pnpm exec wrangler secret put R2_ACCESS_KEY_ID --env preview
   pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --env preview
   pnpm exec wrangler secret put RESEND_API_KEY --env preview
+  pnpm exec wrangler secret put GOOGLE_CLIENT_ID --env preview
+  pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --env preview
   ```
 
 - [ ] Redeploy the preview web Worker after the complete inventory exists:
@@ -331,6 +335,8 @@ Production web secrets are:
 | `R2_ACCESS_KEY_ID` | yes |
 | `R2_SECRET_ACCESS_KEY` | yes |
 | `RESEND_API_KEY` | yes |
+| `GOOGLE_CLIENT_ID` | yes |
+| `GOOGLE_CLIENT_SECRET` | yes |
 | `AIRTABLE_API_KEY` | only if the deferred M39 integration is enabled |
 
 `pnpm deploy:preflight web|jobs preview|production` compares this inventory with Cloudflare's
