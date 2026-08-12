@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { safeInternalPath } from "../safe-next";
-import { invitationTokenFromNextPath, SIGNUP_ORGANIZATION_HEADER, signupDestination } from "../signup-context";
+import { invitationTokenFromNextPath } from "../signup-context";
+import { signupWithImmediateSignIn } from "../signup-request";
 
 /**
  * M44 — self-serve signup. Posts straight to Better Auth's own
@@ -46,32 +47,20 @@ export function SignupForm() {
     const name = String(data.get("name") ?? "");
     const organizationName = String(data.get("organizationName") ?? "");
     try {
-      const signedUp = await fetch("/api/auth/sign-up/email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          ...(invitationToken ? { invitationToken } : { organizationName }),
-        }),
+      const transition = await signupWithImmediateSignIn({
+        email,
+        password,
+        name,
+        organizationName,
+        invitationToken,
+        next,
       });
-      if (!signedUp.ok) {
-        const body = await signedUp.json().catch(() => null) as { message?: string } | null;
-        setError(body?.message || "Could not create that account");
+      if ("error" in transition) {
+        setError(transition.error);
         return;
       }
-      const signedIn = await fetch("/api/auth/sign-in", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!signedIn.ok) {
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
-        return;
-      }
-      router.replace(signupDestination(next, signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER)));
-      router.refresh();
+      router.replace(transition.destination);
+      if (transition.refresh) router.refresh();
     } catch {
       setError("Signup is temporarily unavailable");
     } finally {
