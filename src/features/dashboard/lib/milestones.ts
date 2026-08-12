@@ -18,7 +18,7 @@ export type MilestoneId = "first_submission" | "cfp_closed" | "decisions_sent" |
 
 export type Milestone = { id: MilestoneId; title: string; detail: string; href: string };
 
-type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis" | "recentSubmissions">;
+type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis" | "latestCfpSubmission">;
 
 export function computeMilestones(overview: MilestoneInput): Milestone[] {
   const milestones: Milestone[] = [];
@@ -27,18 +27,16 @@ export function computeMilestones(overview: MilestoneInput): Milestone[] {
   // The launch guide disappears as soon as a real proposal arrives. Replace
   // it with a positive handoff instead of making the page jump straight from
   // “share your link” to routine dashboard widgets with no acknowledgment.
-  if (overview.kpis.submissions > 0) {
-    const latest = overview.recentSubmissions[0];
-    const detail = overview.kpis.submissions === 1 && latest
-      ? `“${latest.title}” is ready for review.`
-      : latest
-        ? `${overview.kpis.submissions} submissions received. Open the latest proposal.`
-        : `${overview.kpis.submissions} submissions received. Open submissions to start reviewing.`;
+  if (overview.latestCfpSubmission) {
+    const formSubmissionCount = overview.forms.reduce((sum, form) => sum + form.submitted, 0);
+    const detail = formSubmissionCount === 1
+      ? `“${overview.latestCfpSubmission.title}” is ready for review.`
+      : `${formSubmissionCount} submissions received. Open the latest proposal.`;
     milestones.push({
       id: "first_submission",
       title: "Your first submission arrived",
       detail,
-      href: latest ? `${base}/abstracts?submission=${encodeURIComponent(latest.id)}` : `${base}/abstracts`,
+      href: `${base}/abstracts?submission=${encodeURIComponent(overview.latestCfpSubmission.id)}`,
     });
   }
 

@@ -9,7 +9,7 @@ function overview(overrides: Partial<Parameters<typeof computeMilestones>[0]> = 
     forms: [],
     statusCounts: { ...BASE_STATUS_COUNTS },
     kpis: { submissions: 0, acceptedSpeakers: 0, scheduledSessions: 0, unscheduledAccepted: 0 },
-    recentSubmissions: [],
+    latestCfpSubmission: null,
     ...overrides,
   };
 }
@@ -40,7 +40,8 @@ describe("computeMilestones", () => {
     };
     const [result] = computeMilestones(overview({
       kpis: { submissions: 1, acceptedSpeakers: 0, scheduledSessions: 0, unscheduledAccepted: 0 },
-      recentSubmissions: [submission],
+      forms: [{ formId: "f1", name: "CFP", status: "open", availability: "live", opensAt: null, closesAt: null, submitted: 1, drafts: 0 }],
+      latestCfpSubmission: { id: submission.id, title: submission.title },
     }));
     expect(result).toMatchObject({
       id: "first_submission",
@@ -48,6 +49,14 @@ describe("computeMilestones", () => {
       detail: "“A practical first talk” is ready for review.",
       href: `/events/event-1/abstracts?submission=${submission.id}`,
     });
+  });
+
+  it("does not treat an organizer-created abstract as an arrived CFP response", () => {
+    const result = computeMilestones(overview({
+      kpis: { submissions: 1, acceptedSpeakers: 0, scheduledSessions: 0, unscheduledAccepted: 0 },
+      latestCfpSubmission: null,
+    }));
+    expect(result.find((milestone) => milestone.id === "first_submission")).toBeUndefined();
   });
 
   it("does not acknowledge a CFP that is still open", () => {
@@ -91,6 +100,7 @@ describe("computeMilestones", () => {
       forms: [{ formId: "f1", name: "CFP", status: "closed", availability: "closed", opensAt: null, closesAt: null, submitted: 8, drafts: 0 }],
       statusCounts: { ...BASE_STATUS_COUNTS, accepted: 5, declined: 3 },
       kpis: { submissions: 8, acceptedSpeakers: 5, scheduledSessions: 5, unscheduledAccepted: 0 },
+      latestCfpSubmission: { id: "a0000000-0000-4000-8000-000000000007", title: "Latest proposal" },
     }));
     expect(result.map((m) => m.id)).toEqual(["first_submission", "cfp_closed", "decisions_sent", "scheduling_complete"]);
     expect(result.every((m) => m.href.startsWith("/events/event-1/"))).toBe(true);
