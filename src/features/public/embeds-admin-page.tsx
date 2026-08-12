@@ -65,7 +65,7 @@ export function EmbedsAdminPage({
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
-  const [openConfigId, setOpenConfigId] = useState<string | null>(initialConfigs[0]?.id ?? null);
+  const [openConfigId, setOpenConfigId] = useState<string | null>(null);
   const [manualCopy, setManualCopy] = useState<{ contentType: CanonicalEmbedContentType; label: string; value: string } | null>(null);
 
   useEffect(() => setOrigin(window.location.origin), []);
@@ -153,6 +153,11 @@ export function EmbedsAdminPage({
   return (
     <div className="page embeds-admin-page">
       <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live sessions, agenda, itinerary, and speakers on any website." />
+      <section className="panel embed-overview" aria-label="Embed status">
+        <span className="summary-icon accent"><MonitorSmartphone size={20} /></span>
+        <div><strong>{configs.filter((config) => config.enabled).length} of {configs.length} embeds live</strong><p>Open a surface to tailor its appearance, content, and install code.</p></div>
+        <span className="embed-overview-hint">Changes update existing embeds after you save.</span>
+      </section>
       <section className="embed-cards">
         {configs.map((config) => {
           const meta = TYPE_META[config.contentType];
@@ -165,7 +170,7 @@ export function EmbedsAdminPage({
             || !embedFiltersEqual(filters, config.filters);
           const open = openConfigId === config.id;
           return (
-            <article className={`panel embed-card ${config.enabled ? "" : "is-disabled"}`} key={config.id}>
+            <article className={`panel embed-card ${open ? "is-open" : ""} ${config.enabled ? "" : "is-disabled"}`} key={config.id}>
               <header className="embed-card-header">
                 <span className="summary-icon accent"><Icon size={20} /></span>
                 <div className="embed-card-heading">
@@ -179,7 +184,7 @@ export function EmbedsAdminPage({
                 <div className="embed-card-header-actions">
                   <div className="embed-card-links">
                     <Button size="sm" variant="secondary" aria-expanded={open} aria-controls={`embed-settings-${config.id}`} onClick={() => setOpenConfigId(open ? null : config.id)}>
-                      {open ? "Close" : "Customize"}<ChevronDown className={open ? "is-open" : ""} size={14} />
+                      {open ? "Done" : "Edit settings"}<ChevronDown className={open ? "is-open" : ""} size={14} />
                     </Button>
                     <a className="button button-ghost button-sm" href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">Preview <ExternalLink size={14} /></a>
                   </div>
@@ -287,8 +292,10 @@ export function EmbedsAdminPage({
               )}
 
               <div className="embed-save-row">
-                <span aria-live="polite">{settingsDirty ? "Unsaved settings" : "Settings up to date"}</span>
-                <Button disabled={busy !== null || !settingsDirty} onClick={() => void saveSettings(config)}><Check size={16} /> {busy === config.id ? "Saving…" : "Save settings"}</Button>
+                <span aria-live="polite">{settingsDirty ? "Your changes are not live yet." : "This embed is up to date."}</span>
+                {settingsDirty
+                  ? <Button disabled={busy !== null} onClick={() => void saveSettings(config)}>{busy === config.id ? "Saving…" : "Save changes"}</Button>
+                  : <span className="embed-saved-status"><Check size={14} /> Saved</span>}
               </div>
 
               <section className="embed-install-section">
