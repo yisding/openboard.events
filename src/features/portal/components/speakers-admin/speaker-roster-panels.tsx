@@ -10,6 +10,7 @@ import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { SpeakerStatusOptions } from "./speaker-status-options";
 
 /**
  * A window mid-edit. `DateTimePicker` reads and writes UTC instants in the
@@ -84,11 +85,13 @@ function WorkflowStatusPanel({ eventId, contactId, workflowStatus, onSaved }: {
     <section className="panel">
       <header className="panel-header"><div><h2>Pipeline status</h2><p>Organizer-only bookkeeping — never affects publication or notifications.</p></div><InviteButton eventId={eventId} contactId={contactId} /></header>
       <div className="drawer-content">
-        <div className="confirmation-options">
-          {SPEAKER_WORKFLOW_STATUSES.map((status) => (
-            <button key={status} type="button" disabled={saving} className={workflowStatus === status ? "active" : ""} onClick={() => void apply(status)}>{status}</button>
-          ))}
-        </div>
+        <SpeakerStatusOptions
+          label="Speaker pipeline status"
+          options={SPEAKER_WORKFLOW_STATUSES}
+          value={workflowStatus}
+          disabled={saving}
+          onChange={(status) => void apply(status)}
+        />
       </div>
     </section>
   );

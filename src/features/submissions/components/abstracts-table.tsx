@@ -182,17 +182,16 @@ export function AbstractsTable({
 
   return (
     <>
-      <div className="abstract-status-tabs" role="tablist">
+      <div className="abstract-status-tabs" role="group" aria-label="Filter abstracts by status">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            role="tab"
-            aria-selected={status === tab.id}
+            aria-pressed={status === tab.id}
             className={status === tab.id ? "active" : ""}
             onClick={() => onFilter({ status: tab.id })}
           >
-            {tab.label} <span>{counts[tab.id]}</span>
+            {tab.label} <span aria-hidden="true">{counts[tab.id]}</span><span className="sr-only">{counts[tab.id]} {counts[tab.id] === 1 ? "abstract" : "abstracts"}</span>
           </button>
         ))}
       </div>

@@ -7,16 +7,12 @@ import { getOrganization, listOrganizationMembers, listPendingOrganizationInvita
 import { TeamPanel } from "@/features/organizations/components/team-panel";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type MemberRole, type UserId } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Team" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Team" description="Role management is unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

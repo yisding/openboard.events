@@ -230,12 +230,12 @@ export function SpeakersAdminView({
         </>}
       />
 
-      <div className="abstract-status-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={!accepted} className={!accepted ? "active" : ""} onClick={() => setParams({ accepted: null })}>All</button>
-        <button type="button" role="tab" aria-selected={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
-        <button type="button" role="tab" aria-selected={missing === "bio"} className={missing === "bio" ? "active" : ""} onClick={() => setParams({ missing: missing === "bio" ? null : "bio" })}>Missing bio</button>
-        <button type="button" role="tab" aria-selected={missing === "headshot"} className={missing === "headshot" ? "active" : ""} onClick={() => setParams({ missing: missing === "headshot" ? null : "headshot" })}>Missing headshot</button>
-        <button type="button" role="tab" aria-selected={missing === "either"} className={missing === "either" ? "active" : ""} onClick={() => setParams({ missing: missing === "either" ? null : "either" })}>Missing bio or headshot</button>
+      <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
+        <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
+        <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
+        <button type="button" aria-pressed={missing === "bio"} className={missing === "bio" ? "active" : ""} onClick={() => setParams({ missing: missing === "bio" ? null : "bio" })}>Missing bio</button>
+        <button type="button" aria-pressed={missing === "headshot"} className={missing === "headshot" ? "active" : ""} onClick={() => setParams({ missing: missing === "headshot" ? null : "headshot" })}>Missing headshot</button>
+        <button type="button" aria-pressed={missing === "either"} className={missing === "either" ? "active" : ""} onClick={() => setParams({ missing: missing === "either" ? null : "either" })}>Missing bio or headshot</button>
       </div>
 
       <DataTable

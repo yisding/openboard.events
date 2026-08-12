@@ -5,7 +5,6 @@ import { listApiKeys } from "@/features/dashboard/server/api-keys";
 import { ApiKeysPanel } from "@/features/dashboard/components/ApiKeysPanel";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { eventIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "API keys" };
 export const dynamic = "force-dynamic";
@@ -18,20 +17,6 @@ export const dynamic = "force-dynamic";
  */
 export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId: rawEventId } = await params;
-
-  if (isCredentialFreeLocalDemo()) {
-    return (
-      <>
-        <PageHeader eyebrow="EVENT" title="API keys" description="Bearer keys for /api/v1's keyed endpoints." />
-        <div className="panel settings-section">
-          <p className="long-copy">
-            API keys need a real database and are not available in the credential-free local demo.
-            See <code>docs/api.md</code> for the reference and the deployed preview to try it.
-          </p>
-        </div>
-      </>
-    );
-  }
 
   const eventId = eventIdSchema.parse(rawEventId);
   const [event, keys] = await Promise.all([getEvent(eventId), listApiKeys(eventId)]);

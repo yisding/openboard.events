@@ -6,9 +6,7 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationEvents } from "@/features/organizations";
 import { getCrmMetrics, listCrmTags, listOrganizationContacts } from "@/features/crm";
 import { DirectoryView } from "@/features/crm/components/directory-view";
-import { PageHeader } from "@/shared/ui/ui-kit";
 import { directoryFilterSchema, CRM_CONTACT_SOURCES, CRM_PIPELINE_STAGES, organizationIdSchema, type CrmContactSource, type CrmPipelineStage } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Speaker CRM" };
@@ -34,9 +32,6 @@ export default async function Page({
   params: Promise<{ organizationId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Speaker CRM" description="Unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

@@ -6,9 +6,7 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationEvents } from "@/features/organizations";
 import { getOrganizationContactHistory, listCrmCustomFields, listCrmTags } from "@/features/crm";
 import { ContactDetailView } from "@/features/crm/components/contact-detail-view";
-import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationContactIdSchema, organizationIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Contact" };
@@ -21,9 +19,6 @@ export const dynamic = "force-dynamic";
  * cross-organization id both 404, same discipline as the per-event speaker
  * detail page this mirrors). */
 export default async function Page({ params }: { params: Promise<{ organizationId: string; organizationContactId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Contact" description="Unavailable in the credential-free demo." />;
-  }
   const raw = await params;
   const parsedOrg = organizationIdSchema.safeParse(raw.organizationId);
   const parsedContact = organizationContactIdSchema.safeParse(raw.organizationContactId);
