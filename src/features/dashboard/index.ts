@@ -14,7 +14,16 @@ export type DashboardOverview = {
     missingAssets: { speakers: number; bios: number; headshots: number };
   };
   attention: { code: "unscheduled_accepted" | "awaiting_decision" | "missing_assets"; count: number; href: string }[];
-  forms: { formId: string; name: string; status: "draft" | "open" | "closed"; closesAt: string | null; submitted: number; drafts: number }[];
+  forms: {
+    formId: string;
+    name: string;
+    status: "draft" | "open" | "closed";
+    availability: "draft" | "live" | "scheduled" | "expired" | "closed";
+    opensAt: string | null;
+    closesAt: string | null;
+    submitted: number;
+    drafts: number;
+  }[];
   recentSubmissions: { id: string; code: string; title: string; status: SubmissionStatus; source: string; speakers: string[]; tags: string[]; submittedAt: string | null }[];
 };
 

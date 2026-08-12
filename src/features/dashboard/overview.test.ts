@@ -14,6 +14,8 @@ const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_op
 const EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const EMPTY_EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
 const FORM = "a0000000-0000-4000-8000-000000000003";
+const SCHEDULED_FORM = "a0000000-0000-4000-8000-000000000012";
+const EXPIRED_FORM = "a0000000-0000-4000-8000-000000000013";
 const PRIMARY = "a0000000-0000-4000-8000-000000000004";
 const CO_SPEAKER = "a0000000-0000-4000-8000-000000000005";
 const ACCEPTED = "a0000000-0000-4000-8000-000000000006";
@@ -38,8 +40,11 @@ pg.exec(migrationReviewOps);
       [EVENT, EMPTY_EVENT],
     );
     await pg.query(
-      "INSERT INTO forms(id,event_id,context,internal_name,status,closes_at) VALUES($1,$2,'cfp','Main CFP','open','2026-08-31T07:00:00Z')",
-      [FORM, EVENT],
+      `INSERT INTO forms(id,event_id,context,internal_name,status,opens_at,closes_at) VALUES
+        ($1,$4,'cfp','Main CFP','open',NULL,'2026-08-31T07:00:00Z'),
+        ($2,$4,'cfp','Scheduled CFP','open','2026-08-20T07:00:00Z',NULL),
+        ($3,$4,'cfp','Expired CFP','open',NULL,'2026-08-07T07:00:00Z')`,
+      [FORM, SCHEDULED_FORM, EXPIRED_FORM, EVENT],
     );
     await pg.query(
       `INSERT INTO contacts(id,event_id,email,first_name,last_name,bio_html,confirmation_status) VALUES
@@ -85,6 +90,12 @@ pg.exec(migrationReviewOps);
     expect(overview.event.slug).toBe("dashboard-conf");
     expect(overview.event.daysToEvent).toBe(38);
     expect(overview.recentSubmissions[0]).toMatchObject({ code: "SESS-102", speakers: ["Ada Lovelace"], tags: ["AI safety"] });
+    expect(Object.fromEntries(overview.forms.map((form) => [form.name, form.availability]))).toEqual({
+      "Main CFP": "live",
+      "Scheduled CFP": "scheduled",
+      "Expired CFP": "expired",
+    });
+    expect(new Date(overview.forms.find((form) => form.name === "Scheduled CFP")?.opensAt ?? "").toISOString()).toBe("2026-08-20T07:00:00.000Z");
   });
 
   it("returns designed zero values and empty collections for an empty event", async () => {

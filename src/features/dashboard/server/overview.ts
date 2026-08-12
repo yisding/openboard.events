@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db/client";
+import { formOpenState } from "@/features/forms/lib/form-open";
 import {
   SUBMISSION_STATUSES,
   eventIdSchema,
@@ -24,6 +25,15 @@ import { queryDashboardOverview, type DashboardQueryDb } from "./queries";
 
 const countSchema = z.coerce.number().int().nonnegative();
 const isoDateTimeSchema = z.string().refine((value) => !Number.isNaN(Date.parse(value)), "Invalid ISO datetime");
+const rawFormSchema = z.object({
+  formId: z.uuid(),
+  name: z.string(),
+  status: z.enum(["draft", "open", "closed"]),
+  opensAt: isoDateTimeSchema.nullable(),
+  closesAt: isoDateTimeSchema.nullable(),
+  submitted: countSchema,
+  drafts: countSchema,
+});
 const rawOverviewSchema = z.object({
   event: z.object({
     id: eventIdSchema,
@@ -65,14 +75,7 @@ const rawOverviewSchema = z.object({
     count: countSchema,
     href: z.string().startsWith("/events/"),
   })),
-  forms: z.array(z.object({
-    formId: z.uuid(),
-    name: z.string(),
-    status: z.enum(["draft", "open", "closed"]),
-    closesAt: isoDateTimeSchema.nullable(),
-    submitted: countSchema,
-    drafts: countSchema,
-  })),
+  forms: z.array(rawFormSchema),
   recentSubmissions: z.array(z.object({
     id: z.uuid(),
     code: z.string(),
@@ -88,7 +91,19 @@ const rawOverviewSchema = z.object({
 export const dashboardOverviewSchema: z.ZodType<DashboardOverview> = rawOverviewSchema.extend({
   event: rawOverviewSchema.shape.event.extend({ daysToEvent: z.number().int() }),
   statusCounts: z.record(submissionStatusSchema, countSchema),
+  forms: z.array(rawFormSchema.extend({
+    availability: z.enum(["draft", "live", "scheduled", "expired", "closed"]),
+  })),
 });
+
+function formAvailability(form: z.infer<typeof rawFormSchema>, nowIso: string): DashboardOverview["forms"][number]["availability"] {
+  if (form.status === "draft") return "draft";
+  const openState = formOpenState(form, nowIso);
+  if (openState.open) return "live";
+  if (openState.reason === "not_open_yet") return "scheduled";
+  if (openState.reason === "closed_by_date") return "expired";
+  return "closed";
+}
 
 export async function getOverviewIn(
   dbOrTx: DashboardQueryDb,
@@ -101,8 +116,10 @@ export async function getOverviewIn(
   const statusCounts = Object.fromEntries(
     SUBMISSION_STATUSES.map((status) => [status, parsed.statusCounts[status] ?? 0]),
   ) as DashboardOverview["statusCounts"];
+  const nowIso = now.toISOString();
   return dashboardOverviewSchema.parse({
     ...parsed,
+    forms: parsed.forms.map((form) => ({ ...form, availability: formAvailability(form, nowIso) })),
     event: {
       ...parsed.event,
       daysToEvent: daysToEvent(now, new Date(parsed.event.startsAt), parsed.event.timezone),

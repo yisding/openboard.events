@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Copy, ExternalLink, FilePlus2, Rocket, RotateCcw } from "lucide-react";
+import { ArrowRight, Clock3, Copy, ExternalLink, FilePlus2, Rocket, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/shared/ui/toast";
+import { formatInZone } from "@/shared/lib/time";
 import type { DashboardOverview } from "../index";
 
 type DashboardForm = DashboardOverview["forms"][number];
@@ -12,6 +13,8 @@ export type ActivationState =
   | { kind: "no_form" }
   | { kind: "draft"; form: DashboardForm }
   | { kind: "closed"; form: DashboardForm }
+  | { kind: "scheduled"; form: DashboardForm }
+  | { kind: "expired"; form: DashboardForm }
   | { kind: "live"; form: DashboardForm }
   | null;
 
@@ -24,11 +27,17 @@ export function resolveActivationState(overview: DashboardOverview): ActivationS
   if (overview.kpis.submissions > 0) return null;
   if (overview.forms.length === 0) return { kind: "no_form" };
 
-  const live = overview.forms.find((form) => form.status === "open");
+  const live = overview.forms.find((form) => form.availability === "live");
   if (live) return { kind: "live", form: live };
 
-  const draft = overview.forms.find((form) => form.status === "draft");
+  const scheduled = overview.forms.find((form) => form.availability === "scheduled");
+  if (scheduled) return { kind: "scheduled", form: scheduled };
+
+  const draft = overview.forms.find((form) => form.availability === "draft");
   if (draft) return { kind: "draft", form: draft };
+
+  const expired = overview.forms.find((form) => form.availability === "expired");
+  if (expired) return { kind: "expired", form: expired };
 
   const [closed] = overview.forms;
   return closed ? { kind: "closed", form: closed } : { kind: "no_form" };
@@ -109,6 +118,20 @@ export function ActivationGuide({ overview }: { overview: DashboardOverview }) {
     title = "Publish your call for speakers";
     description = `${state.form.name} is saved as a draft. Review it, then publish it to start accepting proposals.`;
     action = "Finish and publish";
+  } else if (state.kind === "scheduled") {
+    icon = <Clock3 size={18} />;
+    title = "Your call for speakers is scheduled";
+    description = state.form.opensAt
+      ? `${state.form.name} opens ${formatInZone(state.form.opensAt, overview.event.timezone, "long")}. Review the timing before you announce it.`
+      : `${state.form.name} is scheduled to open later. Review the timing before you announce it.`;
+    action = "Review timing";
+  } else if (state.kind === "expired") {
+    icon = <RotateCcw size={18} />;
+    title = "Extend your submission window";
+    description = state.form.closesAt
+      ? `${state.form.name} closed ${formatInZone(state.form.closesAt, overview.event.timezone, "long")} before its first proposal arrived.`
+      : `${state.form.name} closed before its first proposal arrived.`;
+    action = "Update dates";
   } else if (state.kind === "closed") {
     icon = <RotateCcw size={18} />;
     title = "Reopen your call for speakers";

@@ -75,10 +75,20 @@ describe("dashboard components", () => {
     expect(liveHtml).toContain(`/submit/new-conference/${form.formId}`);
     expect(liveHtml).toContain(`/events/${liveOverview.event.id}/forms/${form.formId}`);
 
-    const draftOverview = { ...liveOverview, forms: [{ ...form, status: "draft" as const }] };
+    const draftOverview = { ...liveOverview, forms: [{ ...form, status: "draft" as const, availability: "draft" as const }] };
     expect(renderActivation(draftOverview)).toContain("Publish your call for speakers");
 
-    const closedOverview = { ...liveOverview, forms: [{ ...form, status: "closed" as const }] };
+    const scheduledOverview = { ...liveOverview, forms: [{ ...form, availability: "scheduled" as const, opensAt: "2026-08-20T07:00:00.000Z" }] };
+    const scheduledHtml = renderActivation(scheduledOverview);
+    expect(scheduledHtml).toContain("Your call for speakers is scheduled");
+    expect(scheduledHtml).not.toContain("Copy link");
+
+    const expiredOverview = { ...liveOverview, forms: [{ ...form, availability: "expired" as const, closesAt: "2026-08-07T07:00:00.000Z" }] };
+    const expiredHtml = renderActivation(expiredOverview);
+    expect(expiredHtml).toContain("Extend your submission window");
+    expect(expiredHtml).not.toContain("Copy link");
+
+    const closedOverview = { ...liveOverview, forms: [{ ...form, status: "closed" as const, availability: "closed" as const }] };
     expect(renderActivation(closedOverview)).toContain("Reopen your call for speakers");
 
     expect(resolveActivationState(FIXTURE_OVERVIEW)).toBeNull();
