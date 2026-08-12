@@ -14,10 +14,13 @@ type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Res
 export type BulkDecisionOutcome = {
   moved: number;
   unchanged: number;
+  rejected: number;
   unconfirmed: number;
   confirmedGroups: number;
-  failedGroups: number;
-  failureMessages: string[];
+  rejectedGroups: number;
+  unconfirmedGroups: number;
+  rejectionMessages: string[];
+  unconfirmedMessages: string[];
 };
 
 type BulkDecisionEffects = {
@@ -29,12 +32,14 @@ type BulkDecisionEffects = {
 /**
  * Apply one guarded transition per observed status and reconcile every group.
  *
- * A rejected request is "unconfirmed", not "unchanged": the server may have
- * committed before the response was lost. Retrying is safe because the retry
- * carries the same expected status and therefore cannot overwrite a concurrent
- * decision. Continuing through the remaining independent groups also gives the
- * organizer one complete outcome instead of hiding everything after the first
- * failure.
+ * Deterministic client errors are rejections: the server declined them before
+ * updating, so their reason must survive and retrying the same action is not
+ * useful. A network, retryable-client, server, or malformed-response failure is
+ * instead "unconfirmed": the server may have committed before the response was
+ * lost. Retrying those rows is safe because the retry carries the same expected
+ * status and therefore cannot overwrite a concurrent decision. Continuing
+ * through the remaining independent groups gives the organizer one complete
+ * outcome instead of hiding everything after the first failure.
  */
 export async function completeBulkDecision({
   eventId,
@@ -58,10 +63,13 @@ export async function completeBulkDecision({
   const outcome: BulkDecisionOutcome = {
     moved: 0,
     unchanged: selected.filter((row) => row.status === to).length,
+    rejected: 0,
     unconfirmed: 0,
     confirmedGroups: 0,
-    failedGroups: 0,
-    failureMessages: [],
+    rejectedGroups: 0,
+    unconfirmedGroups: 0,
+    rejectionMessages: [],
+    unconfirmedMessages: [],
   };
 
   for (const [observed, ids] of byObserved) {
@@ -77,10 +85,22 @@ export async function completeBulkDecision({
       } | null;
       const changed = payload?.data?.changed;
       const stale = payload?.data?.stale;
+      // 408, 425, and 429 explicitly invite a later retry. Other 4xx statuses
+      // deterministically reject this request, notably assertTransition's 409
+      // for an invalid source -> target pair.
+      const deterministicRejection = response.status >= 400
+        && response.status < 500
+        && ![408, 425, 429].includes(response.status);
+      if (deterministicRejection) {
+        outcome.rejected += ids.length;
+        outcome.rejectedGroups += 1;
+        outcome.rejectionMessages.push(payload?.error?.message ?? `Transition rejected (${response.status})`);
+        continue;
+      }
       if (!response.ok || !Array.isArray(changed) || !Array.isArray(stale)) {
         outcome.unconfirmed += ids.length;
-        outcome.failedGroups += 1;
-        outcome.failureMessages.push(payload?.error?.message ?? "That transition returned an invalid response");
+        outcome.unconfirmedGroups += 1;
+        outcome.unconfirmedMessages.push(payload?.error?.message ?? "That transition returned an invalid response");
         continue;
       }
       outcome.moved += changed.length;
@@ -88,12 +108,12 @@ export async function completeBulkDecision({
       outcome.confirmedGroups += 1;
     } catch {
       outcome.unconfirmed += ids.length;
-      outcome.failedGroups += 1;
-      outcome.failureMessages.push("Could not reach the server");
+      outcome.unconfirmedGroups += 1;
+      outcome.unconfirmedMessages.push("Could not reach the server");
     }
   }
 
-  if (outcome.unconfirmed === 0) {
+  if (outcome.rejected === 0 && outcome.unconfirmed === 0) {
     effects.toast(outcome.unchanged === 0
       ? `${outcome.moved} moved`
       : `${outcome.moved} moved · ${outcome.unchanged} unchanged, someone else had already moved them`);
@@ -107,15 +127,37 @@ export async function completeBulkDecision({
     ...(outcome.moved > 0 ? [`${outcome.moved} moved`] : []),
     ...(outcome.unchanged > 0 ? [`${outcome.unchanged} unchanged`] : []),
   ];
+  const rejectionReasons = [...new Set(outcome.rejectionMessages)].join("; ");
+  const rejectedSummary = outcome.rejected > 0
+    ? `${outcome.rejected} rejected${rejectionReasons ? `: ${rejectionReasons}` : ""}`
+    : null;
+  const unconfirmedSummary = outcome.unconfirmed > 0
+    ? `${outcome.unconfirmed} could not be confirmed`
+    : null;
   if (confirmedAnyGroup) {
+    const guidance = outcome.rejected > 0 && outcome.unconfirmed > 0
+      ? "The list was refreshed; address the rejection separately, then reselect anything still pending and retry only the unconfirmed rows."
+      : outcome.rejected > 0
+        ? "The list was refreshed; address the rejection before acting on those rows."
+        : "The list was refreshed; reselect anything still pending and retry.";
     effects.toast(
-      `${confirmedSummary.join(" · ")} · ${outcome.unconfirmed} could not be confirmed. The list was refreshed; reselect anything still pending and retry.`,
+      `${[...confirmedSummary, rejectedSummary, unconfirmedSummary].filter(Boolean).join(" · ")}. ${guidance}`,
       { kind: "error" },
     );
     effects.onDone();
     effects.refresh();
+  } else if (outcome.rejected > 0 && outcome.unconfirmed === 0) {
+    effects.toast(
+      `${rejectedSummary}. Address the rejection before acting on these selected rows.`,
+      { kind: "error" },
+    );
+  } else if (outcome.rejected > 0) {
+    effects.toast(
+      `${rejectedSummary} · ${unconfirmedSummary}. Address the rejection separately; retry only the unconfirmed rows because already-applied transitions are safe to retry.`,
+      { kind: "error" },
+    );
   } else {
-    const reason = outcome.failureMessages[0] ?? "That did not go through";
+    const reason = outcome.unconfirmedMessages[0] ?? "That did not go through";
     effects.toast(
       `${outcome.unconfirmed} could not be confirmed. ${reason}. Keep this selection and retry; already-applied transitions are safe to retry.`,
       { kind: "error" },

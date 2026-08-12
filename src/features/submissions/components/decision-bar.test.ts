@@ -21,6 +21,13 @@ function serverError(message: string): Response {
   });
 }
 
+function conflict(message: string): Response {
+  return new Response(JSON.stringify({ error: { message } }), {
+    status: 409,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function selection() {
   return [
     { submissionId: ids.pending, status: "pending" as SubmissionStatus },
@@ -47,11 +54,36 @@ describe("completeBulkDecision", () => {
       request,
     });
 
-    expect(outcome).toMatchObject({ moved: 1, unchanged: 0, unconfirmed: 1, confirmedGroups: 1, failedGroups: 1 });
+    expect(outcome).toMatchObject({ moved: 1, unchanged: 0, rejected: 0, unconfirmed: 1, confirmedGroups: 1, unconfirmedGroups: 1 });
     expect(sideEffects.toast).toHaveBeenCalledWith(
       "1 moved · 1 could not be confirmed. The list was refreshed; reselect anything still pending and retry.",
       { kind: "error" },
     );
+    expect(sideEffects.onDone).toHaveBeenCalledOnce();
+    expect(sideEffects.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a deterministic 409 reason after success without advising a futile retry", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ changed: [ids.pending], stale: [] }))
+      .mockResolvedValueOnce(conflict("Cannot transition draft to accept queue"));
+    const sideEffects = effects();
+
+    const outcome = await completeBulkDecision({
+      eventId: "event-1",
+      selected: selection(),
+      to: "accept_queue",
+      effects: sideEffects,
+      request,
+    });
+
+    expect(outcome).toMatchObject({ moved: 1, rejected: 1, unconfirmed: 0, confirmedGroups: 1, rejectedGroups: 1 });
+    expect(outcome.rejectionMessages).toEqual(["Cannot transition draft to accept queue"]);
+    expect(sideEffects.toast).toHaveBeenCalledWith(
+      "1 moved · 1 rejected: Cannot transition draft to accept queue. The list was refreshed; address the rejection before acting on those rows.",
+      { kind: "error" },
+    );
+    expect(sideEffects.toast.mock.calls[0]?.[0]).not.toContain("retry");
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
   });
@@ -70,8 +102,8 @@ describe("completeBulkDecision", () => {
       request,
     });
 
-    expect(outcome).toMatchObject({ moved: 1, unconfirmed: 1, confirmedGroups: 1, failedGroups: 1 });
-    expect(outcome.failureMessages).toEqual(["Could not reach the server"]);
+    expect(outcome).toMatchObject({ moved: 1, rejected: 0, unconfirmed: 1, confirmedGroups: 1, unconfirmedGroups: 1 });
+    expect(outcome.unconfirmedMessages).toEqual(["Could not reach the server"]);
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
   });
@@ -90,7 +122,7 @@ describe("completeBulkDecision", () => {
       request,
     });
 
-    expect(outcome).toMatchObject({ moved: 0, unchanged: 0, unconfirmed: 2, confirmedGroups: 0, failedGroups: 2 });
+    expect(outcome).toMatchObject({ moved: 0, unchanged: 0, rejected: 0, unconfirmed: 2, confirmedGroups: 0, unconfirmedGroups: 2 });
     expect(sideEffects.toast).toHaveBeenCalledWith(
       "2 could not be confirmed. Transition service unavailable. Keep this selection and retry; already-applied transitions are safe to retry.",
       { kind: "error" },
@@ -113,7 +145,7 @@ describe("completeBulkDecision", () => {
       request,
     });
 
-    expect(outcome).toMatchObject({ moved: 1, unchanged: 1, unconfirmed: 0, confirmedGroups: 2, failedGroups: 0 });
+    expect(outcome).toMatchObject({ moved: 1, unchanged: 1, rejected: 0, unconfirmed: 0, confirmedGroups: 2, rejectedGroups: 0, unconfirmedGroups: 0 });
     expect(sideEffects.toast).toHaveBeenCalledWith("1 moved · 1 unchanged, someone else had already moved them");
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
