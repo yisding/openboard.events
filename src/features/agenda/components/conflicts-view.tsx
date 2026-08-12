@@ -37,13 +37,21 @@ export function sortConflicts(conflicts: readonly ConflictDTO[]): ConflictDTO[] 
  * the same array feeds the toolbar badge and the grid's red borders). This
  * module never calls `detectConflicts` itself and never queries the database.
  */
-export default function ConflictsView({ eventId, event, sessions, conflicts }: AgendaViewProps) {
+export default function ConflictsView({
+  eventId,
+  event,
+  sessions,
+  conflicts,
+  searchActive = false,
+}: AgendaViewProps & { searchActive?: boolean }) {
   if (conflicts.length === 0) {
     return (
       <EmptyState
         icon={<CheckCircle2 size={26} />}
-        title="No conflicts — nice work"
-        description="Every scheduled session is clear of room, speaker, and track overlaps."
+        title={searchActive ? "No conflicts match your search" : "No conflicts — nice work"}
+        description={searchActive
+          ? "Try another session title or clear the search."
+          : "Every scheduled session is clear of room, speaker, and track overlaps."}
       />
     );
   }
