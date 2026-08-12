@@ -8,9 +8,10 @@ import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
-const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: "#00a878", theme: "light", showHeader: true };
+const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: DEFAULT_BRAND_COLOR, theme: "light", showHeader: true };
 
 const TYPE_META: Record<CanonicalEmbedContentType, { label: string; route: string; description: string; icon: typeof MonitorSmartphone }> = {
   session_list: { label: "Sessions list", route: "sessions", description: "Searchable session cards with Track/Format/Location filters.", icon: ListChecks },

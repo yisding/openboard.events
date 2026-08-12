@@ -911,6 +911,16 @@ breaches one; if a fold-in would, the fold-in loses.
   not controls, and sit under the floor at every width. The right fix is
   `aria-hidden` plus `tabindex="-1"` on the mock — a markup change to the
   landing page, not a token one. Recorded here, not done in this pass.
+
+  What *is* done is the other half, which had been getting this backwards: the
+  floors were partly applying to the mock. `.brand` matches the mock's
+  wordmark, so the ≤768 rule had been stretching a 27px mark to 44px inside a
+  scaled-down illustration, and the new base rule would have made it 32 above
+  768. A floor cannot help a target nobody aims at; it can only distort the
+  picture. `.preview-window .brand { min-height: 0 }` opts the mock out of
+  both. **A control exempt from a floor should be exempt in the stylesheet,
+  not only in the sweep that checks it** — otherwise the exemption lives in the
+  verification tool, where the rendered page cannot see it.
 - **Focus.** Every interactive element keeps the 3px `--focus-ring`. It is
   never removed, and never traded for a colour change alone.
 - **Colour is never the only signal.** Status carries a text label, task modes
@@ -964,8 +974,22 @@ grep -oE "@media[^{]*max-width:\s*[0-9]+px" src/app/globals.css | grep -oE "[0-9
 # used min-width. Match the prelude instead, and sweep every stylesheet, not
 # just this one: the app's other CSS file kept a 650px query through the whole
 # 2026-08 pass precisely because these greps are scoped to globals.css.
-grep -rnoE "@media[^{]*" src --include=*.css | grep -vE "max-width|prefers-reduced-motion"  # expect no output
-grep -rnoE "@media[^{]*" src --include=*.css | grep -oE "max-width: ?[0-9]+px" | sort -u  # expect only 480/768/1024/1280
+#
+# And do not filter with `grep -v max-width`, which is the same bug wearing a
+# different hat: `@media (min-width: 769px) and (max-width: 1024px)` *contains*
+# `max-width`, so a subtractive filter passes the exact query form the rule
+# exists to forbid. Whitelist the whole normalised prelude instead — anything
+# not on the list is a violation, whatever it contains.
+git ls-files '*.css' | xargs grep -hoE "@media[^{]*" \
+  | sed -E 's/[[:space:]]+/ /g; s/ $//' | sort -u
+# expect exactly these five lines, and nothing else:
+#   @media(max-width:1024px)
+#   @media(max-width:1280px)
+#   @media (max-width: 480px)
+#   @media(max-width:768px)
+#   @media(prefers-reduced-motion:reduce)
+# Belt and braces, since the whitelist above is read by eye:
+git ls-files '*.css' | xargs grep -nE "@media[^{]*(min-width|min-height|[<>]|\(width)"  # expect no output
 
 # T6 — accent as text: every hit must be an SVG on --surface/#fff
 # NB: this pattern also matches the tails of `border-color:` and
@@ -993,9 +1017,17 @@ for f in $(git ls-files '*.css'); do perl -0777 -pe '
   s{/\*.*?\*/}{}gs; s{--[a-zA-Z0-9-]+:\s*\#[0-9a-fA-F]{3,8}}{}g;
   s{[a-z-]*gradient\((?:[^()]|\([^()]*\))*\)}{}g;' $f | grep -noE "#[0-9a-fA-F]{3,8}"; done
 # `white`/`black` are the same literal by another spelling and the hex pattern
-# cannot see them. So is a colour hidden in a JSX attribute (`stopColor`).
-grep -noE "(color|background|border-color|fill|stroke):\s*(white|black)\b" src/app/globals.css
-grep -rnE "#[0-9a-fA-F]{6}" src --include=*.tsx | grep -v "seed.ts\|fixtures.ts\|cfp-wizard.tsx"
+# cannot see them — and this check gets the same all-stylesheets treatment as
+# the one above, for the same reason.
+git ls-files '*.css' | xargs grep -nE "(color|background|border-color|fill|stroke):[[:space:]]*(white|black)\b"
+# A colour can also hide in a JSX attribute (`stopColor`), which no CSS grep
+# reaches. Two things matter in this pattern: `{3,8}` with a trailing boundary,
+# because `{6}` misses `#fff` *and* silently matches the first six digits of an
+# eight-digit `#00a87880`; and dropping comment lines, because `#418` in "React
+# throws #418 on hydration" is an error code, not a colour.
+grep -rnE "#[0-9a-fA-F]{3,8}\b" src --include=*.tsx \
+  | grep -vE ":[[:space:]]*(//|\*|/\*)" \
+  | grep -vE "cfp-wizard\.tsx|onboarding-wizard\.tsx"   # expect no output
 ```
 
 **This is now zero, and it is meant to stay zero.** The `fill: #fff` clause the
@@ -1006,15 +1038,37 @@ lint aid that reported 79 pre-existing matches and could only catch *new* raw
 hex against that noise floor. With the floor at zero it is a real gate: any
 output at all is a regression.
 
-Two caveats on the `.tsx` sweep, both about what a hex in a `.tsx` file
-actually is. Track and accent colours are **organiser data** — they live in
-DB defaults, zod schemas and fixtures, and a hex is the correct representation
-there; those files are excluded by name. But a hex in a *presentational*
-attribute is a rule body wearing a disguise: `stopColor="#00a878"` on an SVG
-gradient stop was invisible to every check here until it was moved into
-`.chart-plot linearGradient stop { stop-color: var(--accent) }`. The test is
-not the file extension, it is whether the value paints a pixel this stylesheet
-should own.
+**The `.tsx` sweep's exclusion list is two filenames, and keeping it that
+short is the actual discipline.** The rule it approximates is: a hex is
+legitimate when it is **organiser data** — a demo speaker's avatar colour, the
+starter tracks an onboarding wizard proposes — and illegitimate when it is a
+**design decision**, in which case it belongs to a token whatever file it sits
+in. No pattern can tell those apart, so the list is maintained by hand, and a
+hand-maintained list only stays honest while it stays small.
+
+It was briefly seven. Six of those entries were the same literal — the brand
+jade, copied to every place a colour-valued field needed a default — and they
+had already drifted: the public schedule's track fallback was indigo `#6366f1`
+while the `tracks.color` column default was jade, so an unset colour rendered
+differently depending on whether the row predated the column default. They are
+now one exported `DEFAULT_BRAND_COLOR`, which is **not** a token and says so:
+`--accent` is what the product paints when it chooses, and this is what an
+organiser's field falls back to before they have chosen. Those two diverge the
+instant an organiser picks an accent, which is the whole point of the field.
+**When the exclusion list wants a new entry, that is usually evidence the data
+wants consolidating, not that the list wants extending.**
+
+What the list must never absorb is a hex in a *presentational* position, which
+is a rule body wearing a disguise. `stopColor="#00a878"` on an SVG gradient
+stop was invisible to every check here until it moved into
+`.chart-plot linearGradient stop { stop-color: var(--accent) }`. And a
+presentational hex can be worse than off-token — it can be *dead*: the
+vocabulary swatch in `event-settings-page.tsx` cycled four palette hues through
+an inline `background`, on a `<span>` that has no rule anywhere in this
+stylesheet and therefore renders at zero size. Four colour literals painting
+nothing, passing review for as long as the file has existed. **The test is not
+the file extension; it is whether the value paints a pixel this stylesheet
+should own — and it is worth checking that it paints one at all.**
 
 Screenshot verification is part of the definition of done, not a follow-up:
 390 / 768 / 1024 / 1440 on landing, login, dashboard, abstracts (list and open

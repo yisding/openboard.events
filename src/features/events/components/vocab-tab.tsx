@@ -26,6 +26,7 @@ import { isAppError } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 type VocabSaveResult = { ok: boolean; item: VocabItem };
@@ -94,7 +95,7 @@ function Row({
   // On-palette jade, matching `CUSTOM_TRACK_COLOR` in the onboarding wizard.
   // The previous default was indigo (#6366f1), which is not in the palette at
   // all — see design-system.md T6.
-  const [color, setColor] = useState(hasColor(item) ? item.color : "#00a878");
+  const [color, setColor] = useState(hasColor(item) ? item.color : DEFAULT_BRAND_COLOR);
   const [capacity, setCapacity] = useState(hasCapacity(item) ? item.capacity ?? "" : "");
   const [duration, setDuration] = useState(hasDuration(item) ? item.defaultDurationMins : 30);
 

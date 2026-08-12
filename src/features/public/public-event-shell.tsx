@@ -4,9 +4,10 @@ import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { useEffect } from "react";
 import { formatInZone } from "@/shared/lib/time";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 export type EmbedOptions = { theme: "light" | "dark"; header: boolean; accent: string };
-export const DEFAULT_EMBED_OPTIONS: EmbedOptions = { theme: "light", header: true, accent: "#00a878" };
+export const DEFAULT_EMBED_OPTIONS: EmbedOptions = { theme: "light", header: true, accent: DEFAULT_BRAND_COLOR };
 
 // Embed styles use --accent for fills and --accent-dark for small text, so a
 // custom accent that is too luminous for text (the default jade included, at

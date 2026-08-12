@@ -1560,6 +1560,13 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
  * `.cfp-footer .cfp-container`, `.portal-site-footer > div`), all of which are
  * taller than 32px, so nothing moves — the hit box grows to meet the text. */
 .brand, .portal-event-brand, .dashboard-tabs a { min-height: 32px; }
+/* ...except inside the landing hero's mock UI, which T7 records as decoration
+ * rather than controls. Applying a touch floor there does not help anyone: it
+ * inflates a wordmark drawn at 27px inside a scaled-down illustration, which
+ * distorts the picture instead of enlarging a target. The ≤768 block below has
+ * been stretching it to 44px since the floor landed; this un-does that too.
+ * Higher specificity than both floors, so one declaration covers both. */
+.preview-window .brand { min-height: 0; }
 .landing-links > a, .portal-site-footer div div a { display: inline-flex; align-items: center; min-height: 32px; }
 /* A 20×20 chevron in a 20px grid column: widening the control would widen the
  * column, so the hit area is an absolutely-positioned expander instead — the

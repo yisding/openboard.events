@@ -11,9 +11,10 @@ import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 const DEFAULT_TZ = "America/Los_Angeles";
-const CUSTOM_TRACK_COLOR = "#00a878";
+const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
 const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Main Stage", color: "#00a878" },
   { name: "Workshops", color: "#2a6486" },

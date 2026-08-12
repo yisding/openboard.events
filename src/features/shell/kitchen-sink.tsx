@@ -17,20 +17,17 @@ type DemoRow = {
   id: string;
   code: string;
   title: string;
-  track: { label: string; color: string } | null;
+  track: { label: string } | null;
   rating: number | null;
   submittedAt: string;
 };
 
-/* Demo data standing in for organiser-chosen track colours (T6 carve-out 5).
-   Seeded from the palette's own semantic foregrounds — --blue, --accent-dark,
-   --amber — rather than arbitrary hues, so the showcase route demonstrates the
-   shipped system instead of introducing an off-palette indigo beside it. */
-const TRACKS = [
-  { label: "Agents", color: "#2a6486" },
-  { label: "Evals", color: "#007454" },
-  { label: "Infra", color: "#8a5312" },
-];
+/* No colours here on purpose. T6 carve-out 5 gives organiser-chosen track
+   colour to the schedule and agenda grids only, and `ColorChip` says the same
+   in its own docstring: everywhere else it renders the neutral `.track-chip`.
+   This is a DataTable, so it takes the neutral path — and a showcase route
+   that demonstrated the wrong one would teach the wrong rule. */
+const TRACKS = [{ label: "Agents" }, { label: "Evals" }, { label: "Infra" }];
 
 // 25 rows, matching seed volume. Every third row has no rating and every fifth
 // has no track, so the dash and the nulls-last comparator are both visible.
@@ -62,7 +59,7 @@ export function KitchenSink() {
       accessorFn: (row) => row.track?.label ?? null,
       sortingFn: nullsLast,
       cell: ({ row }) => row.original.track
-        ? <ColorChip label={row.original.track.label} color={row.original.track.color} />
+        ? <ColorChip label={row.original.track.label} />
         : <Dash />,
     },
     {
