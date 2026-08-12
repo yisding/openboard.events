@@ -300,7 +300,7 @@ export interface CreateUploadInput {
 export interface CreateUploadResult {
   fileId: FileId;
   uploadUrl: string;
-  /** Must be sent verbatim on the PUT — they are part of the signature. */
+  /** Caller-settable headers that are part of the signature. */
   requiredHeaders: Record<string, string>;
 }
 
@@ -338,7 +338,9 @@ export async function createUpload(input: CreateUploadInput): Promise<CreateUplo
   return {
     fileId,
     uploadUrl,
-    requiredHeaders: { "Content-Type": input.mime, "Content-Length": String(input.sizeBytes) },
+    // Content-Length remains signed above, but a browser derives it from the
+    // File body and forbids JavaScript from setting it explicitly.
+    requiredHeaders: { "Content-Type": input.mime },
   };
 }
 
