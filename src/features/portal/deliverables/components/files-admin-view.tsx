@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliverableRowDTO, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
 import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DataTable } from "@/shared/ui/app/data-table";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
@@ -108,8 +109,8 @@ export function FilesAdminView({
   const [displayRows, setDisplayRows] = useState(rows);
   useEffect(() => setDisplayRows(rows), [rows]);
 
-  async function bulkRemind() {
-    const targets = selected.filter((row) => !row.completed);
+  async function bulkRemind(selection = selected) {
+    const targets = selection.filter((row) => !row.completed);
     if (targets.length === 0) {
       toast("Nothing to remind — every selected row is already complete");
       return;
@@ -142,8 +143,8 @@ export function FilesAdminView({
    * server-side (`createFileExportJobIn` re-derives the same set), so the two
    * can never disagree about what actually gets included.
    */
-  async function startExport(groupBy: "none" | "session" | "speaker") {
-    const targets = selected.filter((row) => row.latestVersion !== null);
+  async function startExport(groupBy: "none" | "session" | "speaker", selection = selected) {
+    const targets = selection.filter((row) => row.latestVersion !== null);
     if (targets.length === 0) {
       toast("Select at least one deliverable that has a file uploaded");
       return;
@@ -282,26 +283,6 @@ export function FilesAdminView({
           </Select>
           <span className="row-count">{displayRows.length} shown</span>
         </div>
-        {selected.length > 0 && (
-          <div className="bulk-bar">
-            <span><b>{selected.length}</b> selected</span>
-            <Button size="sm" variant="secondary" disabled={reminding} onClick={() => void bulkRemind()}>
-              <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
-            </Button>
-            <Select
-              aria-label="Group export by"
-              disabled={exporting}
-              defaultValue="none"
-              onChange={(event) => { void startExport(event.target.value as "none" | "session" | "speaker"); event.target.value = "none"; }}
-            >
-              <option value="none" disabled>{exporting ? "Preparing export…" : "Export latest files as ZIP…"}</option>
-              <option value="none">No grouping</option>
-              <option value="speaker">Grouped by speaker</option>
-              <option value="session">Grouped by session</option>
-            </Select>
-            <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
-          </div>
-        )}
         {exportJob && (
           <div className="notify-bar">
             <div>
@@ -329,6 +310,29 @@ export function FilesAdminView({
           enableSelection
           getRowLabel={(row) => `${row.contactName}, ${row.fileRequestTitle}`}
           onSelectionChange={setSelected}
+          renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
+            <BulkActionBar
+              count={selectedRows.length}
+              countLabel={countLabel}
+              onClear={clearSelection}
+              actions={<>
+                <Button size="sm" variant="secondary" disabled={reminding} onClick={() => { void bulkRemind(selectedRows); }}>
+                  <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
+                </Button>
+                <Select
+                  aria-label="Group export by"
+                  disabled={exporting}
+                  defaultValue="none"
+                  onChange={(event) => { void startExport(event.target.value as "none" | "session" | "speaker", selectedRows); event.target.value = "none"; }}
+                >
+                  <option value="none" disabled>{exporting ? "Preparing export…" : "Export latest files as ZIP…"}</option>
+                  <option value="none">No grouping</option>
+                  <option value="speaker">Grouped by speaker</option>
+                  <option value="session">Grouped by session</option>
+                </Select>
+              </>}
+            />
+          )}
           selectionEpoch={selectionEpoch}
           getRowId={(row) => `${row.taskId}:${row.contactId}:${row.submissionId ?? "-"}`}
           onRowClick={(row) => setActive(row)}

@@ -7,7 +7,7 @@ import { formatCode } from "@/features/submissions/index.client";
 import type { SubmissionFilters } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
-import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
+import { DataTable, nullsLast, type DataTableProps } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
@@ -68,6 +68,7 @@ export function AbstractsTable({
   onRowClick,
   selectionEpoch,
   selectAllEpoch,
+  renderSelectionBar,
 }: {
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
@@ -91,6 +92,7 @@ export function AbstractsTable({
   selectionEpoch?: number;
   /** M58 — bumped to select every row on screen, arming the bar from a palette verb. */
   selectAllEpoch?: number;
+  renderSelectionBar?: DataTableProps<SubmissionListRow>["renderSelectionBar"];
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
   useEffect(() => setDraftSearch(search), [search]);
@@ -207,6 +209,7 @@ export function AbstractsTable({
         columnVisibilityKey="abstracts"
         getRowId={(row) => row.submissionId}
         {...(onSelectionChange ? { onSelectionChange } : {})}
+        {...(renderSelectionBar ? { renderSelectionBar } : {})}
         {...(onRowClick ? { onRowClick } : {})}
         serverPagination={{ page, pageSize, total: filteredTotal, onPageChange }}
         serverSorting={{

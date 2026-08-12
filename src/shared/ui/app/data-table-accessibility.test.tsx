@@ -45,6 +45,15 @@ describe("DataTable loading accessibility", () => {
     expect(html).not.toContain("No rows");
   });
 
+  it("keeps one atomic polite region for selection counts, separate from loading", () => {
+    const html = renderToStaticMarkup(
+      <DataTable columns={columns} data={[]} empty={<p>No rows</p>} enableSelection />,
+    );
+    expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).toContain('<p class="sr-only" role="status"></p>');
+  });
+
   it("removes the loading announcement when data settles", () => {
     const html = renderTable(false);
 

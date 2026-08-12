@@ -42,7 +42,6 @@ const ROWS: DemoRow[] = Array.from({ length: 25 }, (_, index) => ({
 
 export function KitchenSink() {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<DemoRow[]>([]);
   const [confirming, setConfirming] = useState<"destructive" | "stale" | null>(null);
 
   const data = useMemo(
@@ -113,7 +112,6 @@ export function KitchenSink() {
           data={data}
           enableSelection
           getRowLabel={(row) => `${row.code}, ${row.title}`}
-          onSelectionChange={setSelected}
           columnVisibilityKey="kitchen-sink"
           pageSize={10}
           toolbar={
@@ -135,7 +133,6 @@ export function KitchenSink() {
             />
           }
         />
-        <p style={{ marginTop: 12 }}>{selected.length} row(s) selected on this page.</p>
       </section>
 
       <section>

@@ -16,6 +16,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { Avatar, Button, EmptyState, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { CrmNav } from "./crm-nav";
@@ -167,15 +168,6 @@ export function DirectoryView({
         <article><span className="summary-icon"><Building2 size={19} /></span><div><strong>{metrics.eventsRepresented}</strong><small>Events represented</small></div></article>
       </section>
 
-      {selected.length > 0 && (
-        <div className="bulk-bar">
-          <span>{selected.length} selected</span>
-          <Button size="sm" onClick={() => setEmailOpen(true)}><Mail size={14} /> Email selected</Button>
-          {selected.length === 2 && <Button size="sm" variant="secondary" onClick={() => setMergeOpen(true)}><GitMerge size={14} /> Merge selected</Button>}
-          <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
-        </div>
-      )}
-
       {tags.length > 0 && (
         <div className="chip-picker" style={{ marginBottom: 12 }}>
           {tags.map((tag) => (
@@ -209,6 +201,17 @@ export function DirectoryView({
         enableSelection
         getRowLabel={nameOf}
         onSelectionChange={setSelected}
+        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
+          <BulkActionBar
+            count={selectedRows.length}
+            countLabel={countLabel}
+            onClear={clearSelection}
+            actions={<>
+              <Button size="sm" onClick={() => { setSelected(selectedRows); setEmailOpen(true); }}><Mail size={14} /> Email selected</Button>
+              {selectedRows.length === 2 && <Button size="sm" variant="secondary" onClick={() => { setSelected(selectedRows); setMergeOpen(true); }}><GitMerge size={14} /> Merge selected</Button>}
+            </>}
+          />
+        )}
         selectionEpoch={selectionEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
         toolbar={

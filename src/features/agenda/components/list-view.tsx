@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { ColorChip } from "@/shared/ui/app/color-chip";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -108,8 +109,8 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
     },
   ], [conflicts, event.timezone, lookup]);
 
-  const bulk = async (published: boolean) => {
-    const ids = selected.map((session) => session.id as SessionId);
+  const bulk = async (published: boolean, selection = selected) => {
+    const ids = selection.map((session) => session.id as SessionId);
     if (ids.length === 0) return;
     try {
       const result = await setPublished.mutateAsync({ ids, published });
@@ -125,14 +126,6 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
 
   return (
     <section className="panel data-panel">
-      {selected.length > 0 && (
-        <div className="bulk-bar">
-          <span>{selected.length} selected</span>
-          <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(true); }}>Publish selected</Button>
-          <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(false); }}>Unpublish selected</Button>
-          <button type="button" onClick={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}>Clear</button>
-        </div>
-      )}
       <DataTable
         columns={columns}
         data={sessions}
@@ -142,6 +135,17 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         columnVisibilityKey={`agenda-list:${eventId}`}
         getRowId={(row) => String(row.id)}
         onSelectionChange={setSelected}
+        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
+          <BulkActionBar
+            count={selectedRows.length}
+            countLabel={countLabel}
+            onClear={clearSelection}
+            actions={<>
+              <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(true, selectedRows); }}>Publish selected</Button>
+              <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(false, selectedRows); }}>Unpublish selected</Button>
+            </>}
+          />
+        )}
         {...(onEdit ? { onRowClick: (row: ScheduledSessionDTO) => onEdit(String(row.id)) } : {})}
         toolbar={<span className="row-count">{sessions.length} session{sessions.length === 1 ? "" : "s"}</span>}
         empty={(

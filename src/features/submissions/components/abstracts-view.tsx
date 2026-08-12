@@ -60,26 +60,17 @@ export function AbstractsView({
   const router = useRouter();
   const params = useSearchParams();
   const { runGuarded } = useGuardedAction();
-  const [selected, setSelected] = useState<SubmissionListRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [drawerBusy, setDrawerBusy] = useState(false);
   // `?add=1` is how the agenda's "Add an invited talk" hands the organizer
   // straight to this drawer (#117), rather than dropping them on a table and
   // leaving them to find the button.
   const [adding, setAdding] = useState(() => params.get("add") === "1");
-  // Bumped to clear the table's own checkbox state; `selected` is only a mirror
-  // of it, so resetting the mirror alone leaves the boxes ticked.
-  const [selectionEpoch, setSelectionEpoch] = useState(0);
   // M58 — bumped to select every row on screen: the command palette's
   // "pending abstracts" verb lands here with `?status=pending&arm=1` and the
   // bar is already showing "N selected" with its actions, nothing to click
   // first.
   const [selectAllEpoch, setSelectAllEpoch] = useState(0);
-
-  const clearSelection = useCallback(() => {
-    setSelected([]);
-    setSelectionEpoch((epoch) => epoch + 1);
-  }, []);
 
   // `arm` and `submission` are one-shot: consumed on arrival, then stripped
   // from the URL (replace, not push) so neither a re-render nor the back
@@ -162,14 +153,6 @@ export function AbstractsView({
           </>
         }
       />
-      {canEdit && (
-        <DecisionBar
-          eventId={eventId}
-          selected={selected}
-          pendingNotify={queued}
-          onDone={clearSelection}
-        />
-      )}
       <AbstractsTable
         rows={rows}
         counts={counts}
@@ -185,9 +168,18 @@ export function AbstractsView({
         onPageChange={onPageChange}
         onSortChange={onSortChange}
         enableSelection={canEdit}
-        selectionEpoch={selectionEpoch}
         selectAllEpoch={selectAllEpoch}
-        {...(canEdit ? { onSelectionChange: setSelected } : {})}
+        {...(canEdit ? {
+          renderSelectionBar: ({ selectedRows, countLabel, clearSelection: clearTableSelection }) => (
+            <DecisionBar
+              eventId={eventId}
+              selected={selectedRows}
+              pendingNotify={queued}
+              countLabel={countLabel}
+              onDone={clearTableSelection}
+            />
+          ),
+        } : {})}
         onRowClick={(row) => requestDrawerTarget(row.submissionId)}
       />
       {/* `openIndex === -1` happens when a command-palette jump opens a
