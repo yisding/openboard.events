@@ -7,16 +7,12 @@ import { getOrganization, listOrganizationAuditLog } from "@/features/organizati
 import { AuditLogPanel } from "@/features/organizations/components/audit-log-panel";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Audit log" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Audit log" description="The audit log is unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
