@@ -7,8 +7,10 @@ import { ConfirmDialog } from "./confirm-dialog";
 type GuardContext = {
   register: (token: symbol, active: boolean) => void;
   runGuarded: (action: () => void) => void;
-  allowNextNavigation: (action?: () => void, options?: { hardUnload?: boolean }) => void;
+  allowNextNavigation: (action?: () => void, options?: NavigationOptions) => void;
 };
+
+type NavigationOptions = { hardUnload?: boolean; destination?: string };
 
 const GuardContext = createContext<GuardContext>({
   register: () => undefined,
@@ -22,6 +24,7 @@ type NavigationEventLike = Event & {
   canIntercept: boolean;
   downloadRequest: string | null;
   hashChange: boolean;
+  navigationType?: string;
   intercept: (options: { handler: () => Promise<void> }) => void;
 };
 
@@ -30,6 +33,14 @@ type NavigationTarget = EventTarget & { addEventListener: EventTarget["addEventL
 const HISTORY_GUARD_MARKER = "__openboardUnsavedWork";
 
 type HistoryFallback = { leave: (action?: () => void) => void };
+
+export function isSameNavigationDestination(destination: string, currentHref: string) {
+  return new URL(destination, currentHref).href === new URL(currentHref).href;
+}
+
+export function shouldInterceptNavigation(event: Pick<NavigationEventLike, "canIntercept" | "downloadRequest" | "hashChange" | "navigationType">) {
+  return event.navigationType !== "reload" && event.canIntercept && event.downloadRequest === null && !event.hashChange;
+}
 
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -47,8 +58,17 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     setGuardCount(guardsRef.current.size);
   }, []);
 
-  const allowNextNavigation = useCallback((action?: () => void, options?: { hardUnload?: boolean }) => {
+  const allowNextNavigation = useCallback((action?: () => void, options?: NavigationOptions) => {
     allowNextUnloadRef.current = options?.hardUnload === true;
+    // A client router may accept a same-URL push without emitting a navigation
+    // event or rerendering this provider. Do not consume either guard's one-shot
+    // allowance when there is no destination change to allow.
+    if (action && !options?.hardUnload && options?.destination && isSameNavigationDestination(options.destination, window.location.href)) {
+      allowNextRef.current = false;
+      allowNextUnloadRef.current = false;
+      action();
+      return;
+    }
     const fallback = historyFallbackRef.current;
     if (fallback && action) {
       fallback.leave(action);
@@ -203,7 +223,9 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         allowNextRef.current = false;
         return;
       }
-      if (!event.canIntercept || event.downloadRequest !== null || event.hashChange) return;
+      // Intercepting a reload turns it into a same-document navigation. Let
+      // beforeunload own reloads so confirming actually reloads the document.
+      if (!shouldInterceptNavigation(event)) return;
       event.intercept({
         handler: () => new Promise<void>((resolve, reject) => {
           setPending({
@@ -233,7 +255,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     event.stopPropagation();
     runGuarded(() => allowNextNavigation(() => {
       router.push(`${destination.pathname}${destination.search}${destination.hash}`);
-    }));
+    }, { destination: destination.href }));
   }
 
   return (

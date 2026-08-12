@@ -14,6 +14,6 @@ export function ImpersonationBanner({ name, email, backHref, onExit }: { name: s
     runGuarded(() => allowNextNavigation(() => {
       onExit?.();
       router.push(backHref);
-    }));
+    }, { destination: backHref }));
   }}>Back to Admin</Link></div>;
 }

@@ -5,7 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { CalendarDays, ClipboardCheck, Search, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
-import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
+import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { SearchResult, SearchResultType } from "@/features/shell/server/search";
 
 /**
@@ -107,10 +107,14 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   useEffect(() => setActiveIndex(0), [items.length]);
 
   function go(item: PaletteItem) {
+    if (isSameNavigationDestination(item.href, window.location.href)) {
+      onClose();
+      return;
+    }
     runGuarded(() => allowNextNavigation(() => {
       router.push(item.href);
       onClose();
-    }));
+    }, { destination: item.href }));
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {

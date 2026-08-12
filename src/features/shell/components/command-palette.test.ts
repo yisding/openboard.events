@@ -28,8 +28,11 @@ describe("PaletteDialog", () => {
   it("routes imperative palette navigation through the unsaved-work guard", () => {
     const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
     const go = source.slice(source.indexOf("function go"), source.indexOf("function onKeyDown"));
+    const guardedNavigation = go.slice(go.indexOf("runGuarded"));
 
+    expect(go.indexOf("isSameNavigationDestination")).toBeLessThan(go.indexOf("runGuarded"));
     expect(go).toContain("runGuarded(() => allowNextNavigation(() => {");
-    expect(go.indexOf("router.push(item.href)")).toBeLessThan(go.indexOf("onClose()"));
+    expect(go).toContain("{ destination: item.href }");
+    expect(guardedNavigation.indexOf("router.push(item.href)")).toBeLessThan(guardedNavigation.indexOf("onClose()"));
   });
 });
