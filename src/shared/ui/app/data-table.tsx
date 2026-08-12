@@ -350,7 +350,10 @@ export function DataTable<Row>({
                 className="filter-button"
                 aria-expanded={pickerOpen}
                 aria-controls={pickerOpen ? pickerPanelId : undefined}
-                onClick={() => setPickerOpen((open) => !open)}
+                onClick={(event) => {
+                  if (!pickerOpen) event.currentTarget.focus();
+                  setPickerOpen((open) => !open);
+                }}
               >
                 <Columns3 size={14} /> Columns
               </button>

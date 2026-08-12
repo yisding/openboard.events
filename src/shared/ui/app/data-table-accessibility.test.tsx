@@ -73,6 +73,7 @@ describe("DataTable column disclosure accessibility", () => {
     expect(source).toContain('document.addEventListener("keydown", closeOnEscape)');
     expect(source).toContain('if (event.key !== "Escape") return;');
     expect(source).toContain("document.activeElement");
+    expect(source).toContain("if (!pickerOpen) event.currentTarget.focus()");
     expect(source).toContain("pickerButtonRef.current?.focus()");
     expect(source).toContain('document.addEventListener("pointerdown", closeOutside)');
     expect(source).toContain('document.addEventListener("focusin", closeOnFocusOutside)');
