@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { GET as getBilling } from "./internal/organizations/[organizationId]/billing/route";
 import { POST as startCheckout } from "./internal/organizations/[organizationId]/billing/checkout/route";
 import { POST as billingWebhook } from "./webhooks/billing/route";
@@ -15,6 +15,15 @@ async function expectUnavailable(response: Response): Promise<void> {
 }
 
 describe("disabled billing launch surface", () => {
+  beforeAll(() => {
+    vi.stubEnv("APP_ENV", "local");
+    vi.stubEnv("BILLING_MODE", "disabled");
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("does not expose the organization billing API", async () => {
     await expectUnavailable(await getBilling(
       new NextRequest(`http://localhost/api/internal/organizations/${organizationId}/billing`),

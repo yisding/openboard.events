@@ -170,8 +170,10 @@ pnpm deploy:jobs:production
 
 The protected `production` GitHub environment gates the `Deploy` Actions workflow only — these
 local commands bypass that approval gate. The wrapper still validates the exact origin and checks
-the remote Worker secret inventory before it builds or deploys; treat production invocations
-accordingly.
+the remote Worker secret inventory before it builds or deploys, except for the explicit
+`ALLOW_MISSING_DEPLOY_SECRETS=1` first-web-Worker bootstrap. That override first proves through
+Cloudflare's API that the target Worker does not exist and is rejected for jobs or any existing
+Worker; treat production invocations accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub

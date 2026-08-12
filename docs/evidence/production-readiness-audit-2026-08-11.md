@@ -1,7 +1,8 @@
 # Production-readiness audit — August 11, 2026
 
-This is a current-state audit of `main` at `422b391`, run in America/Los_Angeles on August 11,
-2026. It supplements the rev. 13 evidence ledger; it does not rewrite historical results.
+This audit began from `main` at `422b391` and records the production-hardening worktree verified
+in America/Los_Angeles on August 11, 2026. It supplements the rev. 13 evidence ledger; it does not
+rewrite historical results.
 
 ## Live state
 
@@ -93,6 +94,12 @@ printed by the preflight.
   bodies; raw diagnostics remain in the web Worker's single error-capture seam. The deferred
   Airtable contract stub is no longer scheduled, and runtime validation rejects
   `AIRTABLE_CRON=1` until a real adapter and acceptance proof exist.
+- Every successful authenticated web job now records a durable, aggregate-only completion
+  heartbeat before returning success. `/api/health` exposes only per-job ages, strict smoke
+  requires the heartbeat query to work, and external uptime warns after three minutes or pages
+  after five without an outbox completion. Because outbox runs even when its queue is empty, this
+  detects a stopped Cron Trigger, broken route, shared-secret mismatch, or jobs-to-web outage that
+  queue-depth monitoring alone cannot see.
 
 ## Local release proof
 
@@ -100,11 +107,11 @@ printed by the preflight.
 
 - type-check, lint, and repository invariants are clean;
 - the production dependency audit reports no known vulnerabilities;
-- all 210 Vitest files and all 1,520 tests pass;
+- all 214 Vitest files and all 1,537 tests pass;
 - committed Cloudflare declarations match the clean configuration;
 - the production Next/OpenNext Worker build completes;
-- first-load browser JavaScript is 135.8 KiB gzip and the lazy editor is 66.8 KiB gzip;
-- all 206 Worker server chunks are present and the Worker is 2,497.21 KiB gzip, below the
+- first-load browser JavaScript is 136.4 KiB gzip and the lazy editor is 66.8 KiB gzip;
+- all 206 Worker server chunks are present and the Worker is 2,494.44 KiB gzip, below the
   Workers Free 3 MiB limit;
 - `/`, `/login`, `/signup`, `/events`, and `/api/health` load under local workerd, with health
   returning the expected 503 because the isolated smoke deliberately has no database.

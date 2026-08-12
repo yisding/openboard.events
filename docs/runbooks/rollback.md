@@ -96,6 +96,12 @@ pipeline — including `pnpm db:migrate` — as it existed at that commit. This 
 migrations in its own journal table and only ever runs new ones forward, so migrating from an
 older checkout is a no-op if nothing new to apply, never a downgrade.
 
+The current migration wrapper deliberately never lowers the database journal's historical
+`created_at` high-water mark. That preserves this guarantee for checkouts from before the wrapper
+existed: their original future-dated journal entries remain at or below the database high-water
+mark and are skipped. Current checkouts verify hashes and use an ephemeral compatibility journal
+to place only genuinely pending migrations above that mark.
+
 Watch the run with `gh run watch`, then verify exactly as in the fast path's step 3.
 
 ### Manual fallback, if GitHub Actions itself is unavailable

@@ -27,11 +27,10 @@ restore_worker() {
 trap restore_worker EXIT INT TERM
 
 scratch_root="${CLOUDFLARE_TYPES_TMP_ROOT:-${HOME:?HOME is required}/Code}"
-env_file=".wrangler/typegen-clean.env"
 # Suppress Wrangler's automatic .dev.vars/.env loading. Generated declarations
 # describe committed config and bindings, never one developer's ignored keys.
 mkdir -p .wrangler
-: > "$env_file"
+env_file="$(mktemp .wrangler/typegen-clean.XXXXXX.env)"
 
 if [[ -f "$worker_file" ]]; then
   mkdir -p "$scratch_root"

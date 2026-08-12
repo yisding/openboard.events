@@ -15,10 +15,10 @@ name: Uptime
 # single extra step appended to the `check` job below — nothing else here
 # would need to change.
 #
-# Both deployed Workers are always polled. Repository variables may replace the
-# origins when a custom domain lands, but neither environment can silently
-# disappear from monitoring: an empty variable falls back to the canonical
-# workers.dev origin committed here.
+# Both deployed web Worker environments are always polled. Repository variables
+# may replace the origins when a custom domain lands, but neither environment
+# can silently disappear from monitoring: an empty variable falls back to the
+# canonical workers.dev origin committed here.
 #
 #   UPTIME_PREVIEW_URL     defaults to the deployed preview origin below.
 #   UPTIME_PRODUCTION_URL  defaults to the deployed production origin below.
@@ -27,8 +27,9 @@ on:
   schedule:
     # Every 15 minutes. Loose enough to stay well inside GitHub Actions' free
     # scheduled-workflow minutes for a two-origin check; tight enough that the
-    # 1-hour "page" threshold on comms.oldestQueuedAgeSeconds (alerting.md)
-    # still gets several chances to fire before it's an hour stale itself.
+    # 1-hour comms threshold still gets several chances to fire. A stopped
+    # every-minute outbox heartbeat pages on the next poll (its own threshold
+    # is five minutes; workflow scheduling is the limiting detection latency).
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 

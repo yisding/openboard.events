@@ -35,7 +35,11 @@ export function normalizeOperationalError(error: unknown): Error {
 export async function operationalErrorFingerprint(error: unknown): Promise<string> {
   const normalized = normalizeOperationalError(error);
   const stackShape = normalized.stack?.split("\n").slice(1, 5).join("\n") ?? "";
-  const material = `${normalized.name}\u0000${normalized.message}\u0000${stackShape}`;
+  // Error messages may contain emails, tokens, provider responses, or other
+  // guessable customer data. Even a one-way unkeyed digest would allow an
+  // offline dictionary test, so only class and message-free stack frames form
+  // the durable identity. The raw message remains in access-controlled logs.
+  const material = `${normalized.name}\u0000${stackShape}`;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
