@@ -86,6 +86,8 @@ describe("stable create request ids", () => {
     expect(formsSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(3);
     expect(formsSource).toContain("function openCreate() {");
     expect(formsSource).toContain("function closeCreate() {");
+    expect(formsSource.match(/if \(!createOutcomeUnknown\.current\)/gu)).toHaveLength(2);
+    expect(formsSource).toContain("createOutcomeUnknown.current = true");
     expect(formsSource.indexOf("createRequestId.current.reset()", formsSource.indexOf("async function createForm")))
       .toBeGreaterThan(formsSource.indexOf("await requestData<BuilderForm>"));
   });

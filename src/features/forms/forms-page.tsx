@@ -10,10 +10,23 @@ import { formatInZone } from "@/shared/lib/time";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { useToast } from "@/shared/ui/toast";
 
-async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
-  const payload = await response.json() as { data?: T; error?: { message?: string } };
-  if (!response.ok || payload.data === undefined) throw new Error(payload.error?.message ?? "The form could not be saved");
+export class FormCreateRequestError extends Error {
+  constructor(message: string, readonly outcomeUnknown: boolean) {
+    super(message);
+    this.name = "FormCreateRequestError";
+  }
+}
+
+export async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch {
+    throw new FormCreateRequestError("Could not reach the server", true);
+  }
+  const payload = await response.json().catch(() => null) as { data?: T; error?: { message?: string } } | null;
+  if (!response.ok) throw new FormCreateRequestError(payload?.error?.message ?? "The form could not be saved", false);
+  if (payload?.data === undefined) throw new FormCreateRequestError("The server response could not be confirmed", true);
   return payload.data;
 }
 
@@ -29,6 +42,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   const [collectParticipants, setCollectParticipants] = useState(true);
   const [busy, setBusy] = useState(false);
   const createRequestId = useRef(createStableCreateRequestId());
+  const createOutcomeUnknown = useRef(false);
   const visible = useMemo(() => forms.filter((form) => {
     const tabMatch = tab === "all" || form.status === tab;
     const searchMatch = form.internalName.toLowerCase().includes(search.trim().toLowerCase());
@@ -36,13 +50,15 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   }), [forms, search, tab]);
 
   function openCreate() {
-    createRequestId.current.reset();
-    createRequestId.current.begin();
+    if (!createOutcomeUnknown.current) {
+      createRequestId.current.reset();
+      createRequestId.current.begin();
+    }
     setCreating(true);
   }
 
   function closeCreate() {
-    createRequestId.current.reset();
+    if (!createOutcomeUnknown.current) createRequestId.current.reset();
     setCreating(false);
   }
 
@@ -56,10 +72,12 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
         body: JSON.stringify(createRequestId.current.payload(undefined, { internalName: name, kind, collectParticipants })),
       });
       createRequestId.current.reset();
+      createOutcomeUnknown.current = false;
       toast("Form created with the required submission and identity fields");
       router.push(`/events/${event.id}/forms/${form.id}`);
       router.refresh();
     } catch (error) {
+      if (error instanceof FormCreateRequestError && error.outcomeUnknown) createOutcomeUnknown.current = true;
       toast(error instanceof Error ? error.message : "The form could not be created", { kind: "error" });
       setBusy(false);
     }
