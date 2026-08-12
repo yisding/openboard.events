@@ -233,7 +233,7 @@ export function AssignmentDrawer({
                     disabled={controlsDisabled}
                     onChange={() => setReviewerIds((current) => toggle(current, reviewer.userId))}
                   />
-                  <b>{reviewer.name || reviewer.email}</b>{" "}
+                  <b>{reviewer.name || reviewer.email}</b>
                   <small>{reviewer.completed}/{reviewer.assigned} done{reviewer.recused > 0 ? ` · ${reviewer.recused} recused` : ""}</small>
                 </label>
               ))}
@@ -269,7 +269,7 @@ export function AssignmentDrawer({
                 disabled={controlsDisabled}
                 onChange={() => setSelected((current) => toggle(current, submission.submissionId))}
               />
-              <b>{formatCode(submission.code)} {submission.title}</b>{" "}
+              <b>{formatCode(submission.code)} {submission.title}</b>
               <small>{submission.trackName ?? "Uncategorized"} · {submission.assignedTo.length} assigned</small>
             </label>
           ))}
