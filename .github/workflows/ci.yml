@@ -23,7 +23,7 @@ jobs:
     name: Static and generated-file gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
         with:
           install-ripgrep: true
@@ -41,7 +41,7 @@ jobs:
       matrix:
         shard: [1, 2]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
       # Vitest's deterministic sharding keeps the full suite while letting
       # independent runners cut the PR's test wall time roughly in half.
@@ -51,7 +51,7 @@ jobs:
     name: Worker and browser artifact gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node
       # The wrapper preserves clean-checkout semantics even when a developer
       # has a local artifact; CI still runs it before build for the cheapest
