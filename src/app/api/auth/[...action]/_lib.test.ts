@@ -5,7 +5,7 @@ import {
   OAUTH_SIGNUP_INTENT_COOKIE,
   openOAuthSignupIntent,
 } from "@/features/auth/server/oauth-signup-intent";
-import { beginGoogleSignup, handleAdminAuthGet } from "./_lib";
+import { beginGoogleSignup, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
 
 const secret = "google-signup-route-test-secret-at-least-32-bytes";
 const dormant = parseEnv({
@@ -147,5 +147,23 @@ describe("Google signup handoff", () => {
       .find((cookie) => cookie.startsWith(`${OAUTH_SIGNUP_INTENT_COOKIE}=`)) ?? "";
     expect(expired).toContain("Path=/api/auth/callback/google");
     expect(expired).toContain("Max-Age=0");
+  });
+
+  it("expires an abandoned signup intent when an ordinary Google transaction starts", async () => {
+    const request = new NextRequest("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "google", callbackURL: "/organizations" }),
+    });
+    const handler = vi.fn(async () => Response.json({ url: "https://accounts.google.com/auth" }, {
+      headers: { "set-cookie": "openboard_admin.oauth_state=fresh; Path=/; HttpOnly; SameSite=Lax" },
+    }));
+    const response = await handleSocialSignIn(request, dormant, handler);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(response.headers.getSetCookie()).toEqual(expect.arrayContaining([
+      expect.stringContaining("openboard_admin.oauth_state=fresh"),
+      expect.stringMatching(new RegExp(`${OAUTH_SIGNUP_INTENT_COOKIE}=;.*Max-Age=0`)),
+    ]));
   });
 });

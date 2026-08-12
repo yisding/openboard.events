@@ -25,8 +25,25 @@ const googleSignupSchema = z.object({
   acknowledgedPrivacyVersion: z.string().trim().max(80).optional(),
   next: z.string().max(2_048).optional(),
 });
+const googleSocialSchema = z.object({ provider: z.literal("google") });
 
 type BetterAuthRequestHandler = (request: Request) => Promise<Response>;
+
+function expireOAuthSignupIntent(
+  result: Response,
+  env: Pick<RuntimeEnv, "APP_ENV">,
+): NextResponse {
+  const response = new NextResponse(result.body, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: result.headers,
+  });
+  response.cookies.set(OAUTH_SIGNUP_INTENT_COOKIE, "", {
+    ...oauthSignupIntentCookieOptions(env),
+    maxAge: 0,
+  });
+  return response;
+}
 
 function copyCookies(source: Response, target: NextResponse): void {
   for (const cookie of source.headers.getSetCookie()) target.headers.append("set-cookie", cookie);
@@ -70,16 +87,18 @@ export async function handleAdminAuthGet(
   // The callback is the only request that can read this path-scoped cookie.
   // Expire it on every Google return — success, denial, or validation error —
   // so an abandoned signup context cannot bleed into a later OAuth attempt.
-  const response = new NextResponse(result.body, {
-    status: result.status,
-    statusText: result.statusText,
-    headers: result.headers,
-  });
-  response.cookies.set(OAUTH_SIGNUP_INTENT_COOKIE, "", {
-    ...oauthSignupIntentCookieOptions(env),
-    maxAge: 0,
-  });
-  return response;
+  return expireOAuthSignupIntent(result, env);
+}
+
+/** Keep an abandoned explicit-signup intent out of an ordinary Google flow. */
+export async function handleSocialSignIn(
+  request: NextRequest,
+  env: Pick<RuntimeEnv, "APP_ENV">,
+  handler: BetterAuthRequestHandler,
+): Promise<Response> {
+  const isGoogle = googleSocialSchema.safeParse(await request.clone().json().catch(() => null)).success;
+  const result = await handler(request);
+  return isGoogle ? expireOAuthSignupIntent(result, env) : result;
 }
 
 function authError(code: string, message: string, status: number): NextResponse {

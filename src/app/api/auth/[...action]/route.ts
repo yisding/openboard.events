@@ -14,7 +14,7 @@ import {
 import { isAppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { checkRateLimit } from "@/shared/server/rate-limit";
-import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet } from "./_lib";
+import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
 
 /**
  * Admin auth endpoints.
@@ -230,6 +230,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 
   if (betterAuth && THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);
   if (betterAuth && path === "sign-up/google") return beginGoogleSignup(request, env, betterAuthHandler);
+  if (betterAuth && path === "sign-in/social") return handleSocialSignIn(request, env, betterAuthHandler);
   if (betterAuth && path === "confirm-email") return confirmAdminEmail(request, {
     handler: betterAuthHandler,
     limit: () => checkRateLimit(db, {
