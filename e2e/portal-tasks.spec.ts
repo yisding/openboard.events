@@ -65,7 +65,7 @@ test.describe("portal-tasks", () => {
       await test.step("the bio counter reads 5,000 and the server refuses more", async () => {
         // Both halves matter: a client-only limit is not a limit.
         const bio = `E2E bio ${Date.now()}`;
-        await page.getByLabel("Rich text editor").click();
+        await page.getByRole("textbox", { name: "Biography", exact: true }).click();
         await page.keyboard.type(bio);
         // The counter is rendered from `plainTextLength`, the same function the
         // server's refine uses — they cannot disagree, and this asserts the
@@ -87,7 +87,7 @@ test.describe("portal-tasks", () => {
 
         // And the refusal changed nothing: the saved bio is still the saved bio.
         await page.reload();
-        await expect(page.getByLabel("Rich text editor")).toContainText(bio);
+        await expect(page.getByRole("textbox", { name: "Biography", exact: true })).toContainText(bio);
       });
 
       assertClean();

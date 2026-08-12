@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 import { landed, waitingOn } from "./helpers/landed";
-import { EVENTS, TEMPLATE_KEYS_PER_EVENT } from "./helpers/seeded";
+import { EVENTS, EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT, TEMPLATE_KEYS_PER_EVENT } from "./helpers/seeded";
 
 /**
  * Goes green when M11 (events + vocab) and M12 (form builder core) land — target
@@ -84,7 +84,7 @@ test.describe("admin-setup", () => {
         await expect(page).toHaveURL(/\/events\/new/);
       });
 
-      await test.step("the new event's settings show every default email template", async () => {
+      await test.step("the new event's settings show every event-editable email template", async () => {
         // 7 domain keys + portal_login + M50's two review keys + M51's
         // speaker_bulk_message + M42's two admin keys + M44's
         // organization_invited. This is what proves M11 called
@@ -99,15 +99,17 @@ test.describe("admin-setup", () => {
         const eventId = /\/events\/([0-9a-f-]{36})\//.exec(page.url())?.[1] ?? "";
         expect(eventId, "the create should have redirected to the new event's settings").not.toEqual("");
 
-        // The 8-key rail is where templates are edited (M37's Communications
-        // surface); the settings shell owns details and vocabulary only.
+        // Communications exposes event mail only. The two platform-auth
+        // templates are seeded too, but intentionally have no event-level
+        // controls because they may be sent before an event exists.
         await page.goto(`/events/${eventId}/communications?tab=templates`);
-        await expect(page.locator("nav[aria-label='Template keys'] button")).toHaveCount(TEMPLATE_KEYS_PER_EVENT);
+        await expect(page.locator("nav[aria-label='Template keys'] button")).toHaveCount(EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT);
         // And the same count from the route the rail reads, so a rail that
-        // renders eight buttons over four rows cannot pass this step.
+        // invents controls for platform mail (or omits event mail) cannot pass.
         const templates = await apiData<Array<{ key: string }>>(page.request, `/api/internal/comms/${eventId}/templates`);
-        expect(templates).toHaveLength(TEMPLATE_KEYS_PER_EVENT);
+        expect(templates).toHaveLength(EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT);
         expect(templates.map((template) => template.key)).toContain("portal_login");
+        expect(templates.map((template) => template.key)).not.toContain("admin_password_reset");
       });
     });
 

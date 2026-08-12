@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { BASE_URL, NO_TARGET, targetConfigured } from "./helpers/env";
@@ -186,7 +188,7 @@ test.describe("public-widgets-parity (M53)", () => {
       expect(keynoteDayIndex, "the keynote must be on one of the two seeded days").toBeGreaterThanOrEqual(0);
 
       await test.step("expanding a detail preserves the active day, and collapsing it does too", async () => {
-        await page.locator("article[role='button']", { hasText: KEYNOTE.title }).click();
+        await page.getByRole("button", { name: KEYNOTE.title, exact: true }).click();
         await expect(page.locator(".session-detail")).toBeVisible();
         // Scoped to the detail panel: the collapsed row already carries the
         // speaker's name as its own byline, so a bare `getByText` resolves to
@@ -194,13 +196,13 @@ test.describe("public-widgets-parity (M53)", () => {
         // step is about. The claim is "the expanded detail names the speaker".
         await expect(page.locator(".session-detail").getByText("Ada Lovelace")).toBeVisible();
         await expect(tabs.nth(keynoteDayIndex)).toHaveClass(/active/);
-        await page.locator("article[role='button']", { hasText: KEYNOTE.title }).click();
+        await page.getByRole("button", { name: KEYNOTE.title, exact: true }).click();
         await expect(page.locator(".session-detail")).toHaveCount(0);
         await expect(tabs.nth(keynoteDayIndex)).toHaveClass(/active/);
       });
 
       await test.step("switching days deliberately collapses any open detail", async () => {
-        await page.locator("article[role='button']", { hasText: KEYNOTE.title }).click();
+        await page.getByRole("button", { name: KEYNOTE.title, exact: true }).click();
         await expect(page.locator(".session-detail")).toBeVisible();
         const otherDay = 1 - keynoteDayIndex;
         await tabs.nth(otherDay).click();
@@ -408,7 +410,7 @@ test.describe("public-widgets-parity (M53)", () => {
       await expect(page.locator(".speaker-detail-sessions li", { hasText: KEYNOTE.title })).toContainText(roomName);
 
       await waitForVisible(page, SURFACES.gallery, "Ada Lovelace");
-      await page.locator(".speaker-gallery article", { hasText: "Ada Lovelace" }).click();
+      await page.getByRole("button", { name: "View profile for Ada Lovelace", exact: true }).click();
       await expect(page.locator(".speaker-detail-sessions li", { hasText: KEYNOTE.title })).toContainText(roomName);
     });
   });
@@ -469,35 +471,61 @@ test.describe("public-widgets-parity (M53)", () => {
       // URLs with a network scheme") and the iframe stays empty. `page.route`
       // intercepts before DNS, so this stays offline and deterministic while
       // still being a genuinely different origin from the preview.
-      const HOST_ORIGIN = "https://embed-host.e2e";
+      const targetOrigin = new URL(BASE_URL);
       let hostHtml = "";
-      await page.route(`${HOST_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: hostHtml }));
-
-      for (const { route, needle } of targets) {
-        await test.step(`/embed/${SLUG}/${route} renders inside a genuinely cross-origin host`, async () => {
-          hostHtml = `<!doctype html><html><body><iframe id="w" src="${BASE_URL}/embed/${SLUG}/${route}" style="width:390px;height:900px;border:0"></iframe></body></html>`;
-          await page.goto(`${HOST_ORIGIN}/${route}`);
-          const frame = page.frameLocator("#w");
-          await expect(async () => {
-            await expect(frame.getByText(needle).first()).toBeVisible({ timeout: 5_000 });
-          }).toPass({ timeout: 120_000, intervals: [5_000] });
+      let HOST_ORIGIN = "https://embed-host.e2e";
+      let closeHost = async () => { await page.unroute(`${HOST_ORIGIN}/**`); };
+      if (targetOrigin.protocol === "http:") {
+        // A route-fulfilled synthetic host is classified as public by Chromium
+        // and cannot frame localhost under Local Network Access. A real
+        // ephemeral loopback server stays offline and deterministic while
+        // providing the genuinely different origin this check promises.
+        const server = createServer((_request, response) => {
+          response.setHeader("content-type", "text/html; charset=utf-8");
+          response.end(hostHtml);
         });
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(0, "127.0.0.1", resolve);
+        });
+        HOST_ORIGIN = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        closeHost = async () => {
+          server.closeAllConnections();
+          await new Promise<void>((resolve) => server.close(() => resolve()));
+        };
+      } else {
+        await page.route(`${HOST_ORIGIN}/**`, (route) => route.fulfill({ contentType: "text/html", body: hostHtml }));
       }
 
-      // Both the direct and embed variants must be served from the edge cache,
-      // not re-rendered on every visitor — the M53 caching-regression fix
-      // (status.md rev. 11) is what makes the second assertion here possible
-      // at all; the embed used to be `private, no-cache` on every request.
-      for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
-        await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
-          let cached = false;
-          for (let attempt = 0; attempt < 5 && !cached; attempt += 1) {
-            const response = await page.request.get(url);
-            cached = (response.headers()["cache-control"] ?? "").includes("s-maxage=");
-            if (!cached) await page.waitForTimeout(2_000);
-          }
-          expect(cached, `${url} never became edge-cached`).toBe(true);
-        });
+      try {
+        for (const { route, needle } of targets) {
+          await test.step(`/embed/${SLUG}/${route} renders inside a genuinely cross-origin host`, async () => {
+            hostHtml = `<!doctype html><html><body><iframe id="w" src="${BASE_URL}/embed/${SLUG}/${route}" style="width:390px;height:900px;border:0"></iframe></body></html>`;
+            await page.goto(`${HOST_ORIGIN}/${route}`);
+            const frame = page.frameLocator("#w");
+            await expect(async () => {
+              await expect(frame.getByText(needle).first()).toBeVisible({ timeout: 5_000 });
+            }).toPass({ timeout: 120_000, intervals: [5_000] });
+          });
+        }
+
+        // Both the direct and embed variants must be served from the edge cache,
+        // not re-rendered on every visitor — the M53 caching-regression fix
+        // (status.md rev. 11) is what makes the second assertion here possible
+        // at all; the embed used to be `private, no-cache` on every request.
+        for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
+          await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
+            let cached = false;
+            for (let attempt = 0; attempt < 5 && !cached; attempt += 1) {
+              const response = await page.request.get(url);
+              cached = (response.headers()["cache-control"] ?? "").includes("s-maxage=");
+              if (!cached) await page.waitForTimeout(2_000);
+            }
+            expect(cached, `${url} never became edge-cached`).toBe(true);
+          });
+        }
+      } finally {
+        await closeHost();
       }
     });
 
@@ -568,7 +596,7 @@ test.describe("public-widgets-parity (M53)", () => {
     }
 
     await test.step("the session row opens its detail from the keyboard, not only a click", async () => {
-      const row = page.locator("article[role='button']", { hasText: KEYNOTE.title });
+      const row = page.getByRole("button", { name: KEYNOTE.title, exact: true });
       await row.focus();
       await page.keyboard.press("Enter");
       await expect(page.locator(".session-detail")).toBeVisible();
