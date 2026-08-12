@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import {
   CFP_PORTAL_REDIRECT_MS,
+  CfpStaleRecovery,
   CfpSubmitFailureNotice,
+  beginCfpSubmit,
   cfpRequest,
   cfpFlowSteps,
   cfpStepHeading,
@@ -13,8 +15,11 @@ import {
   hasIncompleteParticipantEmail,
   participantEmail,
   participantFieldIds,
+  preserveStaleCfpFailure,
   reloadUpdatedCfpForm,
   requiresCfpFormReload,
+  settleCfpSubmitFailure,
+  skippedCfpAutosaveResult,
   stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
@@ -170,7 +175,28 @@ describe("CFP stale form recovery", () => {
     });
   });
 
-  it("offers a reload only for a stale form version", () => {
+  it("renders stale recovery as a read-only screen with reload as its only action", () => {
+    const stale = cfpSubmitFailure({
+      ok: false,
+      data: {},
+      code: "FORM_VERSION_STALE",
+      message: "This form changed while you were filling it in",
+    });
+    const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, { failure: stale, onReload: () => undefined }));
+
+    expect(staleHtml).toContain("The organizer updated this form");
+    expect(staleHtml).toContain("your saved draft will be restored");
+    expect(staleHtml).toContain("Reload updated form");
+    expect(staleHtml.match(/<button/g)).toHaveLength(1);
+    expect(staleHtml).not.toContain("<form");
+    expect(staleHtml).not.toContain("<input");
+    expect(staleHtml).not.toContain("<textarea");
+    expect(staleHtml).not.toContain("Back");
+    expect(staleHtml).not.toContain("Submit proposal");
+    expect(staleHtml).not.toContain("Retry now");
+  });
+
+  it("keeps stale recovery locked through notice and step-navigation clears", () => {
     const stale = cfpSubmitFailure({
       ok: false,
       data: {},
@@ -178,16 +204,45 @@ describe("CFP stale form recovery", () => {
       message: "This form changed while you were filling it in",
     });
     const ordinary = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit proposal" });
-    const staleHtml = renderToStaticMarkup(React.createElement(CfpSubmitFailureNotice, { failure: stale, onReload: () => undefined }));
-    const ordinaryHtml = renderToStaticMarkup(React.createElement(CfpSubmitFailureNotice, { failure: ordinary, onReload: () => undefined }));
+    const ordinaryHtml = renderToStaticMarkup(React.createElement(CfpSubmitFailureNotice, { failure: ordinary }));
 
-    expect(staleHtml).toContain("The organizer updated this form");
-    expect(staleHtml).toContain("your saved draft will be restored");
-    expect(staleHtml).toContain("Reload updated form");
+    expect(preserveStaleCfpFailure(stale)).toBe(stale);
+    expect(preserveStaleCfpFailure(ordinary)).toBeNull();
     expect(requiresCfpFormReload(stale)).toBe(true);
     expect(ordinaryHtml).toContain("Could not submit proposal");
     expect(ordinaryHtml).not.toContain("Reload updated form");
     expect(requiresCfpFormReload(ordinary)).toBe(false);
+  });
+
+  it("cannot submit the obsolete snapshot again after a stale rejection", () => {
+    const lock = { submitting: false, versionStale: false };
+    const stale = cfpSubmitFailure({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" });
+
+    expect(beginCfpSubmit(lock)).toBe(true);
+    settleCfpSubmitFailure(lock, stale);
+    expect(lock).toEqual({ submitting: false, versionStale: true });
+    expect(beginCfpSubmit(lock)).toBe(false);
+  });
+
+  it("marks a skipped post-stale autosave unsaved, never saved", () => {
+    const states: AutosaveState[] = [];
+    const skipped = skippedCfpAutosaveResult(
+      { submitting: false, versionStale: true },
+      (state) => states.push(state),
+    );
+
+    expect(skipped).toBe(false);
+    expect(states).toEqual(["failed"]);
+    expect(states).not.toContain("saved");
+  });
+
+  it("keeps ordinary submit failures retryable", () => {
+    const lock = { submitting: false, versionStale: false };
+    const ordinary = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit proposal" });
+
+    expect(beginCfpSubmit(lock)).toBe(true);
+    settleCfpSubmitFailure(lock, ordinary);
+    expect(beginCfpSubmit(lock)).toBe(true);
   });
 
   it("runs the page-reload recovery action", () => {

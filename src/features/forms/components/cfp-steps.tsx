@@ -35,7 +35,8 @@ export type RequestResult = {
   retryable?: boolean;
 };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
-export type CfpSubmitFailure = { kind: "stale" | "ordinary"; message: string };
+export type CfpSubmitFailure = { kind: "stale"; message: string } | { kind: "ordinary"; message: string };
+export type CfpSnapshotLock = { submitting: boolean; versionStale: boolean };
 
 const STALE_FORM_MESSAGE = "The organizer updated this form while you were working. Reload the updated form to continue with the latest questions; your saved draft will be restored.";
 
@@ -172,21 +173,57 @@ export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
     : { kind: "ordinary", message: result.fieldErrors ? "Some answers need attention" : result.message };
 }
 
-export function requiresCfpFormReload(failure: CfpSubmitFailure | null): boolean {
+export function requiresCfpFormReload(
+  failure: CfpSubmitFailure | null,
+): failure is Extract<CfpSubmitFailure, { kind: "stale" }> {
   return failure?.kind === "stale";
+}
+
+export function preserveStaleCfpFailure(failure: CfpSubmitFailure | null): CfpSubmitFailure | null {
+  return requiresCfpFormReload(failure) ? failure : null;
+}
+
+export function beginCfpSubmit(lock: CfpSnapshotLock): boolean {
+  if (lock.submitting || lock.versionStale) return false;
+  lock.submitting = true;
+  return true;
+}
+
+export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmitFailure): void {
+  lock.submitting = false;
+  if (requiresCfpFormReload(failure)) lock.versionStale = true;
+}
+
+export function skippedCfpAutosaveResult(
+  lock: CfpSnapshotLock,
+  onState: (state: AutosaveState) => void,
+): boolean | null {
+  if (lock.versionStale) {
+    onState("failed");
+    return false;
+  }
+  if (lock.submitting) {
+    onState("saved");
+    return true;
+  }
+  return null;
 }
 
 export function reloadUpdatedCfpForm(reload: () => void = () => window.location.reload()): void {
   reload();
 }
 
-export function CfpSubmitFailureNotice({ failure, onReload }: { failure: CfpSubmitFailure; onReload: () => void }) {
-  if (failure.kind === "ordinary") return <p className="cfp-notice" role="alert">{failure.message}</p>;
+export function CfpSubmitFailureNotice({ failure }: { failure: CfpSubmitFailure }) {
+  return <p className="cfp-notice" role="alert">{failure.message}</p>;
+}
+
+export function CfpStaleRecovery({ failure, onReload }: { failure: CfpSubmitFailure; onReload: () => void }) {
   return (
-    <div className="cfp-notice" role="alert">
+    <section className="cfp-step cfp-stale-recovery" role="alert" aria-labelledby="cfp-stale-heading">
+      <h2 id="cfp-stale-heading">Form updated</h2>
       <p>{failure.message}</p>
       <Button type="button" variant="secondary" onClick={onReload}>Reload updated form</Button>
-    </div>
+    </section>
   );
 }
 
@@ -245,10 +282,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
    * Closed the moment submit is in flight. Submit promotes the draft row in
    * place, so a debounced PATCH that lands after it has no draft left to write
    * to and comes back 404 — a console error on an otherwise successful
-   * submission. Reopened if the submit is rejected, because then the draft is
-   * still a draft and the speaker is still editing.
+   * submission. An ordinary rejection reopens it because the speaker can keep
+   * editing; a stale-version rejection locks this snapshot until a full reload.
    */
-  const submitting = useRef(false);
+  const snapshotLock = useRef<CfpSnapshotLock>({ submitting: false, versionStale: false });
   const nextCoSpeaker = useRef(1);
   const stepRegion = useRef<HTMLElement>(null);
   const previousStep = useRef<Step>(step);
@@ -257,7 +294,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const codeInput = useRef<HTMLInputElement>(null);
   const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotState) => {
-    if (submitting.current) { setSaveState("saved"); return Promise.resolve(true); }
+    const skipped = skippedCfpAutosaveResult(snapshotLock.current, setSaveState);
+    if (skipped !== null) return Promise.resolve(skipped);
     const participants = snapshotState.participants
       .map((participant, index) => ({
         clientId: participant.clientId,
@@ -294,7 +332,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   };
 
   function showNotice(message: string, kind: "status" | "error" = "status") {
-    setSubmitFailure(null);
+    setSubmitFailure(preserveStaleCfpFailure);
     setNotice(message);
     setNoticeKind(kind);
   }
@@ -336,7 +374,6 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     if (!draftId) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
-      if (submitting.current) return;
       void autosave.current?.({ answers: { ...answers }, participants: [...coSpeakers] });
     }, 800);
     return () => window.clearTimeout(timer);
@@ -446,8 +483,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   async function submit() {
-    if (requiresCfpFormReload(submitFailure)) return;
-    submitting.current = true;
+    if (!beginCfpSubmit(snapshotLock.current)) return;
     setBusy(true);
     setErrors({});
     setCoSpeakerErrors({});
@@ -467,7 +503,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       duplicateEmails.add(coSpeakerEmail);
       return false;
     })) {
-      submitting.current = false;
+      snapshotLock.current.submitting = false;
       setBusy(false);
       showNotice("Each additional participant needs a unique email address", "error");
       setStep("speaker");
@@ -496,9 +532,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setBusy(false);
     if (!sent.ok) {
       const failure = cfpSubmitFailure(sent);
-      // An ordinary rejection leaves the old draft editable. A stale version
-      // stays closed to both submit and autosave until the fresh page loads.
-      if (!requiresCfpFormReload(failure)) submitting.current = false;
+      settleCfpSubmitFailure(snapshotLock.current, failure);
+      // A stale version stays closed to submit and autosave until the fresh
+      // page loads. Mark any locally queued write as unsaved before rendering
+      // the read-only recovery state.
+      if (requiresCfpFormReload(failure)) setSaveState("failed");
       // Field errors belong next to their fields; anything else is a message.
       if (sent.fieldErrors) {
         const split = splitParticipantFieldErrors(sent.fieldErrors);
@@ -512,6 +550,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setResult({ code: Number(sent.data.code) });
     setDraftId(null);
     setStep("done");
+  }
+
+  if (requiresCfpFormReload(submitFailure)) {
+    return <CfpStaleRecovery failure={submitFailure} onReload={() => reloadUpdatedCfpForm()} />;
   }
 
   if (step === "done" && result) {
@@ -644,13 +686,13 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <div className="cfp-actions">
             <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button type="submit" disabled={busy || requiresCfpFormReload(submitFailure)}>{busy ? "Submitting…" : "Submit proposal"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
           </div>
         </form>
       )}
 
       {submitFailure
-        ? <CfpSubmitFailureNotice failure={submitFailure} onReload={() => reloadUpdatedCfpForm()} />
+        ? <CfpSubmitFailureNotice failure={submitFailure} />
         : notice && <p className="cfp-notice" role={noticeKind === "error" ? "alert" : "status"}>{notice}</p>}
       {draftId && (
         <div className="autosave" aria-live="polite">
