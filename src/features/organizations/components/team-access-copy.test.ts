@@ -7,7 +7,8 @@ describe("organization team access copy", () => {
   it("distinguishes workspace membership from event access", () => {
     expect(source).toContain("Access to each event is assigned separately");
     expect(source).toContain("This invitation does not grant access to any event");
-    expect(source).toContain("Existing access to specific events is managed separately and is not removed here");
+    expect(source).toContain("retain access to ${pendingRemove.eventAccessCount} event");
+    expect(source).toContain("Review Settings → Access in each event to revoke it.");
     expect(source).not.toContain("act on this organization&apos;s events");
     expect(source).not.toContain("lose access to every event");
   });

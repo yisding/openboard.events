@@ -133,6 +133,11 @@ export function TeamPanel({
       );
       setEventAccess((current) => current.map((entry) => entry.eventId === row.eventId ? { ...entry, role: updated.role } : entry));
       setEventAccessDraft((current) => ({ ...current, [row.eventId]: updated.role === "reviewer" ? "reviewer" : "organizer" }));
+      if (!row.role) {
+        setMembers((current) => current.map((member) => member.userId === accessMember.userId
+          ? { ...member, eventAccessCount: member.eventAccessCount + 1 }
+          : member));
+      }
       toast(`${accessMember.email} now has ${updated.role} access to ${row.eventName}`);
     } catch (caught) {
       toast(isAppError(caught) ? caught.message : "That event access change failed", { kind: "error" });
@@ -153,6 +158,9 @@ export function TeamPanel({
       );
       setEventAccess((current) => current.map((entry) => entry.eventId === row.eventId ? { ...entry, role: null } : entry));
       setEventAccessDraft((current) => ({ ...current, [row.eventId]: "reviewer" }));
+      setMembers((current) => current.map((member) => member.userId === accessMember.userId
+        ? { ...member, eventAccessCount: Math.max(0, member.eventAccessCount - 1) }
+        : member));
       toast(`${accessMember.email} no longer has access to ${row.eventName}`);
       setPendingAccessRemoval(null);
     } catch (caught) {
@@ -352,7 +360,9 @@ export function TeamPanel({
     <ConfirmDialog
       open={pendingRemove !== null}
       title={`Remove ${pendingRemove?.email ?? "this member"}?`}
-      body="They lose access to this organization workspace. Existing access to specific events is managed separately and is not removed here."
+      body={pendingRemove && pendingRemove.eventAccessCount > 0
+        ? `They lose access to this organization workspace, but retain access to ${pendingRemove.eventAccessCount} event${pendingRemove.eventAccessCount === 1 ? "" : "s"}. Review Settings → Access in each event to revoke it.`
+        : "They lose access to this organization workspace. They have no separately granted event access in this organization."}
       confirmLabel="Remove"
       onConfirm={() => void confirmRemove()}
       onCancel={() => setPendingRemove(null)}

@@ -18,8 +18,10 @@ import {
   listOrganizationMemberIdsIn,
   listOrganizationMembersIn,
   listOrganizationsForUserIn,
+  listEventAccessMembersIn,
   listManageableEventAccessForMemberIn,
   removeExplicitEventAccessIn,
+  removeEventAccessMemberIn,
   removeOrganizationMemberIn,
   resolvePrimaryOrganizationIn,
   setOrganizationMemberIn,
@@ -448,6 +450,9 @@ describe("organization tenancy (M43)", () => {
           [legacyEventA, "reviewer"],
           [legacyEventB, null],
         ]);
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventA, reviewerUserId, organizerUserId,
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
 
         await expect(setExplicitEventAccessIn(
           db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId, "organizer",
@@ -458,6 +463,11 @@ describe("organization tenancy (M43)", () => {
         )).resolves.toBe("organizer");
         await expect(authorizeAdmin(db, identityOf(reviewerUserId, "reviewer@example.com"), legacyEventA, "organizer"))
           .resolves.toMatchObject({ role: "organizer" });
+
+        // Event-only authority is fail-closed for reviewers and unrelated actors.
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventA, outsiderUserId, reviewerUserId,
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
 
         // Organization ownership is insufficient when the actor is only a
         // reviewer on the event, and a non-member cannot be granted access.
@@ -485,13 +495,33 @@ describe("organization tenancy (M43)", () => {
         await expect(removeExplicitEventAccessIn(
           db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, organizerUserId,
         )).rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, ownerUserId,
+        )).rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventA, organizerUserId, organizerUserId,
+        )).rejects.toMatchObject({ code: "VALIDATION" });
 
-        await removeExplicitEventAccessIn(
-          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId,
+        // Removing organization membership intentionally leaves event access,
+        // and Event Settings remains able to show and revoke that former member.
+        await removeOrganizationMemberIn(db, DEFAULT_ORGANIZATION_ID, reviewerUserId);
+        expect(await listEventAccessMembersIn(db, legacyEventA, organizerUserId)).toContainEqual(expect.objectContaining({
+          userId: reviewerUserId,
+          role: "organizer",
+          organizationMember: false,
+          canRemove: true,
+        }));
+        await expect(setExplicitEventAccessIn(
+          db, DEFAULT_ORGANIZATION_ID, legacyEventA, organizerUserId, reviewerUserId, "organizer",
+        )).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        await removeEventAccessMemberIn(
+          db, legacyEventA, organizerUserId, reviewerUserId,
         );
         await expect(authorizeAdmin(db, identityOf(reviewerUserId, "reviewer@example.com"), legacyEventA))
           .rejects.toMatchObject({ code: "FORBIDDEN" });
       } finally {
+        await setOrganizationMemberIn(db, DEFAULT_ORGANIZATION_ID, reviewerUserId, "reviewer");
         await pglite.query(
           "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'reviewer') ON CONFLICT(user_id,event_id) DO UPDATE SET role='reviewer'",
           [reviewerUserId, legacyEventA],

@@ -1,12 +1,13 @@
 "use client";
 
-import { CalendarDays, MapPin, Settings2, Tag } from "lucide-react";
+import { CalendarDays, KeyRound, MapPin, Settings2, Tag } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { EventDTO, RoomDTO, SessionFormatDTO, TagDTO, TrackDTO } from "@/shared/contracts";
 import { DetailsTab } from "./details-tab";
+import { EventAccessTab } from "./event-access-tab";
 import { VocabTab } from "./vocab-tab";
 
 export type Vocabulary = { tracks: TrackDTO[]; rooms: RoomDTO[]; formats: SessionFormatDTO[]; tags: TagDTO[] };
@@ -17,6 +18,7 @@ const TABS = [
   ["rooms", "Rooms", MapPin],
   ["formats", "Formats", CalendarDays],
   ["tags", "Tags", Tag],
+  ["access", "Access", KeyRound],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -61,6 +63,7 @@ export function SettingsShell({ event, vocabulary }: { event: EventDTO; vocabula
           {tab === "rooms" && <VocabTab eventId={event.id} kind="rooms" initialItems={vocabulary.rooms} />}
           {tab === "formats" && <VocabTab eventId={event.id} kind="formats" initialItems={vocabulary.formats} />}
           {tab === "tags" && <VocabTab eventId={event.id} kind="tags" initialItems={vocabulary.tags} />}
+          {tab === "access" && <EventAccessTab eventId={event.id} />}
         </div>
       </div>
     </>

@@ -107,6 +107,13 @@ export async function listOrganizationMembersIn(dbOrTx: DbOrTx, organizationId: 
     createdAt: organizationMembers.createdAt,
     email: users.email,
     name: users.name,
+    eventAccessCount: sql<number>`(
+      SELECT count(*)::int
+      FROM event_members member_access
+      JOIN events member_event ON member_event.id = member_access.event_id
+      WHERE member_access.user_id = ${organizationMembers.userId}
+        AND member_event.organization_id = ${organizationId}
+    )`,
   })
     .from(organizationMembers)
     .innerJoin(users, eq(users.id, organizationMembers.userId))
@@ -118,6 +125,7 @@ export async function listOrganizationMembersIn(dbOrTx: DbOrTx, organizationId: 
     email: row.email,
     name: row.name,
     role: row.role,
+    eventAccessCount: row.eventAccessCount,
     createdAt: row.createdAt.toISOString(),
   }));
 }

@@ -39,6 +39,7 @@ export const organizationMemberDtoSchema = z.object({
   email: z.string(),
   name: z.string(),
   role: memberRoleSchema,
+  eventAccessCount: z.number().int().nonnegative(),
   createdAt: iso,
 });
 export type OrganizationMemberDTO = z.infer<typeof organizationMemberDtoSchema>;
@@ -50,6 +51,17 @@ export const manageableEventAccessDtoSchema = z.object({
   role: memberRoleSchema.nullable(),
 });
 export type ManageableEventAccessDTO = z.infer<typeof manageableEventAccessDtoSchema>;
+
+/** One current event membership, including former organization teammates. */
+export const eventAccessMemberDtoSchema = z.object({
+  userId: userIdSchema,
+  email: z.string(),
+  name: z.string(),
+  role: memberRoleSchema,
+  organizationMember: z.boolean(),
+  canRemove: z.boolean(),
+});
+export type EventAccessMemberDTO = z.infer<typeof eventAccessMemberDtoSchema>;
 
 /**
  * M44 — a pending or resolved team invitation. Never carries the raw token

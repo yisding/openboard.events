@@ -1,10 +1,12 @@
 import { aliasedTable, and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { eventMembers, events, organizationMembers } from "@/db/schema";
+import { eventMembers, events, organizationMembers, users } from "@/db/schema";
 import {
+  eventAccessMemberDtoSchema,
   manageableEventAccessDtoSchema,
   memberRoleSchema,
   type EventId,
+  type EventAccessMemberDTO,
   type ManageableEventAccessDTO,
   type MemberRole,
   type OrganizationId,
@@ -179,3 +181,84 @@ export const removeExplicitEventAccess = (
   actorUserId: UserId,
   targetUserId: UserId,
 ): Promise<void> => removeExplicitEventAccessIn(db, organizationId, eventId, actorUserId, targetUserId);
+
+/**
+ * Event settings is the recovery surface for access that outlives organization
+ * membership, so this list deliberately includes every event_members row.
+ */
+export async function listEventAccessMembersIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  actorUserId: UserId,
+): Promise<EventAccessMemberDTO[]> {
+  const rows = await dbOrTx.select({
+    userId: eventMembers.userId,
+    email: users.email,
+    name: users.name,
+    role: eventMembers.role,
+    organizationMemberUserId: organizationMembers.userId,
+  })
+    .from(eventMembers)
+    .innerJoin(users, eq(users.id, eventMembers.userId))
+    .innerJoin(events, eq(events.id, eventMembers.eventId))
+    .leftJoin(organizationMembers, and(
+      eq(organizationMembers.organizationId, events.organizationId),
+      eq(organizationMembers.userId, eventMembers.userId),
+    ))
+    .where(eq(eventMembers.eventId, eventId))
+    .orderBy(
+      sql`CASE ${eventMembers.role} WHEN 'owner' THEN 0 WHEN 'organizer' THEN 1 ELSE 2 END`,
+      asc(users.email),
+    );
+  return rows.map((row) => eventAccessMemberDtoSchema.parse({
+    userId: row.userId,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    organizationMember: row.organizationMemberUserId !== null,
+    canRemove: row.role !== "owner" && row.userId !== actorUserId,
+  }));
+}
+export const listEventAccessMembers = (eventId: EventId, actorUserId: UserId): Promise<EventAccessMemberDTO[]> =>
+  listEventAccessMembersIn(db, eventId, actorUserId);
+
+/** Event authority is sufficient to revoke access; the target may have left the organization. */
+export async function removeEventAccessMemberIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  actorUserId: UserId,
+  targetUserId: UserId,
+): Promise<void> {
+  if (actorUserId === targetUserId) throw new AppError("VALIDATION", "Ask another event organizer to remove your own access");
+  const result = await dbOrTx.execute(sql`
+    WITH authorized_event AS (
+      SELECT membership.event_id
+      FROM event_members membership
+      WHERE membership.event_id = ${eventId}::uuid
+        AND membership.user_id = ${actorUserId}::uuid
+        AND membership.role IN ('owner', 'organizer')
+    ), existing AS (
+      SELECT membership.role
+      FROM event_members membership
+      JOIN authorized_event ON authorized_event.event_id = membership.event_id
+      WHERE membership.user_id = ${targetUserId}::uuid
+    ), removed AS (
+      DELETE FROM event_members membership
+      USING authorized_event
+      WHERE membership.event_id = authorized_event.event_id
+        AND membership.user_id = ${targetUserId}::uuid
+        AND membership.role <> 'owner'
+      RETURNING membership.role
+    )
+    SELECT
+      EXISTS (SELECT 1 FROM authorized_event) AS authorized,
+      (SELECT role FROM existing) AS existing_role,
+      (SELECT role FROM removed) AS removed_role
+  `);
+  const [row] = rowsOf<{ authorized: boolean; existing_role: MemberRole | null; removed_role: MemberRole | null }>(result);
+  if (!row?.authorized) throw new AppError("FORBIDDEN", "Only an event organizer can remove event access");
+  if (row.existing_role === "owner") throw new AppError("VALIDATION", "Event owner access cannot be removed here");
+  if (!row.removed_role) throw new AppError("NOT_FOUND", "That person has no access to this event");
+}
+export const removeEventAccessMember = (eventId: EventId, actorUserId: UserId, targetUserId: UserId): Promise<void> =>
+  removeEventAccessMemberIn(db, eventId, actorUserId, targetUserId);

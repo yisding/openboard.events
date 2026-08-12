@@ -50,10 +50,14 @@ export {
 } from "./server/queries";
 
 export {
+  listEventAccessMembers,
+  listEventAccessMembersIn,
   listManageableEventAccessForMember,
   listManageableEventAccessForMemberIn,
   removeExplicitEventAccess,
   removeExplicitEventAccessIn,
+  removeEventAccessMember,
+  removeEventAccessMemberIn,
   setExplicitEventAccess,
   setExplicitEventAccessIn,
   type AssignableEventRole,
