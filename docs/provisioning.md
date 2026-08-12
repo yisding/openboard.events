@@ -339,11 +339,14 @@ deploy wrapper run it before release. `ALLOW_MISSING_DEPLOY_SECRETS=1` exists on
 bootstrap of a Worker that does not exist yet; after that first deploy, provision the complete
 inventory before deploying application code again.
 
-`pnpm db:migrate` first reconciles historical Drizzle journal timestamps. The repository once
-carried future-dated `when` values; the reconciliation compares every applied migration's content
-hash and order with the checkout, then updates only matching metadata in one statement before
-Drizzle evaluates the next migration. A missing, extra, or changed hash fails closed without
-editing the database journal.
+`pnpm db:migrate` first verifies every applied migration's content hash and order against the
+checkout. The repository once carried future-dated `when` values, so an existing database can
+have a future high-water mark even though the committed journal is now repaired. The wrapper
+leaves that database journal untouched and gives only pending entries in an ephemeral journal a
+timestamp above the existing high-water mark before invoking Drizzle. This both lets new
+migrations run and keeps older rollback checkouts from mistaking applied DDL for pending work. A
+missing, extra, or changed hash fails closed; the ephemeral files live under `~/Code` and are
+removed after the command.
 
 ## 10. Record deployment proof
 
