@@ -25,8 +25,19 @@ type Answers = Record<string, AnswerValue | undefined>;
 export type ParticipantDraft = { clientId: string; role: SecondaryParticipantRole; answers: Answers };
 type AutosaveSnapshot = { answers: Answers; participants: ParticipantDraft[] };
 
-export type RequestResult = { ok: boolean; data: Record<string, unknown>; message: string; fieldErrors?: Record<string, string>; retryable?: boolean };
+export type RequestResult = {
+  ok: boolean;
+  data: Record<string, unknown>;
+  message: string;
+  code?: string;
+  errorData?: Record<string, unknown>;
+  fieldErrors?: Record<string, string>;
+  retryable?: boolean;
+};
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
+export type CfpSubmitFailure = { kind: "stale" | "ordinary"; message: string };
+
+const STALE_FORM_MESSAGE = "The organizer updated this form while you were working. Reload the updated form to continue with the latest questions; your saved draft will be restored.";
 
 export function cfpFlowSteps(collectParticipants: boolean): Array<Exclude<Step, "done">> {
   return collectParticipants
@@ -124,7 +135,7 @@ export function schedulePortalRedirect(
   return () => (cancel ?? ((timerId) => window.clearTimeout(timerId)))(timer);
 }
 
-async function request(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
+export async function cfpRequest(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
   let response: Response;
   try {
     response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -133,19 +144,50 @@ async function request(path: string, body: unknown, method: "POST" | "PATCH" = "
   }
   const payload = await response.json().catch(() => null) as {
     data?: Record<string, unknown>;
-    error?: { message?: string; data?: { fieldErrors?: Record<string, string> }; fieldErrors?: Record<string, string> };
+    error?: {
+      code?: string;
+      message?: string;
+      data?: Record<string, unknown> & { fieldErrors?: Record<string, string> };
+      fieldErrors?: Record<string, string>;
+    };
   } | null;
   if (!response.ok || !payload?.data) {
     return {
       ok: false,
       data: {},
       message: payload?.error?.message ?? "Something went wrong",
+      ...(payload?.error?.code ? { code: payload.error.code } : {}),
+      ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
       ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
       ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
       retryable: response.status === 408 || response.status === 429 || response.status >= 500,
     };
   }
   return { ok: true, data: payload.data, message: "" };
+}
+
+export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
+  return result.code === "FORM_VERSION_STALE"
+    ? { kind: "stale", message: STALE_FORM_MESSAGE }
+    : { kind: "ordinary", message: result.fieldErrors ? "Some answers need attention" : result.message };
+}
+
+export function requiresCfpFormReload(failure: CfpSubmitFailure | null): boolean {
+  return failure?.kind === "stale";
+}
+
+export function reloadUpdatedCfpForm(reload: () => void = () => window.location.reload()): void {
+  reload();
+}
+
+export function CfpSubmitFailureNotice({ failure, onReload }: { failure: CfpSubmitFailure; onReload: () => void }) {
+  if (failure.kind === "ordinary") return <p className="cfp-notice" role="alert">{failure.message}</p>;
+  return (
+    <div className="cfp-notice" role="alert">
+      <p>{failure.message}</p>
+      <Button type="button" variant="secondary" onClick={onReload}>Reload updated form</Button>
+    </div>
+  );
 }
 
 export async function saveWithRetry(
@@ -195,6 +237,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [coSpeakers, setCoSpeakers] = useState<ParticipantDraft[]>([]);
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
+  const [submitFailure, setSubmitFailure] = useState<CfpSubmitFailure | null>(null);
   const flowSteps = cfpFlowSteps(form.collectParticipants);
   const enabledSecondaryRoles = enabledSecondaryParticipantRoles(form.participantRoles);
   const portalHref = `/portal/${encodeURIComponent(event.slug)}`;
@@ -232,7 +275,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       return Promise.resolve(false);
     }
     return saveWithRetry(
-      () => request(`/api/internal/forms/${form.id}/draft`, {
+      () => cfpRequest(`/api/internal/forms/${form.id}/draft`, {
         formVersion: snapshot.version,
         answers: snapshotState.answers,
         participants,
@@ -251,6 +294,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   };
 
   function showNotice(message: string, kind: "status" | "error" = "status") {
+    setSubmitFailure(null);
     setNotice(message);
     setNoticeKind(kind);
   }
@@ -301,7 +345,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   async function requestCode() {
     setBusy(true);
     showNotice("");
-    const sent = await request("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
+    const sent = await cfpRequest("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
     setBusy(false);
     if (!sent.ok) { showNotice(sent.message, "error"); return; }
     // The preview surfaces the issued code inline; production never does, which
@@ -315,11 +359,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   async function verifyAndStart() {
     setBusy(true);
     showNotice("");
-    const verified = await request("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
+    const verified = await cfpRequest("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
     if (!verified.ok) { setBusy(false); showNotice(verified.message, "error"); return; }
 
     // The draft exists from this moment, pinned to the version being rendered.
-    const draft = await request(`/api/internal/forms/${form.id}/draft`, { formVersion: snapshot.version });
+    const draft = await cfpRequest(`/api/internal/forms/${form.id}/draft`, { formVersion: snapshot.version });
     setBusy(false);
     if (!draft.ok) { showNotice(draft.message, "error"); return; }
     setDraftId(String(draft.data.submissionId));
@@ -402,11 +446,13 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   async function submit() {
+    if (requiresCfpFormReload(submitFailure)) return;
     submitting.current = true;
     setBusy(true);
     setErrors({});
     setCoSpeakerErrors({});
     setNotice("");
+    setSubmitFailure(null);
     const participantIds = participantFieldIds(snapshot);
     const participantAnswers = Object.fromEntries(Object.entries(answers).filter(([fieldId]) => participantIds.has(fieldId as FieldId)));
     const coSpeakerParticipants = coSpeakers.map((participant, index) => ({
@@ -427,7 +473,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       setStep("speaker");
       return;
     }
-    const sent = await request(`/api/internal/forms/${form.id}/submit`, {
+    const sent = await cfpRequest(`/api/internal/forms/${form.id}/submit`, {
       formVersion: snapshot.version,
       draftSubmissionId: draftId,
       answers,
@@ -449,8 +495,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
     setBusy(false);
     if (!sent.ok) {
-      // The draft was not promoted, so autosave has somewhere to write again.
-      submitting.current = false;
+      const failure = cfpSubmitFailure(sent);
+      // An ordinary rejection leaves the old draft editable. A stale version
+      // stays closed to both submit and autosave until the fresh page loads.
+      if (!requiresCfpFormReload(failure)) submitting.current = false;
       // Field errors belong next to their fields; anything else is a message.
       if (sent.fieldErrors) {
         const split = splitParticipantFieldErrors(sent.fieldErrors);
@@ -458,7 +506,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         setCoSpeakerErrors(split.byParticipant);
         setStep(stepForErrors(snapshot, sent.fieldErrors));
       }
-      showNotice(sent.fieldErrors ? "Some answers need attention" : sent.message, "error");
+      setSubmitFailure(failure);
       return;
     }
     setResult({ code: Number(sent.data.code) });
@@ -596,12 +644,14 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <div className="cfp-actions">
             <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
+            <Button type="submit" disabled={busy || requiresCfpFormReload(submitFailure)}>{busy ? "Submitting…" : "Submit proposal"}</Button>
           </div>
         </form>
       )}
 
-      {notice && <p className="cfp-notice" role={noticeKind === "error" ? "alert" : "status"}>{notice}</p>}
+      {submitFailure
+        ? <CfpSubmitFailureNotice failure={submitFailure} onReload={() => reloadUpdatedCfpForm()} />
+        : notice && <p className="cfp-notice" role={noticeKind === "error" ? "alert" : "status"}>{notice}</p>}
       {draftId && (
         <div className="autosave" aria-live="polite">
           {saveState === "saving" && "Saving…"}

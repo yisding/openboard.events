@@ -1,13 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import {
   CFP_PORTAL_REDIRECT_MS,
+  CfpSubmitFailureNotice,
+  cfpRequest,
   cfpFlowSteps,
   cfpStepHeading,
+  cfpSubmitFailure,
   focusCfpAccountControl,
   hasIncompleteParticipantEmail,
   participantEmail,
   participantFieldIds,
+  reloadUpdatedCfpForm,
+  requiresCfpFormReload,
   stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
@@ -15,6 +22,9 @@ import {
   stepForErrors,
   type AutosaveState,
 } from "./components/cfp-steps";
+
+Object.assign(globalThis, { React });
+afterEach(() => vi.unstubAllGlobals());
 
 const fieldId = (key: string) => {
   const field = GOLDEN_SNAPSHOT.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === key);
@@ -139,6 +149,51 @@ describe("CFP success redirect", () => {
     const schedule = vi.fn(() => 1);
     schedulePortalRedirect(false, vi.fn(), schedule, vi.fn())();
     expect(schedule).not.toHaveBeenCalled();
+  });
+});
+
+describe("CFP stale form recovery", () => {
+  it("preserves the server error code and fresh snapshot data", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      error: {
+        code: "FORM_VERSION_STALE",
+        message: "This form changed while you were filling it in",
+        data: { snapshot: GOLDEN_SNAPSHOT, version: GOLDEN_SNAPSHOT.version },
+      },
+    }, { status: 409 })));
+
+    await expect(cfpRequest("/api/internal/forms/form-1/submit", {})).resolves.toMatchObject({
+      ok: false,
+      code: "FORM_VERSION_STALE",
+      errorData: { snapshot: GOLDEN_SNAPSHOT, version: GOLDEN_SNAPSHOT.version },
+      retryable: false,
+    });
+  });
+
+  it("offers a reload only for a stale form version", () => {
+    const stale = cfpSubmitFailure({
+      ok: false,
+      data: {},
+      code: "FORM_VERSION_STALE",
+      message: "This form changed while you were filling it in",
+    });
+    const ordinary = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit proposal" });
+    const staleHtml = renderToStaticMarkup(React.createElement(CfpSubmitFailureNotice, { failure: stale, onReload: () => undefined }));
+    const ordinaryHtml = renderToStaticMarkup(React.createElement(CfpSubmitFailureNotice, { failure: ordinary, onReload: () => undefined }));
+
+    expect(staleHtml).toContain("The organizer updated this form");
+    expect(staleHtml).toContain("your saved draft will be restored");
+    expect(staleHtml).toContain("Reload updated form");
+    expect(requiresCfpFormReload(stale)).toBe(true);
+    expect(ordinaryHtml).toContain("Could not submit proposal");
+    expect(ordinaryHtml).not.toContain("Reload updated form");
+    expect(requiresCfpFormReload(ordinary)).toBe(false);
+  });
+
+  it("runs the page-reload recovery action", () => {
+    const reload = vi.fn();
+    reloadUpdatedCfpForm(reload);
+    expect(reload).toHaveBeenCalledOnce();
   });
 });
 
