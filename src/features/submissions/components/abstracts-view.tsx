@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SubmissionFilters, SubmissionVocabulary } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
@@ -58,8 +59,10 @@ export function AbstractsView({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  const { runGuarded } = useGuardedAction();
   const [selected, setSelected] = useState<SubmissionListRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [drawerBusy, setDrawerBusy] = useState(false);
   // `?add=1` is how the agenda's "Add an invited talk" hands the organizer
   // straight to this drawer (#117), rather than dropping them on a table and
   // leaving them to find the button.
@@ -134,7 +137,16 @@ export function AbstractsView({
   // are this page's rows in the order the table is showing them, so
   // next/prev walks exactly what is on screen, not a hidden global order.
   const rowIds = useMemo<string[]>(() => rows.map((row) => row.submissionId), [rows]);
-  useFlowKeyboardNav({ ids: rowIds, activeId: openId, onNavigate: setOpenId, onClose: () => setOpenId(null) });
+  const requestDrawerTarget = useCallback((submissionId: string | null) => {
+    if (drawerBusy || submissionId === openId) return;
+    runGuarded(() => setOpenId(submissionId));
+  }, [drawerBusy, openId, runGuarded]);
+  useFlowKeyboardNav({
+    ids: rowIds,
+    activeId: openId,
+    onNavigate: requestDrawerTarget,
+    onClose: () => requestDrawerTarget(null),
+  });
   const openIndex = openId ? rowIds.indexOf(openId) : -1;
 
   return (
@@ -150,12 +162,14 @@ export function AbstractsView({
           </>
         }
       />
-      <DecisionBar
-        eventId={eventId}
-        selected={selected}
-        pendingNotify={queued}
-        onDone={clearSelection}
-      />
+      {canEdit && (
+        <DecisionBar
+          eventId={eventId}
+          selected={selected}
+          pendingNotify={queued}
+          onDone={clearSelection}
+        />
+      )}
       <AbstractsTable
         rows={rows}
         counts={counts}
@@ -170,10 +184,11 @@ export function AbstractsView({
         onFilter={onFilter}
         onPageChange={onPageChange}
         onSortChange={onSortChange}
+        enableSelection={canEdit}
         selectionEpoch={selectionEpoch}
         selectAllEpoch={selectAllEpoch}
-        onSelectionChange={setSelected}
-        onRowClick={(row) => setOpenId(row.submissionId)}
+        {...(canEdit ? { onSelectionChange: setSelected } : {})}
+        onRowClick={(row) => requestDrawerTarget(row.submissionId)}
       />
       {/* `openIndex === -1` happens when a command-palette jump opens a
           submission that is not on the current filtered/paginated page — the
@@ -186,15 +201,16 @@ export function AbstractsView({
           timezone={timezone}
           vocabulary={vocabulary}
           canEdit={canEdit}
-          onClose={() => setOpenId(null)}
+          onClose={() => requestDrawerTarget(null)}
+          onBusyChange={setDrawerBusy}
           nav={openIndex === -1
             ? { index: 0, total: 1 }
             : {
                 index: openIndex,
                 total: rowIds.length,
                 itemLabel: `${rows[openIndex]?.code ? `SESS-${rows[openIndex].code}: ` : ""}${rows[openIndex]?.title ?? "Submission"}`,
-                ...(rowIds[openIndex - 1] ? { onPrev: () => setOpenId(rowIds[openIndex - 1] as string) } : {}),
-                ...(rowIds[openIndex + 1] ? { onNext: () => setOpenId(rowIds[openIndex + 1] as string) } : {}),
+                ...(rowIds[openIndex - 1] ? { onPrev: () => requestDrawerTarget(rowIds[openIndex - 1] as string) } : {}),
+                ...(rowIds[openIndex + 1] ? { onNext: () => requestDrawerTarget(rowIds[openIndex + 1] as string) } : {}),
               }}
         />
       )}

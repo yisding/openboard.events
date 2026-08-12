@@ -1,16 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { ArrowRight, Mail } from "lucide-react";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { authPathWithNext, safeInternalPath } from "../safe-next";
 
-export function PasswordResetConfirmation({ headingRef }: { headingRef: RefObject<HTMLHeadingElement | null> }) {
+export function PasswordResetConfirmation({
+  headingRef,
+  loginHref = "/login",
+}: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  loginHref?: string;
+}) {
   return <div>
     <span className="metric-icon accent"><Mail size={20} /></span>
     <h1 ref={headingRef} tabIndex={-1}>Check your email</h1>
     <p>If that address has an account, a reset link is on its way. The link works once and expires in an hour.</p>
-    <p><Link href="/login">Back to sign in</Link></p>
+    <p><Link href={loginHref}>Back to sign in</Link></p>
   </div>;
 }
 
@@ -24,10 +32,10 @@ export function PasswordResetConfirmation({ headingRef }: { headingRef: RefObjec
  * caller of the send endpoint.
  *
  * The endpoint is `/api/auth/request-password-reset` — Better Auth 1.6's name
- * for it; there is no `/forget-password` route in core. `redirectTo` is
- * deliberately omitted: `sendResetPassword` in `server/better-auth.ts` builds
- * the `/login/reset?token=…` URL itself so the token rides as a `token=` query
- * parameter the dispatcher's `redactCredentials` already strips.
+ * for it; there is no `/forget-password` route in core. `redirectTo` points at
+ * our reset page and carries only a validated internal `next`. The mail hook
+ * moves Better Auth's path token into that page's `token=` query parameter so
+ * the dispatcher's credential redaction still covers it.
  *
  * The confirmation is unconditional and identical whether or not the address
  * exists, matching what the endpoint itself answers ("If this email exists in
@@ -35,6 +43,10 @@ export function PasswordResetConfirmation({ headingRef }: { headingRef: RefObjec
  * an account-enumeration oracle.
  */
 export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
+  const searchParams = useSearchParams();
+  const next = safeInternalPath(searchParams.get("next"), "");
+  const loginHref = authPathWithNext("/login", next);
+  const resetHref = authPathWithNext("/login/reset", next);
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -54,7 +66,7 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
       const response = await fetch("/api/auth/request-password-reset", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: data.get("email") }),
+        body: JSON.stringify({ email: data.get("email"), redirectTo: resetHref }),
       });
       if (!response.ok) {
         setError("Password reset is temporarily unavailable");
@@ -73,12 +85,12 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
       <span className="metric-icon accent"><Mail size={20} /></span>
       <h1>Ask your organizer</h1>
       <p>Self-service password reset is not switched on for this workspace. An owner or organizer on your team can set a new password for you.</p>
-      <p><Link href="/login">Back to sign in</Link></p>
+      <p><Link href={loginHref}>Back to sign in</Link></p>
     </div>;
   }
 
   if (sent) {
-    return <PasswordResetConfirmation headingRef={sentHeadingRef} />;
+    return <PasswordResetConfirmation headingRef={sentHeadingRef} loginHref={loginHref} />;
   }
 
   return <form onSubmit={submit}>
@@ -88,6 +100,6 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Sending…" : "Email me a link"} <ArrowRight size={16} /></button>
-    <p><Link href="/login">Back to sign in</Link></p>
+    <p><Link href={loginHref}>Back to sign in</Link></p>
   </form>;
 }

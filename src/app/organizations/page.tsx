@@ -7,7 +7,6 @@ import { Brand } from "@/shared/ui/brand";
 import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationsForUser } from "@/features/organizations";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Your organizations" };
 export const dynamic = "force-dynamic";
@@ -28,10 +27,6 @@ export const dynamic = "force-dynamic";
  * relying on that layout.
  */
 export default async function Page() {
-  if (isCredentialFreeLocalDemo()) {
-    return <main className="events-index"><header className="events-index-header"><Brand dark /></header>
-      <section className="events-index-content"><p>Organizations are unavailable in the credential-free demo.</p></section></main>;
-  }
   const identity = await getAdminSession();
   if (!identity) {
     const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"), "/organizations");

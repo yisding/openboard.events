@@ -4,11 +4,10 @@ import { redirect } from "next/navigation";
 import { Brand } from "@/shared/ui/brand";
 import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 /** M44 — self-service account surfaces (currently: sessions). Same signed-in gate as `app/events/layout.tsx`. */
 export default async function AccountLayout({ children }: { children: React.ReactNode }) {
-  if (!isCredentialFreeLocalDemo() && !(await getAdminSession())) {
+  if (!(await getAdminSession())) {
     const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"), "/account/sessions");
     redirect(`/login?next=${encodeURIComponent(requestPath)}`);
   }

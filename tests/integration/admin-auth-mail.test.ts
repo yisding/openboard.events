@@ -165,6 +165,37 @@ describe("platform admin auth mail outbox", () => {
     expect(sent?.secretPayloadCiphertext).toBeNull();
   });
 
+  it("redacts a nested invitation credential from sent reset-mail history", async () => {
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: "http://localhost:3000/login/reset?next=%2Fjoin%3Ftoken%3Dinvite-secret&token=reset-secret",
+      expiresIn: "1 hour",
+    }, logEnv);
+    const sendEnv = parseEnv({
+      ...logEnv,
+      EMAIL_MODE: "send",
+      EMAIL_FALLBACK_UI: "0",
+      EMAIL_FROM: "Openboard <hello@example.com>",
+      EMAIL_ALLOWLIST: "organizer@example.com",
+      RESEND_API_KEY: "re_test",
+    });
+
+    await dispatchAdminAuthEmailOutboxIn(tx, 10, {
+      env: sendEnv,
+      sender: vi.fn().mockResolvedValue("nested-redaction-id"),
+    });
+
+    const [sent] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, result.messageId));
+    expect(sent?.bodyRenderedHtml).toContain("token=[redacted]");
+    expect(sent?.bodyRenderedHtml).toContain("token%3D[redacted]");
+    expect(sent?.bodyRenderedHtml).not.toContain("reset-secret");
+    expect(sent?.bodyRenderedHtml).not.toContain("invite-secret");
+    expect(sent?.secretPayloadCiphertext).toBeNull();
+  });
+
   it("retains encrypted payloads when a rotated secret makes a row terminal", async () => {
     const result = await sendAdminAuthEmailIn(tx, {
       templateKey: "admin_password_reset",

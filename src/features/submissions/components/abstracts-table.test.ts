@@ -49,12 +49,12 @@ const COUNTS: Record<SubmissionStatus | "all", number> = {
   draft: 0,
 };
 
-function renderTable(rows: SubmissionListRow[]): string {
+function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all" = "all"): string {
   return renderToStaticMarkup(
     React.createElement(AbstractsTable, {
       rows,
       counts: COUNTS,
-      status: "all",
+      status,
       search: "",
       timezone: "America/Los_Angeles",
       total: rows.length,
@@ -65,9 +65,21 @@ function renderTable(rows: SubmissionListRow[]): string {
       onFilter: () => {},
       onPageChange: () => {},
       onSortChange: () => {},
+      enableSelection: true,
     }),
   );
 }
+
+describe("AbstractsTable status filter accessibility", () => {
+  it("exposes the selected status and gives each visible count a meaningful label", () => {
+    const html = renderTable([ROW], "pending");
+
+    expect(html).toContain('role="group" aria-label="Filter abstracts by status"');
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).toMatch(/aria-pressed="true"[^>]*class="active"[^>]*>Pending <span aria-hidden="true">1<\/span><span class="sr-only">1 abstract<\/span>/);
+    expect(html).toContain('<span aria-hidden="true">0</span><span class="sr-only">0 abstracts</span>');
+  });
+});
 
 // PR #106 Codex finding: the T5 responsive disclosure ladder in globals.css
 // (`.data-table th.abstracts-col-*`) targets classes that only exist if

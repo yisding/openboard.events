@@ -63,6 +63,7 @@ export function AbstractsTable({
   onFilter,
   onPageChange,
   onSortChange,
+  enableSelection,
   onSelectionChange,
   onRowClick,
   selectionEpoch,
@@ -83,6 +84,8 @@ export function AbstractsTable({
   onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
   onPageChange: (page: number) => void;
   onSortChange: (sort: SubmissionFilters["sort"]) => void;
+  /** Organizer-only bulk decisions; reviewers get the same readable rows without checkboxes. */
+  enableSelection: boolean;
   onSelectionChange?: (rows: SubmissionListRow[]) => void;
   onRowClick?: (row: SubmissionListRow) => void;
   selectionEpoch?: number;
@@ -179,17 +182,16 @@ export function AbstractsTable({
 
   return (
     <>
-      <div className="abstract-status-tabs" role="tablist">
+      <div className="abstract-status-tabs" role="group" aria-label="Filter abstracts by status">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            role="tab"
-            aria-selected={status === tab.id}
+            aria-pressed={status === tab.id}
             className={status === tab.id ? "active" : ""}
             onClick={() => onFilter({ status: tab.id })}
           >
-            {tab.label} <span>{counts[tab.id]}</span>
+            {tab.label} <span aria-hidden="true">{counts[tab.id]}</span><span className="sr-only">{counts[tab.id]} {counts[tab.id] === 1 ? "abstract" : "abstracts"}</span>
           </button>
         ))}
       </div>
@@ -197,7 +199,7 @@ export function AbstractsTable({
       <DataTable
         columns={columns}
         data={rows}
-        enableSelection
+        enableSelection={enableSelection}
         getRowLabel={(row) => `${formatCode(row.code)}, ${row.title}`}
         {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
         {...(selectAllEpoch === undefined ? {} : { selectAllEpoch })}

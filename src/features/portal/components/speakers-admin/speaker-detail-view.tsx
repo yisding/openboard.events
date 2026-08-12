@@ -14,6 +14,7 @@ import { Button, Field, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerHeadshot } from "./speaker-headshot";
 import { SpeakerRosterPanels } from "./speaker-roster-panels";
+import { SpeakerStatusOptions } from "./speaker-status-options";
 
 /** One map, beside the timeline it labels — never reimplemented per row. */
 const TEMPLATE_LABELS: Record<TemplateKey, string> = {
@@ -283,11 +284,13 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
       <section className="panel">
         <header className="panel-header"><div><h2>Confirmation</h2><p>Accepted speakers are confirmed automatically when you Notify; override here if they drop out.</p></div></header>
         <div className="drawer-content">
-          <div className="confirmation-options">
-            {CONFIRMATION_OPTIONS.map((status) => (
-              <button key={status} type="button" disabled={savingConfirmation} className={contact.confirmationStatus === status ? "active" : ""} onClick={() => applyConfirmation(status)}>{status}</button>
-            ))}
-          </div>
+          <SpeakerStatusOptions
+            label="Speaker confirmation status"
+            options={CONFIRMATION_OPTIONS}
+            value={contact.confirmationStatus}
+            disabled={savingConfirmation}
+            onChange={(status) => void applyConfirmation(status)}
+          />
           {contact.confirmationStatus === "declined" && (
             <p className="long-copy">This speaker is hidden from the public speaker gallery while declined.</p>
           )}

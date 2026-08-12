@@ -81,13 +81,15 @@ this is the demo's money shot; keep it).
 one visibility rule, one routing rule) → set deadline and per-user limit → preview as a speaker
 → publish → copy the public link.
 
-**Current state:** **the front door is missing.** Event creation is a disabled button; the form
-builder writes only to the browser demo store; forms exist only via seed. Everything downstream
-(snapshot compiler, versioning, the public wizard) is real.
+**Current state:** the public landing and sign-in screens lead into self-service account creation.
+Email verification provisions the workspace and continues directly into M45's durable guided
+event setup: details → optional tracks → persistent CFP form → shareable public link. Preview and
+copy-link actions use the same published form a speaker receives, and the dashboard guides the
+organizer until its first proposal arrives.
 
-**Friction to fix:** event creation (roadmap M45 / M11 completion), builder persistence, an
-always-visible "preview as speaker" that renders the *compiled snapshot* (the same thing
-speakers will see), and a prominent copy-link + QR on publish.
+**Friction to fix:** record the first protected deployed signup-to-proposal browser run once the
+preview mailbox has a read-capable Resend test credential; keep the form builder's one-click
+compiled preview prominent as the form grows beyond the generated default.
 
 **Ease bar:** a new organizer goes from blank account to a shareable CFP link in **under 15
 minutes** without documentation. The preview is one click away at every step of the builder.
