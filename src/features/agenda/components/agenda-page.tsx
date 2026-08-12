@@ -9,7 +9,7 @@ import { PageHeader } from "@/shared/ui/ui-kit";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
 import type { AnnounceBundle } from "../server/announce";
-import { conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, type AgendaView } from "../store";
+import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
@@ -57,9 +57,8 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   );
   const [activeGridDay, setActiveGridDay] = useState<string | null>(() => props.day ?? eventDays[0] ?? null);
 
-  // Browser navigation and the toolbar still drive `props.day`; mirror them
-  // into the controlled grid while retaining a concrete first day for `?day=`
-  // absent/All.
+  // Browser navigation and the single toolbar day rail still drive
+  // `props.day`; retain a concrete first day when `?day=` is absent.
   useEffect(() => {
     const next = props.day && eventDays.includes(props.day) ? props.day : eventDays[0] ?? null;
     setActiveGridDay(next);
@@ -110,16 +109,19 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     () => needle ? sessions.filter((session) => session.title.toLowerCase().includes(needle)) : sessions,
     [needle, sessions],
   );
+  const displayedConflicts = useMemo(
+    () => conflictsForAgendaView(props.conflicts, sessions, view, activeGridDay, props.event.timezone),
+    [activeGridDay, props.conflicts, props.event.timezone, sessions, view],
+  );
   const visibleConflicts = useMemo(
-    () => needle ? conflictsTouchingSessions(props.conflicts, visible) : props.conflicts,
-    [needle, props.conflicts, visible],
+    () => needle ? conflictsTouchingSessions(displayedConflicts, visible) : displayedConflicts,
+    [displayedConflicts, needle, visible],
   );
 
   const viewProps: AgendaViewProps = {
     ...props,
     sessions: visible,
     day: view === "day" ? activeGridDay : props.day ?? null,
-    onDayChange: (next) => selectDay(next),
     onEdit: setEditingId,
   };
 
@@ -141,8 +143,8 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
 
       <AgendaToolbar
         view={view}
-        day={props.day ?? null}
-        conflictCount={props.conflicts.length}
+        day={view === "day" ? activeGridDay : props.day ?? null}
+        conflictCount={displayedConflicts.length}
         event={props.event}
         search={search}
         onSearch={setSearch}

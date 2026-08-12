@@ -192,6 +192,19 @@ export function conflictsTouchingSessions(
   return conflicts.filter((conflict) => visibleIds.has(String(conflict.a)) || visibleIds.has(String(conflict.b)));
 }
 
+/** Keep the Day tab's badge aligned with the concrete day its grid displays. */
+export function conflictsForAgendaView(
+  conflicts: readonly ConflictDTO[],
+  sessions: readonly ScheduledSessionDTO[],
+  view: AgendaView,
+  day: string | null,
+  timezone: string,
+): ConflictDTO[] {
+  return view === "day" && day !== null
+    ? conflictsTouchingSessions(conflicts, scheduledOnDay(sessions, day, timezone))
+    : [...conflicts];
+}
+
 export function agendaHref(eventId: EventId, view: AgendaView, day?: string | null): string {
   const query = new URLSearchParams({ view });
   if (day) query.set("day", day);

@@ -12,7 +12,7 @@ import {
   type ScheduledSessionDTO,
 } from "@/shared/contracts";
 import ConflictsView, { sortConflicts } from "./conflicts-view";
-import { conflictsTouchingSessions } from "../store";
+import { conflictsForAgendaView, conflictsTouchingSessions } from "../store";
 
 Object.assign(globalThis, { React });
 
@@ -72,8 +72,8 @@ describe("conflictsTouchingSessions", () => {
   const sessions = [
     session({ id: id("01"), title: "Alpha" }),
     session({ id: id("02"), title: "Beta" }),
-    session({ id: id("03"), title: "Gamma" }),
-    session({ id: id("04"), title: "Delta" }),
+    session({ id: id("03"), title: "Gamma", startsAt: "2026-08-12T18:00:00.000Z", endsAt: "2026-08-12T18:45:00.000Z" }),
+    session({ id: id("04"), title: "Delta", startsAt: "2026-08-12T18:00:00.000Z", endsAt: "2026-08-12T18:45:00.000Z" }),
   ];
   const conflicts = [
     conflict({ a: sessionId("01"), b: sessionId("02") }),
@@ -94,11 +94,17 @@ describe("conflictsTouchingSessions", () => {
     expect(sessions).toEqual(originalSessions);
   });
 
+  it("scopes a dayless Day-view entry to the concrete day shown by its grid", () => {
+    expect(conflictsForAgendaView(conflicts, sessions, "day", "2026-08-11", tz)).toEqual([conflicts[0]]);
+    expect(conflictsForAgendaView(conflicts, sessions, "list", "2026-08-11", tz)).toEqual(conflicts);
+  });
+
   it("wires filtered rows to the full session-title lookup", () => {
     const source = readFileSync(new URL("./agenda-page.tsx", import.meta.url), "utf8");
     expect(source).toContain("conflicts={visibleConflicts}");
     expect(source).toContain("sessions={sessions}");
     expect(source).toContain("searchActive={needle.length > 0}");
+    expect(source).toContain("conflictCount={displayedConflicts.length}");
   });
 });
 
