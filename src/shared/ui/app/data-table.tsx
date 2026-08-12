@@ -16,7 +16,7 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Dash } from "./dash";
 
 // Additive column-meta support: a column definition may carry a stable class
@@ -170,6 +170,11 @@ export function DataTable<Row>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [localPagination, setLocalPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerId = useId();
+  const pickerButtonId = `${pickerId}-button`;
+  const pickerPanelId = `${pickerId}-panel`;
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const pickerPanelRef = useRef<HTMLDivElement>(null);
   const sorting = serverSorting?.state ?? localSorting;
   const pagination = serverPagination
     ? { pageIndex: Math.max(0, serverPagination.page - 1), pageSize: serverPagination.pageSize }
@@ -294,6 +299,28 @@ export function DataTable<Row>({
   );
   useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
 
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setPickerOpen(false);
+      window.requestAnimationFrame(() => pickerButtonRef.current?.focus());
+    }
+    function closeOutside(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (pickerButtonRef.current?.contains(target) || pickerPanelRef.current?.contains(target)) return;
+      setPickerOpen(false);
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [pickerOpen]);
+
   const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
@@ -305,11 +332,25 @@ export function DataTable<Row>({
           {toolbar}
           {columnVisibilityKey && (
             <div className="row-count" style={{ position: "relative" }}>
-              <button type="button" className="filter-button" onClick={() => setPickerOpen((open) => !open)} aria-expanded={pickerOpen}>
+              <button
+                ref={pickerButtonRef}
+                id={pickerButtonId}
+                type="button"
+                className="filter-button"
+                aria-expanded={pickerOpen}
+                aria-controls={pickerPanelId}
+                onClick={() => setPickerOpen((open) => !open)}
+              >
                 <Columns3 size={14} /> Columns
               </button>
               {pickerOpen && (
-                <div className="column-picker" role="group" aria-label="Toggle columns">
+                <div
+                  ref={pickerPanelRef}
+                  id={pickerPanelId}
+                  className="column-picker"
+                  role="group"
+                  aria-labelledby={pickerButtonId}
+                >
                   {hideable.map((column) => (
                     <label key={column.id}>
                       <input
@@ -393,7 +434,7 @@ export function DataTable<Row>({
                         onClick: () => onRowClick(row.original),
                         tabIndex: 0,
                         "aria-keyshortcuts": "Enter Space",
-                        onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                        onKeyDown: (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
                           // Interactive descendants own their keys; only a
                           // directly focused row invokes the row action.
                           if (event.target !== event.currentTarget) return;

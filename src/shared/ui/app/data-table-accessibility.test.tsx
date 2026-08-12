@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -23,6 +24,17 @@ function renderTable(isLoading: boolean): string {
   );
 }
 
+function renderColumnPicker(): string {
+  return renderToStaticMarkup(
+    <DataTable
+      columns={columns}
+      data={[]}
+      empty={<p>No rows</p>}
+      columnVisibilityKey="people"
+    />,
+  );
+}
+
 describe("DataTable loading accessibility", () => {
   it("announces loading and marks the table region busy", () => {
     const html = renderTable(true);
@@ -40,5 +52,26 @@ describe("DataTable loading accessibility", () => {
     expect(html).toContain('<p class="sr-only" role="status"></p>');
     expect(html).not.toContain("Loading table data…");
     expect(html).toContain("No rows");
+  });
+});
+
+describe("DataTable column disclosure accessibility", () => {
+  it("connects the Columns button to its disclosure panel", () => {
+    const html = renderColumnPicker();
+    const button = html.match(/<button[^>]+id="([^"]+-button)"[^>]+aria-controls="([^"]+-panel)"[^>]*>/);
+
+    expect(button).not.toBeNull();
+    expect(button?.[1]?.replace(/-button$/, "-panel")).toBe(button?.[2]);
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("supports Escape focus return and outside dismissal while open", () => {
+    const source = readFileSync(new URL("./data-table.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('document.addEventListener("keydown", closeOnEscape)');
+    expect(source).toContain('if (event.key !== "Escape") return;');
+    expect(source).toContain("pickerButtonRef.current?.focus()");
+    expect(source).toContain('document.addEventListener("pointerdown", closeOutside)');
+    expect(source).toContain("pickerPanelRef.current?.contains(target)");
   });
 });
