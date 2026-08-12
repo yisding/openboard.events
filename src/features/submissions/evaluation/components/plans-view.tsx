@@ -59,11 +59,14 @@ export function PlansView({
   plans,
   tracks,
   members,
+  timezone,
 }: {
   eventId: string;
   plans: PlanDTO[];
   tracks: TrackOption[];
   members: EventMember[];
+  /** The event's zone — a round's open/close window is set in it. */
+  timezone: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -261,6 +264,7 @@ export function PlansView({
           tracks={tracks}
           members={members}
           nextRound={nextRound}
+          timezone={timezone}
           onClose={() => { setCreating(false); setEditing(null); }}
         />
       )}

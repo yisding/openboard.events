@@ -31,6 +31,24 @@ check_forbidden "dangerouslySetInnerHTML" src --glob '*.tsx' --glob '!src/shared
 check_forbidden "runtime\\s*=\\s*['\"]edge" src
 check_forbidden "process\\.env\\." src --glob '!src/shared/lib/env.ts' --glob '!src/app/page.tsx'
 check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/time.ts'
+# DD-2 (#116): one date idiom, and it names its zone. A native date input speaks
+# wall-clock with no zone, so a deadline typed by an organizer outside the event
+# zone lands hours from where they meant. `<DateTimePicker tz>` is the only
+# control allowed to render one, because it is the only one that converts
+# against the event's zone and shows the label.
+#
+# Two exemptions, both deliberate:
+#   - the picker itself, which is the implementation;
+#   - the form builder's `date` question, whose answer is a calendar date the
+#     respondent picks (a birthday, a travel day). It is not an instant on the
+#     event's clock and must not be converted as one.
+#
+# The pattern allows whitespace around `=` and either quote style, because
+# `type = 'date'` is valid JSX and would otherwise walk straight past a check
+# that only knows one spelling.
+check_forbidden "type[[:space:]]*=[[:space:]]*[\"'](date|datetime-local)[\"']" src --glob '*.tsx' \
+  --glob '!src/shared/ui/app/datetime-picker.tsx' \
+  --glob '!src/features/forms/components/form-field-renderer.tsx'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
 # Grep #11: no direct R2 access outside the storage module. A hand-rolled presign
 # elsewhere would bypass the kind policy, the key scheme and the finalize check.
