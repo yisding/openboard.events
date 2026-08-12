@@ -11,7 +11,7 @@ import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import type { OnboardingStep } from "../progress-types";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
-import { formOpenState, type FormOpenReason } from "@/features/forms";
+import { formOpenState, type FormOpenReason } from "@/features/forms/lib/form-open";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
