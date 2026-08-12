@@ -2032,3 +2032,14 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .embed-install-section footer{display:grid}
   .embed-install-section footer .button{width:100%}
 }
+
+/* ---------------------------------------------------------------------------
+   Easter eggs — the emoji-rain overlay (palette pandas, Konami code) and the
+   404 compass. The overlay is fixed, pointer-events:none and self-removing,
+   so nothing here can affect layout or interaction on the page beneath it. */
+.egg-rain{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
+.egg-rain span{position:absolute;top:-48px;animation:egg-fall 3s linear forwards}
+@keyframes egg-fall{to{transform:translateY(115vh) rotate(360deg)}}
+.lost-compass{border:0;padding:0;cursor:pointer;font:inherit}
+.lost-compass span{display:grid;place-items:center;transition:transform .7s cubic-bezier(.2,.8,.3,1.15)}
+.lost-compass-note{margin:14px 0 -6px;max-width:380px;color:var(--accent-dark);font-size:12.5px;font-weight:600;animation:toast-in .22s ease}
