@@ -1,15 +1,17 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import {
   CFP_PORTAL_REDIRECT_MS,
   CfpStaleRecovery,
   CfpSubmitFailureNotice,
+  abortCfpSubmit,
   beginCfpSubmit,
   cfpAutosaveDisposition,
   cfpRequest,
   cfpFlowSteps,
+  cfpStaleRecoveryState,
   cfpStepHeading,
   cfpSubmitFailure,
   createDeferredCfpAutosave,
@@ -20,6 +22,8 @@ import {
   preserveStaleCfpFailure,
   reloadUpdatedCfpForm,
   requiresCfpFormReload,
+  saveCfpDraftWithRecovery,
+  scheduleCfpRecoveryFocus,
   settleCfpSubmitFailure,
   settleCfpSubmitSuccess,
   stepFieldErrors,
@@ -30,7 +34,7 @@ import {
   type AutosaveState,
 } from "./components/cfp-steps";
 
-Object.assign(globalThis, { React });
+beforeEach(() => vi.stubGlobal("React", React));
 afterEach(() => vi.unstubAllGlobals());
 
 const fieldId = (key: string) => {
@@ -184,11 +188,18 @@ describe("CFP stale form recovery", () => {
       code: "FORM_VERSION_STALE",
       message: "This form changed while you were filling it in",
     });
-    const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, { failure: stale, onReload: () => undefined }));
+    const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, {
+      failure: stale,
+      unsavedEdits: false,
+      onReload: () => undefined,
+    }));
 
     expect(staleHtml).toContain("The organizer updated this form");
     expect(staleHtml).toContain("your saved draft will be restored");
+    expect(staleHtml).toContain("Reloading restores only the last saved draft");
     expect(staleHtml).toContain("Reload updated form");
+    expect(staleHtml).toContain('data-cfp-step-heading="true"');
+    expect(staleHtml).toContain('tabindex="-1"');
     expect(staleHtml.match(/<button/g)).toHaveLength(1);
     expect(staleHtml).not.toContain("<form");
     expect(staleHtml).not.toContain("<input");
@@ -196,6 +207,77 @@ describe("CFP stale form recovery", () => {
     expect(staleHtml).not.toContain("Back");
     expect(staleHtml).not.toContain("Submit proposal");
     expect(staleHtml).not.toContain("Retry now");
+  });
+
+  it("visibly warns when the newest edits could not be saved", () => {
+    const stale = cfpSubmitFailure({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" });
+    const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, {
+      failure: stale,
+      unsavedEdits: true,
+      onReload: () => undefined,
+    }));
+
+    expect(staleHtml).toContain("Changes are not saved.");
+    expect(staleHtml).toContain("Your most recent edits could not be saved.");
+  });
+
+  it("moves focus to the recovery heading and cancels pending focus on cleanup", () => {
+    let scheduled: (() => void) | undefined;
+    const focus = vi.fn();
+    const schedule = vi.fn((callback: () => void) => {
+      scheduled = callback;
+      return 17;
+    });
+    const cancel = vi.fn();
+
+    const cleanup = scheduleCfpRecoveryFocus({ focus }, schedule, cancel);
+    expect(focus).not.toHaveBeenCalled();
+    scheduled?.();
+    expect(focus).toHaveBeenCalledOnce();
+    cleanup();
+    expect(cancel).toHaveBeenCalledWith(17);
+  });
+
+  it("routes an autosave stale response through the locked recovery gate", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const states: AutosaveState[] = [];
+    const onStale = vi.fn();
+
+    await expect(saveCfpDraftWithRecovery(
+      async () => ({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" }),
+      lock,
+      (state) => states.push(state),
+      onStale,
+    )).resolves.toBe(false);
+
+    expect(states).toEqual(["saving", "failed"]);
+    expect(lock).toEqual({ submitting: false, versionStale: true, submitted: false });
+    expect(beginCfpSubmit(lock)).toBe(false);
+    const recovery = cfpStaleRecoveryState(onStale.mock.calls[0]?.[0] ?? null, true);
+    expect(recovery).toMatchObject({ failure: { kind: "stale" }, unsavedEdits: true });
+    if (!recovery) throw new Error("Expected stale recovery");
+    const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, {
+      ...recovery,
+      onReload: () => undefined,
+    }));
+    expect(staleHtml).toContain("Reload updated form");
+    expect(staleHtml).not.toContain("<form");
+  });
+
+  it("leaves ordinary autosave failures editable", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const onStale = vi.fn();
+
+    await expect(saveCfpDraftWithRecovery(
+      async () => ({ ok: false, data: {}, message: "Could not save" }),
+      lock,
+      () => undefined,
+      onStale,
+    )).resolves.toBe(false);
+
+    expect(lock.versionStale).toBe(false);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(cfpStaleRecoveryState(cfpSubmitFailure({ ok: false, data: {}, message: "Could not save" }), false)).toBeNull();
   });
 
   it("keeps stale recovery locked through notice and step-navigation clears", () => {
@@ -235,6 +317,12 @@ describe("CFP stale form recovery", () => {
     expect(beginCfpSubmit(lock)).toBe(true);
   });
 
+  it("aborts a locally rejected submit through the named lock transition", () => {
+    const lock = { submitting: true, versionStale: false, submitted: false };
+    abortCfpSubmit(lock);
+    expect(lock).toEqual({ submitting: false, versionStale: false, submitted: false });
+  });
+
   it("runs the page-reload recovery action", () => {
     const reload = vi.fn();
     reloadUpdatedCfpForm(reload);
@@ -256,11 +344,15 @@ describe("CFP deferred autosave settlement", () => {
     expect(beginCfpSubmit(lock)).toBe(true);
     expect(cfpAutosaveDisposition(lock)).toBe("defer");
     expect(deferred.defer({ revision: 2 }, (state) => states.push(state))).toBe(false);
+    expect(deferred.defer({ revision: 3 }, (state) => states.push(state))).toBe(false);
+    expect(deferred.hasPending()).toBe(true);
     settleCfpSubmitFailure(lock, ordinary);
 
     await expect(deferred.settle("ordinary-failure", persist)).resolves.toBe(true);
-    expect(persist).toHaveBeenCalledWith({ revision: 2 });
-    expect(states).toEqual(["failed", "saving", "saved"]);
+    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledWith({ revision: 3 });
+    expect(deferred.hasPending()).toBe(false);
+    expect(states).toEqual(["failed", "failed", "saving", "saved"]);
     expect(cfpAutosaveDisposition(lock)).toBe("save");
   });
 

@@ -190,9 +190,17 @@ export function beginCfpSubmit(lock: CfpSnapshotLock): boolean {
   return true;
 }
 
-export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmitFailure): void {
+export function abortCfpSubmit(lock: CfpSnapshotLock): void {
   lock.submitting = false;
-  if (requiresCfpFormReload(failure)) lock.versionStale = true;
+}
+
+export function lockStaleCfpSnapshot(lock: CfpSnapshotLock): void {
+  lock.versionStale = true;
+}
+
+export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmitFailure): void {
+  abortCfpSubmit(lock);
+  if (requiresCfpFormReload(failure)) lockStaleCfpSnapshot(lock);
 }
 
 export function settleCfpSubmitSuccess(lock: CfpSnapshotLock): void {
@@ -216,6 +224,9 @@ export function createDeferredCfpAutosave<T>() {
       onState("failed");
       return false;
     },
+    hasPending(): boolean {
+      return pending !== null;
+    },
     async settle(
       settlement: CfpSubmitSettlement,
       persist: (snapshotState: T) => Promise<boolean>,
@@ -236,11 +247,36 @@ export function CfpSubmitFailureNotice({ failure }: { failure: CfpSubmitFailure 
   return <p className="cfp-notice" role="alert">{failure.message}</p>;
 }
 
-export function CfpStaleRecovery({ failure, onReload }: { failure: CfpSubmitFailure; onReload: () => void }) {
+export function scheduleCfpRecoveryFocus(
+  heading: { focus: () => void } | null,
+  schedule: (callback: () => void) => number = (callback) => window.requestAnimationFrame(callback),
+  cancel: (frame: number) => void = (frame) => window.cancelAnimationFrame(frame),
+): () => void {
+  const frame = schedule(() => heading?.focus());
+  return () => cancel(frame);
+}
+
+export function cfpStaleRecoveryState(failure: CfpSubmitFailure | null, unsavedEdits: boolean) {
+  return requiresCfpFormReload(failure) ? { failure, unsavedEdits } : null;
+}
+
+export function CfpStaleRecovery({
+  failure,
+  unsavedEdits,
+  onReload,
+}: {
+  failure: CfpSubmitFailure;
+  unsavedEdits: boolean;
+  onReload: () => void;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => scheduleCfpRecoveryFocus(heading.current), []);
   return (
     <section className="cfp-step cfp-stale-recovery" role="alert" aria-labelledby="cfp-stale-heading">
-      <h2 id="cfp-stale-heading">Form updated</h2>
+      <h2 id="cfp-stale-heading" ref={heading} data-cfp-step-heading tabIndex={-1}>Form updated</h2>
       <p>{failure.message}</p>
+      <p>Reloading restores only the last saved draft. Any newer edits will be discarded.</p>
+      {unsavedEdits && <p><strong>Changes are not saved.</strong> Your most recent edits could not be saved.</p>}
       <Button type="button" variant="secondary" onClick={onReload}>Reload updated form</Button>
     </section>
   );
@@ -250,7 +286,9 @@ export async function saveWithRetry(
   save: () => Promise<RequestResult>,
   onState: (state: AutosaveState) => void,
   wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)),
+  onFailure?: (failure: RequestResult) => void,
 ): Promise<boolean> {
+  let failure: RequestResult | null = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     onState(attempt === 0 ? "saving" : "retrying");
     const result = await save();
@@ -258,11 +296,28 @@ export async function saveWithRetry(
       onState("saved");
       return true;
     }
+    failure = result;
     if (!result.retryable || attempt === 2) break;
     await wait(250 * (2 ** attempt));
   }
   onState("failed");
+  if (failure) onFailure?.(failure);
   return false;
+}
+
+export function saveCfpDraftWithRecovery(
+  save: () => Promise<RequestResult>,
+  lock: CfpSnapshotLock,
+  onState: (state: AutosaveState) => void,
+  onStale: (failure: Extract<CfpSubmitFailure, { kind: "stale" }>) => void,
+  wait?: (milliseconds: number) => Promise<void>,
+): Promise<boolean> {
+  return saveWithRetry(save, onState, wait, (result) => {
+    const failure = cfpSubmitFailure(result);
+    if (!requiresCfpFormReload(failure)) return;
+    lockStaleCfpSnapshot(lock);
+    onStale(failure);
+  });
 }
 
 /** Queue full-answer snapshots so a slow older PATCH cannot overwrite a newer one. */
@@ -294,6 +349,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [saveState, setSaveState] = useState<AutosaveState>("idle");
   const [result, setResult] = useState<{ code: number } | null>(null);
   const [submitFailure, setSubmitFailure] = useState<CfpSubmitFailure | null>(null);
+  const [staleUnsavedEdits, setStaleUnsavedEdits] = useState(false);
   const flowSteps = cfpFlowSteps(form.collectParticipants);
   const enabledSecondaryRoles = enabledSecondaryParticipantRoles(form.participantRoles);
   const portalHref = `/portal/${encodeURIComponent(event.slug)}`;
@@ -316,7 +372,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotState) => {
     const disposition = cfpAutosaveDisposition(snapshotLock.current);
-    if (disposition === "fail") { setSaveState("failed"); return Promise.resolve(false); }
+    if (disposition === "fail") {
+      setSaveState("failed");
+      setStaleUnsavedEdits(true);
+      return Promise.resolve(false);
+    }
     if (disposition === "discard") return Promise.resolve(true);
     if (disposition === "defer") return Promise.resolve(deferredAutosave.current?.defer(snapshotState, setSaveState) ?? false);
     const participants = snapshotState.participants
@@ -335,13 +395,18 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       setSaveState("failed");
       return Promise.resolve(false);
     }
-    return saveWithRetry(
+    return saveCfpDraftWithRecovery(
       () => cfpRequest(`/api/internal/forms/${form.id}/draft`, {
         formVersion: snapshot.version,
         answers: snapshotState.answers,
         participants,
       }, "PATCH"),
+      snapshotLock.current,
       setSaveState,
+      (failure) => {
+        setStaleUnsavedEdits(true);
+        setSubmitFailure(failure);
+      },
     );
   });
 
@@ -526,7 +591,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       duplicateEmails.add(coSpeakerEmail);
       return false;
     })) {
-      snapshotLock.current.submitting = false;
+      abortCfpSubmit(snapshotLock.current);
       setBusy(false);
       showNotice("Each additional participant needs a unique email address", "error");
       setStep("speaker");
@@ -555,6 +620,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setBusy(false);
     if (!sent.ok) {
       const failure = cfpSubmitFailure(sent);
+      const deferredEdits = deferredAutosave.current?.hasPending() ?? false;
       settleCfpSubmitFailure(snapshotLock.current, failure);
       const settlement = requiresCfpFormReload(failure) ? "stale-failure" : "ordinary-failure";
       void deferredAutosave.current?.settle(
@@ -564,7 +630,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       // A stale version stays closed to submit and autosave until the fresh
       // page loads. Mark any locally queued write as unsaved before rendering
       // the read-only recovery state.
-      if (requiresCfpFormReload(failure)) setSaveState("failed");
+      if (requiresCfpFormReload(failure)) {
+        setSaveState("failed");
+        setStaleUnsavedEdits(deferredEdits || saveState !== "saved");
+      }
       // Field errors belong next to their fields; anything else is a message.
       if (sent.fieldErrors) {
         const split = splitParticipantFieldErrors(sent.fieldErrors);
@@ -572,7 +641,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         setCoSpeakerErrors(split.byParticipant);
         setStep(stepForErrors(snapshot, sent.fieldErrors));
       }
-      setSubmitFailure(failure);
+      setSubmitFailure((current) => preserveStaleCfpFailure(current) ?? failure);
       return;
     }
     settleCfpSubmitSuccess(snapshotLock.current);
@@ -585,8 +654,9 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     setStep("done");
   }
 
-  if (requiresCfpFormReload(submitFailure)) {
-    return <CfpStaleRecovery failure={submitFailure} onReload={() => reloadUpdatedCfpForm()} />;
+  const staleRecovery = cfpStaleRecoveryState(submitFailure, staleUnsavedEdits);
+  if (staleRecovery) {
+    return <CfpStaleRecovery {...staleRecovery} onReload={() => reloadUpdatedCfpForm()} />;
   }
 
   if (step === "done" && result) {
