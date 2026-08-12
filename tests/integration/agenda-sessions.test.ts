@@ -649,6 +649,42 @@ describe("agenda sessions", () => {
   });
 
   describe("bulkSetPublished", () => {
+    it("rejects a mixed scheduled and unscheduled publish without changing or notifying either row", async () => {
+      const scheduled = await createSession({
+        title: "Ready for bulk publish", roomId: mainStage, speakerContactIds: [ada],
+        startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      });
+      const unscheduled = await createSession({
+        title: "Still needs a time", speakerContactIds: [grace],
+      });
+      await pglite.exec("TRUNCATE communication_logs");
+
+      await expect(bulkSetPublished(eventId, [scheduled.id, unscheduled.id], true)).rejects.toMatchObject({
+        code: "VALIDATION",
+        details: { unscheduledSessionIds: [unscheduled.id] },
+      });
+
+      const rows = await pglite.query<{ id: string; status: string; row_version: number; schedule_revision: number }>(
+        "SELECT id,status,row_version,schedule_revision FROM sessions WHERE id IN ($1,$2) ORDER BY id",
+        [scheduled.id, unscheduled.id],
+      );
+      expect(rows.rows).toEqual([
+        { id: scheduled.id, status: "draft", row_version: 1, schedule_revision: 0 },
+        { id: unscheduled.id, status: "draft", row_version: 1, schedule_revision: 0 },
+      ].sort((left, right) => left.id.localeCompare(right.id)));
+      expect(await count("communication_logs")).toBe(0);
+    });
+
+    it("rejects an unscheduled-only publish with an actionable count", async () => {
+      const first = await createSession({ title: "Unscheduled one" });
+      const second = await createSession({ title: "Unscheduled two" });
+
+      await expect(bulkSetPublished(eventId, [first.id, second.id], true)).rejects.toMatchObject({
+        code: "VALIDATION",
+        message: "Schedule 2 selected sessions before publishing",
+      });
+    });
+
     it("publishes only the rows that changed, and notifies their speakers once", async () => {
       const first = await createSession({
         title: "Bulk one", roomId: mainStage, speakerContactIds: [ada],
