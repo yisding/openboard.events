@@ -50,7 +50,9 @@ describe("onboarding organization access", () => {
 
   it("makes the published handoff previewable and resilient to clipboard failure", () => {
     expect(wizard).toContain('htmlFor="onboarding-public-form-link"');
+    expect(wizard).toContain('href={`/events/${event.id}/forms/${createdForm.id}/preview`}');
     expect(wizard).toContain('target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
+    expect(wizard).not.toContain('<Link href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
     expect(wizard).toContain('document.execCommand("copy")');
     expect(wizard).toContain("Link selected — press Cmd/Ctrl+C to copy");
     expect(globalCss).toContain(".onboarding-done>.metric-icon{margin:0 auto}");
