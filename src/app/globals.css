@@ -716,7 +716,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-session-when{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--muted);font-size:11px}
 .portal-session-cal-links{display:flex;gap:12px}
 .portal-session-cal-links a{color:var(--accent-dark);font-size:11px;font-weight:600}
-.submission-timeline{list-style:none;display:flex;align-items:center;gap:6px;margin:0;padding:0;font-size:10px;color:var(--muted)}
+.submission-timeline{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;padding:0;font-size:10px;color:var(--muted)}
 .submission-timeline li{display:flex;align-items:center;gap:4px}
 .submission-timeline li:not(:last-child)::after{content:"";width:12px;height:1px;background:var(--line-strong);margin-left:6px}
 .submission-timeline li.done{color:var(--accent-dark)}
@@ -1060,7 +1060,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:24px}
 .portal-home-section{margin-bottom:24px}
 .portal-home-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.portal-home-list li{display:flex;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:11.5px}
+.portal-home-list li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:11.5px}
 .portal-home-list li time{margin-left:auto;color:var(--muted);font-size:11px}
 
 /* M15 public CFP wizard. */
