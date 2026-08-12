@@ -339,6 +339,12 @@ deploy wrapper run it before release. `ALLOW_MISSING_DEPLOY_SECRETS=1` exists on
 bootstrap of a Worker that does not exist yet; after that first deploy, provision the complete
 inventory before deploying application code again.
 
+`pnpm db:migrate` first reconciles historical Drizzle journal timestamps. The repository once
+carried future-dated `when` values; the reconciliation compares every applied migration's content
+hash and order with the checkout, then updates only matching metadata in one statement before
+Drizzle evaluates the next migration. A missing, extra, or changed hash fails closed without
+editing the database journal.
+
 ## 10. Record deployment proof
 
 A successful deploy is not the full hackathon infrastructure proof.

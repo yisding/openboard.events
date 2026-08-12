@@ -11,8 +11,8 @@
 # Thresholds mirror docs/runbooks/alerting.md's `/api/health` table exactly —
 # update both together, in the same change, if either changes. Two exit tiers:
 #   - `page` breaches (unreachable, non-200, ok=false, db.ok=false, any caught
-#     unexpected error in the last hour, or a comms metric past its page
-#     threshold) print `::error::` and exit 1, failing the
+#     unexpected error in the last hour, a stale jobs heartbeat, or a comms
+#     metric past its page threshold) print `::error::` and exit 1, failing the
 #     workflow run — a failed scheduled run is itself today's alert (see
 #     alerting.md's header for why no separate paging integration exists yet).
 #   - `warn` breaches (comms.ok=false on its own, or a comms metric past its
@@ -35,6 +35,8 @@ WARN_FAILED=10
 PAGE_FAILED=50
 WARN_OLDEST_SECONDS=900
 PAGE_OLDEST_SECONDS=3600
+WARN_OUTBOX_HEARTBEAT_SECONDS=180
+PAGE_OUTBOX_HEARTBEAT_SECONDS=300
 
 fail=0
 warn=0
@@ -100,6 +102,33 @@ else
   elif (( recent_errors > 0 )); then
     echo "::error::errors.recentCount=$recent_errors in the last hour for $base_url — inspect structured error.captured logs"
     fail=1
+  fi
+fi
+
+# The outbox completes every minute even when it finds zero rows, so this
+# heartbeat detects Cron, authentication, routing, and job-route failures that
+# queue-depth monitoring cannot see. Missing is a rollout warning only when the
+# entire additive `jobs` field is absent; once the field exists, null/stale is
+# a real incident.
+jobs_present="$(jq -r 'has("jobs")' <<<"$body")"
+if [[ "$jobs_present" != "true" ]]; then
+  echo "::warning::health has no scheduled-jobs heartbeat for $base_url — deploy the current health schema"
+  warn=1
+else
+  jobs_ok="$(jq -r '.jobs.ok // false' <<<"$body")"
+  outbox_heartbeat_age="$(jq -r '.jobs.outboxLastSuccessAgeSeconds // empty' <<<"$body")"
+  if [[ "$jobs_ok" != "true" ]]; then
+    echo "::error::health reports jobs.ok=false for $base_url — scheduled-job monitoring is unavailable"
+    fail=1
+  elif [[ ! "$outbox_heartbeat_age" =~ ^[0-9]+$ ]]; then
+    echo "::error::health has no successful outbox heartbeat for $base_url"
+    fail=1
+  elif (( outbox_heartbeat_age > PAGE_OUTBOX_HEARTBEAT_SECONDS )); then
+    echo "::error::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds page threshold ($PAGE_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
+    fail=1
+  elif (( outbox_heartbeat_age > WARN_OUTBOX_HEARTBEAT_SECONDS )); then
+    echo "::warning::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds warn threshold ($WARN_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
+    warn=1
   fi
 fi
 

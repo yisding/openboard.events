@@ -51,7 +51,7 @@ cold_then_cached() {
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"ms":1}' ;;
+  */api/health) payload='{"ok":true,"errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     extra=$'Content-Security-Policy: frame-ancestors *\\r\\n'

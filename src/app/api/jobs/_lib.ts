@@ -1,6 +1,7 @@
 import type { JobName, JobStats } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { captureError } from "@/shared/lib/error-tracking";
+import { recordJobSuccess } from "@/shared/server/job-heartbeats";
 
 export type JobResult = { job: JobName; ok: boolean; stats: JobStats; ms: number; error?: string };
 
@@ -22,6 +23,7 @@ export function defineJobRoute(job: JobName, run: () => Promise<JobStats>) {
     const started = Date.now();
     try {
       const stats = await run();
+      await recordJobSuccess(job, Date.now() - started);
       const result: JobResult = { job, ok: true, stats, ms: Date.now() - started };
       console.log(JSON.stringify(result));
       return Response.json(result);

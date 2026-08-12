@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const SECRET = "s".repeat(32);
 
@@ -9,14 +9,23 @@ vi.mock("@/shared/lib/env", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/lib/env")>()),
   getEnv: () => ({ CRON_SECRET: SECRET }),
 }));
+vi.mock("@/shared/server/job-heartbeats", () => ({
+  recordJobSuccess: vi.fn(async () => undefined),
+}));
 
 const { defineJobRoute } = await import("./_lib");
+const { recordJobSuccess } = await import("@/shared/server/job-heartbeats");
+const recordJobSuccessMock = vi.mocked(recordJobSuccess);
 
 function request(headers: Record<string, string> = {}) {
   return new NextRequest("https://example.test/api/jobs/cleanup", { method: "POST", headers });
 }
 
 describe("defineJobRoute", () => {
+  beforeEach(() => {
+    recordJobSuccessMock.mockReset().mockResolvedValue(undefined);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -34,6 +43,18 @@ describe("defineJobRoute", () => {
     const response = await POST(request({ "x-cron-secret": SECRET }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ job: "cleanup", ok: true, stats: { deleted: 3 } });
+    expect(recordJobSuccessMock).toHaveBeenCalledWith("cleanup", expect.any(Number));
+  });
+
+  it("does not claim success when the durable heartbeat cannot be recorded", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    recordJobSuccessMock.mockRejectedValueOnce(new Error("heartbeat storage unavailable"));
+    const { POST } = defineJobRoute("cleanup", async () => ({ deleted: 3 }));
+    const response = await POST(request({ "x-cron-secret": SECRET }));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ job: "cleanup", ok: false, error: "Job failed" });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it("captures the raw error via the P3-OPS seam and still returns a 500 job-failure envelope", async () => {

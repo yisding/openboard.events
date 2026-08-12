@@ -25,7 +25,7 @@
     "bundle:client": "tsx scripts/check-client-bundle.ts",
     "release:check": "pnpm typecheck && pnpm lint && pnpm invariants && pnpm audit:prod && pnpm test && pnpm cf-typegen:check && pnpm build:worker && pnpm bundle:client && pnpm worker:size && pnpm smoke:worker",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/reconcile-drizzle-journal.ts && drizzle-kit migrate",
     "seed": "tsx scripts/seed/index.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled --var APP_BASE_URL:http://localhost:3000",

@@ -45,6 +45,12 @@ const healthy = {
   db: { ok: true, version: "18" },
   comms: { ok: true, queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null },
   errors: { ok: true, windowSeconds: 3600, recentCount: 0, latestAgeSeconds: null },
+  jobs: {
+    ok: true,
+    outboxLastSuccessAgeSeconds: 30,
+    remindersLastSuccessAgeSeconds: 300,
+    cleanupLastSuccessAgeSeconds: 3600,
+  },
 };
 
 describe("uptime operational-error threshold", () => {
@@ -72,5 +78,37 @@ describe("uptime operational-error threshold", () => {
     const result = run(oldHealth);
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("health has no errors aggregate");
+  });
+});
+
+describe("uptime scheduled-job heartbeat threshold", () => {
+  it("warns without failing while an older health schema is still deployed", () => {
+    const oldHealth: Record<string, unknown> = { ...healthy };
+    delete oldHealth.jobs;
+    const result = run(oldHealth);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("health has no scheduled-jobs heartbeat");
+  });
+
+  it("pages when the heartbeat query is unavailable", () => {
+    const result = run({ ...healthy, jobs: { ok: false, error: "scheduled jobs health check failed" } });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("jobs.ok=false");
+  });
+
+  it("pages when no outbox job has ever completed", () => {
+    const result = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: null } });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("no successful outbox heartbeat");
+  });
+
+  it("warns after three minutes and pages after five", () => {
+    const warning = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 181 } });
+    expect(warning.status).toBe(0);
+    expect(warning.stdout).toContain("exceeds warn threshold (180)");
+
+    const page = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 301 } });
+    expect(page.status).toBe(1);
+    expect(page.stdout).toContain("exceeds page threshold (300)");
   });
 });

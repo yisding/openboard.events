@@ -19,6 +19,11 @@ esac
 }
 
 if [[ "${ALLOW_MISSING_DEPLOY_SECRETS:-0}" == "1" ]]; then
+  [[ "$service" == "web" ]] || {
+    echo "ALLOW_MISSING_DEPLOY_SECRETS is only valid for the first web Worker bootstrap" >&2
+    exit 2
+  }
+  pnpm exec tsx scripts/check-worker-bootstrap.ts "$target_env"
   echo "WARNING: skipping the remote secret inventory check for an explicit first-deploy bootstrap" >&2
 else
   pnpm deploy:preflight "$service" "$target_env"

@@ -26,113 +26,120 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1786680000000,
+      "when": 1786248060000,
       "tag": "0003_jade_defaults",
       "breakpoints": false
     },
     {
       "idx": 4,
       "version": "7",
-      "when": 1786752000000,
+      "when": 1786248120000,
       "tag": "0004_review_operations",
       "breakpoints": false
     },
     {
       "idx": 5,
       "version": "7",
-      "when": 1786755600000,
+      "when": 1786248180000,
       "tag": "0005_rate_limits",
       "breakpoints": false
     },
     {
       "idx": 6,
       "version": "7",
-      "when": 1786759200000,
+      "when": 1786248240000,
       "tag": "0006_content_deliverables",
       "breakpoints": false
     },
     {
       "idx": 7,
       "version": "7",
-      "when": 1786762800000,
+      "when": 1786248300000,
       "tag": "0007_email_compliance",
       "breakpoints": false
     },
     {
       "idx": 8,
       "version": "7",
-      "when": 1786766400000,
+      "when": 1786248360000,
       "tag": "0008_speaker_roster_operations",
       "breakpoints": false
     },
     {
       "idx": 9,
       "version": "7",
-      "when": 1786852800000,
+      "when": 1786248420000,
       "tag": "0009_product_auth",
       "breakpoints": false
     },
     {
       "idx": 10,
       "version": "7",
-      "when": 1786939200000,
+      "when": 1786248480000,
       "tag": "0010_organization_tenancy",
       "breakpoints": false
     },
     {
       "idx": 11,
       "version": "7",
-      "when": 1787025600000,
+      "when": 1786248540000,
       "tag": "0011_user_management",
       "breakpoints": false
     },
     {
       "idx": 12,
       "version": "7",
-      "when": 1787112000000,
+      "when": 1786248600000,
       "tag": "0012_billing_scaffold",
       "breakpoints": false
     },
     {
       "idx": 13,
       "version": "7",
-      "when": 1787198400000,
+      "when": 1786248660000,
       "tag": "0013_speaker_crm",
       "breakpoints": false
     },
     {
       "idx": 14,
       "version": "7",
-      "when": 1787284800000,
+      "when": 1786248720000,
       "tag": "0014_email_template_backfill",
       "breakpoints": false
     },
     {
       "idx": 15,
       "version": "7",
-      "when": 1787371200000,
+      "when": 1786248780000,
       "tag": "0015_export_streaming",
       "breakpoints": false
     },
     {
       "idx": 16,
       "version": "7",
-      "when": 1787457600000,
+      "when": 1786248840000,
       "tag": "0016_speaker_moments",
       "breakpoints": false
     },
     {
       "idx": 17,
       "version": "7",
-      "when": 1787544000000,
+      "when": 1786248900000,
       "tag": "0017_crm_merge_recovery",
       "breakpoints": false
     },
     {
       "idx": 18,
       "version": "7",
-      "when": 1787630400000,
+      "when": 1786248960000,
       "tag": "0018_operational_error_buckets",
+      "breakpoints": false
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786249020000,
+      "tag": "0019_scheduled_job_heartbeats",
       "breakpoints": false
     }
   ]

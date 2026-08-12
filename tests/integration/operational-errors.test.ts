@@ -22,6 +22,16 @@ describe("operational error aggregation", () => {
 
   afterAll(async () => pg.close());
 
+  it("does not let a guessable message influence the durable fingerprint", async () => {
+    const withStack = (message: string) => {
+      const error = new Error(message);
+      error.stack = `Error: ${message}\n    at stableFrame (app.js:1:1)`;
+      return error;
+    };
+    await expect(operationalErrorFingerprint(withStack("customer@example.com")))
+      .resolves.toBe(await operationalErrorFingerprint(withStack("secret-token-value")));
+  });
+
   it("stores no raw diagnostic and aggregates identical failures by minute", async () => {
     const error = new Error("customer@example.com failed to render");
     const now = new Date("2026-08-11T12:34:10Z");
