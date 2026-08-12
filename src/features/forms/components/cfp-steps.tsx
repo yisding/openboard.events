@@ -5,7 +5,7 @@ import type { PublicForm } from "@/features/forms";
 import { splitParticipantFieldErrors } from "../participant-errors";
 import { enabledSecondaryParticipantRoles, secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "../participant-roles";
 import { FormFieldRenderer } from "./form-field-renderer";
-import { plainTextLength, type AnswerValue, type FieldId, type FormField, type FormSnapshot } from "@/shared/contracts";
+import { LIMITS, plainTextLength, type AnswerValue, type FieldId, type FormField, type FormSnapshot } from "@/shared/contracts";
 import { evaluateVisibility } from "@/shared/lib/conditions";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
@@ -69,7 +69,7 @@ function answerIsEmpty(field: FormField, value: AnswerValue | undefined): boolea
   return false;
 }
 
-export function requiredStepErrors(
+export function stepFieldErrors(
   snapshot: FormSnapshot,
   sectionKeys: string[],
   answers: Answers,
@@ -81,8 +81,16 @@ export function requiredStepErrors(
   for (const section of snapshot.sections) {
     if (!keys.has(section.key)) continue;
     for (const field of section.fields) {
-      if (visible.has(field.id) && field.required && answerIsEmpty(field, answers[field.id])) {
+      if (!visible.has(field.id)) continue;
+      const value = answers[field.id];
+      if (field.required && answerIsEmpty(field, value)) {
         errors[field.id] = `${field.label} is required`;
+        continue;
+      }
+      if (value?.t === "s") {
+        const max = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+        const used = field.type === "richtext" ? plainTextLength(value.v) : value.v.length;
+        if (used > max) errors[field.id] = `Keep this under ${max} characters`;
       }
     }
   }
@@ -342,10 +350,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   function continueFromSubmission() {
-    const next = requiredStepErrors(snapshot, ["abstract"], answers);
+    const next = stepFieldErrors(snapshot, ["abstract"], answers);
     setErrors(next);
     if (Object.keys(next).length > 0) {
-      showNotice("Complete the required submission questions before continuing", "error");
+      showNotice("Some submission answers need attention before continuing", "error");
       return;
     }
     showNotice("");
@@ -353,17 +361,17 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }
 
   function continueFromSpeaker() {
-    const primaryErrors = requiredStepErrors(snapshot, ["participant"], answers);
+    const primaryErrors = stepFieldErrors(snapshot, ["participant"], answers);
     const participantErrors = Object.fromEntries(coSpeakers.map((participant) => [
       participant.clientId,
-      requiredStepErrors(snapshot, ["participant"], participant.answers, answers),
+      stepFieldErrors(snapshot, ["participant"], participant.answers, answers),
     ]));
     setErrors(primaryErrors);
     setCoSpeakerErrors(participantErrors);
     const hasErrors = Object.keys(primaryErrors).length > 0
       || Object.values(participantErrors).some((next) => Object.keys(next).length > 0);
     if (hasErrors) {
-      showNotice("Complete the required speaker details before reviewing", "error");
+      showNotice("Some speaker details need attention before reviewing", "error");
       return;
     }
     showNotice("");

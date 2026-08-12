@@ -8,7 +8,7 @@ import {
   hasIncompleteParticipantEmail,
   participantEmail,
   participantFieldIds,
-  requiredStepErrors,
+  stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
   serializeAutosaves,
@@ -67,12 +67,48 @@ describe("CFP validation routing", () => {
   });
 
   it("blocks an empty required field before leaving its step", () => {
-    expect(requiredStepErrors(GOLDEN_SNAPSHOT, ["abstract"], {})).toMatchObject({
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {})).toMatchObject({
       [fieldId("title")]: expect.stringContaining("required"),
     });
-    expect(requiredStepErrors(GOLDEN_SNAPSHOT, ["abstract"], {
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {
       [fieldId("title")]: { t: "s", v: "An accessible proposal" },
     })[fieldId("title")]).toBeUndefined();
+  });
+
+  it("blocks rich text over the visible-text limit at its own step", () => {
+    const over = stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {
+      [fieldId("description")]: { t: "s", v: `<p>${"x".repeat(5001)}</p>` },
+    });
+    expect(over[fieldId("description")]).toBe("Keep this under 5000 characters");
+
+    const boundary = stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {
+      [fieldId("description")]: { t: "s", v: `<p><strong>${"x".repeat(5000)}</strong></p>` },
+    });
+    expect(boundary[fieldId("description")]).toBeUndefined();
+  });
+
+  it("counts rich-text content instead of its HTML markup", () => {
+    const markup = `<p>${Array.from({ length: 500 }, () => "<strong>word</strong>").join("")}</p>`;
+    expect(markup.length).toBeGreaterThan(5000);
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {
+      [fieldId("description")]: { t: "s", v: markup },
+    })[fieldId("description")]).toBeUndefined();
+  });
+
+  it("uses the server fallback limit and ignores overlong hidden answers", () => {
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["participant"], {
+      [fieldId("company")]: { t: "s", v: "x".repeat(501) },
+    })[fieldId("company")]).toBe("Keep this under 500 characters");
+
+    const conditional = structuredClone(GOLDEN_SNAPSHOT);
+    const workshopDuration = conditional.sections.flatMap((section) => section.fields)
+      .find((field) => field.id === fieldId("workshop_duration"));
+    if (!workshopDuration) throw new Error("Missing workshop duration field");
+    workshopDuration.maxChars = 5;
+    expect(stepFieldErrors(conditional, ["abstract"], {
+      [fieldId("format")]: { t: "opt", v: "talk" },
+      [fieldId("workshop_duration")]: { t: "s", v: "all-day workshop" },
+    })[fieldId("workshop_duration")]).toBeUndefined();
   });
 
   it("uses the organizer-configured heading for each form step", () => {
