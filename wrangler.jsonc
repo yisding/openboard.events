@@ -70,7 +70,7 @@
       "vars": {
         "APP_ENV": "production",
         "ADMIN_AUTH_PROVIDER": "better-auth",
-        "BETTER_AUTH_URL": "https://sb-web.yi-ding.workers.dev",
+        "BETTER_AUTH_URL": "https://openboard.events",
         "BILLING_MODE": "disabled",
         "EMAIL_MODE": "send",
         "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
