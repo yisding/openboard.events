@@ -58,15 +58,15 @@ deploy script rather than storing a placeholder `workers.dev` hostname.
 | `R2_ACCOUNT_ID` | variable | real R2 presigning | Cloudflare account containing the bucket |
 | `R2_ACCESS_KEY_ID` | secret | real R2 presigning | Bucket-scoped S3 credential |
 | `R2_SECRET_ACCESS_KEY` | secret | real R2 presigning | Bucket-scoped S3 credential |
-| `AIRTABLE_API_KEY` | secret | only if M39 is enabled | Airtable personal access token |
+| `AIRTABLE_API_KEY` | secret | deferred; do not provision yet | Airtable personal access token reserved for M39 |
 | `APP_BASE_URL` | variable | all | Absolute URL used in links, embeds, email, and ICS |
 | `EMAIL_FROM` | variable | email-enabled envs | Address on the verified sending domain; freeze after the first invite |
 | `EMAIL_MODE` | variable | all | Exactly `log` or `send` |
 | `EMAIL_ALLOWLIST` | variable | optional preview sends | Exact addresses or domain suffixes allowed to receive test mail |
 | `EMAIL_FALLBACK_UI` | variable | local/preview only | `1` may expose test delivery artifacts; production is `0` |
 | `R2_BUCKET_NAME` | variable | real R2 presigning | Must match that environment's `FILES` binding bucket |
-| `AIRTABLE_BASE_ID` | variable | only if M39 is enabled | Target Airtable base |
-| `AIRTABLE_CRON` | variable | only if M39 is enabled | `1` enables the optional modulo cron; default `0` |
+| `AIRTABLE_BASE_ID` | variable | deferred; do not provision yet | Target Airtable base reserved for M39 |
+| `AIRTABLE_CRON` | variable | all | Must remain `0` until M39 replaces its contract stub with a production-proven sync |
 | `TEST_AUTH` | variable | local/isolated preview only | Enables test authentication; absent in production |
 
 `FILES` and `NEXT_INC_CACHE_R2_BUCKET` are Wrangler R2 bindings, not secrets. Both point to

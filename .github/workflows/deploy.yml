@@ -108,6 +108,23 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
         if: steps.freshness.outputs.current == 'true'
+      - name: Validate protected deployment inputs
+        if: steps.freshness.outputs.current == 'true'
+        run: |
+          required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_URL_DIRECT APP_BASE_URL R2_ACCOUNT_ID SMOKE_EVENT_ID SMOKE_FORM_ID SMOKE_HEADSHOT_FILE_ID)
+          missing=()
+          for name in "${required[@]}"; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::protected environment is missing required deploy inputs: ${missing[*]}"
+            exit 1
+          fi
+      - name: Verify remote Worker secret inventories
+        if: steps.freshness.outputs.current == 'true'
+        run: |
+          pnpm deploy:preflight web "$DEPLOY_ENV"
+          pnpm deploy:preflight jobs "$DEPLOY_ENV"
       - name: Apply migrations with the direct Neon URL
         if: steps.freshness.outputs.current == 'true'
         run: pnpm db:migrate

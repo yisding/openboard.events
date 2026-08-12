@@ -327,7 +327,9 @@ applied the batch for real. Per module, with its migration:
   `BillingProviderAdapter` seam exists with only a `StubBillingProviderAdapter` implementation:
   checkout/portal throw `VALIDATION` rather than fabricate a working URL; webhook verification is
   a real HMAC over the raw body, fail-closed when `BILLING_WEBHOOK_SECRET` is unset. Billing
-  settings surface at `/organizations/[id]/billing`.
+  settings surface at `/organizations/[id]/billing` only under the local-only
+  `BILLING_MODE=scaffold`; deployed configuration now disables and hides every billing surface
+  until a real provider adapter exists.
 - **M55 — Speaker CRM (partial, core landed, `drizzle/0013_speaker_crm.sql`):** an
   organization-level `organization_contacts` identity distinct from event-scoped `contacts`
   (11 tables: links, tags, custom fields, notes, an append-only activity timeline, saved dynamic

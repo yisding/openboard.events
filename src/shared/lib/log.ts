@@ -5,6 +5,7 @@ export type LogEntry = {
   feature: string;
   code?: string;
   eventId?: string;
+  route?: string;
   durationMs?: number;
 };
 

@@ -5,6 +5,12 @@ export const DEMO_EVENT_SLUG = "ai-engineer";
 export const DEMO_FORM_ID = "technical-talks";
 export const DEMO_SPEAKER_ID = "spk_nadia";
 
+// The demo organizer identity documented in docs/demo-script.md. The
+// credential-free local demo has no users table, so `/api/auth/sign-in`
+// checks these directly.
+export const DEMO_ADMIN_EMAIL = "maya@ai.engineer";
+export const DEMO_ADMIN_PASSWORD = "openboard-demo";
+
 // Demo stand-in for the DB-backed non-consuming ics_download tokens (M35):
 // each token maps to exactly one speaker; unknown tokens must 404.
 export const DEMO_CAL_TOKENS: Record<string, string> = {

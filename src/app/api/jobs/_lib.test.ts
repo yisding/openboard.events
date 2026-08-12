@@ -43,8 +43,8 @@ describe("defineJobRoute", () => {
 
     expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body).toMatchObject({ job: "cleanup", ok: false });
-    expect(body.error).toContain("bucket unreachable");
+    expect(body).toMatchObject({ job: "cleanup", ok: false, error: "Job failed" });
+    expect(JSON.stringify(body)).not.toContain("bucket unreachable");
 
     expect(spy).toHaveBeenCalledTimes(1);
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);

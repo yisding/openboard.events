@@ -28,40 +28,44 @@ const optionalEmailFrom = z.preprocess(
   ).optional(),
 );
 
+/** Secret bindings every deployed web Worker must carry before release. */
+export const WEB_DEPLOY_SECRET_NAMES = [
+  "DATABASE_URL",
+  "SESSION_SECRET",
+  "CRON_SECRET",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "RESEND_API_KEY",
+  "RESEND_WEBHOOK_SECRET",
+  "UNSUBSCRIBE_SECRET",
+  "SPEAKER_SHARE_SECRET",
+] as const;
+
 const envSchema = z.object({
   APP_ENV: z.enum(["local", "preview", "production"]).default("local"),
   APP_BASE_URL: z.url().default("http://localhost:3000"),
   DATABASE_URL: optionalString,
   SESSION_SECRET: optionalString,
   RESEND_API_KEY: optionalString,
-  // P3-EMAIL: signs Resend's bounce/complaint webhook (Svix scheme). Left
-  // optional everywhere — the bounce webhook is provisioned in Resend's
-  // dashboard after a sending domain exists, an external step the roadmap's
-  // email-deliverability tail explicitly tracks as still in progress
-  // (plan/status.md); the route itself 500s with a clear message until it's
-  // set, rather than silently accepting unverified webhook calls.
+  // P3-EMAIL: signs Resend's bounce/complaint webhook (Svix scheme). Optional
+  // for the credential-free local demo, required in deployed environments.
   RESEND_WEBHOOK_SECRET: optionalString,
   // M46 — unsubscribe tokens (the JWT behind `/portal/[eventSlug]/unsubscribe`)
   // are signed with this dedicated key rather than `SESSION_SECRET`, so
   // rotating a session secret can never invalidate an outstanding
   // unsubscribe link (and vice versa: this key rotating never signs a
-  // speaker out). Left optional everywhere, same posture as
-  // `RESEND_WEBHOOK_SECRET` above — additive, not a required-env breaking
-  // change — because the deployed preview/production Workers have not had
-  // this secret provisioned yet; `unsubscribe.ts`/`context.ts` fail closed
-  // with a clear `INTERNAL` message the moment a non-essential email
-  // actually needs to sign one, rather than the whole environment refusing
-  // to parse until someone runs `wrangler secret put`.
+  // speaker out). Left optional for local development, same posture as
+  // `RESEND_WEBHOOK_SECRET` above. Optional locally; deployed email must not
+  // discover the missing key only after a customer tries to unsubscribe.
   UNSUBSCRIBE_SECRET: optionalString,
   // M59 — signs the "I'm speaking!" share-page token
   // (`/speaking/[token]`), same dedicated-key posture as
   // `UNSUBSCRIBE_SECRET` right above and for the same reason: the token is
   // handed to whatever the speaker pastes it into (a tweet, a Slack
   // message), so its lifecycle has nothing to do with an admin session's or
-  // an unsubscribe link's. Left optional for the same deploy-ordering
-  // reason — `share.ts` fails closed with a clear `INTERNAL` message the
-  // moment a share link is actually requested, rather than the whole
-  // environment refusing to parse until this is provisioned.
+  // an unsubscribe link's. `share.ts` also fails closed with a clear
+  // `INTERNAL` message if a local developer reaches the feature without it.
+  // Deployed environments require it because the share surface is public UI.
   SPEAKER_SHARE_SECRET: optionalString,
   // M49 — signs the billing provider webhook (`/api/webhooks/billing`), same
   // shared-secret-HMAC posture as `RESEND_WEBHOOK_SECRET` above and left
@@ -71,6 +75,9 @@ const envSchema = z.object({
   // webhook route fails closed (rejects every event) rather than accepting
   // an unverified one when it is unset.
   BILLING_WEBHOOK_SECRET: optionalString,
+  // Customer-facing billing stays absent until a real provider exists.
+  // `scaffold` is an explicit local-only switch for manual seam testing.
+  BILLING_MODE: z.enum(["disabled", "scaffold"]).default("disabled"),
   CRON_SECRET: optionalString,
   R2_ACCOUNT_ID: optionalString,
   R2_ACCESS_KEY_ID: optionalString,
@@ -82,7 +89,9 @@ const envSchema = z.object({
   EMAIL_FALLBACK_UI: z.enum(["0", "1"]).default("1"),
   AIRTABLE_API_KEY: optionalString,
   AIRTABLE_BASE_ID: optionalString,
-  AIRTABLE_CRON: z.enum(["0", "1"]).default("0"),
+  // M39 is deferred and has no production implementation. A deployed flag
+  // must not make a missing integration look like successful scheduled work.
+  AIRTABLE_CRON: z.literal("0").default("0"),
   /**
    * M42 — which implementation backs `requireAdmin`.
    *
@@ -166,6 +175,21 @@ const envSchema = z.object({
   if (env.SPEAKER_SHARE_SECRET && env.SPEAKER_SHARE_SECRET.length < 32) {
     context.addIssue({ code: "custom", path: ["SPEAKER_SHARE_SECRET"], message: "must be at least 32 characters" });
   }
+  if (env.RESEND_WEBHOOK_SECRET && env.RESEND_WEBHOOK_SECRET.length < 32) {
+    context.addIssue({ code: "custom", path: ["RESEND_WEBHOOK_SECRET"], message: "must be at least 32 characters" });
+  }
+  if (env.BILLING_WEBHOOK_SECRET && env.BILLING_WEBHOOK_SECRET.length < 32) {
+    context.addIssue({ code: "custom", path: ["BILLING_WEBHOOK_SECRET"], message: "must be at least 32 characters" });
+  }
+
+  if (env.APP_ENV !== "local") {
+    for (const key of ["RESEND_WEBHOOK_SECRET", "UNSUBSCRIBE_SECRET", "SPEAKER_SHARE_SECRET"] as const) {
+      if (!env[key]) context.addIssue({ code: "custom", path: [key], message: `is required in ${env.APP_ENV}` });
+    }
+    if (env.BILLING_MODE !== "disabled") {
+      context.addIssue({ code: "custom", path: ["BILLING_MODE"], message: `must be disabled in ${env.APP_ENV} until a real provider adapter exists` });
+    }
+  }
 
   const expectedBucket = env.APP_ENV === "production" ? "sb-files" : env.APP_ENV === "preview" ? "sb-files-preview" : undefined;
   if (expectedBucket && env.R2_BUCKET_NAME !== expectedBucket) {
@@ -187,10 +211,6 @@ const envSchema = z.object({
     if (!env.EMAIL_ALLOWLIST) context.addIssue({ code: "custom", path: ["EMAIL_ALLOWLIST"], message: "is required when preview email sends" });
   }
 
-  if (env.AIRTABLE_CRON === "1") {
-    if (!env.AIRTABLE_API_KEY) context.addIssue({ code: "custom", path: ["AIRTABLE_API_KEY"], message: "is required when AIRTABLE_CRON=1" });
-    if (!env.AIRTABLE_BASE_ID) context.addIssue({ code: "custom", path: ["AIRTABLE_BASE_ID"], message: "is required when AIRTABLE_CRON=1" });
-  }
 });
 
 export type RuntimeEnv = z.infer<typeof envSchema>;

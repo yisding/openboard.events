@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,12 +15,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "invariants": "bash scripts/check-invariants.sh",
+    "audit:prod": "pnpm audit --prod --audit-level=low",
     "check": "pnpm typecheck && pnpm lint && pnpm invariants && pnpm test && pnpm build && pnpm build:worker",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv --include-runtime false cloudflare-env.d.ts",
-    "cf-typegen:check": "wrangler types --env-interface CloudflareEnv --include-runtime false cloudflare-env.d.ts --check",
-    "build:worker": "opennextjs-cloudflare build",
+    "cf-typegen": "bash scripts/check-cloudflare-types.sh --write",
+    "cf-typegen:check": "bash scripts/check-cloudflare-types.sh",
+    "build:worker": "bash scripts/build-worker-clean.sh",
     "worker:size": "bash scripts/check-worker-size.sh",
+    "smoke:worker": "bash scripts/smoke-worker-artifact.sh",
     "bundle:client": "tsx scripts/check-client-bundle.ts",
+    "release:check": "pnpm typecheck && pnpm lint && pnpm invariants && pnpm audit:prod && pnpm test && pnpm cf-typegen:check && pnpm build:worker && pnpm bundle:client && pnpm worker:size && pnpm smoke:worker",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "db:migrate": "drizzle-kit migrate",
     "seed": "tsx scripts/seed/index.ts",
@@ -29,6 +35,7 @@
     "deploy:jobs": "pnpm deploy:jobs:production",
     "deploy:jobs:preview": "bash scripts/deploy-cloudflare.sh jobs preview",
     "deploy:jobs:production": "bash scripts/deploy-cloudflare.sh jobs production",
+    "deploy:preflight": "tsx scripts/check-deploy-secrets.ts",
     "e2e": "playwright test"
   },
   "dependencies": {
