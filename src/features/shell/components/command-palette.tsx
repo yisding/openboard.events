@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { CalendarDays, ClipboardCheck, Search, Sparkles, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
+import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { SearchResult, SearchResultType } from "@/features/shell/server/search";
 import { emojiRain } from "@/shared/ui/emoji-rain";
 
@@ -69,6 +70,7 @@ function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
 
 export function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base: string; role: MemberRole; onClose: () => void }) {
   const router = useRouter();
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
@@ -126,8 +128,14 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
       onClose();
       return;
     }
-    router.push(item.href);
-    onClose();
+    if (isSameNavigationDestination(item.href, window.location.href)) {
+      onClose();
+      return;
+    }
+    runGuarded(() => allowNextNavigation(() => {
+      router.push(item.href);
+      onClose();
+    }, { destination: item.href }));
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {

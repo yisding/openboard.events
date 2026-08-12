@@ -3,11 +3,113 @@
 import Link from "next/link";
 import { BookOpen, CalendarDays, ClipboardCheck, Home, Menu, UserRound, X } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { usePortal } from "./portal-context";
-import { Avatar } from "@/shared/ui/ui-kit";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImpersonationBanner } from "@/features/auth/components/impersonation-banner";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { UnsavedWorkGuardProvider } from "@/shared/ui/app/unsaved-work-guard";
+import { Avatar } from "@/shared/ui/ui-kit";
+import { usePortal } from "./portal-context";
 
-const links=[{label:"Home",href:"",icon:Home},{label:"My submissions",href:"submissions",icon:CalendarDays},{label:"Tasks",href:"tasks",icon:ClipboardCheck},{label:"Profile",href:"profile",icon:UserRound},{label:"Resources",href:"resources",icon:BookOpen}];
-export function PortalShell({children}:{children:React.ReactNode}){const pathname=usePathname();const{event,speaker,openTaskCount,impersonated}=usePortal();const[open,setOpen]=useState(false);const menuButtonRef=useRef<HTMLButtonElement>(null);const firstLinkRef=useRef<HTMLAnchorElement>(null);function closeMenu(){setOpen(false);menuButtonRef.current?.focus()}useEffect(()=>{if(!open)return;firstLinkRef.current?.focus();function onKeyDown(event:KeyboardEvent){if(event.key==="Escape"){setOpen(false);menuButtonRef.current?.focus()}}document.addEventListener("keydown",onKeyDown);return()=>document.removeEventListener("keydown",onKeyDown)},[open]);const base=`/portal/${event.slug}`;return <div className="portal-shell">{impersonated&&<ImpersonationBanner name={`${speaker.firstName} ${speaker.lastName}`} email={speaker.email} backHref={`/events/${event.id}/speakers/${speaker.id}`}/>}<header className="portal-header"><div className="portal-container"><button ref={menuButtonRef} type="button" className="portal-mobile-menu" aria-label={open?"Close navigation":"Open navigation"} aria-expanded={open} aria-controls="portal-navigation" onClick={()=>open?closeMenu():setOpen(true)}>{open?<X size={20}/>:<Menu size={20}/>}</button><Link href={base} className="portal-event-brand"><span className="public-event-logo">{event.logoText||event.name}</span><i/><small>Speaker Portal</small></Link><nav id="portal-navigation" className={open?"open":""} aria-label="Speaker portal">{links.map((item,index)=>{const Icon=item.icon;const href=item.href?`${base}/${item.href}`:base;const active=item.href?pathname.includes(`/${item.href}`):pathname===base;return <Link ref={index===0?firstLinkRef:undefined} key={item.label} href={href} className={active?"active":""} aria-current={active?"page":undefined} onClick={()=>setOpen(false)}><Icon size={16}/>{item.label}{item.href==="tasks"&&openTaskCount>0&&<span>{openTaskCount}</span>}</Link>})}</nav><div className="portal-account"><Avatar initials={speaker.avatar} color={speaker.avatarColor}/><span><b>{speaker.firstName}</b><small>Speaker</small></span><SignOutButton kind="portal" eventSlug={event.slug} compact /></div></div></header><main className="portal-main">{children}</main><footer className="portal-site-footer"><div className="portal-container"><span>{event.name}</span><div><Link href={`/e/${event.slug}/schedule`}>Public schedule</Link><span>Powered by Openboard</span></div></div></footer></div>}
+const links = [
+  { label: "Home", href: "", icon: Home },
+  { label: "My submissions", href: "submissions", icon: CalendarDays },
+  { label: "Tasks", href: "tasks", icon: ClipboardCheck },
+  { label: "Profile", href: "profile", icon: UserRound },
+  { label: "Resources", href: "resources", icon: BookOpen },
+];
+
+export function PortalShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const { event, speaker, openTaskCount, impersonated } = usePortal();
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const open = openPath === pathname;
+  const setOpen = useCallback((next: boolean) => setOpenPath(next ? pathname : null), [pathname]);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const firstLinkRef = useRef<HTMLAnchorElement>(null);
+
+  function closeMenu() {
+    setOpen(false);
+    menuButtonRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    firstLinkRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen]);
+
+  const base = `/portal/${event.slug}`;
+  return (
+    <UnsavedWorkGuardProvider>
+      <div className="portal-shell">
+        {impersonated && (
+          <ImpersonationBanner
+            name={`${speaker.firstName} ${speaker.lastName}`}
+            email={speaker.email}
+            backHref={`/events/${event.id}/speakers/${speaker.id}`}
+          />
+        )}
+        <header className="portal-header">
+          <div className="portal-container">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              className="portal-mobile-menu"
+              aria-label={open ? "Close navigation" : "Open navigation"}
+              aria-expanded={open}
+              aria-controls="portal-navigation"
+              onClick={() => open ? closeMenu() : setOpen(true)}
+            >
+              {open ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <Link href={base} className="portal-event-brand">
+              <span className="public-event-logo">{event.logoText || event.name}</span>
+              <i />
+              <small>Speaker Portal</small>
+            </Link>
+            <nav id="portal-navigation" className={open ? "open" : ""} aria-label="Speaker portal">
+              {links.map((item, index) => {
+                const Icon = item.icon;
+                const href = item.href ? `${base}/${item.href}` : base;
+                const active = item.href ? pathname.includes(`/${item.href}`) : pathname === base;
+                return (
+                  <Link
+                    ref={index === 0 ? firstLinkRef : undefined}
+                    key={item.label}
+                    href={href}
+                    className={active ? "active" : ""}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => setOpen(false)}
+                  >
+                    <Icon size={16} />
+                    {item.label}
+                    {item.href === "tasks" && openTaskCount > 0 && <span>{openTaskCount}</span>}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="portal-account">
+              <Avatar initials={speaker.avatar} color={speaker.avatarColor} />
+              <span><b>{speaker.firstName}</b><small>Speaker</small></span>
+              <SignOutButton kind="portal" eventSlug={event.slug} compact />
+            </div>
+          </div>
+        </header>
+        <main className="portal-main">{children}</main>
+        <footer className="portal-site-footer">
+          <div className="portal-container">
+            <span>{event.name}</span>
+            <div><Link href={`/e/${event.slug}/schedule`}>Public schedule</Link><span>Powered by Openboard</span></div>
+          </div>
+        </footer>
+      </div>
+    </UnsavedWorkGuardProvider>
+  );
+}

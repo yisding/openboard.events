@@ -1,4 +1,5 @@
 import * as React from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { PaletteDialog } from "./command-palette";
@@ -22,5 +23,18 @@ describe("PaletteDialog", () => {
     expect(activeId).toBeTruthy();
     expect(html).toContain(`id="${activeId}"`);
     expect(html).toContain('aria-selected="true"');
+  });
+
+  it("routes imperative palette navigation through the unsaved-work guard", () => {
+    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
+    const go = source.slice(source.indexOf("function go"), source.indexOf("function onKeyDown"));
+    const guardedNavigation = go.slice(go.indexOf("runGuarded"));
+
+    expect(go).toContain("isSameNavigationDestination");
+    expect(guardedNavigation).toContain("router.push(item.href)");
+    expect(go.indexOf("isSameNavigationDestination")).toBeLessThan(go.indexOf("runGuarded"));
+    expect(go).toContain("runGuarded(() => allowNextNavigation(() => {");
+    expect(go).toContain("{ destination: item.href }");
+    expect(guardedNavigation.indexOf("router.push(item.href)")).toBeLessThan(guardedNavigation.indexOf("onClose()"));
   });
 });
