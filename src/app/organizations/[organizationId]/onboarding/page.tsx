@@ -5,7 +5,7 @@ import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
 import { getEvent, listTracks } from "@/features/events";
-import { getFormForBuilder } from "@/features/forms";
+import { formOpenState, getFormForBuilder } from "@/features/forms";
 import { getActiveOrganizationOnboardingForUser, getOrganizationOnboardingForUserByEvent } from "@/features/onboarding";
 import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
@@ -90,6 +90,9 @@ export default async function Page({ params, searchParams }: {
         form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
         publicFormUrl: progress.step === "complete" && form
           ? `${getEnv().APP_BASE_URL}/submit/${event.slug}/${form.id}`
+          : null,
+        formAvailability: progress.step === "complete" && form
+          ? formOpenState({ status: form.status, opensAt: form.opensAt, closesAt: form.closesAt }, new Date().toISOString())
           : null,
       };
     }

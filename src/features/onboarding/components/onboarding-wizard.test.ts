@@ -122,6 +122,7 @@ describe("OnboardingWizard event step accessibility", () => {
         formId: null,
         form: null,
         publicFormUrl: null,
+        formAvailability: null,
       },
     }));
 
@@ -149,6 +150,7 @@ describe("OnboardingWizard event step accessibility", () => {
           updatedAt: "2026-08-12T00:00:00.000Z",
         },
         publicFormUrl: null,
+        formAvailability: null,
       },
     }));
 
@@ -174,6 +176,7 @@ describe("OnboardingWizard event step accessibility", () => {
           updatedAt: "2026-08-12T00:00:00.000Z",
         },
         publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: true, reason: "ok" },
       },
     }));
 
@@ -201,12 +204,42 @@ describe("OnboardingWizard event step accessibility", () => {
           updatedAt: "2026-08-12T00:00:00.000Z",
         },
         publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: false, reason: "closed_by_admin" },
       },
     }));
 
     expect(html).toContain("Edit and publish form");
     expect(html).not.toContain("onboarding-link-row");
     expect(html).toContain('class="button button-primary"');
+  });
+
+  it("does not call a scheduled form live or expose its share actions", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "complete",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "open",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+          opensAt: "2026-09-01T00:00:00.000Z",
+          closesAt: null,
+        },
+        publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: false, reason: "not_open_yet" },
+      },
+    }));
+
+    expect(html).toContain("scheduled but not accepting submissions yet");
+    expect(html).toContain("Edit availability");
+    expect(html).not.toContain("onboarding-link-row");
+    expect(html).not.toContain("Preview form");
   });
 
   it("renders and focuses the new heading after a step replacement", () => {

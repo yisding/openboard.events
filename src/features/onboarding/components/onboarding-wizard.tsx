@@ -11,6 +11,7 @@ import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import type { OnboardingStep } from "../progress-types";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
+import { formOpenState, type FormOpenReason } from "@/features/forms";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
@@ -54,7 +55,25 @@ export function preferredTimeZone(candidate: string | undefined, supported: read
 // read its create/update responses with this same hand-rolled envelope
 // reader rather than a schema, and this wizard follows that precedent
 // instead of inventing a client-side validator for a type it does not own.
-type BuilderFormLite = { id: string; status: string; updatedAt: string; internalName?: string };
+type BuilderFormLite = {
+  id: string;
+  status: string;
+  updatedAt: string;
+  internalName?: string;
+  opensAt?: string | null;
+  closesAt?: string | null;
+};
+
+type OnboardingFormAvailability = { open: boolean; reason: FormOpenReason };
+
+function onboardingFormAvailability(form: BuilderFormLite, nowIso = new Date().toISOString()): OnboardingFormAvailability {
+  if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
+  return formOpenState({
+    status: "open",
+    opensAt: form.opensAt ?? null,
+    closesAt: form.closesAt ?? null,
+  }, nowIso);
+}
 
 export type OnboardingResumeState = {
   step: OnboardingStep | "complete";
@@ -63,6 +82,7 @@ export type OnboardingResumeState = {
   formId: string | null;
   form: BuilderFormLite | null;
   publicFormUrl: string | null;
+  formAvailability: OnboardingFormAvailability | null;
 };
 
 export async function createOrPublishOnboardingForm(input: {
@@ -172,6 +192,9 @@ export function OnboardingWizard({
   const [creatingForm, setCreatingForm] = useState(false);
   const [formLink, setFormLink] = useState(initialState?.publicFormUrl ?? "");
   const [formStatus, setFormStatus] = useState(initialState?.form?.status ?? "draft");
+  const [formAvailability, setFormAvailability] = useState<OnboardingFormAvailability>(
+    initialState?.formAvailability ?? { open: false, reason: "closed_by_admin" },
+  );
   const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(initialState?.form ?? null);
   const [formCreateId] = useState(() => initialState?.formId ?? crypto.randomUUID());
 
@@ -299,6 +322,7 @@ export function OnboardingWizard({
       const isPublished = finalForm.status === "open";
       setCreatedForm(finalForm);
       setFormStatus(finalForm.status);
+      setFormAvailability(onboardingFormAvailability(finalForm));
       setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
       // Put the exact event in the address bar before completion. If the
       // mutation commits but its response is lost, a refresh can authorize
@@ -345,7 +369,7 @@ export function OnboardingWizard({
   }
 
   const remainingSuggestions = SUGGESTED_TRACKS.filter((suggestion) => !tracks.some((track) => track.name === suggestion.name));
-  const published = formStatus === "open";
+  const published = formAvailability.open;
 
   return (
     <div className="panel settings-section onboarding-wizard">
@@ -462,7 +486,11 @@ export function OnboardingWizard({
           <h2>{event.name} is ready</h2>
           <p>{published
             ? "Your call for speakers is live. Share this link:"
-            : formStatus === "closed"
+            : formStatus === "open" && formAvailability.reason === "not_open_yet"
+              ? "Your call for speakers is scheduled but not accepting submissions yet. Review its opening date in the form builder."
+              : formStatus === "open" && formAvailability.reason === "closed_by_date"
+                ? "Your call for speakers has reached its closing date. Update its availability in the form builder if you want to reopen it."
+                : formStatus === "closed"
               ? "Your call for speakers is currently closed. Reopen it from the form builder when you're ready."
               : "Your call for speakers is saved as a draft. Review and publish it from the form builder when you're ready."}</p>
           {published && formLink && (
@@ -474,7 +502,13 @@ export function OnboardingWizard({
           )}
           <footer className="cfp-actions">
             {createdForm && <Link href={`/events/${event.id}/forms/${createdForm.id}`} className={`button ${published ? "button-secondary" : "button-primary"}`}>
-              {published ? "Manage form" : formStatus === "closed" ? "Edit and reopen form" : "Edit and publish form"}
+              {published
+                ? "Manage form"
+                : formStatus === "open"
+                  ? "Edit availability"
+                  : formStatus === "closed"
+                    ? "Edit and reopen form"
+                    : "Edit and publish form"}
             </Link>}
             {published && formLink && <Link href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Preview form <ExternalLink size={16} /></Link>}
             <Link href={`/events/${event.id}/dashboard`} className={`button ${published ? "button-primary" : "button-secondary"}`}><Sparkles size={16} /> Open dashboard</Link>
