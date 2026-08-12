@@ -27,6 +27,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+    // Threads preserve Vitest's per-file isolation while avoiding the process
+    // startup and module-loading overhead paid by the default forks pool.
+    pool: "threads",
     maxWorkers: workers,
     hookTimeout: 60_000,
     // The default (5s) assumes a fast local Postgres; several tests make a

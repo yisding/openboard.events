@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { contacts, eventMembers, events, organizationMembers, organizations, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
+import { billingPlans, contacts, eventMembers, events, organizationMembers, organizations, organizationSubscriptions, rooms, sessionFormats, tags, tracks, users } from "@/db/schema";
 import { DEFAULT_ORGANIZATION_ID } from "@/shared/contracts";
 import { EVENT_TIMEZONE, eventLocal, type SeedCtx } from "./lib/helpers";
 
@@ -56,6 +56,23 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
   await tx.insert(organizations)
     .values({ id: DEFAULT_ORGANIZATION_ID, name: "Default Organization", slug: "default" })
     .onConflictDoNothing({ target: organizations.id });
+
+  // The same reasoning applies to the billing rows migrations 0012/0020 seed:
+  // a --wipe run truncates `billing_plans`, and without the 'free' row every
+  // self-serve signup dies on organization_subscriptions_plan_id_fkey inside
+  // `createOrganizationIn` — surfaced by Better Auth as unable_to_create_user.
+  // Plan values mirror 0012's catalog; the default organization is pinned to
+  // 'enterprise' for the reason 0012's backfill comment gives.
+  await tx.insert(billingPlans)
+    .values([
+      { id: "free", name: "Free", maxEvents: 5, priceCents: 0 },
+      { id: "pro", name: "Pro", maxEvents: 50, priceCents: 4900 },
+      { id: "enterprise", name: "Enterprise", maxEvents: null, priceCents: null },
+    ])
+    .onConflictDoNothing({ target: billingPlans.id });
+  await tx.insert(organizationSubscriptions)
+    .values({ organizationId: DEFAULT_ORGANIZATION_ID, planId: "enterprise" })
+    .onConflictDoNothing({ target: organizationSubscriptions.organizationId });
 
   // 65 days out: far enough that the CFP is plausibly open, close enough that
   // "days to event" is a real number on the dashboard.
