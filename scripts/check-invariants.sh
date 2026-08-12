@@ -37,16 +37,29 @@ check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/t
 # control allowed to render one, because it is the only one that converts
 # against the event's zone and shows the label.
 #
-# Two exemptions, both deliberate:
-#   - the picker itself, which is the implementation;
-#   - the form builder's `date` question, whose answer is a calendar date the
-#     respondent picks (a birthday, a travel day). It is not an instant on the
-#     event's clock and must not be converted as one.
+# The two halves are checked separately, because the exemptions differ:
 #
-# The pattern allows whitespace around `=` and either quote style, because
-# `type = 'date'` is valid JSX and would otherwise walk straight past a check
-# that only knows one spelling.
-check_forbidden "type[[:space:]]*=[[:space:]]*[\"'](date|datetime-local)[\"']" src --glob '*.tsx' \
+#   - `datetime-local` is an *instant* with no zone. Nothing but the picker may
+#     render one — the form renderer is NOT exempt here, so a future
+#     `datetime-local` question in it still fails.
+#   - `date` alone is a calendar date. The picker owns it, and so does the form
+#     builder's `date` question, whose answer is a day the respondent picks (a
+#     birthday, a travel day) rather than a moment on the event's clock.
+#
+# `DATE_ATTR` matches the JSX attribute rather than arbitrary text:
+#   - the leading class rejects `data-type=` and `mytype=` while allowing the
+#     attribute at a line start or after whitespace, `<`, `{` or `;`;
+#   - `\{?` also catches the expression form `type={"date"}`;
+#   - `-U` lets `[[:space:]]` cross newlines, so an attribute broken over two
+#     lines cannot slip through.
+#
+# A computed value (`type={cond ? "date" : x}`) still escapes a grep; that is the
+# known ceiling of a regex check, and the reason the two exemptions above are
+# written as globs a reviewer must consciously widen.
+DATE_ATTR_PREFIX="(^|[^-[:alnum:]_])type[[:space:]]*=[[:space:]]*\{?[[:space:]]*[\"'\`]"
+check_forbidden "${DATE_ATTR_PREFIX}datetime-local[\"'\`]" src -U --glob '*.tsx' \
+  --glob '!src/shared/ui/app/datetime-picker.tsx'
+check_forbidden "${DATE_ATTR_PREFIX}date[\"'\`]" src -U --glob '*.tsx' \
   --glob '!src/shared/ui/app/datetime-picker.tsx' \
   --glob '!src/features/forms/components/form-field-renderer.tsx'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
