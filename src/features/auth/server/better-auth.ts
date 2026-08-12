@@ -11,7 +11,7 @@
 // owned by the journaled `drizzle/` migrations, never by Better Auth.
 import { betterAuth } from "better-auth/minimal";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { adminAccounts, adminSessions, adminVerifications, users } from "@/db/schema";
@@ -30,6 +30,7 @@ import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
 import { recordSignupLegalAcceptanceIn } from "./legal-consent";
+import { resolveSignupHookInput, type SignupProvisioningInput } from "./signup-hook-input";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -76,49 +77,6 @@ type AuthDeps = {
   database?: typeof db;
 };
 
-type SignupProvisioningInput = {
-  invitationToken?: string;
-  organizationName?: string;
-};
-
-function signupProvisioningInput(context: { path?: string; body?: unknown } | null): SignupProvisioningInput {
-  if (context?.path !== "/sign-up/email" || !context.body || typeof context.body !== "object") return {};
-  const body = context.body as Record<string, unknown>;
-  const invitationToken = typeof body.invitationToken === "string" ? body.invitationToken.trim() : "";
-  const organizationName = typeof body.organizationName === "string" ? body.organizationName.trim() : "";
-  return {
-    ...(invitationToken.length > 0 && invitationToken.length <= 512 ? { invitationToken } : {}),
-    ...(organizationName.length > 0 && organizationName.length <= 160 ? { organizationName } : {}),
-  };
-}
-
-const LEGAL_CONSENT_ERROR = "Agree to the current Terms of Service and acknowledge the Privacy Policy to create an account.";
-
-/**
- * Trust the server's configured versions, never a version invented by the
- * browser. Requiring the submitted values to match also makes an already-open
- * signup tab refresh when policy configuration changes under it.
- */
-function acceptedSignupLegalConsent(
-  env: RuntimeEnv,
-  context: { path?: string; body?: unknown } | null,
-): SignupLegalConsent | null {
-  const required = signupLegalConsent(env);
-  if (!required) return null;
-  const body = context?.body && typeof context.body === "object"
-    ? context.body as Record<string, unknown>
-    : {};
-  if (
-    context?.path !== "/sign-up/email"
-    || body.legalConsentAccepted !== true
-    || body.acceptedTermsVersion !== required.termsVersion
-    || body.acknowledgedPrivacyVersion !== required.privacyVersion
-  ) {
-    throw new APIError("BAD_REQUEST", { message: LEGAL_CONSENT_ERROR });
-  }
-  return required;
-}
-
 export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
   const database = deps.database ?? db;
   const secret = env.SESSION_SECRET;
@@ -129,8 +87,9 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       clientId: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
       // Preserve the existing self-service OAuth door while consent is
-      // dormant. Once reviewed policies activate, new Google identities must
-      // use a future consent-capable OAuth handoff instead of bypassing them.
+      // dormant. Once reviewed policies activate, only the explicit signup
+      // handoff may set requestSignUp=true; its callback-only encrypted intent
+      // is revalidated by the user-create hooks below.
       ...(legalConsent ? { disableImplicitSignUp: true } : {}),
     } }
     : {};
@@ -274,18 +233,18 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           // This avoids both email-only membership claims and orphan users
           // when a stale or wrong-address invitation reaches signup.
           before: async (user, context) => {
-            acceptedSignupLegalConsent(env, context);
-            const { invitationToken } = signupProvisioningInput(context);
+            const { provisioning: { invitationToken } } = await resolveSignupHookInput(env, context);
             if (invitationToken) {
               await assertOrganizationInvitationTokenForEmailIn(database, invitationToken, user.email);
             }
           },
           after: async (user, context) => {
+            const signup = await resolveSignupHookInput(env, context);
             const result = await provisionNewUser(
               database,
               user,
-              signupProvisioningInput(context),
-              acceptedSignupLegalConsent(env, context),
+              signup.provisioning,
+              signup.consent,
             );
             if (!result.viaInvitation) {
               const userId = userIdSchema.parse(user.id);
@@ -340,8 +299,8 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
 /**
  * M44 AC — no orphaned accounts through the new signup door. Fires for
  * *every* freshly inserted `users` row Better Auth's adapter creates — an
- * email+password `/sign-up/email` call and a Google sign-in nobody's account
- * matched, alike — and never for `createEventReviewer`/`bootstrap-admin.ts`,
+ * email+password `/sign-up/email` call and a Google account creation nobody's
+ * account matched, alike — and never for `createEventReviewer`/`bootstrap-admin.ts`,
  * which write `users` directly through Drizzle rather than through this
  * adapter. Better Auth awaits this hook before the signup response returns,
  * so by the time a client's subsequent "list my organizations" call lands,

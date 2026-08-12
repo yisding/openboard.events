@@ -40,4 +40,13 @@ describe("authentication destination continuity", () => {
     expect(html).toContain('href="https://openboard.example/privacy"');
     expect(html).toContain('target="_blank"');
   });
+
+  it("offers an explicit Google account-creation path without losing an invitation", () => {
+    const html = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(html).toContain("Continue with Google");
+    expect(html).toContain("or create with email");
+    expect(html).toContain('href="/login?next=%2Fjoin%3Ftoken%3Dinvite-123"');
+    expect(html).not.toContain("Organization name");
+  });
 });

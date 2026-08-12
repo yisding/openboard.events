@@ -81,6 +81,11 @@ the real database-backed surfaces.
   and sign-in screen. Switching between signup, sign-in, and password recovery
   now preserves a validated invitation/workspace destination through the reset
   email round-trip without retaining its nested bearer token in mail history.
+- Added an explicit Google account-creation path to signup. A short-lived,
+  encrypted, HttpOnly callback intent carries the named workspace or invitation
+  and exact reviewed policy versions across OAuth; the callback revalidates
+  them before provisioning, records consent, and sends an invitee directly to
+  the invited workspace without creating an unwanted personal organization.
 
 ## Remaining launch gaps, in priority order
 
