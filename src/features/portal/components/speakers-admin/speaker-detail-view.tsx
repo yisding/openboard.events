@@ -234,7 +234,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
   }
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PEOPLE"
         title={contact.name}
@@ -346,6 +346,6 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
           ))}
         </div>
       </section>
-    </main>
+    </div>
   );
 }

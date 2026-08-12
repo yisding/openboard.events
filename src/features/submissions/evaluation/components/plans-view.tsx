@@ -235,7 +235,7 @@ export function PlansView({
   ], [trackName, busy, timezone]);
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="REVIEW"
         title="Evaluation"
@@ -289,6 +289,6 @@ export function PlansView({
         }}
         onCancel={() => setPendingDelete(null)}
       />
-    </main>
+    </div>
   );
 }
