@@ -5,6 +5,7 @@ import type { EmailTemplateRow } from "@/features/comms";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useSaveTemplate, useTemplates } from "../hooks/use-templates";
@@ -46,6 +47,8 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
   const [focusTarget, setFocusTarget] = useState<FocusTarget>("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  useUnsavedWorkGuard(dirty);
+  const { runGuarded } = useGuardedAction();
 
   function selectKey(key: TemplateKey) {
     const row = templates.find((item) => item.key === key);
@@ -125,7 +128,9 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
     <div className="comms-templates">
       <nav className="comms-rail" aria-label="Template keys">
         {templates.map((row) => (
-          <button key={row.key} type="button" aria-pressed={row.key === selectedKey} className={row.key === selectedKey ? "active" : ""} onClick={() => selectKey(row.key)}>
+          <button key={row.key} type="button" aria-pressed={row.key === selectedKey} className={row.key === selectedKey ? "active" : ""} onClick={() => {
+            if (row.key !== selectedKey) runGuarded(() => selectKey(row.key));
+          }}>
             <i className={row.enabled ? "enabled" : ""} />
             {humanizeKey(row.key)}
           </button>
@@ -143,7 +148,7 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
         {staleConflict && (
           <div className="stale-write-banner">
             <span>This template changed since you loaded it.</span>
-            <Button size="sm" onClick={() => void reload()}>Reload</Button>
+            <Button size="sm" onClick={() => runGuarded(() => { void reload(); })}>Reload</Button>
           </div>
         )}
         <div className="template-editor-grid">

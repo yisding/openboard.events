@@ -27,6 +27,8 @@ import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contrac
 import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { copyText } from "@/shared/ui/app/copy-text";
+import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, Select, StatusBadge, Switch } from "@/shared/ui/ui-kit";
@@ -103,6 +105,11 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
   const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
+  const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== "text");
+  const [routingDraftDirty, setRoutingDraftDirty] = useState(false);
+  const hasUnsavedWork = dirty || newQuestionDraftDirty;
+  useUnsavedWorkGuard(hasUnsavedWork);
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
   const availability = formAvailability(persistedAvailabilityInput, availabilityNow);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
@@ -129,10 +136,28 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   function setStep(next: BuilderStep) {
+    if (next === step) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set("step", next);
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
-    setSelected(null);
+    const destination = `${pathname}?${params.toString()}`;
+    // This search-only navigation keeps the same FormBuilder mounted, so the
+    // in-memory multi-step draft is preserved. Allow it through the global
+    // route guard; leaving the builder still prompts while any target is dirty.
+    const performStep = () => allowNextNavigation(() => {
+      setSelected(null);
+      router.push(destination, { scroll: false });
+    }, { destination });
+    if (routingDraftDirty) runGuarded(performStep);
+    else performStep();
+  }
+
+  function closeAddQuestion() {
+    requestGuardedEditorClose({
+      busy,
+      dirty: newQuestionDraftDirty,
+      runGuarded,
+      close: () => { setAdding(false); setNewLabel(""); setNewType("text"); },
+    });
   }
 
   function applyLocal(patch: FormPatch) {
@@ -258,6 +283,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     })), "Question added");
     setAdding(false);
     setNewLabel("");
+    setNewType("text");
   }
 
   async function deleteField(field: BuilderField) {
@@ -310,7 +336,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. Duplicate the form to change its structure.</span></div></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
-        {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} />}
+        {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={setRoutingDraftDirty} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
         <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
@@ -335,7 +361,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         />
       </div>
     </Modal>}
-    <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    <Modal open={adding} onClose={closeAddQuestion} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={closeAddQuestion}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
     <ConfirmDialog
       open={pendingDelete !== null}
       title={pendingDelete ? `Delete “${pendingDelete.label}”?` : "Delete question?"}
@@ -355,12 +381,12 @@ function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: 
   return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome screen</h2><p>Set the public title, heading, and opening message.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input required maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="External form title" required hint={`${form.externalTitle.length}/255`}><input required maxLength={255} value={form.externalTitle} onChange={(current) => onChange({ externalTitle: current.target.value })} /></Field><Field label="Page heading" required hint={`${form.pageHeading.length}/15`}><input required maxLength={15} value={form.pageHeading} onChange={(current) => onChange({ pageHeading: current.target.value })} /></Field><div className="inline-setting"><div><b>Show welcome message</b><small>Speakers see this before starting.</small></div><Switch label="Show welcome message" checked={form.showWelcome} onClick={() => onChange({ showWelcome: !form.showWelcome })} /></div>{form.showWelcome && <Field label="Welcome message"><RichTextEditor ariaLabel="Welcome message" value={form.welcomeHtml} onChange={(welcomeHtml) => onChange({ welcomeHtml })} maxChars={5000} /></Field>}</div></section>;
 }
 
-function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void }) {
+function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove, onRoutingDraftStateChange }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void; onRoutingDraftStateChange: (dirty: boolean) => void }) {
   return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Abstract information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input required maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input required maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor ariaLabel={`${participant ? "Participant" : "Abstract"} description and instructions`} value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button type="button" className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button type="button" className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button type="button" className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>
   {/* M13b/M24: routing rules stamp a Track/Tags on submit, which only means
       something for a CFP submission — portal forms (context='portal') never
       show this panel (plan/modules/M13b-rules-ui.md "Portal forms" guardrail). */}
-  {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
+  {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} onDraftStateChange={onRoutingDraftStateChange} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
 }
 
 export function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {

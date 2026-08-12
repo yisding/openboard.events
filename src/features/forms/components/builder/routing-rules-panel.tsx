@@ -25,6 +25,8 @@ import {
 } from "@/shared/contracts";
 import { Button, EmptyState, Select, Switch } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -84,7 +86,7 @@ function emptyDraft(sourceFields: ConditionSourceField[]): RoutingRuleInput {
  * forms carry no conditional logic and never see this). Fetches its own data
  * — the panel's only inputs are `eventId`/`formId`.
  */
-export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formId: FormId }) {
+export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eventId: EventId; formId: FormId; onDraftStateChange?: (dirty: boolean) => void }) {
   const { toast } = useToast();
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [context, setContext] = useState<"cfp" | "portal">("cfp");
@@ -96,6 +98,24 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
   const [pendingDelete, setPendingDelete] = useState<RoutingRuleRow | null>(null);
   const [busy, setBusy] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const baseline = editing?.ruleId
+    ? rules.find((rule) => rule.id === editing.ruleId)
+    : null;
+  const editorDirty = editing !== null && editorDraftChanged(
+    editing.draft,
+    baseline ? draftFromRule(baseline) : emptyDraft(fields),
+  );
+  useUnsavedWorkGuard(editorDirty);
+  const { runGuarded } = useGuardedAction();
+
+  useEffect(() => {
+    onDraftStateChange?.(editorDirty);
+  }, [editorDirty, onDraftStateChange]);
+  useEffect(() => () => onDraftStateChange?.(false), [onDraftStateChange]);
+
+  function requestEditor(next: { ruleId: string | null; draft: RoutingRuleInput } | null) {
+    requestGuardedEditorClose({ busy, dirty: editorDirty, runGuarded, close: () => setEditing(next) });
+  }
 
   async function load() {
     setStatus("loading");
@@ -227,8 +247,8 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
                   tracks={tracks}
                   tags={tags}
                   editing={editing?.ruleId === rule.id ? editing.draft : null}
-                  onEdit={() => setEditing({ ruleId: rule.id, draft: draftFromRule(rule) })}
-                  onCancel={() => setEditing(null)}
+                  onEdit={() => requestEditor({ ruleId: rule.id, draft: draftFromRule(rule) })}
+                  onCancel={() => requestEditor(null)}
                   onDraftChange={(draft) => setEditing({ ruleId: rule.id, draft })}
                   onSave={() => void saveDraft()}
                   onToggle={() => void toggleEnabled(rule)}
@@ -245,7 +265,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
         <div className="condition-card routing-rule-card routing-rule-card--new">
           <RuleEditorBody draft={editing.draft} fields={fields} tracks={tracks} tags={tags} onChange={(draft) => setEditing({ ruleId: null, draft })} />
           <div className="routing-rule-card__actions">
-            <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => requestEditor(null)}>Cancel</Button>
             <Button disabled={busy} onClick={() => void saveDraft()}>{busy ? "Saving…" : "Save rule"}</Button>
           </div>
         </div>
@@ -254,7 +274,7 @@ export function RoutingRulesPanel({ eventId, formId }: { eventId: EventId; formI
           variant="ghost"
           className="add-question"
           disabled={fields.length === 0}
-          onClick={() => setEditing({ ruleId: null, draft: emptyDraft(fields) })}
+          onClick={() => requestEditor({ ruleId: null, draft: emptyDraft(fields) })}
         >
           <Plus size={16} /> Add rule
         </Button>

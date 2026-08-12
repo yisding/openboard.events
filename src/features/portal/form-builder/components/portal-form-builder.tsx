@@ -22,6 +22,8 @@ import type { BuilderEvent, BuilderField, BuilderForm, FormPatch } from "@/featu
 import { NotificationsStep } from "@/features/forms/components/builder/notifications-step";
 import { COMMITTED_FIELD_TYPES } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { committedTypeLabel, standardFieldsFor, type StandardFieldItem } from "./field-library";
@@ -52,6 +54,16 @@ export function normalizePortalFieldLabel(label: string): string | null {
   return trimmed || null;
 }
 
+/** Keep local notification edits when a field-only mutation returns a fresh form. */
+export function mergePortalTopLevelDraft(server: BuilderForm, local: BuilderForm): BuilderForm {
+  return {
+    ...server,
+    sendConfirmation: local.sendConfirmation,
+    confirmationSubject: local.confirmationSubject,
+    confirmationBodyHtml: local.confirmationBodyHtml,
+  };
+}
+
 /**
  * M24 — the portal builder: one page, top-to-bottom (Setup → Questions →
  * Settings, collapsed), never a wizard (M24 §4, a deliberate simplification
@@ -75,6 +87,9 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
   const [customType, setCustomType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
+  const customFieldDraftDirty = customOpen && (customLabel.trim().length > 0 || customType !== "text");
+  useUnsavedWorkGuard(dirty || customFieldDraftDirty);
+  const { runGuarded } = useGuardedAction();
 
   const section = form.sections[0] ?? null;
   const targetType = form.targetType ?? "contact";
@@ -132,7 +147,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         mapsTo: item.mapsTo,
         ...(item.defaultOptionLabels ? { optionLabels: [...item.defaultOptionLabels] } : {}),
       }));
-      setForm(next);
+      setForm((current) => mergePortalTopLevelDraft(next, current));
       toast(`${item.label} added`);
       setLibraryOpen(false);
       setLibrarySearch("");
@@ -154,11 +169,12 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         label,
         fieldType: customType,
       }));
-      setForm(next);
+      setForm((current) => mergePortalTopLevelDraft(next, current));
       toast("Question added");
       setCustomOpen(false);
       setLibraryOpen(false);
       setCustomLabel("");
+      setCustomType("text");
     } catch (error) {
       toast(error instanceof Error ? error.message : "The question could not be added", { kind: "error" });
     } finally {
@@ -166,12 +182,12 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
     }
   }
 
-  async function saveField(patch: { label: string; helpText: string; required: boolean; maxChars: number | null; optionLabels?: string[] }) {
-    if (!selectedField || busy) return;
+  async function saveField(patch: { label: string; helpText: string; required: boolean; maxChars: number | null; optionLabels?: string[] }): Promise<BuilderField | null> {
+    if (!selectedField || busy) return null;
     const label = normalizePortalFieldLabel(patch.label);
     if (!label) {
       toast("Question label is required", { kind: "error" });
-      return;
+      return null;
     }
     setBusy(true);
     try {
@@ -179,10 +195,12 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         expectedUpdatedAt: form.updatedAt,
         patch: { ...patch, label },
       }));
-      setForm(next);
+      setForm((current) => mergePortalTopLevelDraft(next, current));
       toast("Question saved");
+      return next.sections.flatMap((candidate) => candidate.fields).find((candidate) => candidate.id === selectedField.id) ?? null;
     } catch (error) {
       toast(error instanceof Error ? error.message : "The question could not be saved", { kind: "error" });
+      return null;
     } finally {
       setBusy(false);
     }
@@ -193,7 +211,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
     setBusy(true);
     try {
       const next = await requestData<BuilderForm>(apiPath(`/fields/${field.id}`), json("DELETE", { expectedUpdatedAt: form.updatedAt }));
-      setForm(next);
+      setForm((current) => mergePortalTopLevelDraft(next, current));
       setSelectedFieldId(null);
       setPendingDelete(null);
       toast("Question removed");
@@ -222,12 +240,21 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         sectionId: section.id,
         orderedFieldIds: ordered,
       }));
-      setForm(next);
+      setForm((current) => mergePortalTopLevelDraft(next, current));
     } catch (error) {
       toast(error instanceof Error ? error.message : "The question order could not be saved", { kind: "error" });
     } finally {
       setBusy(false);
     }
+  }
+
+  function closeCustomField() {
+    requestGuardedEditorClose({
+      busy,
+      dirty: customFieldDraftDirty,
+      runGuarded,
+      close: () => { setCustomOpen(false); setCustomLabel(""); setCustomType("text"); },
+    });
   }
 
   return <div className="builder-wrap">
@@ -307,10 +334,10 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
 
     <Modal
       open={customOpen}
-      onClose={() => setCustomOpen(false)}
+      onClose={closeCustomField}
       title="Create a custom field"
       description="No system mapping — answers land only in this response's own record."
-      footer={<><Button variant="secondary" onClick={() => setCustomOpen(false)}>Cancel</Button><Button disabled={!customLabel.trim() || busy} onClick={() => void addCustomField()}>Add question</Button></>}
+      footer={<><Button variant="secondary" onClick={closeCustomField}>Cancel</Button><Button disabled={!customLabel.trim() || busy} onClick={() => void addCustomField()}>Add question</Button></>}
     >
       <div className="form-stack">
         <Field label="Question label" required><input autoFocus required value={customLabel} onChange={(current) => setCustomLabel(current.target.value)} placeholder="What would you like to ask?" /></Field>
@@ -331,7 +358,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         field={selectedField}
         busy={busy}
         onClose={() => setSelectedFieldId(null)}
-        onSave={(patch) => void saveField(patch)}
+        onSave={saveField}
         onDelete={() => setPendingDelete(selectedField)}
       />
     )}
@@ -350,7 +377,7 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
   field: BuilderField;
   busy: boolean;
   onClose: () => void;
-  onSave: (patch: { label: string; helpText: string; required: boolean; maxChars: number | null; optionLabels?: string[] }) => void;
+  onSave: (patch: { label: string; helpText: string; required: boolean; maxChars: number | null; optionLabels?: string[] }) => Promise<BuilderField | null>;
   onDelete: () => void;
 }) {
   const [label, setLabel] = useState(field.label);
@@ -360,21 +387,37 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
   const [optionLabels, setOptionLabels] = useState(field.options.map((option) => option.label).join("\n"));
   const acceptsMaxChars = field.fieldType === "text" || field.fieldType === "textarea" || field.fieldType === "richtext";
   const isOptions = field.fieldType === "dropdown" || field.fieldType === "multiselect";
+  const dirty = editorDraftChanged(
+    { label, helpText, required, maxChars, optionLabels },
+    { label: field.label, helpText: field.helpText, required: field.required, maxChars: field.maxChars, optionLabels: field.options.map((option) => option.label).join("\n") },
+  );
+  useUnsavedWorkGuard(dirty);
+  const { runGuarded } = useGuardedAction();
+
+  async function saveDraft() {
+    const saved = await onSave({
+      label,
+      helpText,
+      required,
+      maxChars: acceptsMaxChars ? maxChars : null,
+      ...(isOptions ? { optionLabels: optionLabels.split("\n").map((entry) => entry.trim()).filter(Boolean) } : {}),
+    });
+    if (!saved) return;
+    setLabel(saved.label);
+    setHelpText(saved.helpText);
+    setRequired(saved.required);
+    setMaxChars(saved.maxChars);
+    setOptionLabels(saved.options.map((option) => option.label).join("\n"));
+  }
 
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={() => requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose })}
       title="Edit field"
       footer={<>
         {!field.locked && <Button variant="ghost" className="delete-field" disabled={busy} onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}
-        <Button disabled={busy || !label.trim()} onClick={() => onSave({
-          label,
-          helpText,
-          required,
-          maxChars: acceptsMaxChars ? maxChars : null,
-          ...(isOptions ? { optionLabels: optionLabels.split("\n").map((entry) => entry.trim()).filter(Boolean) } : {}),
-        })}><Save size={15} /> Save question</Button>
+        <Button disabled={busy || !label.trim()} onClick={() => void saveDraft()}><Save size={15} /> Save question</Button>
       </>}
     >
       <div className="form-stack">
