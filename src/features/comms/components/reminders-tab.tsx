@@ -52,7 +52,7 @@ export function RemindersTab({ eventId, initialData }: { eventId: EventId; initi
 
   return (
     <div className="reminder-layout">
-      <section className="panel reminder-rules">
+      <section className="panel reminder-rules reminder-rules-editor">
         <header className="panel-header">
           <div><h2>Task reminder ladder</h2><p>Every open assignment is checked against these rungs on each scan.</p></div>
         </header>
