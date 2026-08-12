@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WIDE_IFRAME_HOSTS } from "./embed-hosts";
 import { contentSecurityPolicy, headersConfig } from "./security-headers";
 
 function rule(source: string) {
@@ -39,6 +40,15 @@ describe("security-headers", () => {
     const rest = rule("/((?!embed/).*)");
     const csp = value(rest.headers, "Content-Security-Policy") ?? "";
     expect(csp).toContain("connect-src 'self' https://*.r2.cloudflarestorage.com");
+  });
+
+  it("lets every sanitized rich-content iframe host render", () => {
+    const rest = rule("/((?!embed/).*)");
+    const csp = value(rest.headers, "Content-Security-Policy") ?? "";
+
+    expect(csp).toContain("frame-src 'self'");
+    for (const host of WIDE_IFRAME_HOSTS) expect(csp).toContain(`https://${host}`);
+    expect(csp).not.toContain("https://evil.example");
   });
 
   it("allows Next development hydration without weakening deployed script policy", () => {
