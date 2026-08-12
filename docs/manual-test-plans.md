@@ -1064,6 +1064,18 @@ mode, hide the navigation entry, and return 404 from the billing surface.
 | 29 | Push a contact to an event roster | Appears under that event's **Speakers** |
 | 30 | CRM metrics | Agree with the directory and pipeline |
 
+### MTP-13a — `/events/new` workspace routing
+
+Use accounts with the memberships named below. These cases exercise later event
+creation separately from the first-event path in MTP-13 step 2.
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | Signed out, open `/events/new` | Redirected to `/login?next=%2Fevents%2Fnew`; signing in returns to event creation |
+| 2 | Signed in with owner/organizer access to exactly one workspace, open `/events/new` | Redirected directly to that workspace's guided onboarding; the event is owned by that workspace |
+| 3 | Signed in with owner/organizer access to two workspaces, open `/events/new` | An explicit workspace chooser appears; reviewer-only memberships are absent; the selected workspace opens guided onboarding |
+| 4 | Signed in with reviewer-only memberships, open `/events/new` | No global event form appears; a permission recovery explains that organizer access is required and links to **Workspaces** |
+
 **Known gaps.** M55 (CRM) landed partial; billing is a local-only scaffold by design. Steps 17–18
 test that it does not lie about what it does.
 

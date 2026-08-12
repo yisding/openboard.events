@@ -57,34 +57,53 @@ test.describe("admin-setup", () => {
       await loginAsAdmin(page);
       await page.goto("/events/new");
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
-      await page.getByText("Customize public URL", { exact: true }).click();
+      const detailsToggle = page.getByText("Customize public URL", { exact: true });
+      const tracksHeading = page.getByRole("heading", { name: "Step 2: Tracks" });
+      const formHeading = page.getByRole("heading", { name: "Step 3: First form" });
+      let eventId = "";
 
-      await test.step("an end before the start is refused inline", async () => {
-        // The form must reject it, not the database, and the message must appear
-        // next to the field. The earlier deviation note here — that `api()`
-        // dropped the zod `fieldErrors` map, so the page could only show the
-        // envelope's "Request validation failed" — no longer holds: the client
-        // carries the map and the form renders one message, under the offending
-        // input, instead of a summary paragraph as well. So the real wording is
-        // asserted, and `.field-error` resolving to a single node is part of the
-        // claim rather than an accident.
-        await page.getByLabel("Event name").fill("E2E backwards dates");
-        await page.getByLabel("Event slug").fill(uniqueSlug("e2e-backwards"));
-        await page.getByLabel("Starts", { exact: true }).fill(localInput(30, "09:00"));
-        await page.getByLabel("Ends", { exact: true }).fill(localInput(30, "08:00"));
-        await page.getByRole("button", { name: /create event/i }).click();
-        await expect(page.locator(".field-error")).toHaveText(/ends at must be after starts at/i);
-        await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
-      });
+      // Playwright retries in a new worker without wiping the shared test
+      // database again. If the first attempt committed step 1 before a later
+      // transient failure, the durable wizard correctly resumes at Tracks or
+      // First form; the test must resume too instead of waiting for step 1.
+      if (await detailsToggle.isVisible()) {
+        await detailsToggle.click();
 
-      await test.step("a reserved slug is refused", async () => {
-        // `api` must not become an event slug — it would shadow the API routes.
-        await page.getByLabel("Event slug").fill("api");
-        await page.getByLabel("Ends", { exact: true }).fill(localInput(31, "17:00"));
-        await page.getByRole("button", { name: /create event/i }).click();
-        await expect(page.locator(".field-error")).toHaveText(/reserved word/i);
-        await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
-      });
+        await test.step("an end before the start is refused inline", async () => {
+          // The form must reject it, not the database, and the message must appear
+          // next to the field. The earlier deviation note here — that `api()`
+          // dropped the zod `fieldErrors` map, so the page could only show the
+          // envelope's "Request validation failed" — no longer holds: the client
+          // carries the map and the form renders one message, under the offending
+          // input, instead of a summary paragraph as well. So the real wording is
+          // asserted, and `.field-error` resolving to a single node is part of the
+          // claim rather than an accident.
+          await page.getByLabel("Event name").fill("E2E backwards dates");
+          await page.getByLabel("Event slug").fill(uniqueSlug("e2e-backwards"));
+          await page.getByLabel("Starts", { exact: true }).fill(localInput(30, "09:00"));
+          await page.getByLabel("Ends", { exact: true }).fill(localInput(30, "08:00"));
+          await page.getByRole("button", { name: /create event/i }).click();
+          await expect(page.locator(".field-error")).toHaveText(/ends at must be after starts at/i);
+          await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
+        });
+
+        await test.step("a reserved slug is refused", async () => {
+          // `api` must not become an event slug — it would shadow the API routes.
+          await page.getByLabel("Event slug").fill("api");
+          await page.getByLabel("Ends", { exact: true }).fill(localInput(31, "17:00"));
+          await page.getByRole("button", { name: /create event/i }).click();
+          await expect(page.locator(".field-error")).toHaveText(/reserved word/i);
+          await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
+        });
+      } else {
+        await test.step("a retry resumes the durable onboarding checkpoint", async () => {
+          await expect(tracksHeading.or(formHeading)).toBeVisible();
+          const events = await apiData<Array<{ id: string; name: string }>>(page.request, "/api/internal/events");
+          const resumed = events.filter((event) => event.name === "E2E created event");
+          expect(resumed, "the resumed checkpoint should identify one event from the prior attempt").toHaveLength(1);
+          eventId = resumed[0]?.id ?? "";
+        });
+      }
 
       await test.step("the guided create finishes and seeds every event-editable email template", async () => {
         // 7 domain keys + portal_login + M50's two review keys + M51's
@@ -92,23 +111,26 @@ test.describe("admin-setup", () => {
         // organization_invited. This is what proves M11 called
         // seedDefaultTemplates rather than creating the event bare.
         expect(TEMPLATE_KEYS_PER_EVENT).toBe(14);
-        const slug = uniqueSlug("e2e-event");
-        await page.getByLabel("Event name").fill("E2E created event");
-        await page.getByLabel("Event slug").fill(slug);
-        const createdResponse = page.waitForResponse((response) =>
-          response.url().includes("/api/internal/organizations/")
-          && response.url().endsWith("/onboarding/event")
-          && response.request().method() === "POST");
-        await page.getByRole("button", { name: /create event/i }).click();
-        const created = await createdResponse;
-        expect(created.status(), "guided event creation should succeed").toBe(200);
-        const createdBody = await created.json() as { data?: { id?: string } };
-        const eventId = createdBody.data?.id ?? "";
+        if (!eventId) {
+          const slug = uniqueSlug("e2e-event");
+          await page.getByLabel("Event name").fill("E2E created event");
+          await page.getByLabel("Event slug").fill(slug);
+          const createdResponse = page.waitForResponse((response) =>
+            response.url().includes("/api/internal/organizations/")
+            && response.url().endsWith("/onboarding/event")
+            && response.request().method() === "POST");
+          await page.getByRole("button", { name: /create event/i }).click();
+          const created = await createdResponse;
+          expect(created.status(), "guided event creation should succeed").toBe(200);
+          const createdBody = await created.json() as { data?: { id?: string } };
+          eventId = createdBody.data?.id ?? "";
+        }
         expect(eventId, "the guided create should return the new event id").toMatch(/^[0-9a-f-]{36}$/);
 
-        await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
-        await page.getByRole("button", { name: "Skip for now" }).click();
-        await expect(page.getByRole("heading", { name: "Step 3: First form" })).toBeVisible({ timeout: 30_000 });
+        if (await tracksHeading.isVisible()) {
+          await page.getByRole("button", { name: "Skip for now" }).click();
+        }
+        await expect(formHeading).toBeVisible({ timeout: 30_000 });
         await page.getByRole("button", { name: "Create form" }).click();
         await expect(page.getByRole("heading", { name: "E2E created event is ready" })).toBeVisible({ timeout: 30_000 });
 
