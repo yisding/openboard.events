@@ -674,7 +674,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
   if (step === "done" && result) {
     return (
-      <section ref={stepRegion} className="cfp-step">
+      <section ref={stepRegion} className="cfp-step cfp-step--compact">
         <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your proposal is in</h2>
         {form.successHtml?.trim()
           ? <RichTextView html={form.successHtml} />
@@ -688,7 +688,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
 
   return (
     <FormUploadProvider eventId={event.id}>
-    <section ref={stepRegion} className="cfp-step">
+    <section ref={stepRegion} className={`cfp-step${step === "account" ? " cfp-step--compact" : ""}`}>
       <ol className="public-form-progress" aria-label="Submission progress">
         {flowSteps.map((name) => (
           <li key={name} className={step === name ? "active" : ""} aria-current={step === name ? "step" : undefined}>{name}</li>

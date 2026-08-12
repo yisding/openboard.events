@@ -46,6 +46,15 @@ describe("CFP progress responsive styles", () => {
     expect(css).toContain(".cfp-account-form>.button{height:40px}");
   });
 
+  it("lets the short account and confirmation states size to their content", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('className={`cfp-step${step === "account" ? " cfp-step--compact" : ""}`}');
+    expect(source).toContain('className="cfp-step cfp-step--compact"');
+    expect(css).toContain(".cfp-step.cfp-step--compact{min-height:0}");
+  });
+
   it("keeps mobile verification actions and rich-text tools vertically regular", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
     const mobile = mediaBlocks(css, "@media(max-width:768px)").join("\n");
