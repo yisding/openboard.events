@@ -11,6 +11,7 @@ import type { EmbedFilters } from "./embed-config-types";
 import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
+import { matchesPublicSpeakerSearch } from "./speaker-search";
 
 /**
  * Speakers List — the M53 compact, surname-sorted directory: rows, not
@@ -45,9 +46,7 @@ export function PublicSpeakersList({
   }, [initialSpeakerId, speakers.speakers]);
 
   const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return speakers.speakers;
-    return speakers.speakers.filter((speaker) => `${speaker.name} ${speaker.company ?? ""} ${speaker.jobTitle ?? ""}`.toLowerCase().includes(needle));
+    return speakers.speakers.filter((speaker) => matchesPublicSpeakerSearch(speaker, search));
   }, [speakers.speakers, search]);
 
   function toggle(id: string) {
