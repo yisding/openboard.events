@@ -90,6 +90,9 @@ the real database-backed surfaces.
   identities now return to sign-in with a direct workspace-creation recovery;
   only the explicit signup handoff can request a new account, and its sealed
   workspace or invitation context is required even before policy activation.
+- Made mailbox activation recovery explicit: the check-inbox resend cannot
+  masquerade as an email-address change, a mistyped address has a clear restart
+  path, and expired-link sign-in recovery keeps the intended workspace.
 
 ## Remaining launch gaps, in priority order
 

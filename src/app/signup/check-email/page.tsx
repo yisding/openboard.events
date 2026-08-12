@@ -20,9 +20,10 @@ export default async function CheckEmailPage({ searchParams }: { searchParams: P
       <span className="metric-icon accent"><MailCheck size={20} /></span>
       <h1>Check your inbox</h1>
       <p>We sent a confirmation link{email ? <> to <b>{email}</b></> : null}. Confirm your email to continue into your workspace. The link expires in one hour.</p>
-      <aside className="auth-help"><b>Nothing yet?</b><span>Check spam, verify the address, or request a fresh link.</span></aside>
-      <ActivationResendForm initialEmail={email} next={next} />
+      <aside className="auth-help"><b>Nothing yet?</b><span>Check spam or request a fresh link to the same address.</span></aside>
+      <ActivationResendForm initialEmail={email} next={next} emailLocked={Boolean(email)} />
       {fallbackLink && <aside className="demo-code"><b>Development / fallback mode</b><Link href={fallbackLink}>Open confirmation link</Link></aside>}
+      {email && <p>Wrong email? <Link href="/signup">Start again with the correct address</Link></p>}
       <p><Link href={`/login?next=${encodeURIComponent(next)}`}>Back to sign in</Link></p>
     </div></div></section>
   </main>;
