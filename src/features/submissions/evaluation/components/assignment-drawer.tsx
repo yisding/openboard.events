@@ -226,7 +226,7 @@ export function AssignmentDrawer({
             <section>
               <h3>Reviewers</h3>
               {plan.reviewers.map((reviewer) => (
-                <label key={reviewer.userId} className="reviewer-assignment">
+                <label key={reviewer.userId} className="assignment-choice">
                   <input
                     type="checkbox"
                     checked={reviewerIds.includes(reviewer.userId)}
@@ -262,7 +262,7 @@ export function AssignmentDrawer({
             {selected.length} submission{selected.length === 1 ? "" : "s"} selected from {visible.length} shown.
           </p>
           {visible.map((submission) => (
-            <label key={submission.submissionId} className="reviewer-assignment">
+            <label key={submission.submissionId} className="assignment-choice">
               <input
                 type="checkbox"
                 checked={selected.includes(submission.submissionId)}

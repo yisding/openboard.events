@@ -16,9 +16,16 @@ describe("assignment drawer submission safety", () => {
   it("keeps assignment checkboxes compact inside full-row labels", () => {
     const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".reviewer-assignment{display:grid;grid-template-columns:16px minmax(0,1fr)");
+    expect(css).toContain(".assignment-choice{display:grid;grid-template-columns:16px minmax(0,1fr)");
     expect(css).toContain("min-height:44px");
-    expect(css).toContain('.reviewer-assignment input[type="checkbox"]{grid-column:1;grid-row:1/3;width:16px;height:16px;margin:0;padding:0');
+    expect(css).toContain('.assignment-choice input[type="checkbox"]{grid-column:1;grid-row:1/3;width:16px;height:16px;margin:0;padding:0');
+  });
+
+  it("does not apply assignment-choice columns to the plan editor group", () => {
+    const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".reviewer-assignment{display:block");
+    expect(css).toContain(".reviewer-assignment>label{display:flex;align-items:center;gap:8px;min-height:44px");
   });
 
   it("never submits before candidates load or after loading fails", () => {
