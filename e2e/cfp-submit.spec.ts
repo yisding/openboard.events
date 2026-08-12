@@ -170,7 +170,7 @@ test.describe("cfp-submit", () => {
       await test.step("participant, review and submit reach the success page", async () => {
         await page.getByLabel("Title").fill(title);
         await dropdown(page, "Track").selectOption({ label: "Platforms" });
-        await page.getByLabel("Rich text editor").click();
+        await page.getByRole("textbox", { name: "Description", exact: true }).click();
         await page.keyboard.type("Everything we learned shipping this.");
         await page.getByRole("button", { name: /^continue$/i }).click();
 
@@ -238,7 +238,7 @@ test.describe("cfp-submit", () => {
         await page.getByLabel("Title").fill(`E2E over the limit ${Date.now()}`);
         await dropdown(page, "Track").selectOption({ label: "Platforms" });
         await dropdown(page, "Format").selectOption({ label: "Talk" });
-        await page.getByLabel("Rich text editor").click();
+        await page.getByRole("textbox", { name: "Description", exact: true }).click();
         await page.keyboard.type("One more than allowed.");
         await page.getByRole("button", { name: /^continue$/i }).click();
         await page.getByLabel("First name").fill("E2E");
@@ -330,7 +330,7 @@ test.describe("cfp-submit on a phone", () => {
       await page.getByLabel("Title").fill(`E2E phone ${Date.now()}`);
       await dropdown(page, "Track").selectOption({ label: "Platforms" });
       await dropdown(page, "Format").selectOption({ label: "Talk" });
-      await page.getByLabel("Rich text editor").click();
+      await page.getByRole("textbox", { name: "Description", exact: true }).click();
       await page.keyboard.type("Submitted from a phone.");
       await page.getByRole("button", { name: /^continue$/i }).click();
 

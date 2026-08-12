@@ -12,7 +12,7 @@ the exception — they are deliberately judgement-heavy, and §0.7 gives the rub
 judgement repeatable.
 
 Read [`../plan/status.md`](../plan/status.md) before filing anything listed under a plan's **Known
-gaps**, and §0.8 before filing a design defect — three are already catalogued with file and line.
+gaps**, and §0.8 before filing a design defect — three closed regressions have permanent checks there.
 
 ---
 
@@ -183,78 +183,43 @@ severity below. The bar is not "does it work" — a screen that works and reads 
 **Release bar: zero S1 and zero S2 anywhere on the core flow (MTP-03…MTP-07). S3 is tracked, not
 blocking.** Outside the core flow, zero S1.
 
-### 0.8 Known design defects — the baseline
+### 0.8 Closed design defects — the regression baseline
 
-These three are **already confirmed in the code**. Do not re-file them. Verify each is still present
-(and re-verify after a fix); file only *new* instances or *new* consequences.
+These three defects were fixed and their GitHub issues closed on 2026-08-12. Keep running the named
+checks: any recurrence is a regression, not a known exception to the release bar.
 
 ---
 
-**DD-1 — Native `<select>` everywhere. Severity S3, systemic.**
+**DD-1 — Native `<select>` everywhere. Resolved.**
 ([#115](https://github.com/yisding/symmetrical-happiness/issues/115))
 
-39 files render 75 native `<select>` elements. `src/app/globals.css:148-152` gives them a border,
-radius, and 40 px height, but never `appearance: none`, and the kit has no chevron to pair with one —
-so every dropdown in the admin draws the **operating system's** arrow and popup list next to
-otherwise designed controls. The single exception is `.public-filters select` on the public sessions
-page, which does set `appearance: none` and supplies its own chevron; it is the proof that the rest
-are inconsistent rather than intentional.
-
-`src/shared/ui/ui-kit.tsx` exports `Button`, `Switch`, `StatusBadge`, `Avatar`, `ProgressBar`,
-`PageHeader`, `Modal`, `Drawer`, `EmptyState`, `Field`, and `Segmented` — **there is no `Select`.**
-That absence is the root cause; the 75 instances are the symptom.
-
-Densest offenders: `session-form-dialog.tsx` (4), `plan-editor.tsx` (4), `files-admin-view.tsx` (4),
-`abstract-fields.tsx` (3), `form-builder.tsx` (3), `routing-rules-panel.tsx` (3),
-`condition-row.tsx` (3), `pipeline-board.tsx` (3), `task-editor.tsx` (3).
-
-*Escalate to S2* on any screen where the native popup measurably hurts the task — an unsearchable
-list of 50+ options, or a list that renders off-screen at 390 px.
+`src/shared/ui/ui-kit.tsx` now exports `Select`. It keeps the native element's keyboard type-ahead,
+Escape behavior, and touch picker while `.select-control` supplies the designed chevron and removes
+OS chrome. Application call sites consume that primitive; a source scan should find no direct
+`<select>` outside the primitive. Regress by comparing the admin and public dropdowns at 390 px and
+by keyboard, not merely by counting tags.
 
 ---
 
-**DD-2 — Two different date-entry idioms. Severity S3 (S2 where a zone is ambiguous).**
+**DD-2 — Two different date-entry idioms. Resolved.**
 ([#116](https://github.com/yisding/symmetrical-happiness/issues/116))
 
-`src/shared/ui/app/datetime-picker.tsx` exports a designed `DateTimePicker`, used in 23 places. But
-8 raw native date inputs remain, so the same product asks for a date two different ways:
-
-- `src/features/portal/tasks-admin-page.tsx:135` — `<input type="date">`
-- `src/features/submissions/evaluation/components/plan-editor.tsx:298,301` — `datetime-local` for a
-  round's open/close
-- `src/features/portal/components/speakers-admin/speaker-roster-panels.tsx:249-250` — `datetime-local`
-  for unavailability windows
-
-`datetime-local` speaks wall-clock with no zone at all. On any screen where the event zone and the
-operator's zone differ — which is every screen, for a tester following §0.2 — that is a **D9**
-failure as well as a **D1** one, and it is how an off-by-hours schedule gets typed in without anyone
-noticing.
+Admin scheduling, review windows, task deadlines, and speaker unavailability now use the shared
+`DateTimePicker`, with the event timezone named at entry. `src/features/native-date-controls.test.ts`
+guards against new raw `date`/`datetime-local` controls on admin surfaces. The public form renderer's
+deliberate **Date** question remains a native date control; it represents a calendar date rather than
+an instant and therefore has no timezone conversion.
 
 ---
 
-**DD-3 — There is no single-surface path to schedule an invited talk. Severity S2 (S1 on a fresh
-event).** ([#117](https://github.com/yisding/symmetrical-happiness/issues/117))
+**DD-3 — No single-surface path to schedule an invited talk. Resolved.**
+([#117](https://github.com/yisding/symmetrical-happiness/issues/117))
 
-This is the one you hit. The full shape of it:
-
-- `src/features/agenda/components/session-form-dialog.tsx:281-296` — the **Speakers** field is a
-  checkbox list over contacts that already exist on the event. Its empty state (line 283) reads
-  *"No contacts on this event yet"* and offers **no way to add one**. On a fresh event, the dialog
-  is a dead end: you must leave the Agenda, go to Speakers, create the person, come back, and
-  re-open the dialog.
-- `src/features/submissions/components/add-abstract-drawer.tsx` — an **Add abstract** path does
-  exist, and its own comment names the case exactly: *"the invited keynote that never went through
-  the CFP, typed in by an organizer."* It allocates a real `SESS-n` and emails nobody.
-- But `src/features/submissions/components/abstract-fields.tsx` — the form that drawer renders — has
-  **no participant fields at all**: title, description, track, format, level, language, capacity,
-  client session id, tags, times. **No speaker.** So the intended off-CFP path cannot attribute a
-  talk to a person either.
-- Nothing on the Agenda mentions **Add abstract**, so the intended path is also undiscoverable from
-  where the user starts.
-
-Net: "schedule a keynote by someone not in the system" cannot be completed on any one surface, and
-the surface that was designed for it cannot name the speaker. MTP-09 Task 1 measures this; MTP-07
-§2 tests the mechanics. Both should be re-run against any fix.
+The Agenda session dialog now contains `SpeakerQuickAdd`; on a fresh event its empty state points to
+that inline form, and the created speaker is selected without closing or restarting the session.
+The Agenda toolbar also names and links to **Add abstract**, whose drawer can select or create a
+speaker. Both paths preserve the shared `SESS-n` sequence and manual creation sends no CFP receipt.
+MTP-03 §2 and MTP-09 task 1 are the permanent regression scripts.
 
 ### 0.9 Recording a run
 
@@ -293,7 +258,7 @@ the CFP.
 | 4 | Set required, help text, and a character limit on a text field | All three persist through a reload and appear on the public form |
 | 5 | Exceed the character limit as a submitter later (MTP-04 §2) | Blocked client-side **and** server-side |
 | 6 | Reorder fields by drag; reorder sections | Order persists; the public form matches. Keyboard reordering works or its absence is logged (D3) |
-| 7 | Add a dropdown **Session length** with 30/60/90 | Options persist. **DD-1 applies** — confirm the native popup |
+| 7 | Add a dropdown **Session length** with 30/60/90 | Options persist; the kit chevron, keyboard type-ahead, and touch picker match other dropdowns (DD-1 regression) |
 | 8 | Add **Room preference**, visible only when Session length = 90 | The builder preview hides it until 90 is chosen |
 | 9 | Nest a second condition (visible when Session length = 90 **and** Track = Platforms) | Both conditions are evaluated; neither alone reveals the field |
 | 10 | Create a condition that references a field, then delete that field | The app refuses, or repairs the rule and says so. A silently broken rule is S1 |
@@ -304,23 +269,23 @@ the CFP.
 | 15 | Edit a field label on the seeded form *that already has submissions* | Allowed, and a new snapshot version is created — existing submissions keep the version they were made against |
 | 16 | Try a structural change on that same form (delete a field with answers) | Refused with a specific message, not a 500 |
 | 17 | Open the builder in two tabs; save in A, then save a stale edit in B | B is refused as stale. It does not silently overwrite A (D4) |
-| 18 | Set the close date, then reopen the picker | The date is shown in the **event's** timezone, and the zone is named. **DD-2 territory** — log what you see (D9) |
+| 18 | Set the close date, then reopen the picker | The date is shown in the **event's** timezone, and the zone is named (DD-2 regression, D9) |
 | 19 | Publish; use **Copy public link** | `/submit/<eventSlug>/<uuid>`; a toast confirms the copy |
 | 20 | Open the link in a private window | Your fields render in order with your headings and the event's branding |
 | 21 | Replace the uuid with the event slug | 404 — not a crash, not someone else's form |
 
 ### §2 The invited speaker — the off-CFP intake
 
-This section exists because of **DD-3**. Run it as written even though you know it fails; the point
-is to record *where* it fails and to have a re-verification script after a fix.
+This section is the **DD-3** regression script. Run it from a fresh event so seeded contacts cannot
+hide a missing inline-create path.
 
-| # | Action | Expected result | Today |
+| # | Action | Expected result | Regression focus |
 |---|---|---|---|
-| 22 | You have a confirmed keynote from **Dr. Amara Osei (Kwame Labs)** who never saw the CFP. Starting on **Agenda**, get her talk onto the schedule | Completable from the Agenda, or the Agenda points you at the path that is | **Fails.** The session dialog's speaker picker is a dead end (DD-3) |
-| 23 | Open the Agenda's new-session dialog on an event with no contacts | An empty speaker picker that offers to create one inline | **Fails** — "No contacts on this event yet", no affordance (D10, S1 on a fresh event) |
-| 24 | Find **Add abstract** without being told where it is | Discoverable from the Agenda or from a global "add" affordance | **Fails** — it lives only on Abstracts |
-| 25 | Use **Add abstract** to enter Amara's keynote | The form takes the speaker's name and email | **Fails** — the form has no participant fields at all |
-| 26 | Complete the real path: Speakers → create Amara → Abstracts → Add abstract → status **Accepted** → Agenda → new session → pick Amara → place | Works, but count the surfaces you crossed and the times you restarted a form. Log each as D10 |
+| 22 | You have a confirmed keynote from **Dr. Amara Osei (Kwame Labs)** who never saw the CFP. Starting on **Agenda**, get her talk onto the schedule | Completable from the Agenda, or the Agenda points you at the path that is | ≤2 surfaces, no restart |
+| 23 | Open the Agenda's new-session dialog on an event with no contacts | An empty speaker picker that offers to create one inline | `SpeakerQuickAdd` stays in the dialog and selects the new contact |
+| 24 | Find **Add abstract** without being told where it is | Discoverable from the Agenda or from a global "add" affordance | Agenda toolbar names the path |
+| 25 | Use **Add abstract** to enter Amara's keynote | The form takes the speaker's name and email | Existing-speaker choice and inline create both work |
+| 26 | Complete either intended path and place the talk | No abandoned form or prerequisite trip; record surfaces and restarts | 0 restarts |
 | 27 | Confirm the manual abstract got a real `SESS-n` from the same sequence as CFP submissions | Codes are unique and gapless across both intake paths — no collision, no duplicate |
 | 28 | Confirm **no email** was sent by the manual creation | The outbox has no new row. An invited speaker must not receive a "thanks for submitting" |
 | 29 | Import a roster CSV with 3 speakers, one duplicating Amara | A preview names creates/updates/rejects before committing; the duplicate merges rather than doubling |
@@ -339,17 +304,16 @@ is to record *where* it fails and to have a re-verification script after a fix.
 Walk §0.7 on: Forms list, each of the six builder steps, the field-type editors, the visibility-rule
 editor, the routing-rules panel, the Add-abstract modal, and the public form. Specifically:
 
-- **D1** on every dropdown in the builder (DD-1 is dense here: 3 in `form-builder.tsx`, 3 in
-  `routing-rules-panel.tsx`, 3 in `condition-row.tsx`)
+- **D1** on every dropdown in the builder (DD-1 regression: all use the shared `Select` chrome)
 - **D5** on the Forms list with zero forms and on a form with zero fields
 - **D6** on the field-type names — do they read the same in the picker, the list, and the public form?
 - **D9** on every date the builder shows or accepts
-- **D10** on the Add-abstract modal (it cannot name a speaker) and the rule editors
+- **D10** on the Add-abstract modal's speaker create/select path and the rule editors
 
 ### Exit criteria
 
-§1 and §3 pass in full. §2's failures are recorded against DD-3 with the surface count from step 26.
-Zero new S1/S2 outside DD-1/2/3.
+All three sections pass. The invited-keynote path uses at most two surfaces and no form restart.
+Zero S1/S2.
 
 ---
 
@@ -456,7 +420,7 @@ the number the organizer decides on is the number the criteria define.
 | 1 | Open **Evaluation** | Round 1 with criteria, weights, scale, and assignment counts |
 | 2 | Create a round with two weighted criteria on a 1–5 scale | Saves; both rounds are independently editable |
 | 3 | Set weights that do not sum to the required total | Rejected with the rule stated, before save |
-| 4 | Set the round's open/close window | **DD-2 applies** — `datetime-local` with no zone. Confirm what timezone the app actually applies, and log the mismatch under D9 |
+| 4 | Set the round's open/close window | Shared picker names and applies the event timezone; verify from a workstation in another zone (DD-2 regression, D9) |
 | 5 | Close the round's window and open a reviewer's queue | Scoring is refused with an explanation, not a silent no-op |
 
 ### §2 Assignment and recusal
@@ -501,9 +465,9 @@ the number the organizer decides on is the number the criteria define.
 ### §6 Design checks
 
 Walk §0.7 on the plans list, the plan editor, the assignment drawer, and the reviewer queue.
-Specifically: **D1** on the plan editor's 4 native selects; **D2** on the scoring control (does a
+Specifically: **D1** on the plan editor's shared selects; **D2** on the scoring control (does a
 saved score look different from an unsaved one?); **D5** on an empty queue — a reviewer with nothing
-to do should be told that clearly; **D9** on the round window (DD-2).
+to do should be told that clearly; **D9** on the round window (DD-2 regression).
 
 ### Exit criteria
 
@@ -701,12 +665,12 @@ session public.
 Walk §0.7 on the agenda grid, the session dialog, the conflict indicator, the auto-place preview, and
 every view (list/day/week/track/room). Specifically:
 
-- **D1** on the session dialog's 4 native selects (DD-1) and its placement inputs (DD-2)
+- **D1** on the session dialog's shared selects (DD-1 regression) and **D9** on its zoned placement inputs (DD-2 regression)
 - **D3** on drag-and-drop — **is there a keyboard path to move a session?** If not, that is S1 for
   accessibility, and it is the kind of thing a mouse-only tester never notices
 - **D7** on the grid at 390 px and at 1920 px with 5 rooms and a full day
 - **D8** on the conflict indicator — if color is its only signal, it fails
-- **D10** on the new-session dialog (DD-3)
+- **D10** on the new-session dialog's inline speaker-create path (DD-3 regression)
 
 ### Exit criteria
 
@@ -767,8 +731,8 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 
 | # | Probe | Expected | Today |
 |---|---|---|---|
-| 1 | Open every dropdown in the admin and compare to the public sessions page's filter dropdown | One dropdown design across the product | **Fails — DD-1.** 75 native selects across 39 files; one styled exception |
-| 2 | Count how many distinct ways the product asks for a date | One | **Fails — DD-2.** `DateTimePicker` in 23 places, native inputs in 8 |
+| 1 | Open every dropdown in the admin and compare to the public sessions page's filter dropdown | One dropdown design across the product | DD-1 regression: kit chevron and states agree; native keyboard/touch behavior remains |
+| 2 | Count how many distinct ways the product asks for an instant | One zoned `DateTimePicker`; date-only public questions are separate | DD-2 regression: no raw admin `date`/`datetime-local` controls |
 | 3 | Tab through every screen without touching the mouse | Every control reachable, visible ring, logical order, `Esc` closes overlays, focus returns to trigger | |
 | 4 | Trigger every empty state (new event, no submissions, no sessions, empty queue, no contacts, no results after filtering) | Each names the next action | |
 | 5 | Trigger every error state (offline, 500, validation, permission, stale write) | Each is specific and recoverable; none is "Something went wrong" | |
@@ -790,19 +754,18 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 | # | Action | Expected result |
 |---|---|---|
 | 16 | Compare each kitchen-sink primitive to its in-app usage | Identical rendering. A drift means a surface has re-implemented a primitive |
-| 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system. **A `Select` is missing today (DD-1)** — that is the fix that closes 75 instances at once |
+| 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system; `Select` is present and matches in-app use (DD-1 regression) |
 
 ### Exit criteria
 
 The inventory is complete, every S1/S2 is filed with a screenshot and a D-number, and DD-1/DD-2 are
-confirmed still-open (or verified fixed). A release with an open S1 on any core-flow surface does not
-ship.
+verified fixed. A release with an open S1 on any core-flow surface does not ship.
 
 ---
 
 ## MTP-09 — Task-based usability with step budgets
 
-**Environments:** B or A · **Duration:** ~90 min for six tasks · **Operator:** someone who has **not**
+**Environments:** A · **Duration:** ~90 min for six tasks · **Operator:** someone who has **not**
 used Openboard. If that is impossible, the next best thing is someone who has not used the surface
 under test in a month. The person who built the feature may not run the task and may not speak.
 
@@ -823,7 +786,7 @@ finds. Functional plans ask "can it be done"; this one asks "is it done the way 
 
 | # | Task (read verbatim to the operator) | Budget | Fail = |
 |---|---|---|---|
-| 1 | "A keynote speaker, Dr. Amara Osei of Kwame Labs, has agreed to speak. She never applied. Get her talk on the schedule for Tuesday at 9am on the Main Stage." | **≤ 4 min, ≤ 2 surfaces, 0 restarts** | **S1.** Today this crosses Speakers → Abstracts → Agenda, and the intended surface cannot name a speaker at all (DD-3) |
+| 1 | "A keynote speaker, Dr. Amara Osei of Kwame Labs, has agreed to speak. She never applied. Get her talk on the schedule for Tuesday at 9am on the Main Stage." | **≤ 4 min, ≤ 2 surfaces, 0 restarts** | **S1.** DD-3 regression |
 | 2 | "Open the call for speakers so people can apply, and give me the link to share." | ≤ 6 min, ≤ 2 surfaces | S2 |
 | 3 | "These five talks are in. Reject them and make sure the speakers are told." | ≤ 5 min, ≤ 2 surfaces | S2 |
 | 4 | "The 2pm workshop has to move to 4pm. Do it, and make sure everyone who needs to know, knows." | ≤ 4 min, ≤ 2 surfaces | S2 |
@@ -851,8 +814,7 @@ The core flow crosses four surfaces. Seams are where tasks die.
 
 ### Exit criteria
 
-Every task inside budget. Task 1 is the headline: it fails today, and it is the re-verification
-script for any DD-3 fix.
+Every task is inside budget. Task 1 is the headline DD-3 regression check.
 
 ---
 

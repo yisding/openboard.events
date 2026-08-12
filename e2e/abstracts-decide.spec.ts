@@ -121,6 +121,7 @@ test.describe("abstracts-decide", () => {
       await test.step("notify stamps the Notified column and flips both to Accepted", async () => {
         await page.goto(`${ABSTRACTS}?status=accept_queue`);
         await page.getByRole("button", { name: /^notify \d+$/i }).click();
+        await page.getByRole("button", { name: /queue decision emails/i }).click();
 
         for (const title of TO_ACCEPT) {
           await expect.poll(

@@ -63,6 +63,8 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         class: "rich-text-editor__surface",
+        role: "textbox",
+        "aria-multiline": "true",
         ...(ariaLabelledBy ? { "aria-labelledby": ariaLabelledBy } : { "aria-label": ariaLabel }),
         ...(ariaDescribedBy ? { "aria-describedby": ariaDescribedBy } : {}),
         ...(ariaInvalid ? { "aria-invalid": "true" } : {}),
