@@ -284,7 +284,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .events-title { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; }
 .events-title h1 { margin: 8px 0 8px; font-size: 32px; letter-spacing: -1px; }
 .events-title p { margin: 0; color: var(--muted); }
-.page-actions { display: flex; align-items: center; gap: 8px; }
+/* Wraps because .button is white-space: nowrap and so never shrinks below its
+   label: a header with 3+ actions would otherwise push the row — and the whole
+   document — past a 390px viewport. Wrapping the row is the fix; wrapping the
+   label is not. */
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .event-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .18s, box-shadow .18s; }
 .event-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
@@ -646,7 +650,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .hero h1, .hero-copy > p { max-width: 100%; }
   .hero-art { width: 620px; min-width: 0; justify-self: start; margin-inline: 0; transform: scale(.58); transform-origin: top left; margin-bottom: -190px; }.floating-card-two { right: 10px; }
   .events-index-header { padding: 0 16px; }.header-help { display: none; }.events-index-content { width: calc(100% - 28px); padding-top: 32px; }.events-title { align-items: flex-start; gap: 24px; }.events-title .page-actions .button-secondary { display: none; }.event-grid { grid-template-columns: 1fr; }
-  .app-content { padding: 24px 16px 32px; }.topbar { padding-right: 12px; }.breadcrumbs span, .breadcrumbs i { display: none; }.page-header { display: grid; }.page-header .page-actions { padding: 0; width: 100%; }.page-header .page-actions .button { flex: 1; }.metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.metric-card { min-height: 166px; padding: 12px; }.metric-card > strong { font-size: 24px; }.attention-banner { align-items: flex-start; }.attention-banner a { display: none; }.attention-list > div { grid-template-columns: 34px 1fr auto; }.attention-progress { display: none; }
+  .app-content { padding: 24px 16px 32px; }.topbar { padding-right: 12px; }.breadcrumbs span, .breadcrumbs i { display: none; }.page-header { display: grid; }.page-header .page-actions { padding: 0; width: 100%; }.page-header .page-actions .button { flex: 1 1 auto; min-width: 0; }.metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.metric-card { min-height: 166px; padding: 12px; }.metric-card > strong { font-size: 24px; }.attention-banner { align-items: flex-start; }.attention-banner a { display: none; }.attention-list > div { grid-template-columns: 34px 1fr auto; }.attention-progress { display: none; }
   .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }
 }
 
@@ -1405,10 +1409,17 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .login-brand-panel>small{color:var(--on-dark-faint)}
 .login-form-panel{display:grid;place-items:center;padding:48px;background:var(--surface-subtle)}
 .login-form-panel>div{width:min(420px,100%)}
-.login-form-panel form{display:grid;gap:16px}
-.login-form-panel form h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
-.login-form-panel form>p{margin:0;color:var(--muted)}
-.login-form-panel form>p:last-child a{color:var(--accent-dark);font-weight:600}
+/* The panel's type/spacing contract belongs to whatever the auth component
+   returns, not to <form> alone: seven states (forgot's disabled + sent
+   branches, reset's missing-token branch, and all four /join states) render a
+   bare <div> and used to lose the 40px h1, the grid gap, the muted copy and the
+   accent footer link. Match on the child combinator so `div.input-icon` inside
+   a .field, the `div.auth-divider` inside the sign-in form, and the <Suspense>
+   `<p>Loading…</p>` fallbacks all stay out of it. */
+.login-form-panel>div>:is(form,div){display:grid;gap:16px}
+.login-form-panel>div>:is(form,div) h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
+.login-form-panel>div>:is(form,div)>p{margin:0;color:var(--muted)}
+.login-form-panel>div>:is(form,div)>p:last-child a{color:var(--accent-dark);font-weight:600}
 .google-signin{width:100%}
 .google-mark{width:18px;height:18px;flex:0 0 18px}
 .auth-divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
@@ -1443,7 +1454,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .login-brand-panel{min-height:76px;padding:16px 24px;justify-content:center}
   .login-brand-panel>div,.login-brand-panel>small{display:none}
   .login-form-panel{min-height:calc(100vh - 76px);padding:32px 24px;place-items:start center}
-  .login-form-panel form h1{font-size:32px}
+  .login-form-panel>div>:is(form,div) h1{font-size:32px}
 
   /* Keep the agenda shell viewport-bound; the day view's own scroll region
      carries the wide timeline instead of widening the document. */
