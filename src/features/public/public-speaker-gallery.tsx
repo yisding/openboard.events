@@ -11,15 +11,12 @@ import type { EmbedFilters } from "./embed-config-types";
 import { PublicComingSoon } from "./public-coming-soon";
 import { SpeakerAvatar } from "./speaker-avatar";
 import { PublicEventShell, DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "./public-event-shell";
+import { matchesPublicSpeakerSearch, publicSpeakerPlainText } from "./speaker-search";
 
 // The gallery card's bio teaser is plain text, not rendered HTML — bioHtml can
 // carry headings/lists that would break a fixed-height card, and `<small>` is
 // a phrasing element that should never contain block markup. The full bio
 // still renders through `<RichTextView>` on the speaker-detail panel below.
-function plainTextPreview(html: string): string {
-  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
 function SpeakerDetail({
   speaker, event, eventSlug, showBio, onBack, headingRef,
 }: { speaker: PublishedSpeakerDTO; event: PublishedSpeakersDTO["event"]; eventSlug: string; showBio: boolean; onBack: () => void; headingRef: RefObject<HTMLHeadingElement | null> }) {
@@ -104,9 +101,7 @@ export function PublicSpeakerGallery({
   }, [selectedId]);
 
   const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return speakers.speakers;
-    return speakers.speakers.filter((speaker) => `${speaker.name} ${speaker.company ?? ""} ${speaker.jobTitle ?? ""}`.toLowerCase().includes(needle));
+    return speakers.speakers.filter((speaker) => matchesPublicSpeakerSearch(speaker, search));
   }, [speakers.speakers, search]);
 
   function select(id: string | null) {
@@ -171,7 +166,7 @@ export function PublicSpeakerGallery({
                         >
                           <h3>{speaker.name}</h3>
                           <p>{speaker.jobTitle ?? <Dash />} {showCompany && speaker.company ? `· ${speaker.company}` : ""}</p>
-                          {showBio && <small>{speaker.bioHtml ? plainTextPreview(speaker.bioHtml) : <Dash />}</small>}
+                          {showBio && <small>{speaker.bioHtml ? publicSpeakerPlainText(speaker.bioHtml) : <Dash />}</small>}
                         </button>
                         <footer>
                           <Link href={`/e/${eventSlug}/sessions?search=${encodeURIComponent(speaker.name)}`} onClick={(e) => e.stopPropagation()}>
