@@ -156,8 +156,9 @@ describe("OnboardingWizard event step accessibility", () => {
 
 describe("OnboardingWizard first-use defaults", () => {
   it("uses the browser timezone when supported and otherwise falls back safely", () => {
-    const supported = ["UTC", "Europe/London", "America/Los_Angeles"];
+    const supported = ["Europe/London", "America/Los_Angeles"];
     expect(preferredTimeZone("Europe/London", supported)).toBe("Europe/London");
+    expect(preferredTimeZone("UTC", supported)).toBe("UTC");
     expect(preferredTimeZone("Not/A_Zone", supported)).toBe("America/Los_Angeles");
     expect(preferredTimeZone(undefined, supported)).toBe("America/Los_Angeles");
   });

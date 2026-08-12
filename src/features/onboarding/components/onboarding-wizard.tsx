@@ -38,14 +38,15 @@ export function OnboardingStepHeading({ step, headingRef }: { step: 1 | 2 | 3 | 
 
 function browserTimeZones(): string[] {
   try {
-    return Intl.supportedValuesOf("timeZone");
+    const zones = Intl.supportedValuesOf("timeZone");
+    return zones.includes("UTC") ? zones : ["UTC", ...zones];
   } catch {
     return [DEFAULT_TZ, "America/New_York", "America/Chicago", "America/Denver", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"];
   }
 }
 
 export function preferredTimeZone(candidate: string | undefined, supported: readonly string[]): string {
-  return candidate && supported.includes(candidate) ? candidate : DEFAULT_TZ;
+  return candidate === "UTC" || (candidate && supported.includes(candidate)) ? candidate : DEFAULT_TZ;
 }
 
 // `BuilderForm` (features/forms/builder-types.ts) has no shared zod contract
