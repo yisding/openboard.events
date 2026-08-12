@@ -13,10 +13,10 @@ export default async function VerifiedEmailPage({ searchParams }: { searchParams
   const query = await searchParams;
   const next = safeInternalPath(query.next, "/organizations");
   const failed = Boolean(query.error) || query.confirmed !== "1";
-  // New verification links create a Better Auth session before redirecting
-  // here. Continue straight into the provisioned workspace; the rendered
-  // success state remains a safe fallback for an old/replayed link whose
-  // browser no longer has that session.
+  // The explicit confirmation POST normally continues straight into the
+  // provisioned workspace. Keep this legacy success callback useful too: a
+  // browser with a verified session continues, while an old/replayed link in
+  // another browser retains the ordinary sign-in fallback below.
   if (!failed && await getAdminSession()) redirect(next);
   return <main className="login-page">
     <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>

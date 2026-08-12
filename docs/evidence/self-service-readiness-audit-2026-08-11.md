@@ -58,9 +58,10 @@ the real database-backed surfaces.
   plain-language Tracks/Share steps, visible completed-step state, and a
   compact single-card layout on desktop and mobile.
 - Removed the redundant sign-in after mailbox confirmation. The short-lived
-  verification link now establishes the first session and the verified handoff
-  sends the customer directly into the provisioned workspace; old or replayed
-  links retain a normal sign-in fallback.
+  verification link now opens a scanner-safe confirmation page; only the
+  customer's explicit POST establishes the first session, then the handoff
+  sends them directly into the provisioned workspace. Old or replayed links
+  retain a normal sign-in fallback.
 
 ## Remaining launch gaps, in priority order
 

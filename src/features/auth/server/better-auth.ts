@@ -181,10 +181,10 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // the UI owns an explicit resend action. Avoid silently sending another
       // message on every password attempt.
       sendOnSignIn: false,
-      // The confirmation link is already a short-lived bearer proof delivered
-      // to the address that owns the account. Establish the session on that
-      // same request so a new customer continues into their provisioned
-      // workspace instead of having to re-enter the password they just chose.
+      // The confirmation token is a short-lived bearer proof delivered to the
+      // address that owns the account. Our public GET only renders
+      // `/signup/confirm`; an explicit user POST invokes Better Auth's verifier
+      // and may establish this session. This keeps mail scanners sessionless.
       autoSignInAfterVerification: true,
       afterEmailVerification: async (user) => {
         await tryRecordSignupEmailVerifiedIn(database, userIdSchema.parse(user.id));
