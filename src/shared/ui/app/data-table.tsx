@@ -303,6 +303,9 @@ export function DataTable<Row>({
     if (!pickerOpen) return;
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      const active = document.activeElement;
+      if (!(active instanceof Node)) return;
+      if (!pickerButtonRef.current?.contains(active) && !pickerPanelRef.current?.contains(active)) return;
       event.preventDefault();
       setPickerOpen(false);
       window.requestAnimationFrame(() => pickerButtonRef.current?.focus());
@@ -313,11 +316,19 @@ export function DataTable<Row>({
       if (pickerButtonRef.current?.contains(target) || pickerPanelRef.current?.contains(target)) return;
       setPickerOpen(false);
     }
+    function closeOnFocusOutside(event: FocusEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (pickerButtonRef.current?.contains(target) || pickerPanelRef.current?.contains(target)) return;
+      setPickerOpen(false);
+    }
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("focusin", closeOnFocusOutside);
     return () => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("focusin", closeOnFocusOutside);
     };
   }, [pickerOpen]);
 
