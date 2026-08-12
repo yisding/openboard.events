@@ -77,10 +77,12 @@ export function defaultScheduledRange(
   const validDays = eventDayKeys(event.startsAt, event.endsAt, event.timezone);
 
   let candidateStartMs = eventStartMs;
+  let selectedDayStartMs = eventStartMs;
   if (selectedDay && validDays.includes(selectedDay)) {
     const { hour, minute } = hourMinuteInZone(event.startsAt, event.timezone);
     const localStart = `${selectedDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
     candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
+    selectedDayStartMs = zonedInputToUtc(`${selectedDay}T00:00:00`, event.timezone).getTime();
   }
 
   let startsAtMs = Math.max(candidateStartMs, eventStartMs);
@@ -89,7 +91,10 @@ export function defaultScheduledRange(
   // the time the organizer selected. Only a candidate at/after the event end
   // needs the latest valid fallback because it has no positive interval left.
   if (startsAtMs >= eventEndMs) {
-    startsAtMs = eventEndMs - Math.min(requestedDurationMs, availableMs);
+    startsAtMs = Math.max(
+      selectedDayStartMs,
+      eventEndMs - Math.min(requestedDurationMs, availableMs),
+    );
   }
   const durationMs = Math.min(requestedDurationMs, eventEndMs - startsAtMs);
   return {

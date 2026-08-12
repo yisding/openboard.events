@@ -45,4 +45,15 @@ describe("defaultScheduledRange", () => {
       endsAt: "2026-09-16T16:10:00.000Z",
     });
   });
+
+  it("does not move a final-day fallback onto the preceding day", () => {
+    expect(defaultScheduledRange({
+      timezone: "America/Los_Angeles",
+      startsAt: "2026-09-15T16:00:00.000Z",
+      endsAt: "2026-09-16T07:10:00.000Z",
+    }, "2026-09-16", 30 * 60_000)).toEqual({
+      startsAt: "2026-09-16T07:00:00.000Z",
+      endsAt: "2026-09-16T07:10:00.000Z",
+    });
+  });
 });
