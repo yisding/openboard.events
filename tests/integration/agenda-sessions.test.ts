@@ -358,6 +358,37 @@ describe("agenda sessions", () => {
     })).rejects.toBeDefined();
   });
 
+  it("accepts session times exactly on the event boundaries", async () => {
+    const created = await createSession({
+      title: "Whole event",
+      startsAt: at("2026-09-15T16:00:00Z"),
+      endsAt: at("2026-09-17T01:00:00Z"),
+    });
+    expect(created.startsAt).toBe(at("2026-09-15T16:00:00Z"));
+    expect(created.endsAt).toBe(at("2026-09-17T01:00:00Z"));
+  });
+
+  it("rejects a create before the event and an update after it", async () => {
+    await expect(createSession({
+      title: "Too early",
+      startsAt: at("2026-09-15T15:59:59Z"),
+      endsAt: at("2026-09-15T16:30:00Z"),
+    })).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const created = await createSession({ title: "Still unscheduled" });
+    await expect(saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: created.title,
+      descriptionHtml: created.descriptionHtml, formatId: null, trackId: null, roomId: null,
+      startsAt: at("2026-09-17T00:30:00Z"), endsAt: at("2026-09-17T01:00:01Z"),
+      speakerContactIds: [], status: "draft",
+    })).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const stored = await listSessions(eventId);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.startsAt).toBeNull();
+    expect(stored[0]?.rowVersion).toBe(created.rowVersion);
+  });
+
   it("gives colliding titles distinct slugs rather than failing", async () => {
     const first = await createSession({ title: "Same title" });
     const second = await createSession({ title: "Same title" });
@@ -414,6 +445,24 @@ describe("agenda sessions", () => {
   });
 
   describe("moveSession", () => {
+    it("rejects a final-slot rollover without changing the session", async () => {
+      const created = await createSession({
+        title: "Final slot", roomId: mainStage,
+        startsAt: at("2026-09-17T00:00:00Z"), endsAt: at("2026-09-17T00:30:00Z"),
+      });
+      await expect(moveSession(eventId, {
+        id: created.id, version: created.rowVersion,
+        startsAt: at("2026-09-17T00:45:00Z"), endsAt: at("2026-09-17T01:15:00Z"), roomId: mainStage,
+      })).rejects.toMatchObject({ code: "VALIDATION" });
+
+      const stored = await listSessions(eventId);
+      expect(stored[0]).toMatchObject({
+        startsAt: created.startsAt,
+        endsAt: created.endsAt,
+        rowVersion: created.rowVersion,
+      });
+    });
+
     it("lets exactly one of two concurrent moves win, leaving the loser's revision untouched", async () => {
       const created = await createSession({
         title: "Contested slot", roomId: mainStage, status: "published",

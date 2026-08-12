@@ -154,6 +154,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         open={creating || editing !== null}
         onClose={() => { setCreating(false); setEditingId(null); }}
         session={creating ? null : editing}
+        defaultDay={props.day ?? null}
         eventId={props.eventId}
         event={props.event}
         rooms={props.rooms}

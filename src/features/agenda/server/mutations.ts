@@ -132,6 +132,26 @@ function iso(value: string | Date | null): string | null {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
+const EVENT_BOUNDS_MESSAGE = "Session times must stay within the event start and end";
+
+async function assertWithinEventBounds(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  startsAt: string | null,
+  endsAt: string | null,
+): Promise<void> {
+  if (startsAt === null || endsAt === null) return;
+  const result = await dbOrTx.execute<{ starts_at: string | Date; ends_at: string | Date }>(sql`
+    SELECT starts_at, ends_at FROM events WHERE id = ${eventId}
+  `);
+  const event = (result.rows ?? [])[0];
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+  if (Date.parse(startsAt) < Date.parse(iso(event.starts_at) ?? "")
+      || Date.parse(endsAt) > Date.parse(iso(event.ends_at) ?? "")) {
+    throw new AppError("VALIDATION", EVENT_BOUNDS_MESSAGE);
+  }
+}
+
 function toDto(row: SessionRowShape, speakerIds: readonly ContactId[]): ScheduledSessionDTO {
   return {
     id: row.id as SessionId,
@@ -281,6 +301,7 @@ export async function saveSessionIn(
   actorUserId: UserId | null = null,
 ): Promise<ScheduledSessionDTO> {
   const input = saveSessionInputSchema.parse(rawInput);
+  await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
   // Never trust the editor's output: resolution #2 puts `sanitize()` on every
   // write path, create and update alike.
   const descriptionHtml = sanitize(input.descriptionHtml);
@@ -681,6 +702,7 @@ export async function moveSessionInTx(
   if (Number(prior.row_version) !== input.version) {
     throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion: input.version, actualVersion: Number(prior.row_version) });
   }
+  await assertWithinEventBounds(tx, eventId, input.startsAt, input.endsAt);
 
   // `moveSession` never changes `status`, so the stored value and the incoming
   // one are the same row value and the simple form of the CASE is correct here.

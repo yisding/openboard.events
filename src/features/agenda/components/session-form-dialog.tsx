@@ -19,6 +19,7 @@ import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations } from "../hooks/use-session-mutations";
+import { defaultScheduledRange } from "../store";
 
 const revisionsSchema = z.array(sessionContentRevisionDtoSchema);
 
@@ -79,6 +80,7 @@ export function SessionFormDialog({
   open,
   onClose,
   session,
+  defaultDay,
   eventId,
   event,
   rooms,
@@ -90,6 +92,8 @@ export function SessionFormDialog({
   onClose: () => void;
   /** Absent for create. */
   session: ScheduledSessionDTO | null;
+  /** Event-local day selected in the agenda toolbar. */
+  defaultDay: string | null;
 } & Pick<AgendaViewProps, "eventId" | "event" | "rooms" | "tracks" | "formats" | "speakers">) {
   const { toast } = useToast();
   const { save, remove, restoreContent } = useSessionMutations(eventId);
@@ -276,7 +280,14 @@ export function SessionFormDialog({
               <input
                 type="checkbox"
                 checked={!scheduled}
-                onChange={(changed) => setStart(changed.target.checked ? null : new Date().toISOString())}
+                onChange={(changed) => {
+                  if (changed.target.checked) {
+                    setStart(null);
+                    return;
+                  }
+                  const range = defaultScheduledRange(event, defaultDay, defaultDurationMs);
+                  setDraft((current) => ({ ...current, ...range }));
+                }}
               />
               Leave unscheduled (keep in the tray)
             </label>

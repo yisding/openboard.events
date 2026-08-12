@@ -1,5 +1,5 @@
 import type { ConflictDTO, EventId, RoomDTO, ScheduledSessionDTO, SessionId, TrackDTO } from "@/shared/contracts";
-import { eventDayKey } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
 import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 /**
@@ -44,6 +44,43 @@ export function eventDayKeys(startsAt: string, endsAt: string, timezone: string)
     cursor += 24 * 60 * 60 * 1000;
   }
   return keys;
+}
+
+/**
+ * A valid initial placement for the session dialog's "scheduled" toggle.
+ *
+ * The selected agenda day is a calendar date in the event timezone, not in the
+ * browser's timezone. Start at the event's local opening clock on that day,
+ * then clamp both the start and the preferred duration to the event's absolute
+ * bounds. The clamp also covers short events and a partial final day.
+ */
+export function defaultScheduledRange(
+  event: { startsAt: string; endsAt: string; timezone: string },
+  selectedDay: string | null,
+  preferredDurationMs: number,
+): { startsAt: string; endsAt: string } {
+  const eventStartMs = Date.parse(event.startsAt);
+  const eventEndMs = Date.parse(event.endsAt);
+  const availableMs = eventEndMs - eventStartMs;
+  const requestedDurationMs = Number.isFinite(preferredDurationMs) && preferredDurationMs > 0
+    ? preferredDurationMs
+    : 30 * 60_000;
+  const durationMs = Math.min(requestedDurationMs, availableMs);
+  const validDays = eventDayKeys(event.startsAt, event.endsAt, event.timezone);
+
+  let candidateStartMs = eventStartMs;
+  if (selectedDay && validDays.includes(selectedDay)) {
+    const { hour, minute } = hourMinuteInZone(event.startsAt, event.timezone);
+    const localStart = `${selectedDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+    candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
+  }
+
+  const latestStartMs = eventEndMs - durationMs;
+  const startsAtMs = Math.min(Math.max(candidateStartMs, eventStartMs), latestStartMs);
+  return {
+    startsAt: new Date(startsAtMs).toISOString(),
+    endsAt: new Date(startsAtMs + durationMs).toISOString(),
+  };
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
