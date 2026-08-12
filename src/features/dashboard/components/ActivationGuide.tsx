@@ -150,7 +150,7 @@ export function ActivationGuide({ overview }: { overview: DashboardOverview }) {
           <>
             <CopyablePublicLink path={`/submit/${overview.event.slug}/${state.form.formId}`} />
             <div className="dashboard-activation-actions">
-              <Link className="button button-secondary" href={`/submit/${overview.event.slug}/${state.form.formId}`} target="_blank" rel="noreferrer">Preview form <ExternalLink size={15} /></Link>
+              <Link className="button button-secondary" href={`/events/${overview.event.id}/forms/${state.form.formId}/preview`} target="_blank" rel="noreferrer">Preview form <ExternalLink size={15} /></Link>
               <Link className="dashboard-activation-manage" href={formHref}>Manage form <ArrowRight size={14} /></Link>
             </div>
           </>

@@ -1334,6 +1334,32 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-done .cfp-actions{justify-content:center;margin-top:24px}
 .onboarding-link-row{display:flex;gap:8px;margin:16px auto 0;max-width:440px}
 
+/* Organizer form preview — the public renderer without the speaker OTP,
+   draft, or submission side effects. */
+.organizer-form-preview{width:min(900px,100%);margin:0 auto;display:grid;gap:16px}
+.organizer-form-preview__header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
+.organizer-form-preview__header>div:first-child>span,.organizer-form-preview__section>header>span,.organizer-form-preview__welcome>span{display:block;color:var(--accent-dark);font-size:10.5px;font-weight:700;letter-spacing:.8px}
+.organizer-form-preview__header h1{margin:6px 0 4px;font-size:28px;letter-spacing:-.8px}
+.organizer-form-preview__header p{margin:0;color:var(--muted);font-size:11.5px}
+.organizer-form-preview__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.organizer-form-preview__notice{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--accent-border);border-radius:9px;background:var(--accent-faint);color:var(--accent-dark)}
+.organizer-form-preview__notice>svg{flex:0 0 auto;margin-top:1px}
+.organizer-form-preview__notice b,.organizer-form-preview__notice span{display:block}
+.organizer-form-preview__notice b{font-size:12px}
+.organizer-form-preview__notice span{margin-top:3px;color:var(--muted);font-size:11px;line-height:1.45}
+.organizer-form-preview__canvas{overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-sm)}
+.organizer-form-preview__welcome,.organizer-form-preview__section,.organizer-form-preview__unavailable{padding:28px 32px}
+.organizer-form-preview__section,.organizer-form-preview__unavailable{border-top:1px solid var(--line)}
+.organizer-form-preview__section:first-child,.organizer-form-preview__unavailable:first-child{border-top:0}
+.organizer-form-preview__welcome{background:linear-gradient(135deg,var(--surface),var(--accent-faint))}
+.organizer-form-preview__welcome h2,.organizer-form-preview__section h2,.organizer-form-preview__unavailable h2{margin:6px 0 14px;font-size:20px;letter-spacing:-.3px}
+.organizer-form-preview__welcome .rich-text,.organizer-form-preview__section .rich-text{color:var(--muted);font-size:12.5px;line-height:1.55}
+.organizer-form-preview__section>header{margin-bottom:18px}
+.organizer-form-preview__section .form-render__section{display:block}
+.organizer-form-preview__section .form-render__section>.rich-text{margin-bottom:16px}
+.organizer-form-preview__unavailable{text-align:center}
+.organizer-form-preview__unavailable p{margin:0 0 16px;color:var(--muted);font-size:12.5px}
+
 @media(max-width:480px){
   .onboarding-wizard{padding:20px}
   .onboarding-progress li>b{display:block;font-size:9px;letter-spacing:0}
@@ -1341,6 +1367,19 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .onboarding-wizard .cfp-actions>*{flex:1 1 100%;justify-content:center}
   .onboarding-link-row{flex-direction:column}
   .onboarding-link-row .button{width:100%;justify-content:center}
+}
+
+@media(max-width:768px){
+  .organizer-form-preview__header{align-items:flex-start;flex-direction:column;gap:16px}
+  .organizer-form-preview__actions{width:100%;justify-content:flex-start}
+  .organizer-form-preview__actions .button{flex:1 1 190px;justify-content:center}
+  .organizer-form-preview__welcome,.organizer-form-preview__section,.organizer-form-preview__unavailable{padding:24px}
+}
+
+@media(max-width:480px){
+  .organizer-form-preview__actions .button{flex-basis:100%}
+  .organizer-form-preview__welcome,.organizer-form-preview__section,.organizer-form-preview__unavailable{padding:20px}
+  .organizer-form-preview__section .form-grid{grid-template-columns:1fr}
 }
 
 /* M55 — organization-level Speaker CRM. Two new semantic badge values (the

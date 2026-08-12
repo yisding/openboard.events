@@ -76,6 +76,7 @@ describe("dashboard components", () => {
     expect(liveHtml).toContain("Get your first submission");
     expect(liveHtml).toContain(`/submit/new-conference/${form.formId}`);
     expect(liveHtml).toContain(`/events/${liveOverview.event.id}/forms/${form.formId}`);
+    expect(liveHtml).toContain(`/events/${liveOverview.event.id}/forms/${form.formId}/preview`);
 
     const draftOverview = { ...liveOverview, forms: [{ ...form, status: "draft" as const, availability: "draft" as const }] };
     expect(renderActivation(draftOverview)).toContain("Publish your call for speakers");

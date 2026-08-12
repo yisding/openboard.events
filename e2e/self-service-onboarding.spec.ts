@@ -154,6 +154,16 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible();
       await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
       await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
+
+      const previewPromise = page.waitForEvent("popup");
+      await page.getByRole("link", { name: "Preview form" }).click();
+      const previewPage = await previewPromise;
+      await expect(previewPage).toHaveURL(/\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}\/preview$/);
+      await expect(previewPage.getByText("ORGANIZER PREVIEW", { exact: true })).toBeVisible();
+      await expect(previewPage.getByText(/answers stay in this tab and are never saved/i)).toBeVisible();
+      await expect(previewPage.getByLabel("Title")).toBeVisible();
+      await expect(previewPage.getByRole("button", { name: "Send me a code" })).toHaveCount(0);
+      await previewPage.close();
     });
 
     const proposalTitle = `E2E First Proposal ${stamp}`;
