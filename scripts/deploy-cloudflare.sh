@@ -18,6 +18,12 @@ esac
   exit 2
 }
 
+if [[ "${ALLOW_MISSING_DEPLOY_SECRETS:-0}" == "1" ]]; then
+  echo "WARNING: skipping the remote secret inventory check for an explicit first-deploy bootstrap" >&2
+else
+  pnpm deploy:preflight "$service" "$target_env"
+fi
+
 if [[ "$service" == "jobs" ]]; then
   exec wrangler deploy --config workers/jobs/wrangler.jsonc --env "$target_env" --var "APP_BASE_URL:$APP_BASE_URL"
 fi
@@ -45,5 +51,9 @@ vars=(
 [[ -n "${EMAIL_ALLOWLIST:-}" ]] && vars+=(--var "EMAIL_ALLOWLIST:$EMAIL_ALLOWLIST")
 [[ -n "${AIRTABLE_BASE_ID:-}" ]] && vars+=(--var "AIRTABLE_BASE_ID:$AIRTABLE_BASE_ID")
 
-opennextjs-cloudflare build --env "$target_env"
-exec opennextjs-cloudflare deploy --env "$target_env" "${vars[@]}"
+pnpm build:worker --env "$target_env"
+# OpenNext's deploy helper also initializes a local platform proxy and would
+# otherwise load ignored developer env files while populating cache assets.
+# Keep the same isolation boundary used by the reproducible build.
+bash scripts/build-worker-clean.sh --command \
+  pnpm exec opennextjs-cloudflare deploy --env "$target_env" "${vars[@]}"

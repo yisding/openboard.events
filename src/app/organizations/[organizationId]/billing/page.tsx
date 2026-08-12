@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { getOrganizationBillingSummary, listBillingPlans } from "@/features/billing";
+import { getOrganizationBillingSummary, isBillingSurfaceEnabled, listBillingPlans } from "@/features/billing";
 import { BillingPanel } from "@/features/billing/components/billing-panel";
 import { getOrganization } from "@/features/organizations";
 import { PageHeader } from "@/shared/ui/ui-kit";
@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
  * further restricts plan changes to owners.
  */
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
+  if (!isBillingSurfaceEnabled()) notFound();
   if (isCredentialFreeLocalDemo()) {
     return <PageHeader eyebrow="ORGANIZATION" title="Billing" description="Billing is unavailable in the credential-free demo." />;
   }

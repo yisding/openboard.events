@@ -32,6 +32,8 @@ export {
 
 export { incrementOrganizationUsage, incrementOrganizationUsageIn } from "./server/usage";
 
+export { billingSurfaceUnavailableResponse, isBillingSurfaceEnabled } from "./server/availability";
+
 export {
   applyBillingProviderEvent,
   applyBillingProviderEventIn,

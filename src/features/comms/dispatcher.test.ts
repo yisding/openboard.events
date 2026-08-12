@@ -84,6 +84,8 @@ const productionSendEnv = parseEnv({
   R2_ACCESS_KEY_ID: "access",
   R2_SECRET_ACCESS_KEY: "secret",
   R2_BUCKET_NAME: "sb-files",
+  RESEND_WEBHOOK_SECRET: "w".repeat(32),
+  SPEAKER_SHARE_SECRET: "p".repeat(32),
 });
 
 describe("communications outbox dispatcher", () => {

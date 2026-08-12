@@ -2,6 +2,7 @@ import { runDataRetentionSweep } from "@/features/data-lifecycle";
 import { nudgeStalledFileExports, pruneExpiredFileExports } from "@/features/portal/deliverables";
 import type { JobStats } from "@/shared/contracts";
 import { cleanupOrphans } from "@/shared/server/r2";
+import { pruneOperationalErrors } from "@/shared/server/operational-errors";
 import { defineJobRoute } from "../_lib";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +27,14 @@ export const dynamic = "force-dynamic";
 // progress still comes from the Files view's poll loop; this is only the
 // fallback for a closed tab.
 export const { POST } = defineJobRoute("cleanup", async (): Promise<JobStats> => {
-  const [orphans, retention, nudged, exports] = await Promise.all([
-    cleanupOrphans(), runDataRetentionSweep(), nudgeStalledFileExports(), pruneExpiredFileExports(),
+  const [orphans, retention, nudged, exports, operationalErrors] = await Promise.all([
+    cleanupOrphans(), runDataRetentionSweep(), nudgeStalledFileExports(), pruneExpiredFileExports(), pruneOperationalErrors(),
   ]);
-  return { ...orphans, ...retention, nudgedStalledExports: nudged.nudged, deletedExpiredExports: exports.deleted };
+  return {
+    ...orphans,
+    ...retention,
+    ...operationalErrors,
+    nudgedStalledExports: nudged.nudged,
+    deletedExpiredExports: exports.deleted,
+  };
 });

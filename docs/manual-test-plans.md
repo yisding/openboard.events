@@ -1061,6 +1061,10 @@ a production-mode render is a P0.
 (§0.2). Steps 2 onward work on either provider; if you would rather not switch, start from step 2
 using an organization you already belong to and note that self-serve signup went untested.
 
+Billing is outside the deployed launch scope while only the stub provider exists. Steps 17–18
+require an explicit local `BILLING_MODE=scaffold`; preview and production validation reject that
+mode, hide the navigation entry, and return 404 from the billing surface.
+
 | # | Action | Expected result |
 |---|---|---|
 | 1 | `/signup` with a fresh address | Account created and signed in |
@@ -1094,8 +1098,8 @@ using an organization you already belong to and note that self-serve signup went
 | 29 | Push a contact to an event roster | Appears under that event's **Speakers** |
 | 30 | CRM metrics | Agree with the directory and pipeline |
 
-**Known gaps.** M55 (CRM) landed partial; billing is a scaffold by design. Steps 17–18 test that it
-does not lie about what it does.
+**Known gaps.** M55 (CRM) landed partial; billing is a local-only scaffold by design. Steps 17–18
+test that it does not lie about what it does.
 
 ---
 

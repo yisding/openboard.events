@@ -1,7 +1,8 @@
 # Alerting thresholds
 
-What to page on, what to only log, and where each signal comes from. Two independent alerting
-paths exist today, and this file is the index between them:
+What to page on, what to only log, and where each signal comes from. Two automated alerting
+paths plus one Cloudflare runtime failure signal exist today, and this file is the index between
+them:
 
 1. **Uptime/health-based** — `.github/workflows/uptime.yml` polls `/api/health` on a schedule and
    fails the workflow run when a threshold below is breached. A failed scheduled GitHub Actions
@@ -10,20 +11,30 @@ paths exist today, and this file is the index between them:
    *is* the alert today. A Slack/PagerDuty webhook step can be added to the same job later without
    changing anything in this file's thresholds; see the workflow's own header comment for where.
 
-   **Which origins are polled is configuration.** The workflow reads the repository variables
-   `UPTIME_PREVIEW_URL` (defaulted to the deployed preview) and `UPTIME_PRODUCTION_URL` (unset), and
-   an environment with no configured origin is skipped with a `::notice::` instead of polled. This
-   is load-bearing for the whole "a failed run *is* the alert" scheme: the production Worker
-   (`sb-web`) has never been deployed, and polling it anyway made every scheduled run red, which is
-   indistinguishable from a real preview outage. Set `UPTIME_PRODUCTION_URL` on the day production
-   first deploys and production resumes being polled on the next schedule.
-2. **Error-rate-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single seam
-   every unmapped `INTERNAL` error (`defineHandler`'s catch block, the job routes' catch block)
-   flows through before it becomes the generic 500 the caller sees. It is console-only today
-   (`console.error` with a structured JSON entry); wiring a real provider is confined to that one
-   file per its own doc comment. Until that lands, "alerting" on this path means **reading the
-   Cloudflare dashboard's Worker logs / `wrangler tail`**, not an automated page — recorded here so
-   the gap is explicit rather than assumed-covered.
+   **Which origins are polled is configuration with fail-safe defaults.** The workflow reads the
+   repository variables `UPTIME_PREVIEW_URL` and `UPTIME_PRODUCTION_URL` when present; otherwise it
+   polls the canonical deployed workers.dev origins committed in the workflow. Both environments
+   run on every schedule and neither can be silently skipped because a repository variable is
+   missing. Override a default only when the corresponding custom domain is live and monitored.
+2. **Unexpected-error-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single
+   seam every unmapped `INTERNAL` error (`defineHandler` and job routes) flows through. Next's
+   `instrumentation.ts` adds uncaught renders, Server Actions, middleware, and unwrapped route
+   failures. Raw messages and stacks remain in structured Cloudflare Workers Logs; deployed
+   invocations use `ctx.waitUntil()` to aggregate only a SHA-256 fingerprint, feature, code,
+   minute, and count in `operational_error_buckets`. `/api/health` publishes only the last-hour
+   count. The scheduled uptime check fails on one or more unexpected errors, so this path is an
+   automated alert rather than a dashboard-reading procedure. Rows older than seven days are
+   removed by the daily cleanup job.
+3. **Scheduled-dispatch status** — `workers/jobs/index.ts` gives every web request a 120-second
+   deadline, allows every due sibling to settle, and rejects the aggregate `waitUntil()` promise
+   if any failed. Cloudflare records that rejection as a failed Cron Trigger invocation under
+   **Workers & Pages → `sb-jobs[-preview]` → Triggers → Past Events**. Workers Logs receive
+   `scheduled.job_complete`, `scheduled.job_failed`, or `scheduled.job_request_failed` with job,
+   status, and duration only; response bodies are never copied into the dispatcher log. A web-job
+   500 also reaches path 2 through `captureError`, but an authentication or network failure may
+   exist only in this Cloudflare status/log path. Past Events is currently a runtime signal, not
+   an independently routed pager; inspect it during deployment and incident triage, and treat any
+   failed invocation as an incident until an external Cloudflare notification is configured.
 
 ## `/api/health` thresholds
 
@@ -33,6 +44,10 @@ paths exist today, and this file is the index between them:
 | `ok` | `true` | — | `false` | The route's own outer catch fired — almost always `db.ok: false` below; see its body for the reason. |
 | `db.ok` | `true` | — | `false` | Neon is unreachable or the configured `DATABASE_URL` is invalid. Every write and read in the product depends on this. |
 | `db.version` present | non-empty string | — | missing/`"unknown"` while `db.ok: true` | Contradictory response — investigate rather than trust either half. |
+| `errors` present | object | missing only during the additive one-deploy rollout | missing after the current release has passed strict post-deploy smoke | The strict smoke requires this field; the scheduled check warns rather than paging while an older artifact is still live. |
+| `errors.ok` | `true` | — | `false` | The aggregate query failed, so caught application errors cannot reach the automated alert. Raw Cloudflare logs remain available, but silent monitor failure is itself an incident. |
+| `errors.windowSeconds` | `3600` | — | missing or any other value | The polling threshold and the aggregation window have drifted; do not interpret `recentCount` until they agree. |
+| `errors.recentCount` | `0` | — | `> 0` | These are unexpected 500-class failures, not validation/auth/user errors. On this low-traffic application, one caught failure is actionable and must link back to `error.captured` logs by time/feature/code. |
 | `comms.ok` | `true` | `false` on one poll | treat as a page once it recurs across **multiple separate uptime-workflow runs** | The `communication_logs` aggregate query itself failed — table locked, migration mid-flight, or a real DB fault the version probe didn't happen to hit. `scripts/uptime-check.sh` annotates this as a warning rather than failing the run outright (see rationale below), so a recurring `comms.ok: false` shows up as repeated warnings in the workflow's run history — that history is what "recurs" means here; there is no automated run-counter. |
 | `comms.queuedCount` | low double digits or less | `> 100` | `> 300` | The jobs Worker's cron claims up to 50 rows/minute (`dispatchOutboxIn`'s default budget) — a healthy dispatcher keeps this near zero between ticks. Sustained growth past 100 means sends are being enqueued faster than the dispatcher drains them, or the dispatcher has stopped running. |
 | `comms.failedCount` | `0` | `> 10` | `> 50` | Terminal failures (`markFailure`'s `attempts >= 6` cutoff, or a non-retriable `AppError` code). A nonzero baseline is normal — a bad address, a disabled template — but a spike means a systemic problem: `RESEND_API_KEY` rotated/revoked, `EMAIL_FROM` broken, or the allowlist blocking every preview address. |
@@ -54,13 +69,14 @@ the workflow run.
 |---|---|---|
 | `pnpm worker:size` compressed bundle | warn `> 2.5 MiB`, fail `> 3 MiB` | `scripts/check-worker-size.sh`, already a CI gate (`.github/workflows/ci.yml`'s `artifacts` job) — listed here only so it appears in one place alongside the runtime thresholds, not duplicated as a new check. |
 | Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s final step — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
+| Jobs Cron Trigger invocation | any failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The web route owns raw error capture; dispatcher logs stay metadata-only. |
 
 ## R2 / storage
 
-No numeric threshold today — R2 has no request/error-rate metric surfaced through this app.
+No R2-specific numeric threshold today — R2 has no request/error-rate metric surfaced through this app.
 `comms.failedCount` above catches the downstream symptom of a broken sending path; a broken
-*storage* path shows up as elevated `INTERNAL` errors on the upload/finalize routes, which is the
-error-tracking path (§ above), not a health-endpoint number. See
+*storage* path shows up as `INTERNAL` errors on the upload/finalize routes, which now increments
+the automated `errors.recentCount` page above. See
 [`r2-lifecycle.md`](./r2-lifecycle.md) for the orphan-object cleanup cadence, which is a hygiene
 job, not an alerting signal — a growing bucket of unreclaimed staging objects costs storage, not
 correctness.

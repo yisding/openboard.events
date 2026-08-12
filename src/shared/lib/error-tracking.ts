@@ -1,11 +1,8 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { LogEntry } from "./log";
+import type { OperationalErrorContext } from "@/shared/server/operational-errors";
 
-export type ErrorCaptureContext = {
-  requestId: string;
-  feature: string;
-  eventId?: string;
-  code?: string;
-};
+export type ErrorCaptureContext = OperationalErrorContext;
 
 /**
  * The single seam between the AppError/logger boundary and an error-tracking
@@ -15,18 +12,11 @@ export type ErrorCaptureContext = {
  * the caller sees — so every production 500 and every failed cron tick is
  * captured with its real message and stack, not just an error code.
  *
- * Console-only today. Wiring a real provider later is confined to this one
- * file:
- *   1. `pnpm add @sentry/cloudflare` (check `pnpm worker:size` /
- *      `scripts/check-worker-size.sh` after — this is the only place the
- *      dependency would be imported).
- *   2. Provision a `SENTRY_DSN` secret and read it via `getEnv()`.
- *   3. Call `Sentry.init({ dsn })` once, guarded on the DSN being set, and
- *      replace the `console.error` below with
- *      `Sentry.captureException(normalized, { extra: context })`.
- * No other file in the repo should import a tracking SDK directly — every
- * unexpected error already flows through `captureError`, so that
- * replacement is the entire migration.
+ * Raw diagnostics go to Cloudflare Workers Logs. Deployed invocations also
+ * schedule a privacy-safe aggregate write through `ctx.waitUntil()`: only a
+ * fingerprint, feature, code, minute, and count are persisted, and the health
+ * endpoint exposes only the recent aggregate count. A logging-provider export
+ * can still be added later without changing callers.
  */
 export function captureError(error: unknown, context: ErrorCaptureContext): void {
   const normalized = error instanceof Error ? error : new Error(String(error));
@@ -37,7 +27,33 @@ export function captureError(error: unknown, context: ErrorCaptureContext): void
     feature: context.feature,
     ...(context.eventId ? { eventId: context.eventId } : {}),
     ...(context.code ? { code: context.code } : {}),
+    ...(context.route ? { route: context.route } : {}),
   };
-  // The one sink this module owns. A provider swap replaces this line only.
   console.error(JSON.stringify({ ...entry, error: normalized.message, stack: normalized.stack }));
+
+  // Next dev/test/build has no request-scoped Cloudflare context and should
+  // remain credential-free. A deployed Worker supplies both the environment
+  // discriminator and a real waitUntil, which prevents the aggregate write
+  // from being canceled after the 500 response is returned.
+  try {
+    const { env, ctx } = getCloudflareContext();
+    const bindings = env as unknown as Record<string, unknown>;
+    if ((env.APP_ENV !== "preview" && env.APP_ENV !== "production") || typeof bindings.DATABASE_URL !== "string") return;
+    const persistence = import("@/shared/server/operational-errors")
+      .then(({ recordOperationalError }) => recordOperationalError(normalized, context))
+      .catch((persistenceError: unknown) => {
+        const failure = persistenceError instanceof Error ? persistenceError : new Error(String(persistenceError));
+        console.error(JSON.stringify({
+          level: "error",
+          msg: "error.persistence_failed",
+          requestId: context.requestId,
+          feature: "observability",
+          error: failure.message,
+        }));
+      });
+    ctx.waitUntil(persistence);
+  } catch {
+    // Absence of a Cloudflare request context is the normal local path. The
+    // diagnostic log above is still emitted, and no floating promise exists.
+  }
 }
