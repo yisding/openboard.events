@@ -99,7 +99,9 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         : { [HISTORY_GUARD_ACTIVE]: marker };
       window.history.replaceState(markerState, "", currentUrl);
       window.history.pushState(activeState, "", currentUrl);
-      let restoringMarker = false;
+      let restoringGuard = false;
+      let restorationForwardSteps = 0;
+      let traversalStartedAtMarker = false;
       let active = true;
       const leave = (action?: () => void) => {
         if (!active) {
@@ -128,31 +130,43 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
       };
       historyFallbackRef.current = { leave };
+      const restoreGuard = () => {
+        restorationForwardSteps += 1;
+        window.history.forward();
+      };
       const guardHistory = (event: PopStateEvent) => {
         if (allowNextRef.current) {
           allowNextRef.current = false;
           return;
         }
         const state = event.state as Record<string, unknown> | null;
-        if (restoringMarker && state?.[HISTORY_GUARD_ACTIVE] === marker) {
-          restoringMarker = false;
+        if (restoringGuard) {
+          event.stopImmediatePropagation();
+          if (state?.[HISTORY_GUARD_ACTIVE] !== marker) {
+            restoreGuard();
+            return;
+          }
+          restoringGuard = false;
+          const backSteps = traversalStartedAtMarker ? 1 : Math.max(1, restorationForwardSteps - 1);
           setPending((current) => current ?? {
             confirm: () => leave(() => {
               allowNextRef.current = true;
-              window.history.back();
+              window.history.go(-backSteps);
             }),
             cancel: () => undefined,
           });
           return;
         }
-        if (state?.[HISTORY_GUARD_MARKER] === marker) {
-          restoringMarker = true;
-          window.history.forward();
-        }
+        if (state?.[HISTORY_GUARD_ACTIVE] === marker) return;
+        event.stopImmediatePropagation();
+        restoringGuard = true;
+        restorationForwardSteps = 0;
+        traversalStartedAtMarker = state?.[HISTORY_GUARD_MARKER] === marker;
+        restoreGuard();
       };
-      globalThis.addEventListener("popstate", guardHistory);
+      globalThis.addEventListener("popstate", guardHistory, { capture: true });
       return () => {
-        globalThis.removeEventListener("popstate", guardHistory);
+        globalThis.removeEventListener("popstate", guardHistory, { capture: true });
         if (active) leave();
       };
     }
