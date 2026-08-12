@@ -20,7 +20,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   let role: MemberRole;
   let userId: UserId;
   try {
-    const session = await requireOrganizationAdmin(organizationId);
+    const session = await requireOrganizationAdmin(organizationId, "organizer");
     role = session.role;
     userId = session.userId;
   } catch (error) {

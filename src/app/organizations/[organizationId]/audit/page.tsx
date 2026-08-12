@@ -19,7 +19,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
 
   try {
     // Reading the log is the same bar as managing the team: organizer or above.
-    await requireOrganizationAdmin(organizationId);
+    await requireOrganizationAdmin(organizationId, "organizer");
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {

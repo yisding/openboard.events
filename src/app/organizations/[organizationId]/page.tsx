@@ -67,13 +67,13 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       eyebrow="ORGANIZATION"
       title={organization.name}
       description="Your organization's event directory. Event access is assigned separately."
-      actions={<>
+      actions={canManageEvents ? <>
         <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>
-        {canManageEvents && <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>}
-      </>}
+        <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>
+      </> : undefined}
     />
     <div className="event-grid">
       {events.map(({ event, eventRole }) => <EventCard key={event.id} event={event} eventRole={eventRole} />)}

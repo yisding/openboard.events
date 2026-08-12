@@ -26,7 +26,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
 
   let role: MemberRole;
   try {
-    const session = await requireOrganizationAdmin(organizationId);
+    const session = await requireOrganizationAdmin(organizationId, "organizer");
     role = session.role;
   } catch (error) {
     if (!isAppError(error)) throw error;
