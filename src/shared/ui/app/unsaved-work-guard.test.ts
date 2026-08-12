@@ -9,6 +9,7 @@ describe("shell unsaved-work guard wiring", () => {
     expect(source).toContain('navigation.addEventListener("navigate", guardNavigation)');
     expect(source).toContain('globalThis.addEventListener("beforeunload", warnBeforeUnload)');
     expect(source).toContain("setPending((current) => current ?? { confirm: action");
+    expect(source).toContain("allowNextRef.current = Boolean(action)");
   });
 
   it("guards sign-out before the authentication request and mounts at the event shell", () => {

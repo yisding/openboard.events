@@ -108,10 +108,13 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
         active = false;
         historyFallbackRef.current = null;
+        const performAction = () => {
+          allowNextRef.current = Boolean(action);
+          action?.();
+        };
         const finish = () => {
           window.history.replaceState(previousState, "", currentUrl);
-          allowNextRef.current = false;
-          action?.();
+          performAction();
         };
         const state = window.history.state as Record<string, unknown> | null;
         if (state?.[HISTORY_GUARD_ACTIVE] === marker) {
@@ -121,7 +124,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         } else if (state?.[HISTORY_GUARD_MARKER] === marker) {
           finish();
         } else {
-          action?.();
+          performAction();
         }
       };
       historyFallbackRef.current = { leave };
