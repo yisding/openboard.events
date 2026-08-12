@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { SignupForm } from "@/features/auth/components/signup-form";
 import { Brand } from "@/shared/ui/brand";
 import { getEnv } from "@/shared/lib/env";
+import { signupLegalConsent } from "@/features/auth/legal-consent";
 
 export const metadata: Metadata = { title: "Create your workspace" };
 // Keep the page in lockstep with the runtime auth provider used by the API.
@@ -16,6 +17,6 @@ export default function SignupPage() {
   if (env.ADMIN_AUTH_PROVIDER !== "better-auth") redirect("/login");
   return <main className="login-page">
     <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><SignupForm /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><SignupForm legalConsent={signupLegalConsent(env)} /></Suspense></div></section>
   </main>;
 }

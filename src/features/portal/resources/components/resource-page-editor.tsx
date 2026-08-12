@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
@@ -67,12 +69,17 @@ export function ResourcePageEditor({
 }) {
   const { toast } = useToast();
   const formRef = useRef<HTMLDivElement>(null);
-  const [draft, setDraft] = useState<ResourcePageDraft>(() => draftFromPage(page));
+  const initialDraft = draftFromPage(page);
+  const [draft, setDraft] = useState<ResourcePageDraft>(initialDraft);
+  const [baseline, setBaseline] = useState<ResourcePageDraft>(initialDraft);
   const [slugTouched, setSlugTouched] = useState(Boolean(page));
   const [mode, setMode] = useState<"rich" | "source">("rich");
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRequestId = useRef(createStableCreateRequestId());
+  const { runGuarded } = useGuardedAction();
+  const dirty = open && editorDraftChanged(draft, baseline);
+  useUnsavedWorkGuard(dirty);
 
   useEffect(() => {
     if (!open) {
@@ -81,7 +88,9 @@ export function ResourcePageEditor({
     }
     if (page) createRequestId.current.reset();
     else createRequestId.current.begin();
-    setDraft(draftFromPage(page));
+    const nextDraft = draftFromPage(page);
+    setDraft(nextDraft);
+    setBaseline(nextDraft);
     setSlugTouched(Boolean(page));
     setMode("rich");
     setFieldErrors({});
@@ -107,9 +116,13 @@ export function ResourcePageEditor({
     });
   }
 
-  function closeEditor() {
+  function discardEditor() {
     createRequestId.current.reset();
     onClose();
+  }
+
+  function closeEditor() {
+    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor });
   }
 
   async function save() {
@@ -152,6 +165,7 @@ export function ResourcePageEditor({
         return;
       }
       toast(draft.id ? "Page updated" : "Page created");
+      setBaseline(draft);
       await onSaved();
       createRequestId.current.reset();
     } catch {
@@ -169,11 +183,11 @@ export function ResourcePageEditor({
       description="Speakers see this in the portal once it is published."
       wide
       footer={<>
-        <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
-        <Button disabled={!draft.title.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create page"}</Button>
+        <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
+        <Button disabled={!draft.title.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
       </>}
     >
-      <div ref={formRef} className="form-stack">
+      <div ref={formRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
         <Field label="Title" required error={fieldErrors.title} errorId="resource-title-error">
           <input required aria-invalid={Boolean(fieldErrors.title) || undefined} aria-describedby={fieldErrors.title ? "resource-title-error" : undefined} value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
         </Field>

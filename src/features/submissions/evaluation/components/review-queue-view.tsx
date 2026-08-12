@@ -299,14 +299,14 @@ export function ReviewQueueView({
 
   if (!plan) {
     return (
-      <main className="page">
+      <div className="page">
         <PageHeader eyebrow="REVIEW" title="Review" />
         <EmptyState
           icon={<ClipboardCheck size={20} />}
           title="No review round is open"
           description="An organizer creates a scoring round and assigns you submissions before anything appears here."
         />
-      </main>
+      </div>
     );
   }
 
@@ -335,19 +335,19 @@ export function ReviewQueueView({
 
   if (reviewWindow?.state === "before_open") {
     return (
-      <main className="page">
+      <div className="page">
         <PageHeader eyebrow="REVIEW" title={plan.name} {...roundSwitcher} />
         <EmptyState
           icon={<Lock size={20} />}
           title="This round has not opened yet"
           description={notice ?? "Your assignments become readable when the round opens."}
         />
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="REVIEW"
         title={plan.name}
@@ -568,6 +568,6 @@ export function ReviewQueueView({
         onConfirm={discardAndNavigate}
         onCancel={() => setPendingNavigation(null)}
       />
-    </main>
+    </div>
   );
 }

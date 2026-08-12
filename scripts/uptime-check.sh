@@ -6,7 +6,7 @@
 # often than the Deploy workflow and safe to run by hand at any time:
 #
 #   bash scripts/uptime-check.sh https://sb-web-preview.yi-ding.workers.dev
-#   bash scripts/uptime-check.sh https://sb-web.yi-ding.workers.dev
+#   bash scripts/uptime-check.sh https://openboard.events
 #
 # Thresholds mirror docs/runbooks/alerting.md's `/api/health` table exactly —
 # update both together, in the same change, if either changes. Two exit tiers:

@@ -311,6 +311,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* App shell */
 .app-shell { min-height: 100vh; }
+.admin-skip-link { position: fixed; z-index: 40; top: 8px; left: 8px; transform: translateY(calc(-100% - 16px)); padding: 10px 16px; border: 2px solid var(--accent-dark); border-radius: 7px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); font-size: 13px; font-weight: 700; transition: transform .15s; }
+.admin-skip-link:focus-visible { transform: translateY(0); }
 .admin-sidebar { position: fixed; z-index: 30; inset: 0 auto 0 0; width: 236px; background: var(--sidebar); color: var(--on-dark); display: flex; flex-direction: column; }
 .sidebar-brand { height: 65px; display: flex; align-items: center; padding: 0 24px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .mobile-close { display: none; }
@@ -355,7 +357,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .notification-button i { position: absolute; right: 7px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--red-bright); border:1px solid var(--surface); }
 .save-indicator { margin-left: 8px; border-left: 1px solid var(--line); padding-left: 12px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
 .save-indicator svg { color: var(--accent-dark); }
-.app-content { padding: 32px; max-width: 1510px; margin: 0 auto; }
+.app-content { padding: 32px; max-width: 1510px; margin: 0 auto; scroll-margin-top: 81px; }
+.settings-main { min-width: 0; }
 .mobile-menu { display: none; }
 
 /* Shared admin content */
@@ -1496,6 +1499,9 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
 .auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}
+.auth-consent{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;color:var(--muted);font-size:12px;font-weight:400;line-height:1.5;cursor:pointer}
+.auth-consent input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.auth-consent a{color:var(--accent-dark);font-weight:600;text-decoration:underline;text-underline-offset:2px}
 
 @media(max-width:768px){
   /* The hosted event nav is the only route switcher on public pages. Preserve

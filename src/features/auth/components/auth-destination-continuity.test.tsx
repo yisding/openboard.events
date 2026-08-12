@@ -24,4 +24,20 @@ describe("authentication destination continuity", () => {
 
     expect(html).toContain('href="/login?next=%2Fjoin%3Ftoken%3Dinvite-123"');
   });
+
+  it("shows the exact reviewed policies as a required, compact signup consent", () => {
+    const html = renderToStaticMarkup(<SignupForm legalConsent={{
+      termsUrl: "https://openboard.example/terms",
+      termsVersion: "terms-2026-08",
+      privacyUrl: "https://openboard.example/privacy",
+      privacyVersion: "privacy-2026-08",
+    }} />);
+
+    expect(html).toContain('name="legalConsentAccepted"');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("required");
+    expect(html).toContain('href="https://openboard.example/terms"');
+    expect(html).toContain('href="https://openboard.example/privacy"');
+    expect(html).toContain('target="_blank"');
+  });
 });

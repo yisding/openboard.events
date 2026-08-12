@@ -9,12 +9,9 @@ import { dayTabLabel, eventDayKeys } from "../../store";
  * in the evening for the venue's zone never shows up under tomorrow's tab for
  * an admin sitting in another one.
  *
- * `AgendaViewProps` carries no day-navigation callback — the toolbar's own day
- * bar (`agenda-toolbar.tsx`, M28-owned) drives the `?day=` URL param for every
- * day-scoped view uniformly. This module is a leaf surface that never edits
- * that file, so its own tab strip keeps local selection state, seeded from
- * `props.day` when the toolbar has one and defaulting to the event's first day
- * otherwise — the grid always has a concrete day to lay sessions out against.
+ * AgendaPage owns the active day. Both this inner strip and the toolbar update
+ * that state and the URL together, so the grid and session-create dialog always
+ * agree about which day the organizer is looking at.
  */
 export function DayTabs({
   event,

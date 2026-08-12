@@ -11,7 +11,7 @@
 // owned by the journaled `drizzle/` migrations, never by Better Auth.
 import { betterAuth } from "better-auth/minimal";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { adminAccounts, adminSessions, adminVerifications, users } from "@/db/schema";
@@ -25,9 +25,11 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
+import { signupLegalConsent, type SignupLegalConsent } from "../legal-consent";
 import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
+import { recordSignupLegalAcceptanceIn } from "./legal-consent";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -90,12 +92,47 @@ function signupProvisioningInput(context: { path?: string; body?: unknown } | nu
   };
 }
 
+const LEGAL_CONSENT_ERROR = "Agree to the current Terms of Service and acknowledge the Privacy Policy to create an account.";
+
+/**
+ * Trust the server's configured versions, never a version invented by the
+ * browser. Requiring the submitted values to match also makes an already-open
+ * signup tab refresh when policy configuration changes under it.
+ */
+function acceptedSignupLegalConsent(
+  env: RuntimeEnv,
+  context: { path?: string; body?: unknown } | null,
+): SignupLegalConsent | null {
+  const required = signupLegalConsent(env);
+  if (!required) return null;
+  const body = context?.body && typeof context.body === "object"
+    ? context.body as Record<string, unknown>
+    : {};
+  if (
+    context?.path !== "/sign-up/email"
+    || body.legalConsentAccepted !== true
+    || body.acceptedTermsVersion !== required.termsVersion
+    || body.acknowledgedPrivacyVersion !== required.privacyVersion
+  ) {
+    throw new APIError("BAD_REQUEST", { message: LEGAL_CONSENT_ERROR });
+  }
+  return required;
+}
+
 export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
   const database = deps.database ?? db;
   const secret = env.SESSION_SECRET;
   if (!secret) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin authentication");
+  const legalConsent = signupLegalConsent(env);
   const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-    ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } }
+    ? { google: {
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      // Preserve the existing self-service OAuth door while consent is
+      // dormant. Once reviewed policies activate, new Google identities must
+      // use a future consent-capable OAuth handoff instead of bypassing them.
+      ...(legalConsent ? { disableImplicitSignUp: true } : {}),
+    } }
     : {};
 
   return betterAuth({
@@ -237,13 +274,19 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           // This avoids both email-only membership claims and orphan users
           // when a stale or wrong-address invitation reaches signup.
           before: async (user, context) => {
+            acceptedSignupLegalConsent(env, context);
             const { invitationToken } = signupProvisioningInput(context);
             if (invitationToken) {
               await assertOrganizationInvitationTokenForEmailIn(database, invitationToken, user.email);
             }
           },
           after: async (user, context) => {
-            const result = await provisionNewUser(database, user, signupProvisioningInput(context));
+            const result = await provisionNewUser(
+              database,
+              user,
+              signupProvisioningInput(context),
+              acceptedSignupLegalConsent(env, context),
+            );
             if (!result.viaInvitation) {
               const userId = userIdSchema.parse(user.id);
               await tryRecordOrganizationOnboardingMilestoneIn(
@@ -315,9 +358,11 @@ async function provisionNewUser(
   database: typeof db,
   user: { id: string; email: string; name?: string | null },
   input: SignupProvisioningInput,
+  consent: SignupLegalConsent | null,
 ): Promise<{ organizationId: string; viaInvitation: boolean }> {
   const userId = userIdSchema.parse(user.id);
   try {
+    if (consent) await recordSignupLegalAcceptanceIn(database, userId, consent);
     return await provisionOrganizationForNewUserIn(database, userId, user.email, user.name ?? "", input);
   } catch (error) {
     // Better Auth reports any failure on this path as its one generic

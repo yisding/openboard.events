@@ -15,6 +15,10 @@ const deployed = {
   SPEAKER_SHARE_SECRET: "p".repeat(32),
   GOOGLE_CLIENT_ID: "google-client-id",
   GOOGLE_CLIENT_SECRET: "google-client-secret",
+  LEGAL_TERMS_URL: "https://example.com/terms",
+  LEGAL_TERMS_VERSION: "2026-08-12",
+  LEGAL_PRIVACY_URL: "https://example.com/privacy",
+  LEGAL_PRIVACY_VERSION: "2026-08-12",
 };
 
 describe("parseEnv", () => {
@@ -26,6 +30,47 @@ describe("parseEnv", () => {
 
   it("accepts the isolated preview contract", () => {
     expect(parseEnv({ ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview", TEST_AUTH: "1" }).APP_ENV).toBe("preview");
+  });
+
+  it("allows preview to omit the entire policy set while legal review is pending", () => {
+    const preview: Record<string, unknown> = { ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview" };
+    delete preview.LEGAL_TERMS_URL;
+    delete preview.LEGAL_TERMS_VERSION;
+    delete preview.LEGAL_PRIVACY_URL;
+    delete preview.LEGAL_PRIVACY_VERSION;
+    expect(() => parseEnv(preview)).not.toThrow();
+  });
+
+  it("keeps production deployable while the reviewed policy set is still pending", () => {
+    const production: Record<string, unknown> = {
+      ...deployed,
+      APP_ENV: "production",
+      R2_BUCKET_NAME: "sb-files",
+      EMAIL_MODE: "send",
+      EMAIL_FALLBACK_UI: "0",
+      EMAIL_FROM: "events@example.com",
+    };
+    delete production.LEGAL_TERMS_URL;
+    delete production.LEGAL_TERMS_VERSION;
+    delete production.LEGAL_PRIVACY_URL;
+    delete production.LEGAL_PRIVACY_VERSION;
+    expect(() => parseEnv(production)).not.toThrow();
+  });
+
+  it("rejects partial, unstable, or insecure deployed policy configuration", () => {
+    expect(() => parseEnv({ LEGAL_TERMS_VERSION: "2026-08-12" })).toThrow(/LEGAL_TERMS_URL/);
+    expect(() => parseEnv({
+      ...deployed,
+      APP_ENV: "preview",
+      R2_BUCKET_NAME: "sb-files-preview",
+      LEGAL_TERMS_VERSION: "not a stable version!",
+    })).toThrow(/LEGAL_TERMS_VERSION/);
+    expect(() => parseEnv({
+      ...deployed,
+      APP_ENV: "preview",
+      R2_BUCKET_NAME: "sb-files-preview",
+      LEGAL_PRIVACY_URL: "http://example.com/privacy",
+    })).toThrow(/LEGAL_PRIVACY_URL/);
   });
 
   it("accepts the production contract", () => {

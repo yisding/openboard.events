@@ -85,7 +85,7 @@ export function CommsAdminPage({
 
   return (
     <QueryClientProvider client={client}>
-      <main className="page communications-page communications-admin-page">
+      <div className="page communications-page communications-admin-page">
         <PageHeader eyebrow="ENGAGE" title="Communications" description="Design messages, automate reminders, and understand what reached your audience." />
         <div className="communications-tabs" role="tablist" aria-label="Communications sections">
           {TABS.map((entry) => {
@@ -151,7 +151,7 @@ export function CommsAdminPage({
             </TabBoundary>
           </div>
         )}
-      </main>
+      </div>
     </QueryClientProvider>
   );
 }

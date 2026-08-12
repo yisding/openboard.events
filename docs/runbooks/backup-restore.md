@@ -93,10 +93,10 @@ only the data behind it moved. Restart nothing except what depends on connection
 ### 4. Verify
 
 ```bash
-curl -s https://sb-web.yi-ding.workers.dev/api/health | jq
+curl -s https://openboard.events/api/health | jq
 # db.ok must be true and server_version must return
 
-bash scripts/post-deploy-smoke.sh https://sb-web.yi-ding.workers.dev --strict --production
+bash scripts/post-deploy-smoke.sh https://openboard.events --strict --production
 ```
 
 If the restore point predates a migration currently in `drizzle/`, run `pnpm db:migrate`

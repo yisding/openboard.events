@@ -237,7 +237,7 @@ export function FilesAdminView({
   ], []);
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PEOPLE"
         title="Files"
@@ -348,7 +348,7 @@ export function FilesAdminView({
           )));
         }}
       />
-    </main>
+    </div>
   );
 }
 

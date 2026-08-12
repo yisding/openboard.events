@@ -208,7 +208,7 @@ export function SpeakersAdminView({
   ], []);
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PEOPLE"
         title="Speakers"
@@ -324,6 +324,6 @@ export function SpeakersAdminView({
         onConfirm={async () => { if (await bulkRemind()) setConfirmReminders(false); }}
         onCancel={() => setConfirmReminders(false)}
       />
-    </main>
+    </div>
   );
 }

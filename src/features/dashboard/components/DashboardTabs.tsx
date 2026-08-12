@@ -33,7 +33,7 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
   const query = useDashboardOverview(eventId, initialData, live);
   const overview = query.data;
   const phase = computeEventPhase(overview);
-  return <main className="dashboard-page dashboard-live">
+  return <div className="dashboard-page dashboard-live">
     <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
     {query.isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={() => void query.refetch()}><RefreshCw size={14} /> Retry</button></div>}
     <WidgetBoundary name="activation"><ActivationGuide overview={overview} /></WidgetBoundary>
@@ -47,9 +47,9 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
     <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
     <DashboardTabNav eventId={eventId} active={initialTab} />
     {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
-  </main>;
+  </div>;
 }
 
 export function DashboardLoadError() {
-  return <main className="dashboard-page dashboard-load-error"><div><RefreshCw size={22} /><b>Dashboard data couldn’t be loaded.</b><span>Check the connection and try again.</span></div><button className="button button-primary" type="button" onClick={() => window.location.reload()}>Retry</button></main>;
+  return <div className="dashboard-page dashboard-load-error"><div><RefreshCw size={22} /><b>Dashboard data couldn’t be loaded.</b><span>Check the connection and try again.</span></div><button className="button button-primary" type="button" onClick={() => window.location.reload()}>Retry</button></div>;
 }

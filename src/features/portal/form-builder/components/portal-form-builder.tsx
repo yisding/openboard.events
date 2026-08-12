@@ -243,7 +243,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         <Button disabled={busy} onClick={() => void saveTopLevel()}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
       </div>
     </header>
-    <main className="builder-canvas">
+    <div className="builder-canvas">
       <section className="builder-step">
         <header><div className="step-number">1</div><div><h2>Setup</h2><p>Name this form for your team and speakers.</p></div></header>
         <div className="builder-card form-stack">
@@ -287,7 +287,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
         <Button variant="secondary" onClick={() => setSettingsOpen((current) => !current)}>{settingsOpen ? "Hide settings" : "Show settings"}</Button>
         {settingsOpen && <NotificationsStep form={form} onChange={(patch) => { setForm((current) => ({ ...current, ...patch }) as BuilderForm); setDirty(true); }} />}
       </section>
-    </main>
+    </div>
 
     {/* Add field: standard library (filtered to this form's target type) + a "Create Field" escape hatch to M12's generic committed-type picker. */}
     <Modal open={libraryOpen} onClose={() => setLibraryOpen(false)} title="Add a field" description={`Fields for a ${targetType === "submission" ? "submission" : "contact"} form.`} footer={<Button variant="secondary" onClick={() => { setLibraryOpen(false); setCustomOpen(true); }}>Create custom field instead</Button>}>

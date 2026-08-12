@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Modal, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
@@ -91,11 +93,16 @@ export function TaskEditor({
   onSaved: (saved: TaskDTO) => void | Promise<void>;
 }) {
   const { toast } = useToast();
-  const [draft, setDraft] = useState<TaskDraft>(() => draftFromTask(task, timezone));
+  const initialDraft = draftFromTask(task, timezone);
+  const [draft, setDraft] = useState<TaskDraft>(initialDraft);
+  const [baseline, setBaseline] = useState<TaskDraft>(initialDraft);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const editorRef = useRef<HTMLDivElement>(null);
   const createRequestId = useRef(createStableCreateRequestId());
+  const { runGuarded } = useGuardedAction();
+  const dirty = open && editorDraftChanged(draft, baseline);
+  useUnsavedWorkGuard(dirty);
 
   useEffect(() => {
     if (!open) {
@@ -104,7 +111,9 @@ export function TaskEditor({
     }
     if (task) createRequestId.current.reset();
     else createRequestId.current.begin();
-    setDraft(draftFromTask(task, timezone));
+    const nextDraft = draftFromTask(task, timezone);
+    setDraft(nextDraft);
+    setBaseline(nextDraft);
     setFieldErrors({});
   }, [open, task, timezone]);
 
@@ -119,9 +128,13 @@ export function TaskEditor({
     setFieldErrors((current) => withoutFieldError(current, field));
   }
 
-  function closeEditor() {
+  function discardEditor() {
     createRequestId.current.reset();
     onClose();
+  }
+
+  function closeEditor() {
+    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor });
   }
 
   function setMode(mode: TaskDraft["completionMode"]) {
@@ -179,6 +192,7 @@ export function TaskEditor({
         return;
       }
       toast(draft.id ? "Task updated" : "Task created");
+      setBaseline(draft);
       await onSaved(saved.data);
       createRequestId.current.reset();
     } catch {
@@ -196,11 +210,11 @@ export function TaskEditor({
       description="Assign once to accepted speakers or per accepted submission."
       wide
       footer={<>
-        <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
-        <Button disabled={!draft.name.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create task"}</Button>
+        <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
+        <Button disabled={!draft.name.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create task"}</Button>
       </>}
     >
-      <div ref={editorRef} className="form-stack">
+      <div ref={editorRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
         <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
           <input required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearFieldError("name"); }} placeholder="e.g. Upload final slides" />
         </Field>

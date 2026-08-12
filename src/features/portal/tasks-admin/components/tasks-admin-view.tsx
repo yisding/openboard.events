@@ -157,7 +157,7 @@ export function TasksAdminView({
   }
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PEOPLE"
         title="Tasks"
@@ -281,7 +281,7 @@ export function TasksAdminView({
         onConfirm={async () => { if (pendingDelete) await remove(pendingDelete); }}
         onCancel={() => setPendingDelete(null)}
       />
-    </main>
+    </div>
   );
 }
 
