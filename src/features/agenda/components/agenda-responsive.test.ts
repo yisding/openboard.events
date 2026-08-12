@@ -11,17 +11,28 @@ describe("agenda workspace responsive styles", () => {
     expect(css).toContain(".day-grid-body{min-width:650px");
     expect(css).toContain("@media(max-width:1024px){.dv-layout{grid-template-columns:minmax(0,1fr)}");
     expect(css).toContain(".agenda-workspace{display:block}");
-    expect(css).toContain(".agenda-toolbar>div:last-child{display:none}");
     expect(css).toContain(".agenda-workspace>.day-grid{min-width:0;width:100%}");
     expect(css).toContain(".agenda-workspace>.day-grid .dv-grid{min-width:700px}");
     expect(css).toContain(".agenda-lanes{grid-template-columns:1fr}");
+    // The compact rule earlier in the sheet used to end the organizer's flow by
+    // hiding all search/create controls and accepted submissions. The later
+    // mobile rules must explicitly restore both surfaces after that declaration.
+    const hiddenActions = css.indexOf(".agenda-toolbar>div:last-child{display:none}");
+    const restoredActions = css.indexOf(".agenda-toolbar>div:last-child{display:flex;width:100%", hiddenActions + 1);
+    const hiddenAccepted = css.indexOf(".accepted-tray{display:none}");
+    const restoredAccepted = css.indexOf(".accepted-tray{display:flex;flex:0 0 auto", hiddenAccepted + 1);
+    expect(hiddenActions).toBeGreaterThan(-1);
+    expect(restoredActions).toBeGreaterThan(hiddenActions);
+    expect(hiddenAccepted).toBeGreaterThan(-1);
+    expect(restoredAccepted).toBeGreaterThan(hiddenAccepted);
+    expect(css).toContain(".accepted-tray button{width:44px;height:44px}");
     // The toolbar's second row used to be expressed as a `(min-width:769px) and
     // (max-width:1200px)` band. T5 allows only max-width:480/768/1024/1280, so
-    // the band is now a ≤1024 rule plus a ≤768 reset that hands the narrow end
-    // its single-row layout back. Assert both halves, and that no min-width or
+    // the band is now a ≤1024 wrap plus a ≤768 mobile reflow that keeps every
+    // action reachable. Assert both halves, and that no min-width or
     // range-syntax query has crept back in.
     expect(css).toContain(".page:has(.agenda-workspace)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap");
-    expect(css).toContain(".page:has(.agenda-workspace)>.agenda-toolbar{height:49px;flex-wrap:nowrap;padding-block:0}");
+    expect(css).toContain(".page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap");
     // Match only the query preludes, not the prose in the comment that records
     // why the band was folded.
     const preludes = css.match(/@media[^{]*/g) ?? [];
