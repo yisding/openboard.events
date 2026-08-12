@@ -34,12 +34,24 @@ plans (fast, resettable, no setup) and an invalid one for anything a server must
 ```bash
 pnpm install
 cp .dev.vars.example .dev.vars     # fill DATABASE_URL, DATABASE_URL_DIRECT, SESSION_SECRET
+
+# The CLI steps below do NOT read .dev.vars — see the note underneath. Export it first:
+set -a; source .dev.vars; set +a
+
 pnpm db:migrate                    # applies drizzle/ to DATABASE_URL_DIRECT
 APP_ENV=local pnpm seed --wipe     # deterministic demo world; --wipe TRUNCATEs first
 pnpm dev                           # http://localhost:3000
 ```
 
-Then the admin accounts (`docs/admin-bootstrap.md` has the full flow):
+> **Why the `source` line.** `.dev.vars` is a Wrangler file. `pnpm dev` reads it because
+> `next.config.ts` calls `initOpenNextCloudflareForDev()`, which puts Wrangler's platform proxy
+> behind `getEnv()` — but `pnpm db:migrate` (drizzle-kit) and `pnpm seed` / `pnpm admin:bootstrap`
+> (tsx) run outside Next, where `getCloudflareContext()` throws and `getEnv()` falls back to bare
+> `process.env`. In a clean shell they see nothing: `drizzle.config.ts` gets an empty
+> `DATABASE_URL_DIRECT` and the seed fails with `DATABASE_URL is required`. Export the file, or pass
+> the two URLs inline on each command. (The same gap is in the README's quickstart.)
+
+Then the admin accounts (`docs/admin-bootstrap.md` has the full flow), in the same exported shell:
 
 ```bash
 BOOTSTRAP_EVENT_ID=9677e5d3-ccfc-5270-9b22-e551f8b4c57d \
@@ -51,6 +63,22 @@ pnpm admin:bootstrap
 Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, `EMAIL_FALLBACK_UI=1`,
 `TEST_AUTH=1`, `ADMIN_AUTH_PROVIDER=fallback` — unless a plan says otherwise. Those four are what
 make OTPs visible in the browser and email inspectable without Resend.
+
+**Two plans do say otherwise.** `ADMIN_AUTH_PROVIDER` selects between two admin auth
+implementations with disjoint session storage, and some surfaces exist under only one of them:
+
+| Surface | `fallback` | `better-auth` |
+|---|---|---|
+| Sign in / sign out | ✅ | ✅ |
+| `POST /api/test/login` (the `TEST_AUTH` backdoor) | ✅ | ❌ `409`, by design |
+| `/login/forgot` → reset | ❌ the page says so plainly — there is no reset endpoint | ✅ |
+| `/account/sessions`, revoke, revoke-all | ❌ the cookie is a stateless JWT with no `admin_sessions` row | ✅ |
+| `/signup` (`POST /api/auth/sign-up/email`) | ❌ | ✅ |
+
+So **MTP-02 §2 and MTP-13 step 1 require `ADMIN_AUTH_PROVIDER=better-auth` and a restart**; every
+other plan runs on `fallback`. Switching is safe mid-campaign: passwords are mirrored both ways, so
+the password you bootstrapped works on either provider. Switching *back* after a reset does not
+invalidate a fallback cookie issued before the switch — rotate `SESSION_SECRET` if that matters.
 
 **File uploads** presign against real R2. Either fill `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME=sb-files-dev`, or run those steps on Env C. CORS is only
@@ -338,61 +366,62 @@ having walked away for a day — and that what lands in the database is exactly 
 | 3 | Enter a wrong code | Rejected with a retry that does not clear the rest of the wizard |
 | 4 | Enter the correct code | Signed in for submission; the wizard advances |
 | 5 | Answer *Format* = **Workshop** | The conditional **Workshop duration** appears. Choosing **Talk** hides it again |
-| 6 | Answer the conditional, then change Format back to **Talk** and submit | The hidden branch's answer is **stripped**, not stored as an orphan |
-| 7 | Answer *Track* = **Platforms**; complete Title, Description, First/Last, Email; submit | Success page with a `SESS-n` code |
-| 8 | Check Abstracts as organizer | Track reads **AI Agents**, tag **Tooling** — the routing rule overrode the speaker's answer |
-| 9 | Open the submission's answers | Every answer present, including the conditional; hidden-branch answers absent (not blank) |
-| 10 | *(Env C)* Repeat 1–7 with a real inbox | The OTP email arrives from the verified domain and the code works. `424242` is rejected — that shortcut is Env B only |
+| 6 | **Submission A (the stripping case).** Answer the conditional, then change Format back to **Talk**, complete the required fields, and submit | Success page with a `SESS-n` code. The hidden branch's answer is **stripped**, not stored as an orphan |
+| 7 | Check Submission A as organizer | Format **Talk**, and the track is the one the speaker chose — the Workshop routing rule matches `format = workshop` and must **not** have fired here |
+| 8 | **Submission B (the routing case).** Start a second proposal. Set *Format* = **Workshop**, answer the Workshop duration follow-up, set *Track* = **Platforms**, complete Title, Description, First/Last, Email, and submit **with Workshop still selected** | Success page with the next `SESS-n` code |
+| 9 | Check Submission B as organizer | Track reads **AI Agents**, tag **Tooling** — the routing rule overrode the speaker's *Platforms* answer |
+| 10 | Open both submissions' answers | B has every answer including the conditional. A has no orphaned Workshop-duration answer — absent, not blank |
+| 11 | *(Env C)* Repeat steps 1–8 with a real inbox | The OTP email arrives from the verified domain and the code works. `424242` is rejected — that shortcut is Env B only |
 
 ### §2 Validation and content
 
 | # | Action | Expected result |
 |---|---|---|
-| 11 | Submit with every required field empty | Each error is on its own field, the first invalid field takes focus, and the page does not scroll to the top (D3/D4) |
-| 12 | Enter a malformed email at the account step | Rejected as user input. **Not** an internal error — a bad server config once wore user-validation's clothes here |
-| 13 | Exceed a text field's character limit | Blocked with a live counter; the server rejects it too if you bypass the client |
-| 14 | Paste 5,000 words of rich text into Description | Accepted up to the limit, formatting preserved, no layout break in the drawer or the portal (D7) |
-| 15 | Submit a title of `<img src=x onerror=alert(1)>` | Stored and rendered inert everywhere — Abstracts, drawer, portal, exports. No dialog |
-| 16 | Submit emoji, accented characters, CJK, and an RTL string | Round-trip intact in every surface, including the CSV export |
-| 17 | Submit a title of exactly 255 characters, then 256 | 255 accepted, 256 rejected with the limit named |
+| 12 | Submit with every required field empty | Each error is on its own field, the first invalid field takes focus, and the page does not scroll to the top (D3/D4) |
+| 13 | Enter a malformed email at the account step | Rejected as user input. **Not** an internal error — a bad server config once wore user-validation's clothes here |
+| 14 | Exceed a text field's character limit | Blocked with a live counter; the server rejects it too if you bypass the client |
+| 15 | Paste 5,000 words of rich text into Description | Accepted up to the limit, formatting preserved, no layout break in the drawer or the portal (D7) |
+| 16 | Submit a title of `<img src=x onerror=alert(1)>` | Stored and rendered inert everywhere — Abstracts, drawer, portal, exports. No dialog |
+| 17 | Submit emoji, accented characters, CJK, and an RTL string | Round-trip intact in every surface, including the CSV export |
+| 18 | Submit a title of exactly 255 characters, then 256 | 255 accepted, 256 rejected with the limit named |
 
 ### §3 Interruption, resumption, and duplication
 
 | # | Action | Expected result |
 |---|---|---|
-| 18 | Mid-wizard, reload the page | Answers survive — the draft is server-persisted |
-| 19 | Mid-wizard, close the browser; return **on a different device** with the same email and a new code | The draft is there. This is the difference between a server draft and `sessionStorage` |
-| 20 | Open the same draft in two tabs; edit a field in each; submit from tab A, then tab B | One submission, or a clear conflict message. Never two rows for one draft |
-| 21 | Double-click **Submit** | One submission, one code |
-| 22 | Submit with the network throttled to offline, then restore | A clear failure and a retry that does not duplicate. The user must be able to tell whether it went through (D4) |
-| 23 | Press Back after the success page | You cannot resubmit the same draft by going back |
-| 24 | Submit 3 proposals from one email (the seeded limit), then a 4th | The 4th is blocked by a friendly limit page naming the limit — not a 500, not a silent failure |
+| 19 | Mid-wizard, reload the page | Answers survive — the draft is server-persisted |
+| 20 | Mid-wizard, close the browser; return **on a different device** with the same email and a new code | The draft is there. This is the difference between a server draft and `sessionStorage` |
+| 21 | Open the same draft in two tabs; edit a field in each; submit from tab A, then tab B | One submission, or a clear conflict message. Never two rows for one draft |
+| 22 | Double-click **Submit** | One submission, one code |
+| 23 | Submit with the network throttled to offline, then restore | A clear failure and a retry that does not duplicate. The user must be able to tell whether it went through (D4) |
+| 24 | Press Back after the success page | You cannot resubmit the same draft by going back |
+| 25 | Submit 3 proposals from one email (the seeded limit), then a 4th | The 4th is blocked by a friendly limit page naming the limit — not a 500, not a silent failure |
 
 ### §4 The deadline boundary
 
 | # | Action | Expected result |
 |---|---|---|
-| 25 | Set the form to close 3 minutes out. Start a submission at minute 1, submit at minute 4 | The server refuses on the deadline. It does not accept because the wizard opened before close, and it says so kindly |
-| 26 | Confirm the boundary is evaluated in the **event's** timezone, not the browser's | With your clock outside Pacific, the cutoff still fires at the event's local 23:59 |
-| 27 | Reopen the form; resubmit | Accepted, with the draft intact |
+| 26 | Set the form to close 3 minutes out. Start a submission at minute 1, submit at minute 4 | The server refuses on the deadline. It does not accept because the wizard opened before close, and it says so kindly |
+| 27 | Confirm the boundary is evaluated in the **event's** timezone, not the browser's | With your clock outside Pacific, the cutoff still fires at the event's local 23:59 |
+| 28 | Reopen the form; resubmit | Accepted, with the draft intact |
 
 ### §5 Edit-until-close and withdrawal
 
 | # | Action | Expected result |
 |---|---|---|
-| 28 | As the speaker, portal → Submissions → the new proposal → **Edit your proposal** | The CTA is present while the form is open and the submission undecided |
-| 29 | Change an answer; save | Persists; the organizer sees the new value; the submission keeps its code and its `pending` status |
-| 30 | Accept the submission as organizer; reload the portal | The **Edit** CTA is gone. Decided work is not editable |
-| 31 | Close the form; check an undecided submission's CTA | Also gone, with an explanation rather than a dead button (D2/D4) |
-| 32 | Withdraw a submission from the portal | Status `withdrawn`; it leaves the organizer's pending tab; the count drops |
+| 29 | As the speaker, portal → Submissions → the new proposal → **Edit your proposal** | The CTA is present while the form is open and the submission undecided |
+| 30 | Change an answer; save | Persists; the organizer sees the new value; the submission keeps its code and its `pending` status |
+| 31 | Accept the submission as organizer; reload the portal | The **Edit** CTA is gone. Decided work is not editable |
+| 32 | Close the form; check an undecided submission's CTA | Also gone, with an explanation rather than a dead button (D2/D4) |
+| 33 | Withdraw a submission from the portal | Status `withdrawn`; it leaves the organizer's pending tab; the count drops |
 
 ### §6 Integrity cross-check
 
 | # | Action | Expected result |
 |---|---|---|
-| 33 | Count submissions in Abstracts, on the Dashboard, and via `/api/v1/events/<slug>/stats` | All three agree |
-| 34 | List every `SESS-n` code issued in this plan | Unique, sequential, no gaps, no reuse — including the manual abstract from MTP-03 §2 |
-| 35 | Export CSV and diff a row against the drawer | Every answer matches; commas and newlines are correctly quoted |
+| 34 | Count submissions in Abstracts, on the Dashboard, and via `/api/v1/events/<slug>/stats` | All three agree |
+| 35 | List every `SESS-n` code issued in this plan | Unique, sequential, no gaps, no reuse — including the manual abstract from MTP-03 §2 |
+| 36 | Export CSV and diff a row against the drawer | Every answer matches; commas and newlines are correctly quoted |
 
 ### §7 Design checks
 
@@ -403,8 +432,9 @@ every step; **D9** on the deadline copy.
 
 ### Exit criteria
 
-§1–§6 pass. Step 20, 21, 22 (no duplicate submissions) and step 26 (timezone boundary) are
-non-negotiable.
+§1–§6 pass. Steps 21, 22, 23 (no duplicate submissions) and step 27 (timezone boundary) are
+non-negotiable, as is step 7 — a routing rule that fires when its condition is *not* met is as wrong
+as one that fails to fire.
 
 ---
 
@@ -500,53 +530,75 @@ otherwise. This is 49 attempts; a spreadsheet with a row per pair is the right a
 | # | Action | Expected result |
 |---|---|---|
 | 1 | Every legal pair in §0.5 | Succeeds, and the new status is reflected in the tabs, the drawer, the dashboard, and the portal |
-| 2 | Every illegal pair | Refused with a specific error. The refusal must come from the **database trigger** as well as the UI — test at least three illegal pairs via the API directly |
+| 2 | Every illegal pair | Refused with a specific error naming the transition — not a 500, and not a silent no-op that leaves the row unchanged while the UI claims success |
 | 3 | `declined → withdrawn` specifically | Refused. It is the one absence that looks like an oversight and is not |
 | 4 | `withdrawn → pending` | Allowed — a speaker who withdrew can be reinstated |
 | 5 | Any transition into `draft` | Refused from every status |
+
+**The trigger needs its own test, and the API cannot give it one.** `transitionStatus`
+(`src/features/submissions/server/mutations.ts:557`) calls `assertTransition` for every source status
+*before* it issues the `UPDATE`, so an illegal pair posted to the API is rejected in the application
+layer and never reaches Postgres. Steps 1–5 therefore prove the application guard only — they would
+pass unchanged if `guard_submission_transition()` were dropped tomorrow.
+
+To test the second line of defence, bypass the application with a direct statement against the
+database (`drizzle/0001_views_triggers.sql:1-27` is what you are exercising):
+
+```sql
+BEGIN;
+-- pick any row and attempt an illegal move; declined → withdrawn is the sharpest case
+UPDATE submissions SET status = 'withdrawn'
+ WHERE id = '<a declined submission id>' AND status = 'declined';
+ROLLBACK;   -- the trigger should have raised before you get here
+```
+
+| # | Action | Expected result |
+|---|---|---|
+| 6 | Run the statement above for **three** illegal pairs, including `declined → withdrawn` and one jump into `draft` | Each raises from `guard_submission_transition()` and aborts the transaction. A successful `UPDATE` here means the trigger is missing or wrong, however green the API looks |
+| 7 | Run one **legal** pair the same way | Succeeds — proving the failures in step 6 are the guard and not a broken statement |
 
 ### §2 Queues and bulk decisions
 
 | # | Action | Expected result |
 |---|---|---|
-| 6 | Select 5 pending submissions → **Accept queue** | All 5 staged. Nothing is emailed by staging (D4 — the UI must make clear that staging is not deciding) |
-| 7 | Move 2 of them from accept queue to decline queue | Allowed; counts on both tabs update |
-| 8 | Commit the accept queue | Those become `accepted` |
-| 9 | Select 20 rows across two pages and bulk-decide | The action applies to your actual selection — confirm the count in the confirmation matches, and spot-check a row from each page |
-| 10 | Bulk-decide with one row already in the target status | Idempotent; no error, no double-write |
-| 11 | Undo a decision, then re-decide it | Both moves are legal and both are recorded |
-| 12 | Attempt a bulk action on a withdrawn row | Skipped with a reason, not a hard failure that abandons the whole batch |
+| 8 | Select 5 pending submissions → **Accept queue** | All 5 staged. Nothing is emailed by staging (D4 — the UI must make clear that staging is not deciding) |
+| 9 | Move 2 of them from accept queue to decline queue | Allowed; counts on both tabs update |
+| 10 | Commit the accept queue | Those become `accepted` |
+| 11 | Select 20 rows across two pages and bulk-decide | The action applies to your actual selection — confirm the count in the confirmation matches, and spot-check a row from each page |
+| 12 | Bulk-decide with one row already in the target status | Idempotent; no error, no double-write |
+| 13 | Undo a decision, then re-decide it | Both moves are legal and both are recorded |
+| 14 | Attempt a bulk action on a withdrawn row | Skipped with a reason, not a hard failure that abandons the whole batch |
 
 ### §3 Notification
 
 | # | Action | Expected result |
 |---|---|---|
-| 13 | **Notify accepted speakers** | A confirmation naming the exact recipient count before sending |
-| 14 | Drain the outbox | **Exactly one** `submission_accepted` row per accepted submission. Recipients are the submitters only |
-| 15 | Read a rendered message | Correct speaker name, correct talk title, a working portal link, no template tokens, no raw ids (D6) |
-| 16 | Press **Notify** again with nothing changed | No new rows, and the UI says why |
-| 17 | Accept one more submission, then Notify | Exactly one new message — for the new one only |
-| 18 | Notify **declined** speakers | One decline message each; the copy is a decline, and no accept message is sent to anyone |
-| 19 | Add a suppression for one recipient, then Notify | That address is skipped and the skip is recorded with its reason — not counted as sent |
-| 20 | Undo an acceptance **after** notifying, then re-accept and notify | The speaker is not silently told twice with no explanation. Whatever the product does here, it must be deliberate and visible |
-| 21 | As the notified speaker, open the portal | Status reads **Accepted**; the decision is visible without an email |
-| 22 | Check a `decline_queue` submission in the portal | It reads **Pending** — internal queue names never leak (D6, and a privacy matter) |
+| 15 | **Notify accepted speakers** | A confirmation naming the exact recipient count before sending |
+| 16 | Drain the outbox | **Exactly one** `submission_accepted` row per accepted submission. Recipients are the submitters only |
+| 17 | Read a rendered message | Correct speaker name, correct talk title, a working portal link, no template tokens, no raw ids (D6) |
+| 18 | Press **Notify** again with nothing changed | No new rows, and the UI says why |
+| 19 | Accept one more submission, then Notify | Exactly one new message — for the new one only |
+| 20 | Notify **declined** speakers | One decline message each; the copy is a decline, and no accept message is sent to anyone |
+| 21 | Add a suppression for one recipient, then Notify | That address is skipped and the skip is recorded with its reason — not counted as sent |
+| 22 | Undo an acceptance **after** notifying, then re-accept and notify | The speaker is not silently told twice with no explanation. Whatever the product does here, it must be deliberate and visible |
+| 23 | As the notified speaker, open the portal | Status reads **Accepted**; the decision is visible without an email |
+| 24 | Check a `decline_queue` submission in the portal | It reads **Pending** — internal queue names never leak (D6, and a privacy matter) |
 
 ### §4 Delivery on Env C
 
 | # | Action | Expected result |
 |---|---|---|
-| 23 | With `EMAIL_MODE=send` and an allowlisted inbox, accept and notify | Delivered from the verified domain, `dmarc=pass`, SPF/DKIM aligned |
-| 24 | Inspect headers | `List-Unsubscribe` present; reply-to is a monitored address |
-| 25 | Press Notify twice on Env C | One delivery. Idempotency holds across the real dispatcher |
+| 25 | With `EMAIL_MODE=send` and an allowlisted inbox, accept and notify | Delivered from the verified domain, `dmarc=pass`, SPF/DKIM aligned |
+| 26 | Inspect headers | `List-Unsubscribe` present; reply-to is a monitored address |
+| 27 | Press Notify twice on Env C | One delivery. Idempotency holds across the real dispatcher |
 
 ### §5 Integrity cross-check
 
 | # | Action | Expected result |
 |---|---|---|
-| 26 | Compare each status tab's count to the counts endpoint and the dashboard | All agree. A doubled count means a per-plan ratings join leaked into a count |
-| 27 | Compare accepted count to `/api/v1/events/<slug>/stats` | Agrees |
-| 28 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all five public pages and both APIs |
+| 28 | Compare each status tab's count to the counts endpoint and the dashboard | All agree. A doubled count means a per-plan ratings join leaked into a count |
+| 29 | Compare accepted count to `/api/v1/events/<slug>/stats` | Agrees |
+| 30 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all five public pages and both APIs |
 
 ### §6 Design checks
 
@@ -557,8 +609,9 @@ naming the count; **D6** on status labels everywhere; **D7** on the table at 128
 
 ### Exit criteria
 
-§1 complete (all 49 pairs recorded), step 14 (exactly one email each), step 16 (idempotent), step 22
-(no internal status leaks), §5 (counts agree).
+§1 complete — all 49 pairs recorded through the application **and** steps 6–7's direct-SQL proof that
+the trigger independently refuses. Then step 16 (exactly one email each), step 18 (idempotent
+re-notify), step 24 (no internal status leaks), and §5 (counts agree).
 
 ---
 
@@ -838,6 +891,12 @@ operation. Step 15 tests the artifact, not the pipeline.
 
 **Environments:** A, **C for the throttle** · **Duration:** ~40 min
 
+This plan runs in two halves under **two different values of `ADMIN_AUTH_PROVIDER`** (see §0.2's
+table). Do not try to run it as one pass — half the steps are unreachable under either provider
+alone, and a tester who does not know that will file the absences as bugs.
+
+### §1 Under `ADMIN_AUTH_PROVIDER=fallback` (the default)
+
 | # | Action | Expected result |
 |---|---|---|
 | 1 | Visit an event URL signed out | Redirect to `/login`, return path preserved |
@@ -847,22 +906,39 @@ operation. Step 15 tests the artifact, not the pipeline.
 | 5 | Sign in as the reviewer | Only **Review queue** in the nav; role reads **Reviewer** |
 | 6 | Reviewer hand-types `/events/<eventId>/settings` | Denied |
 | 7 | Reviewer hand-types the other event's dashboard | Denied — scoping is per-event membership |
-| 8 | `/login/forgot` with the organizer's address | Neutral confirmation regardless of existence |
-| 9 | Drain the outbox; read the log | A reset message with a working link |
-| 10 | Use the link; set a new password; reuse the link | Reset succeeds; the link is single-use |
-| 11 | Sign in with new, then old password | New works; old rejected |
-| 12 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time |
-| 13 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation |
-| 14 | **Revoke all** | Every session including the current one ends |
-| 15 | *(C)* Six paced wrong-password attempts | Five `401`s then `429 RATE_LIMITED` |
-| 16 | `POST /api/test/login` with `TEST_AUTH=1` | `200` and an admin cookie |
-| 17 | `TEST_AUTH=0`, repeat | `404` |
-| 18 | `TEST_AUTH=1` + `ADMIN_AUTH_PROVIDER=better-auth`, repeat | `409` naming the provider mismatch |
-| 19 | *(Optional)* Google sign-in under `better-auth` | Round-trips through `/api/auth/callback/google` |
+| 8 | Open `/login/forgot` | The page states plainly that reset is unavailable on this provider. It does **not** show a form that promises an email nothing will send |
+| 9 | `POST /api/test/login` with `TEST_AUTH=1` | `200` and an admin cookie |
+| 10 | `TEST_AUTH=0`, restart, repeat | `404` |
+| 11 | *(C)* Six paced wrong-password attempts | Five `401`s then `429 RATE_LIMITED` |
+
+### §2 Under `ADMIN_AUTH_PROVIDER=better-auth`
+
+**Precondition:** set `ADMIN_AUTH_PROVIDER=better-auth` in `.dev.vars` and restart `pnpm dev`. Your
+bootstrapped password still works — passwords are mirrored between the providers. Sign in again
+before step 12; the fallback cookie from §1 is not read by this provider.
+
+| # | Action | Expected result |
+|---|---|---|
+| 12 | `/login/forgot` with the organizer's address | A form, and a confirmation identical whether or not the address exists |
+| 13 | Drain the outbox; read the log | A reset message with a working `/login/reset?token=…` link. The token is redacted in the log's stored copy |
+| 14 | Use the link; set a new password; reuse the link | Reset succeeds; the link is single-use |
+| 15 | Sign in with new, then old password | New works; old rejected |
+| 16 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time — these are real `admin_sessions` rows |
+| 17 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation, not just a cleared cookie |
+| 18 | **Revoke all** | Every session including the current one ends |
+| 19 | `POST /api/test/login` with `TEST_AUTH=1` still set | `409` naming the provider mismatch — it refuses rather than minting a cookie the next request ignores |
+| 20 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
+| 21 | Switch back to `fallback`, restart, and sign in with the password set in step 14 | Works — the reset was mirrored back |
+
+**Design checks.** §0.7 on `/login`, `/login/forgot`, `/login/reset`, `/account/sessions`. D4 matters
+most here: an auth error that is vague is a support ticket, and step 8's "unavailable" message is
+only good if it says *why* and what to do.
 
 **Known gaps.** Unpaced attempts on Env C hit Cloudflare 1102/503 before the app throttle answers —
-pace step 15 (~1 s) or the result is inconclusive. Under `better-auth`, a password reset cannot
-invalidate a *fallback* cookie issued before the switch; rotate `SESSION_SECRET` if that matters.
+pace step 11 (~1 s) or the result is inconclusive. Step 21's revert has one sharp edge: the
+fallback's cookie is a stateless 7-day JWT with no server record, so a reset performed under
+`better-auth` cannot invalidate a fallback cookie issued *before* the switch. Rotate `SESSION_SECRET`
+if you are testing that boundary.
 
 ---
 
@@ -979,6 +1055,11 @@ a production-mode render is a P0.
 ## MTP-13 — Commercial layer: organizations, team, GDPR, billing, CRM
 
 **Environments:** A · **Duration:** ~60 min
+
+**Precondition:** step 1 needs `ADMIN_AUTH_PROVIDER=better-auth` and a restart — `/signup` posts to
+`POST /api/auth/sign-up/email`, which is a Better Auth endpoint and answers `404` under `fallback`
+(§0.2). Steps 2 onward work on either provider; if you would rather not switch, start from step 2
+using an organization you already belong to and note that self-serve signup went untested.
 
 | # | Action | Expected result |
 |---|---|---|
