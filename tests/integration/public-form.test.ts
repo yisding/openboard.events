@@ -14,6 +14,8 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 
 const eventId = "b1000000-0000-4000-8000-000000000001";
 const otherEventId = "b1000000-0000-4000-8000-000000000002";
@@ -31,6 +33,8 @@ describe("getPublicForm", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationOnboardingMilestones);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -85,6 +89,10 @@ describe("getPublicForm", () => {
     expect(result.form).toHaveProperty("opensAt");
     expect(result.snapshot.version).toBe(1);
     expect(result.openState).toEqual({ open: true, reason: "ok" });
+    const visits = await pglite.query<{ milestone: string; n: number }>(
+      "SELECT milestone, count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='public_form_visited' GROUP BY milestone",
+    );
+    expect(visits.rows).toEqual([{ milestone: "public_form_visited", n: 1 }]);
   });
 
   it("prefers the form's own limit over the event cap", async () => {
@@ -94,6 +102,15 @@ describe("getPublicForm", () => {
     await pglite.query("UPDATE forms SET submission_limit=NULL WHERE id=$1", [cfpForm]);
     expect((await getPublicFormIn(db, "ai-engineer", cfpForm)).form.effectiveLimit).toBe(3);
     await pglite.query("UPDATE forms SET submission_limit=2 WHERE id=$1", [cfpForm]);
+  });
+
+  it("does not duplicate the first-public-visit milestone on repeat reads", async () => {
+    await getPublicFormIn(db, "ai-engineer", cfpForm);
+    await getPublicFormIn(db, "ai-engineer", cfpForm);
+    const visits = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='public_form_visited'",
+    );
+    expect(visits.rows[0]?.n).toBe(1);
   });
 
   it("omits the participant section when participant collection is disabled", async () => {

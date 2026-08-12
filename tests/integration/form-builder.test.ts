@@ -23,6 +23,8 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000001");
 const retryEventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000002");
 
@@ -40,6 +42,8 @@ describe("database-backed form builder", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationOnboardingMilestones);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Builder Conf','builder-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -70,6 +74,22 @@ describe("database-backed form builder", () => {
     const stored = await pglite.query<{ snapshot: unknown }>("SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1", [form.id]);
     expect(formSnapshotSchema.parse(stored.rows[0]?.snapshot).sections).toHaveLength(2);
     expect(await listFormsIn(database, eventId)).toMatchObject([{ id: form.id, submissionCount: 0, draftCount: 0, currentVersion: 1 }]);
+  });
+
+  it("records only the first transition to an open form", async () => {
+    const created = await createFormIn(database, eventId, { internalName: "Milestone CFP", kind: "abstract", collectParticipants: true });
+    try {
+      const opened = await updateFormIn(database, eventId, created.id, { status: "open" }, created.updatedAt);
+      const closed = await updateFormIn(database, eventId, created.id, { status: "closed" }, opened.updatedAt);
+      await updateFormIn(database, eventId, created.id, { status: "open" }, closed.updatedAt);
+
+      const milestones = await pglite.query<{ milestone: string; n: number }>(
+        "SELECT milestone, count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='form_published' GROUP BY milestone",
+      );
+      expect(milestones.rows).toEqual([{ milestone: "form_published", n: 1 }]);
+    } finally {
+      await pglite.query("DELETE FROM forms WHERE id=$1", [created.id]);
+    }
   });
 
   it("replays a committed form create by stable client id without appending authoring rows", async () => {

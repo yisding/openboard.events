@@ -162,6 +162,13 @@
       "when": 1786508400000,
       "tag": "0022_admin_auth_email_outbox",
       "breakpoints": false
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786534800000,
+      "tag": "0023_onboarding_milestones",
+      "breakpoints": false
     }
   ]
 }

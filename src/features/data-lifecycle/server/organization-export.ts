@@ -7,6 +7,10 @@ import {
   listPendingOrganizationInvitationsIn,
   type OrganizationEventRow,
 } from "@/features/organizations";
+import {
+  listOrganizationOnboardingMilestonesIn,
+  type OrganizationOnboardingMilestone,
+} from "@/features/product-signals";
 import type {
   OrganizationAuditLogEntryDTO,
   OrganizationDTO,
@@ -35,19 +39,21 @@ export type OrganizationDataExport = {
   members: OrganizationMemberDTO[];
   pendingInvitations: OrganizationInvitationDTO[];
   auditLog: OrganizationAuditLogEntryDTO[];
+  onboardingMilestones: OrganizationOnboardingMilestone[];
   events: OrganizationEventRow[];
 };
 
 export async function exportOrganizationDataIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationDataExport | null> {
   const organization = await getOrganizationIn(dbOrTx, organizationId);
   if (!organization) return null;
-  const [members, pendingInvitations, auditLog, events] = await Promise.all([
+  const [members, pendingInvitations, auditLog, onboardingMilestones, events] = await Promise.all([
     listOrganizationMembersIn(dbOrTx, organizationId),
     listPendingOrganizationInvitationsIn(dbOrTx, organizationId),
     listOrganizationAuditLogIn(dbOrTx, organizationId, 1000),
+    listOrganizationOnboardingMilestonesIn(dbOrTx, organizationId),
     listOrganizationEventsIn(dbOrTx, organizationId),
   ]);
-  return { exportedAt: new Date().toISOString(), organization, members, pendingInvitations, auditLog, events };
+  return { exportedAt: new Date().toISOString(), organization, members, pendingInvitations, auditLog, onboardingMilestones, events };
 }
 
 export function exportOrganizationData(organizationId: OrganizationId): Promise<OrganizationDataExport | null> {

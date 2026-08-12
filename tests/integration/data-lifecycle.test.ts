@@ -27,6 +27,7 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // M55's CRM. Erasure reaches into it (see `eraseContactDataIn` step 5), so its
 // tables have to exist here or the erasure case proves nothing about them.
 const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("47000000-0000-4000-8000-000000000001");
 // Primary submitter, headshot owner, uploader — everything about them is
@@ -59,7 +60,7 @@ beforeAll(async () => {
   for (const migration of [
     migration0, migration1, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
-    migrationBilling, migrationCrm,
+    migrationBilling, migrationCrm, migrationOnboardingMilestones,
   ]) {
     await pglite.exec(migration);
   }
@@ -456,6 +457,10 @@ describe("exportOrganizationDataIn", () => {
       "INSERT INTO organization_audit_log(organization_id,actor_user_id,action,target_user_id) VALUES($1,$2,'member_added',$2)",
       [organizationId, adminUserId],
     );
+    await pglite.query(
+      "INSERT INTO organization_onboarding_milestones(organization_id,milestone,actor_user_id) VALUES($1,'signup_completed',$2)",
+      [organizationId, adminUserId],
+    );
     await pglite.query("UPDATE events SET organization_id = $1 WHERE id = $2", [organizationId, eventId]);
   });
 
@@ -471,6 +476,9 @@ describe("exportOrganizationDataIn", () => {
     expect(bundle?.pendingInvitations[0]?.email).toBe("invitee@example.com");
     expect(bundle?.auditLog).toHaveLength(1);
     expect(bundle?.auditLog[0]?.action).toBe("member_added");
+    expect(bundle?.onboardingMilestones).toEqual([
+      expect.objectContaining({ milestone: "signup_completed", actorUserId: adminUserId }),
+    ]);
     expect(bundle?.events.map((row) => row.slug)).toEqual(["lifecycle-event"]);
   });
 });

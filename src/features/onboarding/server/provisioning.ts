@@ -3,6 +3,7 @@ import { db, type DbOrTx } from "@/db/client";
 import { events } from "@/db/schema";
 import { assertOrganizationCanCreateEventIn, incrementOrganizationUsageIn } from "@/features/billing";
 import { createEventIn, type CreateEventInput } from "@/features/events";
+import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
 import type { EventDTO, OrganizationId, UserId } from "@/shared/contracts";
 import { startOrganizationOnboardingIn } from "./progress";
 
@@ -32,6 +33,7 @@ export async function provisionOrganizationEventIn(
     if (retry) {
       const event = await createEventIn(dbOrTx, actorUserId, input, organizationId);
       await startOrganizationOnboardingIn(dbOrTx, organizationId, event.id);
+      await tryRecordOrganizationOnboardingMilestoneIn(dbOrTx, organizationId, "event_created", actorUserId);
       return event;
     }
   }
@@ -40,6 +42,7 @@ export async function provisionOrganizationEventIn(
   // default-tenant row to strand if a later seed/metering call fails.
   const event = await createEventIn(dbOrTx, actorUserId, input, organizationId);
   await startOrganizationOnboardingIn(dbOrTx, organizationId, event.id);
+  await tryRecordOrganizationOnboardingMilestoneIn(dbOrTx, organizationId, "event_created", actorUserId);
   await incrementOrganizationUsageIn(dbOrTx, organizationId, "events");
   return event;
 }

@@ -16,7 +16,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { adminAccounts, adminSessions, adminVerifications, users } from "@/db/schema";
 import { assertOrganizationInvitationTokenForEmailIn, provisionOrganizationForNewUserIn } from "@/features/organizations";
-import { userIdSchema, type UserId } from "@/shared/contracts";
+import {
+  tryRecordOrganizationOnboardingMilestoneIn,
+  tryRecordSignupEmailVerifiedIn,
+} from "@/features/product-signals";
+import { organizationIdSchema, userIdSchema, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
@@ -178,6 +182,9 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // message on every password attempt.
       sendOnSignIn: false,
       autoSignInAfterVerification: false,
+      afterEmailVerification: async (user) => {
+        await tryRecordSignupEmailVerifiedIn(database, userIdSchema.parse(user.id));
+      },
       sendVerificationEmail: async ({ user, url }, request) => {
         const provisioningSignup = request && new URL(request.url).pathname.endsWith("/sign-up/email");
         await sendAdminAuthEmailIn(database, {
@@ -232,6 +239,19 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           },
           after: async (user, context) => {
             const result = await provisionNewUser(database, user, signupProvisioningInput(context));
+            if (!result.viaInvitation) {
+              const userId = userIdSchema.parse(user.id);
+              await tryRecordOrganizationOnboardingMilestoneIn(
+                database,
+                organizationIdSchema.parse(result.organizationId),
+                "signup_completed",
+                userId,
+              );
+              // Trusted OAuth providers may create an already-verified user,
+              // so their funnel reaches verification in this hook rather than
+              // through `afterEmailVerification` above.
+              if (user.emailVerified) await tryRecordSignupEmailVerifiedIn(database, userId);
+            }
             try {
               await retargetSignupVerificationEmailIn(database, user.id as UserId, result.organizationId, env);
             } catch (error) {

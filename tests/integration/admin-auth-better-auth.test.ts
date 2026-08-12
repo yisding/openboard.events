@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
@@ -50,7 +50,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -295,6 +295,10 @@ describe("M42 admin auth on Better Auth", () => {
       .from(organizationMembers).where(eq(organizationMembers.userId, stranger?.id ?? ""));
     const firstLink = await getAdminAuthFallbackLinkIn(database, "stranger@example.com", env);
     if (!firstLink || !membership) throw new Error("expected a workspace-specific first verification link");
+    expect(await database.select({ milestone: organizationOnboardingMilestones.milestone })
+      .from(organizationOnboardingMilestones)
+      .where(eq(organizationOnboardingMilestones.organizationId, membership.organizationId)))
+      .toEqual([{ milestone: "signup_completed" }]);
     expect(new URL(firstLink).searchParams.get("callbackURL"))
       .toBe(`/signup/verified?confirmed=1&next=%2Forganizations%2F${membership.organizationId}`);
 
@@ -316,6 +320,11 @@ describe("M42 admin auth on Better Auth", () => {
     const verified = await auth.handler(new Request(link));
     expect(verified.status).toBe(302);
     expect((await database.select({ emailVerified: users.emailVerified }).from(users).where(eq(users.id, stranger?.id ?? "")))[0]?.emailVerified).toBe(true);
+    expect((await database.select({ milestone: organizationOnboardingMilestones.milestone })
+      .from(organizationOnboardingMilestones)
+      .where(eq(organizationOnboardingMilestones.organizationId, membership.organizationId)))
+      .map((row) => row.milestone).sort())
+      .toEqual(["email_verified", "signup_completed"]);
     await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(200);
   });
 
@@ -388,6 +397,11 @@ describe("M42 admin auth on Better Auth", () => {
       expect(newUser?.id).toBeTruthy();
       await expect(getOrganizationMemberRoleIn(database, organization.id, userIdSchema.parse(newUser?.id)))
         .resolves.toBe("organizer");
+      // Joining an existing customer is not a second customer signup in the
+      // organization funnel.
+      await expect(database.select().from(organizationOnboardingMilestones)
+        .where(eq(organizationOnboardingMilestones.organizationId, organization.id)))
+        .resolves.toEqual([]);
     } finally {
       await pglite.query("DELETE FROM organizations WHERE id=$1", [organization.id]);
       await pglite.query("DELETE FROM users WHERE email IN ('invited-through-signup@example.com','wrong-invite-address@example.com')");
