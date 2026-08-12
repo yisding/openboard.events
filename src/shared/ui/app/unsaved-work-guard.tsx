@@ -50,7 +50,11 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       action();
       return;
     }
-    setPending({ confirm: action, cancel: () => undefined });
+    // Keep the first requested destination stable while its confirmation is
+    // open. Global keyboard shortcuts may still fire behind the native dialog;
+    // replacing this decision would make “Discard” perform a different action
+    // than the one the organizer was asked to confirm.
+    setPending((current) => current ?? { confirm: action, cancel: () => undefined });
   }, []);
 
   useEffect(() => {
