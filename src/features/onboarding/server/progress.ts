@@ -137,6 +137,12 @@ export async function updateOrganizationOnboardingIn(
     if (!input.formId || current.formId !== input.formId) {
       throw new AppError("CONFLICT", "Finish the onboarding form associated with this setup");
     }
+    const [completedForm] = await dbOrTx.select({ id: forms.id }).from(forms).where(and(
+      eq(forms.id, input.formId),
+      eq(forms.eventId, input.eventId),
+      eq(forms.context, "cfp"),
+    )).limit(1);
+    if (!completedForm) throw new AppError("NOT_FOUND", "Form not found");
     const [completed] = await dbOrTx.update(eventOnboardingProgress)
       .set({ step: "complete", updatedAt: new Date() })
       .where(and(
@@ -171,12 +177,15 @@ export async function updateOrganizationOnboardingIn(
     if (current.formId && current.formId !== input.formId) {
       throw new AppError("CONFLICT", "A different form is already associated with this setup");
     }
-    const [ownedForm] = await dbOrTx.select({ id: forms.id }).from(forms).where(and(
-      eq(forms.id, input.formId),
-      eq(forms.eventId, input.eventId),
-      eq(forms.context, "cfp"),
-    )).limit(1);
-    if (!ownedForm) throw new AppError("NOT_FOUND", "Form not found");
+    // The ID is deliberately allowed to precede the row: the client reserves
+    // it here before POST so a lost create response remains recoverable.
+    const [existingForm] = await dbOrTx.select({ eventId: forms.eventId, context: forms.context })
+      .from(forms)
+      .where(eq(forms.id, input.formId))
+      .limit(1);
+    if (existingForm && (existingForm.eventId !== input.eventId || existingForm.context !== "cfp")) {
+      throw new AppError("NOT_FOUND", "Form not found");
+    }
   }
 
   // Include the current step in the write predicate. Without it, two tabs

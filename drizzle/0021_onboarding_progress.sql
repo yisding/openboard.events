@@ -7,7 +7,9 @@
 CREATE TABLE event_onboarding_progress (
   event_id uuid PRIMARY KEY,
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  form_id uuid REFERENCES forms(id) ON DELETE SET NULL,
+  -- Reserved before the form INSERT so a committed-but-lost create response
+  -- can be recovered with the same client-generated ID.
+  form_id uuid,
   step text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

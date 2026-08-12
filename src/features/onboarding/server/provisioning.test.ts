@@ -148,12 +148,9 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       formId: null,
       step: "vocabulary",
     });
-    const [unrelatedRow, onboardingRow] = await database.insert(schema.forms).values([
-      { eventId: event.id, context: "cfp", internalName: "Unrelated form", externalTitle: "Unrelated form" },
-      { eventId: event.id, context: "cfp", internalName: "Onboarding form", externalTitle: "Onboarding form" },
-    ]).returning();
-    const unrelatedFormId = formIdSchema.parse(unrelatedRow?.id);
-    const onboardingFormId = formIdSchema.parse(onboardingRow?.id);
+    const onboardingFormId = formIdSchema.parse("e7000000-0000-4000-8000-000000000091");
+    // Reserve the stable ID before the form exists, exactly as the browser
+    // does before POST. A refresh can now retry this same ID safely.
     await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "form",
@@ -164,6 +161,16 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       formId: onboardingFormId,
       step: "form",
     });
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
+      eventId: event.id,
+      step: "complete",
+      formId: onboardingFormId,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const [unrelatedRow] = await database.insert(schema.forms).values([
+      { eventId: event.id, context: "cfp", internalName: "Unrelated form", externalTitle: "Unrelated form" },
+      { id: onboardingFormId, eventId: event.id, context: "cfp", internalName: "Onboarding form", externalTitle: "Onboarding form" },
+    ]).returning();
+    const unrelatedFormId = formIdSchema.parse(unrelatedRow?.id);
     const [collaborator] = await database.insert(schema.users).values({
       email: "resume-collaborator@test.dev",
       name: "Resume Collaborator",

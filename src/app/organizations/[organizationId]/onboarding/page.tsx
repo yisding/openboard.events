@@ -16,6 +16,17 @@ import { isAppError } from "@/shared/lib/errors";
 export const metadata: Metadata = { title: "Set up your event" };
 export const dynamic = "force-dynamic";
 
+async function getReservedOnboardingForm(eventId: Parameters<typeof getFormForBuilder>[0], formId: Parameters<typeof getFormForBuilder>[1]) {
+  try {
+    return await getFormForBuilder(eventId, formId, "cfp");
+  } catch (error) {
+    // The checkpoint reserves its stable ID before POST. A refresh between
+    // those operations should retry creation with that ID, not fail the page.
+    if (isAppError(error) && error.code === "NOT_FOUND") return null;
+    throw error;
+  }
+}
+
 /**
  * M45 — the guided setup wizard's page shell. This is the replacement for
  * the "manual provisioning runbook" the roadmap names: a signed-up
@@ -58,13 +69,14 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     const [event, tracks, form] = await Promise.all([
       getEvent(progress.eventId),
       listTracks(progress.eventId),
-      progress.formId ? getFormForBuilder(progress.eventId, progress.formId, "cfp") : null,
+      progress.formId ? getReservedOnboardingForm(progress.eventId, progress.formId) : null,
     ]);
     if (event) {
       initialState = {
         event,
         tracks,
         step: form ? "form" : progress.step,
+        formId: progress.formId,
         form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
       };
     }

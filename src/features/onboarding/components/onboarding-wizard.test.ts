@@ -15,6 +15,7 @@ Object.assign(globalThis, { React });
 describe("onboarding organization access", () => {
   const organizationPage = readFileSync(new URL("../../../app/organizations/[organizationId]/page.tsx", import.meta.url), "utf8");
   const onboardingPage = readFileSync(new URL("../../../app/organizations/[organizationId]/onboarding/page.tsx", import.meta.url), "utf8");
+  const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
 
   it("redirects only organizers and owners into setup", () => {
     expect(organizationPage).toContain('canManageEvents = roleSatisfies(session.role, "organizer")');
@@ -24,8 +25,16 @@ describe("onboarding organization access", () => {
   });
 
   it("resumes only the form explicitly associated with the checkpoint", () => {
-    expect(onboardingPage).toContain('progress.formId ? getFormForBuilder(progress.eventId, progress.formId, "cfp") : null');
+    expect(onboardingPage).toContain("progress.formId ? getReservedOnboardingForm(progress.eventId, progress.formId) : null");
     expect(onboardingPage).not.toContain("listForms(");
+  });
+
+  it("reserves the stable form ID before creating the form", () => {
+    const reservation = wizard.indexOf('body: JSON.stringify({ eventId: event.id, step: "form", formId: formCreateId })');
+    const creation = wizard.indexOf("create: () => requestData<BuilderFormLite>");
+    expect(reservation).toBeGreaterThan(0);
+    expect(reservation).toBeLessThan(creation);
+    expect(wizard).toContain("initialState?.formId ?? crypto.randomUUID()");
   });
 });
 
@@ -83,6 +92,7 @@ describe("OnboardingWizard event step accessibility", () => {
           description: null,
           sortOrder: 0,
         })],
+        formId: null,
         form: null,
       },
     }));
@@ -102,6 +112,7 @@ describe("OnboardingWizard event step accessibility", () => {
         step: "form",
         event,
         tracks: [],
+        formId: "form-1",
         form: {
           id: "form-1",
           internalName: "Speaker applications",

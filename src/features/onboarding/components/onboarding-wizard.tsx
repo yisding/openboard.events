@@ -55,6 +55,7 @@ export type OnboardingResumeState = {
   step: OnboardingStep;
   event: EventDTO;
   tracks: TrackDTO[];
+  formId: string | null;
   form: BuilderFormLite | null;
 };
 
@@ -160,7 +161,7 @@ export function OnboardingWizard({
   const [formLink, setFormLink] = useState("");
   const [published, setPublished] = useState(false);
   const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(initialState?.form ?? null);
-  const [formCreateId] = useState(() => crypto.randomUUID());
+  const [formCreateId] = useState(() => initialState?.formId ?? crypto.randomUUID());
 
   function fail(summary: string, fields: Record<string, string> = {}) {
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
@@ -250,6 +251,14 @@ export function OnboardingWizard({
     let hasCreatedForm = createdForm !== null;
     setCreatingForm(true);
     try {
+      // Reserve the stable client ID before the form INSERT. If the POST
+      // commits but its response is lost, a refresh retries this exact ID
+      // instead of orphaning the committed form and creating another.
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "form", formId: formCreateId }),
+      });
       const finalForm = await createOrPublishOnboardingForm({
         existing: createdForm,
         publishNow,
