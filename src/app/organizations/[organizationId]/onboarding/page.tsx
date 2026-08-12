@@ -87,7 +87,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       title={initialState ? `Finish setting up ${initialState.event.name}` : "Set up your event"}
       description={initialState
         ? "Your progress was saved. Continue where you left off."
-        : "Event basics, vocabulary, then your first call for speakers form."}
+        : "Add the essentials, organize submissions with optional tracks, then publish your call for speakers."}
     />
     <OnboardingWizard
       organizationId={organizationId}

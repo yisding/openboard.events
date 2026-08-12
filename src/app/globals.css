@@ -1298,18 +1298,46 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .org-picker-card{display:flex;align-items:center;gap:12px;text-align:left}
 .org-picker-card b{display:block;font-size:12.5px}
 .org-picker-card small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
-.onboarding-wizard{max-width:640px}
-.onboarding-lede{color:var(--muted);font-size:11.5px;line-height:1.5;margin:0 0 16px}
+.onboarding-wizard{max-width:720px}
+.onboarding-wizard>.cfp-step{min-height:0;border:0;border-radius:0;padding:8px 0 0;background:transparent}
+.onboarding-progress{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:0!important;margin-bottom:20px!important}
+.onboarding-progress li{position:relative;display:grid;justify-items:center;gap:6px;text-align:center;color:var(--muted)}
+.onboarding-progress li:not(:last-child)::after{content:"";position:absolute;top:12px;left:calc(50% + 16px);width:calc(100% - 32px);border-top:1px solid var(--line-strong)}
+.onboarding-progress li>span{position:relative;z-index:1;width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--line-strong);border-radius:50%;background:var(--surface);font-size:10px;font-weight:600}
+.onboarding-progress li>b{font-size:10px;font-weight:600;letter-spacing:.3px;text-transform:none}
+.onboarding-progress li.active{color:var(--accent-dark)}
+.onboarding-progress li.active>span{border-color:var(--accent);background:var(--accent);color:var(--on-accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.onboarding-progress li.complete{color:var(--green)}
+.onboarding-progress li.complete>span{border-color:var(--green);background:var(--green);color:var(--on-fill)}
+.onboarding-progress li.complete::after{border-color:var(--green)}
+.onboarding-lede{color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 16px}
+.onboarding-advanced{border:1px solid var(--line);border-radius:8px;background:var(--surface-subtle);padding:0 12px}
+.onboarding-advanced summary{min-height:40px;display:flex;align-items:center;justify-content:space-between;color:var(--accent-dark);font-size:11.5px;font-weight:600;cursor:pointer}
+.onboarding-advanced summary::after{content:"+";font-size:16px;font-weight:400}
+.onboarding-advanced[open] summary::after{content:"−"}
+.onboarding-advanced[open]{padding-bottom:12px}
+.onboarding-advanced[open] summary{border-bottom:1px solid var(--line);margin-bottom:12px}
 .onboarding-track-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px}
 .onboarding-track-list li{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:8px 12px;border:1px solid var(--line);border-radius:7px}
 .onboarding-track-list li i{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.onboarding-tracks-step>.field{margin-top:12px}
 .onboarding-toggle{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.onboarding-wizard>.cfp-step>label.onboarding-toggle{display:flex;align-items:center;font-weight:500}
 .onboarding-toggle input{width:15px;height:15px;accent-color:var(--accent)}
 .onboarding-done{text-align:center;padding:32px 24px}
 .onboarding-done h2{font-size:20px;margin:12px 0 6px}
 .onboarding-done p{color:var(--muted);font-size:11.5px;max-width:440px;margin:0 auto}
 .onboarding-done .cfp-actions{justify-content:center;margin-top:24px}
 .onboarding-link-row{display:flex;gap:8px;margin:16px auto 0;max-width:440px}
+
+@media(max-width:480px){
+  .onboarding-wizard{padding:20px}
+  .onboarding-progress li>b{display:block;font-size:9px;letter-spacing:0}
+  .onboarding-wizard .cfp-actions{flex-wrap:wrap}
+  .onboarding-wizard .cfp-actions>*{flex:1 1 100%;justify-content:center}
+  .onboarding-link-row{flex-direction:column}
+  .onboarding-link-row .button{width:100%;justify-content:center}
+}
 
 /* M55 — organization-level Speaker CRM. Two new semantic badge values (the
    pipeline's won/lost stages); everything else in the directory, detail and

@@ -21,7 +21,7 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Workshops", color: "#2a6486" },
   { name: "Lightning Talks", color: "#8a5312" },
 ];
-const STEPS = ["Event basics", "Vocabulary", "First form", "Done"] as const;
+const STEPS = ["Event details", "Tracks", "First form", "Share"] as const;
 const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
 const FIELD_IDS: Record<string, string> = {
   name: "onboarding-event-name",
@@ -42,6 +42,10 @@ function browserTimeZones(): string[] {
   } catch {
     return [DEFAULT_TZ, "America/New_York", "America/Chicago", "America/Denver", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"];
   }
+}
+
+export function preferredTimeZone(candidate: string | undefined, supported: readonly string[]): string {
+  return candidate && supported.includes(candidate) ? candidate : DEFAULT_TZ;
 }
 
 // `BuilderForm` (features/forms/builder-types.ts) has no shared zod contract
@@ -142,6 +146,10 @@ export function OnboardingWizard({
   const previousStepRef = useRef(step);
 
   useEffect(() => {
+    setTimezone(preferredTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone, timeZones));
+  }, [timeZones]);
+
+  useEffect(() => {
     if (previousStepRef.current === step) return;
     previousStepRef.current = step;
     return focusOnNextFrame(stepHeadingRef);
@@ -187,9 +195,9 @@ export function OnboardingWizard({
   async function createEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
     if (!startsAt || !endsAt) {
-      return fail("Starts At and Ends At are both required", {
-        ...(startsAt ? {} : { startsAt: "Starts At is required" }),
-        ...(endsAt ? {} : { endsAt: "Ends At is required" }),
+      return fail("Start and end date are both required", {
+        ...(startsAt ? {} : { startsAt: "Start date and time is required" }),
+        ...(endsAt ? {} : { endsAt: "End date and time is required" }),
       });
     }
     setSaving(true);
@@ -312,8 +320,21 @@ export function OnboardingWizard({
 
   return (
     <div className="panel settings-section onboarding-wizard">
-      <ol className="cfp-progress">
-        {STEPS.map((label, index) => <li key={label} className={step === index + 1 ? "active" : undefined} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
+      <ol className="cfp-progress onboarding-progress" aria-label="Setup progress">
+        {STEPS.map((label, index) => {
+          const stepNumber = index + 1;
+          const complete = stepNumber < step;
+          const active = stepNumber === step;
+          return <li
+            key={label}
+            className={active ? "active" : complete ? "complete" : undefined}
+            aria-current={active ? "step" : undefined}
+            aria-label={`${label}${complete ? ", completed" : active ? ", current step" : ""}`}
+          >
+            <span aria-hidden="true">{complete ? <Check size={12} /> : stepNumber}</span>
+            <b>{label}</b>
+          </li>;
+        })}
       </ol>
       <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
 
@@ -323,11 +344,14 @@ export function OnboardingWizard({
             {hasExistingEvents ? `Set up another event for ${organizationName}.` : `Welcome to ${organizationName} — let's set up your first event.`}
           </p>
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
-            <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="AI.Engineer Sandbox — NYC" />
+            <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
           </Field>
-          <Field label="Event slug" hint="Used in your public URLs — leave blank to generate from the name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
-            <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="ai-engineer-sandbox" />
-          </Field>
+          <details className="onboarding-advanced">
+            <summary>Customize public URL</summary>
+            <Field label="Event slug" hint="Optional — leave blank to generate it from the event name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+              <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
+            </Field>
+          </details>
           <div className="form-grid">
             <Field label="Event type" error={fieldErrors.eventType} errorId="onboarding-event-type-error">
               <Select id="onboarding-event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
@@ -341,10 +365,10 @@ export function OnboardingWizard({
             </Field>
           </div>
           <div className="form-grid">
-            <Field label="Starts At" required error={fieldErrors.startsAt} errorId="onboarding-event-starts-at-error">
+            <Field label="Starts" required error={fieldErrors.startsAt} errorId="onboarding-event-starts-at-error">
               <DateTimePicker id="onboarding-event-starts-at" required invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "onboarding-event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
             </Field>
-            <Field label="Ends At" required error={fieldErrors.endsAt} errorId="onboarding-event-ends-at-error">
+            <Field label="Ends" required error={fieldErrors.endsAt} errorId="onboarding-event-ends-at-error">
               <DateTimePicker id="onboarding-event-ends-at" required invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "onboarding-event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
             </Field>
           </div>
@@ -356,8 +380,8 @@ export function OnboardingWizard({
       )}
 
       {step === 2 && event && (
-        <div className="cfp-step">
-          <p className="onboarding-lede">Add a few tracks — the CFP form and routing rules use these to sort submissions. You can add more later from Settings.</p>
+        <div className="cfp-step onboarding-tracks-step">
+          <p className="onboarding-lede">Tracks help organize submissions, but they are optional. Add a suggestion, create your own, or skip this step and add them later.</p>
           {remainingSuggestions.length > 0 && (
             <div className="chip-picker">
               {remainingSuggestions.map((suggestion) => (
@@ -382,7 +406,7 @@ export function OnboardingWizard({
           </Field>
           <footer className="cfp-actions">
             <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing}>{advancing ? "Saving…" : "Continue"} <ArrowRight size={16} /></Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}

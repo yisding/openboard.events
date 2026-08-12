@@ -77,7 +77,6 @@ test.describe("self-service signup to first value", () => {
     const personName = `E2E Self-service ${stamp}`;
     const organizationName = `E2E Organization ${stamp}`;
     const eventName = `E2E First Event ${stamp}`;
-    const eventSlug = `e2e-first-${stamp}`;
     const formName = `E2E Call for Speakers ${stamp}`;
 
     await removePriorTestAccount(SIGNUP_EMAIL);
@@ -117,9 +116,8 @@ test.describe("self-service signup to first value", () => {
 
     await test.step("create the first event and vocabulary", async () => {
       await page.getByLabel("Event name").fill(eventName);
-      await page.getByLabel("Event slug").fill(eventSlug);
-      await page.getByLabel("Starts At").fill(localInput(30, "09:00"));
-      await page.getByLabel("Ends At").fill(localInput(31, "17:00"));
+      await page.getByLabel("Starts").fill(localInput(30, "09:00"));
+      await page.getByLabel("Ends").fill(localInput(31, "17:00"));
       await page.getByRole("button", { name: /^create event/i }).click();
 
       await expect(page.getByText(/add a few tracks/i)).toBeVisible({ timeout: 30_000 });
@@ -139,7 +137,7 @@ test.describe("self-service signup to first value", () => {
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
-      expect(publicLink).toContain(`/submit/${eventSlug}/`);
+      expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f-]{36}$/);
     });
 
     await test.step("an unauthenticated visitor can open the returned CFP", async () => {
