@@ -63,10 +63,10 @@ least once" item means having actually run this against `sb-web` once, not just 
 ### 3. Verify
 
 ```bash
-curl -s https://sb-web.yi-ding.workers.dev/api/health | jq
+curl -s https://openboard.events/api/health | jq
 # {"ok":true,"service":"sb-web","sha":"<expected-older-sha>","env":"production",...}
 
-bash scripts/post-deploy-smoke.sh https://sb-web.yi-ding.workers.dev --strict --production
+bash scripts/post-deploy-smoke.sh https://openboard.events --strict --production
 ```
 
 Confirm `sha` matches the commit the rolled-back version was built from (the deploy scripts
@@ -117,7 +117,7 @@ pnpm install --frozen-lockfile
 export DATABASE_URL_DIRECT='<sb-prod direct Neon URL>'
 pnpm db:migrate
 
-export APP_BASE_URL='https://sb-web.yi-ding.workers.dev'
+export APP_BASE_URL='https://openboard.events'
 export R2_ACCOUNT_ID='<cloudflare account id>'
 export EMAIL_FROM='AI.Engineer Sandbox <hello@mail.openboard.events>'
 pnpm deploy:web:production

@@ -13,9 +13,10 @@ them:
 
    **Which origins are polled is configuration with fail-safe defaults.** The workflow reads the
    repository variables `UPTIME_PREVIEW_URL` and `UPTIME_PRODUCTION_URL` when present; otherwise it
-   polls the canonical deployed workers.dev origins committed in the workflow. Both environments
+   polls the canonical deployed origins committed in the workflow (workers.dev preview and the
+   `openboard.events` production custom domain). Both environments
    run on every schedule and neither can be silently skipped because a repository variable is
-   missing. Override a default only when the corresponding custom domain is live and monitored.
+   missing. Override a default only when the corresponding deployment origin changes.
 2. **Unexpected-error-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single
    seam every unmapped `INTERNAL` error (`defineHandler` and job routes) flows through. Next's
    `instrumentation.ts` adds uncaught renders, Server Actions, middleware, and unwrapped route
