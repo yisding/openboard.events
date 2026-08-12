@@ -15,6 +15,7 @@ import { isAppError } from "@/shared/lib/errors";
 import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { checkRateLimit } from "@/shared/server/rate-limit";
 import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from "@/shared/demo/seed";
+import { confirmAdminEmail, handleAdminAuthGet } from "./_lib";
 
 /**
  * Admin auth endpoints.
@@ -238,6 +239,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   if (betterAuth && THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);
+  if (betterAuth && path === "confirm-email") return confirmAdminEmail(request, {
+    handler: betterAuthHandler,
+    limit: () => checkRateLimit(db, {
+      key: `auth-email:confirm-email:ip:${clientIp(request)}`,
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    }),
+  });
   if (betterAuth && PUBLIC_EMAIL_PATHS.has(path)) return rateLimitedPublicEmailPost(request, path);
   if (betterAuth) return betterAuthHandler(request);
   return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
@@ -246,8 +255,5 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 export async function GET(request: NextRequest) {
   // Only Better Auth serves GETs here — the OAuth callback, `get-session`, and
   // the email-verification link. The fallback has no GET surface at all.
-  if (getEnv().ADMIN_AUTH_PROVIDER !== "better-auth") {
-    return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
-  }
-  return betterAuthHandler(request);
+  return handleAdminAuthGet(request, getEnv().ADMIN_AUTH_PROVIDER === "better-auth", betterAuthHandler);
 }

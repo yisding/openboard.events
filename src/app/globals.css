@@ -1489,6 +1489,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-help{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12.5px;line-height:1.45}
 .auth-help span{color:var(--muted)}
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
+.auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}
 
 @media(max-width:768px){

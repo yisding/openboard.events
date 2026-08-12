@@ -102,14 +102,15 @@ test.describe("self-service signup to first value", () => {
         expect(["delivered", "opened", "clicked"]).toContain(delivery.lastEvent);
         await page.goto(delivery.link);
       }
-      await expect(page.getByRole("heading", { name: "Email confirmed" })).toBeVisible({ timeout: 30_000 });
-    });
-
-    await test.step("sign in and land in the provisioned workspace onboarding", async () => {
-      await page.getByRole("link", { name: /continue to sign in/i }).click();
-      await page.getByLabel("Email address").fill(SIGNUP_EMAIL);
-      await page.getByLabel("Password").fill(password);
-      await page.getByRole("button", { name: /^sign in/i }).click();
+      await expect(page.getByRole("heading", { name: "Confirm your email" })).toBeVisible({ timeout: 30_000 });
+      const sessionsBeforeConfirmation = await queryRows<{ count: string }>(`
+        SELECT count(*)::text AS count
+        FROM admin_sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE lower(u.email) = lower($1)
+      `, [SIGNUP_EMAIL]);
+      expect(Number(sessionsBeforeConfirmation[0]?.count ?? 0), "following the emailed GET must not create a scanner session").toBe(0);
+      await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
     });
@@ -120,7 +121,7 @@ test.describe("self-service signup to first value", () => {
       await page.getByLabel("Ends").fill(localInput(31, "17:00"));
       await page.getByRole("button", { name: /^create event/i }).click();
 
-      await expect(page.getByText(/add a few tracks/i)).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: /^continue/i }).click();

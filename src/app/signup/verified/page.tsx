@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { BadgeCheck, CircleAlert } from "lucide-react";
 import { ActivationResendForm } from "@/features/auth/components/activation-resend-form";
+import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { Brand } from "@/shared/ui/brand";
 
@@ -11,6 +13,11 @@ export default async function VerifiedEmailPage({ searchParams }: { searchParams
   const query = await searchParams;
   const next = safeInternalPath(query.next, "/organizations");
   const failed = Boolean(query.error) || query.confirmed !== "1";
+  // The explicit confirmation POST normally continues straight into the
+  // provisioned workspace. Keep this legacy success callback useful too: a
+  // browser with a verified session continues, while an old/replayed link in
+  // another browser retains the ordinary sign-in fallback below.
+  if (!failed && await getAdminSession()) redirect(next);
   return <main className="login-page">
     <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>
     <section className="login-form-panel"><div><div>
