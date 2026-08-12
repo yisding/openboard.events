@@ -14,7 +14,7 @@ the real database-backed surfaces.
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
 | First tracks | onboarding step 2 | Functional and explicitly optional |
 | First CFP | onboarding step 3 → create/publish form | Functional and retry-aware across refreshes and lost completion responses |
-| First value | onboarding step 4 → copy public submission link | Functional; the exact completed event/form handoff survives reload and links directly to form management |
+| First value | onboarding step 4 → copy public submission link → receive first proposal | Functional; the exact completed event/form handoff survives reload, the generated form omits unanswerable empty choice controls, and the dashboard acknowledges the first submitted proposal |
 
 ## Closed in this slice
 
@@ -67,6 +67,16 @@ the real database-backed surfaces.
   event and restores the same form, public link, and next actions instead of
   accidentally starting another event. Draft and closed forms now lead
   directly to the exact form builder rather than an unrelated settings page.
+- Kept empty optional vocabulary questions in the form builder for later
+  configuration without rendering dead Format, Track, or Tags controls to
+  speakers before those questions have choices.
+- Extended the protected first-user journey beyond opening the public link: it
+  retrieves the real portal OTP from Resend, submits the generated form, proves
+  the stored SESS reference, and verifies that the organizer dashboard replaces
+  its launch guide with the first-submission acknowledgment.
+- Dispatches public CFP verification codes immediately after their durable
+  enqueue, so a first speaker does not wait for the next one-minute outbox cron;
+  the cron remains the retry guarantee.
 
 ## Remaining launch gaps, in priority order
 
@@ -74,8 +84,10 @@ the real database-backed surfaces.
    account through public signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
    verification link into the signed-in workspace, names and provisions the
-   organization, creates an event and optional tracks, publishes a form, and opens the returned link
-   in an unauthenticated browser. The preview mailbox variable is configured; the
+   organization, creates an event and optional tracks, publishes a form, follows
+   the returned link in an unauthenticated browser, completes the real speaker
+   OTP flow, submits a proposal, and observes it back in the organizer dashboard.
+   The preview mailbox variable is configured; the
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before
    production promotion.

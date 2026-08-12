@@ -46,7 +46,7 @@ export function FormFieldRenderer({
           {mode === "edit" && section.descriptionHtml && <RichTextView html={section.descriptionHtml} />}
           <div className="form-grid">
             {section.fields
-              .filter((field) => visible.has(field.id))
+              .filter((field) => visible.has(field.id) && isRenderableFormField(field))
               .map((field) => (
                 <Field
                   key={field.id}
@@ -63,6 +63,21 @@ export function FormFieldRenderer({
       ))}
     </div>
   );
+}
+
+/**
+ * An optional choice question with no choices is configuration, not a
+ * question a speaker can answer. Keep it in the authoring model so an
+ * organizer can add options later, but leave it out of every shared runtime
+ * rendering (public CFP, portal task, review, and builder preview) until it is
+ * useful. A required empty choice remains visible so a broken form cannot
+ * silently appear complete or let a speaker skip a question the snapshot
+ * says they must answer.
+ */
+export function isRenderableFormField(field: FormField): boolean {
+  return !["dropdown", "radio", "multiselect", "checkbox"].includes(field.type)
+    || field.required
+    || field.options.length > 0;
 }
 
 function Field({

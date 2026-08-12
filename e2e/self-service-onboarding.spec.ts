@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { waitForVerificationDelivery } from "./helpers/admin-auth-mail";
+import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
 import { queryRows, withDatabase } from "./helpers/db";
 import {
   BASE_URL,
@@ -67,8 +67,8 @@ test.describe("self-service signup to first value", () => {
   test.skip(!databaseConfigured(), NO_DATABASE);
   test.skip(!signupMailboxConfigured(), NO_SIGNUP_MAILBOX);
 
-  test("a new customer verifies, provisions, publishes, and opens their first CFP", async ({ page, browser }) => {
-    test.setTimeout(120_000);
+  test("a new customer verifies, provisions, publishes, and receives their first proposal", async ({ page, browser }) => {
+    test.setTimeout(180_000);
     if (E2E_FALLBACK_ACTIVATION && !["localhost", "127.0.0.1"].includes(new URL(BASE_URL).hostname)) {
       throw new Error("E2E_FALLBACK_ACTIVATION is local-only; deployed proof must retrieve the delivered Resend message");
     }
@@ -127,6 +127,8 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: /^continue/i }).click();
     });
 
+    let eventId = "";
+    let formId = "";
     let publicLink = "";
     await test.step("publish the first form and capture its public link", async () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
@@ -142,12 +144,18 @@ test.describe("self-service signup to first value", () => {
 
       await page.reload();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?event=[0-9a-f-]{36}$/);
+      eventId = new URL(page.url()).searchParams.get("event") ?? "";
+      formId = new URL(publicLink).pathname.split("/").at(-1) ?? "";
+      expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(formId).toMatch(/^[0-9a-f-]{36}$/);
       await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible();
       await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
       await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
     });
 
-    await test.step("an unauthenticated visitor can open the returned CFP", async () => {
+    const proposalTitle = `E2E First Proposal ${stamp}`;
+    let submissionCode = "";
+    await test.step("a speaker verifies and submits through the returned CFP", async () => {
       const publicContext = await browser.newContext();
       const publicPage = await publicContext.newPage();
       try {
@@ -157,9 +165,57 @@ test.describe("self-service signup to first value", () => {
         await expect(publicPage.getByRole("heading", { name: "Verify your email", level: 2 })).toBeVisible();
         await expect(publicPage.getByLabel("Email address")).toBeVisible();
         await expect(publicPage.getByRole("button", { name: "Send me a code" })).toBeVisible();
+
+        await publicPage.getByLabel("Email address").fill(SIGNUP_EMAIL);
+        await publicPage.getByRole("button", { name: "Send me a code" }).click();
+        const codeInput = publicPage.getByLabel("Six-digit code");
+        await expect(codeInput).toBeVisible({ timeout: 30_000 });
+        const otp = E2E_FALLBACK_ACTIVATION
+          ? (await publicPage.locator(".demo-code code").textContent())?.trim() ?? ""
+          : (await waitForPortalLoginDelivery(eventId, SIGNUP_EMAIL)).otp;
+        expect(otp).toMatch(/^\d{6}$/);
+        await codeInput.fill(otp);
+        await publicPage.getByRole("button", { name: /^continue$/i }).click();
+
+        await expect(publicPage.getByLabel("Title")).toBeVisible({ timeout: 30_000 });
+        // The generated form retains empty vocabulary questions in its
+        // authoring model so an organizer can configure them later, but the
+        // actual proposal step must not show Format/Tags with no choices.
+        await expect(publicPage.getByRole("combobox", { name: "Format", exact: true })).toHaveCount(0);
+        await expect(publicPage.getByText("Tags", { exact: true })).toHaveCount(0);
+        await publicPage.getByLabel("Title").fill(proposalTitle);
+        await publicPage.getByLabel("Description").click();
+        await publicPage.keyboard.type("A real proposal proving the first customer loop end to end.");
+        await publicPage.getByRole("combobox", { name: "Track", exact: true }).selectOption({ label: "Main Stage" });
+        await publicPage.getByRole("button", { name: /^continue$/i }).click();
+
+        await publicPage.getByLabel("First Name").fill("E2E");
+        await publicPage.getByLabel("Last Name").fill("Speaker");
+        await publicPage.getByRole("button", { name: /^review$/i }).click();
+        await expect(publicPage.getByText(proposalTitle, { exact: true })).toBeVisible();
+        await publicPage.getByRole("button", { name: /submit proposal/i }).click();
+        await expect(publicPage.getByRole("heading", { name: /your proposal is in/i })).toBeVisible({ timeout: 30_000 });
+        submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
+        expect(submissionCode).toMatch(/^SESS-\d+$/);
       } finally {
         await publicContext.close();
       }
+    });
+
+    await test.step("the organizer sees the first proposal arrive", async () => {
+      const submissions = await queryRows<{ id: string; code: number; status: string }>(`
+        SELECT id, code, status
+        FROM submissions
+        WHERE event_id = $1 AND form_id = $2 AND title = $3
+      `, [eventId, formId, proposalTitle]);
+      expect(submissions).toHaveLength(1);
+      expect(submissions[0]?.status).toBe("submitted");
+      expect(`SESS-${submissions[0]?.code}`).toBe(submissionCode);
+
+      await page.goto(`/events/${eventId}/dashboard`);
+      await expect(page.getByText("Your first submission arrived", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(proposalTitle, { exact: false })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Get your first submission" })).toHaveCount(0);
     });
 
     await test.step("the privacy-safe first-value milestones are complete", async () => {
