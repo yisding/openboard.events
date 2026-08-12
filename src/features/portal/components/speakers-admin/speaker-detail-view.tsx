@@ -326,7 +326,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
 
       <section className="panel">
         <header className="panel-header"><div><h2>Communications</h2><p>Every message sent to this speaker.</p></div></header>
-        <div className="activity-list" style={{ padding: "0 22px 20px" }}>
+        <div className="activity-list" style={{ padding: "0 24px 24px" }}>
           {detail.comms.length === 0 && <p className="long-copy">No messages sent yet.</p>}
           {detail.comms.map((log) => (
             <div key={log.id}>

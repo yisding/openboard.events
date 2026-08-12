@@ -179,7 +179,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
             ))}
           </div>
         </Field>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Button size="sm" variant="secondary" onClick={() => void preview()} disabled={previewing}><Sparkles size={14} /> {previewing ? "Checking…" : "Preview match count"}</Button>
           {previewTotal !== null && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{previewTotal} contact{previewTotal === 1 ? "" : "s"} match right now</span>}
         </div>

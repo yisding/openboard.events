@@ -30,13 +30,13 @@ export function RichPrimitives() {
         description="The editing and display primitives every feature shares. FileUpload here talks to the real presign and finalize endpoints."
       />
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">RichTextView — the only sanitizing render site</h2>
         <p>The probe below contains an <code>onerror</code> handler and a <code>&lt;script&gt;</code>; neither survives.</p>
         <RichTextView html={HOSTILE_HTML} />
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">RichTextEditor — the toolbar is the allowlist</h2>
         <p>
           Every control here survives a save. Formatting the sanitizer would strip is not offered,
@@ -45,13 +45,13 @@ export function RichPrimitives() {
         <div style={{ maxWidth: 620 }}>
           <RichTextEditor value={bio} onChange={setBio} maxChars={5000} placeholder="Write a speaker bio…" />
         </div>
-        <details style={{ marginTop: 10 }}>
+        <details style={{ marginTop: 12 }}>
           <summary className="section-title">Emitted HTML</summary>
           <pre style={{ whiteSpace: "pre-wrap", fontSize: 11.5 }}>{bio}</pre>
         </details>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">DateTimePicker — event timezone, always labelled</h2>
         <div style={{ display: "grid", gap: 12, maxWidth: 460 }}>
           <label className="field">
@@ -67,7 +67,7 @@ export function RichPrimitives() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">FileUpload — presign, PUT to R2, finalize</h2>
         <p>
           Needs a signed-in session and a real event id; against the demo id below it should fail at
@@ -84,7 +84,7 @@ export function RichPrimitives() {
         {uploaded && <p>Uploaded as <code>{uploaded}</code> — served from <code>/f/{uploaded}</code>.</p>}
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">StatTile</h2>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <StatTile label="Submissions" value={128} hint="+12 today" href="/events/demo/abstracts" />

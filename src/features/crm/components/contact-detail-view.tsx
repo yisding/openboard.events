@@ -265,19 +265,19 @@ export function ContactDetailView({
         </header>
       </div>
 
-      <div className="drawer-tabs" style={{ marginTop: 18 }} role="tablist">
+      <div className="drawer-tabs" style={{ marginTop: 16 }} role="tablist">
         <button type="button" role="tab" aria-selected={tab === "overview"} className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Overview</button>
         <button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History<span>{history.events.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "notes"} className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>Notes<span>{history.notes.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "activity"} className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>Activity<span>{history.activity.length}</span></button>
       </div>
 
-      <div className="drawer-content" style={{ padding: "20px 0" }}>
+      <div className="drawer-content" style={{ padding: "24px 0" }}>
         {tab === "overview" && (
           <div className="crm-detail-layout">
             <section className="panel settings-section">
               <header className="panel-header"><h2>Details</h2></header>
-              <div style={{ padding: "0 20px 20px" }} className="form-stack">
+              <div style={{ padding: "0 24px 24px" }} className="form-stack">
                 <div className="form-grid">
                   <Field label="First name"><input value={fields.firstName} onChange={(event) => setFields((current) => ({ ...current, firstName: event.target.value }))} /></Field>
                   <Field label="Last name"><input value={fields.lastName} onChange={(event) => setFields((current) => ({ ...current, lastName: event.target.value }))} /></Field>
@@ -297,7 +297,7 @@ export function ContactDetailView({
             <aside style={{ display: "grid", gap: 16, alignContent: "start" }}>
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Tags</h2></header>
-                <div style={{ padding: "0 20px 20px" }} className="chip-picker">
+                <div style={{ padding: "0 24px 24px" }} className="chip-picker">
                   {allTags.length === 0 && <p className="long-copy">No tags yet — create one from a note or the directory filters.</p>}
                   {allTags.map((tag) => {
                     const active = history.tags.some((row) => row.id === tag.id);
@@ -313,7 +313,7 @@ export function ContactDetailView({
               {customFields.length > 0 && (
                 <section className="panel settings-section">
                   <header className="panel-header"><h2>Custom fields</h2></header>
-                  <div style={{ padding: "0 20px 20px" }} className="form-stack">
+                  <div style={{ padding: "0 24px 24px" }} className="form-stack">
                     {customFields.map((field) => (
                       <Field key={field.id} label={field.label}>
                         {field.fieldType === "select" ? (
@@ -333,7 +333,7 @@ export function ContactDetailView({
 
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Push to event</h2><p>Reuses this identity&rsquo;s speaker record for another event — never a duplicate.</p></header>
-                <div style={{ padding: "0 20px 20px" }} className="form-stack">
+                <div style={{ padding: "0 24px 24px" }} className="form-stack">
                   {pushableEvents.length === 0 ? (
                     <p className="long-copy">Already linked to every event in this organization.</p>
                   ) : (
@@ -371,7 +371,7 @@ export function ContactDetailView({
 
         {tab === "notes" && (
           <section>
-            <div className="form-stack" style={{ marginBottom: 18 }}>
+            <div className="form-stack" style={{ marginBottom: 16 }}>
               <Field label="Add a note">
                 <textarea value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={3} />
               </Field>

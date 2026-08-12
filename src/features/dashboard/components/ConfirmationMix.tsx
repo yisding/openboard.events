@@ -16,7 +16,7 @@ export function ConfirmationMix({ mix }: { mix: DashboardOverview["speakerTracki
     <WidgetTitle title="Speaker confirmation mix" hint="Accepted speakers only" />
     <div className="dashboard-donut-wrap">
       <svg className="dashboard-donut" viewBox="0 0 42 42" role="img" aria-label={`${mix.confirmed} confirmed, ${mix.unconfirmed} unconfirmed, ${mix.declined} declined`}>
-        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#e9f1ee" strokeWidth="6" />
+        <circle cx="21" cy="21" r="15.9155" fill="none" style={{ stroke: "var(--fill)" }} strokeWidth="6" />
         {items.map((item) => {
           const percent = (mix[item.key] / total) * 100;
           const circle = <circle key={item.key} cx="21" cy="21" r="15.9155" fill="none" stroke={item.color} strokeWidth="6" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={-offset} />;

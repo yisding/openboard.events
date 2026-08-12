@@ -4,7 +4,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
-const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
+const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-12px 0 16px" } as const;
 
 /**
  * "After submission" — what submitters see on the confirmation page. The

@@ -8,6 +8,7 @@ import {
   type PublishedSpeakersDTO,
 } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 import { eventDayKey } from "@/shared/lib/time";
 import { demoPublishedSchedule, demoPublishedSpeakers } from "./demo-public-data";
 
@@ -117,7 +118,7 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
     startsAt: new Date(row.starts_at).toISOString(),
     endsAt: new Date(row.ends_at).toISOString(),
     dayKey: eventDayKey(row.starts_at, event.timezone),
-    track: row.track_id ? { id: row.track_id, name: row.track_name ?? "", color: row.track_color ?? "#6366f1" } : null,
+    track: row.track_id ? { id: row.track_id, name: row.track_name ?? "", color: row.track_color ?? DEFAULT_BRAND_COLOR } : null,
     room: row.room_id ? { id: row.room_id, name: row.room_name ?? "" } : null,
     format: row.format_id ? { id: row.format_id, name: row.format_name ?? "" } : null,
     speakers: (row.speakers ?? []).map((speaker) => ({
@@ -217,7 +218,7 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
       endsAt: new Date(session.endsAt).toISOString(),
       dayKey: eventDayKey(session.startsAt, event.timezone),
       room: session.roomId ? { id: session.roomId, name: session.roomName ?? "" } : null,
-      track: session.trackId ? { id: session.trackId, name: session.trackName ?? "", color: session.trackColor ?? "#6366f1" } : null,
+      track: session.trackId ? { id: session.trackId, name: session.trackName ?? "", color: session.trackColor ?? DEFAULT_BRAND_COLOR } : null,
       format: session.formatId ? { id: session.formatId, name: session.formatName ?? "" } : null,
     })),
   }));

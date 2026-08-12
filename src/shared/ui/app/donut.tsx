@@ -15,8 +15,6 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function Donut({ segments, size = SIZE, total: totalOverride }: { segments: DonutSegment[]; size?: number; total?: number }) {
   const total = totalOverride ?? segments.reduce((sum, segment) => sum + Math.max(0, segment.value), 0);
-  const scale = size / SIZE;
-
   let offset = 0;
   const arcs = total > 0
     ? segments.filter((segment) => segment.value > 0).map((segment) => {
@@ -29,9 +27,9 @@ export function Donut({ segments, size = SIZE, total: totalOverride }: { segment
 
   return (
     <figure className="donut">
-      <svg width={size} height={size} viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${total} total`} style={{ transform: `scale(${scale / scale})` }}>
+      <svg width={size} height={size} viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${total} total`}>
         <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
-          <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="#e9f1ee" strokeWidth={STROKE} />
+          <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" style={{ stroke: "var(--fill)" }} strokeWidth={STROKE} />
           {arcs.map((arc) => (
             <circle
               key={arc.label}

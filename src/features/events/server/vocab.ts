@@ -15,6 +15,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { VOCAB_LABELS, vocabInputSchemaFor, vocabPatchSchemaFor, type VocabInput, type VocabKind, type VocabPatch } from "../schemas";
 import { isConstraintViolation } from "./db-errors";
+import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 /**
  * Vocabulary CRUD across the four kinds. The tables' columns genuinely differ
@@ -50,7 +51,7 @@ async function nextSortOrder(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind):
 async function insertRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, input: VocabInput, sortOrder: number) {
   switch (kind) {
     case "tracks": {
-      const [row] = await dbOrTx.insert(tracks).values({ eventId, name: input.name, color: input.color ?? "#6366f1", description: input.description ?? null, sortOrder }).returning();
+      const [row] = await dbOrTx.insert(tracks).values({ eventId, name: input.name, color: input.color ?? DEFAULT_BRAND_COLOR, description: input.description ?? null, sortOrder }).returning();
       return row;
     }
     case "rooms": {

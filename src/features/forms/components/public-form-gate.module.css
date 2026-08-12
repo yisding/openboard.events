@@ -1,9 +1,9 @@
 .frame {
   position: relative;
   isolation: isolate;
-  min-height: calc(100vh - 40px);
-  margin: -20px;
-  padding: clamp(28px, 5vw, 48px) 20px;
+  min-height: calc(100vh - 48px);
+  margin: -24px;
+  padding: clamp(32px, 5vw, 48px) 24px;
   overflow: hidden;
   border-radius: 18px;
 }
@@ -30,11 +30,14 @@
   position: relative;
 }
 
-@media (max-width: 650px) {
+/* T5 canonical breakpoint: the mapping table sends 650 -> 768. This file is the
+   app's only CSS outside globals.css, which is why the T8 greps (scoped to
+   globals.css) never saw the old 650px query. */
+@media (max-width: 768px) {
   .frame {
     min-height: calc(100vh - 24px);
-    margin: -12px -20px;
-    padding-block: 28px;
+    margin: -12px -24px;
+    padding-block: 32px;
     border-radius: 12px;
   }
 }

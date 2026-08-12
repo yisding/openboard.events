@@ -17,16 +17,17 @@ type DemoRow = {
   id: string;
   code: string;
   title: string;
-  track: { label: string; color: string } | null;
+  track: { label: string } | null;
   rating: number | null;
   submittedAt: string;
 };
 
-const TRACKS = [
-  { label: "Agents", color: "#6958d7" },
-  { label: "Evals", color: "#2f8f5b" },
-  { label: "Infra", color: "#b6742a" },
-];
+/* No colours here on purpose. T6 carve-out 5 gives organiser-chosen track
+   colour to the schedule and agenda grids only, and `ColorChip` says the same
+   in its own docstring: everywhere else it renders the neutral `.track-chip`.
+   This is a DataTable, so it takes the neutral path — and a showcase route
+   that demonstrated the wrong one would teach the wrong rule. */
+const TRACKS = [{ label: "Agents" }, { label: "Evals" }, { label: "Infra" }];
 
 // 25 rows, matching seed volume. Every third row has no rating and every fifth
 // has no track, so the dash and the nulls-last comparator are both visible.
@@ -58,7 +59,7 @@ export function KitchenSink() {
       accessorFn: (row) => row.track?.label ?? null,
       sortingFn: nullsLast,
       cell: ({ row }) => row.original.track
-        ? <ColorChip label={row.original.track.label} color={row.original.track.color} />
+        ? <ColorChip label={row.original.track.label} />
         : <Dash />,
     },
     {
@@ -85,14 +86,14 @@ export function KitchenSink() {
         actions={<Button variant="secondary" onClick={() => setConfirming("stale")}>Show a 409</Button>}
       />
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Status badges</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {SUBMISSION_STATUSES.map((status) => <StatusBadge key={status} value={status} />)}
         </div>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Dash and TzTime</h2>
         <p>
           Empty values render <Dash />, never the string &quot;undefined&quot;. A time renders as{" "}
@@ -101,7 +102,7 @@ export function KitchenSink() {
         </p>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">DataTable</h2>
         <p>
           Sort <b>Rating</b> in both directions: unrated rows stay last either way. Filter to nothing
@@ -134,7 +135,7 @@ export function KitchenSink() {
             />
           }
         />
-        <p style={{ marginTop: 10 }}>{selected.length} row(s) selected on this page.</p>
+        <p style={{ marginTop: 12 }}>{selected.length} row(s) selected on this page.</p>
       </section>
 
       <section>

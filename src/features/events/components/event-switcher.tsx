@@ -105,9 +105,9 @@ export function EventSwitcher({
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {events === null && !loadError && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {events === null && !loadError && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
           {events === null && loadError && (
-            <div role="alert" style={{ display: "grid", gap: 8, padding: 10, fontSize: 11.5, color: "var(--muted)" }}>
+            <div role="alert" style={{ display: "grid", gap: 8, padding: 12, fontSize: 11.5, color: "var(--muted)" }}>
               <span>{loadError}</span>
               <button type="button" className="text-button" onClick={() => {
                 setLoadError("");
@@ -115,14 +115,14 @@ export function EventSwitcher({
               }}>Retry</button>
             </div>
           )}
-          {events?.length === 0 && <div style={{ padding: 10, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
+          {events?.length === 0 && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
           {events?.map((event) => (
             <Link
               key={event.id}
               href={`/events/${event.id}/dashboard`}
               onClick={() => setOpen(false)}
               style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, textDecoration: "none",
+                display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 7, textDecoration: "none",
                 color: "var(--ink)", background: event.id === eventId ? "var(--fill)" : "transparent",
               }}
             >
@@ -138,7 +138,7 @@ export function EventSwitcher({
           <Link
             href={demoEvents ? "/events" : "/events/new"}
             onClick={() => setOpen(false)}
-            style={{ display: "block", marginTop: 6, padding: "8px 10px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 600, color: "var(--accent-dark)", textDecoration: "none" }}
+            style={{ display: "block", marginTop: 6, padding: "8px 12px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 600, color: "var(--accent-dark)", textDecoration: "none" }}
           >
             {demoEvents ? "All events" : "+ Create event"}
           </Link>

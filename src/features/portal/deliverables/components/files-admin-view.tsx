@@ -231,7 +231,7 @@ export function FilesAdminView({
       header: "Comments",
       accessorKey: "commentCount",
       cell: ({ row }) => row.original.commentCount > 0
-        ? <span><MessageSquare size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{row.original.commentCount}</span>
+        ? <span><MessageSquare size={11} style={{ verticalAlign: "-2px", marginRight: 4 }} />{row.original.commentCount}</span>
         : <Dash />,
     },
   ], []);

@@ -4,8 +4,8 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { Field } from "@/shared/ui/ui-kit";
 import type { BuilderEvent, BuilderForm, FormPatch } from "../../builder-types";
 
-const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
-const helpStyle = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "10px 0 0" } as const;
+const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-12px 0 16px" } as const;
+const helpStyle = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "12px 0 0" } as const;
 
 /**
  * "Deadlines" — when the form stops accepting new and updated submissions.
