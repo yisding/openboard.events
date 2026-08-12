@@ -173,7 +173,7 @@ function Row({
           }}
         />
       )}
-      <button type="button" aria-label={`Remove ${item.name}`} disabled={deleteDisabled} onClick={onDelete}>
+      <button type="button" className="icon-button" aria-label={`Remove ${item.name}`} disabled={deleteDisabled} onClick={onDelete}>
         <Trash2 size={15} />
       </button>
     </div>
