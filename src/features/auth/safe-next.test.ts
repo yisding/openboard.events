@@ -6,6 +6,10 @@ describe("safeInternalPath", () => {
     expect(safeInternalPath("/events/123?tab=tasks#late")).toBe("/events/123?tab=tasks#late");
   });
 
+  it("keeps an encoded internal path inside the query", () => {
+    expect(safeInternalPath("/portal/x/login?next=%2Fportal%2Fx%2Fprofile")).toBe("/portal/x/login?next=%2Fportal%2Fx%2Fprofile");
+  });
+
   it.each([
     "https://evil.example/path",
     "//evil.example/path",
