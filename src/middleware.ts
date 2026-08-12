@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { PORTAL_COOKIE_PREFIX, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { safeInternalPath } from "@/features/auth/safe-next";
+import { isPublicPortalPage } from "@/features/portal/public-pages";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export function middleware(request: NextRequest) {
@@ -19,9 +20,9 @@ export function middleware(request: NextRequest) {
   }
   const portalMatch = /^\/portal\/([^/]+)(?:\/|$)/u.exec(pathname);
   const portalBase = portalMatch ? `/portal/${portalMatch[1]}` : null;
-  const isPortalAuthPage = portalBase !== null && (pathname === `${portalBase}/login` || pathname === `${portalBase}/verify`);
+  const isPublicPage = portalBase !== null && isPublicPortalPage(pathname, portalBase);
   const hasPortalCookie = request.cookies.getAll().some((cookie) => cookie.name.startsWith(PORTAL_COOKIE_PREFIX));
-  if (!localDemo && portalMatch && !isPortalAuthPage && !hasPortalCookie) {
+  if (!localDemo && portalMatch && !isPublicPage && !hasPortalCookie) {
     const login = new URL(`/portal/${portalMatch[1]}/login`, request.url);
     login.searchParams.set("next", requestPath);
     return NextResponse.redirect(login);
