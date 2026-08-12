@@ -99,7 +99,9 @@ export function AddAbstractDrawer({
       setValues(EMPTY_ABSTRACT_FIELDS);
       setStatus("pending");
       setParticipantIds([]);
-      setAddedSpeakers([]);
+      // `addedSpeakers` is deliberately kept: those contacts exist on the event
+      // now, and the refresh below is what folds them into the server list. The
+      // dedupe above drops the copy once it arrives.
       onClose();
       // The table is server-rendered from the same filters, so a refresh is what
       // keeps the rows, the tab counts and the pager agreeing with each other.

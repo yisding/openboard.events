@@ -6,6 +6,29 @@ import { Button, Field } from "@/shared/ui/ui-kit";
 
 export type QuickAddedSpeaker = { contactId: string; name: string };
 
+/**
+ * The create body, carrying only the fields the organizer actually filled in.
+ *
+ * `createSpeaker` is idempotent on email and patches whatever it is *given*, so
+ * "add" against an address already on the event is an update. Sending
+ * `firstName: ""` there would blank that contact's existing name and company —
+ * quick-add has to be able to rediscover an existing speaker without destroying
+ * their record.
+ */
+export function speakerCreateBody(fields: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+}): Record<string, string> {
+  return {
+    email: fields.email.trim(),
+    ...(fields.firstName.trim() ? { firstName: fields.firstName.trim() } : {}),
+    ...(fields.lastName.trim() ? { lastName: fields.lastName.trim() } : {}),
+    ...(fields.company.trim() ? { company: fields.company.trim() } : {}),
+  };
+}
+
 type SpeakerCreatedResponse = {
   data?: { contact?: { contactId?: string; name?: string; email?: string } };
   error?: { message?: string };
@@ -61,7 +84,7 @@ export function SpeakerQuickAdd({
       const response = await fetch(`/api/internal/speakers/${eventId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, firstName, lastName, company }),
+        body: JSON.stringify(speakerCreateBody({ email, firstName, lastName, company })),
       });
       const json = await response.json().catch(() => null) as SpeakerCreatedResponse | null;
       const contact = json?.data?.contact;

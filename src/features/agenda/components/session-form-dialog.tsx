@@ -137,10 +137,15 @@ export function SessionFormDialog({
    * Speakers created from inside this dialog. `speakers` comes from the page's
    * server render and will not include them until the next navigation, so the
    * person the organizer just typed in has to be held here to stay visible and
-   * checked for the rest of this edit.
+   * checked.
+   *
+   * Deliberately *not* cleared when `identity` changes. A created contact
+   * belongs to the event, not to the session that happened to be open when it
+   * was made — clearing on switch would drop the only client-side copy of a
+   * contact that really exists on the server, and it would vanish from every
+   * later picker until a manual refresh.
    */
   const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
-  useEffect(() => setAddedSpeakers([]), [identity]);
   const pickableSpeakers = useMemo<QuickAddedSpeaker[]>(() => {
     const known = speakers.map((speaker) => ({ contactId: String(speaker.contactId), name: speaker.name }));
     const knownIds = new Set(known.map((speaker) => speaker.contactId));
