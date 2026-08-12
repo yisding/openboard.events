@@ -24,6 +24,7 @@ export type DashboardOverview = {
     submitted: number;
     drafts: number;
   }[];
+  latestCfpSubmission: { id: string; title: string } | null;
   recentSubmissions: { id: string; code: string; title: string; status: SubmissionStatus; source: string; speakers: string[]; tags: string[]; submittedAt: string | null }[];
 };
 

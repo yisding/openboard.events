@@ -14,15 +14,31 @@ import type { DashboardOverview } from "../index";
  * milestone id), because that is a per-browser UI preference, not a fact
  * about the event.
  */
-export type MilestoneId = "cfp_closed" | "decisions_sent" | "scheduling_complete";
+export type MilestoneId = "first_submission" | "cfp_closed" | "decisions_sent" | "scheduling_complete";
 
 export type Milestone = { id: MilestoneId; title: string; detail: string; href: string };
 
-type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis">;
+type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis" | "latestCfpSubmission">;
 
 export function computeMilestones(overview: MilestoneInput): Milestone[] {
   const milestones: Milestone[] = [];
   const base = `/events/${overview.event.id}`;
+
+  // The launch guide disappears as soon as a real proposal arrives. Replace
+  // it with a positive handoff instead of making the page jump straight from
+  // “share your link” to routine dashboard widgets with no acknowledgment.
+  if (overview.latestCfpSubmission) {
+    const formSubmissionCount = overview.forms.reduce((sum, form) => sum + form.submitted, 0);
+    const detail = formSubmissionCount === 1
+      ? `“${overview.latestCfpSubmission.title}” is ready for review.`
+      : `${formSubmissionCount} submissions received. Open the latest proposal.`;
+    milestones.push({
+      id: "first_submission",
+      title: "Your first submission arrived",
+      detail,
+      href: `${base}/abstracts?submission=${encodeURIComponent(overview.latestCfpSubmission.id)}`,
+    });
+  }
 
   // CFP closed: every form has left "open" (closed by date or by hand) and
   // at least one submission exists — an event with no forms yet, or one

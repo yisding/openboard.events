@@ -945,7 +945,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .dashboard-milestone-icon{width:28px;height:28px;border-radius:50%;background:var(--green);color:var(--on-fill);display:grid;place-items:center;flex-shrink:0}
 .dashboard-milestone a{flex:1;display:flex;flex-direction:column;gap:2px;color:inherit}
 .dashboard-milestone b{font-size:12.5px;color:var(--green)}
-.dashboard-milestone span{font-size:11px;color:var(--green)}
+.dashboard-milestone a span{font-size:11px;color:var(--green)}
 .dashboard-milestone>button{border:0;background:transparent;color:var(--green);flex-shrink:0;display:grid;place-items:center;width:32px;height:32px;border-radius:6px}
 .dashboard-milestone>button:hover{background:rgba(255,255,255,.5)}
 .dashboard-statuses>div{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.dashboard-statuses article{padding:12px;border-radius:8px;background:var(--canvas);text-align:center}.dashboard-statuses strong,.dashboard-statuses span{display:block}.dashboard-statuses strong{font-size:20px}.dashboard-statuses span{margin-top:4px;color:var(--muted);font-size:10px}
@@ -1325,6 +1325,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-wizard>.cfp-step>label.onboarding-toggle{display:flex;align-items:center;font-weight:500}
 .onboarding-toggle input{width:15px;height:15px;accent-color:var(--accent)}
 .onboarding-done{text-align:center;padding:32px 24px}
+.onboarding-done>.metric-icon{margin:0 auto}
 .onboarding-done h2{font-size:20px;margin:12px 0 6px}
 .onboarding-done p{color:var(--muted);font-size:11.5px;max-width:440px;margin:0 auto}
 .onboarding-done .cfp-actions{justify-content:center;margin-top:24px}

@@ -76,6 +76,7 @@ const rawOverviewSchema = z.object({
     href: z.string().startsWith("/events/"),
   })),
   forms: z.array(rawFormSchema),
+  latestCfpSubmission: z.object({ id: z.uuid(), title: z.string() }).nullable(),
   recentSubmissions: z.array(z.object({
     id: z.uuid(),
     code: z.string(),

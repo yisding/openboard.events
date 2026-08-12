@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles } from "lucide-react";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
@@ -145,6 +145,7 @@ export function OnboardingWizard({
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const slugDetailsRef = useRef<HTMLDetailsElement>(null);
+  const formLinkRef = useRef<HTMLInputElement>(null);
   const previousStepRef = useRef(step);
 
   useEffect(() => {
@@ -315,8 +316,23 @@ export function OnboardingWizard({
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(formLink);
-    toast("Public form link copied");
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(formLink);
+      toast("Public form link copied");
+      return;
+    } catch {
+      const input = formLinkRef.current;
+      input?.focus();
+      input?.select();
+      let copied = false;
+      try {
+        copied = Boolean(input && document.execCommand("copy"));
+      } catch {
+        // Leave the full URL selected for a manual Cmd/Ctrl+C fallback.
+      }
+      toast(copied ? "Public form link copied" : "Link selected — press Cmd/Ctrl+C to copy", copied ? undefined : { kind: "error" });
+    }
   }
 
   const remainingSuggestions = SUGGESTED_TRACKS.filter((suggestion) => !tracks.some((track) => track.name === suggestion.name));
@@ -437,13 +453,15 @@ export function OnboardingWizard({
           <p>{published ? "Your call for speakers is live. Share this link:" : "Your call for speakers is saved as a draft. Publish it from the form builder when you're ready."}</p>
           {published && formLink && (
             <div className="onboarding-link-row">
-              <input readOnly value={formLink} onFocus={(event) => event.currentTarget.select()} />
+              <label className="sr-only" htmlFor="onboarding-public-form-link">Public submission link</label>
+              <input id="onboarding-public-form-link" ref={formLinkRef} readOnly value={formLink} onFocus={(event) => event.currentTarget.select()} />
               <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy link</Button>
             </div>
           )}
           <footer className="cfp-actions">
             <Link href={`/events/${event.id}/settings?tab=details`} className="button button-secondary">Event settings</Link>
-            <Link href={`/events/${event.id}/dashboard`} className="button button-primary"><Sparkles size={16} /> Go to your event</Link>
+            {published && formLink && <Link href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Preview form <ExternalLink size={16} /></Link>}
+            <Link href={`/events/${event.id}/dashboard`} className="button button-primary"><Sparkles size={16} /> Open dashboard</Link>
           </footer>
         </div>
       )}

@@ -21,6 +21,7 @@ const CO_SPEAKER = "a0000000-0000-4000-8000-000000000005";
 const ACCEPTED = "a0000000-0000-4000-8000-000000000006";
 const PENDING = "a0000000-0000-4000-8000-000000000007";
 const DRAFT = "a0000000-0000-4000-8000-000000000008";
+const MANUAL = "a0000000-0000-4000-8000-000000000014";
 const CONTACT_TASK = "a0000000-0000-4000-8000-000000000009";
 const SUBMISSION_TASK = "a0000000-0000-4000-8000-000000000010";
 const TAG = "a0000000-0000-4000-8000-000000000011";
@@ -56,8 +57,9 @@ pg.exec(migrationReviewOps);
       `INSERT INTO submissions(id,event_id,form_id,form_version,code,status,source,title,submitted_at) VALUES
         ($1,$4,$5,1,101,'accepted','cfp','Reliable agents','2026-08-07T20:00:00Z'),
         ($2,$4,$5,1,102,'pending','cfp','Fast inference','2026-08-08T01:00:00Z'),
-        ($3,$4,$5,1,103,'draft','cfp','Draft idea',NULL)`,
-      [ACCEPTED, PENDING, DRAFT, EVENT, FORM],
+        ($3,$4,$5,1,103,'draft','cfp','Draft idea',NULL),
+        ($6,$4,NULL,NULL,104,'pending','manual','Invited talk','2026-08-08T02:00:00Z')`,
+      [ACCEPTED, PENDING, DRAFT, EVENT, FORM, MANUAL],
     );
     await pg.query(
       `INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES
@@ -89,7 +91,8 @@ pg.exec(migrationReviewOps);
     expect(overview.kpis.submissions).toBe(allStatuses - overview.statusCounts.draft);
     expect(overview.event.slug).toBe("dashboard-conf");
     expect(overview.event.daysToEvent).toBe(38);
-    expect(overview.recentSubmissions[0]).toMatchObject({ code: "SESS-102", speakers: ["Ada Lovelace"], tags: ["AI safety"] });
+    expect(overview.recentSubmissions[0]).toMatchObject({ code: "SESS-104", source: "Manual" });
+    expect(overview.latestCfpSubmission).toEqual({ id: PENDING, title: "Fast inference" });
     expect(Object.fromEntries(overview.forms.map((form) => [form.name, form.availability]))).toEqual({
       "Main CFP": "live",
       "Scheduled CFP": "scheduled",
@@ -113,6 +116,7 @@ pg.exec(migrationReviewOps);
     });
     expect(overview.attention).toEqual([]);
     expect(overview.forms).toEqual([]);
+    expect(overview.latestCfpSubmission).toBeNull();
     expect(overview.recentSubmissions).toEqual([]);
   });
 

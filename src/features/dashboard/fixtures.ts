@@ -58,6 +58,10 @@ export const FIXTURE_OVERVIEW: DashboardOverview = {
     submitted: 23,
     drafts: 2,
   }],
+  latestCfpSubmission: {
+    id: "a0000000-0000-4000-8000-000000000007",
+    title: "Fast inference",
+  },
   recentSubmissions: [{
     id: "a0000000-0000-4000-8000-000000000007",
     code: "SESS-102",
@@ -134,5 +138,6 @@ export const EMPTY_FIXTURE_OVERVIEW: DashboardOverview = {
   },
   attention: [],
   forms: [],
+  latestCfpSubmission: null,
   recentSubmissions: [],
 };

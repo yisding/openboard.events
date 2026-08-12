@@ -154,6 +154,14 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
         ) AS rows
         FROM form_rows
       ),
+      latest_cfp_submission AS (
+        SELECT s.id, s.title
+        FROM submissions s
+        JOIN forms f ON f.id = s.form_id AND f.event_id = s.event_id AND f.context = 'cfp'
+        WHERE s.event_id = ${eventId} AND s.status <> 'draft'
+        ORDER BY coalesce(s.submitted_at, s.created_at) DESC, s.id
+        LIMIT 1
+      ),
       recent_rows AS (
         SELECT
           s.id,
@@ -261,6 +269,10 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
       ),
       'attention', attention_json.rows,
       'forms', forms_json.rows,
+      'latestCfpSubmission', (
+        SELECT jsonb_build_object('id', id, 'title', title)
+        FROM latest_cfp_submission
+      ),
       'recentSubmissions', recent_json.rows
     ) AS overview
     FROM ev
