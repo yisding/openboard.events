@@ -1,0 +1,48 @@
+import { describe, expect, it } from "vitest";
+import { canSubmitAssignments, needsEmptyReplacementConfirmation } from "./assignment-drawer";
+
+const ready = {
+  loaded: true,
+  hasLoadError: false,
+  busy: false,
+  reviewerCount: 1,
+  selectedCount: 1,
+  mode: "add" as const,
+  currentAssignmentCount: 0,
+};
+
+describe("assignment drawer submission safety", () => {
+  it("never submits before candidates load or after loading fails", () => {
+    expect(canSubmitAssignments({ ...ready, loaded: false })).toBe(false);
+    expect(canSubmitAssignments({ ...ready, hasLoadError: true })).toBe(false);
+  });
+
+  it("requires reviewers and a submission when adding work", () => {
+    expect(canSubmitAssignments({ ...ready, reviewerCount: 0 })).toBe(false);
+    expect(canSubmitAssignments({ ...ready, selectedCount: 0 })).toBe(false);
+    expect(canSubmitAssignments(ready)).toBe(true);
+  });
+
+  it("permits an intentional empty replacement only when there is work to remove", () => {
+    const emptyReplace = {
+      ...ready,
+      selectedCount: 0,
+      mode: "replace" as const,
+      currentAssignmentCount: 3,
+    };
+    expect(canSubmitAssignments(emptyReplace)).toBe(true);
+    expect(needsEmptyReplacementConfirmation(emptyReplace)).toBe(true);
+
+    const noOpReplace = { ...emptyReplace, currentAssignmentCount: 0 };
+    expect(canSubmitAssignments(noOpReplace)).toBe(false);
+    expect(needsEmptyReplacementConfirmation(noOpReplace)).toBe(false);
+  });
+
+  it("does not warn when replacement keeps at least one submission", () => {
+    expect(needsEmptyReplacementConfirmation({
+      mode: "replace",
+      selectedCount: 1,
+      currentAssignmentCount: 3,
+    })).toBe(false);
+  });
+});
