@@ -43,9 +43,14 @@ export function parseDay(value: string | string[] | undefined): string | null {
  */
 export function eventDayKeys(startsAt: string, endsAt: string, timezone: string): string[] {
   const keys: string[] = [];
-  const last = eventDayKey(endsAt, timezone);
-  let cursor = new Date(startsAt).getTime();
-  const limit = new Date(endsAt).getTime() + 2 * 24 * 60 * 60 * 1000;
+  const startsAtMs = new Date(startsAt).getTime();
+  const endsAtMs = new Date(endsAt).getTime();
+  // Event bounds are half-open. If an event ends exactly at local midnight,
+  // that instant belongs to no schedulable time on the ending date, so using
+  // the preceding millisecond avoids rendering an empty, zero-duration tab.
+  const last = eventDayKey(Math.max(startsAtMs, endsAtMs - 1), timezone);
+  let cursor = startsAtMs;
+  const limit = endsAtMs + 2 * 24 * 60 * 60 * 1000;
   for (let guard = 0; guard < 64 && cursor <= limit; guard += 1) {
     const key = eventDayKey(cursor, timezone);
     if (!keys.includes(key)) keys.push(key);
