@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search } from "lucide-react";
+import { AlertTriangle, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { Button } from "@/shared/ui/ui-kit";
@@ -80,7 +80,7 @@ export function AgendaToolbar({
             );
           })}
         </div>
-        <div>
+        <div className="agenda-toolbar-actions">
           <label className="table-search">
             <Search size={14} aria-hidden />
             <input
@@ -96,17 +96,21 @@ export function AgendaToolbar({
               abstract instead, which is what you want if it should sit in the
               programme record beside the CFP ones. Nothing on the agenda used
               to mention the second path existed. */}
-          <Link className="agenda-invited-link" href={`/events/${eventId}/abstracts?add=1`}>Add an invited talk</Link>
-          <Button size="sm" onClick={onCreate}><Plus size={14} aria-hidden /> Add Session</Button>
+          <Link className="button button-secondary button-sm agenda-invited-link" href={`/events/${eventId}/abstracts?add=1`}>
+            <UserPlus size={14} aria-hidden /> Add invited talk
+          </Link>
+          <Button size="sm" onClick={onCreate}><Plus size={14} aria-hidden /> Add session</Button>
         </div>
       </div>
 
       {DAY_SCOPED.has(view) && days.length > 0 && (
         <div className="agenda-daybar">
-          <div>
-            <button type="button" aria-pressed={day === null} className={day === null ? "active" : ""} onClick={() => onDay(null)}>
-              <span>All</span><b>{days.length}</b><small>days</small>
-            </button>
+          <div className="agenda-daybar-scroll" role="group" aria-label="Event day">
+            {view !== "day" && (
+              <button type="button" aria-pressed={day === null} className={day === null ? "active" : ""} onClick={() => onDay(null)}>
+                <span>All</span><b>{days.length}</b><small>days</small>
+              </button>
+            )}
             {days.map((key) => {
               const label = dayTabLabel(key);
               return (

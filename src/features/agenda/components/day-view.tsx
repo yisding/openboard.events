@@ -20,7 +20,6 @@ import { useMoveSession } from "../hooks/use-move-session";
 import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
-import { DayTabs } from "./day-view/day-tabs";
 import { agendaDayDndContextId } from "./day-view/dnd-context-id";
 import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
 import { UnscheduledPanel } from "./day-view/unscheduled-panel";
@@ -55,14 +54,13 @@ export default function DayView(props: AgendaViewProps) {
   );
 }
 
-function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onDayChange, onEdit }: AgendaViewProps) {
+function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onEdit }: AgendaViewProps) {
   const days = useMemo(
     () => eventDayKeys(event.startsAt, event.endsAt, event.timezone),
     [event.startsAt, event.endsAt, event.timezone],
   );
-  // AgendaPage owns this selection so the visible grid, URL and create dialog
-  // cannot disagree. A null URL (the toolbar's "All") still gives the Day grid
-  // its concrete first day.
+  // AgendaPage owns this selection so the toolbar, visible grid, URL and
+  // create dialog cannot disagree. A null URL still resolves to the first day.
   const selectedDay = day && days.includes(day) ? day : days[0] ?? null;
 
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
@@ -163,7 +161,6 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
 
   return (
     <div className="dv-root">
-      <DayTabs event={event} selected={selectedDay} onSelect={(next) => onDayChange?.(next)} />
       {selectedDay === null
         ? (
           <EmptyState

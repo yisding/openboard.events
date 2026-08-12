@@ -57,9 +57,8 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   );
   const [activeGridDay, setActiveGridDay] = useState<string | null>(() => props.day ?? eventDays[0] ?? null);
 
-  // Browser navigation and the toolbar still drive `props.day`; mirror them
-  // into the controlled grid while retaining a concrete first day for `?day=`
-  // absent/All.
+  // Browser navigation and the single toolbar day rail still drive
+  // `props.day`; retain a concrete first day when `?day=` is absent.
   useEffect(() => {
     const next = props.day && eventDays.includes(props.day) ? props.day : eventDays[0] ?? null;
     setActiveGridDay(next);
@@ -141,7 +140,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
 
       <AgendaToolbar
         view={view}
-        day={props.day ?? null}
+        day={view === "day" ? activeGridDay : props.day ?? null}
         conflictCount={props.conflicts.length}
         event={props.event}
         search={search}
