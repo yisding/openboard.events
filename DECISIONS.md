@@ -281,3 +281,18 @@ for an unknown address against `DUMMY_PASSWORD_HASH`, so a login burst is CPU-bo
 Free plan. The attacker still learns nothing, but a burst degrades the whole Worker and the 503s
 are indistinguishable from an outage in a log. Filed for M06a/M01's owners; not fixed by the
 evidence run.
+
+## Continuous preview deployment on `main` (2026-08-11)
+
+- A successful `main` CI run now deploys the `preview` environment automatically. Before this,
+  the only automatic target was `production` behind `PRODUCTION_DEPLOY_ENABLED`, which is unset
+  — so a merge to `main` deployed nothing and every preview refresh was a manual dispatch or a
+  laptop `pnpm deploy:web:preview`.
+- Production did not become automatic. `PRODUCTION_DEPLOY_ENABLED=1` still gates it, and it now
+  runs as a second sequential leg after `preview` in the same workflow run, so production can
+  only follow a preview that passed its own migration, deploy, and smoke test.
+- A manual `workflow_dispatch` deploys exactly the environment chosen and never adds a leg.
+- The stale-SHA freshness gate and `cancel-in-progress: false` concurrency are unchanged; each
+  environment keeps its own concurrency group, so a preview deploy cannot cancel a production one.
+- Operational requirement: the `preview` GitHub environment must have no required reviewer, or
+  every merge queues an approval instead of deploying.

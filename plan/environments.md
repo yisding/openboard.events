@@ -96,8 +96,9 @@ Do not copy `DATABASE_URL`, Resend, R2, Airtable, or session credentials to `sb-
 Validation CI is credential-free and uses only repository/event metadata such as the build
 SHA. Protected preview E2E and deployment workflows read credentials only from the matching
 GitHub `preview` / `production` environment; require a reviewer for production.
-Automatic production deploys remain gated by repository variable
-`PRODUCTION_DEPLOY_ENABLED=1` until manual provisioning proof is complete.
+A successful `main` CI run deploys `preview` automatically. Automatic production deploys
+remain gated by repository variable `PRODUCTION_DEPLOY_ENABLED=1` until manual provisioning
+proof is complete; once set, production deploys sequentially after `preview` in the same run.
 
 ## 5. Service setup
 

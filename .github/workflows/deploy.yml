@@ -15,12 +15,49 @@ on:
         options: [preview, production]
 
 jobs:
-  deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.PRODUCTION_DEPLOY_ENABLED == '1')
+  targets:
+    # A merge to main deploys preview and nothing else. Production stays a
+    # manual dispatch until PRODUCTION_DEPLOY_ENABLED=1, and even then it
+    # trails preview rather than deploying beside it.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'production' }}
+    permissions:
+      contents: read
+    outputs:
+      environments: ${{ steps.pick.outputs.environments }}
+    steps:
+      - name: Pick the environments this event deploys
+        id: pick
+        env:
+          DISPATCH_ENV: ${{ inputs.environment }}
+          PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+        run: |
+          if [[ -n "$DISPATCH_ENV" ]]; then
+            environments="[\"$DISPATCH_ENV\"]"
+          elif [[ "$PRODUCTION_DEPLOY_ENABLED" == "1" ]]; then
+            environments='["preview","production"]'
+          else
+            environments='["preview"]'
+          fi
+
+          # Never empty: an empty matrix vector fails the run rather than
+          # skipping it, and the job-level `if` already discards failed CI.
+          echo "environments=$environments" >> "$GITHUB_OUTPUT"
+          echo "::notice::Deploying $environments"
+
+  deploy:
+    needs: targets
+    strategy:
+      # Sequential so production deploys only behind a preview that survived
+      # its own migration, deploy, and smoke test.
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        environment: ${{ fromJSON(needs.targets.outputs.environments) }}
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
     concurrency:
-      group: deploy-${{ inputs.environment || 'production' }}
+      group: deploy-${{ matrix.environment }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -33,7 +70,7 @@ jobs:
       EMAIL_FROM: ${{ vars.EMAIL_FROM }}
       EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
       NEXT_PUBLIC_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-      DEPLOY_ENV: ${{ inputs.environment || 'production' }}
+      DEPLOY_ENV: ${{ matrix.environment }}
       SMOKE_EVENT_SLUG: ${{ vars.SMOKE_EVENT_SLUG || 'ai-engineer-sandbox-event' }}
       SMOKE_EVENT_ID: ${{ vars.SMOKE_EVENT_ID }}
       SMOKE_FORM_ID: ${{ vars.SMOKE_FORM_ID }}
@@ -76,10 +113,10 @@ jobs:
         run: pnpm db:migrate
       - name: Deploy web before jobs
         if: steps.freshness.outputs.current == 'true'
-        run: pnpm deploy:web:${{ inputs.environment || 'production' }}
+        run: pnpm deploy:web:${{ matrix.environment }}
       - name: Deploy jobs against the matching web URL
         if: steps.freshness.outputs.current == 'true'
-        run: pnpm deploy:jobs:${{ inputs.environment || 'production' }}
+        run: pnpm deploy:jobs:${{ matrix.environment }}
       - name: Smoke test the deployed web worker
         if: steps.freshness.outputs.current == 'true'
         run: |
