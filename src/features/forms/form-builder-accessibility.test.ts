@@ -53,4 +53,21 @@ describe("form builder accessibility", () => {
     expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} up`}');
     expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} down`}');
   });
+
+  it("keeps the full field editor reachable when the desktop inspector is hidden", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+    expect(source).toContain('window.matchMedia("(max-width: 1024px)")');
+    expect(source).toContain('<aside className="builder-inspector">{selectedField ? <FieldInspector');
+    expect(source).toContain('{compactInspector && selectedField && <Modal');
+    expect(source).toContain('title={`Edit “${selectedField.label}”`}');
+    expect(source).toContain('<div className="compact-field-inspector">');
+    expect(source).toContain('onSave={() => void saveCompactField()}');
+    expect(source).toContain('onDelete={() => setPendingDelete(selectedField)}');
+    expect(source).toContain('if (await saveField(selectedField)) setSelected(null);');
+    expect(css).toContain('@media(max-width:1024px)');
+    expect(css).toContain('.builder-inspector{display:none}');
+    expect(css).toContain('.compact-field-inspector .inspector-content>.form-stack{max-height:none;overflow:visible;padding:0}');
+  });
 });

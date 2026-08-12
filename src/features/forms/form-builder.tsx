@@ -22,7 +22,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contracts";
 import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -93,6 +93,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
+  const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
@@ -100,6 +101,18 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   // organizer edits it — no save round trip. Falls back to the mock preview
   // if the draft is momentarily uncompilable mid-edit.
   const liveSnapshot = useMemo(() => tryCompileBuilderSnapshot(form), [form]);
+
+  // The desktop field editor lives in the right-hand inspector, which the
+  // responsive layout deliberately hides once the canvas needs the full
+  // width. Keep the same editor reachable there through a native-dialog
+  // modal instead of maintaining a second, reduced mobile field form.
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1024px)");
+    const sync = () => setCompactInspector(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   function markDirty(target: BuilderDirtyTarget) {
     dirtyRevisions.current.set(target, (dirtyRevisions.current.get(target) ?? 0) + 1);
@@ -200,7 +213,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     await run(() => patchForm(patch), `${stepMeta.find((item) => item.id === step)?.label} step saved`, [`step:${step}`]);
   }
 
-  async function saveField(field: BuilderField) {
+  async function saveField(field: BuilderField): Promise<boolean> {
     const structural = form.hasNonDraftSubmissions || field.locked ? {} : {
       key: field.key,
       fieldType: field.fieldType,
@@ -209,13 +222,18 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       visibility: field.visibility,
       mapsTo: field.mapsTo,
     };
-    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
+    return run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
       expectedUpdatedAt: form.updatedAt,
       // `reviewVisibility` is not structural: it changes what a *future* blind
       // reviewer sees, never the answers already pinned to a snapshot, so it
       // stays editable after the form locks.
       patch: { label: field.label, helpText: field.helpText, maxChars: field.maxChars, reviewVisibility: field.reviewVisibility, ...structural },
     })), "Question saved", [`field:${field.id}`]);
+  }
+
+  async function saveCompactField() {
+    if (!selectedField) return;
+    if (await saveField(selectedField)) setSelected(null);
   }
 
   async function addField() {
@@ -281,6 +299,24 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
+    {compactInspector && selectedField && <Modal
+      open
+      onClose={busy ? () => undefined : () => setSelected(null)}
+      title={`Edit “${selectedField.label}”`}
+      description="Update this question, then save to return to the form."
+      wide
+    >
+      <div className="compact-field-inspector">
+        <FieldInspector
+          field={selectedField}
+          form={form}
+          onChange={(patch) => applyField(selectedField.id, patch)}
+          onSave={() => void saveCompactField()}
+          onDelete={() => setPendingDelete(selectedField)}
+          busy={busy}
+        />
+      </div>
+    </Modal>}
     <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
     <ConfirmDialog
       open={pendingDelete !== null}

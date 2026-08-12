@@ -1153,6 +1153,9 @@ ol.cfp-progress{list-style:none;display:flex;gap:16px;margin:0 0 16px;padding:0;
 .builder-field-row{display:grid;grid-template-columns:1fr 30px 30px;gap:6px;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px}
 .builder-field-row.selected,.builder-field-row:hover{border-color:var(--accent-border);box-shadow:0 0 0 2px rgba(0,168,120,.10)}
 .field-row-main{min-height:46px;display:grid;grid-template-columns:34px 1fr 16px;gap:12px;align-items:center;border:0;background:transparent;text-align:left;cursor:pointer}
+.compact-field-inspector .inspector-content{position:static}
+.compact-field-inspector .inspector-content>header{display:none}
+.compact-field-inspector .inspector-content>.form-stack{max-height:none;overflow:visible;padding:0}
 .builder-footer{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
 
 /* Abstracts drawer: the tag toggles and the save row (M17 manual create + edit). */
