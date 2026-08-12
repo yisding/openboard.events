@@ -8,6 +8,122 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
+type DecisionSelection = Pick<SubmissionListRow, "submissionId" | "status">;
+type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Response>;
+
+export type BulkDecisionOutcome = {
+  moved: number;
+  unchanged: number;
+  unconfirmed: number;
+  confirmedGroups: number;
+  failedGroups: number;
+  failureMessages: string[];
+};
+
+type BulkDecisionEffects = {
+  onDone: () => void;
+  refresh: () => void;
+  toast: (message: string, options?: { kind?: "error" }) => void;
+};
+
+/**
+ * Apply one guarded transition per observed status and reconcile every group.
+ *
+ * A rejected request is "unconfirmed", not "unchanged": the server may have
+ * committed before the response was lost. Retrying is safe because the retry
+ * carries the same expected status and therefore cannot overwrite a concurrent
+ * decision. Continuing through the remaining independent groups also gives the
+ * organizer one complete outcome instead of hiding everything after the first
+ * failure.
+ */
+export async function completeBulkDecision({
+  eventId,
+  selected,
+  to,
+  effects,
+  request = (url, init) => fetch(url, init),
+}: {
+  eventId: string;
+  selected: DecisionSelection[];
+  to: SubmissionStatus;
+  effects: BulkDecisionEffects;
+  request?: DecisionTransitionRequest;
+}): Promise<BulkDecisionOutcome> {
+  const byObserved = new Map<SubmissionStatus, string[]>();
+  for (const row of selected) {
+    if (row.status === to) continue;
+    byObserved.set(row.status, [...(byObserved.get(row.status) ?? []), row.submissionId]);
+  }
+
+  const outcome: BulkDecisionOutcome = {
+    moved: 0,
+    unchanged: selected.filter((row) => row.status === to).length,
+    unconfirmed: 0,
+    confirmedGroups: 0,
+    failedGroups: 0,
+    failureMessages: [],
+  };
+
+  for (const [observed, ids] of byObserved) {
+    try {
+      const response = await request(`/api/internal/submissions/${eventId}/transition`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids, to, expectedFrom: observed }),
+      });
+      const payload = await response.json().catch(() => null) as {
+        data?: { changed?: unknown; stale?: unknown };
+        error?: { message?: string };
+      } | null;
+      const changed = payload?.data?.changed;
+      const stale = payload?.data?.stale;
+      if (!response.ok || !Array.isArray(changed) || !Array.isArray(stale)) {
+        outcome.unconfirmed += ids.length;
+        outcome.failedGroups += 1;
+        outcome.failureMessages.push(payload?.error?.message ?? "That transition returned an invalid response");
+        continue;
+      }
+      outcome.moved += changed.length;
+      outcome.unchanged += stale.length;
+      outcome.confirmedGroups += 1;
+    } catch {
+      outcome.unconfirmed += ids.length;
+      outcome.failedGroups += 1;
+      outcome.failureMessages.push("Could not reach the server");
+    }
+  }
+
+  if (outcome.unconfirmed === 0) {
+    effects.toast(outcome.unchanged === 0
+      ? `${outcome.moved} moved`
+      : `${outcome.moved} moved · ${outcome.unchanged} unchanged, someone else had already moved them`);
+    effects.onDone();
+    effects.refresh();
+    return outcome;
+  }
+
+  const confirmedAnyGroup = outcome.confirmedGroups > 0;
+  const confirmedSummary = [
+    ...(outcome.moved > 0 ? [`${outcome.moved} moved`] : []),
+    ...(outcome.unchanged > 0 ? [`${outcome.unchanged} unchanged`] : []),
+  ];
+  if (confirmedAnyGroup) {
+    effects.toast(
+      `${confirmedSummary.join(" · ")} · ${outcome.unconfirmed} could not be confirmed. The list was refreshed; reselect anything still pending and retry.`,
+      { kind: "error" },
+    );
+    effects.onDone();
+    effects.refresh();
+  } else {
+    const reason = outcome.failureMessages[0] ?? "That did not go through";
+    effects.toast(
+      `${outcome.unconfirmed} could not be confirmed. ${reason}. Keep this selection and retry; already-applied transitions are safe to retry.`,
+      { kind: "error" },
+    );
+  }
+  return outcome;
+}
+
 /**
  * Bulk decisions. Queueing and notifying are deliberately two actions: an
  * organizer builds a queue over a morning and sends once, and a Notify that
@@ -33,40 +149,12 @@ export function DecisionBar({
   async function move(to: SubmissionStatus) {
     setBusy(true);
     try {
-      // One call per observed status, not one blanket list. Sending every status
-      // as `expectedFrom` would match a row another organizer had already moved
-      // and overwrite their decision — which is the exact thing the stale set
-      // exists to prevent.
-      const byObserved = new Map<SubmissionStatus, string[]>();
-      for (const row of selected) {
-        if (row.status === to) continue;
-        byObserved.set(row.status, [...(byObserved.get(row.status) ?? []), row.submissionId]);
-      }
-
-      let moved = 0;
-      let unchanged = selected.filter((row) => row.status === to).length;
-      for (const [observed, ids] of byObserved) {
-        const response = await fetch(`/api/internal/submissions/${eventId}/transition`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ids, to, expectedFrom: observed }),
-        });
-        const payload = await response.json().catch(() => null) as { data?: { changed: string[]; stale: string[] }; error?: { message?: string } } | null;
-        if (!response.ok || !payload?.data) {
-          toast(payload?.error?.message ?? "That did not go through", { kind: "error" });
-          return;
-        }
-        moved += payload.data.changed.length;
-        unchanged += payload.data.stale.length;
-      }
-
-      toast(unchanged === 0
-        ? `${moved} moved`
-        : `${moved} moved · ${unchanged} unchanged, someone else had already moved them`);
-      onDone();
-      router.refresh();
-    } catch {
-      toast("Could not reach the server. Check the latest decision state before trying again.", { kind: "error" });
+      await completeBulkDecision({
+        eventId,
+        selected,
+        to,
+        effects: { toast, onDone, refresh: () => router.refresh() },
+      });
     } finally {
       setBusy(false);
     }
