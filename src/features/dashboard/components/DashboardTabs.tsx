@@ -8,6 +8,7 @@ import type { EventId } from "@/shared/contracts";
 import type { DashboardOverview } from "../index";
 import { useDashboardOverview } from "../hooks/use-dashboard-overview";
 import { computeEventPhase } from "../lib/phase";
+import { ActivationGuide } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
 import { MilestoneBanner } from "./MilestoneBanner";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
@@ -35,6 +36,7 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
   return <main className="dashboard-page dashboard-live">
     <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
     {query.isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={() => void query.refetch()}><RefreshCw size={14} /> Retry</button></div>}
+    <WidgetBoundary name="activation"><ActivationGuide overview={overview} /></WidgetBoundary>
     {/* M56 — the dashboard leads with this, above the tabs, so it is the
         answer regardless of which tab is open. Below it, the two tabs stay
         the same detail views they always were. */}

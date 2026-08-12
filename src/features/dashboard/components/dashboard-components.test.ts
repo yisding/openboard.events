@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../fixtures";
 import { resolveDashboardTab, resolveLocalDashboardEventId } from "../lib/dashboard-tab";
 import { DEMO_EVENT_ID } from "@/shared/demo/seed";
+import { ToastProvider } from "@/shared/ui/toast";
+import { ActivationGuide, resolveActivationState } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
 import { FormProgressCards } from "./FormProgressCards";
 import { OverdueList } from "./OverdueList";
@@ -12,6 +14,10 @@ import { TodayPanel } from "./TodayPanel";
 import { TopSpeakersList } from "./TopSpeakersList";
 
 Object.assign(globalThis, { React });
+
+function renderActivation(overview: typeof FIXTURE_OVERVIEW) {
+  return renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(ActivationGuide, { overview })));
+}
 
 describe("dashboard components", () => {
   it("renders every designed empty state without invalid percentages", () => {
@@ -47,6 +53,36 @@ describe("dashboard components", () => {
     expect(decisionIndex).toBeGreaterThan(-1);
     expect(decisionIndex).toBeLessThan(unscheduledIndex);
     expect(unscheduledIndex).toBeLessThan(missingIndex);
+  });
+
+  it("guides a new event from form creation through its first submitted proposal", () => {
+    expect(resolveActivationState(EMPTY_FIXTURE_OVERVIEW)).toEqual({ kind: "no_form" });
+    const noFormHtml = renderActivation(EMPTY_FIXTURE_OVERVIEW);
+    expect(noFormHtml).toContain("Create your call for speakers");
+    expect(noFormHtml).toContain(`/events/${EMPTY_FIXTURE_OVERVIEW.event.id}/forms`);
+
+    const fixtureForm = FIXTURE_OVERVIEW.forms[0];
+    if (!fixtureForm) throw new Error("Dashboard fixture must contain a form");
+    const form = { ...fixtureForm, submitted: 0 };
+    const liveOverview = {
+      ...EMPTY_FIXTURE_OVERVIEW,
+      event: { ...EMPTY_FIXTURE_OVERVIEW.event, slug: "new-conference" },
+      forms: [form],
+    };
+    const liveHtml = renderActivation(liveOverview);
+    expect(resolveActivationState(liveOverview)).toEqual({ kind: "live", form });
+    expect(liveHtml).toContain("Get your first submission");
+    expect(liveHtml).toContain(`/submit/new-conference/${form.formId}`);
+    expect(liveHtml).toContain(`/events/${liveOverview.event.id}/forms/${form.formId}`);
+
+    const draftOverview = { ...liveOverview, forms: [{ ...form, status: "draft" as const }] };
+    expect(renderActivation(draftOverview)).toContain("Publish your call for speakers");
+
+    const closedOverview = { ...liveOverview, forms: [{ ...form, status: "closed" as const }] };
+    expect(renderActivation(closedOverview)).toContain("Reopen your call for speakers");
+
+    expect(resolveActivationState(FIXTURE_OVERVIEW)).toBeNull();
+    expect(renderActivation(FIXTURE_OVERVIEW)).toBe("");
   });
 
   it("uses the event slug for public form links and the id for admin links", () => {
