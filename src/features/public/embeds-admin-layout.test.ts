@@ -20,9 +20,18 @@ describe("embeds admin layout", () => {
 
   it("opens one editor at a time so five embed types do not become one enormous form", () => {
     expect(source).toContain("const [openConfigId, setOpenConfigId]");
+    expect(source).toContain("useState<string | null>(null)");
     expect(source).toContain("const open = openConfigId === config.id");
     expect(source).toContain("setOpenConfigId(open ? null : config.id)");
     expect(source).toContain("aria-expanded={open}");
+  });
+
+  it("shows a compact status overview and a quiet saved state", () => {
+    expect(source).toContain('className="panel embed-overview"');
+    expect(source).toContain("embeds live");
+    expect(source).toContain('className="embed-saved-status"');
+    expect(source).not.toContain("disabled={busy !== null || !settingsDirty}");
+    expect(css).toContain(".embed-overview{display:grid");
   });
 
   it("reports clipboard failures instead of claiming a copy succeeded", () => {

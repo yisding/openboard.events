@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
-import { safeInternalPath } from "../safe-next";
+import { authPathWithNext, safeInternalPath } from "../safe-next";
 
 type LoginFormProps = {
   googleEnabled?: boolean;
+  signupEnabled?: boolean;
 };
 
 function GoogleMark() {
@@ -19,9 +20,12 @@ function GoogleMark() {
   </svg>;
 }
 
-export function LoginForm({ googleEnabled = false }: LoginFormProps) {
+export function LoginForm({ googleEnabled = false, signupEnabled = false }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestedNext = searchParams.get("next");
+  const signupHref = authPathWithNext("/signup", requestedNext);
+  const forgotPasswordHref = authPathWithNext("/login/forgot", requestedNext);
   const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState("");
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
@@ -133,6 +137,7 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
     <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "password" ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
     {/* The only route into M42's reset flow. `/login/reset` is where the
         emailed link lands; `/login/forgot` is what causes it to be sent. */}
-    <p><Link href="/login/forgot">Forgot your password?</Link></p>
+    <p><Link href={forgotPasswordHref}>Forgot your password?</Link></p>
+    {signupEnabled && <p>New to Openboard? <Link href={signupHref}>Create your workspace</Link></p>}
   </form>;
 }

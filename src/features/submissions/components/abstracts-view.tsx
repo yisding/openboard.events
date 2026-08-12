@@ -150,12 +150,14 @@ export function AbstractsView({
           </>
         }
       />
-      <DecisionBar
-        eventId={eventId}
-        selected={selected}
-        pendingNotify={queued}
-        onDone={clearSelection}
-      />
+      {canEdit && (
+        <DecisionBar
+          eventId={eventId}
+          selected={selected}
+          pendingNotify={queued}
+          onDone={clearSelection}
+        />
+      )}
       <AbstractsTable
         rows={rows}
         counts={counts}
@@ -170,9 +172,10 @@ export function AbstractsView({
         onFilter={onFilter}
         onPageChange={onPageChange}
         onSortChange={onSortChange}
+        enableSelection={canEdit}
         selectionEpoch={selectionEpoch}
         selectAllEpoch={selectAllEpoch}
-        onSelectionChange={setSelected}
+        {...(canEdit ? { onSelectionChange: setSelected } : {})}
         onRowClick={(row) => setOpenId(row.submissionId)}
       />
       {/* `openIndex === -1` happens when a command-palette jump opens a

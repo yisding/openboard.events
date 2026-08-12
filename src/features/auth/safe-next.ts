@@ -18,3 +18,9 @@ export function safeInternalPath(value: string | null | undefined, fallback = "/
     return fallback;
   }
 }
+
+/** Build an auth-route handoff without ever reflecting an external `next` URL. */
+export function authPathWithNext(path: string, value: string | null | undefined): string {
+  const next = safeInternalPath(value, "");
+  return next ? `${path}?${new URLSearchParams({ next }).toString()}` : path;
+}

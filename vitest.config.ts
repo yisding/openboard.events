@@ -26,7 +26,7 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
     // Threads preserve Vitest's per-file isolation while avoiding the process
     // startup and module-loading overhead paid by the default forks pool.
     pool: "threads",

@@ -50,6 +50,7 @@ APP_ENV=local
 APP_BASE_URL=http://127.0.0.1:$port
 EMAIL_MODE=log
 EMAIL_FALLBACK_UI=1
+ADMIN_AUTH_PROVIDER=fallback
 AIRTABLE_CRON=0
 R2_BUCKET_NAME=sb-files-dev
 EOF
@@ -100,6 +101,23 @@ probe() {
   echo "ok    GET $path -> $status"
 }
 
+probe_redirect() {
+  local path="$1"
+  local expected_location="$2"
+  local response
+  local status
+  local redirect_url
+  response="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}\t%{redirect_url}' --max-time 15 "$base_url$path")" || response="000\t"
+  status="${response%%$'\t'*}"
+  redirect_url="${response#*$'\t'}"
+  if [[ "$status" != "307" || "$redirect_url" != "$base_url$expected_location" ]]; then
+    echo "worker artifact smoke failed: GET $path returned $status -> $redirect_url; expected 307 -> $base_url$expected_location" >&2
+    tail -80 "$log_file" >&2
+    exit 1
+  fi
+  echo "ok    GET $path -> $status -> $expected_location"
+}
+
 # These routes span the root page, two separate auth page entries, middleware,
 # and an API route. Health intentionally returns 503 because this isolated
 # smoke supplies no database; reaching that application response proves the
@@ -107,7 +125,11 @@ probe() {
 # below even if Next turns one into an otherwise ambiguous HTTP 500.
 probe "/" "200"
 probe "/login" "200"
-probe "/signup" "200"
+# This production-mode artifact smoke deliberately exercises the fallback
+# provider. The signup entry still has to load cleanly, but it must route users
+# to sign-in instead of presenting an account form backed by a disabled API.
+# `next dev` keeps the credential-free local experience on `/events`.
+probe_redirect "/signup" "/login"
 probe "/events" "200|302|307"
 probe "/api/health" "503"
 

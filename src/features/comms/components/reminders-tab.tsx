@@ -4,7 +4,7 @@ import { Clock3 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { EventId } from "@/shared/contracts";
 import type { ReminderRuleRow } from "@/features/comms";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useReminderRules, useSaveReminderRules } from "../hooks/use-reminder-rules";
 
@@ -58,13 +58,13 @@ export function RemindersTab({ eventId, initialData }: { eventId: EventId; initi
         </header>
         {rows.map((row, index) => (
           <div className="reminder-rule" key={index}>
-            <label className="checkbox-row">
-              <input type="checkbox" checked={row.enabled} onChange={(event) => updateRow(index, { enabled: event.target.checked })} />
+            <div className="reminder-rule-control">
               <span>
                 <b>{offsetLabel(row.offsetDays)}</b>
                 <small>{row.enabled ? "Active reminder" : "Paused"}</small>
               </span>
-            </label>
+              <Switch label={`${offsetLabel(row.offsetDays)} reminder`} checked={row.enabled} onClick={() => updateRow(index, { enabled: !row.enabled })} />
+            </div>
             <Field label="Offset (days from due date)">
               <input
                 type="number"

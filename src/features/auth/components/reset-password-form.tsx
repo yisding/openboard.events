@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole } from "lucide-react";
+import { authPathWithNext, safeInternalPath } from "../safe-next";
 
 /**
  * M42 — the landing page for a Better Auth password-reset link.
@@ -17,6 +19,9 @@ export function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const next = safeInternalPath(searchParams.get("next"), "");
+  const loginHref = authPathWithNext("/login", next);
+  const forgotPasswordHref = authPathWithNext("/login/forgot", next);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -42,7 +47,7 @@ export function ResetPasswordForm() {
         return;
       }
       setDone(true);
-      router.replace("/login");
+      router.replace(loginHref);
     } catch {
       setError("Password reset is temporarily unavailable");
     } finally {
@@ -55,6 +60,8 @@ export function ResetPasswordForm() {
       <span className="metric-icon accent"><LockKeyhole size={20} /></span>
       <h1>This link is incomplete</h1>
       <p>Open the reset link from your email again, or request a new one.</p>
+      <Link className="button button-primary button-lg" href={forgotPasswordHref}>Request a new link</Link>
+      <p><Link href={loginHref}>Back to sign in</Link></p>
     </div>;
   }
 
@@ -65,6 +72,7 @@ export function ResetPasswordForm() {
     <label className="field"><span>New password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" /></label>
     <label className="field"><span>Confirm new password</span><input name="confirm" autoComplete="new-password" required minLength={12} type="password" /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
+    {error.includes("no longer valid") && <p><Link href={forgotPasswordHref}>Request a new reset link</Link></p>}
     <button className="button button-primary button-lg" disabled={pending || done} type="submit">
       {pending ? "Saving…" : "Save password"} <ArrowRight size={16} />
     </button>

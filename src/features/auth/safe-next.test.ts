@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeInternalPath } from "./safe-next";
+import { authPathWithNext, safeInternalPath } from "./safe-next";
 
 describe("safeInternalPath", () => {
   it("keeps internal paths with query strings and fragments", () => {
@@ -19,5 +19,17 @@ describe("safeInternalPath", () => {
     "/%2f%2fevil.example/path",
   ])("rejects unsafe redirect target %s", (value) => {
     expect(safeInternalPath(value)).toBe("/events");
+  });
+});
+
+describe("authPathWithNext", () => {
+  it("carries an internal invitation destination between auth choices", () => {
+    expect(authPathWithNext("/login", "/join?token=invite-123"))
+      .toBe("/login?next=%2Fjoin%3Ftoken%3Dinvite-123");
+  });
+
+  it("drops external and protocol-relative destinations", () => {
+    expect(authPathWithNext("/signup", "https://attacker.example/steal")).toBe("/signup");
+    expect(authPathWithNext("/signup", "//attacker.example/steal")).toBe("/signup");
   });
 });

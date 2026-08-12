@@ -298,6 +298,8 @@ export function DataTable<Row>({
 
   return (
     <section className="data-panel">
+      <p className="sr-only" role="status">{isLoading ? "Loading table data…" : ""}</p>
+
       {(toolbar || columnVisibilityKey) && (
         <div className="data-toolbar">
           {toolbar}
@@ -332,7 +334,7 @@ export function DataTable<Row>({
         </div>
       )}
 
-      <div className="table-scroll">
+      <div className="table-scroll" aria-busy={isLoading}>
         <table className="data-table">
           <thead>
             {table.getHeaderGroups().map((group) => (

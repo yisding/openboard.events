@@ -25,6 +25,7 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
+import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
 
@@ -160,7 +161,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
         hash: hashAdminPassword,
         verify: verifyAdminPassword,
       },
-      sendResetPassword: async ({ user, token }) => {
+      sendResetPassword: async ({ user, token, url }) => {
         await sendAdminAuthEmailIn(database, {
           templateKey: "admin_password_reset",
           userId: user.id as UserId,
@@ -169,7 +170,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           // Our own URL, not Better Auth's `url`: the token rides as a `token=`
           // query parameter, which is the shape `redactCredentials` in the
           // dispatcher already strips out of a stored body.
-          url: `${baseUrl(env)}/login/reset?token=${encodeURIComponent(token)}`,
+          url: passwordResetLandingUrl(url, token).toString(),
           expiresIn: "1 hour",
         }, env);
       },

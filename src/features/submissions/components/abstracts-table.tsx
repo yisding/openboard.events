@@ -63,6 +63,7 @@ export function AbstractsTable({
   onFilter,
   onPageChange,
   onSortChange,
+  enableSelection,
   onSelectionChange,
   onRowClick,
   selectionEpoch,
@@ -83,6 +84,8 @@ export function AbstractsTable({
   onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
   onPageChange: (page: number) => void;
   onSortChange: (sort: SubmissionFilters["sort"]) => void;
+  /** Organizer-only bulk decisions; reviewers get the same readable rows without checkboxes. */
+  enableSelection: boolean;
   onSelectionChange?: (rows: SubmissionListRow[]) => void;
   onRowClick?: (row: SubmissionListRow) => void;
   selectionEpoch?: number;
@@ -197,7 +200,7 @@ export function AbstractsTable({
       <DataTable
         columns={columns}
         data={rows}
-        enableSelection
+        enableSelection={enableSelection}
         getRowLabel={(row) => `${formatCode(row.code)}, ${row.title}`}
         {...(selectionEpoch === undefined ? {} : { selectionEpoch })}
         {...(selectAllEpoch === undefined ? {} : { selectAllEpoch })}

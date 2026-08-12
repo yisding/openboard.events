@@ -6,7 +6,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, users } from "@/db/schema";
-import { authorizeAdmin, hashPassword, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
+import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "@/features/auth/server/admin-password";
@@ -331,15 +331,18 @@ describe("M42 admin auth on Better Auth", () => {
   });
 
   it("queues password recovery for an eventless account without revealing whether an address exists", async () => {
-    const requestReset = (email: string) => auth.handler(new Request("http://localhost:3000/api/auth/request-password-reset", {
+    const requestReset = (email: string, redirectTo?: string) => auth.handler(new Request("http://localhost:3000/api/auth/request-password-reset", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...(redirectTo ? { redirectTo } : {}) }),
     }));
     const before = await database.select().from(adminAuthEmailOutbox)
       .where(eq(adminAuthEmailOutbox.templateKey, "admin_password_reset"));
 
-    const existing = await requestReset("stranger@example.com");
+    const existing = await requestReset(
+      "stranger@example.com",
+      "/login/reset?next=%2Fjoin%3Ftoken%3Dinvite-through-reset",
+    );
     const unknown = await requestReset("nobody@example.com");
     expect(existing.status).toBe(200);
     expect(unknown.status).toBe(200);
@@ -349,6 +352,17 @@ describe("M42 admin auth on Better Auth", () => {
       .where(eq(adminAuthEmailOutbox.templateKey, "admin_password_reset"));
     expect(after).toHaveLength(before.length + 1);
     expect(after.at(-1)).toMatchObject({ recipientEmail: "stranger@example.com", status: "queued" });
+    const resetMail = after.at(-1);
+    if (!resetMail?.secretPayloadCiphertext || !env.SESSION_SECRET) throw new Error("expected a sealed reset link");
+    const payload = await openPlatformAdminLinkPayload(
+      resetMail.secretPayloadCiphertext,
+      { userId: resetMail.userId as typeof legacyUser, messageId: resetMail.id },
+      env.SESSION_SECRET,
+    );
+    const resetUrl = new URL(payload.url);
+    expect(resetUrl.pathname).toBe("/login/reset");
+    expect(resetUrl.searchParams.get("token")).toBeTruthy();
+    expect(resetUrl.searchParams.get("next")).toBe("/join?token=invite-through-reset");
   });
 
   it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {

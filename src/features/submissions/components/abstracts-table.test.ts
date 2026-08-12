@@ -65,6 +65,7 @@ function renderTable(rows: SubmissionListRow[]): string {
       onFilter: () => {},
       onPageChange: () => {},
       onSortChange: () => {},
+      enableSelection: true,
     }),
   );
 }

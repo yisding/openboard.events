@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { Brand } from "@/shared/ui/brand";
+import { getEnv } from "@/shared/lib/env";
+
+// Signup availability is a runtime Cloudflare binding. Do not freeze the
+// provider gate into the build-time prerendered homepage.
+export const dynamic = "force-dynamic";
 
 // `seedId("form", "form-a")` — scripts/seed/lib/ids.ts derives every seeded
 // row's id from a SHA-1 (uuidv5) of a fixed namespace plus this literal key,
@@ -15,6 +20,16 @@ const CFP_HREF = `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
 const AGENDA_HREF = "/e/ai-engineer-sandbox-event/agenda";
 
 export default function HomePage() {
+  // Evaluated per render rather than at module scope: `getEnv` reads the
+  // current request's Cloudflare env binding, which only exists inside a
+  // request's execution context.
+  const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
+  const workspaceHref = signupEnabled ? "/signup" : "/login";
+  const workspaceNavLabel = signupEnabled ? "Create workspace" : "Open workspace";
+  const workspaceHeroLabel = signupEnabled ? "Create your workspace" : "Open your workspace";
+  const workspaceProof = signupEnabled
+    ? "Go from signup to a live CFP in one guided setup"
+    : "Sign in to manage your event workspace";
   return (
     <main className="landing">
       <nav className="landing-nav container">
@@ -22,8 +37,9 @@ export default function HomePage() {
         <div className="landing-links">
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
-          <Link className="button button-secondary" href={CFP_HREF}>View CFP</Link>
-          <Link className="button button-primary" href="/events">Open workspace <ArrowRight size={16} /></Link>
+          <Link href={CFP_HREF}>View sample CFP</Link>
+          <Link className="button button-secondary" href="/login">Sign in</Link>
+          <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
         </div>
       </nav>
 
@@ -33,10 +49,11 @@ export default function HomePage() {
           <h1>Every speaker. Every session. <span>One calm command center.</span></h1>
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
-            <Link className="button button-primary button-lg" href="/events">Open the workspace <ArrowRight size={18} /></Link>
+            <Link className="button button-primary button-lg" href={workspaceHref}>{workspaceHeroLabel} <ArrowRight size={18} /></Link>
+            <Link className="button button-secondary button-lg" href={CFP_HREF}>View a sample CFP</Link>
             <Link className="button button-ghost button-lg" href={AGENDA_HREF}>See the public agenda</Link>
           </div>
-          <div className="hero-proof"><CheckCircle2 size={17} /> Seeded with a complete AI Engineer event</div>
+          <div className="hero-proof"><CheckCircle2 size={17} /> {workspaceProof}</div>
         </div>
         <div className="hero-art" aria-label="Openboard dashboard preview">
           <div className="hero-glow" />
