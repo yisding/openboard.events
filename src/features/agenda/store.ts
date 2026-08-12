@@ -14,6 +14,15 @@ import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 export const AGENDA_VIEWS = ["list", "day", "week", "track", "room", "conflicts"] as const;
 export type AgendaView = (typeof AGENDA_VIEWS)[number];
 
+/** The create dialog follows the Day grid's visible day, not a stale URL day. */
+export function createSessionDefaultDay(
+  view: AgendaView,
+  activeGridDay: string | null,
+  urlDay: string | null,
+): string | null {
+  return view === "day" ? activeGridDay : urlDay;
+}
+
 export function parseView(value: string | string[] | undefined): AgendaView {
   const candidate = Array.isArray(value) ? value[0] : value;
   return AGENDA_VIEWS.includes(candidate as AgendaView) ? candidate as AgendaView : "list";

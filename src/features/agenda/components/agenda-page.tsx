@@ -9,7 +9,7 @@ import { PageHeader } from "@/shared/ui/ui-kit";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
 import type { AnnounceBundle } from "../server/announce";
-import { conflictsTouchingSessions, type AgendaView } from "../store";
+import { conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
@@ -51,6 +51,19 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
+  const eventDays = useMemo(
+    () => eventDayKeys(props.event.startsAt, props.event.endsAt, props.event.timezone),
+    [props.event.startsAt, props.event.endsAt, props.event.timezone],
+  );
+  const [activeGridDay, setActiveGridDay] = useState<string | null>(() => props.day ?? eventDays[0] ?? null);
+
+  // Browser navigation and the toolbar still drive `props.day`; mirror them
+  // into the controlled grid while retaining a concrete first day for `?day=`
+  // absent/All.
+  useEffect(() => {
+    const next = props.day && eventDays.includes(props.day) ? props.day : eventDays[0] ?? null;
+    setActiveGridDay(next);
+  }, [props.day, eventDays]);
 
   // Server-rendered rows seed the cache, so the first paint costs no request and
   // a save still has one key to invalidate.
@@ -66,6 +79,11 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     }
     router.push(`?${query.toString()}`);
   }, [params, router]);
+
+  const selectDay = useCallback((next: string | null) => {
+    setActiveGridDay(next ?? eventDays[0] ?? null);
+    navigate({ day: next });
+  }, [eventDays, navigate]);
 
   const editing = useMemo(
     () => sessions.find((session) => String(session.id) === editingId) ?? null,
@@ -97,7 +115,13 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     [needle, props.conflicts, visible],
   );
 
-  const viewProps: AgendaViewProps = { ...props, sessions: visible, onEdit: setEditingId };
+  const viewProps: AgendaViewProps = {
+    ...props,
+    sessions: visible,
+    day: view === "day" ? activeGridDay : props.day ?? null,
+    onDayChange: (next) => selectDay(next),
+    onEdit: setEditingId,
+  };
 
   return (
     <main className="page">
@@ -123,7 +147,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         search={search}
         onSearch={setSearch}
         onView={(next) => navigate({ view: next })}
-        onDay={(next) => navigate({ day: next })}
+        onDay={selectDay}
         onCreate={() => setCreating(true)}
         eventId={String(props.eventId)}
       />
@@ -154,7 +178,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         open={creating || editing !== null}
         onClose={() => { setCreating(false); setEditingId(null); }}
         session={creating ? null : editing}
-        defaultDay={props.day ?? null}
+        defaultDay={createSessionDefaultDay(view, activeGridDay, props.day ?? null)}
         eventId={props.eventId}
         event={props.event}
         rooms={props.rooms}

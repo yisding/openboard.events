@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultScheduledRange } from "./store";
+import { createSessionDefaultDay, defaultScheduledRange } from "./store";
 
 const event = {
   timezone: "America/Los_Angeles",
@@ -8,6 +8,15 @@ const event = {
 };
 
 describe("defaultScheduledRange", () => {
+  it("creates on day two after the grid switches even while the URL still names day one", () => {
+    const defaultDay = createSessionDefaultDay("day", "2026-09-16", "2026-09-15");
+    expect(defaultDay).toBe("2026-09-16");
+    expect(defaultScheduledRange(event, defaultDay, 30 * 60_000)).toEqual({
+      startsAt: "2026-09-16T16:00:00.000Z",
+      endsAt: "2026-09-16T16:30:00.000Z",
+    });
+  });
+
   it("uses the selected event-local day at the event's local start time", () => {
     expect(defaultScheduledRange(event, "2026-09-16", 30 * 60_000)).toEqual({
       startsAt: "2026-09-16T16:00:00.000Z",
