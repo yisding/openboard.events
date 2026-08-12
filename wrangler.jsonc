@@ -58,6 +58,15 @@
       // refuses unless same-zone fetches are treated as public. Env-scoped so
       // the working preview config stays byte-identical.
       "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+      // Both public hostnames attach to this Worker as Custom Domains. The
+      // apex was attached by hand when the zone moved to Cloudflare; www was
+      // not, so it resolved to the proxy with no origin behind it and every
+      // request died with a 522. Declaring both here keeps the attachment
+      // owned by config instead of the dashboard.
+      "routes": [
+        { "pattern": "openboard.events", "custom_domain": true },
+        { "pattern": "www.openboard.events", "custom_domain": true }
+      ],
       "vars": {
         "APP_ENV": "production",
         "ADMIN_AUTH_PROVIDER": "better-auth",
