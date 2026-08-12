@@ -10,7 +10,7 @@ import { getActiveOrganizationOnboardingForUser, getOrganizationOnboardingForUse
 import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { eventIdSchema, organizationIdSchema, type UserId } from "@/shared/contracts";
-import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { getEnv } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Set up your event" };
@@ -39,9 +39,6 @@ export default async function Page({ params, searchParams }: {
   params: Promise<{ organizationId: string }>;
   searchParams: Promise<{ event?: string }>;
 }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Set up your event" description="Guided setup is unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

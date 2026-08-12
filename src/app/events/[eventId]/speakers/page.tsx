@@ -3,13 +3,8 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/features/auth";
 import { listContacts, type ContactFilters } from "@/features/portal";
 import { SpeakersAdminView } from "@/features/portal/components/speakers-admin/speakers-admin-view";
-import { SpeakersPage } from "@/features/portal/speakers-page";
 import { parseSpeakerMissing } from "@/features/portal/speaker-deep-links";
-import { getAdminSpeaker } from "@/features/portal/server/admin-speakers";
-import { FIXTURE_DASHBOARD_SPEAKERS } from "@/features/dashboard/fixtures";
 import { contactIdSchema, eventIdSchema, SPEAKERS_DEEPLINK_PARAMS } from "@/shared/contracts";
-import { DEMO_EVENT_ID } from "@/shared/demo/seed";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Speakers" };
 export const dynamic = "force-dynamic";
@@ -38,33 +33,6 @@ export default async function Page({
   const requestedContact = firstOf(query.contactId);
   const requestedMissing = firstOf(query.missing);
   const missing = parseSpeakerMissing(requestedMissing);
-
-  // The credential-free demo has no database to read; everywhere else this is
-  // the event's real contacts, database-backed table and all (this module's
-  // headline "moved off fixtures" change).
-  if (isCredentialFreeLocalDemo()) {
-    let initialSpeaker = null;
-    if (requestedContact) {
-      if (rawEventId === DEMO_EVENT_ID) {
-        initialSpeaker = FIXTURE_DASHBOARD_SPEAKERS.find((speaker) => speaker.id === requestedContact) ?? null;
-      } else {
-        const parsedEventId = eventIdSchema.safeParse(rawEventId);
-        const parsedContactId = contactIdSchema.safeParse(requestedContact);
-        if (parsedEventId.success && parsedContactId.success) {
-          initialSpeaker = await getAdminSpeaker(parsedEventId.data, parsedContactId.data);
-        }
-      }
-    }
-    return (
-      <SpeakersPage
-        key={`${requestedContact ?? "all"}:${missing ?? "all"}`}
-        eventId={rawEventId}
-        initialContactId={requestedContact ?? null}
-        initialSpeaker={initialSpeaker}
-        missing={missing}
-      />
-    );
-  }
 
   const eventId = eventIdSchema.parse(rawEventId);
   await requireAdmin(eventId);

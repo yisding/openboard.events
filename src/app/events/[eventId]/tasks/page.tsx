@@ -9,18 +9,12 @@ import {
   listTasks,
 } from "@/features/portal/tasks-admin/server/queries";
 import { TasksAdminView } from "@/features/portal/tasks-admin/components/tasks-admin-view";
-import { TasksAdminPage } from "@/features/portal/tasks-admin-page";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Tasks" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId: rawEventId } = await params;
-  // The credential-free demo has no database to read; everywhere else this is
-  // the event's real tasks, file requests and completion counts.
-  if (isCredentialFreeLocalDemo()) return <TasksAdminPage eventId={rawEventId} />;
-
   const eventId = eventIdSchema.parse(rawEventId);
   // Building the onboarding checklist is an organizer's job, same bar as the
   // form builder and evaluation rounds.
