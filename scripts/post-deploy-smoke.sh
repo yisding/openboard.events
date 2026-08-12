@@ -134,6 +134,14 @@ if expect_status "$base_url/api/health" 200 "health responds"; then
     && pass "/api/health"
 fi
 
+# 1b. Both deployed environments advertise self-service signup, so Better
+# Auth's non-mutating session endpoint must be mounted. The fallback provider
+# returns 404 here; checking this catches a deployment that renders `/signup`
+# but cannot accept the form before a smoke test creates any customer data.
+if expect_status "$base_url/api/auth/get-session" 200 "self-service auth is mounted"; then
+  pass "/api/auth/get-session"
+fi
+
 # 2. The public schedule is cached at the edge. Two things this deliberately does
 #    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
 #    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and

@@ -23,6 +23,7 @@ export function JoinInvitationView() {
   const token = searchParams.get("token") ?? "";
   const [status, setStatus] = useState<Status>("checking");
   const [message, setMessage] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -36,7 +37,7 @@ export function JoinInvitationView() {
       try {
         const result = await api("organizations/invitations/accept", acceptedSchema, { method: "POST", body: { token } });
         if (cancelled) return;
-        void result;
+        setOrganizationId(result.organizationId);
         setStatus("accepted");
       } catch (caught) {
         if (cancelled) return;
@@ -71,8 +72,8 @@ export function JoinInvitationView() {
     return <div>
       <span className="metric-icon accent"><CheckCircle2 size={20} /></span>
       <h1>You&apos;re in</h1>
-      <p>The invitation was accepted. You can close this tab, or head to your organizer sign-in.</p>
-      <a className="button button-primary button-lg" href="/login">Continue <LogIn size={16} /></a>
+      <p>The invitation was accepted. Continue straight to your new workspace.</p>
+      <a className="button button-primary button-lg" href={`/organizations/${encodeURIComponent(organizationId)}`}>Continue <LogIn size={16} /></a>
     </div>;
   }
 

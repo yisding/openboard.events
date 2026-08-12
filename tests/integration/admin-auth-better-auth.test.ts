@@ -8,9 +8,16 @@ import * as schema from "@/db/schema";
 import { adminAccounts, adminSessions, adminVerifications, eventMembers, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
+import { SIGNUP_ORGANIZATION_HEADER } from "@/features/auth/signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "@/features/auth/server/admin-password";
 import { upsertCredentialAccount } from "@/features/auth/server/credential-account";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
+import {
+  createOrganizationIn,
+  getOrganizationMemberRoleIn,
+  inviteOrganizationMemberIn,
+  issueOrganizationInvitationTokenIn,
+} from "@/features/organizations";
 import { parseEnv } from "@/shared/lib/env";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 
@@ -265,6 +272,54 @@ describe("M42 admin auth on Better Auth", () => {
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
     await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(200);
+  });
+
+  it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {
+    const organization = await createOrganizationIn(database, legacyUser, { name: "Inviting Org", slug: "inviting-org" });
+    try {
+      const { invitation } = await inviteOrganizationMemberIn(database, organization.id, legacyUser, {
+        email: "invited-through-signup@example.com",
+        role: "organizer",
+      });
+      const issued = await issueOrganizationInvitationTokenIn(database, invitation.id);
+      if (!issued) throw new Error("expected a live invitation token");
+
+      const wrongAddress = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+        body: JSON.stringify({
+          email: "wrong-invite-address@example.com",
+          password: "a perfectly fine password",
+          name: "Wrong Address",
+          invitationToken: issued.raw,
+        }),
+      }));
+      expect(wrongAddress.ok).toBe(false);
+      const wrongUser = await database.select({ id: users.id }).from(users)
+        .where(eq(users.email, "wrong-invite-address@example.com")).limit(1);
+      expect(wrongUser).toHaveLength(0);
+
+      const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+        body: JSON.stringify({
+          email: "invited-through-signup@example.com",
+          password: "a perfectly fine password",
+          name: "Invited Signup",
+          invitationToken: issued.raw,
+        }),
+      }));
+      expect(response.ok).toBe(true);
+      expect(response.headers.get(SIGNUP_ORGANIZATION_HEADER)).toBe(organization.id);
+      const [newUser] = await database.select({ id: users.id }).from(users)
+        .where(eq(users.email, "invited-through-signup@example.com")).limit(1);
+      expect(newUser?.id).toBeTruthy();
+      await expect(getOrganizationMemberRoleIn(database, organization.id, userIdSchema.parse(newUser?.id)))
+        .resolves.toBe("organizer");
+    } finally {
+      await pglite.query("DELETE FROM organizations WHERE id=$1", [organization.id]);
+      await pglite.query("DELETE FROM users WHERE email IN ('invited-through-signup@example.com','wrong-invite-address@example.com')");
+    }
   });
 
   it("issues a session cookie the /events middleware gate recognises", async () => {

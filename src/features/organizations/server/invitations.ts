@@ -12,26 +12,23 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 import { addDuration } from "@/shared/lib/time";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { getOrCreateContact } from "@/features/portal";
 import { randomBytes, sha256, toBase64Url } from "@/features/auth/server/crypto";
 import type { InviteOrganizationMemberInput } from "../schemas";
 import { recordOrganizationAuditEventIn } from "./audit";
-import { setOrganizationMemberIn } from "./mutations";
 
 /**
  * M44 — team invitations, addressed to an email and routed through the
  * inviting organization's own outbox mail exactly the way M42's admin auth
  * mail borrows a "home event" to send from (`features/auth/server/
  * admin-mail.ts`). Resolution #4 confines `withTx` to eight named runtime
- * functions and this feature is not one of them: every write below is a
- * single statement, and where an accept has to touch two tables (the
- * invitation row and `organization_members`), the invitation's own guarded
- * `UPDATE … RETURNING` is what makes "a token is consumed at most once" a
- * database guarantee before the membership write ever runs — the same
- * sequencing `admin-mail.ts` uses (mint, then act) rather than a ninth
- * transactional path.
+ * functions and this feature is not one of them: each state transition below
+ * is a single statement. Acceptance uses one data-modifying CTE for the
+ * guarded invitation claim and membership upsert, so the token is consumed at
+ * most once and can never be consumed without granting the membership.
  */
 
 const INVITATION_TTL = "P14D";
@@ -231,22 +228,54 @@ export async function issueOrganizationInvitationTokenIn(
   };
 }
 
-export type PendingInvitationForEmail = { id: OrganizationInvitationId; organizationId: OrganizationId; role: MemberRole };
+type PendingInvitationForToken = {
+  id: OrganizationInvitationId;
+  organizationId: OrganizationId;
+  role: MemberRole;
+  email: string;
+};
 
-/** Used by the Better Auth signup hook to fold a new account straight into an organization it was already invited to, instead of minting it a fresh one. */
-export async function findPendingInvitationByEmailIn(dbOrTx: DbOrTx, email: string): Promise<PendingInvitationForEmail | null> {
-  const normalized = email.trim().toLowerCase();
-  const [row] = await dbOrTx.select({ id: organizationInvitations.id, organizationId: organizationInvitations.organizationId, role: organizationInvitations.role })
-    .from(organizationInvitations)
+async function pendingOrganizationInvitationByTokenIn(
+  dbOrTx: DbOrTx,
+  rawToken: string,
+): Promise<PendingInvitationForToken | null> {
+  const tokenHash = await sha256(rawToken);
+  const [row] = await dbOrTx.select({
+    id: organizationInvitations.id,
+    organizationId: organizationInvitations.organizationId,
+    role: organizationInvitations.role,
+    email: organizationInvitations.email,
+  }).from(organizationInvitations)
     .where(and(
-      eq(organizationInvitations.email, normalized),
+      eq(organizationInvitations.tokenHash, tokenHash),
       sql`${organizationInvitations.acceptedAt} IS NULL`,
       sql`${organizationInvitations.revokedAt} IS NULL`,
       sql`${organizationInvitations.expiresAt} > now()`,
     ))
-    .orderBy(asc(organizationInvitations.createdAt))
     .limit(1);
-  return row ? { id: row.id as OrganizationInvitationId, organizationId: row.organizationId as OrganizationId, role: row.role } : null;
+  return row ? {
+    id: row.id as OrganizationInvitationId,
+    organizationId: row.organizationId as OrganizationId,
+    role: row.role,
+    email: row.email,
+  } : null;
+}
+
+/**
+ * Validate an invitation before Better Auth inserts a new user. This prevents
+ * an expired, revoked, or wrong-address token from leaving behind an account
+ * with no organization when the post-create hook later tries to consume it.
+ */
+export async function assertOrganizationInvitationTokenForEmailIn(
+  dbOrTx: DbOrTx,
+  rawToken: string,
+  email: string,
+): Promise<void> {
+  const invitation = await pendingOrganizationInvitationByTokenIn(dbOrTx, rawToken);
+  if (!invitation) throw new AppError("VALIDATION", "This invitation is no longer valid — ask for a new one");
+  if (invitation.email !== email.trim().toLowerCase()) {
+    throw new AppError("FORBIDDEN", "This invitation was sent to a different email address");
+  }
 }
 
 /**
@@ -261,22 +290,59 @@ async function finalizeAcceptanceIn(
   invitationId: OrganizationInvitationId,
   userId: UserId,
 ): Promise<{ organizationId: OrganizationId; role: MemberRole }> {
+  // Claiming the token and adding the membership are one statement. Without
+  // this CTE, a database failure after the guarded invitation UPDATE could
+  // permanently consume the one-shot token without granting access.
   const result = await dbOrTx.execute(sql`
-    UPDATE organization_invitations SET accepted_at = now(), accepted_user_id = ${userId}::uuid
-    WHERE id = ${invitationId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-    RETURNING organization_id, role
+    WITH invitation AS MATERIALIZED (
+      SELECT organization_id, role FROM organization_invitations
+      WHERE id = ${invitationId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+    ), owners AS MATERIALIZED (
+      SELECT member.user_id FROM organization_members member
+      JOIN invitation ON invitation.organization_id = member.organization_id
+      WHERE member.role = 'owner'
+      ORDER BY member.user_id
+      FOR UPDATE OF member
+    ), claimed AS (
+      UPDATE organization_invitations pending
+      SET accepted_at = now(), accepted_user_id = ${userId}::uuid
+      FROM invitation
+      WHERE pending.id = ${invitationId}::uuid
+        AND pending.accepted_at IS NULL
+        AND pending.revoked_at IS NULL
+        AND pending.expires_at > now()
+        AND (
+          invitation.role = 'owner'
+          OR NOT EXISTS (SELECT 1 FROM owners WHERE owners.user_id = ${userId}::uuid)
+          OR EXISTS (SELECT 1 FROM owners WHERE owners.user_id <> ${userId}::uuid)
+        )
+      RETURNING pending.organization_id, pending.role
+    ), membership AS (
+      INSERT INTO organization_members (user_id, organization_id, role)
+      SELECT ${userId}::uuid, organization_id, role FROM claimed
+      ON CONFLICT (user_id, organization_id) DO UPDATE SET role = EXCLUDED.role
+      RETURNING organization_id, role
+    )
+    SELECT organization_id, role FROM membership
   `);
   const [row] = rowsOf<{ organization_id: string; role: MemberRole }>(result);
-  if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid");
+  if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid, or accepting it would leave the organization without an owner");
   const organizationId = row.organization_id as OrganizationId;
-  await setOrganizationMemberIn(dbOrTx, organizationId, userId, row.role);
-  await recordOrganizationAuditEventIn(dbOrTx, organizationId, userId, "invitation.accepted", userId, { role: row.role });
+  try {
+    await recordOrganizationAuditEventIn(dbOrTx, organizationId, userId, "invitation.accepted", userId, { role: row.role });
+  } catch (error) {
+    // The membership is already committed. Preserve the user's successful,
+    // retry-safe acceptance and report the secondary observability failure.
+    log({
+      level: "error",
+      msg: "organization invitation accepted without audit row",
+      requestId: invitationId,
+      feature: "organizations",
+      code: error instanceof Error ? error.name : "unknown",
+    });
+  }
   return { organizationId, role: row.role };
 }
-
-/** Called from the Better Auth signup hook — the invitation row is already in hand. */
-export const acceptOrganizationInvitationForNewUserIn = (dbOrTx: DbOrTx, invitation: PendingInvitationForEmail, userId: UserId) =>
-  finalizeAcceptanceIn(dbOrTx, invitation.id, userId);
 
 /**
  * The self-service accept path: an already-authenticated identity redeems a
@@ -290,21 +356,12 @@ export async function acceptOrganizationInvitationByTokenIn(
   rawToken: string,
   identity: { userId: UserId; email: string },
 ): Promise<{ organizationId: OrganizationId; role: MemberRole }> {
-  const tokenHash = await sha256(rawToken);
-  const [invitation] = await dbOrTx.select({ id: organizationInvitations.id, email: organizationInvitations.email })
-    .from(organizationInvitations)
-    .where(and(
-      eq(organizationInvitations.tokenHash, tokenHash),
-      sql`${organizationInvitations.acceptedAt} IS NULL`,
-      sql`${organizationInvitations.revokedAt} IS NULL`,
-      sql`${organizationInvitations.expiresAt} > now()`,
-    ))
-    .limit(1);
+  const invitation = await pendingOrganizationInvitationByTokenIn(dbOrTx, rawToken);
   if (!invitation) throw new AppError("VALIDATION", "This invitation is no longer valid — ask for a new one");
   if (invitation.email !== identity.email.trim().toLowerCase()) {
     throw new AppError("FORBIDDEN", "This invitation was sent to a different email address");
   }
-  return finalizeAcceptanceIn(dbOrTx, invitation.id as OrganizationInvitationId, identity.userId);
+  return finalizeAcceptanceIn(dbOrTx, invitation.id, identity.userId);
 }
 export const acceptOrganizationInvitationByToken = (rawToken: string, identity: { userId: UserId; email: string }) =>
   acceptOrganizationInvitationByTokenIn(db, rawToken, identity);

@@ -52,6 +52,7 @@ cold_then_cached() {
 }
 case "$url" in
   */api/health) payload='{"ok":true,"errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
+  */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     extra=$'Content-Security-Policy: frame-ancestors *\\r\\n'
@@ -83,6 +84,7 @@ printf '%s' "$status"
     });
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("ok    /api/auth/get-session");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
   });

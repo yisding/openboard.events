@@ -15,11 +15,12 @@ import { createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { adminAccounts, adminSessions, adminVerifications, users } from "@/db/schema";
-import { provisionOrganizationForNewUserIn } from "@/features/organizations";
+import { assertOrganizationInvitationTokenForEmailIn, provisionOrganizationForNewUserIn } from "@/features/organizations";
 import { userIdSchema, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
+import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { sendAdminAuthEmail } from "./admin-mail";
 
@@ -67,6 +68,22 @@ type AuthDeps = {
    */
   database?: typeof db;
 };
+
+type SignupProvisioningInput = {
+  invitationToken?: string;
+  organizationName?: string;
+};
+
+function signupProvisioningInput(context: { path?: string; body?: unknown } | null): SignupProvisioningInput {
+  if (context?.path !== "/sign-up/email" || !context.body || typeof context.body !== "object") return {};
+  const body = context.body as Record<string, unknown>;
+  const invitationToken = typeof body.invitationToken === "string" ? body.invitationToken.trim() : "";
+  const organizationName = typeof body.organizationName === "string" ? body.organizationName.trim() : "";
+  return {
+    ...(invitationToken.length > 0 && invitationToken.length <= 512 ? { invitationToken } : {}),
+    ...(organizationName.length > 0 && organizationName.length <= 160 ? { organizationName } : {}),
+  };
+}
 
 export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
   const database = deps.database ?? db;
@@ -201,8 +218,19 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
     databaseHooks: {
       user: {
         create: {
-          after: async (user) => {
-            await provisionNewUser(database, user);
+          // An invitation is a bearer credential. Validate it before Better
+          // Auth inserts the user, then consume the same token in `after`.
+          // This avoids both email-only membership claims and orphan users
+          // when a stale or wrong-address invitation reaches signup.
+          before: async (user, context) => {
+            const { invitationToken } = signupProvisioningInput(context);
+            if (invitationToken) {
+              await assertOrganizationInvitationTokenForEmailIn(database, invitationToken, user.email);
+            }
+          },
+          after: async (user, context) => {
+            const result = await provisionNewUser(database, user, signupProvisioningInput(context));
+            if (result.viaInvitation) context?.setHeader(SIGNUP_ORGANIZATION_HEADER, result.organizationId);
           },
         },
       },
@@ -231,21 +259,39 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
  * email+password `/sign-up/email` call and a Google sign-in nobody's account
  * matched, alike — and never for `createEventReviewer`/`bootstrap-admin.ts`,
  * which write `users` directly through Drizzle rather than through this
- * adapter. `queueAfterTransactionHook` (better-auth's own db layer) awaits
- * this before the signup response returns, so by the time a client's
- * subsequent "list my organizations" call lands, the organization already
- * exists.
+ * adapter. Better Auth awaits this hook before the signup response returns,
+ * so by the time a client's subsequent "list my organizations" call lands,
+ * the organization already exists.
  *
- * Deliberately not wrapped in a try/catch: this hook exists precisely to
- * make "a user with no organization" impossible, and swallowing a failure
- * here would let exactly that state through silently. A failure instead
- * fails the whole signup request — safe, since nothing was left half-done
- * (`provisionOrganizationForNewUserIn` is either an atomic invitation-accept
- * or an atomic organization-create).
+ * The Neon HTTP adapter cannot wrap Better Auth's user/account inserts and
+ * our organization write in one database transaction. If provisioning fails,
+ * delete the just-created user (its credential/social account cascades) before
+ * failing the request. Both provisioning outcomes are themselves atomic
+ * statements, so cleanup cannot leave an ownerless organization or a consumed
+ * invitation without its membership.
  */
-async function provisionNewUser(database: typeof db, user: { id: string; email: string; name?: string | null }): Promise<void> {
+async function provisionNewUser(
+  database: typeof db,
+  user: { id: string; email: string; name?: string | null },
+  input: SignupProvisioningInput,
+): Promise<{ organizationId: string; viaInvitation: boolean }> {
   const userId = userIdSchema.parse(user.id);
-  await provisionOrganizationForNewUserIn(database, userId, user.email, user.name ?? "");
+  try {
+    return await provisionOrganizationForNewUserIn(database, userId, user.email, user.name ?? "", input);
+  } catch (error) {
+    try {
+      await database.delete(users).where(eq(users.id, userId));
+    } catch (cleanupError) {
+      log({
+        level: "error",
+        msg: "failed to clean up user after signup provisioning error",
+        requestId: userId,
+        feature: "auth",
+        code: cleanupError instanceof Error ? cleanupError.name : "unknown",
+      });
+    }
+    throw error;
+  }
 }
 
 /**

@@ -58,7 +58,7 @@ export {
 export {
   acceptOrganizationInvitationByToken,
   acceptOrganizationInvitationByTokenIn,
-  findPendingInvitationByEmailIn,
+  assertOrganizationInvitationTokenForEmailIn,
   inviteOrganizationMember,
   inviteOrganizationMemberIn,
   issueOrganizationInvitationTokenIn,
@@ -66,7 +66,6 @@ export {
   listPendingOrganizationInvitationsIn,
   revokeOrganizationInvitation,
   revokeOrganizationInvitationIn,
-  type PendingInvitationForEmail,
 } from "./server/invitations";
 export {
   listOrganizationAuditLog,

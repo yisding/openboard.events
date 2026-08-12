@@ -12,9 +12,9 @@ import { renderTemplateContent } from "@/features/comms/server/render";
 import { DEFAULT_TEMPLATES } from "@/features/comms/server/templates";
 import {
   acceptOrganizationInvitationByTokenIn,
+  assertOrganizationInvitationTokenForEmailIn,
   changeOrganizationMemberRoleIn,
   createOrganizationIn,
-  findPendingInvitationByEmailIn,
   getOrganizationMemberRoleIn,
   inviteOrganizationMemberInputSchema,
   inviteOrganizationMemberIn,
@@ -174,6 +174,28 @@ describe("M44 user management", () => {
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });
+
+    it("does not consume an invitation that would demote the organization's last owner", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Owner Guard Co", slug: "owner-guard-co" });
+      try {
+        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "owner@example.com", role: "reviewer" });
+        const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
+        if (!issued) throw new Error("expected a mintable token");
+
+        await expect(acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: ownerId, email: "owner@example.com" }))
+          .rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(getOrganizationMemberRoleIn(db, org.id, ownerId)).resolves.toBe("owner");
+
+        // The failed acceptance leaves the token pending. Once another owner
+        // exists, the same invitation may safely apply its requested role.
+        await setOrganizationMemberIn(db, org.id, reviewerId, "owner");
+        await expect(acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: ownerId, email: "owner@example.com" }))
+          .resolves.toMatchObject({ organizationId: org.id, role: "reviewer" });
+        await expect(getOrganizationMemberRoleIn(db, org.id, ownerId)).resolves.toBe("reviewer");
+      } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
   });
 
   describe("role management", () => {
@@ -218,30 +240,48 @@ describe("M44 user management", () => {
   });
 
   describe("self-serve signup provisioning", () => {
-    it("creates a new organization for a signup with no matching invitation, and makes them its owner", async () => {
+    it("creates the named organization for an ordinary signup and makes the user its owner", async () => {
       const newUserId = userIdSchema.parse("e4400000-0000-4000-8000-000000000201");
       await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'fresh@example.com','Fresh Person')", [newUserId]);
-      const result = await provisionOrganizationForNewUserIn(db, newUserId, "fresh@example.com", "Fresh Person");
+      const result = await provisionOrganizationForNewUserIn(db, newUserId, "fresh@example.com", "Fresh Person", {
+        organizationName: "Fresh Events",
+      });
       expect(result.viaInvitation).toBe(false);
       await expect(getOrganizationMemberRoleIn(db, result.organizationId, newUserId)).resolves.toBe("owner");
+      const organization = await pglite.query<{ name: string; slug: string }>("SELECT name, slug FROM organizations WHERE id=$1", [result.organizationId]);
+      expect(organization.rows[0]?.name).toBe("Fresh Events");
+      expect(organization.rows[0]?.slug).toMatch(/^fresh-events-/u);
     });
 
-    it("folds a signup into a matching pending invitation instead of creating a second organization", async () => {
+    it("requires the emailed bearer token—not knowledge of the email—to join an invited organization", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Fold Co", slug: "fold-co" });
       const invitedUserId = userIdSchema.parse("e4400000-0000-4000-8000-000000000202");
       try {
-        await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "invited-signup@example.com", role: "organizer" });
-        expect(await findPendingInvitationByEmailIn(db, "invited-signup@example.com")).not.toBeNull();
+        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "invited-signup@example.com", role: "organizer" });
+        const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
+        if (!issued) throw new Error("expected a live invitation token");
 
         await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'invited-signup@example.com','Invited Signup')", [invitedUserId]);
-        const result = await provisionOrganizationForNewUserIn(db, invitedUserId, "invited-signup@example.com", "Invited Signup");
+        const withoutToken = await provisionOrganizationForNewUserIn(db, invitedUserId, "invited-signup@example.com", "Invited Signup", {
+          organizationName: "Personal Workspace",
+        });
+        expect(withoutToken.viaInvitation).toBe(false);
+        await expect(getOrganizationMemberRoleIn(db, org.id, invitedUserId)).resolves.toBeNull();
+
+        await expect(assertOrganizationInvitationTokenForEmailIn(db, issued.raw, "somebody-else@example.com"))
+          .rejects.toMatchObject({ code: "FORBIDDEN" });
+        await expect(assertOrganizationInvitationTokenForEmailIn(db, issued.raw, "invited-signup@example.com"))
+          .resolves.toBeUndefined();
+
+        const result = await provisionOrganizationForNewUserIn(db, invitedUserId, "invited-signup@example.com", "Invited Signup", {
+          invitationToken: issued.raw,
+        });
         expect(result.viaInvitation).toBe(true);
         expect(result.organizationId).toBe(org.id);
         await expect(getOrganizationMemberRoleIn(db, org.id, invitedUserId)).resolves.toBe("organizer");
-        // The invitation is consumed — a second signup attempt for the same
-        // address (impossible in practice; `users.email` is unique) would not
-        // find it pending anymore.
-        expect(await findPendingInvitationByEmailIn(db, "invited-signup@example.com")).toBeNull();
+        await expect(assertOrganizationInvitationTokenForEmailIn(db, issued.raw, "invited-signup@example.com"))
+          .rejects.toMatchObject({ code: "VALIDATION" });
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [withoutToken.organizationId]);
       } finally {
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }

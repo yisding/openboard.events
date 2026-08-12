@@ -1,7 +1,7 @@
 import { db, type DbOrTx } from "@/db/client";
 import type { OrganizationId, UserId } from "@/shared/contracts";
 import { slugify } from "@/shared/lib/slug";
-import { acceptOrganizationInvitationForNewUserIn, findPendingInvitationByEmailIn } from "./invitations";
+import { acceptOrganizationInvitationByTokenIn } from "./invitations";
 import { createOrganizationIn } from "./mutations";
 
 /**
@@ -14,9 +14,11 @@ import { createOrganizationIn } from "./mutations";
  *
  * Two outcomes, and exactly one always happens:
  *
- * 1. The email matches a pending team invitation (any organization's) — fold
- *    the new account straight into that organization at the invited role
- *    instead of also creating a personal one nobody asked for.
+ * 1. The signup request carries the raw bearer token from `/join?token=…` —
+ *    consume that exact invitation after verifying that it was addressed to
+ *    this account's email. Email equality without possession of the token is
+ *    intentionally insufficient: otherwise anyone who knows an invited
+ *    address could choose a password for it and claim the membership.
  * 2. Otherwise — create a new organization and make the new user its owner,
  *    via the same atomic single-CTE write `createOrganizationIn` always used
  *    (M43: "an ownerless organization is a database impossibility").
@@ -32,19 +34,25 @@ export async function provisionOrganizationForNewUserIn(
   userId: UserId,
   email: string,
   name: string,
+  options: { invitationToken?: string; organizationName?: string } = {},
 ): Promise<{ organizationId: OrganizationId; viaInvitation: boolean }> {
-  const invitation = await findPendingInvitationByEmailIn(dbOrTx, email);
-  if (invitation) {
-    const accepted = await acceptOrganizationInvitationForNewUserIn(dbOrTx, invitation, userId);
+  if (options.invitationToken) {
+    const accepted = await acceptOrganizationInvitationByTokenIn(dbOrTx, options.invitationToken, { userId, email });
     return { organizationId: accepted.organizationId, viaInvitation: true };
   }
-  const base = slugify(name.trim() || email.split("@")[0] || "workspace") || "workspace";
+  const organizationName = options.organizationName?.trim()
+    || (name.trim() ? `${name.trim()}'s organization` : "My organization");
+  const base = slugify(options.organizationName?.trim() || name.trim() || email.split("@")[0] || "workspace") || "workspace";
   const suffix = crypto.randomUUID().slice(0, 8);
   const created = await createOrganizationIn(dbOrTx, userId, {
-    name: name.trim() ? `${name.trim()}'s organization` : "My organization",
+    name: organizationName,
     slug: `${base}-${suffix}`,
   });
   return { organizationId: created.id, viaInvitation: false };
 }
-export const provisionOrganizationForNewUser = (userId: UserId, email: string, name: string) =>
-  provisionOrganizationForNewUserIn(db, userId, email, name);
+export const provisionOrganizationForNewUser = (
+  userId: UserId,
+  email: string,
+  name: string,
+  options?: { invitationToken?: string; organizationName?: string },
+) => provisionOrganizationForNewUserIn(db, userId, email, name, options);
