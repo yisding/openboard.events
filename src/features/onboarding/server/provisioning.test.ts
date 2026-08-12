@@ -25,6 +25,7 @@ const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_u
 // / `incrementOrganizationUsageIn`, so this suite needs the billing tables too.
 const migrationBilling = readFileSync(new URL("../../../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
 const migrationOnboardingProgress = readFileSync(new URL("../../../../drizzle/0021_onboarding_progress.sql", import.meta.url), "utf8");
+const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof provisionOrganizationEventIn>[3]> = {}) {
   return {
@@ -67,6 +68,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationBilling);
     await pglite.exec(migrationOnboardingProgress);
+    await pglite.exec(migrationOnboardingMilestones);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     const [user] = await database.insert(schema.users).values({ email: "founder@test.dev", name: "Founder" }).returning();
@@ -84,6 +86,11 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
 
     const orgEvents = await listOrganizationEventsIn(database, organizationId);
     expect(orgEvents.map((row) => row.id)).toContain(event.id);
+    const milestones = await pglite.query<{ milestone: string; actor_user_id: string | null }>(
+      "SELECT milestone, actor_user_id FROM organization_onboarding_milestones WHERE organization_id=$1",
+      [organizationId],
+    );
+    expect(milestones.rows).toEqual([{ milestone: "event_created", actor_user_id: actorUserId }]);
   });
 
   it("still runs the full M11 create path underneath — owner membership + defaults", async () => {

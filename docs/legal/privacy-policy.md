@@ -36,10 +36,14 @@ Data Processing Addendum reference — see `dpa.md`.]
 | Event/organization data | Event name, dates, branding, team roles | `events`, `organizations` |
 | Contact (speaker) data | Name, email, bio, headshot, social links, submitted talk content, logistics answers, uploaded files | `contacts` and its dependent tables — see §4 |
 | Communications | Emails sent through the product (subject/body/status), calendar invites | `communication_logs`, `calendar_invites` |
-| Usage/security data | Sign-in sessions, portal login tokens, rate-limit counters | `admin_sessions`, `portal_sessions`, `portal_tokens` |
+| Usage/security data | Sign-in sessions, portal login tokens, rate-limit counters, and one timestamp for each completed self-service onboarding milestone | `admin_sessions`, `portal_sessions`, `portal_tokens`, `organization_onboarding_milestones` |
 
-[TODO: add cookies/analytics table once/if any client-side analytics is
-added — none is integrated as of this draft.]
+The onboarding milestone table is server-side and organization-scoped. It
+stores only the first occurrence of five fixed milestones, with no email, IP
+address, user agent, URL, or arbitrary event metadata; deleting the
+organization deletes its milestone history. [TODO: add cookies/client analytics
+disclosure once/if any client-side analytics is added — none is integrated as
+of this draft.]
 
 ## 3. Why we collect it
 

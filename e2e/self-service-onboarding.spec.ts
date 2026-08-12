@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { waitForVerificationDelivery } from "./helpers/admin-auth-mail";
-import { withDatabase } from "./helpers/db";
+import { queryRows, withDatabase } from "./helpers/db";
 import {
   BASE_URL,
   databaseConfigured,
@@ -155,6 +155,29 @@ test.describe("self-service signup to first value", () => {
       } finally {
         await publicContext.close();
       }
+    });
+
+    await test.step("the privacy-safe first-value milestones are complete", async () => {
+      const milestones = await queryRows<{ milestone: string }>(`
+        SELECT milestone
+        FROM organization_onboarding_milestones
+        WHERE organization_id = (
+          SELECT om.organization_id
+          FROM organization_members om
+          JOIN users u ON u.id = om.user_id
+          WHERE lower(u.email) = lower($1)
+          ORDER BY om.created_at
+          LIMIT 1
+        )
+        ORDER BY milestone
+      `, [SIGNUP_EMAIL]);
+      expect(milestones.map((row) => row.milestone)).toEqual([
+        "email_verified",
+        "event_created",
+        "form_published",
+        "public_form_visited",
+        "signup_completed",
+      ]);
     });
   });
 });

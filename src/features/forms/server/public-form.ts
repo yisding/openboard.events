@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { events, forms } from "@/db/schema";
-import { type FormId, type FormSnapshot } from "@/shared/contracts";
+import { events, forms, organizationOnboardingMilestones } from "@/db/schema";
+import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
+import { type FormId, type FormSnapshot, type OrganizationId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { participantRoleSettingsSchema, type ParticipantRoleSetting } from "../participant-roles";
 import { getCurrentSnapshotIn } from "./snapshots";
@@ -73,8 +74,14 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       logoFileId: events.logoFileId,
       backgroundFileId: events.backgroundFileId,
       submissionCapPerUser: events.submissionCapPerUser,
+      organizationId: events.organizationId,
+      firstPublicVisitAt: organizationOnboardingMilestones.occurredAt,
     })
     .from(events)
+    .leftJoin(organizationOnboardingMilestones, and(
+      eq(organizationOnboardingMilestones.organizationId, events.organizationId),
+      eq(organizationOnboardingMilestones.milestone, "public_form_visited"),
+    ))
     .where(eq(events.slug, eventSlug))
     .limit(1);
   if (!event) throw new AppError("NOT_FOUND", "Event not found");
@@ -116,6 +123,14 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
     : { ...storedSnapshot, sections: storedSnapshot.sections.filter((section) => section.key !== "participant") };
   const participantRoles = participantRoleSettingsSchema.parse(form.participantRoles)
     .map(({ role, enabled }) => ({ role, enabled }));
+  const openState = decideOpenState(form, new Date());
+  if (openState.open && !event.firstPublicVisitAt) {
+    await tryRecordOrganizationOnboardingMilestoneIn(
+      dbOrTx,
+      event.organizationId as OrganizationId,
+      "public_form_visited",
+    );
+  }
 
   return {
     event: {
@@ -144,7 +159,7 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       effectiveLimit: form.submissionLimit ?? event.submissionCapPerUser,
     },
     snapshot,
-    openState: decideOpenState(form, new Date()),
+    openState,
   };
 }
 

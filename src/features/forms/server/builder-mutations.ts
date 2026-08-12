@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events, formFields, forms, formSections, formVersions, sessionFormats, tags, tracks } from "@/db/schema";
+import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import {
   COMMITTED_FIELD_TYPES,
   fieldIdSchema,
@@ -345,6 +346,9 @@ export async function updateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
     ...(cleaned.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: cleaned.confirmationBodyHtml } : {}),
   }).where(and(eq(forms.id, formId), eq(forms.eventId, eventId)));
   await storeVersionIn(dbOrTx, eventId, form, snapshot);
+  if (cleaned.status === "open" && form.status !== "open") {
+    await tryRecordEventOnboardingMilestoneIn(dbOrTx, eventId, "form_published");
+  }
   return getFormForBuilderIn(dbOrTx, eventId, formId);
 }
 

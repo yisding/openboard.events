@@ -62,9 +62,12 @@ the real database-backed surfaces.
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before
    production promotion.
-2. **Launch consent and product signals.** Link reviewed Terms and Privacy text
-   from signup, record the accepted versions, and emit funnel events for signup,
-   verification, event creation, form publication, and first public visit.
+2. **Launch consent.** Signup, verification, first event, first form publication,
+   and first open-form visit now produce one privacy-safe, first-occurrence
+   milestone per organization. The remaining legal action is to have Terms and
+   Privacy text reviewed, publish it, link it from signup, and record the
+   accepted versions; the repository drafts explicitly prohibit product use
+   before business/counsel approval.
 3. **Traffic-dependent bot defense.** Shared atomic limits now protect the
    public auth mail endpoints. Add a challenge only if launch traffic shows that
    rate limits alone are insufficient; it is no longer a correctness blocker.
