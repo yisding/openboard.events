@@ -102,6 +102,37 @@ export type ContactFilters = {
   pageSize?: number;
 };
 
+export type SpeakerOptionRow = { contactId: ContactId; name: string };
+
+/**
+ * Every contact on the event as (id, display name), for the pickers that attach
+ * a person to something — the agenda's session dialog and the Add abstract
+ * drawer. One query, so those two surfaces cannot disagree about who exists on
+ * the event or what they are called.
+ *
+ * The name falls back to the email rather than to a placeholder: a contact
+ * created from an invited speaker's address alone still has to be pickable by
+ * something the organizer recognises, and "Unnamed contact" three times over is
+ * not a list anyone can choose from.
+ */
+export async function listSpeakerOptionsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<SpeakerOptionRow[]> {
+  const result = await dbOrTx.execute<{ id: string; name: string; email: string }>(sql`
+    SELECT id,
+           btrim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
+           email
+    FROM contacts
+    WHERE event_id = ${eventId}
+    ORDER BY lower(last_name), lower(first_name), email
+    LIMIT 500
+  `);
+  return (result.rows ?? []).map((row) => ({
+    contactId: row.id as ContactId,
+    name: row.name.trim() || row.email,
+  }));
+}
+
+export const listSpeakerOptions = (eventId: EventId) => listSpeakerOptionsIn(db, eventId);
+
 export type ContactListRow = {
   contactId: ContactId;
   name: string;

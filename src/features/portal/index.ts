@@ -82,8 +82,8 @@ export {
 // M27 — Speakers admin. Every count comes off the read-model views
 // (resolution #14's fan-out rule, consumed not re-derived); both writes go
 // through `updateContactFields` above (resolution #13).
-export type { ContactFilters, ContactListRow, SpeakerDetailDTO } from "./server/admin-speakers";
-export { getAdminSpeaker, getAdminSpeakerIn, getOutstandingTasksView, getOutstandingTasksViewIn, getSpeakerDetail, getSpeakerDetailIn, listContacts, listContactsIn } from "./server/admin-speakers";
+export type { ContactFilters, ContactListRow, SpeakerDetailDTO, SpeakerOptionRow } from "./server/admin-speakers";
+export { getAdminSpeaker, getAdminSpeakerIn, getOutstandingTasksView, getOutstandingTasksViewIn, getSpeakerDetail, getSpeakerDetailIn, listContacts, listContactsIn, listSpeakerOptions, listSpeakerOptionsIn } from "./server/admin-speakers";
 export {
   setConfirmationStatus,
   setConfirmationStatusIn,

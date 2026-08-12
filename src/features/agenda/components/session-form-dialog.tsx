@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
@@ -131,6 +132,20 @@ export function SessionFormDialog({
         : [...current.speakerContactIds, contactId],
     }));
   };
+
+  /**
+   * Speakers created from inside this dialog. `speakers` comes from the page's
+   * server render and will not include them until the next navigation, so the
+   * person the organizer just typed in has to be held here to stay visible and
+   * checked for the rest of this edit.
+   */
+  const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
+  useEffect(() => setAddedSpeakers([]), [identity]);
+  const pickableSpeakers = useMemo<QuickAddedSpeaker[]>(() => {
+    const known = speakers.map((speaker) => ({ contactId: String(speaker.contactId), name: speaker.name }));
+    const knownIds = new Set(known.map((speaker) => speaker.contactId));
+    return [...known, ...addedSpeakers.filter((added) => !knownIds.has(added.contactId))];
+  }, [speakers, addedSpeakers]);
 
   const submit = async () => {
     setError(null);
@@ -278,19 +293,34 @@ export function SessionFormDialog({
             </div>
           )}
 
+          {/* #117 — the invited keynote. This picker used to dead-end on a fresh
+              event: "no contacts yet" with nothing to do about it, so the only
+              way on was to abandon a half-filled dialog, create the contact on
+              Speakers, and start over. The speaker is now created here. */}
           <Field label="Speakers" hint="The first one selected is the primary speaker.">
             <div className="agenda-speaker-picker">
-              {speakers.length === 0 && <span className="dash">No contacts on this event yet</span>}
-              {speakers.map((speaker) => (
-                <label key={String(speaker.contactId)}>
+              {pickableSpeakers.length === 0 && (
+                <span className="dash">No contacts on this event yet — add the speaker below</span>
+              )}
+              {pickableSpeakers.map((speaker) => (
+                <label key={speaker.contactId}>
                   <input
                     type="checkbox"
-                    checked={draft.speakerContactIds.includes(String(speaker.contactId))}
-                    onChange={() => toggleSpeaker(String(speaker.contactId))}
+                    checked={draft.speakerContactIds.includes(speaker.contactId)}
+                    onChange={() => toggleSpeaker(speaker.contactId)}
                   />
                   {speaker.name}
                 </label>
               ))}
+            </div>
+            <div className="speaker-picker-add">
+              <SpeakerQuickAdd
+                eventId={String(eventId)}
+                onAdded={(speaker) => {
+                  setAddedSpeakers((current) => [...current, speaker]);
+                  toggleSpeaker(speaker.contactId);
+                }}
+              />
             </div>
           </Field>
 

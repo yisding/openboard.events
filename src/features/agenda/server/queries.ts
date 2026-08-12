@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { listSpeakerOptionsIn, type SpeakerOptionRow } from "@/features/portal";
 import {
   mySessionDtoSchema,
   roomDtoSchema,
@@ -45,8 +46,14 @@ export type SessionFilters = {
   day?: string | null;
 };
 
-/** The lookup lists the dialog and the views need to render ids as names. */
-export type SpeakerOption = { contactId: ContactId; name: string };
+/**
+ * The lookup lists the dialog and the views need to render ids as names.
+ *
+ * `SpeakerOption` is portal's `SpeakerOptionRow` under the agenda's own name —
+ * an alias, not a copy, so the session dialog's picker and the Add abstract
+ * drawer's picker are typed by the same row.
+ */
+export type SpeakerOption = SpeakerOptionRow;
 export type AgendaVocabulary = {
   rooms: RoomDTO[];
   tracks: TrackDTO[];
@@ -278,12 +285,9 @@ export async function listAgendaVocabularyIn(dbOrTx: DbOrTx, eventId: EventId): 
     dbOrTx.execute<{ id: string; name: string; default_duration_mins: number; sort_order: number }>(sql`
       SELECT id, name, default_duration_mins, sort_order FROM session_formats WHERE event_id = ${eventId} ORDER BY sort_order, name
     `),
-    dbOrTx.execute<{ id: string; name: string }>(sql`
-      SELECT id, btrim(first_name || ' ' || last_name) AS name FROM contacts
-      WHERE event_id = ${eventId}
-      ORDER BY lower(last_name), lower(first_name), email
-      LIMIT 500
-    `),
+    // Shared with the Add abstract drawer's speaker picker, so the two surfaces
+    // that attach a person to a talk always offer the same list of people.
+    listSpeakerOptionsIn(dbOrTx, eventId),
   ]);
   return {
     rooms: (roomRows.rows ?? []).map((row) => roomDtoSchema.parse({
@@ -295,12 +299,7 @@ export async function listAgendaVocabularyIn(dbOrTx: DbOrTx, eventId: EventId): 
     formats: (formatRows.rows ?? []).map((row) => sessionFormatDtoSchema.parse({
       id: row.id, name: row.name, defaultDurationMins: Number(row.default_duration_mins), sortOrder: Number(row.sort_order),
     })),
-    speakers: (speakerRows.rows ?? []).map((row) => ({
-      contactId: row.id as ContactId,
-      // A contact with no name yet is still selectable; showing a blank row is
-      // worse than showing the row's own identity.
-      name: row.name.trim() || "Unnamed contact",
-    })),
+    speakers: speakerRows,
   };
 }
 
