@@ -2019,6 +2019,20 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .communications-page{width:100%;max-width:1180px}
 .communications-page .communications-tabs{scrollbar-width:none}
 .communications-page .communications-tabs::-webkit-scrollbar{display:none}
+/* A preview is one email surface, not a label floating above a second inset
+   card. The compact chrome row keeps LIVE PREVIEW and its hint on one baseline;
+   the subject and body continue directly below with one divider per layer. */
+.template-editor__preview{display:block;padding:0;background:var(--surface)}
+.template-preview-heading{min-height:44px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);background:var(--surface-subtle)}
+.template-preview-heading small{text-align:right}
+.template-preview-message{padding:0;border:0;border-radius:0;background:var(--surface);box-shadow:none}
+.template-preview-subject{padding:12px 16px;border-bottom:1px solid var(--fill)}
+.template-preview-subject small{display:block;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.65px;text-transform:uppercase}
+.template-preview-subject b{display:block;margin-top:4px;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+.template-preview-body{padding:16px}
+.template-preview-body>.rich-text>:first-child{margin-top:0}
+.template-preview-body>.rich-text>:last-child{margin-bottom:0}
+.template-editor__preview .template-preview-status{margin:16px;background:var(--surface-subtle)}
 .communication-template-card{min-height:258px;display:flex;flex-direction:column;overflow:hidden}
 .communication-template-card__header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0}
 .template-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark)}
