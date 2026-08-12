@@ -93,11 +93,18 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
   };
 }
 
+/**
+ * The open form's seed key. Exported because the deploy smoke test derives its
+ * CFP fixture id from it (scripts/print-smoke-fixture-ids.ts); renaming the key
+ * re-ids the form and the smoke fixture together, which is the point.
+ */
+export const OPEN_FORM_KEY = "form-a";
+
 export async function seedForms(ctx: SeedCtx): Promise<void> {
   const { tx, eventId } = ctx;
 
   for (const [formKey, config] of [
-    ["form-a", { title: "Speak at AI.Engineer Sandbox", closesAt: eventLocal(ctx.now, 38, "23:59"), limit: 3 }],
+    [OPEN_FORM_KEY, { title: "Speak at AI.Engineer Sandbox", closesAt: eventLocal(ctx.now, 38, "23:59"), limit: 3 }],
     // Closed yesterday: the branded closed page needs a form that is genuinely
     // past its date, not one an admin switched off.
     ["form-b", { title: "Lightning talks (closed)", closesAt: eventLocal(ctx.now, -1, "23:59"), limit: 1 }],
@@ -206,7 +213,7 @@ export async function seedForms(ctx: SeedCtx): Promise<void> {
 
   // One routing rule on the open form, because CP2 asks for a judge-visible
   // routing effect and an unrouted submission proves nothing.
-  const formA = authoringRows(ctx, "form-a");
+  const formA = authoringRows(ctx, OPEN_FORM_KEY);
   const formatField = formA.fields.find((field) => field.key === "format");
   await tx.insert(routingRules).values({
     id: ctx.id("routing_rule", "workshop-to-agents"),

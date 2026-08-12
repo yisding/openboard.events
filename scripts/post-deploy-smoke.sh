@@ -26,9 +26,11 @@ for arg in "$@"; do
   esac
 done
 
-# Seeded artifacts. Protected deployment environments provide the ids; --strict
-# makes a missing fixture a failed deployment rather than a silent reduction in
-# coverage. The deterministic M09 public-event slug is safe to default here.
+# Seeded artifacts. The deploy workflow derives the ids from the seed source
+# (scripts/print-smoke-fixture-ids.ts) unless the protected environment sets its
+# own; --strict makes a missing fixture a failed deployment rather than a silent
+# reduction in coverage. The deterministic M09 public-event slug is safe to
+# default here.
 event_slug="${SMOKE_EVENT_SLUG:-ai-engineer-sandbox-event}"
 event_id="${SMOKE_EVENT_ID:-}"
 form_id="${SMOKE_FORM_ID:-}"
