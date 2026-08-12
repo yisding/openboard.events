@@ -5,12 +5,12 @@ import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
 import { getEvent, listTracks } from "@/features/events";
-import { getFormForBuilder } from "@/features/forms";
-import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
+import { formOpenState, getFormForBuilder } from "@/features/forms";
+import { getActiveOrganizationOnboardingForUser, getOrganizationOnboardingForUserByEvent } from "@/features/onboarding";
 import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
-import { organizationIdSchema, type UserId } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { eventIdSchema, organizationIdSchema, type UserId } from "@/shared/contracts";
+import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Set up your event" };
@@ -35,13 +35,19 @@ async function getReservedOnboardingForm(eventId: Parameters<typeof getFormForBu
  * with a scoped event, a couple of tracks, and a shareable CFP link — the
  * `docs/user-flows.md` "under 15 minutes, no documentation" bar.
  */
-export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
+export default async function Page({ params, searchParams }: {
+  params: Promise<{ organizationId: string }>;
+  searchParams: Promise<{ event?: string }>;
+}) {
   if (isCredentialFreeLocalDemo()) {
     return <PageHeader eyebrow="ORGANIZATION" title="Set up your event" description="Guided setup is unavailable in the credential-free demo." />;
   }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
+  const query = await searchParams;
+  const requestedEvent = query.event ? eventIdSchema.safeParse(query.event) : null;
+  if (requestedEvent && !requestedEvent.success) notFound();
 
   let actorUserId: UserId | null = null;
   try {
@@ -60,9 +66,12 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
     listOrganizationEvents(organizationId),
-    getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
+    requestedEvent?.success
+      ? getOrganizationOnboardingForUserByEvent(organizationId, actorUserId, requestedEvent.data)
+      : getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
+  if (requestedEvent?.success && !progress) notFound();
 
   let initialState: OnboardingResumeState | null = null;
   if (progress) {
@@ -72,21 +81,30 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       progress.formId ? getReservedOnboardingForm(progress.eventId, progress.formId) : null,
     ]);
     if (event) {
+      if (progress.step === "complete" && !form) notFound();
       initialState = {
         event,
         tracks,
-        step: form ? "form" : progress.step,
+        step: progress.step === "complete" ? "complete" : form ? "form" : progress.step,
         formId: progress.formId,
         form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
+        publicFormUrl: progress.step === "complete" && form
+          ? `${getEnv().APP_BASE_URL}/submit/${event.slug}/${form.id}`
+          : null,
+        formAvailability: progress.step === "complete" && form
+          ? formOpenState({ status: form.status, opensAt: form.opensAt, closesAt: form.closesAt }, new Date().toISOString())
+          : null,
       };
     }
   }
   return <>
     <PageHeader
       eyebrow="ORGANIZATION"
-      title={initialState ? `Finish setting up ${initialState.event.name}` : "Set up your event"}
-      description={initialState
-        ? "Your progress was saved. Continue where you left off."
+      title={initialState?.step === "complete" ? "Setup complete" : initialState ? `Finish setting up ${initialState.event.name}` : "Set up your event"}
+      description={initialState?.step === "complete"
+        ? "Your setup is complete. Keep sharing the public form or continue into your event workspace."
+        : initialState
+          ? "Your progress was saved. Continue where you left off."
         : "Add the essentials, organize submissions with optional tracks, then publish your call for speakers."}
     />
     <OnboardingWizard

@@ -6,7 +6,7 @@ import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, formIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
-import { getActiveOrganizationOnboardingForUserIn, getActiveOrganizationOnboardingIn, updateOrganizationOnboardingIn } from "./progress";
+import { getActiveOrganizationOnboardingForUserIn, getActiveOrganizationOnboardingIn, getOrganizationOnboardingForUserByEventIn, updateOrganizationOnboardingIn } from "./progress";
 import { provisionOrganizationEventIn } from "./provisioning";
 
 // Same migration set `features/events/server/mutations.test.ts` needs for
@@ -222,6 +222,13 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       formId: onboardingFormId,
     })).resolves.toMatchObject({ step: "complete" });
     await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
+    await expect(getOrganizationOnboardingForUserByEventIn(database, resumeOrg.id, resumeUserId, event.id)).resolves.toEqual({
+      eventId: event.id,
+      formId: onboardingFormId,
+      step: "complete",
+    });
+    await expect(getOrganizationOnboardingForUserByEventIn(database, resumeOrg.id, collaboratorId, event.id)).resolves.toBeNull();
+    await expect(getOrganizationOnboardingForUserByEventIn(database, organizationId, resumeUserId, event.id)).resolves.toBeNull();
     // A stale form-association replay and a delayed stable event-create replay
     // both preserve the completed tombstone instead of restarting setup.
     await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {

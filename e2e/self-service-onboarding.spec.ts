@@ -139,6 +139,12 @@ test.describe("self-service signup to first value", () => {
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
       expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+      await page.reload();
+      await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?event=[0-9a-f-]{36}$/);
+      await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible();
+      await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
+      await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
     });
 
     await test.step("an unauthenticated visitor can open the returned CFP", async () => {

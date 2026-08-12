@@ -23,6 +23,7 @@ describe("onboarding organization access", () => {
     expect(organizationPage).toContain("getActiveOrganizationOnboardingForUser(organizationId, actorUserId)");
     expect(onboardingPage).toContain('requireOrganizationAdmin(organizationId, "organizer")');
     expect(onboardingPage).toContain("getActiveOrganizationOnboardingForUser(organizationId, actorUserId)");
+    expect(onboardingPage).toContain("getOrganizationOnboardingForUserByEvent(organizationId, actorUserId, requestedEvent.data)");
   });
 
   it("resumes only the form explicitly associated with the checkpoint", () => {
@@ -53,6 +54,13 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('document.execCommand("copy")');
     expect(wizard).toContain("Link selected — press Cmd/Ctrl+C to copy");
     expect(globalCss).toContain(".onboarding-done>.metric-icon{margin:0 auto}");
+  });
+
+  it("writes the reload-safe event URL before completing the checkpoint", () => {
+    const address = wizard.indexOf("window.history.replaceState(");
+    const completion = wizard.indexOf('body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id })');
+    expect(address).toBeGreaterThan(0);
+    expect(completion).toBeGreaterThan(address);
   });
 });
 
@@ -113,6 +121,8 @@ describe("OnboardingWizard event step accessibility", () => {
         })],
         formId: null,
         form: null,
+        publicFormUrl: null,
+        formAvailability: null,
       },
     }));
 
@@ -139,12 +149,97 @@ describe("OnboardingWizard event step accessibility", () => {
           status: "open",
           updatedAt: "2026-08-12T00:00:00.000Z",
         },
+        publicFormUrl: null,
+        formAvailability: null,
       },
     }));
 
     expect(html).toContain('class="sr-only">Step 3: First form</h2>');
     expect(html).toContain('value="Speaker applications"');
     expect(html).toContain("Finish setup");
+  });
+
+  it("restores the completed handoff with direct actions for the exact form", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "complete",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "open",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+        },
+        publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: true, reason: "ok" },
+      },
+    }));
+
+    expect(html).toContain('class="sr-only">Step 4: Share</h2>');
+    expect(html).toContain("Resumable Conf is ready");
+    expect(html).toContain("https://preview.example.com/submit/resumable-conf/form-1");
+    expect(html).toContain('href="/events/10000000-0000-4000-8000-000000000001/forms/form-1"');
+    expect(html).toContain("Manage form");
+  });
+
+  it("sends a completed draft straight to the form builder to publish", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "complete",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "draft",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+        },
+        publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: false, reason: "closed_by_admin" },
+      },
+    }));
+
+    expect(html).toContain("Edit and publish form");
+    expect(html).not.toContain("onboarding-link-row");
+    expect(html).toContain('class="button button-primary"');
+  });
+
+  it("does not call a scheduled form live or expose its share actions", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "complete",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "open",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+          opensAt: "2026-09-01T00:00:00.000Z",
+          closesAt: null,
+        },
+        publicFormUrl: "https://preview.example.com/submit/resumable-conf/form-1",
+        formAvailability: { open: false, reason: "not_open_yet" },
+      },
+    }));
+
+    expect(html).toContain("scheduled but not accepting submissions yet");
+    expect(html).toContain("Edit availability");
+    expect(html).not.toContain("onboarding-link-row");
+    expect(html).not.toContain("Preview form");
   });
 
   it("renders and focuses the new heading after a step replacement", () => {

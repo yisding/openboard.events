@@ -6,6 +6,27 @@ import { AppError } from "@/shared/lib/errors";
 import type { OnboardingProgressUpdate, OnboardingStep } from "../progress-types";
 
 export type ActiveOnboardingProgress = { eventId: EventId; formId: FormId | null; step: OnboardingStep };
+export type OrganizationOnboardingProgress = ActiveOnboardingProgress | {
+  eventId: EventId;
+  formId: FormId;
+  step: "complete";
+};
+
+function parseProgressRow(row: { eventId: string; formId: string | null; step: string }): OrganizationOnboardingProgress {
+  const eventId = eventIdSchema.parse(row.eventId);
+  if (row.step === "complete") {
+    if (!row.formId) throw new AppError("INTERNAL", "Completed onboarding checkpoint has no form");
+    return { eventId, formId: formIdSchema.parse(row.formId), step: "complete" };
+  }
+  if (row.step !== "vocabulary" && row.step !== "form") {
+    throw new AppError("INTERNAL", "Onboarding checkpoint has an invalid step");
+  }
+  return {
+    eventId,
+    formId: row.formId ? formIdSchema.parse(row.formId) : null,
+    step: row.step,
+  };
+}
 
 /**
  * Starts the durable checkpoint after the existing event create path has
@@ -39,14 +60,9 @@ export async function getActiveOrganizationOnboardingIn(
     .orderBy(desc(eventOnboardingProgress.updatedAt), desc(eventOnboardingProgress.eventId))
     .limit(1);
   if (!row) return null;
-  if (row.step !== "vocabulary" && row.step !== "form") {
-    throw new AppError("INTERNAL", "Onboarding checkpoint has an invalid step");
-  }
-  return {
-    eventId: eventIdSchema.parse(row.eventId),
-    formId: row.formId ? formIdSchema.parse(row.formId) : null,
-    step: row.step,
-  };
+  const progress = parseProgressRow(row);
+  if (progress.step === "complete") throw new AppError("INTERNAL", "Active onboarding checkpoint is already complete");
+  return progress;
 }
 
 /** Finds the newest checkpoint this user can actually advance. Organization
@@ -74,20 +90,49 @@ export async function getActiveOrganizationOnboardingForUserIn(
     .orderBy(desc(eventOnboardingProgress.updatedAt), desc(eventOnboardingProgress.eventId))
     .limit(1);
   if (!row) return null;
-  if (row.step !== "vocabulary" && row.step !== "form") {
-    throw new AppError("INTERNAL", "Onboarding checkpoint has an invalid step");
-  }
-  return {
-    eventId: eventIdSchema.parse(row.eventId),
-    formId: row.formId ? formIdSchema.parse(row.formId) : null,
-    step: row.step,
-  };
+  const progress = parseProgressRow(row);
+  if (progress.step === "complete") throw new AppError("INTERNAL", "Active onboarding checkpoint is already complete");
+  return progress;
 }
 
 export const getActiveOrganizationOnboardingForUser = (
   organizationId: OrganizationId,
   userId: UserId,
 ): Promise<ActiveOnboardingProgress | null> => getActiveOrganizationOnboardingForUserIn(db, organizationId, userId);
+
+/** Loads one explicitly requested checkpoint, including its completed
+ * tombstone. The event-member join is deliberate: possession of an event id
+ * never broadens organization or event access. */
+export async function getOrganizationOnboardingForUserByEventIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  userId: UserId,
+  eventId: EventId,
+): Promise<OrganizationOnboardingProgress | null> {
+  const [row] = await dbOrTx.select({
+    eventId: eventOnboardingProgress.eventId,
+    formId: eventOnboardingProgress.formId,
+    step: eventOnboardingProgress.step,
+  })
+    .from(eventOnboardingProgress)
+    .innerJoin(eventMembers, and(
+      eq(eventMembers.eventId, eventOnboardingProgress.eventId),
+      eq(eventMembers.userId, userId),
+      inArray(eventMembers.role, ["owner", "organizer"]),
+    ))
+    .where(and(
+      eq(eventOnboardingProgress.organizationId, organizationId),
+      eq(eventOnboardingProgress.eventId, eventId),
+    ))
+    .limit(1);
+  return row ? parseProgressRow(row) : null;
+}
+
+export const getOrganizationOnboardingForUserByEvent = (
+  organizationId: OrganizationId,
+  userId: UserId,
+  eventId: EventId,
+): Promise<OrganizationOnboardingProgress | null> => getOrganizationOnboardingForUserByEventIn(db, organizationId, userId, eventId);
 
 /**
  * Advances (or completes) one organization's event setup. Event ownership is
