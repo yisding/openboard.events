@@ -131,7 +131,7 @@ function AddLogisticsFieldRow({ eventId, onCreated }: { eventId: string; onCreat
   }
 
   return (
-    <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr auto" }}>
+    <div className="speaker-logistics-field-form">
       <Field label="Key" hint="lowercase_with_underscores"><input value={key} onChange={(event) => setKey(event.target.value)} /></Field>
       <Field label="Label"><input value={label} onChange={(event) => setLabel(event.target.value)} /></Field>
       <Field label="Type">
@@ -165,7 +165,7 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
 
   return (
     <section className="panel">
-      <header className="panel-header">
+      <header className="panel-header speaker-logistics-header">
         <div><h2>Logistics</h2><p>Organizer-defined fields shared by every speaker on this event.</p></div>
         <AddLogisticsFieldRow eventId={eventId} onCreated={() => router.refresh()} />
       </header>
@@ -246,7 +246,7 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
       <div className="drawer-content form-stack">
         {draft.length === 0 && <p className="long-copy">No declared blackout — this speaker is treated as available for the whole event.</p>}
         {draft.map((row, index) => (
-          <div key={index} className="form-grid" style={{ alignItems: "end", gridTemplateColumns: "1fr 1fr 1fr auto" }}>
+          <div key={index} className="speaker-unavailability-form">
             <Field label="Starts"><DateTimePicker value={row.startsAt} onChange={(startsAt) => updateRow(index, { startsAt })} tz={timezone} /></Field>
             <Field label="Ends"><DateTimePicker value={row.endsAt} onChange={(endsAt) => updateRow(index, { endsAt })} tz={timezone} /></Field>
             <Field label="Reason (optional)"><input value={row.reason ?? ""} onChange={(event) => updateRow(index, { reason: event.target.value })} placeholder="Flight, other commitment…" /></Field>
@@ -307,4 +307,3 @@ export function SpeakerRosterPanels({ eventId, contactId, timezone, initialExtra
     </>
   );
 }
-
