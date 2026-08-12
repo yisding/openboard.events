@@ -53,10 +53,15 @@ the real database-backed surfaces.
 
 ## Remaining launch gaps, in priority order
 
-1. **End-to-end first-user proof.** Add a browser test that creates a unique
-   account, names its organization, creates an event and form, publishes it, and
-   opens the returned public link. Run the same flow against preview with a
-   controlled test mailbox before production promotion.
+1. **End-to-end first-user proof.** The browser journey now creates a fresh
+   account through public signup, waits for Resend to report the exact outbox
+   message delivered to a controlled allowlisted address, follows its real
+   verification link, signs in, names and provisions the organization, creates
+   an event and vocabulary, publishes a form, and opens the returned link in an
+   unauthenticated browser. The preview mailbox variable is configured; the
+   remaining deployment action is to install the protected, read-capable
+   `E2E_RESEND_API_KEY` secret and record the first deployed green run before
+   production promotion.
 2. **Launch consent and product signals.** Link reviewed Terms and Privacy text
    from signup, record the accepted versions, and emit funnel events for signup,
    verification, event creation, form publication, and first public visit.
