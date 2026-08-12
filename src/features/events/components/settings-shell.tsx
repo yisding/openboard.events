@@ -2,8 +2,9 @@
 
 import { CalendarDays, MapPin, Settings2, Tag } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/shared/ui/ui-kit";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { EventDTO, RoomDTO, SessionFormatDTO, TagDTO, TrackDTO } from "@/shared/contracts";
 import { DetailsTab } from "./details-tab";
 import { VocabTab } from "./vocab-tab";
@@ -25,6 +26,7 @@ type Tab = (typeof TABS)[number][0];
  */
 export function SettingsShell({ event, vocabulary }: { event: EventDTO; vocabulary: Vocabulary }) {
   const router = useRouter();
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
   const searchParams = useSearchParams();
   const requested = searchParams.get("tab");
   const tab: Tab = (TABS.some(([id]) => id === requested) ? requested : "details") as Tab;
@@ -32,9 +34,14 @@ export function SettingsShell({ event, vocabulary }: { event: EventDTO; vocabula
   // The Details tab keeps its own `event` copy so a save can update the
   // rowVersion/name/theme in place without a full RSC round trip.
   const [current, setCurrent] = useState(event);
+  useEffect(() => setCurrent((saved) => event.rowVersion > saved.rowVersion ? event : saved), [event]);
 
   function setTab(next: Tab) {
-    router.push(`/events/${event.id}/settings?tab=${next}`, { scroll: false });
+    if (next === tab) return;
+    const href = `/events/${event.id}/settings?tab=${next}`;
+    runGuarded(() => allowNextNavigation(() => {
+      router.push(href, { scroll: false });
+    }, { destination: href }));
   }
 
   return (
