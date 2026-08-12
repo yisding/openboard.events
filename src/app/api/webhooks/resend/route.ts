@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { parseResendWebhookEvent, recordSuppression, verifyResendWebhookSignature } from "@/features/comms";
+import { recordAdminAuthEmailSuppression } from "@/features/auth";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const parsed = parseResendWebhookEvent(body);
     if (parsed) {
       const result = await recordSuppression({ providerMessageId: parsed.emailId, reason: parsed.reason });
+      if (!result) await recordAdminAuthEmailSuppression({ providerMessageId: parsed.emailId, reason: parsed.reason });
       log({ level: "info", msg: "webhook.resend.suppression", requestId, feature: "comms", ...(result ? { eventId: result.eventId } : {}) });
     }
     return NextResponse.json({ data: { ok: true } });

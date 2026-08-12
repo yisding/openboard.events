@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, taskIdSchema, TEMPLATE_KEYS, type CommLogId } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, taskIdSchema, type CommLogId } from "@/shared/contracts";
+import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import { isAppError } from "@/shared/lib/errors";
 import {
   getLogDetailIn,
@@ -82,7 +83,22 @@ describe("comms admin mutations", () => {
     // for the length guard.
     it("returns every template key in enum order, never DB order", async () => {
       const rows = await listTemplatesIn(tx, eventId);
-      expect(rows.map((row) => row.key)).toEqual([...TEMPLATE_KEYS]);
+      const keys = rows.map((row) => row.key);
+      expect(keys).toEqual(EVENT_EDITABLE_TEMPLATE_KEYS);
+      expect(keys).not.toContain("admin_password_reset");
+      expect(keys).not.toContain("admin_email_verification");
+    });
+
+    it("rejects attempts to edit a platform authentication template", async () => {
+      await expectAppError(
+        saveTemplateIn(tx, eventId, "admin_password_reset", {
+          subject: "Reset your password",
+          bodyHtml: "<p>Reset</p>",
+          enabled: true,
+          expectedUpdatedAt: new Date().toISOString(),
+        }),
+        "VALIDATION",
+      );
     });
 
     it("rejects an unknown template variable with the offending token named", async () => {

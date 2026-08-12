@@ -1,5 +1,9 @@
-import { pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, customType, index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { users } from "./core";
+import { commStatusEnum, templateKeyEnum } from "./enums";
+
+const bytea = customType<{ data: Uint8Array }>({ dataType: () => "bytea" });
 
 /**
  * M42 — Better Auth's `account` and `verification` models for admin/organizer
@@ -48,3 +52,39 @@ export const adminVerifications = pgTable("admin_verifications", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+/**
+ * Product-level password-reset and email-verification delivery.
+ *
+ * These messages exist before an organizer has created an event, so they
+ * cannot honestly live in the event/contact-scoped `communication_logs`
+ * outbox. They still get the same durable claim/retry/idempotency posture,
+ * while the short-lived bearer URL stays encrypted until dispatch.
+ */
+export const adminAuthEmailOutbox = pgTable("admin_auth_email_outbox", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  recipientEmail: text("recipient_email").notNull(),
+  recipientName: text("recipient_name").notNull().default(""),
+  templateKey: templateKeyEnum("template_key").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  status: commStatusEnum("status").notNull().default("queued"),
+  subjectRendered: text("subject_rendered"),
+  bodyRenderedHtml: text("body_rendered_html"),
+  secretPayloadCiphertext: bytea("secret_payload_ciphertext"),
+  error: text("error"),
+  providerMessageId: text("provider_message_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  suppressedAt: timestamp("suppressed_at", { withTimezone: true }),
+}, (table) => [
+  check("admin_auth_email_outbox_template_ck", sql`
+    ${table.templateKey} in ('admin_password_reset', 'admin_email_verification')
+  `),
+  index("admin_auth_email_outbox_due_idx").on(table.status, table.nextAttemptAt, table.lockedUntil, table.createdAt),
+  index("admin_auth_email_outbox_provider_idx").on(table.providerMessageId),
+  index("admin_auth_email_outbox_recipient_idx").on(table.recipientEmail, table.status, table.suppressedAt),
+]);

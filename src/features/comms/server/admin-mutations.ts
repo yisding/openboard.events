@@ -2,7 +2,6 @@ import { and, asc, eq, notInArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { communicationLogs, contacts, emailTemplates, reminderRules } from "@/db/schema";
 import {
-  TEMPLATE_KEYS,
   commLogDetailSchema,
   submissionIdSchema,
   taskIdSchema,
@@ -16,6 +15,7 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { sanitize } from "@/shared/lib/sanitize";
 import { validateTemplateBody } from "./render";
+import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {
   CommLogDetailWithFlag,
   EmailTemplateRow,
@@ -51,13 +51,14 @@ function toEmailTemplateRow(row: typeof emailTemplates.$inferSelect): EmailTempl
 }
 
 /**
- * Always the **8** `TEMPLATE_KEYS`, in enum order — never DB order, and never a
- * hand-written list, so the rail can't drift from the enum (step 3).
+ * Event-editable keys in canonical enum order, never database order. Product
+ * authentication templates are intentionally absent: they are platform mail,
+ * not event configuration.
  */
 export async function listTemplatesIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmailTemplateRow[]> {
   const rows = await dbOrTx.select().from(emailTemplates).where(eq(emailTemplates.eventId, eventId));
   const byKey = new Map(rows.map((row) => [row.key, row]));
-  return TEMPLATE_KEYS.map((key) => {
+  return EVENT_EDITABLE_TEMPLATE_KEYS.map((key) => {
     const row = byKey.get(key);
     if (!row) throw new AppError("INTERNAL", `Template "${key}" is missing for this event — seedDefaultTemplates did not run`);
     return toEmailTemplateRow(row);
@@ -83,6 +84,9 @@ export async function listTemplates(eventId: EventId): Promise<EmailTemplateRow[
  * silent overwrite of a colleague's edit.
  */
 export async function saveTemplateIn(dbOrTx: DbOrTx, eventId: EventId, key: TemplateKey, input: Omit<TemplateSaveInput, "key">): Promise<EmailTemplateRow> {
+  if (!(EVENT_EDITABLE_TEMPLATE_KEYS as readonly TemplateKey[]).includes(key)) {
+    throw new AppError("VALIDATION", "Platform authentication templates are not event-editable");
+  }
   const validation = validateTemplateBody(key, input.subject, input.bodyHtml);
   if (!validation.ok) {
     throw new AppError(
@@ -239,4 +243,3 @@ export async function listOpenAssignmentsForContactIn(dbOrTx: DbOrTx, eventId: E
 export async function listOpenAssignmentsForContact(eventId: EventId, contactId: ContactId): Promise<OpenAssignmentRow[]> {
   return listOpenAssignmentsForContactIn(db, eventId, contactId);
 }
-

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ContactId, EventId, TokenId } from "@/shared/contracts";
+import type { ContactId, EventId, TokenId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { randomBytes } from "./crypto";
@@ -122,5 +122,60 @@ export async function openAdminLinkPayload(envelope: Uint8Array, context: AdminL
     return adminLinkPayloadSchema.parse(JSON.parse(new TextDecoder().decode(plaintext)));
   } catch {
     throw new AppError("VALIDATION", "Invalid admin auth link payload");
+  }
+}
+
+/**
+ * Product-scoped variant used by `admin_auth_email_outbox`.
+ *
+ * Keep a distinct HKDF context from the legacy event/contact envelope above:
+ * queued rows from either outbox can coexist during a deploy, but moving a
+ * ciphertext between them must never make it decryptable under different AAD.
+ */
+const PLATFORM_ADMIN_LINK_INFO = "platform_admin_auth_link-v1";
+export type PlatformAdminLinkPayloadContext = { userId: UserId; messageId: string };
+
+function platformAdminLinkAad(context: PlatformAdminLinkPayloadContext): Uint8Array {
+  return new TextEncoder().encode(`${context.userId}:${context.messageId}`);
+}
+
+export async function sealPlatformAdminLinkPayload(
+  payload: AdminLinkPayload,
+  context: PlatformAdminLinkPayloadContext,
+  secret = configuredSecret(),
+): Promise<Uint8Array> {
+  const nonce = randomBytes(NONCE_LENGTH);
+  const plaintext = new TextEncoder().encode(JSON.stringify(adminLinkPayloadSchema.parse(payload)));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: asArrayBuffer(nonce), additionalData: asArrayBuffer(platformAdminLinkAad(context)) },
+    await payloadKeyFor(PLATFORM_ADMIN_LINK_INFO, secret, ["encrypt"]),
+    plaintext,
+  );
+  const envelope = new Uint8Array(1 + NONCE_LENGTH + ciphertext.byteLength);
+  envelope[0] = VERSION;
+  envelope.set(nonce, 1);
+  envelope.set(new Uint8Array(ciphertext), 1 + NONCE_LENGTH);
+  return envelope;
+}
+
+export async function openPlatformAdminLinkPayload(
+  envelope: Uint8Array,
+  context: PlatformAdminLinkPayloadContext,
+  secret = configuredSecret(),
+): Promise<AdminLinkPayload> {
+  if (envelope[0] !== VERSION || envelope.length <= 1 + NONCE_LENGTH + 16) {
+    throw new AppError("VALIDATION", "Unsupported platform admin auth link payload");
+  }
+  const nonce = envelope.slice(1, 1 + NONCE_LENGTH);
+  const ciphertext = envelope.slice(1 + NONCE_LENGTH);
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: asArrayBuffer(nonce), additionalData: asArrayBuffer(platformAdminLinkAad(context)) },
+      await payloadKeyFor(PLATFORM_ADMIN_LINK_INFO, secret, ["decrypt"]),
+      asArrayBuffer(ciphertext),
+    );
+    return adminLinkPayloadSchema.parse(JSON.parse(new TextDecoder().decode(plaintext)));
+  } catch {
+    throw new AppError("VALIDATION", "Invalid platform admin auth link payload");
   }
 }

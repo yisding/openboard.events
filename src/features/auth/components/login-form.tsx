@@ -24,6 +24,9 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const searchParams = useSearchParams();
   const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   async function signInWithGoogle() {
     setPending("google");
@@ -54,14 +57,23 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
     event.preventDefault();
     setPending("password");
     setError("");
+    setUnverifiedEmail("");
+    setVerificationSent(false);
     const data = new FormData(event.currentTarget);
+    const email = String(data.get("email") ?? "").trim().toLowerCase();
     try {
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: data.get("email"), password: data.get("password") }),
+        body: JSON.stringify({ email, password: data.get("password") }),
       });
       if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+        if (body?.error?.code === "EMAIL_NOT_VERIFIED") {
+          setError("Confirm your email before signing in.");
+          setUnverifiedEmail(email);
+          return;
+        }
         setError("Invalid email or password");
         return;
       }
@@ -71,6 +83,34 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
       setError("Sign-in is temporarily unavailable");
     } finally {
       setPending(null);
+    }
+  }
+
+  async function resendVerification() {
+    if (!unverifiedEmail) return;
+    setResending(true);
+    setError("");
+    try {
+      const next = safeInternalPath(searchParams.get("next"));
+      const response = await fetch("/api/auth/send-verification-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: unverifiedEmail,
+          callbackURL: `/signup/verified?confirmed=1&next=${encodeURIComponent(next)}`,
+        }),
+      });
+      if (!response.ok) {
+        setError(response.status === 429
+          ? "Too many requests. Check your inbox or try again in a few minutes."
+          : "We could not send another confirmation link right now.");
+        return;
+      }
+      setVerificationSent(true);
+    } catch {
+      setError("We could not send another confirmation link right now.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -87,6 +127,9 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <label className="field"><span>Password</span><input name="password" autoComplete="current-password" required minLength={8} type="password" /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
+    {unverifiedEmail && (verificationSent
+      ? <p className="auth-inline-success" role="status">A fresh confirmation link is on its way.</p>
+      : <button className="button button-secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</button>)}
     <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "password" ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
     {/* The only route into M42's reset flow. `/login/reset` is where the
         emailed link lands; `/login/forgot` is what causes it to be sent. */}
