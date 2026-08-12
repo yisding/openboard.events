@@ -148,8 +148,10 @@ test.describe("self-service signup to first value", () => {
       try {
         const response = await publicPage.goto(publicLink);
         expect(response?.status(), `${publicLink} should be public`).toBe(200);
-        await expect(publicPage.getByRole("heading", { name: formName })).toBeVisible();
-        await expect(publicPage.getByRole("button", { name: /start your proposal/i })).toBeVisible();
+        await expect(publicPage.getByRole("heading", { name: "Welcome!", level: 1 })).toBeVisible();
+        await expect(publicPage.getByRole("heading", { name: "Verify your email", level: 2 })).toBeVisible();
+        await expect(publicPage.getByLabel("Email address")).toBeVisible();
+        await expect(publicPage.getByRole("button", { name: "Send me a code" })).toBeVisible();
       } finally {
         await publicContext.close();
       }
