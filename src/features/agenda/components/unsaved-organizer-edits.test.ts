@@ -25,7 +25,8 @@ describe("organizer unsaved-edit guards", () => {
     const source = readFileSync(new URL("./session-form-dialog.tsx", import.meta.url), "utf8");
 
     expect(source).toContain("useUnsavedWorkGuard(open && dirty)");
-    expect(source).toContain("runGuarded(onClose)");
+    expect(source).toContain("runGuarded(() => {");
+    expect(source).toContain("setDraft(original);");
     expect(source).toContain("onClose={requestClose}");
     expect(source).toContain('variant="secondary" onClick={requestClose}');
     expect(source).toContain('toast(session ? "Session updated" : "Session created");\n      onClose();');

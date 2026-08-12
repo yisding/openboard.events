@@ -211,7 +211,12 @@ export function SessionFormDialog({
 
   const requestClose = () => {
     if (busy) return;
-    runGuarded(onClose);
+    runGuarded(() => {
+      setDraft(original);
+      setError(null);
+      setConfirmingDelete(false);
+      onClose();
+    });
   };
 
   return (
