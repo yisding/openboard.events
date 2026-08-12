@@ -36,4 +36,40 @@ describe("communications activity table responsive styles", () => {
     expect(css).not.toContain("@media(max-width:899px)");
     expect(css).not.toContain("@media(max-width:900px)");
   });
+
+  it("keeps communications checkboxes compact instead of inheriting full-width text-input sizing", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    expect(css).toContain(".checkbox-row input[type=\"checkbox\"]{width:16px;height:16px;min-width:16px;min-height:16px;flex:0 0 16px");
+    expect(css).toContain(".bulk-send-checkboxes .checkbox-row:has(input:checked)");
+  });
+
+  it("stacks the reminder editor and its actions at the canonical mobile breakpoint", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const tabletAnchor = css.lastIndexOf(".reminder-rules-editor .reminder-rule{grid-template-columns:minmax(0,1fr) 160px}");
+    const anchor = css.lastIndexOf(".reminder-rules-editor .reminder-rule{grid-template-columns:1fr}");
+    expect(anchor).toBeGreaterThanOrEqual(0);
+    expect(anchor).toBeGreaterThan(tabletAnchor);
+    const start = css.lastIndexOf("@media", anchor);
+    expect(css.startsWith("@media(max-width:768px)", start)).toBe(true);
+    const actionsAnchor = css.indexOf(".template-editor-actions{align-items:stretch;flex-direction:column}");
+    const actionsStart = css.lastIndexOf("@media", actionsAnchor);
+    expect(css.startsWith("@media(max-width:768px)", actionsStart)).toBe(true);
+  });
+
+  it("scopes the two-column reminder grid away from the three-child demo cards", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./components/reminders-tab.tsx", import.meta.url), "utf8");
+    expect(source).toContain('className="panel reminder-rules reminder-rules-editor"');
+    expect(css).toContain(".reminder-rules-editor .reminder-rule{display:grid;grid-template-columns:minmax(0,1fr) 180px");
+    expect(css).not.toContain(".reminder-rule{padding:16px;display:grid");
+  });
+
+  it("gives the section switcher complete tab semantics and keyboard movement", () => {
+    const source = readFileSync(new URL("./components/comms-admin-page.tsx", import.meta.url), "utf8");
+    expect(source).toContain('role="tablist"');
+    expect(source).toContain('role="tabpanel"');
+    expect(source).toContain("tabIndex={tab === entry.id ? 0 : -1}");
+    expect(source).toContain('event.key === "ArrowRight"');
+    expect(source).toContain('event.key === "ArrowLeft"');
+  });
 });

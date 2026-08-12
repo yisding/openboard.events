@@ -97,7 +97,7 @@ export function CommunicationsPage() {
       <div className="communications-tabs" role="group" aria-label="Communication view">
         {([["activity", "Activity"], ["templates", "Templates"], ["reminders", "Reminder rules"]] as const).map(([id, label]) => (
           <button type="button" key={id} className={tab === id ? "active" : ""} aria-pressed={tab === id} onClick={() => setTab(id)}>
-            {label}{id === "activity" && <span>{state.communications.length}</span>}
+            {label}{id === "activity" && <span className="tab-count">{state.communications.length}</span>}
           </button>
         ))}
       </div>
