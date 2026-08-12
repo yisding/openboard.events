@@ -29,8 +29,11 @@ describe("organizer unsaved-edit guards", () => {
     expect(source).toContain("setDraft(original);");
     expect(source).toContain("onClose={requestClose}");
     expect(source).toContain('variant="secondary" onClick={requestClose}');
-    expect(source).toContain('toast(session ? "Session updated" : "Session created");\n      onClose();');
-    expect(source).toContain('toast("Session deleted");\n      onClose();');
+    expect(source).toContain("const closeAfterMutation = () => {");
+    expect(source).toContain("setDraft(EMPTY);");
+    expect(source).toContain("setOriginal(EMPTY);");
+    expect(source).toContain('toast(session ? "Session updated" : "Session created");\n      closeAfterMutation();');
+    expect(source).toContain('toast("Session deleted");\n      closeAfterMutation();');
   });
 
   it("guards abstract close, row changes, keyboard flow, and next/previous while edits are dirty", () => {

@@ -104,6 +104,14 @@ export function SessionFormDialog({
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  const closeAfterMutation = () => {
+    if (!session) {
+      setDraft(EMPTY);
+      setOriginal(EMPTY);
+    }
+    onClose();
+  };
+
   // Re-seeding on identity, not on every render: the dialog is shared by the
   // toolbar and all six views, so a stale draft would follow the organizer from
   // one row to the next.
@@ -177,7 +185,7 @@ export function SessionFormDialog({
         status: draft.status,
       });
       toast(session ? "Session updated" : "Session created");
-      onClose();
+      closeAfterMutation();
     } catch (caught) {
       const message = messageFor(caught, "Could not save the session");
       setError(message);
@@ -196,7 +204,7 @@ export function SessionFormDialog({
       await remove.mutateAsync({ id: session.id as SessionId, expectedVersion: session.rowVersion });
       setConfirmingDelete(false);
       toast("Session deleted");
-      onClose();
+      closeAfterMutation();
     } catch (caught) {
       const message = messageFor(caught, "Could not delete the session");
       setConfirmingDelete(false);
