@@ -85,9 +85,11 @@ describe("signup hook input", () => {
       path: "/callback/google",
       getCookie: () => stale,
     }, now + 1_000)).rejects.toThrow(LEGAL_CONSENT_ERROR);
+    const tamperIndex = Math.floor(stale.length / 2);
+    const tampered = `${stale.slice(0, tamperIndex)}${stale[tamperIndex] === "A" ? "B" : "A"}${stale.slice(tamperIndex + 1)}`;
     await expect(resolveSignupHookInput(reviewed, {
       path: "/callback/google",
-      getCookie: () => `${stale.slice(0, -1)}x`,
+      getCookie: () => tampered,
     }, now + 1_000)).rejects.toThrow(/expired or could not be verified/u);
   });
 
