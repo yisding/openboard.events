@@ -1,11 +1,44 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import VerifiedEmailPage from "./page";
 
 Object.assign(globalThis, { React });
 
+const { getAdminSessionMock, redirectMock } = vi.hoisted(() => ({
+  getAdminSessionMock: vi.fn(),
+  redirectMock: vi.fn(),
+}));
+
+vi.mock("@/features/auth", () => ({ getAdminSession: getAdminSessionMock }));
+vi.mock("next/navigation", () => ({ redirect: redirectMock }));
+
 describe("verified signup handoff", () => {
+  beforeEach(() => {
+    getAdminSessionMock.mockReset().mockResolvedValue(null);
+    redirectMock.mockReset();
+  });
+
+  it("continues an activated session directly into its safe workspace destination", async () => {
+    getAdminSessionMock.mockResolvedValueOnce({ userId: "00000000-0000-4000-8000-000000000001" });
+
+    await VerifiedEmailPage({
+      searchParams: Promise.resolve({ confirmed: "1", next: "/organizations/00000000-0000-4000-8000-000000000002" }),
+    });
+
+    expect(redirectMock).toHaveBeenCalledWith("/organizations/00000000-0000-4000-8000-000000000002");
+  });
+
+  it("never auto-continues to an external destination", async () => {
+    getAdminSessionMock.mockResolvedValueOnce({ userId: "00000000-0000-4000-8000-000000000001" });
+
+    await VerifiedEmailPage({
+      searchParams: Promise.resolve({ confirmed: "1", next: "https://attacker.example/steal" }),
+    });
+
+    expect(redirectMock).toHaveBeenCalledWith("/organizations");
+  });
+
   it("presents one unambiguous sign-in action after confirmation", async () => {
     const html = renderToStaticMarkup(await VerifiedEmailPage({
       searchParams: Promise.resolve({ confirmed: "1", next: "/organizations" }),
@@ -23,5 +56,6 @@ describe("verified signup handoff", () => {
 
     expect(html).toContain("That link did not work");
     expect(html.match(/Back to sign in/g)).toHaveLength(1);
+    expect(getAdminSessionMock).not.toHaveBeenCalled();
   });
 });

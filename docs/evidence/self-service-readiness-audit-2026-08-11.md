@@ -8,7 +8,7 @@ the real database-backed surfaces.
 
 | Stage | Current path | Readiness |
 |---|---|---|
-| Account creation | `/signup` → check inbox → verify email → sign in | Functional; session creation is blocked until the address is verified |
+| Account creation | `/signup` → check inbox → verify email → workspace | Functional; session creation is blocked until the address is verified, then the confirmation link continues directly into the provisioned workspace |
 | Invitation signup | `/join?token=…` → `/signup?next=…` | Token-bound in this slice; email matching alone no longer grants membership |
 | Organization creation | Better Auth user hook → organization + owner + free entitlement | Functional; signup now collects the intended organization name |
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
@@ -57,14 +57,18 @@ the real database-backed surfaces.
   browser-local timezone selection, an optional collapsed URL customization,
   plain-language Tracks/Share steps, visible completed-step state, and a
   compact single-card layout on desktop and mobile.
+- Removed the redundant sign-in after mailbox confirmation. The short-lived
+  verification link now establishes the first session and the verified handoff
+  sends the customer directly into the provisioned workspace; old or replayed
+  links retain a normal sign-in fallback.
 
 ## Remaining launch gaps, in priority order
 
 1. **End-to-end first-user proof.** The browser journey now creates a fresh
    account through public signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
-   verification link, signs in, names and provisions the organization, creates
-   an event and optional tracks, publishes a form, and opens the returned link
+   verification link into the signed-in workspace, names and provisions the
+   organization, creates an event and optional tracks, publishes a form, and opens the returned link
    in an unauthenticated browser. The preview mailbox variable is configured; the
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before

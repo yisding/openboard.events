@@ -269,7 +269,7 @@ describe("M42 admin auth on Better Auth", () => {
   // covered in depth by `tests/integration/user-management.test.ts`; this
   // case only pins that the endpoint itself now succeeds and that the
   // account it creates is real, on this same Better Auth instance.
-  it("creates a self-serve account without a session, blocks sign-in, then activates it by email", async () => {
+  it("creates a sessionless account, blocks sign-in, then activates and signs it in by email", async () => {
     const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
@@ -319,13 +319,15 @@ describe("M42 admin auth on Better Auth", () => {
     expect(new URL(link).searchParams.get("callbackURL")).toBe("/signup/verified?confirmed=1&next=%2Forganizations");
     const verified = await auth.handler(new Request(link));
     expect(verified.status).toBe(302);
+    const verifiedCookieNames = verified.headers.getSetCookie().map((cookie) => cookie.split("=")[0] ?? "");
+    expect(hasAdminSessionCookie(verifiedCookieNames)).toBe(true);
+    expect(await database.select().from(adminSessions).where(eq(adminSessions.userId, stranger?.id ?? ""))).toHaveLength(1);
     expect((await database.select({ emailVerified: users.emailVerified }).from(users).where(eq(users.id, stranger?.id ?? "")))[0]?.emailVerified).toBe(true);
     expect((await database.select({ milestone: organizationOnboardingMilestones.milestone })
       .from(organizationOnboardingMilestones)
       .where(eq(organizationOnboardingMilestones.organizationId, membership.organizationId)))
       .map((row) => row.milestone).sort())
       .toEqual(["email_verified", "signup_completed"]);
-    await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(200);
   });
 
   it("queues password recovery for an eventless account without revealing whether an address exists", async () => {
