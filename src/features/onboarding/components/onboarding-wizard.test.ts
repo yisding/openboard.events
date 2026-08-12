@@ -16,6 +16,7 @@ describe("onboarding organization access", () => {
   const organizationPage = readFileSync(new URL("../../../app/organizations/[organizationId]/page.tsx", import.meta.url), "utf8");
   const onboardingPage = readFileSync(new URL("../../../app/organizations/[organizationId]/onboarding/page.tsx", import.meta.url), "utf8");
   const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
+  const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
 
   it("redirects only organizers and owners into setup", () => {
     expect(organizationPage).toContain('canManageEvents = roleSatisfies(session.role, "organizer")');
@@ -51,6 +52,7 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
     expect(wizard).toContain('document.execCommand("copy")');
     expect(wizard).toContain("Link selected — press Cmd/Ctrl+C to copy");
+    expect(globalCss).toContain(".onboarding-done>.metric-icon{margin:0 auto}");
   });
 });
 

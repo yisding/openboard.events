@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,8 @@ import { TodayPanel } from "./TodayPanel";
 import { TopSpeakersList } from "./TopSpeakersList";
 
 Object.assign(globalThis, { React });
+
+const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
 
 function renderActivation(overview: typeof FIXTURE_OVERVIEW) {
   return renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(ActivationGuide, { overview })));
@@ -93,6 +96,11 @@ describe("dashboard components", () => {
 
     expect(resolveActivationState(FIXTURE_OVERVIEW)).toBeNull();
     expect(renderActivation(FIXTURE_OVERVIEW)).toBe("");
+  });
+
+  it("keeps milestone artwork visible instead of inheriting its text color", () => {
+    expect(globalCss).toContain(".dashboard-milestone a span{font-size:11px;color:var(--green)}");
+    expect(globalCss).not.toContain(".dashboard-milestone span{font-size:11px;color:var(--green)}");
   });
 
   it("uses the event slug for public form links and the id for admin links", () => {
