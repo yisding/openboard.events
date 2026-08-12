@@ -15,6 +15,15 @@ export type OperationalErrorQuery = {
   query: (text: string, params?: unknown[]) => Promise<unknown>;
 };
 
+function operationalErrorQuery(url: string): OperationalErrorQuery {
+  const sql = neon(url);
+  return {
+    // Adapt Neon's richer query promise to the small, portable interface also
+    // implemented by PGlite in integration tests. No cast can hide SDK drift.
+    query: async (text, params = []) => sql.query(text, params),
+  };
+}
+
 export function normalizeOperationalError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -61,7 +70,7 @@ export async function recordOperationalErrorIn(
 export function recordOperationalError(error: unknown, context: OperationalErrorContext): Promise<void> {
   const url = getEnv().DATABASE_URL;
   if (!url) return Promise.resolve();
-  return recordOperationalErrorIn(neon(url) as unknown as OperationalErrorQuery, error, context);
+  return recordOperationalErrorIn(operationalErrorQuery(url), error, context);
 }
 
 export async function pruneOperationalErrorsIn(
@@ -84,5 +93,5 @@ export async function pruneOperationalErrorsIn(
 export function pruneOperationalErrors(now?: Date): Promise<{ deletedOperationalErrorBuckets: number }> {
   const url = getEnv().DATABASE_URL;
   if (!url) return Promise.resolve({ deletedOperationalErrorBuckets: 0 });
-  return pruneOperationalErrorsIn(neon(url) as unknown as OperationalErrorQuery, now);
+  return pruneOperationalErrorsIn(operationalErrorQuery(url), now);
 }
