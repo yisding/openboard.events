@@ -6,8 +6,9 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
-import { signupAndAwaitVerification } from "../signup-request";
+import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
 import type { SignupLegalConsent } from "../legal-consent";
+import { GoogleMark } from "./google-mark";
 
 /**
  * M44 — self-serve signup. Posts straight to Better Auth's own
@@ -29,18 +30,37 @@ import type { SignupLegalConsent } from "../legal-consent";
  * wizard and the organization-scoped create-event route both have to exist
  * first, or this redirect would hand a fresh signup to an empty screen.
  */
-export function SignupForm({ legalConsent = null }: { legalConsent?: SignupLegalConsent | null }) {
+type SignupFormProps = {
+  googleEnabled?: boolean;
+  legalConsent?: SignupLegalConsent | null;
+};
+
+function LegalConsentField({ legalConsent }: { legalConsent: SignupLegalConsent | null }) {
+  if (!legalConsent) return null;
+  return <label className="auth-consent">
+    <input name="legalConsentAccepted" required type="checkbox" />
+    <span>
+      I agree to the <a href={legalConsent.termsUrl} target="_blank" rel="noreferrer">Terms of Service</a> and acknowledge the <a href={legalConsent.privacyUrl} target="_blank" rel="noreferrer">Privacy Policy</a>.
+    </span>
+  </label>;
+}
+
+export function SignupForm({ googleEnabled = false, legalConsent = null }: SignupFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"), "/organizations");
   const loginHref = authPathWithNext("/login", next);
   const invitationToken = invitationTokenFromNextPath(next);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const oauthReturnedWithError = googleEnabled && Boolean(searchParams.get("error"));
+  const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError);
+  const [pending, setPending] = useState<"email" | "google" | null>(null);
+  const [error, setError] = useState(oauthReturnedWithError
+    ? "Google could not create that account. Check the workspace details or use email instead."
+    : "");
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submitEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
+    setPending("email");
     setError("");
     const data = new FormData(event.currentTarget);
     const email = String(data.get("email") ?? "");
@@ -67,29 +87,73 @@ export function SignupForm({ legalConsent = null }: { legalConsent?: SignupLegal
     } catch {
       setError("Signup is temporarily unavailable");
     } finally {
-      setPending(false);
+      setPending(null);
     }
   }
 
-  return <form onSubmit={submit}>
+  async function submitGoogle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending("google");
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      const transition = await beginGoogleSignup({
+        organizationName: String(data.get("organizationName") ?? ""),
+        invitationToken,
+        legalConsent,
+        legalConsentAccepted: data.get("legalConsentAccepted") === "on",
+        next,
+      });
+      if ("error" in transition) {
+        setError(transition.error);
+        return;
+      }
+      window.location.assign(transition.url);
+    } catch {
+      setError("Google signup is temporarily unavailable");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (googleSetup) return <form onSubmit={submitGoogle}>
+    <span className="metric-icon accent"><User size={20} /></span>
+    <h1>{invitationToken ? "Join with Google" : "Set up with Google"}</h1>
+    <p>{invitationToken
+      ? "Use the Google account that received this invitation. We’ll take you straight to the invited workspace."
+      : "Name your organization, then continue securely with your Google account."}</p>
+    {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
+    <LegalConsentField legalConsent={legalConsent} />
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <button className="button button-secondary button-lg google-signin" disabled={pending !== null} type="submit">
+      <GoogleMark /> {pending === "google" ? "Connecting…" : invitationToken ? "Join with Google" : "Create with Google"}
+    </button>
+    <button className="button button-ghost button-lg auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setError(""); }} type="button">
+      Use email instead
+    </button>
+    <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
+  </form>;
+
+  return <form onSubmit={submitEmail}>
     <span className="metric-icon accent"><User size={20} /></span>
     <h1>{invitationToken ? "Create your account" : "Create your workspace"}</h1>
     <p>{invitationToken
       ? "Create an Openboard account to securely join the workspace that invited you."
       : "Start a new Openboard organization — invite your team once you’re in."}</p>
+    {googleEnabled && <>
+      <button className="button button-secondary button-lg google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
+        <GoogleMark /> Continue with Google
+      </button>
+      <div className="auth-divider"><span>or create with email</span></div>
+    </>}
     <label className="field"><span>Your name</span><input name="name" autoComplete="name" required maxLength={160} type="text" /></label>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <label className="field"><span>Password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" aria-describedby="signup-password-help" /></label>
     <small id="signup-password-help">Use at least 12 characters.</small>
-    {legalConsent && <label className="auth-consent">
-      <input name="legalConsentAccepted" required type="checkbox" />
-      <span>
-        I agree to the <a href={legalConsent.termsUrl} target="_blank" rel="noreferrer">Terms of Service</a> and acknowledge the <a href={legalConsent.privacyUrl} target="_blank" rel="noreferrer">Privacy Policy</a>.
-      </span>
-    </label>}
+    <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
+    <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "email" ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
   </form>;
 }

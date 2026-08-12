@@ -15,8 +15,9 @@ export default function SignupPage() {
   // Self-service signup only exists under Better Auth; every other provider
   // has its accounts provisioned elsewhere, so send the visitor to sign in.
   if (env.ADMIN_AUTH_PROVIDER !== "better-auth") redirect("/login");
+  const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
   return <main className="login-page">
     <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><SignupForm legalConsent={signupLegalConsent(env)} /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><SignupForm googleEnabled={googleEnabled} legalConsent={signupLegalConsent(env)} /></Suspense></div></section>
   </main>;
 }
