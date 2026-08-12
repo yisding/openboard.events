@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Copy, ExternalLink, FileEdit, FileText, Plus, Send, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { BuilderEvent, BuilderForm, FormListRow } from "./builder-types";
 import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { useToast } from "@/shared/ui/toast";
 
 async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
@@ -27,11 +28,23 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   const [kind, setKind] = useState<"abstract" | "session">("abstract");
   const [collectParticipants, setCollectParticipants] = useState(true);
   const [busy, setBusy] = useState(false);
+  const createRequestId = useRef(createStableCreateRequestId());
   const visible = useMemo(() => forms.filter((form) => {
     const tabMatch = tab === "all" || form.status === tab;
     const searchMatch = form.internalName.toLowerCase().includes(search.trim().toLowerCase());
     return tabMatch && searchMatch;
   }), [forms, search, tab]);
+
+  function openCreate() {
+    createRequestId.current.reset();
+    createRequestId.current.begin();
+    setCreating(true);
+  }
+
+  function closeCreate() {
+    createRequestId.current.reset();
+    setCreating(false);
+  }
 
   async function createForm() {
     if (!name.trim() || busy) return;
@@ -40,8 +53,9 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       const form = await requestData<BuilderForm>(`/api/internal/forms?eventId=${event.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ internalName: name, kind, collectParticipants }),
+        body: JSON.stringify(createRequestId.current.payload(undefined, { internalName: name, kind, collectParticipants })),
       });
+      createRequestId.current.reset();
       toast("Form created with the required submission and identity fields");
       router.push(`/events/${event.id}/forms/${form.id}`);
       router.refresh();
@@ -63,7 +77,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       eyebrow="PROGRAM"
       title="Submission Forms"
       description="Collect abstract, session and participant information for your event."
-      actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Create form</Button>}
+      actions={<Button onClick={openCreate}><Plus size={16} /> Create form</Button>}
     />
     <section className="summary-row">
       <article><span className="summary-icon accent"><FileText size={19} /></span><div><strong>{forms.length}</strong><small>Total forms</small></div></article>
@@ -92,7 +106,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
         </div>
       </article>)}</div>}
     </section>
-    <Modal open={creating} onClose={() => setCreating(false)} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" onClick={() => setCreating(false)}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
+    <Modal open={creating} onClose={closeCreate} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
       <div className="form-stack">
         <Field label="Internal form name" required><input autoFocus required maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
         <Field label="Submission type" group><div className="choice-cards">

@@ -8,6 +8,7 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema } from "@/shared/contracts";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { EVENT_TYPES, type EventType } from "../schemas";
 
 const DEFAULT_TZ = "America/Los_Angeles";
@@ -67,6 +68,7 @@ export function EventForm() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const summaryRef = useRef<HTMLParagraphElement>(null);
+  const createRequestId = useRef(createStableCreateRequestId());
 
   /**
    * A failure is reported in exactly one place.
@@ -117,7 +119,7 @@ export function EventForm() {
     try {
       const created = await api("events", eventDtoSchema, {
         method: "POST",
-        body: {
+        body: createRequestId.current.payload(undefined, {
           name: name.trim(),
           slug: slug.trim() || undefined,
           eventType,
@@ -126,8 +128,9 @@ export function EventForm() {
           timezone,
           startsAt,
           endsAt,
-        },
+        }),
       });
+      createRequestId.current.reset();
       toast(`${created.name} created`);
       router.push(`/events/${created.id}/settings?tab=details`);
     } catch (caught) {
