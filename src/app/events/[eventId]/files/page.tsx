@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { requireAdmin } from "@/features/auth/server/admin";
 import { getDeliverableStateCounts, listDeliverables, parseDeliverableFiltersForPage, type DeliverableFilters } from "@/features/portal/deliverables";
 import { listFileRequests, listTasks } from "@/features/portal/tasks-admin/server/queries";
 import { FilesAdminView } from "@/features/portal/deliverables/components/files-admin-view";
 import { eventIdSchema } from "@/shared/contracts";
-import { DEMO_EVENT_SLUG } from "@/shared/demo/seed";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
-import { PageHeader } from "@/shared/ui/ui-kit";
 
 export const metadata: Metadata = { title: "Files" };
 export const dynamic = "force-dynamic";
@@ -27,22 +23,6 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { eventId: rawEventId } = await params;
-  if (isCredentialFreeLocalDemo()) {
-    return (
-      <>
-        <PageHeader eyebrow="PEOPLE" title="Files" description="Track every requested speaker deliverable in one place." />
-        <div className="panel settings-section">
-          <h2>Try the speaker upload flow</h2>
-          <p className="long-copy">
-            The organizer-wide deliverable table needs a connected database, so it is not available in the credential-free local demo.
-            The fixture-backed speaker task list includes the file-request and upload experience.
-          </p>
-          <Link className="button" href={`/portal/${DEMO_EVENT_SLUG}/tasks`}>Open speaker tasks</Link>
-        </div>
-      </>
-    );
-  }
-
   const eventId = eventIdSchema.parse(rawEventId);
   await requireAdmin(eventId, "organizer");
 

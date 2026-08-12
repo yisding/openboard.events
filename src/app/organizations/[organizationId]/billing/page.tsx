@@ -8,7 +8,6 @@ import { BillingPanel } from "@/features/billing/components/billing-panel";
 import { getOrganization } from "@/features/organizations";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type MemberRole } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Billing" };
@@ -21,9 +20,6 @@ export const dynamic = "force-dynamic";
  */
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
   if (!isBillingSurfaceEnabled()) notFound();
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Billing" description="Billing is unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../fixtures";
-import { resolveDashboardTab, resolveLocalDashboardEventId } from "../lib/dashboard-tab";
-import { DEMO_EVENT_ID } from "@/shared/demo/seed";
+import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
+import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";
 import { ActivationGuide, resolveActivationState } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
@@ -138,11 +137,5 @@ describe("dashboard components", () => {
     expect(resolveDashboardTab("today", "speakers")).toBe("today");
     expect(resolveDashboardTab("speakers", "today")).toBe("speakers");
     expect(resolveDashboardTab("unknown", "today")).toBe("today");
-  });
-
-  it("accepts the non-UUID seeded event only in the local dashboard resolver", () => {
-    expect(resolveLocalDashboardEventId(DEMO_EVENT_ID)).toBe(DEMO_EVENT_ID);
-    expect(resolveLocalDashboardEventId(FIXTURE_OVERVIEW.event.id)).toBe(FIXTURE_OVERVIEW.event.id);
-    expect(resolveLocalDashboardEventId("not-an-event")).toBeNull();
   });
 });

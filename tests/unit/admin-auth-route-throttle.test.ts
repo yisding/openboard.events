@@ -26,7 +26,6 @@ const handler = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { s
 
 vi.mock("@/shared/lib/env", () => ({
   getEnv: () => ({ ADMIN_AUTH_PROVIDER: "better-auth", APP_ENV: "local" }),
-  isCredentialFreeLocalDemo: () => false,
 }));
 
 vi.mock("@/features/auth", () => ({

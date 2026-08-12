@@ -6,9 +6,7 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationEvents } from "@/features/organizations";
 import { listCrmSegments, listCrmTags } from "@/features/crm";
 import { SegmentsView } from "@/features/crm/components/segments-view";
-import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Segments" };
@@ -16,9 +14,6 @@ export const dynamic = "force-dynamic";
 
 /** M55 — saved dynamic segments (work order: "segment builder"). */
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Segments" description="Unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

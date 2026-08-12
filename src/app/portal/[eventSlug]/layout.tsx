@@ -5,7 +5,6 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { PortalRouteShell } from "@/features/portal/portal-route-shell";
 import { isPublicPortalPage } from "@/features/portal/public-pages";
 import { getPortalShellData, type PortalShellData } from "@/features/portal/server/shell";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 /** Not a path: `safeInternalPath` only ever returns this or a string starting with "/". */
@@ -25,11 +24,10 @@ export default async function Layout({ children, params }: { children: React.Rea
   const pathname = requestPath === UNKNOWN_REQUEST_PATH ? null : new URL(requestPath, "https://openboard.invalid").pathname;
   const isPublicPage = pathname === null || isPublicPortalPage(pathname, portalRoot);
   let session: PortalSession | null = null;
-  // The chrome's event/speaker come from this server read. The demo fixture the
-  // provider falls back to has neither a real event slug nor a real contact, so
-  // resolving them there 404s every surface for a genuinely signed-in speaker.
+  // The chrome's event/speaker come from this server read, keyed by the session
+  // the guard below vouches for.
   let shell: PortalShellData | undefined;
-  if (!isPublicPage && !isCredentialFreeLocalDemo()) {
+  if (!isPublicPage) {
     try {
       session = await requirePortal(eventSlug);
     } catch (error) {
