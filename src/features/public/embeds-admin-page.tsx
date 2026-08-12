@@ -6,6 +6,7 @@ import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { embedFiltersEqual, embedStylesEqual } from "./embed-config-dirty";
 import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
@@ -157,8 +158,8 @@ export function EmbedsAdminPage({
           const filters = filtersFor(config.contentType);
           const Icon = meta.icon;
           const sessionShaped = SESSION_SHAPED.has(config.contentType);
-          const settingsDirty = JSON.stringify(styleDraft) !== JSON.stringify(config.style)
-            || JSON.stringify(filters) !== JSON.stringify(sanitizeEmbedFilters(config.filters, filterVocabulary));
+          const settingsDirty = !embedStylesEqual(styleDraft, config.style)
+            || !embedFiltersEqual(filters, sanitizeEmbedFilters(config.filters, filterVocabulary));
           const open = openConfigId === config.id;
           return (
             <article className={`panel embed-card ${config.enabled ? "" : "is-disabled"}`} key={config.id}>
