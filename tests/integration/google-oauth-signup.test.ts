@@ -70,6 +70,7 @@ describe("Google OAuth signup", () => {
   afterAll(async () => pglite.close());
 
   it("creates the user, the google account, and a provisioned organization in one callback", async () => {
+    expect(auth.options.socialProviders?.google?.disableImplicitSignUp).toBeUndefined();
     const ctx = await auth.$context;
     const [profile, account] = googleProfile("new.organizer@gmail.com", "108234567890123456789");
     const result = await ctx.internalAdapter.createOAuthUser(profile, account);
@@ -137,6 +138,7 @@ describe("Google OAuth signup", () => {
       LEGAL_PRIVACY_URL: "https://openboard.example/privacy",
       LEGAL_PRIVACY_VERSION: "privacy-2026-08",
     }), { database });
+    expect(guarded.options.socialProviders?.google?.disableImplicitSignUp).toBe(true);
     const ctx = await guarded.$context;
     const email = "oauth-without-consent@gmail.com";
 

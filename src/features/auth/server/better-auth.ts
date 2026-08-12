@@ -123,8 +123,16 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
   const database = deps.database ?? db;
   const secret = env.SESSION_SECRET;
   if (!secret) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin authentication");
+  const legalConsent = signupLegalConsent(env);
   const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-    ? { google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, disableImplicitSignUp: true } }
+    ? { google: {
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      // Preserve the existing self-service OAuth door while consent is
+      // dormant. Once reviewed policies activate, new Google identities must
+      // use a future consent-capable OAuth handoff instead of bypassing them.
+      ...(legalConsent ? { disableImplicitSignUp: true } : {}),
+    } }
     : {};
 
   return betterAuth({
