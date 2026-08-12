@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { events, forms, organizationOnboardingMilestones } from "@/db/schema";
+import { events, forms } from "@/db/schema";
 import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
 import { type FormId, type FormSnapshot, type OrganizationId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -75,13 +75,8 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       backgroundFileId: events.backgroundFileId,
       submissionCapPerUser: events.submissionCapPerUser,
       organizationId: events.organizationId,
-      firstPublicVisitAt: organizationOnboardingMilestones.occurredAt,
     })
     .from(events)
-    .leftJoin(organizationOnboardingMilestones, and(
-      eq(organizationOnboardingMilestones.organizationId, events.organizationId),
-      eq(organizationOnboardingMilestones.milestone, "public_form_visited"),
-    ))
     .where(eq(events.slug, eventSlug))
     .limit(1);
   if (!event) throw new AppError("NOT_FOUND", "Event not found");
@@ -124,7 +119,12 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
   const participantRoles = participantRoleSettingsSchema.parse(form.participantRoles)
     .map(({ role, enabled }) => ({ role, enabled }));
   const openState = decideOpenState(form, new Date());
-  if (openState.open && !event.firstPublicVisitAt) {
+  // Unconditional on purpose: the write is first-occurrence-only via
+  // onConflictDoNothing and swallows its own failures, so a pre-read to skip
+  // it buys nothing — and joining the milestones table into the event lookup
+  // above turned a missing product-signals table into a 500 for every
+  // submitter, the exact failure tryRecord… exists to prevent.
+  if (openState.open) {
     await tryRecordOrganizationOnboardingMilestoneIn(
       dbOrTx,
       event.organizationId as OrganizationId,
