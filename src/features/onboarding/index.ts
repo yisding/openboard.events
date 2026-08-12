@@ -16,10 +16,13 @@ export {
   getActiveOrganizationOnboardingForUser,
   getActiveOrganizationOnboardingForUserIn,
   getActiveOrganizationOnboardingIn,
+  getOrganizationOnboardingForUserByEvent,
+  getOrganizationOnboardingForUserByEventIn,
   startOrganizationOnboardingIn,
   updateOrganizationOnboarding,
   updateOrganizationOnboardingIn,
   type ActiveOnboardingProgress,
+  type OrganizationOnboardingProgress,
 } from "./server/progress";
 export {
   onboardingProgressUpdateSchema,

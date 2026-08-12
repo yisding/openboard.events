@@ -13,8 +13,8 @@ the real database-backed surfaces.
 | Organization creation | Better Auth user hook → organization + owner + free entitlement | Functional; signup now collects the intended organization name |
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
 | First tracks | onboarding step 2 | Functional and explicitly optional |
-| First CFP | onboarding step 3 → create/publish form | Functional and retry-aware while the page remains open |
-| First value | onboarding step 4 → copy public submission link | Functional |
+| First CFP | onboarding step 3 → create/publish form | Functional and retry-aware across refreshes and lost completion responses |
+| First value | onboarding step 4 → copy public submission link | Functional; the exact completed event/form handoff survives reload and links directly to form management |
 
 ## Closed in this slice
 
@@ -62,6 +62,11 @@ the real database-backed surfaces.
   customer's explicit POST establishes the first session, then the handoff
   sends them directly into the provisioned workspace. Old or replayed links
   retain a normal sign-in fallback.
+- Made the final onboarding handoff durable. The browser records the exact
+  event in the URL before completing its checkpoint; a reload authorizes that
+  event and restores the same form, public link, and next actions instead of
+  accidentally starting another event. Draft and closed forms now lead
+  directly to the exact form builder rather than an unrelated settings page.
 
 ## Remaining launch gaps, in priority order
 
