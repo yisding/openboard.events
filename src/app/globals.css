@@ -1072,6 +1072,7 @@ main.cfp-container{max-width:760px;margin:0 auto;padding:48px 24px}
 .cfp-closed{max-width:620px;margin:96px auto;padding:0 24px;text-align:center}
 .cfp-closed h1{font-size:24px;letter-spacing:-.7px}
 .cfp-step{border:1px solid var(--line);border-radius:12px;padding:24px;background:var(--surface)}
+.cfp-step.cfp-step--compact{min-height:0}
 ol.cfp-progress{list-style:none;display:flex;gap:16px;margin:0 0 16px;padding:0;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
 .cfp-progress li.active{color:var(--accent-dark);font-weight:600}
 .cfp-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
