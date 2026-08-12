@@ -151,6 +151,48 @@ describe("Google OAuth signup", () => {
     }
   });
 
+  it("continues to sign in an existing Google identity through the ordinary door", async () => {
+    const start = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        provider: "google",
+        callbackURL: "/organizations",
+        errorCallbackURL: "/login?next=%2Forganizations",
+        requestSignUp: false,
+      }),
+    }));
+    const authorization = new URL(((await start.json()) as { url: string }).url);
+    const stateCookies = start.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    const idToken = unsignedGoogleIdToken({
+      sub: "108234567890123456789",
+      email: "new.organizer@gmail.com",
+      name: "New Organizer",
+    });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      access_token: "ya29.test-existing-login-access-token",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "openid email profile",
+      id_token: idToken,
+    })));
+
+    try {
+      const callback = new URL("http://localhost:3000/api/auth/callback/google");
+      callback.searchParams.set("code", "existing-login-authorization-code");
+      callback.searchParams.set("state", authorization.searchParams.get("state") ?? "");
+      const response = await auth.handler(new Request(callback, { headers: { cookie: stateCookies } }));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/organizations");
+      expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith("openboard_admin.session_token=")))
+        .toBe(true);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
+  });
+
   it("returns an existing Google identity to the invitation acceptance URL", async () => {
     const invitationPath = "/join?token=existing-user-invitation";
     const start = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
