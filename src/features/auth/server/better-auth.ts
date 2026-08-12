@@ -279,6 +279,17 @@ async function provisionNewUser(
   try {
     return await provisionOrganizationForNewUserIn(database, userId, user.email, user.name ?? "", input);
   } catch (error) {
+    // Better Auth reports any failure on this path as its one generic
+    // "unable to create user", and the Workers log serializer drops `cause`,
+    // so the database's actual complaint (the only diagnosable fact here)
+    // must be written out explicitly before the error leaves this function.
+    log({
+      level: "error",
+      msg: `signup provisioning failed: ${errorChainMessages(error)}`,
+      requestId: userId,
+      feature: "auth",
+      ...(error instanceof AppError ? { code: error.code } : {}),
+    });
     try {
       await database.delete(users).where(eq(users.id, userId));
     } catch (cleanupError) {
@@ -292,6 +303,17 @@ async function provisionNewUser(
     }
     throw error;
   }
+}
+
+/** Every message down the `cause` chain, oldest last — the deepest one is the database's. */
+function errorChainMessages(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    messages.push(current.message);
+    current = current.cause;
+  }
+  return messages.join(" <- ") || "unknown";
 }
 
 /**
