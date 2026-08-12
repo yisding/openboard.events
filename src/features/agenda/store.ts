@@ -121,6 +121,15 @@ export function conflictsForSession(
   return conflicts.filter((conflict) => conflict.a === sessionId || conflict.b === sessionId);
 }
 
+/** Keep conflict relationships whose left or right session is in a visible search result. */
+export function conflictsTouchingSessions(
+  conflicts: readonly ConflictDTO[],
+  sessions: readonly ScheduledSessionDTO[],
+): ConflictDTO[] {
+  const visibleIds = new Set(sessions.map((session) => String(session.id)));
+  return conflicts.filter((conflict) => visibleIds.has(String(conflict.a)) || visibleIds.has(String(conflict.b)));
+}
+
 export function agendaHref(eventId: EventId, view: AgendaView, day?: string | null): string {
   const query = new URLSearchParams({ view });
   if (day) query.set("day", day);

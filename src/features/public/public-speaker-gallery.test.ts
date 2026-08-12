@@ -22,6 +22,20 @@ describe("PublicSpeakerGallery", () => {
     expect(html).not.toContain('role="button"');
   });
 
+  it("renders the decoded biography preview rather than encoded markup", () => {
+    const speakers = {
+      ...PUBLISHED_SPEAKERS_FIXTURE,
+      speakers: [{ ...firstSpeaker, bioHtml: '<p><span title="5 > 3">R&amp;D&nbsp;agents</span></p>' }],
+    };
+    const html = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, {
+      eventSlug: "openboard-summit",
+      speakers,
+    }));
+
+    expect(html).toContain("R&amp;D agents");
+    expect(html).not.toContain("R&amp;amp;D");
+  });
+
   it("hides company on the card when the embed field-visibility filter turns it off", () => {
     const html = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, {
       eventSlug: "openboard-summit",

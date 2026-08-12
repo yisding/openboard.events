@@ -107,11 +107,21 @@ export function PublicEventShell({
     return (
       <div className={`embed-shell ${embedOptions.theme === "dark" ? "embed-dark" : ""}`} style={accentStyle}>
         <EmbedResizer />
-        {embedOptions.header && (
+        {/* An embed is its own document inside the host's iframe, so it needs
+         * its own <h1> or a screen reader lands in a page with no outline —
+         * the content's <h2> is hidden by `.embed-shell>.embed-content>header`
+         * and the shell used to name the event with a plain <b>. The heading
+         * carries the old <b>'s typography inline (`font: inherit` + the UA
+         * `b { font-weight: bolder }`, margins zeroed) so `.embed-header`'s
+         * flex/baseline row is pixel-identical, and drops back to a
+         * visually-hidden heading when the organizer turns the header off. */}
+        {embedOptions.header ? (
           <header className="embed-header">
-            <b>{event.name}</b>
+            <h1 style={{ font: "inherit", fontWeight: "bolder", margin: 0 }}>{event.name}</h1>
             {range && <span>{range}</span>}
           </header>
+        ) : (
+          <h1 style={{ position: "absolute", width: 1, height: 1, margin: 0, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>{event.name}</h1>
         )}
         {children}
         <footer>Powered by <b>openboard</b></footer>
