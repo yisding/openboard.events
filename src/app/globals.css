@@ -1499,6 +1499,9 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
 .auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}
+.auth-consent{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;color:var(--muted);font-size:12px;font-weight:400;line-height:1.5;cursor:pointer}
+.auth-consent input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.auth-consent a{color:var(--accent-dark);font-weight:600;text-decoration:underline;text-underline-offset:2px}
 
 @media(max-width:768px){
   /* The hosted event nav is the only route switcher on public pages. Preserve

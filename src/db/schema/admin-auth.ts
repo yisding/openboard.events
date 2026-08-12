@@ -88,3 +88,24 @@ export const adminAuthEmailOutbox = pgTable("admin_auth_email_outbox", {
   index("admin_auth_email_outbox_provider_idx").on(table.providerMessageId),
   index("admin_auth_email_outbox_recipient_idx").on(table.recipientEmail, table.status, table.suppressedAt),
 ]);
+
+/**
+ * Immutable evidence of the exact reviewed Terms and Privacy versions a user
+ * accepted during self-service signup. It deliberately stores no IP address,
+ * user agent, or arbitrary request metadata; the database clock, user, source,
+ * and version pair are sufficient for the consent record.
+ */
+export const userLegalAcceptances = pgTable("user_legal_acceptances", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  termsVersion: text("terms_version").notNull(),
+  privacyVersion: text("privacy_version").notNull(),
+  source: text("source").notNull().default("signup"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique("user_legal_acceptances_user_versions_key").on(table.userId, table.termsVersion, table.privacyVersion),
+  index("user_legal_acceptances_user_time_idx").on(table.userId, table.acceptedAt.desc()),
+  check("user_legal_acceptances_terms_version_ck", sql`length(trim(${table.termsVersion})) BETWEEN 1 AND 80`),
+  check("user_legal_acceptances_privacy_version_ck", sql`length(trim(${table.privacyVersion})) BETWEEN 1 AND 80`),
+  check("user_legal_acceptances_source_ck", sql`${table.source} = 'signup'`),
+]);

@@ -44,3 +44,11 @@ GOOGLE_CLIENT_SECRET=
 # Optional origin override for Better Auth's callback and email links; defaults
 # to APP_BASE_URL. Origin only — no path, no trailing slash.
 BETTER_AUTH_URL=
+
+# Optional reviewed signup-policy set. Leave all four empty until the Terms and
+# Privacy documents are approved and published; setting any one requires all
+# four and activates exact-version consent enforcement for new accounts.
+LEGAL_TERMS_URL=
+LEGAL_TERMS_VERSION=
+LEGAL_PRIVACY_URL=
+LEGAL_PRIVACY_VERSION=

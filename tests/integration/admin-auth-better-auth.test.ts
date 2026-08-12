@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
@@ -50,7 +50,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -61,6 +61,11 @@ const reviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000013");
 const LEGACY_PASSWORD = "legacy organizer passphrase";
 const MODERN_PASSWORD = "modern organizer passphrase";
 const RESET_PASSWORD = "freshly reset organizer passphrase";
+const LEGAL_REQUEST = {
+  legalConsentAccepted: true,
+  acceptedTermsVersion: "terms-2026-08",
+  acknowledgedPrivacyVersion: "privacy-2026-08",
+} as const;
 
 const env = parseEnv({
   APP_ENV: "local",
@@ -69,6 +74,10 @@ const env = parseEnv({
   ADMIN_AUTH_PROVIDER: "better-auth",
   GOOGLE_CLIENT_ID: "test-google-client-id",
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+  LEGAL_TERMS_URL: "https://openboard.example/terms",
+  LEGAL_TERMS_VERSION: LEGAL_REQUEST.acceptedTermsVersion,
+  LEGAL_PRIVACY_URL: "https://openboard.example/privacy",
+  LEGAL_PRIVACY_VERSION: LEGAL_REQUEST.acknowledgedPrivacyVersion,
 });
 
 describe("M42 admin auth on Better Auth", () => {
@@ -270,7 +279,7 @@ describe("M42 admin auth on Better Auth", () => {
   // case only pins that the endpoint itself now succeeds and that the
   // account it creates is real, on this same Better Auth instance.
   it("creates a sessionless account, blocks sign-in, then activates and signs it in by email", async () => {
-    const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+    const withoutConsent = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
       body: JSON.stringify({
@@ -280,10 +289,48 @@ describe("M42 admin auth on Better Auth", () => {
         callbackURL: SIGNUP_VERIFICATION_CALLBACK,
       }),
     }));
+    expect(withoutConsent.status).toBe(400);
+    expect(await database.select({ id: users.id }).from(users).where(eq(users.email, "stranger@example.com"))).toHaveLength(0);
+
+    const staleConsent = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email: "stranger@example.com",
+        password: "a perfectly fine password",
+        name: "Stranger",
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...LEGAL_REQUEST,
+        acceptedTermsVersion: "terms-2026-07",
+      }),
+    }));
+    expect(staleConsent.status).toBe(400);
+    expect(await database.select({ id: users.id }).from(users).where(eq(users.email, "stranger@example.com"))).toHaveLength(0);
+
+    const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email: "stranger@example.com",
+        password: "a perfectly fine password",
+        name: "Stranger",
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...LEGAL_REQUEST,
+      }),
+    }));
     expect(response.ok).toBe(true);
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
     expect(stranger?.emailVerified).toBe(false);
+    expect(await database.select({
+      termsVersion: userLegalAcceptances.termsVersion,
+      privacyVersion: userLegalAcceptances.privacyVersion,
+      source: userLegalAcceptances.source,
+    }).from(userLegalAcceptances).where(eq(userLegalAcceptances.userId, stranger?.id ?? ""))).toEqual([{
+      termsVersion: LEGAL_REQUEST.acceptedTermsVersion,
+      privacyVersion: LEGAL_REQUEST.acknowledgedPrivacyVersion,
+      source: "signup",
+    }]);
     await expect(signIn("stranger@example.com", "a perfectly fine password").then((r) => r.status)).resolves.toBe(403);
     expect(await database.select().from(adminSessions).where(eq(adminSessions.userId, stranger?.id ?? ""))).toHaveLength(0);
 
@@ -384,6 +431,7 @@ describe("M42 admin auth on Better Auth", () => {
           name: "Wrong Address",
           invitationToken: issued.raw,
           callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+          ...LEGAL_REQUEST,
         }),
       }));
       expect(wrongAddress.ok).toBe(false);
@@ -400,6 +448,7 @@ describe("M42 admin auth on Better Auth", () => {
           name: "Invited Signup",
           invitationToken: issued.raw,
           callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+          ...LEGAL_REQUEST,
         }),
       }));
       expect(response.ok).toBe(true);
@@ -411,6 +460,14 @@ describe("M42 admin auth on Better Auth", () => {
       const [newUser] = await database.select({ id: users.id }).from(users)
         .where(eq(users.email, "invited-through-signup@example.com")).limit(1);
       expect(newUser?.id).toBeTruthy();
+      await expect(database.select({
+        termsVersion: userLegalAcceptances.termsVersion,
+        privacyVersion: userLegalAcceptances.privacyVersion,
+      }).from(userLegalAcceptances).where(eq(userLegalAcceptances.userId, newUser?.id ?? "")))
+        .resolves.toEqual([{
+          termsVersion: LEGAL_REQUEST.acceptedTermsVersion,
+          privacyVersion: LEGAL_REQUEST.acknowledgedPrivacyVersion,
+        }]);
       await expect(getOrganizationMemberRoleIn(database, organization.id, userIdSchema.parse(newUser?.id)))
         .resolves.toBe("organizer");
       // Joining an existing customer is not a second customer signup in the

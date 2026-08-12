@@ -70,6 +70,7 @@ describe("Google OAuth signup", () => {
   afterAll(async () => pglite.close());
 
   it("creates the user, the google account, and a provisioned organization in one callback", async () => {
+    expect(auth.options.socialProviders?.google?.disableImplicitSignUp).toBeUndefined();
     const ctx = await auth.$context;
     const [profile, account] = googleProfile("new.organizer@gmail.com", "108234567890123456789");
     const result = await ctx.internalAdapter.createOAuthUser(profile, account);
@@ -122,5 +123,28 @@ describe("Google OAuth signup", () => {
 
     const retry = await ctx.internalAdapter.createOAuthUser(...googleProfile("blocked.organizer@gmail.com", "108234567890123456790"));
     expect(retry.user?.id).toBeTruthy();
+  });
+
+  it("rejects a direct OAuth user-create bypass when reviewed signup consent is active", async () => {
+    const guarded = buildAdminAuth(parseEnv({
+      APP_ENV: "local",
+      APP_BASE_URL: "http://localhost:3000",
+      SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
+      ADMIN_AUTH_PROVIDER: "better-auth",
+      GOOGLE_CLIENT_ID: "test-google-client-id",
+      GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+      LEGAL_TERMS_URL: "https://openboard.example/terms",
+      LEGAL_TERMS_VERSION: "terms-2026-08",
+      LEGAL_PRIVACY_URL: "https://openboard.example/privacy",
+      LEGAL_PRIVACY_VERSION: "privacy-2026-08",
+    }), { database });
+    expect(guarded.options.socialProviders?.google?.disableImplicitSignUp).toBe(true);
+    const ctx = await guarded.$context;
+    const email = "oauth-without-consent@gmail.com";
+
+    await expect(ctx.internalAdapter.createOAuthUser(...googleProfile(email, "108234567890123456791")))
+      .rejects.toThrow(/Terms of Service/u);
+    await expect(database.select({ id: users.id }).from(users).where(eq(users.email, email)))
+      .resolves.toHaveLength(0);
   });
 });
