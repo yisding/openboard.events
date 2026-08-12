@@ -9,7 +9,7 @@ import { PageHeader } from "@/shared/ui/ui-kit";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
 import type { AnnounceBundle } from "../server/announce";
-import type { AgendaView } from "../store";
+import { conflictsTouchingSessions, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
@@ -87,10 +87,15 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
 
   // One search box, at the top, filtering what every view receives — rather than
   // a second one inside the List view that disagrees with it.
-  const visible = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return needle ? sessions.filter((session) => session.title.toLowerCase().includes(needle)) : sessions;
-  }, [search, sessions]);
+  const needle = search.trim().toLowerCase();
+  const visible = useMemo(
+    () => needle ? sessions.filter((session) => session.title.toLowerCase().includes(needle)) : sessions,
+    [needle, sessions],
+  );
+  const visibleConflicts = useMemo(
+    () => needle ? conflictsTouchingSessions(props.conflicts, visible) : props.conflicts,
+    [needle, props.conflicts, visible],
+  );
 
   const viewProps: AgendaViewProps = { ...props, sessions: visible, onEdit: setEditingId };
 
@@ -133,7 +138,14 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
               {view === "week" && <WeekView {...viewProps} />}
               {view === "track" && <TrackView {...viewProps} />}
               {view === "room" && <RoomView {...viewProps} />}
-              {view === "conflicts" && <ConflictsView {...viewProps} />}
+              {view === "conflicts" && (
+                <ConflictsView
+                  {...viewProps}
+                  sessions={sessions}
+                  conflicts={visibleConflicts}
+                  searchActive={needle.length > 0}
+                />
+              )}
             </section>
           </div>
         )}

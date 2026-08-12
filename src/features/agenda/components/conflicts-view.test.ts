@@ -1,4 +1,5 @@
 import * as React from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +12,7 @@ import {
   type ScheduledSessionDTO,
 } from "@/shared/contracts";
 import ConflictsView, { sortConflicts } from "./conflicts-view";
+import { conflictsTouchingSessions } from "../store";
 
 Object.assign(globalThis, { React });
 
@@ -66,6 +68,40 @@ describe("sortConflicts", () => {
   });
 });
 
+describe("conflictsTouchingSessions", () => {
+  const sessions = [
+    session({ id: id("01"), title: "Alpha" }),
+    session({ id: id("02"), title: "Beta" }),
+    session({ id: id("03"), title: "Gamma" }),
+    session({ id: id("04"), title: "Delta" }),
+  ];
+  const conflicts = [
+    conflict({ a: sessionId("01"), b: sessionId("02") }),
+    conflict({ a: sessionId("03"), b: sessionId("04"), subjectId: "second" }),
+  ];
+
+  it("matches a relationship when either endpoint session is visible", () => {
+    expect(conflictsTouchingSessions(conflicts, sessions.slice(0, 1))).toEqual([conflicts[0]]);
+    expect(conflictsTouchingSessions(conflicts, sessions.slice(1, 2))).toEqual([conflicts[0]]);
+    expect(conflictsTouchingSessions(conflicts, [])).toEqual([]);
+  });
+
+  it("does not mutate the server conflict or session arrays", () => {
+    const originalConflicts = [...conflicts];
+    const originalSessions = [...sessions];
+    conflictsTouchingSessions(conflicts, sessions.slice(0, 1));
+    expect(conflicts).toEqual(originalConflicts);
+    expect(sessions).toEqual(originalSessions);
+  });
+
+  it("wires filtered rows to the full session-title lookup", () => {
+    const source = readFileSync(new URL("./agenda-page.tsx", import.meta.url), "utf8");
+    expect(source).toContain("conflicts={visibleConflicts}");
+    expect(source).toContain("sessions={sessions}");
+    expect(source).toContain("searchActive={needle.length > 0}");
+  });
+});
+
 describe("<ConflictsView>", () => {
   const baseProps = {
     eventId,
@@ -79,7 +115,18 @@ describe("<ConflictsView>", () => {
 
   it("shows the calm empty state when there are no conflicts", () => {
     const html = renderToStaticMarkup(React.createElement(ConflictsView, { ...baseProps, sessions: [], conflicts: [] }));
-    expect(html).toContain("No conflicts");
+    expect(html).toContain("No conflicts — nice work");
+  });
+
+  it("distinguishes an empty search result from a conflict-free schedule", () => {
+    const html = renderToStaticMarkup(React.createElement(ConflictsView, {
+      ...baseProps,
+      sessions: [],
+      conflicts: [],
+      searchActive: true,
+    }));
+    expect(html).toContain("No conflicts match your search");
+    expect(html).not.toContain("No conflicts — nice work");
   });
 
   it("renders the two seeded conflict pairs with their kind label and a Jump to Day link to the right day", () => {
@@ -106,9 +153,11 @@ describe("<ConflictsView>", () => {
     expect(html).toContain(`/events/${eventId}/agenda?view=day&amp;day=2026-08-11`);
   });
 
-  it("falls back to a stable label rather than crashing when a conflict references a session outside the current filtered set", () => {
+  it("falls back only when the full session lookup genuinely lacks an endpoint", () => {
     const conflicts: ConflictDTO[] = [conflict({})];
-    const html = renderToStaticMarkup(React.createElement(ConflictsView, { ...baseProps, sessions: [], conflicts }));
+    const sessions = [session({ id: id("01"), title: "Still here" })];
+    const html = renderToStaticMarkup(React.createElement(ConflictsView, { ...baseProps, sessions, conflicts }));
+    expect(html).toContain("Still here");
     expect(html).toContain("Removed session");
   });
 });
