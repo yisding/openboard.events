@@ -12,7 +12,6 @@ import { getOrganization, listOrganizationEvents } from "@/features/organization
 import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type EventDTO, type UserId } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Organization" };
@@ -29,9 +28,6 @@ export const dynamic = "force-dynamic";
  * first place either becomes reachable without typing the URL by hand.
  */
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Organization" description="Unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

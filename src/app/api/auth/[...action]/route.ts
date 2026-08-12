@@ -12,9 +12,8 @@ import {
   throttleAdminLogin,
 } from "@/features/auth";
 import { isAppError } from "@/shared/lib/errors";
-import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { getEnv } from "@/shared/lib/env";
 import { checkRateLimit } from "@/shared/server/rate-limit";
-import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from "@/shared/demo/seed";
 import { confirmAdminEmail, handleAdminAuthGet } from "./_lib";
 
 /**
@@ -206,15 +205,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   if (path === "sign-in") {
     const input = signInSchema.safeParse(await request.json().catch(() => null));
     if (!input.success) return unauthorized();
-    // The credential-free local demo has no database to authenticate or
-    // throttle against (and no SESSION_SECRET to sign a cookie — the
-    // middleware does not gate /events there). Accept the demo credentials
-    // documented in docs/demo-script.md instead of crashing into the DB layer.
-    if (isCredentialFreeLocalDemo()) {
-      return input.data.email === DEMO_ADMIN_EMAIL && input.data.password === DEMO_ADMIN_PASSWORD
-        ? NextResponse.json({ data: { signedIn: true } })
-        : unauthorized();
-    }
     // The application-layer throttle runs on both providers — see
     // `throttleAdminLogin`. On the fallback it is applied inside
     // `authenticateAdmin`; here it has to be applied around the delegation.

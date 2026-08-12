@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { Brand } from "@/shared/ui/brand";
-import { getEnv, isCredentialFreeLocalDemo } from "@/shared/lib/env";
+import { getEnv } from "@/shared/lib/env";
 
 // Signup availability is a runtime Cloudflare binding. Do not freeze the
 // provider gate into the build-time prerendered homepage.
@@ -13,31 +13,23 @@ export const dynamic = "force-dynamic";
 // AI.Engineer Sandbox event's open CFP form (`scripts/seed/forms.ts`).
 const SEEDED_CFP_FORM_ID = "f00d8460-e8d9-58de-ab01-f37d4ffe53df";
 
+// The landing CTAs point at the seeded AI.Engineer Sandbox event, which every
+// target — preview, production, or a local run — gets from `pnpm seed`.
+const CFP_HREF = `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
+// The M53 canonical public agenda surface.
+const AGENDA_HREF = "/e/ai-engineer-sandbox-event/agenda";
+
 export default function HomePage() {
-  // Evaluated per render rather than at module scope: `isCredentialFreeLocalDemo`
-  // reads the current request's Cloudflare env binding, which only exists
-  // inside a request's execution context (see `portal/[eventSlug]/layout.tsx`
-  // for the same call site pattern).
-  //
-  // The credential-free local demo runs against in-memory mock data keyed by
-  // human-readable slugs that don't exist in a real database. Every other
-  // target (preview, production, or a local run wired to Postgres) needs
-  // URLs that resolve against the seeded world instead.
-  const env = getEnv();
-  const demoMode = isCredentialFreeLocalDemo(env);
-  const signupEnabled = env.ADMIN_AUTH_PROVIDER === "better-auth";
-  const cfpHref = demoMode ? "/submit/ai-engineer/technical-talks" : `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
-  // The M53 canonical public agenda surface.
-  const agendaHref = demoMode ? "/e/ai-engineer/schedule" : "/e/ai-engineer-sandbox-event/agenda";
-  const workspaceHref = signupEnabled ? "/signup" : demoMode ? "/events" : "/login";
-  const workspaceNavLabel = signupEnabled ? "Create workspace" : demoMode ? "Open demo" : "Open workspace";
-  const workspaceHeroLabel = signupEnabled ? "Create your workspace" : demoMode ? "Explore the live demo" : "Open your workspace";
+  // Evaluated per render rather than at module scope: `getEnv` reads the
+  // current request's Cloudflare env binding, which only exists inside a
+  // request's execution context.
+  const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
+  const workspaceHref = signupEnabled ? "/signup" : "/login";
+  const workspaceNavLabel = signupEnabled ? "Create workspace" : "Open workspace";
+  const workspaceHeroLabel = signupEnabled ? "Create your workspace" : "Open your workspace";
   const workspaceProof = signupEnabled
     ? "Go from signup to a live CFP in one guided setup"
-    : demoMode
-      ? "Seeded with a complete AI Engineer event"
-      : "Sign in to manage your event workspace";
-
+    : "Sign in to manage your event workspace";
   return (
     <main className="landing">
       <nav className="landing-nav container">
@@ -45,7 +37,7 @@ export default function HomePage() {
         <div className="landing-links">
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
-          <Link href={cfpHref}>View sample CFP</Link>
+          <Link href={CFP_HREF}>View sample CFP</Link>
           <Link className="button button-secondary" href="/login">Sign in</Link>
           <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
         </div>
@@ -58,8 +50,8 @@ export default function HomePage() {
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
             <Link className="button button-primary button-lg" href={workspaceHref}>{workspaceHeroLabel} <ArrowRight size={18} /></Link>
-            <Link className="button button-secondary button-lg" href={cfpHref}>View a sample CFP</Link>
-            <Link className="button button-ghost button-lg" href={agendaHref}>See the public agenda</Link>
+            <Link className="button button-secondary button-lg" href={CFP_HREF}>View a sample CFP</Link>
+            <Link className="button button-ghost button-lg" href={AGENDA_HREF}>See the public agenda</Link>
           </div>
           <div className="hero-proof"><CheckCircle2 size={17} /> {workspaceProof}</div>
         </div>

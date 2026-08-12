@@ -50,7 +50,11 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       action();
       return;
     }
-    setPending({ confirm: action, cancel: () => undefined });
+    // Keep the first requested destination stable while its confirmation is
+    // open. Global keyboard shortcuts may still fire behind the native dialog;
+    // replacing this decision would make “Discard” perform a different action
+    // than the one the organizer was asked to confirm.
+    setPending((current) => current ?? { confirm: action, cancel: () => undefined });
   }, []);
 
   useEffect(() => {
@@ -113,8 +117,8 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       <ConfirmDialog
         open={pending !== null}
         title="Discard unsaved work?"
-        body="Your unsaved score, notes, or recusal reason will be lost if you leave this page."
-        confirmLabel="Discard and leave"
+        body="Your unsaved changes will be lost if you leave this page or switch to another item."
+        confirmLabel="Discard changes"
         onConfirm={async () => {
           const decision = pending;
           setPending(null);

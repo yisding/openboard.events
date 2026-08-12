@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../fixtures";
+import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { computeEventPhase, defaultTabForPhase } from "./phase";
 
 function overview(patch: Partial<typeof FIXTURE_OVERVIEW>) {
