@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Contact, CreditCard, ScrollText, Sparkles, Users as UsersIcon } from "lucide-react";
-import { requireOrganizationAdmin } from "@/features/auth";
+import { requireOrganizationAdmin, roleSatisfies } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
@@ -36,8 +36,10 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
 
+  let canManageEvents = false;
   try {
-    await requireOrganizationAdmin(organizationId);
+    const session = await requireOrganizationAdmin(organizationId);
+    canManageEvents = roleSatisfies(session.role, "organizer");
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {
@@ -53,7 +55,9 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     getActiveOrganizationOnboarding(organizationId),
   ]);
   if (!organization) notFound();
-  if (eventRows.length === 0 || progress) redirect(`/organizations/${organizationId}/onboarding`);
+  if (canManageEvents && (eventRows.length === 0 || progress)) {
+    redirect(`/organizations/${organizationId}/onboarding`);
+  }
 
   const events = (await Promise.all(eventRows.map((row) => getEvent(row.id))))
     .filter((event): event is EventDTO => event !== null);
@@ -69,7 +73,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>
-        <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>
+        {canManageEvents && <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>}
       </>}
     />
     <div className="event-grid">

@@ -33,7 +33,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   const organizationId = parsed.data;
 
   try {
-    await requireOrganizationAdmin(organizationId);
+    await requireOrganizationAdmin(organizationId, "organizer");
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {

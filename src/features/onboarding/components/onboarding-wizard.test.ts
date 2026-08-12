@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +11,17 @@ vi.mock("@/shared/ui/toast", () => ({
 }));
 
 Object.assign(globalThis, { React });
+
+describe("onboarding organization access", () => {
+  const organizationPage = readFileSync(new URL("../../../app/organizations/[organizationId]/page.tsx", import.meta.url), "utf8");
+  const onboardingPage = readFileSync(new URL("../../../app/organizations/[organizationId]/onboarding/page.tsx", import.meta.url), "utf8");
+
+  it("redirects only organizers and owners into setup", () => {
+    expect(organizationPage).toContain('canManageEvents = roleSatisfies(session.role, "organizer")');
+    expect(organizationPage).toContain("if (canManageEvents && (eventRows.length === 0 || progress))");
+    expect(onboardingPage).toContain('requireOrganizationAdmin(organizationId, "organizer")');
+  });
+});
 
 describe("OnboardingWizard event step accessibility", () => {
   const organizationId = organizationIdSchema.parse("00000000-0000-4000-8000-000000000001");
