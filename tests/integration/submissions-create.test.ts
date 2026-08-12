@@ -21,6 +21,8 @@ const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
 const closedForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000003");
 const speaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000004");
 const missingContact = contactIdSchema.parse("e0000000-0000-4000-8000-000000000005");
+/** A second real contact, so "the first one selected is primary" can be asserted. */
+const coSpeaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000009");
 const titleField = "e0000000-0000-4000-8000-000000000006";
 const bioField = "e0000000-0000-4000-8000-000000000007";
 const section = "e0000000-0000-4000-8000-000000000008";
@@ -230,6 +232,65 @@ describe("createSubmission", () => {
 
     expect(result.code).toBeGreaterThan(0);
     expect(await countRows("communication_logs")).toBe(0);
+  });
+
+  // #117 — the invited keynote. "Add abstract" used to send no participants at
+  // all, so the one path built for the off-CFP talk produced a row attributed
+  // to nobody. A manual row must be able to name who is giving the talk, and
+  // still email none of them.
+  it("attributes a manual row to its speakers, primary first, and still sends nothing", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'panelist@example.com','Second','Panelist') ON CONFLICT DO NOTHING",
+      [coSpeaker, eventId],
+    );
+
+    const result = await createSubmission(eventId, cfpInput({
+      formId: null,
+      formVersion: null,
+      source: "manual",
+      submitterContactId: null,
+      enforce: { deadline: false, limit: false },
+      sendConfirmation: false,
+      fields: { title: "Dr. Osei's keynote" },
+      participants: [
+        { contactId: speaker, role: "speaker", isPrimary: true, sortOrder: 0 },
+        { contactId: coSpeaker, role: "co_speaker", isPrimary: false, sortOrder: 1 },
+      ],
+    }));
+
+    const rows = await pglite.query<{ contact_id: string; role: string; is_primary: boolean; sort_order: number }>(
+      "SELECT contact_id, role, is_primary, sort_order FROM submission_participants WHERE submission_id=$1 ORDER BY sort_order",
+      [result.submissionId],
+    );
+    expect(rows.rows.map((row) => [row.contact_id, row.role, row.is_primary])).toEqual([
+      [speaker, "speaker", true],
+      [coSpeaker, "co_speaker", false],
+    ]);
+    // Nobody applied, so nobody gets told their application was received.
+    expect(await countRows("communication_logs")).toBe(0);
+  });
+
+  it("refuses a manual row whose speakers have no single primary", async () => {
+    await pglite.query("DELETE FROM submissions");
+
+    const error = await createSubmission(eventId, cfpInput({
+      formId: null,
+      formVersion: null,
+      source: "manual",
+      submitterContactId: null,
+      enforce: { deadline: false, limit: false },
+      sendConfirmation: false,
+      fields: { title: "Two primaries" },
+      participants: [
+        { contactId: speaker, role: "speaker", isPrimary: true, sortOrder: 0 },
+        { contactId: coSpeaker, role: "speaker", isPrimary: true, sortOrder: 1 },
+      ],
+    })).catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(await countRows("submissions")).toBe(0);
   });
 
   it("honours the form's own confirmation toggle when the caller passes none", async () => {

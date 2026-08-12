@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
+import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import {
@@ -35,12 +36,15 @@ export function AddAbstractDrawer({
   eventId,
   vocabulary,
   timezone,
+  speakers,
   open,
   onClose,
 }: {
   eventId: string;
   vocabulary: SubmissionVocabulary;
   timezone: string;
+  /** Every contact on the event — the same list the agenda's session dialog offers. */
+  speakers: QuickAddedSpeaker[];
   open: boolean;
   onClose: () => void;
 }) {
@@ -50,6 +54,22 @@ export function AddAbstractDrawer({
   const [status, setStatus] = useState<string>("pending");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /**
+   * Who is giving the talk (#117). This drawer is the path built for the invited
+   * keynote, and it could not name a speaker — so it produced an abstract
+   * attributed to nobody, which is the one thing an invited talk always has.
+   *
+   * Selection order is the order they were picked, and the first one is the
+   * primary. `createSubmission` requires exactly one primary when the list is
+   * non-empty, which "first selected" satisfies by construction.
+   */
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
+  const pickable = [...speakers, ...addedSpeakers.filter((added) => !speakers.some((known) => known.contactId === added.contactId))];
+
+  const toggleParticipant = (contactId: string) => setParticipantIds((current) => (
+    current.includes(contactId) ? current.filter((id) => id !== contactId) : [...current, contactId]
+  ));
 
   async function create() {
     setBusy(true);
@@ -58,7 +78,14 @@ export function AddAbstractDrawer({
       const response = await fetch(`/api/internal/submissions/${eventId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(toCreateBody(values, status)),
+        body: JSON.stringify({
+          ...toCreateBody(values, status),
+          participants: participantIds.map((contactId, index) => ({
+            contactId,
+            role: "speaker",
+            isPrimary: index === 0,
+          })),
+        }),
       });
       const payload = await response.json().catch(() => null) as {
         data?: { submissionId: string; code: number };
@@ -71,6 +98,10 @@ export function AddAbstractDrawer({
       toast(`${formatCode(payload.data.code)} created`);
       setValues(EMPTY_ABSTRACT_FIELDS);
       setStatus("pending");
+      setParticipantIds([]);
+      // `addedSpeakers` is deliberately kept: those contacts exist on the event
+      // now, and the refresh below is what folds them into the server list. The
+      // dedupe above drops the copy once it arrives.
       onClose();
       // The table is server-rendered from the same filters, so a refresh is what
       // keeps the rows, the tab counts and the pager agreeing with each other.
@@ -102,6 +133,47 @@ export function AddAbstractDrawer({
           <Select value={status} onChange={(event) => setStatus(event.target.value)}>
             {STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </Select>
+        </Field>
+
+        {/* #117 — this drawer is the path built for the invited keynote, and it
+            had no participant fields at all, so it produced an abstract
+            attributed to nobody. The speaker can also be created here, because
+            on a fresh event there is nobody to pick yet. */}
+        <Field
+          label="Speakers"
+          hint={participantIds.length > 1
+            ? "The first one selected is the primary speaker."
+            : "Who is giving this talk. Someone who never applied can be added here."}
+        >
+          <div className="agenda-speaker-picker">
+            {pickable.length === 0 && (
+              <span className="dash">No contacts on this event yet — add the speaker below</span>
+            )}
+            {pickable.map((speaker) => {
+              const position = participantIds.indexOf(speaker.contactId);
+              return (
+                <label key={speaker.contactId}>
+                  <input
+                    type="checkbox"
+                    checked={position !== -1}
+                    disabled={busy}
+                    onChange={() => toggleParticipant(speaker.contactId)}
+                  />
+                  {speaker.name}{position === 0 && participantIds.length > 1 ? " · primary" : ""}
+                </label>
+              );
+            })}
+          </div>
+          <div className="speaker-picker-add">
+            <SpeakerQuickAdd
+              eventId={eventId}
+              disabled={busy}
+              onAdded={(speaker) => {
+                setAddedSpeakers((current) => [...current, speaker]);
+                toggleParticipant(speaker.contactId);
+              }}
+            />
+          </div>
         </Field>
       </div>
       <AbstractFields values={values} onChange={setValues} vocabulary={vocabulary} timezone={timezone} disabled={busy} />

@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
+import { listSpeakerOptions } from "@/features/portal";
 import { AbstractsPage } from "@/features/submissions/abstracts-page";
 import { AbstractsView } from "@/features/submissions/components/abstracts-view";
 import { getStatusCounts, getSubmissionVocabulary, listSubmissions, parseSubmissionFiltersForPage } from "@/features/submissions";
@@ -47,7 +48,7 @@ export default async function Page({
 
   // Rows and counts come from the same filters, which is what keeps the tab
   // numbers honest about the table under them.
-  const [list, counts, unfiltered, vocabulary] = await Promise.all([
+  const [list, counts, unfiltered, vocabulary, speakers] = await Promise.all([
     listSubmissions(eventId, filters),
     getStatusCounts(eventId, { search: filters.search, trackId: filters.trackId, tagId: filters.tagId, pageSize: filters.pageSize, sort: filters.sort }),
     // Notify finalizes both queues for the whole event, so the number on its
@@ -55,6 +56,9 @@ export default async function Page({
     // fewer speakers are about to be emailed than actually are.
     getStatusCounts(eventId, { search: "", trackId: null, tagId: null, pageSize: filters.pageSize, sort: filters.sort }),
     getSubmissionVocabulary(eventId),
+    // Add abstract attributes the talk to a person (#117); this is the same
+    // list the agenda's session dialog picks from.
+    listSpeakerOptions(eventId),
   ]);
 
   return (
@@ -72,6 +76,7 @@ export default async function Page({
       queued={unfiltered.accept_queue + unfiltered.decline_queue}
       timezone={event?.timezone ?? "America/Los_Angeles"}
       vocabulary={vocabulary}
+      speakers={speakers}
       canEdit={canEdit}
     />
   );

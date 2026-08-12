@@ -4,17 +4,24 @@ import { CalendarClock, CheckCircle2, FileText, Plus, Search, Upload, Users } fr
 import { useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
 import type { TaskRecord } from "@/shared/demo/types";
+import { endOfDayInTz } from "@/shared/lib/time";
+import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Field, Modal, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 export function TasksAdminPage({ eventId }: { eventId: string }) {
   const { state, dispatch } = useDemo();
   const { toast } = useToast();
+  const timezone = state.events.find((item) => item.id === eventId)?.timezone ?? "America/Los_Angeles";
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<TaskRecord["mode"]>("manual");
   const [target, setTarget] = useState<TaskRecord["target"]>("contact");
-  const [dueDate, setDueDate] = useState("2026-09-05");
+  // A UTC instant at end of day in the event's zone, which is what "due that
+  // day" means — the reminder ladder fires against this, so a fixed offset here
+  // would misfire for any event that is not on Pacific time.
+  const [dueDate, setDueDate] = useState<string | null>(() => endOfDayInTz("2026-09-05", timezone).toISOString());
   const [search, setSearch] = useState("");
   const tasks = state.tasks.filter((task) => task.eventId === eventId
     && `${task.title} ${task.description}`.toLowerCase().includes(search.toLowerCase()));
@@ -30,7 +37,7 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
         description: "Complete this item in your speaker portal.",
         mode,
         target,
-        dueAt: new Date(`${dueDate}T23:59:00-07:00`).toISOString(),
+        dueAt: dueDate,
         assigned: target === "contact" ? 10 : 8,
         completed: 0,
         required: true,
@@ -72,7 +79,7 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
                   <div><h3>{task.title}</h3><StatusBadge value={task.mode.replace("_", " ")} /></div>
                   <p>{task.description}</p>
                   <div>
-                    <span><CalendarClock size={13} /> Due {new Date(task.dueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" })}</span>
+                    <span><CalendarClock size={13} /> Due <TzTime instant={task.dueAt} tz={timezone} style={{ month: "short", day: "numeric" }} /></span>
                     <span><Users size={13} /> {task.assigned} assigned · {task.target === "contact" ? "speakers" : "submissions"}</span>
                   </div>
                 </div>
@@ -132,7 +139,7 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
                 <option value="submission">Accepted submissions</option>
               </Select>
             </Field>
-            <Field label="Due date"><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></Field>
+            <Field label="Due date"><DateTimePicker mode="date" tz={timezone} value={dueDate} onChange={setDueDate} /></Field>
           </div>
         </div>
       </Modal>

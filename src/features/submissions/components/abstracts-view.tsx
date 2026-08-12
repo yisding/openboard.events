@@ -31,6 +31,7 @@ export function AbstractsView({
   sort,
   queued,
   vocabulary,
+  speakers,
   canEdit,
 }: {
   eventId: string;
@@ -50,6 +51,8 @@ export function AbstractsView({
   queued: number;
   /** This event's tracks, formats and tags — what the two editors offer. */
   vocabulary: SubmissionVocabulary;
+  /** Every contact on the event, for Add abstract's speaker picker (#117). */
+  speakers: Array<{ contactId: string; name: string }>;
   /** Reviewers read the same table; only an organizer may change a row. */
   canEdit: boolean;
 }) {
@@ -57,7 +60,10 @@ export function AbstractsView({
   const params = useSearchParams();
   const [selected, setSelected] = useState<SubmissionListRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  // `?add=1` is how the agenda's "Add an invited talk" hands the organizer
+  // straight to this drawer (#117), rather than dropping them on a table and
+  // leaving them to find the button.
+  const [adding, setAdding] = useState(() => params.get("add") === "1");
   // Bumped to clear the table's own checkbox state; `selected` is only a mirror
   // of it, so resetting the mirror alone leaves the boxes ticked.
   const [selectionEpoch, setSelectionEpoch] = useState(0);
@@ -197,6 +203,7 @@ export function AbstractsView({
           eventId={eventId}
           vocabulary={vocabulary}
           timezone={timezone}
+          speakers={speakers}
           open={adding}
           onClose={() => setAdding(false)}
         />

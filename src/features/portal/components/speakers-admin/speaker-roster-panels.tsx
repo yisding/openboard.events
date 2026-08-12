@@ -4,17 +4,20 @@ import { FileText, Mail, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { SpeakerRosterExtras } from "@/features/portal";
-import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus, type UnavailabilityIntervalInput } from "@/shared/contracts";
-import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus } from "@/shared/contracts";
+import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
-function toDatetimeLocalValue(utcIso: string, timeZone: string): string {
-  const { hour, minute } = hourMinuteInZone(utcIso, timeZone);
-  return `${eventDayKey(utcIso, timeZone)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
+/**
+ * A window mid-edit. `DateTimePicker` reads and writes UTC instants in the
+ * event's zone, so the draft holds instants too — there is no naive wall-clock
+ * string anywhere between the roster and the contract. A side is null until the
+ * organizer fills it, and a half-filled row is dropped on save.
+ */
+type UnavailabilityDraftRow = { startsAt: string | null; endsAt: string | null; reason?: string };
 
 function bytesLabel(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -193,28 +196,26 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<UnavailabilityIntervalInput[]>(
+  const [draft, setDraft] = useState<UnavailabilityDraftRow[]>(
     extras.unavailability.map((row) => ({
-      startsAt: toDatetimeLocalValue(row.startsAt, timezone),
-      endsAt: toDatetimeLocalValue(row.endsAt, timezone),
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
       ...(row.reason ? { reason: row.reason } : {}),
     })),
   );
 
-  function updateRow(index: number, patch: Partial<UnavailabilityIntervalInput>) {
+  function updateRow(index: number, patch: Partial<UnavailabilityDraftRow>) {
     setDraft((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
   }
 
   async function save() {
     setSaving(true);
     try {
-      const intervals = draft
-        .filter((row) => row.startsAt && row.endsAt)
-        .map((row) => ({
-          startsAt: zonedInputToUtc(row.startsAt, timezone).toISOString(),
-          endsAt: zonedInputToUtc(row.endsAt, timezone).toISOString(),
-          ...(row.reason?.trim() ? { reason: row.reason.trim() } : {}),
-        }));
+      // flatMap rather than filter+map: it narrows both sides to non-null, so
+      // the instants reach the contract without a cast.
+      const intervals = draft.flatMap((row) => row.startsAt && row.endsAt
+        ? [{ startsAt: row.startsAt, endsAt: row.endsAt, ...(row.reason?.trim() ? { reason: row.reason.trim() } : {}) }]
+        : []);
       const response = await fetch(`/api/internal/speakers/${eventId}/${contactId}/unavailability`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -224,8 +225,8 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
       if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not save availability");
       onSaved({ ...extras, unavailability: json.data.intervals });
       setDraft(json.data.intervals.map((row) => ({
-        startsAt: toDatetimeLocalValue(row.startsAt, timezone),
-        endsAt: toDatetimeLocalValue(row.endsAt, timezone),
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
         ...(row.reason ? { reason: row.reason } : {}),
       })));
       toast("Availability updated");
@@ -240,14 +241,14 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
     <section className="panel">
       <header className="panel-header">
         <div><h2>Unavailability</h2><p>Blackout windows in {timezone}, applied by M54 when placing this speaker on the schedule.</p></div>
-        <Button size="sm" variant="secondary" onClick={() => setDraft((current) => [...current, { startsAt: "", endsAt: "", reason: "" }])}><Plus size={14} /> Add window</Button>
+        <Button size="sm" variant="secondary" onClick={() => setDraft((current) => [...current, { startsAt: null, endsAt: null, reason: "" }])}><Plus size={14} /> Add window</Button>
       </header>
       <div className="drawer-content form-stack">
         {draft.length === 0 && <p className="long-copy">No declared blackout — this speaker is treated as available for the whole event.</p>}
         {draft.map((row, index) => (
           <div key={index} className="form-grid" style={{ alignItems: "end", gridTemplateColumns: "1fr 1fr 1fr auto" }}>
-            <Field label="Starts"><input type="datetime-local" value={row.startsAt} onChange={(event) => updateRow(index, { startsAt: event.target.value })} /></Field>
-            <Field label="Ends"><input type="datetime-local" value={row.endsAt} onChange={(event) => updateRow(index, { endsAt: event.target.value })} /></Field>
+            <Field label="Starts"><DateTimePicker value={row.startsAt} onChange={(startsAt) => updateRow(index, { startsAt })} tz={timezone} /></Field>
+            <Field label="Ends"><DateTimePicker value={row.endsAt} onChange={(endsAt) => updateRow(index, { endsAt })} tz={timezone} /></Field>
             <Field label="Reason (optional)"><input value={row.reason ?? ""} onChange={(event) => updateRow(index, { reason: event.target.value })} placeholder="Flight, other commitment…" /></Field>
             <button type="button" className="icon-button" aria-label="Remove window" onClick={() => setDraft((current) => current.filter((_row, rowIndex) => rowIndex !== index))}><Trash2 size={15} /></button>
           </div>

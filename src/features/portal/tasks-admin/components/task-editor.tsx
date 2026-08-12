@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Modal, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
-import { eventDayKey } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey } from "@/shared/lib/time";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
 
 export type TaskDraft = {
@@ -222,12 +223,16 @@ export function TaskEditor({
             </Select>
           </Field>
           <Field label="Due date" error={fieldErrors.dueAt} errorId="task-due-date-error">
-            <input
-              type="date"
-              aria-invalid={Boolean(fieldErrors.dueAt) || undefined}
-              aria-describedby={fieldErrors.dueAt ? "task-due-date-error" : undefined}
-              value={draft.dueAt ?? ""}
-              onChange={(event) => { setDraft((current) => ({ ...current, dueAt: event.target.value || null })); clearFieldError("dueAt"); }}
+            {/* The draft carries the day key the contract wants; the picker speaks
+                instants. `endOfDayInTz`/`eventDayKey` are exact inverses over a day
+                key, so the round trip through the control cannot shift the day. */}
+            <DateTimePicker
+              mode="date"
+              tz={timezone}
+              invalid={Boolean(fieldErrors.dueAt)}
+              {...(fieldErrors.dueAt ? { ariaDescribedBy: "task-due-date-error" } : {})}
+              value={draft.dueAt ? endOfDayInTz(draft.dueAt, timezone).toISOString() : null}
+              onChange={(next) => { setDraft((current) => ({ ...current, dueAt: next ? eventDayKey(next, timezone) : null })); clearFieldError("dueAt"); }}
             />
           </Field>
         </div>

@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CriterionKind } from "@/shared/contracts";
+import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
@@ -36,9 +37,9 @@ type PlanDraft = {
   status: PlanDTO["status"];
   /** Empty is "every track" — the server stores that as NULL. */
   trackIds: string[];
-  /** `datetime-local` strings; empty means unbounded on that side. */
-  opensAt: string;
-  closesAt: string;
+  /** UTC instants, as the contract speaks them; null is unbounded on that side. */
+  opensAt: string | null;
+  closesAt: string | null;
   anonymizeAuthors: boolean;
   criteria: CriterionDraft[];
   reviewers: Array<{ userId: string; trackIds: string[] }>;
@@ -51,31 +52,12 @@ const emptyDraft = (nextRound: number): PlanDraft => ({
   scaleMax: 5,
   status: "open",
   trackIds: [],
-  opensAt: "",
-  closesAt: "",
+  opensAt: null,
+  closesAt: null,
   anonymizeAuthors: false,
   criteria: [],
   reviewers: [],
 });
-
-/**
- * `datetime-local` speaks wall-clock without a zone, and the contract speaks
- * ISO instants. The conversion happens once here and once on the way back, so
- * no other part of the editor has to think about it.
- */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
-
-function fromLocalInput(value: string): string | null {
-  if (value.trim() === "") return null;
-  const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? null : at.toISOString();
-}
 
 function optionsToText(options: PlanDTO["criteria"][number]["options"]): string {
   return options.map((option) => option.score === null ? option.label : `${option.label}:${option.score}`).join("\n");
@@ -108,8 +90,8 @@ function draftFrom(plan: PlanDTO): PlanDraft {
     scaleMax: plan.scaleMax,
     status: plan.status,
     trackIds: plan.trackIds ?? [],
-    opensAt: toLocalInput(plan.opensAt),
-    closesAt: toLocalInput(plan.closesAt),
+    opensAt: plan.opensAt,
+    closesAt: plan.closesAt,
     anonymizeAuthors: plan.anonymizeAuthors,
     criteria: plan.criteria.map((criterion) => ({
       id: criterion.id as string,
@@ -177,6 +159,7 @@ export function PlanEditor({
   tracks,
   members,
   nextRound,
+  timezone,
   onClose,
 }: {
   eventId: string;
@@ -185,6 +168,8 @@ export function PlanEditor({
   tracks: TrackOption[];
   members: EventMember[];
   nextRound: number;
+  /** The event's zone. A round window is read and written in it, never in the organizer's. */
+  timezone: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -208,8 +193,8 @@ export function PlanEditor({
         status: draft.status,
         // Empty means every track, which the server stores as NULL.
         trackIds: draft.trackIds.length === 0 ? null : draft.trackIds,
-        opensAt: fromLocalInput(draft.opensAt),
-        closesAt: fromLocalInput(draft.closesAt),
+        opensAt: draft.opensAt,
+        closesAt: draft.closesAt,
         anonymizeAuthors: draft.anonymizeAuthors,
         criteria: draft.criteria.map((criterion) => ({
           id: criterion.id,
@@ -295,10 +280,10 @@ export function PlanEditor({
 
         <div className="field-row">
           <Field label="Opens" hint="Reviewers cannot open assigned proposals before this">
-            <input type="datetime-local" value={draft.opensAt} onChange={(event) => patch({ opensAt: event.target.value })} />
+            <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
           <Field label="Closes" hint="Saving stops at this moment; prior work stays readable">
-            <input type="datetime-local" value={draft.closesAt} onChange={(event) => patch({ closesAt: event.target.value })} />
+            <DateTimePicker value={draft.closesAt} onChange={(closesAt) => patch({ closesAt })} tz={timezone} />
           </Field>
         </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search } from "lucide-react";
+import Link from "next/link";
 import { useMemo } from "react";
 import { Button } from "@/shared/ui/ui-kit";
 import type { AgendaView } from "../store";
@@ -39,6 +40,7 @@ export function AgendaToolbar({
   onView,
   onDay,
   onCreate,
+  eventId,
 }: {
   view: AgendaView;
   day: string | null;
@@ -49,6 +51,7 @@ export function AgendaToolbar({
   onView: (next: AgendaView) => void;
   onDay: (next: string | null) => void;
   onCreate: () => void;
+  eventId: string;
 }) {
   const days = useMemo(
     () => eventDayKeys(event.startsAt, event.endsAt, event.timezone),
@@ -87,6 +90,13 @@ export function AgendaToolbar({
               aria-label="Find session"
             />
           </label>
+          {/* #117 — the two off-CFP paths, named, at the moment the organizer
+              picks one. "Add Session" schedules a talk that has no abstract and
+              never needed one; the link goes to the drawer that files it as an
+              abstract instead, which is what you want if it should sit in the
+              programme record beside the CFP ones. Nothing on the agenda used
+              to mention the second path existed. */}
+          <Link className="agenda-invited-link" href={`/events/${eventId}/abstracts?add=1`}>Add an invited talk</Link>
           <Button size="sm" onClick={onCreate}><Plus size={14} aria-hidden /> Add Session</Button>
         </div>
       </div>
