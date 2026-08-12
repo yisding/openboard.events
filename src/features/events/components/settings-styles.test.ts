@@ -27,18 +27,35 @@ function renderedClasses(relativePath: string): string[] {
   const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const found = new Set<string>();
   for (const match of source.matchAll(/className="([^"{}]+)"/g)) {
-    for (const name of match[1].split(/\s+/)) if (name) found.add(name);
+    // `noUncheckedIndexedAccess` types a capture group as possibly undefined
+    // even when the pattern guarantees it, so read it out rather than index
+    // inline.
+    const attribute = match[1] ?? "";
+    for (const name of attribute.split(/\s+/)) if (name) found.add(name);
   }
   return [...found];
 }
 
 /**
- * A class has a rule if the stylesheet mentions it as a selector — `.x` followed
- * by something that can end a compound selector. Substring matching alone would
- * pass `.vocab-color` on the strength of `.vocab-colors-legend`.
+ * Selector text only — comments stripped and declaration bodies dropped.
+ *
+ * Searching the whole stylesheet makes this test quietly self-defeating: the
+ * comment introducing these rules names all six classes, so deleting every one
+ * of the rules would still leave `.vocab-list` and friends in the file and the
+ * test would keep passing. A check that its own documentation can satisfy is
+ * not a check.
+ */
+const SELECTOR_TEXT = [
+  ...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?:^|[{};])([^{};]+)\{/g),
+].map((match) => match[1] ?? "").join("\n");
+
+/**
+ * A class has a rule if it appears in selector position. The trailing guard
+ * matters too: plain substring matching would pass `.vocab-color` on the
+ * strength of a `.vocab-colors-legend` rule.
  */
 function hasRule(className: string): boolean {
-  return new RegExp(`\\.${className}(?![\\w-])`).test(CSS);
+  return new RegExp(`\\.${className}(?![\\w-])`).test(SELECTOR_TEXT);
 }
 
 describe("event settings styles", () => {
@@ -57,7 +74,7 @@ describe("event settings styles", () => {
     // name field asks for the whole row and the fixed-size siblings shrink to
     // pay for it. Measured in Chrome, the 36px icon buttons collapsed to 17px
     // and the 44px colour well to 27px, and it worsened as the viewport grew.
-    expect(CSS).toContain(".vocab-list>div{display:flex;");
+    expect(CSS).toContain(".vocab-list>div,.vocab-row{display:flex;");
     expect(CSS).toContain(".vocab-list input{flex:1 1 0;min-width:0}");
     expect(CSS).toContain(".vocab-list>div>svg,.vocab-list>div>button,.vocab-list input[type=\"number\"],.vocab-list .vocab-color{flex:none}");
     expect(CSS).not.toContain(".vocab-list input{flex:1 1 auto");

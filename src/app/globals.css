@@ -550,7 +550,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .settings-section>header h2{margin:0 0 4px;font-size:14px;letter-spacing:-.15px}
 .settings-section>header p{margin:0;color:var(--muted);font-size:12.5px}.template-editor textarea{min-height:220px}.template-editor__preview{background:var(--surface-subtle);border:1px solid var(--line);border-radius:12px;padding:16px}.reminder-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px}.reminder-rules{display:grid;gap:12px}.reminder-rule{padding:16px}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}.settings-nav{display:flex;flex-direction:column;gap:6px}.settings-nav button{background:none;border:0;border-radius:10px;color:var(--muted);cursor:pointer;font:inherit;padding:12px 12px;text-align:left}.settings-nav button.active{background:var(--accent-soft);color:var(--accent-dark);font-weight:600}.settings-section{display:grid;gap:16px}.branding-preview{border:1px solid var(--line);border-radius:14px;overflow:hidden}.branding-preview__banner{min-height:120px;padding:24px}.branding-preview__body{padding:24px}.vocabulary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.login-page:has(> .login-card){align-items:center;display:flex;justify-content:center;padding:24px}.login-card{max-width:440px;padding:32px;width:100%}.login-card form{display:grid;gap:16px}.login-card__brand{align-items:center;display:flex;gap:12px;margin-bottom:24px}.login-card__brand img{height:32px;width:32px}
 @media(max-width:1024px){.template-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.reminder-layout,.settings-layout{grid-template-columns:1fr}.settings-nav{flex-direction:row;overflow:auto}}
-@media(max-width:768px){.branding-editor{grid-template-columns:1fr}.template-grid,.vocabulary-grid{grid-template-columns:1fr}.communications-tabs{overflow:auto}.template-editor,.comm-detail,.settings-section{padding:16px}}
+@media(max-width:768px){.template-grid,.vocabulary-grid{grid-template-columns:1fr}.communications-tabs{overflow:auto}.template-editor,.comm-detail,.settings-section{padding:16px}}
 
 /* M37 — comms admin UI (server-backed template editor, reminder ladder, log) */
 .comms-templates{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
@@ -724,7 +724,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    have a matching selector here — a check no rendered-DOM sweep performs,
    because an unstyled element is not off-grid or off-scale. It is just wrong. */
 .vocab-list{display:grid;gap:8px}
-.vocab-list>div{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+/* Both selectors on purpose. `.vocab-list>div` covers the demo page, whose
+   rows are plain divs; `.vocab-row` is the class `vocab-tab.tsx` actually
+   names, and styling it only through a structural descendant means moving
+   the row out of `.vocab-list` would silently unstyle it. */
+.vocab-list>div,.vocab-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .vocab-list>div>svg{color:var(--muted)}
 /* `flex:1 1 0`, not `1 1 auto`. Every input in here inherits `width:100%` from
    the base rule, and with an `auto` basis that width *is* the basis — so the
@@ -757,7 +761,13 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 /* 600, not 700: T3 holds the 700 count at 30 and calls a new one a violation,
    not drift. This is a preview of an event name, and 600 at 16px carries it. */
 .brand-preview b{font-size:16px;font-weight:600}
-.brand-preview em{color:var(--muted);font-size:11.5px;font-style:normal}.color-input i{width:35px;height:35px;border-radius:7px;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line)}.color-input input{flex:1}.embed-cards{display:grid;gap:12px}.embed-cards>article{padding:16px;display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:start}.embed-cards h2{font-size:12.5px;margin:0}.embed-cards p{font-size:11px;color:var(--muted)}.embed-cards>a{font-size:10px;color:var(--accent-dark);display:flex;gap:4px}.embed-code{grid-column:1/4;height:42px;border:1px solid var(--line);background:var(--canvas);border-radius:7px;padding:0 12px;display:flex;align-items:center}.embed-code code{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;flex:1}.embed-code button{border:0;background:transparent;color:var(--accent-dark)}.embed-cards footer{grid-column:1/4;display:flex;gap:8px}
+.brand-preview em{color:var(--muted);font-size:11.5px;font-style:normal}
+/* Collocated with the base rule above, not filed with the other ≤768
+   overrides 200 lines earlier. Same specificity, so the later rule wins: over
+   there this declaration lost to the two-column base every time and the phone
+   layout it exists for never rendered. An override that cannot be read next to
+   what it overrides is an override nobody can check. */
+@media(max-width:768px){.branding-editor{grid-template-columns:1fr}}.color-input i{width:35px;height:35px;border-radius:7px;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line)}.color-input input{flex:1}.embed-cards{display:grid;gap:12px}.embed-cards>article{padding:16px;display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:start}.embed-cards h2{font-size:12.5px;margin:0}.embed-cards p{font-size:11px;color:var(--muted)}.embed-cards>a{font-size:10px;color:var(--accent-dark);display:flex;gap:4px}.embed-code{grid-column:1/4;height:42px;border:1px solid var(--line);background:var(--canvas);border-radius:7px;padding:0 12px;display:flex;align-items:center}.embed-code code{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;flex:1}.embed-code button{border:0;background:transparent;color:var(--accent-dark)}.embed-cards footer{grid-column:1/4;display:flex;gap:8px}
 
 /* Public schedule/gallery: clickable rows, the session-detail accordion, and
    the speaker-detail takeover (M32 real published-view queries). */
