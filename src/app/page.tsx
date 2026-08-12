@@ -31,8 +31,9 @@ export default function HomePage() {
         <div className="landing-links">
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
-          <Link className="button button-secondary" href={cfpHref}>View CFP</Link>
-          <Link className="button button-primary" href="/events">Open demo <ArrowRight size={16} /></Link>
+          <Link href={cfpHref}>View sample CFP</Link>
+          <Link className="button button-secondary" href="/login">Sign in</Link>
+          <Link className="button button-primary" href="/signup">Create workspace <ArrowRight size={16} /></Link>
         </div>
       </nav>
 
@@ -42,10 +43,11 @@ export default function HomePage() {
           <h1>Every speaker. Every session. <span>One calm command center.</span></h1>
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
-            <Link className="button button-primary button-lg" href="/events">Explore the live demo <ArrowRight size={18} /></Link>
+            <Link className="button button-primary button-lg" href="/signup">Create your workspace <ArrowRight size={18} /></Link>
+            <Link className="button button-secondary button-lg" href={cfpHref}>View a sample CFP</Link>
             <Link className="button button-ghost button-lg" href={agendaHref}>See the public agenda</Link>
           </div>
-          <div className="hero-proof"><CheckCircle2 size={17} /> Seeded with a complete AI Engineer event</div>
+          <div className="hero-proof"><CheckCircle2 size={17} /> Go from signup to a live CFP in one guided setup</div>
         </div>
         <div className="hero-art" aria-label="Openboard dashboard preview">
           <div className="hero-glow" />

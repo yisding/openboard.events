@@ -63,7 +63,12 @@ function render(row: OutboxRow, url: string, expiresIn: string): { subject: stri
 }
 
 function redactCredentials(value: string): string {
-  return value.replace(/([?&](?:amp;)?token=)[^"'&\s<]+/giu, "$1[redacted]");
+  return value
+    .replace(/([?&](?:amp;)?token=)[^"'&\s<]+/giu, "$1[redacted]")
+    // A preserved auth destination can itself contain an invitation token.
+    // URLSearchParams encodes its `?token=` delimiter inside `next`; redact
+    // that second bearer value from persisted rendered history as well.
+    .replace(/((?:%3f|%26)token%3d)[^"'&\s<%]+/giu, "$1[redacted]");
 }
 
 export async function sendAdminAuthEmailIn(

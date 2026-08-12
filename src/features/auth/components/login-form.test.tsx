@@ -19,4 +19,12 @@ describe("LoginForm", () => {
     expect(enabled).toContain('type="button"');
     expect(disabled).not.toContain("Continue with Google");
   });
+
+  it("offers signup and password recovery without losing the requested workspace", () => {
+    const html = renderToStaticMarkup(<LoginForm />);
+
+    expect(html).toContain('href="/signup?next=%2Forganizations"');
+    expect(html).toContain('href="/login/forgot?next=%2Forganizations"');
+    expect(html).toContain("Create your workspace");
+  });
 });

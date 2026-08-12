@@ -77,11 +77,15 @@ the real database-backed surfaces.
 - Dispatches public CFP verification codes immediately after their durable
   enqueue, so a first speaker does not wait for the next one-minute outbox cron;
   the cron remains the retry guarantee.
+- Made self-service account creation discoverable from the public landing page
+  and sign-in screen. Switching between signup, sign-in, and password recovery
+  now preserves a validated invitation/workspace destination through the reset
+  email round-trip without retaining its nested bearer token in mail history.
 
 ## Remaining launch gaps, in priority order
 
 1. **End-to-end first-user proof.** The browser journey now creates a fresh
-   account through public signup, waits for Resend to report the exact outbox
+   account from the public landing page through signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
    verification link into the signed-in workspace, names and provisions the
    organization, creates an event and optional tracks, publishes a form, follows
