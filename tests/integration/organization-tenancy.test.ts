@@ -14,6 +14,7 @@ import {
   getOrganizationBySlugIn,
   getOrganizationMemberRoleIn,
   listOrganizationEventsIn,
+  listOrganizationEventsForUserIn,
   listOrganizationMemberIdsIn,
   listOrganizationMembersIn,
   listOrganizationsForUserIn,
@@ -292,20 +293,29 @@ describe("organization tenancy (M43)", () => {
      * fleet. Harmless while the install was single-tenant; a directory of every
      * customer's events, one signup away, once M44 opened self-serve signup.
      */
-    it("scopes the legacy /events list to the caller's own events and organizations", async () => {
+    it("keeps the actionable /events list aligned with event-scoped authorization", async () => {
       const orgA = await createOrganizationIn(db, ownerUserId, { name: "Fleet A", slug: "fleet-a" });
       const orgB = await createOrganizationIn(db, outsiderUserId, { name: "Fleet B", slug: "fleet-b" });
       await assignEventToOrganizationIn(db, legacyEventB, orgB.id);
       try {
-        // The outsider has no `event_members` row anywhere — organization
-        // membership alone is what puts Legacy B in their list, and it is the
-        // *only* event they can see.
-        expect((await listEventsIn(db, outsiderUserId)).map((event) => event.slug)).toEqual(["legacy-b"]);
+        // The outsider can see Legacy B in Fleet B's organization directory,
+        // but it is not an actionable hub entry until an event owner assigns
+        // event-scoped access.
+        expect((await listEventsIn(db, outsiderUserId)).map((event) => event.slug)).toEqual([]);
+        expect(await listOrganizationEventsForUserIn(db, orgB.id, outsiderUserId)).toEqual([
+          expect.objectContaining({ slug: "legacy-b", eventRole: null }),
+        ]);
 
         // The owner is an event member of both legacy events and a member of
         // the default organization; Fleet B is not theirs, but Legacy B still
         // is — via `event_members`, which is what `requireAdmin` reads.
-        expect((await listEventsIn(db, ownerUserId)).map((event) => event.slug).sort()).toEqual(["legacy-a", "legacy-b"]);
+        expect((await listEventsIn(db, ownerUserId)).map((event) => [event.slug, event.role]).sort()).toEqual([
+          ["legacy-a", "reviewer"],
+          ["legacy-b", "owner"],
+        ]);
+        expect(await listOrganizationEventsForUserIn(db, orgB.id, ownerUserId)).toEqual([
+          expect.objectContaining({ slug: "legacy-b", eventRole: "owner" }),
+        ]);
 
         // Membership of Fleet A gives its owner nothing extra: it holds no
         // events.

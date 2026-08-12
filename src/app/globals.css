@@ -293,7 +293,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .event-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .18s, box-shadow .18s; }
-.event-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.event-card:not(.event-card-locked):hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .event-cover { height: 150px; position: relative; overflow: hidden; display: grid; place-items: center; background: linear-gradient(135deg, var(--sidebar) 0%, #14453c 58%, #00a878 150%); }
 .event-cover-grid { position: absolute; inset: 0; opacity: .17; background-image: linear-gradient(rgba(255,255,255,.2) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.2) 1px, transparent 1px); background-size: 30px 30px; transform: perspective(400px) rotateX(55deg) scale(1.5); transform-origin: center bottom; }
 .event-logo { position: relative; color: var(--on-fill); font-size: 24px; font-weight: 700; letter-spacing: -1px; }
@@ -308,6 +308,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .event-health span { color: var(--green); display: flex; gap: 6px; align-items: center; font-weight: 600; }
 .event-health small { color: var(--muted); }
 .event-open { width: 100%; }
+.event-access-locked { min-height: 44px; margin-top: 16px; padding: 9px 12px; border: 1px dashed var(--line-strong); border-radius: 7px; display: flex; align-items: center; gap: 9px; color: var(--muted); background: var(--surface-raised); }
+.event-access-locked svg { flex: 0 0 auto; }
+.event-access-locked span { display: grid; gap: 2px; }
+.event-access-locked b { color: var(--ink); font-size: 11.5px; }
+.event-access-locked small { font-size: 10.5px; line-height: 1.35; }
 
 /* App shell */
 .app-shell { min-height: 100vh; }

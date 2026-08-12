@@ -32,6 +32,8 @@ export {
   getOrganizationMemberRole,
   getOrganizationMemberRoleIn,
   listOrganizationEvents,
+  listOrganizationEventsForUser,
+  listOrganizationEventsForUserIn,
   listOrganizationEventsIn,
   listOrganizationMemberIdsIn,
   listOrganizationMembers,
@@ -40,6 +42,7 @@ export {
   listOrganizationsForUserIn,
   resolvePrimaryOrganization,
   resolvePrimaryOrganizationIn,
+  type OrganizationEventAccessRow,
   type OrganizationEventRow,
   type OrganizationMembership,
 } from "./server/queries";

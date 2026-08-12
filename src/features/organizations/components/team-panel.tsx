@@ -34,7 +34,8 @@ const removedSchema = z.object({ removed: z.boolean() });
  * M44 — role management UI over M43's `organization_members`, plus team
  * invitations through the outbox. One panel, two tables: pending invitations
  * are the top half of the same story members are the bottom half of — who
- * can act on this organization, whether they have accepted yet or not.
+ * can enter this organization workspace, whether they have accepted yet or
+ * not. Event access remains an explicit, event-scoped grant.
  */
 export function TeamPanel({
   organizationId,
@@ -157,7 +158,7 @@ export function TeamPanel({
     <section className="panel settings-section organization-members-section">
       <header>
         <h2><Users size={16} /> Members</h2>
-        <p>Everyone who can sign in and act on this organization&apos;s events.</p>
+        <p>Everyone who can access this organization workspace. Access to each event is assigned separately.</p>
       </header>
       <DataTable
         columns={memberColumns}
@@ -177,7 +178,7 @@ export function TeamPanel({
         data={invitations}
         getRowId={(invitation) => invitation.id}
         toolbar={canManage ? <Button size="sm" onClick={() => setInviting(true)}><UserPlus size={15} /> Invite teammate</Button> : undefined}
-        empty={<EmptyState icon={<Mail size={20} />} title="No pending invitations" description="Invite a teammate to give them access to this organization." />}
+        empty={<EmptyState icon={<Mail size={20} />} title="No pending invitations" description="Invite a teammate to this workspace. Event owners grant access to specific events separately." />}
       />
     </section>
 
@@ -185,7 +186,7 @@ export function TeamPanel({
       open={inviting}
       onClose={() => (busy ? undefined : setInviting(false))}
       title="Invite a teammate"
-      description="They'll get an email with a link to join. Ownership is transferred later, not invited."
+      description="They'll get an email with a link to join this workspace. This invitation does not grant access to any event."
       footer={<>
         <Button variant="secondary" onClick={() => setInviting(false)} disabled={busy}>Cancel</Button>
         <Button onClick={() => void sendInvite()} disabled={busy || !inviteEmail.trim()}>{busy ? "Sending…" : "Send invitation"}</Button>
@@ -199,13 +200,14 @@ export function TeamPanel({
           <option value="organizer">Organizer</option>
           <option value="reviewer">Reviewer</option>
         </Select>
+        <small>This role controls organization access only; it does not add them to any event.</small>
       </Field>
     </Modal>
 
     <ConfirmDialog
       open={pendingRemove !== null}
       title={`Remove ${pendingRemove?.email ?? "this member"}?`}
-      body="They lose access to every event in this organization immediately. This cannot be undone."
+      body="They lose access to this organization workspace. Existing access to specific events is managed separately and is not removed here."
       confirmLabel="Remove"
       onConfirm={() => void confirmRemove()}
       onCancel={() => setPendingRemove(null)}

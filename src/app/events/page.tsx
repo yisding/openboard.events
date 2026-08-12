@@ -22,5 +22,10 @@ export default async function Page() {
   const createHref = manageableOrganizations(memberships).length > 0
     ? eventCreationDestination(memberships)
     : null;
-  return <EventsView events={events} user={{ name: identity.name, email: identity.email }} createHref={createHref} />;
+  return <EventsView
+    events={events}
+    user={{ name: identity.name, email: identity.email }}
+    createHref={createHref}
+    hasOrganizations={memberships.length > 0}
+  />;
 }

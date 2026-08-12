@@ -8,10 +8,10 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
-import { getOrganization, listOrganizationEvents } from "@/features/organizations";
+import { getOrganization, listOrganizationEventsForUser } from "@/features/organizations";
 import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
 import { PageHeader } from "@/shared/ui/ui-kit";
-import { organizationIdSchema, type EventDTO, type UserId } from "@/shared/contracts";
+import { organizationIdSchema, type EventDTO, type MemberRole, type UserId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Organization" };
@@ -50,7 +50,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
 
   const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
-    listOrganizationEvents(organizationId),
+    listOrganizationEventsForUser(organizationId, actorUserId),
     getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
@@ -58,15 +58,15 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     redirect(`/organizations/${organizationId}/onboarding`);
   }
 
-  const events = (await Promise.all(eventRows.map((row) => getEvent(row.id))))
-    .filter((event): event is EventDTO => event !== null);
+  const events = (await Promise.all(eventRows.map(async (row) => ({ event: await getEvent(row.id), eventRole: row.eventRole }))))
+    .filter((row): row is { event: EventDTO; eventRole: MemberRole | null } => row.event !== null);
   const billingEnabled = isBillingSurfaceEnabled();
 
   return <>
     <PageHeader
       eyebrow="ORGANIZATION"
       title={organization.name}
-      description="Your organization's events."
+      description="Your organization's event directory. Event access is assigned separately."
       actions={<>
         <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
@@ -76,7 +76,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       </>}
     />
     <div className="event-grid">
-      {events.map((event) => <EventCard key={event.id} event={event} />)}
+      {events.map(({ event, eventRole }) => <EventCard key={event.id} event={event} eventRole={eventRole} />)}
     </div>
   </>;
 }
