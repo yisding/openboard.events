@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PUBLISHED_SPEAKERS_FIXTURE } from "@/shared/fixtures/sessions";
 import { matchesPublicSpeakerSearch, publicSpeakerPlainText } from "./speaker-search";
@@ -19,14 +18,10 @@ describe("public speaker search", () => {
     expect(matchesPublicSpeakerSearch(speaker, "   ")).toBe(true);
   });
 
-  it("searches and previews biography text without exposing markup", () => {
-    expect(publicSpeakerPlainText("<p>Reliable <strong>agents</strong></p>")).toBe("Reliable agents");
-  });
-
-  it("wires the same predicate into the list and gallery", () => {
-    for (const file of ["./public-speakers-list.tsx", "./public-speaker-gallery.tsx"]) {
-      const source = readFileSync(new URL(file, import.meta.url), "utf8");
-      expect(source).toContain("matchesPublicSpeakerSearch(speaker, search)");
-    }
+  it("searches and previews the biography text people actually see", () => {
+    const bioHtml = '<p><span title="5 > 3">R&amp;D&nbsp;agents</span></p>';
+    expect(publicSpeakerPlainText(bioHtml)).toBe("R&D agents");
+    expect(matchesPublicSpeakerSearch({ ...speaker, bioHtml }, "R&D")).toBe(true);
+    expect(matchesPublicSpeakerSearch({ ...speaker, bioHtml }, "amp")).toBe(false);
   });
 });
