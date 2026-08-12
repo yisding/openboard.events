@@ -78,7 +78,7 @@ export function KitchenSink() {
   ], []);
 
   return (
-    <main className="page">
+    <main className="page showcase-page">
       <PageHeader
         eyebrow="PLATFORM"
         title="Kitchen sink"
