@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { eventDtoSchema, type EventDTO, type EventId } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { formatInZone } from "@/shared/lib/time";
+import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
 type SwitcherEvent = {
   id: string;
@@ -130,7 +130,7 @@ export function EventSwitcher({
               <span style={{ display: "grid" }}>
                 <b style={{ fontSize: 11.5 }}>{event.name}</b>
                 <small style={{ fontSize: 10, color: "var(--muted)" }}>
-                  {formatInZone(event.startsAt, event.timezone, "date")} – {formatInZone(event.endsAt, event.timezone, "date")}
+                  {formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone)}
                 </small>
               </span>
             </Link>
