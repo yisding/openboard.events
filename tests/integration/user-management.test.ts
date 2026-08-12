@@ -174,6 +174,28 @@ describe("M44 user management", () => {
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });
+
+    it("does not consume an invitation that would demote the organization's last owner", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Owner Guard Co", slug: "owner-guard-co" });
+      try {
+        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "owner@example.com", role: "reviewer" });
+        const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
+        if (!issued) throw new Error("expected a mintable token");
+
+        await expect(acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: ownerId, email: "owner@example.com" }))
+          .rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(getOrganizationMemberRoleIn(db, org.id, ownerId)).resolves.toBe("owner");
+
+        // The failed acceptance leaves the token pending. Once another owner
+        // exists, the same invitation may safely apply its requested role.
+        await setOrganizationMemberIn(db, org.id, reviewerId, "owner");
+        await expect(acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: ownerId, email: "owner@example.com" }))
+          .resolves.toMatchObject({ organizationId: org.id, role: "reviewer" });
+        await expect(getOrganizationMemberRoleIn(db, org.id, ownerId)).resolves.toBe("reviewer");
+      } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
   });
 
   describe("role management", () => {

@@ -294,10 +294,29 @@ async function finalizeAcceptanceIn(
   // this CTE, a database failure after the guarded invitation UPDATE could
   // permanently consume the one-shot token without granting access.
   const result = await dbOrTx.execute(sql`
-    WITH claimed AS (
-      UPDATE organization_invitations SET accepted_at = now(), accepted_user_id = ${userId}::uuid
+    WITH invitation AS MATERIALIZED (
+      SELECT organization_id, role FROM organization_invitations
       WHERE id = ${invitationId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-      RETURNING organization_id, role
+    ), owners AS MATERIALIZED (
+      SELECT member.user_id FROM organization_members member
+      JOIN invitation ON invitation.organization_id = member.organization_id
+      WHERE member.role = 'owner'
+      ORDER BY member.user_id
+      FOR UPDATE OF member
+    ), claimed AS (
+      UPDATE organization_invitations pending
+      SET accepted_at = now(), accepted_user_id = ${userId}::uuid
+      FROM invitation
+      WHERE pending.id = ${invitationId}::uuid
+        AND pending.accepted_at IS NULL
+        AND pending.revoked_at IS NULL
+        AND pending.expires_at > now()
+        AND (
+          invitation.role = 'owner'
+          OR NOT EXISTS (SELECT 1 FROM owners WHERE owners.user_id = ${userId}::uuid)
+          OR EXISTS (SELECT 1 FROM owners WHERE owners.user_id <> ${userId}::uuid)
+        )
+      RETURNING pending.organization_id, pending.role
     ), membership AS (
       INSERT INTO organization_members (user_id, organization_id, role)
       SELECT ${userId}::uuid, organization_id, role FROM claimed
@@ -307,7 +326,7 @@ async function finalizeAcceptanceIn(
     SELECT organization_id, role FROM membership
   `);
   const [row] = rowsOf<{ organization_id: string; role: MemberRole }>(result);
-  if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid");
+  if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid, or accepting it would leave the organization without an owner");
   const organizationId = row.organization_id as OrganizationId;
   try {
     await recordOrganizationAuditEventIn(dbOrTx, organizationId, userId, "invitation.accepted", userId, { role: row.role });
