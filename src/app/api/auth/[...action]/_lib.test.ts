@@ -82,7 +82,7 @@ describe("Google signup handoff", () => {
     });
   });
 
-  it("carries only a matching invitation and returns new users through workspace resolution", async () => {
+  it("keeps the invitation return for existing identities and resolves new users after consumption", async () => {
     let forwardedBody: Record<string, unknown> | null = null;
     const handler = vi.fn(async (request: Request) => {
       forwardedBody = await request.json() as Record<string, unknown>;
@@ -94,7 +94,7 @@ describe("Google signup handoff", () => {
 
     expect(response.status).toBe(200);
     expect(forwardedBody).toMatchObject({
-      callbackURL: "/organizations",
+      callbackURL: next,
       newUserCallbackURL: "/organizations",
       requestSignUp: true,
     });

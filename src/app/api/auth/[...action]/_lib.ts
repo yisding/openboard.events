@@ -146,7 +146,12 @@ export async function beginGoogleSignup(
       ? { termsVersion: legalConsent.termsVersion, privacyVersion: legalConsent.privacyVersion }
       : null,
   }, env.SESSION_SECRET);
-  const callbackURL = invitationFromNext ? "/organizations" : next;
+  // Existing identities do not run the new-user provisioning hook, so they
+  // still need the invitation URL to accept membership after OAuth. A newly
+  // created identity consumes the token inside that hook and must not replay
+  // it; Better Auth selects newUserCallbackURL for that branch.
+  const callbackURL = next;
+  const newUserCallbackURL = invitationFromNext ? "/organizations" : next;
   const errorCallbackURL = `/signup?${new URLSearchParams({ next }).toString()}`;
   const forwardedUrl = new URL(request.url);
   forwardedUrl.pathname = "/api/auth/sign-in/social";
@@ -158,7 +163,7 @@ export async function beginGoogleSignup(
     body: JSON.stringify({
       provider: "google",
       callbackURL,
-      newUserCallbackURL: callbackURL,
+      newUserCallbackURL,
       errorCallbackURL,
       requestSignUp: true,
     }),
