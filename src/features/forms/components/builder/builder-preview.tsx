@@ -4,7 +4,7 @@ import { Eye } from "lucide-react";
 import { useState } from "react";
 import type { AnswerValue, FieldId, FormSnapshot } from "@/shared/contracts";
 import { evaluateVisibility } from "@/shared/lib/conditions";
-import { FormFieldRenderer } from "../form-field-renderer";
+import { FormFieldRenderer, isRenderableFormField } from "../form-field-renderer";
 
 /**
  * The builder's live show/hide preview. Renders the current snapshot through
@@ -17,7 +17,9 @@ import { FormFieldRenderer } from "../form-field-renderer";
 export function BuilderPreview({ snapshot }: { snapshot: FormSnapshot }) {
   const [answers, setAnswers] = useState<Record<FieldId, AnswerValue | undefined>>({});
   const visible = evaluateVisibility(snapshot, answers);
-  const total = snapshot.sections.reduce((sum, section) => sum + section.fields.length, 0);
+  const runtimeFields = snapshot.sections.flatMap((section) => section.fields).filter(isRenderableFormField);
+  const total = runtimeFields.length;
+  const visibleTotal = runtimeFields.filter((field) => visible.has(field.id)).length;
 
   function handleChange(fieldId: FieldId, value: AnswerValue | undefined) {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
@@ -33,7 +35,7 @@ export function BuilderPreview({ snapshot }: { snapshot: FormSnapshot }) {
         <FormFieldRenderer snapshot={snapshot} answers={answers} mode="edit" onChange={handleChange} />
       </div>
       <p className="preview-hint">
-        <Eye size={14} /> {visible.size} of {total} question{total === 1 ? "" : "s"} currently visible.
+        <Eye size={14} /> {visibleTotal} of {total} question{total === 1 ? "" : "s"} currently visible.
       </p>
     </div>
   );

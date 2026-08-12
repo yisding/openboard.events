@@ -1,7 +1,9 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
 import { requestPortalLogin } from "@/features/auth";
+import { nudgeOutbox } from "@/features/comms";
 import { isAppError, toHttp } from "@/shared/lib/errors";
 import { assertSameOrigin } from "@/shared/server/csrf";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
@@ -20,7 +22,17 @@ export async function POST(request: NextRequest) {
     assertSameOrigin(request);
     await checkRateLimit(db, { key: `portal-login-request:${clientIp(request)}`, limit: 20, windowMs: 10 * 60 * 1000 });
     const input = inputSchema.parse(await request.json());
-    return NextResponse.json({ data: await requestPortalLogin(input.eventSlug, input.email, input.next) });
+    const result = await requestPortalLogin(input.eventSlug, input.email, input.next);
+    // This request is waiting on a short-lived credential. Dispatch it now
+    // instead of making a first-time speaker wait for the next one-minute cron
+    // tick; the durable outbox and cron remain the failure/retry guarantee.
+    try {
+      const ctx = getCloudflareContext().ctx;
+      nudgeOutbox(ctx.waitUntil.bind(ctx));
+    } catch {
+      // No Worker context (`next dev`, unit tests). The cron still drains it.
+    }
+    return NextResponse.json({ data: result });
   } catch (error) {
     if (isAppError(error)) return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: toHttp(error.code) });
     if (error instanceof z.ZodError) return NextResponse.json({ error: { code: "VALIDATION", message: "Enter a valid email" } }, { status: 400 });

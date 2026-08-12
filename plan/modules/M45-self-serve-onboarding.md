@@ -55,8 +55,12 @@ Proven (PGlite, code-complete):
 Deployed evidence — **automated, protected run outstanding**:
 
 6. Walk the full 4-step wizard (basics → vocabulary/tracks → default CFP form → shareable link) on
-   the deployed preview as a freshly onboarded organization admin.
-7. Confirm the resulting public CFP link is reachable and accepts a real submission.
+   the deployed preview as a freshly onboarded organization admin, then complete
+   the generated CFP as a real OTP-authenticated speaker and see that proposal
+   arrive back in the organizer dashboard.
+7. Confirm the resulting public CFP link is reachable, hides empty optional
+   vocabulary controls, accepts a real submission, returns its SESS reference,
+   and produces the organizer's first-submission dashboard handoff.
 8. Confirm the un-disabled "New event" button on M11's events list correctly routes into this
    wizard rather than the old disabled state. The protected browser spec covers the first-event
    route and completed-handoff reload; its first preview run awaits `E2E_RESEND_API_KEY`.

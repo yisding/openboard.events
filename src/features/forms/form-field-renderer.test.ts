@@ -5,7 +5,7 @@ import { evaluateVisibility } from "@/shared/lib/conditions";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import { fileIdSchema, type AnswerValue, type FieldId, type FormSnapshot } from "@/shared/contracts";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
-import { FormFieldRenderer, toRichTextAnswer } from "./components/form-field-renderer";
+import { FormFieldRenderer, isRenderableFormField, toRichTextAnswer } from "./components/form-field-renderer";
 
 Object.assign(globalThis, { React });
 
@@ -109,6 +109,39 @@ describe("form field controls", () => {
     expect(html).toContain(`aria-describedby="${title.id}-error"`);
     expect(html).toContain(`id="${title.id}-error" role="alert"`);
     expect(html).toContain(`<legend class="sr-only">${topics.label}</legend>`);
+  });
+
+  it("hides optional choice questions until they have something to choose", () => {
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT) as FormSnapshot;
+    const abstract = snapshot.sections.find((section) => section.key === "abstract");
+    if (!abstract) throw new Error("Missing abstract section");
+    const format = abstract.fields.find((candidate) => candidate.key === "format");
+    const topics = abstract.fields.find((candidate) => candidate.key === "topics");
+    if (!format || !topics) throw new Error("Missing choice fields");
+    format.required = false;
+    format.options = [];
+    topics.required = false;
+    topics.options = [];
+
+    expect(isRenderableFormField(format)).toBe(false);
+    expect(isRenderableFormField(topics)).toBe(false);
+    const html = renderToStaticMarkup(createElement(FormFieldRenderer, {
+      snapshot,
+      answers: {},
+      onChange: () => undefined,
+      mode: "edit",
+      sectionKeys: ["abstract"],
+    }));
+    expect(html).not.toContain(">Format<");
+    expect(html).not.toContain(">Topics<");
+    expect(html).toContain(">Title");
+  });
+
+  it("keeps a required empty choice visible so invalid configuration is not hidden", () => {
+    const requiredEmpty = structuredClone(field("format"));
+    requiredEmpty.required = true;
+    requiredEmpty.options = [];
+    expect(isRenderableFormField(requiredEmpty)).toBe(true);
   });
 
 });
