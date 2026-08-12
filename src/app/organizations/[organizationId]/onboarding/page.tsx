@@ -5,7 +5,7 @@ import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
 import { getEvent, listTracks } from "@/features/events";
-import { getFormForBuilder, listForms } from "@/features/forms";
+import { getFormForBuilder } from "@/features/forms";
 import { getActiveOrganizationOnboarding } from "@/features/onboarding";
 import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
@@ -52,14 +52,12 @@ export default async function Page({ params }: { params: Promise<{ organizationI
 
   let initialState: OnboardingResumeState | null = null;
   if (progress) {
-    const [event, tracks, forms] = await Promise.all([
+    const [event, tracks, form] = await Promise.all([
       getEvent(progress.eventId),
       listTracks(progress.eventId),
-      listForms(progress.eventId),
+      progress.formId ? getFormForBuilder(progress.eventId, progress.formId, "cfp") : null,
     ]);
     if (event) {
-      const firstForm = forms[0];
-      const form = firstForm ? await getFormForBuilder(progress.eventId, firstForm.id, "cfp") : null;
       initialState = {
         event,
         tracks,

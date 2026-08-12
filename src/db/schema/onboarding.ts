@@ -1,4 +1,5 @@
 import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { forms } from "./forms";
 import { organizations } from "./organizations";
 
 /**
@@ -10,6 +11,7 @@ import { organizations } from "./organizations";
 export const eventOnboardingProgress = pgTable("event_onboarding_progress", {
   eventId: uuid("event_id").primaryKey(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  formId: uuid("form_id").references(() => forms.id, { onDelete: "set null" }),
   step: text("step").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

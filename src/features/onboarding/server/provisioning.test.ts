@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
-import { DEFAULT_ORGANIZATION_ID, eventIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
+import { DEFAULT_ORGANIZATION_ID, eventIdSchema, formIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
 import { getActiveOrganizationOnboardingIn, updateOrganizationOnboardingIn } from "./progress";
 import { provisionOrganizationEventIn } from "./provisioning";
 
@@ -121,6 +121,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     expect(afterUsage.rows[0]?.count ?? 0).toBe((beforeUsage.rows[0]?.count ?? 0) + 1);
     await expect(getActiveOrganizationOnboardingIn(database, organizationId)).resolves.toEqual({
       eventId: stableId,
+      formId: null,
       step: "form",
     });
   });
@@ -144,12 +145,30 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
 
     await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toEqual({
       eventId: event.id,
+      formId: null,
       step: "vocabulary",
+    });
+    const [unrelatedRow, onboardingRow] = await database.insert(schema.forms).values([
+      { eventId: event.id, context: "cfp", internalName: "Unrelated form", externalTitle: "Unrelated form" },
+      { eventId: event.id, context: "cfp", internalName: "Onboarding form", externalTitle: "Onboarding form" },
+    ]).returning();
+    const unrelatedFormId = formIdSchema.parse(unrelatedRow?.id);
+    const onboardingFormId = formIdSchema.parse(onboardingRow?.id);
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "form",
+      formId: onboardingFormId,
+    })).resolves.toMatchObject({ step: "form" });
+    await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toEqual({
+      eventId: event.id,
+      formId: onboardingFormId,
+      step: "form",
     });
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "form",
-    })).resolves.toMatchObject({ step: "form" });
+      formId: unrelatedFormId,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "vocabulary",
@@ -157,16 +176,24 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     await expect(updateOrganizationOnboardingIn(database, organizationId, {
       eventId: event.id,
       step: "complete",
+      formId: onboardingFormId,
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "complete",
+      formId: unrelatedFormId,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "complete",
+      formId: onboardingFormId,
     })).resolves.toMatchObject({ step: "complete" });
     await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "complete",
+      formId: onboardingFormId,
     })).resolves.toMatchObject({ step: "complete" });
   });
 

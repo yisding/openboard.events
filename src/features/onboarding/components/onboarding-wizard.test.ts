@@ -21,6 +21,11 @@ describe("onboarding organization access", () => {
     expect(organizationPage).toContain("if (canManageEvents && (eventRows.length === 0 || progress))");
     expect(onboardingPage).toContain('requireOrganizationAdmin(organizationId, "organizer")');
   });
+
+  it("resumes only the form explicitly associated with the checkpoint", () => {
+    expect(onboardingPage).toContain('progress.formId ? getFormForBuilder(progress.eventId, progress.formId, "cfp") : null');
+    expect(onboardingPage).not.toContain("listForms(");
+  });
 });
 
 describe("OnboardingWizard event step accessibility", () => {
@@ -141,16 +146,16 @@ describe("onboarding form publication recovery", () => {
       }
       return draft;
     });
-    const onCreated = vi.fn();
+    const onReady = vi.fn();
     const reconcile = vi.fn(async () => draft);
 
-    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onCreated }))
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onReady }))
       .rejects.toThrow("response lost");
-    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onCreated }))
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: false, create, reconcile, publish: vi.fn(), onReady }))
       .resolves.toEqual(draft);
     expect(create).toHaveBeenCalledTimes(2);
-    expect(onCreated).toHaveBeenCalledOnce();
-    expect(onCreated).toHaveBeenCalledWith(draft);
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(onReady).toHaveBeenCalledWith(draft);
   });
 
   it("retains a created draft and retries only publication", async () => {
@@ -161,14 +166,15 @@ describe("onboarding form publication recovery", () => {
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(open);
     const reconcile = vi.fn(async () => draft);
-    const onCreated = vi.fn();
+    const onReady = vi.fn();
 
-    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: true, create, reconcile, publish, onCreated })).rejects.toThrow("offline");
-    expect(onCreated).toHaveBeenCalledWith(draft);
-    await expect(createOrPublishOnboardingForm({ existing: draft, publishNow: true, create, reconcile, publish, onCreated })).resolves.toEqual(open);
+    await expect(createOrPublishOnboardingForm({ existing: null, publishNow: true, create, reconcile, publish, onReady })).rejects.toThrow("offline");
+    expect(onReady).toHaveBeenCalledWith(draft);
+    await expect(createOrPublishOnboardingForm({ existing: draft, publishNow: true, create, reconcile, publish, onReady })).resolves.toEqual(open);
     expect(create).toHaveBeenCalledOnce();
     expect(publish).toHaveBeenCalledTimes(2);
     expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(onReady).toHaveBeenCalledTimes(2);
   });
 
   it("recognizes a publish that committed when its response was lost", async () => {
@@ -188,7 +194,7 @@ describe("onboarding form publication recovery", () => {
       create,
       reconcile,
       publish,
-      onCreated: vi.fn(),
+      onReady: vi.fn(),
     })).resolves.toEqual(open);
     expect(publish).toHaveBeenCalledOnce();
     expect(reconcile).toHaveBeenCalledOnce();
@@ -202,7 +208,7 @@ describe("onboarding form publication recovery", () => {
     const reconcile = vi.fn()
       .mockRejectedValueOnce(new Error("still offline"))
       .mockResolvedValueOnce(open);
-    const onCreated = vi.fn();
+    const onReady = vi.fn();
 
     await expect(createOrPublishOnboardingForm({
       existing: null,
@@ -210,7 +216,7 @@ describe("onboarding form publication recovery", () => {
       create,
       reconcile,
       publish,
-      onCreated,
+      onReady,
     })).rejects.toThrow("response lost");
 
     await expect(createOrPublishOnboardingForm({
@@ -219,7 +225,7 @@ describe("onboarding form publication recovery", () => {
       create,
       reconcile,
       publish,
-      onCreated,
+      onReady,
     })).resolves.toEqual(open);
     expect(create).toHaveBeenCalledOnce();
     expect(publish).toHaveBeenCalledOnce();

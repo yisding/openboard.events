@@ -64,14 +64,17 @@ export async function createOrPublishOnboardingForm(input: {
   create: () => Promise<BuilderFormLite>;
   reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
-  onCreated: (form: BuilderFormLite) => void;
+  onReady: (form: BuilderFormLite) => void | Promise<void>;
 }): Promise<BuilderFormLite> {
   let form = input.existing ?? await input.create();
-  if (!input.existing) input.onCreated(form);
   // A previous PATCH may have committed even if its response was lost. Always
   // reconcile an existing form before deciding whether to publish or continue
   // as a draft, so neither path trusts a stale status/updatedAt pair.
-  else form = await input.reconcile(form);
+  if (input.existing) form = await input.reconcile(form);
+  // Associate the exact form with the durable checkpoint before publication.
+  // This is intentionally replayed for an existing form, so a lost checkpoint
+  // response cannot make resume fall back to some unrelated CFP form.
+  await input.onReady(form);
 
   if (!input.publishNow || form.status === "open") return form;
   try {
@@ -261,9 +264,14 @@ export function OnboardingWizard({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ expectedUpdatedAt: form.updatedAt, patch: { status: "open" } }),
         }),
-        onCreated: (form) => {
+        onReady: async (form) => {
           hasCreatedForm = true;
           setCreatedForm(form);
+          await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ eventId: event.id, step: "form", formId: form.id }),
+          });
         },
       });
       const isPublished = finalForm.status === "open";
@@ -273,7 +281,7 @@ export function OnboardingWizard({
       await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ eventId: event.id, step: "complete" }),
+        body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
       });
       toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
