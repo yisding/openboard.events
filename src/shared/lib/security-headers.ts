@@ -1,3 +1,5 @@
+import { WIDE_IFRAME_HOSTS } from "./embed-hosts";
+
 /**
  * Security response headers (PLAN P3-SEC), factored out of `next.config.ts`
  * so they are unit-testable without pulling in
@@ -38,6 +40,10 @@ export function contentSecurityPolicy(allowUnsafeEval = false): string {
     // host needs an explicit connect-src allowance or every upload 400s at the
     // CSP layer, not the network layer, which is a much harder bug to find.
     "connect-src 'self' https://*.r2.cloudflarestorage.com",
+    // Resource pages intentionally preserve iframes from the sanitizer's
+    // narrow host allowlist. Keep the response policy sourced from that same
+    // list so accepted organizer content is also renderable in the browser.
+    `frame-src 'self' ${WIDE_IFRAME_HOSTS.map((host) => `https://${host}`).join(" ")}`,
     "form-action 'self'",
     "base-uri 'self'",
     "object-src 'none'",
