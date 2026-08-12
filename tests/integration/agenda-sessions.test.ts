@@ -148,6 +148,11 @@ describe("agenda sessions", () => {
 
   beforeEach(async () => {
     await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, session_content_revisions CASCADE");
+    await pglite.query(
+      "UPDATE events SET starts_at='2026-09-15T16:00:00Z', ends_at='2026-09-17T01:00:00Z', row_version=1, updated_at=now() WHERE id IN ($1,$2)",
+      [eventId, otherEventId],
+    );
+    await pglite.query("UPDATE submissions SET starts_at=NULL, ends_at=NULL WHERE id IN ($1,$2)", [acceptedTalk, pendingTalk]);
   });
 
   it("creates a session with its speakers in one round trip, and lists it back", async () => {
@@ -554,6 +559,55 @@ describe("agenda sessions", () => {
   });
 
   describe("promoteSubmission", () => {
+    it.each([
+      {
+        label: "before",
+        startsAt: "2026-09-15T15:30:00Z",
+        endsAt: "2026-09-15T16:30:00Z",
+      },
+      {
+        label: "after",
+        startsAt: "2026-09-17T00:30:00Z",
+        endsAt: "2026-09-17T01:30:00Z",
+      },
+    ])("rejects promotion of proto-session times $label the event without changing state", async ({ startsAt, endsAt }) => {
+      await pglite.query("UPDATE submissions SET starts_at=$1, ends_at=$2 WHERE id=$3", [startsAt, endsAt, acceptedTalk]);
+      const eventBefore = await pglite.query<{ row_version: number; updated_at: string }>(
+        "SELECT row_version, updated_at::text FROM events WHERE id=$1",
+        [eventId],
+      );
+
+      await expect(promoteSubmission(eventId, acceptedTalk)).rejects.toMatchObject({ code: "VALIDATION" });
+      expect(await count("sessions")).toBe(0);
+      expect(await count("session_speakers")).toBe(0);
+      const eventAfter = await pglite.query<{ row_version: number; updated_at: string }>(
+        "SELECT row_version, updated_at::text FROM events WHERE id=$1",
+        [eventId],
+      );
+      expect(eventAfter.rows[0]).toEqual(eventBefore.rows[0]);
+      const submission = await pglite.query<{ starts_at: string; ends_at: string; status: string }>(
+        "SELECT starts_at::text, ends_at::text, status FROM submissions WHERE id=$1",
+        [acceptedTalk],
+      );
+      expect(submission.rows[0]).toMatchObject({ status: "accepted" });
+      expect(Date.parse(submission.rows[0]?.starts_at ?? "")).toBe(Date.parse(startsAt));
+      expect(Date.parse(submission.rows[0]?.ends_at ?? "")).toBe(Date.parse(endsAt));
+    });
+
+    it("promotes proto-session times exactly on the event boundaries", async () => {
+      await pglite.query(
+        "UPDATE submissions SET starts_at='2026-09-15T16:00:00Z', ends_at='2026-09-17T01:00:00Z' WHERE id=$1",
+        [acceptedTalk],
+      );
+      const { sessionId } = await promoteSubmission(eventId, acceptedTalk);
+      const [promoted] = await listSessions(eventId);
+      expect(promoted).toMatchObject({
+        id: sessionId,
+        startsAt: at("2026-09-15T16:00:00Z"),
+        endsAt: at("2026-09-17T01:00:00Z"),
+      });
+    });
+
     it("copies the abstract's fields and every participant, once", async () => {
       const { sessionId } = await promoteSubmission(eventId, acceptedTalk);
       const row = await pglite.query<{ title: string; status: string; track_id: string; submission_id: string; starts_at: string | null }>(

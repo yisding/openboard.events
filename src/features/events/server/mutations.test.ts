@@ -7,6 +7,7 @@ import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { DEFAULT_ORGANIZATION_ID, organizationIdSchema, userIdSchema, type EventId, type UserId, TEMPLATE_KEYS } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
+import { saveSessionIn } from "@/features/agenda/server/mutations";
 import { createEventIn, updateEventIn } from "./mutations";
 import { getEventIn, listVocabIn } from "./queries";
 import { deleteVocabItemIn, patchVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
@@ -17,6 +18,9 @@ const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", imp
 // `createEventIn`) already assumes — this fixture was missing the migration
 // that makes those enum labels valid, independent of P3-EMAIL.
 const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// The concurrency regression uses the real agenda create mutation, whose
+// atomic CTE also records the initial M52 content revision.
+const migrationContentRevisions = readFileSync(new URL("../../../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 // P3-EMAIL added `events.physical_address`, which `createEventIn`/`updateEventIn`
 // now write on every call.
 const migrationEmailCompliance = readFileSync(new URL("../../../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
@@ -63,6 +67,7 @@ describe("database-backed event mutations", () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationContentRevisions);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
     await pglite.exec(migrationProductAuth);
@@ -287,6 +292,46 @@ describe("database-backed event mutations", () => {
       endsAt: "2026-09-15T18:00:00.000Z",
       rowVersion: event.rowVersion + 1,
     });
+  });
+
+  it("serializes a scheduled-session create racing an event-bounds shrink so only one can commit", async () => {
+    const event = await createEventIn(database, actorUserId, baseInput({ name: "Bounds Race Conf", slug: "bounds-race-conf" }));
+    const results = await Promise.allSettled([
+      saveSessionIn(database, event.id, {
+        title: "Race the bounds",
+        descriptionHtml: "",
+        formatId: null,
+        trackId: null,
+        roomId: null,
+        startsAt: "2026-09-15T17:00:00.000Z",
+        endsAt: "2026-09-15T18:00:00.000Z",
+        speakerContactIds: [],
+        status: "draft",
+      }),
+      updateEventIn(database, event.id, {
+        startsAt: "2026-09-15T16:00:00.000Z",
+        endsAt: "2026-09-15T17:30:00.000Z",
+        timezone: "America/Los_Angeles",
+      }, event.rowVersion),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({ code: "VALIDATION" });
+
+    const final = await pglite.query<{
+      event_start: string; event_end: string; session_start: string | null; session_end: string | null;
+    }>(`
+      SELECT e.starts_at::text AS event_start, e.ends_at::text AS event_end,
+             s.starts_at::text AS session_start, s.ends_at::text AS session_end
+      FROM events e LEFT JOIN sessions s ON s.event_id=e.id
+      WHERE e.id=$1
+    `, [event.id]);
+    const row = final.rows[0];
+    if (!row) throw new Error("expected the raced event");
+    expect(row.session_start === null || (
+      Date.parse(row.session_start) >= Date.parse(row.event_start)
+      && Date.parse(row.session_end ?? "") <= Date.parse(row.event_end)
+    )).toBe(true);
   });
 
   it("round-trips vocabulary create, duplicate-name rejection, update, delete and whole-list reorder", async () => {

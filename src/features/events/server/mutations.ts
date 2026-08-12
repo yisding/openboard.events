@@ -224,58 +224,63 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
     throw new AppError("VALIDATION", "Changing the schedule requires Starts At, Ends At and Timezone together", { field: "startsAt" });
   }
 
-  const [current] = await dbOrTx.select().from(events).where(eq(events.id, eventId)).limit(1);
-  if (!current) throw new AppError("NOT_FOUND", "Event not found");
+  // A scheduled-session writer advances events.updated_at while holding this
+  // row. The timestamp CAS below makes an event update that read just before
+  // that writer retry with a fresh snapshot; if this update wins the row first,
+  // the session writer wakes and validates against these new bounds instead.
+  for (let scheduleAttempt = 0; scheduleAttempt < 3; scheduleAttempt += 1) {
+    const [current] = await dbOrTx.select().from(events).where(eq(events.id, eventId)).limit(1);
+    if (!current) throw new AppError("NOT_FOUND", "Event not found");
 
-  const effectiveStartsAt = patch.startsAt !== undefined ? new Date(patch.startsAt) : current.startsAt;
-  const effectiveEndsAt = patch.endsAt !== undefined ? new Date(patch.endsAt) : current.endsAt;
-  if (!(effectiveEndsAt.getTime() > effectiveStartsAt.getTime())) {
-    throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
-  }
+    const effectiveStartsAt = patch.startsAt !== undefined ? new Date(patch.startsAt) : current.startsAt;
+    const effectiveEndsAt = patch.endsAt !== undefined ? new Date(patch.endsAt) : current.endsAt;
+    if (!(effectiveEndsAt.getTime() > effectiveStartsAt.getTime())) {
+      throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
+    }
 
-  // Keep the inverse of the agenda write invariant in the same event UPDATE:
-  // changing event bounds cannot strand a session that is already scheduled.
-  // Unscheduled rows have both times NULL and are intentionally ignored.
-  const scheduledSessionsFit = bundlesDates ? sql`NOT EXISTS (
-    SELECT 1 FROM ${sessions}
-    WHERE ${sessions.eventId} = ${eventId}
-      AND ${sessions.startsAt} IS NOT NULL
-      AND (${sessions.startsAt} < ${effectiveStartsAt} OR ${sessions.endsAt} > ${effectiveEndsAt})
-  )` : sql`true`;
+    const scheduledSessionsFit = bundlesDates ? sql`NOT EXISTS (
+      SELECT 1 FROM ${sessions}
+      WHERE ${sessions.eventId} = ${eventId}
+        AND ${sessions.startsAt} IS NOT NULL
+        AND (${sessions.startsAt} < ${effectiveStartsAt} OR ${sessions.endsAt} > ${effectiveEndsAt})
+    )` : sql`true`;
 
-  let updated;
-  try {
-    // Every column is re-stated from `patch` or `current` in one object
-    // literal — not built up conditionally on a pre-typed variable — so
-    // drizzle's `.set()` overload that accepts a raw `sql` expression for
-    // `rowVersion` still applies.
-    [updated] = await dbOrTx.update(events)
-      .set({
-        name: patch.name ?? current.name,
-        slug: patch.slug ?? current.slug,
-        eventType: patch.eventType ?? current.eventType,
-        websiteUrl: patch.websiteUrl !== undefined ? (patch.websiteUrl || null) : current.websiteUrl,
-        location: patch.location !== undefined ? (patch.location || null) : current.location,
-        physicalAddress: patch.physicalAddress !== undefined ? (patch.physicalAddress || null) : current.physicalAddress,
-        timezone: patch.timezone ?? current.timezone,
-        startsAt: effectiveStartsAt,
-        endsAt: effectiveEndsAt,
-        theme: patch.theme !== undefined ? (patch.theme || null) : current.theme,
-        logoFileId: patch.logoFileId !== undefined ? patch.logoFileId : current.logoFileId,
-        backgroundFileId: patch.backgroundFileId !== undefined ? patch.backgroundFileId : current.backgroundFileId,
-        rowVersion: sql`${events.rowVersion} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(events.id, eventId), eq(events.rowVersion, expectedRowVersion), scheduledSessionsFit))
-      .returning();
-  } catch (error) {
-    if (isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
-    throw error;
-  }
-  if (!updated) {
-    // Preserve optimistic-concurrency precedence: if the event changed, this
-    // is stale even when the proposed bounds would also reject a session.
-    const [latest] = await dbOrTx.select({ rowVersion: events.rowVersion })
+    let updated;
+    try {
+      [updated] = await dbOrTx.update(events)
+        .set({
+          name: patch.name ?? current.name,
+          slug: patch.slug ?? current.slug,
+          eventType: patch.eventType ?? current.eventType,
+          websiteUrl: patch.websiteUrl !== undefined ? (patch.websiteUrl || null) : current.websiteUrl,
+          location: patch.location !== undefined ? (patch.location || null) : current.location,
+          physicalAddress: patch.physicalAddress !== undefined ? (patch.physicalAddress || null) : current.physicalAddress,
+          timezone: patch.timezone ?? current.timezone,
+          startsAt: effectiveStartsAt,
+          endsAt: effectiveEndsAt,
+          theme: patch.theme !== undefined ? (patch.theme || null) : current.theme,
+          logoFileId: patch.logoFileId !== undefined ? patch.logoFileId : current.logoFileId,
+          backgroundFileId: patch.backgroundFileId !== undefined ? patch.backgroundFileId : current.backgroundFileId,
+          rowVersion: sql`${events.rowVersion} + 1`,
+          updatedAt: sql`greatest(${events.updatedAt} + interval '1 millisecond', clock_timestamp())`,
+        })
+        .where(and(
+          eq(events.id, eventId),
+          eq(events.rowVersion, expectedRowVersion),
+          // PostgreSQL stores microseconds while JavaScript Date carries only
+          // milliseconds. Compare at the shared precision; schedule writers
+          // always advance the token by at least one full millisecond.
+          sql`date_trunc('milliseconds', ${events.updatedAt}) = ${current.updatedAt}`,
+          scheduledSessionsFit,
+        ))
+        .returning();
+    } catch (error) {
+      if (isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
+      throw error;
+    }
+    if (updated) return getEventIn(dbOrTx, eventId) as Promise<EventDTO>;
+
+    const [latest] = await dbOrTx.select({ rowVersion: events.rowVersion, updatedAt: events.updatedAt })
       .from(events)
       .where(eq(events.id, eventId))
       .limit(1);
@@ -283,6 +288,8 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
     if (latest.rowVersion !== expectedRowVersion) {
       throw new AppError("STALE_WRITE", "This event changed since you loaded it. Refresh to see the latest.");
     }
+    if (latest.updatedAt.getTime() !== current.updatedAt.getTime()) continue;
+
     if (bundlesDates) {
       const [stranded] = await dbOrTx.select({ id: sessions.id })
         .from(sessions)
@@ -302,7 +309,7 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
     }
     throw new AppError("STALE_WRITE", "This event changed since you loaded it. Refresh to see the latest.");
   }
-  return getEventIn(dbOrTx, eventId) as Promise<EventDTO>;
+  throw new AppError("STALE_WRITE", "The agenda changed while you were saving. Refresh and try again.");
 }
 export const updateEvent = (eventId: EventId, patch: UpdateEventInput, expectedRowVersion: number): Promise<EventDTO> =>
   updateEventIn(db, eventId, patch, expectedRowVersion);

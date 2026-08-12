@@ -134,6 +134,33 @@ function iso(value: string | Date | null): string | null {
 
 const EVENT_BOUNDS_MESSAGE = "Session times must stay within the event start and end";
 
+/**
+ * The database serialization point shared by every session placement write.
+ *
+ * Updating the parent event row makes a concurrent bounds update and session
+ * write contend on the same row. The bounds predicate is part of that UPDATE,
+ * and every session INSERT/UPDATE below depends on its RETURNING row, so the
+ * check and the placement mutation are one statement. `updated_at` is internal
+ * coordination state (EventDTO does not expose it); advancing it lets
+ * updateEventIn detect that a schedule write won after its initial read and
+ * retry against a fresh snapshot without invalidating the public rowVersion.
+ */
+function serializeScheduleWriteSql(
+  eventId: EventId,
+  startsAt: string | null,
+  endsAt: string | null,
+): SQL {
+  const fits = startsAt === null || endsAt === null
+    ? sql`true`
+    : sql`${startsAt}::timestamptz >= starts_at AND ${endsAt}::timestamptz <= ends_at`;
+  return sql`
+    UPDATE events
+    SET updated_at = greatest(updated_at + interval '1 millisecond', clock_timestamp())
+    WHERE id = ${eventId} AND ${fits}
+    RETURNING id
+  `;
+}
+
 async function assertWithinEventBounds(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -267,10 +294,11 @@ async function insertSession(
   // One statement: the row, its speakers and its first content revision (M52)
   // land together or not at all.
   const result = await dbOrTx.execute<SessionRowShape>(sql`
-    WITH created AS (
+    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), created AS (
       INSERT INTO sessions (event_id, title, slug, description_html, format_id, track_id, room_id, starts_at, ends_at, status, schedule_revision)
-      VALUES (${eventId}, ${input.title}, ${slug}, ${descriptionHtml}, ${input.formatId}, ${input.trackId}, ${input.roomId},
-              ${input.startsAt}, ${input.endsAt}, ${input.status}, ${initialRevision})
+      SELECT ${eventId}, ${input.title}, ${slug}, ${descriptionHtml}, ${input.formatId}, ${input.trackId}, ${input.roomId},
+             ${input.startsAt}, ${input.endsAt}, ${input.status}, ${initialRevision}
+      FROM event_guard
       RETURNING *
     ), ins AS (
       INSERT INTO session_speakers (event_id, session_id, contact_id, role, sort_order)
@@ -285,7 +313,10 @@ async function insertSession(
     SELECT ${RETURNED_COLUMNS} FROM created
   `);
   const row = (result.rows ?? [])[0];
-  if (!row) throw new AppError("INTERNAL", "The session could not be created");
+  if (!row) {
+    await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
+    throw new AppError("INTERNAL", "The session could not be created");
+  }
   return row;
 }
 
@@ -369,7 +400,7 @@ export async function saveSessionIn(
    */
   const speakerArray = uuidArraySql(speakers);
   const result = await dbOrTx.execute<SessionRowShape>(sql`
-    WITH updated AS (
+    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), updated AS (
       UPDATE sessions SET
         title = ${input.title},
         description_html = ${descriptionHtml},
@@ -389,6 +420,7 @@ export async function saveSessionIn(
           THEN 1 ELSE 0 END,
         updated_at = now()
       WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
+        AND EXISTS (SELECT 1 FROM event_guard)
       RETURNING *
     ), del AS (
       DELETE FROM session_speakers ss USING updated u
@@ -415,7 +447,18 @@ export async function saveSessionIn(
     SELECT ${RETURNED_COLUMNS} FROM updated
   `);
   const row = (result.rows ?? [])[0];
-  if (!row) throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion, actualVersion: Number(prior.row_version) });
+  if (!row) {
+    const current = await dbOrTx.execute<{ row_version: number }>(sql`
+      SELECT row_version FROM sessions WHERE id = ${sessionId} AND event_id = ${eventId}
+    `);
+    const latest = (current.rows ?? [])[0];
+    if (!latest) throw new AppError("NOT_FOUND", "Session not found");
+    if (Number(latest.row_version) !== expectedVersion) {
+      throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion, actualVersion: Number(latest.row_version) });
+    }
+    await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
+    throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion, actualVersion: Number(prior.row_version) });
+  }
 
   // Best effort, and explicitly outside the atomic statement above: a crash here
   // loses an email, not the schedule.
@@ -639,15 +682,19 @@ export async function promoteSubmissionIn(
     const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
     const insertSessionSql = sql`
       INSERT INTO sessions (event_id, submission_id, title, slug, description_html, track_id, format_id, starts_at, ends_at, status)
-      VALUES (${eventId}, ${submissionId}, ${row.title}, ${slug}, ${descriptionHtml}, ${row.track_id}, ${row.format_id},
-              ${startsAt}, ${endsAt}, 'draft')
+      SELECT ${eventId}, ${submissionId}, ${row.title}, ${slug}, ${descriptionHtml}, ${row.track_id}, ${row.format_id},
+             ${startsAt}, ${endsAt}, 'draft'
+      FROM event_guard
       RETURNING id
     `;
     try {
       const created = speakerRows === null
-        ? await dbOrTx.execute<{ id: string }>(sql`WITH s AS (${insertSessionSql}) SELECT id FROM s`)
+        ? await dbOrTx.execute<{ id: string }>(sql`
+            WITH event_guard AS (${serializeScheduleWriteSql(eventId, startsAt, endsAt)}), s AS (${insertSessionSql})
+            SELECT id FROM s
+          `)
         : await dbOrTx.execute<{ id: string }>(sql`
-            WITH s AS (${insertSessionSql}), ins AS (
+            WITH event_guard AS (${serializeScheduleWriteSql(eventId, startsAt, endsAt)}), s AS (${insertSessionSql}), ins AS (
               INSERT INTO session_speakers (event_id, session_id, contact_id, role, sort_order)
               SELECT ${eventId}, s.id, x.contact_id,
                      (CASE WHEN x.is_primary THEN 'speaker' ELSE 'co_speaker' END)::participant_role, x.sort_order
@@ -657,7 +704,10 @@ export async function promoteSubmissionIn(
             SELECT id FROM s
           `);
       const sessionId = (created.rows ?? [])[0]?.id;
-      if (!sessionId) throw new AppError("INTERNAL", "The session could not be created");
+      if (!sessionId) {
+        await assertWithinEventBounds(dbOrTx, eventId, startsAt, endsAt);
+        throw new AppError("INTERNAL", "The session could not be created");
+      }
       return { sessionId: sessionId as SessionId };
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
@@ -689,6 +739,15 @@ export async function moveSessionInTx(
   eventId: EventId,
   input: MoveSessionInput,
 ): Promise<{ session: ScheduledSessionDTO; speakerIds: ContactId[] }> {
+  // All placement writes take locks in event -> session order. The transaction
+  // keeps this guard locked through the session update and outbox inserts; doing
+  // it before `FOR UPDATE` avoids a save-vs-drag lock-order inversion.
+  const guarded = await tx.execute<{ id: string }>(serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt));
+  if ((guarded.rows ?? []).length === 0) {
+    await assertWithinEventBounds(tx, eventId, input.startsAt, input.endsAt);
+    throw new AppError("NOT_FOUND", "Event not found");
+  }
+
   const locked = await tx.execute<{
     id: string; status: SessionStatus; starts_at: string | Date | null; ends_at: string | Date | null;
     room_id: string | null; schedule_revision: number; row_version: number;
