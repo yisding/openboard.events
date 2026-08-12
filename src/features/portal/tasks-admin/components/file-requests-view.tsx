@@ -4,7 +4,9 @@ import { useRef, useState } from "react";
 import { FileText, Plus, Upload } from "lucide-react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
@@ -50,28 +52,43 @@ export function FileRequestsView({
   const { toast } = useToast();
   const [editing, setEditing] = useState<FileRequestDTO | null>(null);
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState<Draft>(() => draftFromRequest(null));
+  const initialDraft = draftFromRequest(null);
+  const [draft, setDraft] = useState<Draft>(initialDraft);
+  const [baseline, setBaseline] = useState<Draft>(initialDraft);
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<FileRequestDTO | null>(null);
   const createRequestId = useRef(createStableCreateRequestId());
+  const { runGuarded } = useGuardedAction();
 
   const open = creating || editing !== null;
+  const dirty = open && editorDraftChanged(draft, baseline);
+  useUnsavedWorkGuard(dirty);
 
   function startCreate() {
+    if (saving) return;
     createRequestId.current.reset();
     createRequestId.current.begin();
-    setDraft(draftFromRequest(null));
+    const nextDraft = draftFromRequest(null);
+    setDraft(nextDraft);
+    setBaseline(nextDraft);
     setCreating(true);
   }
   function startEdit(request: FileRequestDTO) {
+    if (saving) return;
     createRequestId.current.reset();
-    setDraft(draftFromRequest(request));
+    const nextDraft = draftFromRequest(request);
+    setDraft(nextDraft);
+    setBaseline(nextDraft);
     setEditing(request);
   }
-  function closeEditor() {
+  function discardEditor() {
     createRequestId.current.reset();
     setCreating(false);
     setEditing(null);
+  }
+
+  function closeEditor() {
+    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor });
   }
 
   async function save() {
@@ -93,7 +110,8 @@ export function FileRequestsView({
       const saved = result.payload?.data;
       if (!saved) { toast("That file request was saved, but its response could not be read", { kind: "error" }); return; }
       toast(draft.id ? "File request updated" : "File request created");
-      closeEditor();
+      setBaseline(draft);
+      discardEditor();
       await onChanged({ kind: "saved", request: saved });
     } finally {
       setSaving(false);
@@ -113,7 +131,7 @@ export function FileRequestsView({
     <section className="panel">
       <header className="panel-header">
         <div><h2>File requests</h2><p>Reusable upload requests any task can point at</p></div>
-        <Button size="sm" onClick={startCreate}><Plus size={14} /> Add file request</Button>
+        <Button size="sm" onClick={startCreate} disabled={saving}><Plus size={14} /> Add file request</Button>
       </header>
 
       {requests.length === 0 && (
@@ -121,7 +139,7 @@ export function FileRequestsView({
           icon={<Upload size={20} />}
           title="No file requests yet"
           description="Create one to collect slides, headshots, or any other document from speakers."
-          action={<Button onClick={startCreate}>Add file request</Button>}
+          action={<Button onClick={startCreate} disabled={saving}>Add file request</Button>}
         />
       )}
 
@@ -134,8 +152,8 @@ export function FileRequestsView({
             <div><span>{request.targetType === "contact" ? "Accepted speakers" : "Accepted submissions"}</span></div>
           </div>
           <span className="row-actions">
-            <Button size="sm" variant="secondary" onClick={() => startEdit(request)}>Edit</Button>
-            <Button size="sm" variant="ghost" onClick={() => setPendingDelete(request)}>Delete</Button>
+            <Button size="sm" variant="secondary" onClick={() => startEdit(request)} disabled={saving}>Edit</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPendingDelete(request)} disabled={saving}>Delete</Button>
           </span>
         </article>
       ))}
@@ -146,11 +164,11 @@ export function FileRequestsView({
         title={draft.id ? "Edit file request" : "Create a file request"}
         wide
         footer={<>
-          <Button variant="secondary" onClick={closeEditor}>Cancel</Button>
-          <Button disabled={!draft.title.trim() || saving} onClick={save}>{draft.id ? "Save changes" : "Create file request"}</Button>
+          <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
+          <Button disabled={!draft.title.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create file request"}</Button>
         </>}
       >
-        <div className="form-stack">
+        <div className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
           <Field label="Title" required>
             <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Final slides" />
           </Field>

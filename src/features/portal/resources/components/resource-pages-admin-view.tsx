@@ -265,7 +265,7 @@ export function ResourcePagesAdminView({
   ], [pages, timezone, reordering, move, openEditor]);
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PORTALS"
         title="Resources"
@@ -314,6 +314,6 @@ export function ResourcePagesAdminView({
         }}
         onCancel={() => setPendingDelete(null)}
       />
-    </main>
+    </div>
   );
 }

@@ -50,6 +50,14 @@ describe("weekDayKeys", () => {
     const keys = weekDayKeys("2026-08-11T17:00:00.000Z", "2026-08-11T18:00:00.000Z", tz);
     expect(keys).toEqual(["2026-08-11"]);
   });
+
+  it("omits an empty ending date when the event closes at local midnight", () => {
+    expect(weekDayKeys(
+      "2026-09-15T16:00:00.000Z",
+      "2026-09-17T07:00:00.000Z",
+      "America/Los_Angeles",
+    )).toEqual(["2026-09-15", "2026-09-16"]);
+  });
 });
 
 describe("bucketByDay", () => {

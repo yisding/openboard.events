@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { focusResourceFieldError, recoverStaleResourcePage } from "./resource-page-editor";
 
@@ -25,5 +26,15 @@ describe("resource page validation recovery", () => {
     rejectReload?.(new Error("offline"));
     await expect(recovery).resolves.toBe(false);
     expect(onFailure).toHaveBeenCalledOnce();
+  });
+
+  it("guards dirty dismissals and locks the editor during save", () => {
+    const source = readFileSync(new URL("./resource-page-editor.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("useUnsavedWorkGuard(dirty)");
+    expect(source).toContain("requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor })");
+    expect(source).toContain("inert={saving || undefined}");
+    expect(source).toContain('onClick={closeEditor} disabled={saving}');
+    expect(source.indexOf("setBaseline(draft)")).toBeLessThan(source.indexOf("await onSaved()"));
   });
 });

@@ -29,7 +29,7 @@ population step; the files are restored even when either command fails.
 - [x] Read the account's real `workers.dev` subdomain from the Cloudflare dashboard:
   `yi-ding.workers.dev`.
 - [x] Record the exact preview origin as `https://sb-web-preview.yi-ding.workers.dev`.
-- [x] Record the exact production origin as `https://sb-web.yi-ding.workers.dev`.
+- [x] Record the exact production origin as `https://openboard.events`.
 - [x] Keep each origin as HTTPS only, with no path and no trailing slash.
 - [x] Encode those exact origins in `scripts/deploy-cloudflare.sh`; a preview/production
   mismatch now fails before either Worker can be changed.

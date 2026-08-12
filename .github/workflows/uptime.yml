@@ -16,9 +16,9 @@ name: Uptime
 # would need to change.
 #
 # Both deployed web Worker environments are always polled. Repository variables
-# may replace the origins when a custom domain lands, but neither environment
-# can silently disappear from monitoring: an empty variable falls back to the
-# canonical workers.dev origin committed here.
+# may replace the origins, but neither environment can silently disappear from
+# monitoring: an empty variable falls back to the canonical deployed origin
+# committed here (workers.dev for preview, the public custom domain for production).
 #
 #   UPTIME_PREVIEW_URL     defaults to the deployed preview origin below.
 #   UPTIME_PRODUCTION_URL  defaults to the deployed production origin below.
@@ -57,7 +57,7 @@ jobs:
         env:
           ENVIRONMENT: ${{ matrix.environment }}
           PREVIEW_URL: ${{ vars.UPTIME_PREVIEW_URL || 'https://sb-web-preview.yi-ding.workers.dev' }}
-          PRODUCTION_URL: ${{ vars.UPTIME_PRODUCTION_URL || 'https://sb-web.yi-ding.workers.dev' }}
+          PRODUCTION_URL: ${{ vars.UPTIME_PRODUCTION_URL || 'https://openboard.events' }}
         run: |
           set -euo pipefail
           case "$ENVIRONMENT" in

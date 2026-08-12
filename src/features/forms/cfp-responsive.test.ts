@@ -36,4 +36,27 @@ describe("CFP progress responsive styles", () => {
     expect(mobileBlock).toContain(".cfp-progress b{display:none}");
     expect(mobileBlock).toContain(".cfp-progress i{width:25px;margin:0 6px}");
   });
+
+  it("bottom-aligns the email submit control with its 40px input", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('className="form-grid cfp-account-form"');
+    expect(css).toContain(".cfp-account-form{align-items:end}");
+    expect(css).toContain(".cfp-account-form>.button{height:40px}");
+  });
+
+  it("keeps mobile verification actions and rich-text tools vertically regular", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const mobile = mediaBlocks(css, "@media(max-width:768px)").join("\n");
+    const phone = mediaBlocks(css, "@media(max-width:480px)").join("\n");
+
+    expect(mobile).toContain(".rich-text-editor__toolbar{display:grid;grid-template-columns:repeat(5,minmax(44px,56px));gap:4px;align-items:center;overflow-x:auto}");
+    expect(mobile).toContain(".rich-text-editor__tool{width:100%}");
+    expect(mobile).toContain(".cfp-account-form>.demo-code+.cfp-code-actions{grid-column:1}");
+    expect(phone).toContain(".cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}");
+    expect(phone).toContain(".cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}");
+    expect(phone).toContain(".public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}");
+    expect(phone).toContain(".public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}");
+  });
 });

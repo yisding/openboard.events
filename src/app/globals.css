@@ -311,6 +311,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* App shell */
 .app-shell { min-height: 100vh; }
+.admin-skip-link { position: fixed; z-index: 40; top: 8px; left: 8px; transform: translateY(calc(-100% - 16px)); padding: 10px 16px; border: 2px solid var(--accent-dark); border-radius: 7px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); font-size: 13px; font-weight: 700; transition: transform .15s; }
+.admin-skip-link:focus-visible { transform: translateY(0); }
 .admin-sidebar { position: fixed; z-index: 30; inset: 0 auto 0 0; width: 236px; background: var(--sidebar); color: var(--on-dark); display: flex; flex-direction: column; }
 .sidebar-brand { height: 65px; display: flex; align-items: center; padding: 0 24px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .mobile-close { display: none; }
@@ -355,7 +357,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .notification-button i { position: absolute; right: 7px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--red-bright); border:1px solid var(--surface); }
 .save-indicator { margin-left: 8px; border-left: 1px solid var(--line); padding-left: 12px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
 .save-indicator svg { color: var(--accent-dark); }
-.app-content { padding: 32px; max-width: 1510px; margin: 0 auto; }
+.app-content { padding: 32px; max-width: 1510px; margin: 0 auto; scroll-margin-top: 81px; }
+.settings-main { min-width: 0; }
 .mobile-menu { display: none; }
 
 /* Shared admin content */
@@ -716,7 +719,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-session-when{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--muted);font-size:11px}
 .portal-session-cal-links{display:flex;gap:12px}
 .portal-session-cal-links a{color:var(--accent-dark);font-size:11px;font-weight:600}
-.submission-timeline{list-style:none;display:flex;align-items:center;gap:6px;margin:0;padding:0;font-size:10px;color:var(--muted)}
+.submission-timeline{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;padding:0;font-size:10px;color:var(--muted)}
 .submission-timeline li{display:flex;align-items:center;gap:4px}
 .submission-timeline li:not(:last-child)::after{content:"";width:12px;height:1px;background:var(--line-strong);margin-left:6px}
 .submission-timeline li.done{color:var(--accent-dark)}
@@ -1060,7 +1063,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:24px}
 .portal-home-section{margin-bottom:24px}
 .portal-home-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.portal-home-list li{display:flex;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:11.5px}
+.portal-home-list li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:11.5px}
 .portal-home-list li time{margin-left:auto;color:var(--muted);font-size:11px}
 
 /* M15 public CFP wizard. */
@@ -1427,7 +1430,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .public-form-progress li{display:flex;align-items:center;gap:6px}
 .public-form-progress li:not(:last-child)::after{content:"";width:18px;height:1px;background:var(--line-strong);margin-left:8px}
 .public-form-progress li.active{color:var(--accent-dark);font-weight:600}
+.cfp-account-form{align-items:end}
+.cfp-account-form>.button{height:40px}
 .cfp-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;grid-column:1/-1}
+.cfp-account-form>.demo-code{margin:0}
+.cfp-account-form>.demo-code+.cfp-code-actions{grid-column:2;align-self:center;gap:6px}
+.cfp-account-form>.demo-code+.cfp-code-actions>.button{padding-inline:14px}
 
 .recipient-preview{display:flex;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint)}
 .recipient-preview>svg{flex:0 0 auto;color:var(--accent-dark)}
@@ -1491,6 +1499,9 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
 .auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}
+.auth-consent{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;color:var(--muted);font-size:12px;font-weight:400;line-height:1.5;cursor:pointer}
+.auth-consent input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.auth-consent a{color:var(--accent-dark);font-weight:600;text-decoration:underline;text-underline-offset:2px}
 
 @media(max-width:768px){
   /* The hosted event nav is the only route switcher on public pages. Preserve
@@ -1523,6 +1534,14 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .login-form-panel{min-height:calc(100vh - 76px);padding:32px 24px;place-items:start center}
   .login-form-panel>div>:is(form,div) h1{font-size:32px}
 
+  /* Nine formatting tools form a deliberate 5 / 4 grid instead of letting
+     auto-fit pick a viewport-dependent 6 / 3 or the old flex wrap's 4 / 4 / 1.
+     Every tool keeps its 44px touch-target floor. */
+  .rich-text-editor__toolbar{display:grid;grid-template-columns:repeat(5,minmax(44px,56px));gap:4px;align-items:center;overflow-x:auto}
+  .rich-text-editor__tool{width:100%}
+
+  .cfp-account-form>.demo-code+.cfp-code-actions{grid-column:1}
+
   /* Keep the agenda shell viewport-bound; the day view's own scroll region
      carries the wide timeline instead of widening the document. */
   .agenda-workspace>.day-grid{min-width:0;width:100%}
@@ -1543,6 +1562,17 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      the file, so the earlier declaration never won and the documented "the ≤480
      block steps it to 14" never rendered. */
   .public-event-header .public-event-logo{font-size:14px}
+
+  /* At phone widths three nowrap labels cannot share one line. Give the two
+     secondary actions matching columns and the forward action a stable row. */
+  .cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}
+  .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
+
+  /* Four progress labels otherwise land as an unstable 2 / 2 at 390px but
+     3 / 1 around 440px. Keep the same two-column rhythm across phone widths. */
+  .public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .public-form-progress:has(>li:nth-child(4)) li:not(:last-child)::after{margin-left:auto}
+  .public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}
 }
 
 .communications-tabs button{display:inline-flex;align-items:center;gap:7px}
@@ -2032,3 +2062,14 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .embed-install-section footer{display:grid}
   .embed-install-section footer .button{width:100%}
 }
+
+/* ---------------------------------------------------------------------------
+   Easter eggs — the emoji-rain overlay (palette pandas, Konami code) and the
+   404 compass. The overlay is fixed, pointer-events:none and self-removing,
+   so nothing here can affect layout or interaction on the page beneath it. */
+.egg-rain{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
+.egg-rain span{position:absolute;top:-48px;animation:egg-fall 3s linear forwards}
+@keyframes egg-fall{to{transform:translateY(115vh) rotate(360deg)}}
+.lost-compass{border:0;padding:0;cursor:pointer;font:inherit}
+.lost-compass span{display:grid;place-items:center;transition:transform .7s cubic-bezier(.2,.8,.3,1.15)}
+.lost-compass-note{margin:14px 0 -6px;max-width:380px;color:var(--accent-dark);font-size:12.5px;font-weight:600;animation:toast-in .22s ease}

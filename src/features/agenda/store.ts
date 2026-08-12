@@ -1,5 +1,5 @@
 import type { ConflictDTO, EventId, RoomDTO, ScheduledSessionDTO, SessionId, TrackDTO } from "@/shared/contracts";
-import { eventDayKey } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
 import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 /**
@@ -13,6 +13,15 @@ import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 export const AGENDA_VIEWS = ["list", "day", "week", "track", "room", "conflicts"] as const;
 export type AgendaView = (typeof AGENDA_VIEWS)[number];
+
+/** The create dialog follows the Day grid's visible day, not a stale URL day. */
+export function createSessionDefaultDay(
+  view: AgendaView,
+  activeGridDay: string | null,
+  urlDay: string | null,
+): string | null {
+  return view === "day" ? activeGridDay : urlDay;
+}
 
 export function parseView(value: string | string[] | undefined): AgendaView {
   const candidate = Array.isArray(value) ? value[0] : value;
@@ -34,9 +43,14 @@ export function parseDay(value: string | string[] | undefined): string | null {
  */
 export function eventDayKeys(startsAt: string, endsAt: string, timezone: string): string[] {
   const keys: string[] = [];
-  const last = eventDayKey(endsAt, timezone);
-  let cursor = new Date(startsAt).getTime();
-  const limit = new Date(endsAt).getTime() + 2 * 24 * 60 * 60 * 1000;
+  const startsAtMs = new Date(startsAt).getTime();
+  const endsAtMs = new Date(endsAt).getTime();
+  // Event bounds are half-open. If an event ends exactly at local midnight,
+  // that instant belongs to no schedulable time on the ending date, so using
+  // the preceding millisecond avoids rendering an empty, zero-duration tab.
+  const last = eventDayKey(Math.max(startsAtMs, endsAtMs - 1), timezone);
+  let cursor = startsAtMs;
+  const limit = endsAtMs + 2 * 24 * 60 * 60 * 1000;
   for (let guard = 0; guard < 64 && cursor <= limit; guard += 1) {
     const key = eventDayKey(cursor, timezone);
     if (!keys.includes(key)) keys.push(key);
@@ -44,6 +58,54 @@ export function eventDayKeys(startsAt: string, endsAt: string, timezone: string)
     cursor += 24 * 60 * 60 * 1000;
   }
   return keys;
+}
+
+/**
+ * A valid initial placement for the session dialog's "scheduled" toggle.
+ *
+ * The selected agenda day is a calendar date in the event timezone, not in the
+ * browser's timezone. Start at the event's local opening clock on that day,
+ * then clamp both the start and the preferred duration to the event's absolute
+ * bounds. The clamp also covers short events and a partial final day.
+ */
+export function defaultScheduledRange(
+  event: { startsAt: string; endsAt: string; timezone: string },
+  selectedDay: string | null,
+  preferredDurationMs: number,
+): { startsAt: string; endsAt: string } {
+  const eventStartMs = Date.parse(event.startsAt);
+  const eventEndMs = Date.parse(event.endsAt);
+  const availableMs = eventEndMs - eventStartMs;
+  const requestedDurationMs = Number.isFinite(preferredDurationMs) && preferredDurationMs > 0
+    ? preferredDurationMs
+    : 30 * 60_000;
+  const validDays = eventDayKeys(event.startsAt, event.endsAt, event.timezone);
+
+  let candidateStartMs = eventStartMs;
+  let selectedDayStartMs = eventStartMs;
+  if (selectedDay && validDays.includes(selectedDay)) {
+    const { hour, minute } = hourMinuteInZone(event.startsAt, event.timezone);
+    const localStart = `${selectedDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+    candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
+    selectedDayStartMs = zonedInputToUtc(`${selectedDay}T00:00:00`, event.timezone).getTime();
+  }
+
+  let startsAtMs = Math.max(candidateStartMs, eventStartMs);
+  // Keep the selected-day start whenever any event time remains after it. A
+  // partial final day shortens the session instead of pulling it earlier than
+  // the time the organizer selected. Only a candidate at/after the event end
+  // needs the latest valid fallback because it has no positive interval left.
+  if (startsAtMs >= eventEndMs) {
+    startsAtMs = Math.max(
+      selectedDayStartMs,
+      eventEndMs - Math.min(requestedDurationMs, availableMs),
+    );
+  }
+  const durationMs = Math.min(requestedDurationMs, eventEndMs - startsAtMs);
+  return {
+    startsAt: new Date(startsAtMs).toISOString(),
+    endsAt: new Date(startsAtMs + durationMs).toISOString(),
+  };
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;

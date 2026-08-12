@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CalendarDays, ClipboardCheck, Search, Users, Zap } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Search, Sparkles, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
 import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { SearchResult, SearchResultType } from "@/features/shell/server/search";
+import { emojiRain } from "@/shared/ui/emoji-rain";
 
 /**
  * M58 — the shell's "Search anything ⌘K" trigger, made real. Two kinds of
@@ -48,6 +49,17 @@ const RESULT_LABEL: Record<SearchResultType, string> = {
 };
 
 type PaletteItem = { key: string; icon: LucideIcon; label: string; hint: string; href: string };
+
+// Easter egg: everyone types something silly into a new command palette
+// sooner or later, and "panda" should be rewarded. The item only appears for
+// a matching query, so the real verbs and results never share the list with
+// it uninvited.
+const PANDA_EGG: PaletteItem = { key: "egg:pandas", icon: Sparkles, label: "Release the pandas", hint: "???", href: "" };
+
+function isPandaQuery(query: string): boolean {
+  const term = query.trim().toLowerCase();
+  return term.includes("panda") || term.includes("🐼");
+}
 
 function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
   return [
@@ -102,11 +114,20 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, eventId]);
 
-  const items = useMemo(() => toItems(filteredVerbs, results), [filteredVerbs, results]);
+  const items = useMemo(() => {
+    const list = toItems(filteredVerbs, results);
+    if (isPandaQuery(query)) list.push(PANDA_EGG);
+    return list;
+  }, [filteredVerbs, results, query]);
   const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [items.length]);
 
   function go(item: PaletteItem) {
+    if (item.key === PANDA_EGG.key) {
+      emojiRain(["🐼", "🎋", "✨"]);
+      onClose();
+      return;
+    }
     if (isSameNavigationDestination(item.href, window.location.href)) {
       onClose();
       return;

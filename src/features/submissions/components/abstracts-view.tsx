@@ -150,7 +150,7 @@ export function AbstractsView({
   const openIndex = openId ? rowIds.indexOf(openId) : -1;
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PROGRAM"
         title="Abstracts"
@@ -224,6 +224,6 @@ export function AbstractsView({
           onClose={() => setAdding(false)}
         />
       )}
-    </main>
+    </div>
   );
 }

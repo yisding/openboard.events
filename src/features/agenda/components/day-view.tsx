@@ -10,7 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { LayoutGrid } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { zonedInputToUtc } from "@/shared/lib/time";
 import { EmptyState } from "@/shared/ui/ui-kit";
@@ -55,20 +55,15 @@ export default function DayView(props: AgendaViewProps) {
   );
 }
 
-function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onEdit }: AgendaViewProps) {
+function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onDayChange, onEdit }: AgendaViewProps) {
   const days = useMemo(
     () => eventDayKeys(event.startsAt, event.endsAt, event.timezone),
     [event.startsAt, event.endsAt, event.timezone],
   );
-  const [selectedDay, setSelectedDay] = useState<string | null>(day ?? null);
-
-  // The toolbar's own day bar (M28-owned) also drives `?day=`; when it has an
-  // opinion we follow it, otherwise we default to the event's first day so the
-  // grid always has something concrete to lay sessions out against.
-  useEffect(() => {
-    if (day) { setSelectedDay(day); return; }
-    setSelectedDay((current) => current ?? days[0] ?? null);
-  }, [day, days]);
+  // AgendaPage owns this selection so the visible grid, URL and create dialog
+  // cannot disagree. A null URL (the toolbar's "All") still gives the Day grid
+  // its concrete first day.
+  const selectedDay = day && days.includes(day) ? day : days[0] ?? null;
 
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
   const dayScheduled = useMemo(() => scheduledOnDay(sessions, selectedDay, event.timezone), [sessions, selectedDay, event.timezone]);
@@ -168,7 +163,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
 
   return (
     <div className="dv-root">
-      <DayTabs event={event} selected={selectedDay} onSelect={setSelectedDay} />
+      <DayTabs event={event} selected={selectedDay} onSelect={(next) => onDayChange?.(next)} />
       {selectedDay === null
         ? (
           <EmptyState

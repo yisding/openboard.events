@@ -151,7 +151,7 @@ export function EmbedsAdminPage({
   }
 
   return (
-    <main className="page embeds-admin-page">
+    <div className="page embeds-admin-page">
       <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live sessions, agenda, itinerary, and speakers on any website." />
       <section className="panel embed-overview" aria-label="Embed status">
         <span className="summary-icon accent"><MonitorSmartphone size={20} /></span>
@@ -331,6 +331,6 @@ export function EmbedsAdminPage({
           );
         })}
       </section>
-    </main>
+    </div>
   );
 }

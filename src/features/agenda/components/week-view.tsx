@@ -3,13 +3,13 @@
 import { CalendarDays } from "lucide-react";
 import { useMemo } from "react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
-import { addDuration, eventDayKey, formatInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { eventDayKey, formatInZone, zonedInputToUtc } from "@/shared/lib/time";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
-import { nameLookup } from "../store";
+import { eventDayKeys, nameLookup } from "../store";
 
 /**
  * ./M31-agenda-views.md's Week view: one column per event day, chronological
@@ -17,22 +17,12 @@ import { nameLookup } from "../store";
  * deliberately does not reuse Day view's grid math (see `../index.client.ts`'s
  * doc comment on why every view gets the same full `AgendaViewProps`).
  *
- * The day loop below is a small, intentional duplicate of `eventDayKeys` in
- * `../store.ts` rather than an import of it, per the work order: this file's
- * only "which days exist" logic stays self-contained rather than reaching into
- * a helper another module's surfaces also depend on.
+ * The week projection uses the same half-open event-day boundary as the
+ * toolbar and Day view, so an event ending at local midnight cannot gain an
+ * empty final column here alone.
  */
 export function weekDayKeys(startsAt: string, endsAt: string, timeZone: string): string[] {
-  const keys: string[] = [];
-  const last = eventDayKey(endsAt, timeZone);
-  let cursor = new Date(startsAt);
-  for (let guard = 0; guard < 62; guard += 1) {
-    const key = eventDayKey(cursor, timeZone);
-    if (!keys.includes(key)) keys.push(key);
-    if (key === last) break;
-    cursor = addDuration(cursor, "P1D");
-  }
-  return keys;
+  return eventDayKeys(startsAt, endsAt, timeZone);
 }
 
 /**

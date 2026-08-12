@@ -163,7 +163,7 @@ export R2_ACCOUNT_ID=<cloudflare account id>
 pnpm deploy:web:preview      # OpenNext build + wrangler deploy, preview environment
 pnpm deploy:jobs:preview
 
-export APP_BASE_URL=https://sb-web.yi-ding.workers.dev
+export APP_BASE_URL=https://openboard.events
 pnpm deploy:web:production
 pnpm deploy:jobs:production
 ```

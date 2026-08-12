@@ -1,4 +1,5 @@
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK, signupDestination } from "./signup-context";
+import type { SignupLegalConsent } from "./legal-consent";
 
 type SignupRequest = {
   email: string;
@@ -6,6 +7,8 @@ type SignupRequest = {
   name: string;
   organizationName: string;
   invitationToken: string | null;
+  legalConsent: SignupLegalConsent | null;
+  legalConsentAccepted: boolean;
   /** Already normalized by `safeInternalPath` in the signup page. */
   next: string;
 };
@@ -31,6 +34,11 @@ export async function signupAndAwaitVerification(
         // The server replaces this neutral destination in the queued link
         // after provisioning, before it releases the first email for delivery.
         callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...(input.legalConsent ? {
+          legalConsentAccepted: input.legalConsentAccepted,
+          acceptedTermsVersion: input.legalConsent.termsVersion,
+          acknowledgedPrivacyVersion: input.legalConsent.privacyVersion,
+        } : {}),
         ...(input.invitationToken ? { invitationToken: input.invitationToken } : { organizationName: input.organizationName }),
       }),
     });

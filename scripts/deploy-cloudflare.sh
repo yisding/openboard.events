@@ -11,7 +11,7 @@ target_env="${2:?usage: deploy-cloudflare.sh web|jobs preview|production}"
 
 case "$target_env" in
   preview) expected_app_base_url="https://sb-web-preview.yi-ding.workers.dev" ;;
-  production) expected_app_base_url="https://sb-web.yi-ding.workers.dev" ;;
+  production) expected_app_base_url="https://openboard.events" ;;
 esac
 [[ "$APP_BASE_URL" == "$expected_app_base_url" ]] || {
   echo "APP_BASE_URL must be $expected_app_base_url for $target_env" >&2

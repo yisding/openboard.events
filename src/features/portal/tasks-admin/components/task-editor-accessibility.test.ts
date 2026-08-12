@@ -18,4 +18,14 @@ describe("TaskEditor validation accessibility", () => {
     expect(withoutFieldError(errors, "name")).toEqual({ dueAt: "Invalid date" });
     expect(withoutFieldError(errors, "targetType")).toBe(errors);
   });
+
+  it("guards dirty dismissals and locks the editor during save", () => {
+    const source = readFileSync(new URL("./task-editor.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("useUnsavedWorkGuard(dirty)");
+    expect(source).toContain("requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor })");
+    expect(source).toContain("inert={saving || undefined}");
+    expect(source).toContain('onClick={closeEditor} disabled={saving}');
+    expect(source.indexOf("setBaseline(draft)")).toBeLessThan(source.indexOf("await onSaved(saved.data)"));
+  });
 });
