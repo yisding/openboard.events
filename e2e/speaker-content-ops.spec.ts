@@ -567,6 +567,93 @@ test.describe("content-deliverables (M52)", () => {
       await currentUpload.getByRole("button", { name: "Replace", exact: true }).click();
       await (await picker).setFiles([]);
       await expect(currentUpload, "cancelling Replace must retain the file that will still submit").toContainText(headshotFilename);
+
+      const persistedDetail = await apiData<{ contact: Record<string, unknown>; [key: string]: unknown }>(request, `${SPEAKERS}/${detail.contact.contactId}`);
+      const firstCandidateId = "00000000-0000-4000-8000-0000000000a1";
+      const staleCandidateId = "00000000-0000-4000-8000-0000000000a2";
+      let candidateId = firstCandidateId;
+      let failPresign = false;
+      let failNextSave = true;
+      let presignCalls = 0;
+      let saveCalls = 0;
+
+      await page.route("**/api/uploads/presign", async (route) => {
+        presignCalls += 1;
+        if (failPresign) {
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Replacement upload failed" } }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data: { fileId: candidateId, uploadUrl: `${new URL(page.url()).origin}/__e2e-upload/${candidateId}`, requiredHeaders: {} } }),
+        });
+      });
+      await page.route("**/__e2e-upload/**", (route) => route.fulfill({ status: 200, body: "" }));
+      await page.route("**/api/uploads/finalize", (route) => route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { status: "ready" } }),
+      }));
+      await page.route(`**${SPEAKERS}/${detail.contact.contactId}`, async (route) => {
+        if (route.request().method() !== "PATCH") {
+          await route.continue();
+          return;
+        }
+        saveCalls += 1;
+        if (failNextSave) {
+          failNextSave = false;
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Replacement could not be saved" } }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data: { ...persistedDetail, contact: { ...persistedDetail.contact, headshotFileId: candidateId } } }),
+        });
+      });
+
+      const firstCandidateName = `e2e-headshot-replacement-${stamp}.png`;
+      await page.locator('.file-upload input[type="file"]').setInputFiles({
+        name: firstCandidateName,
+        mimeType: "image/png",
+        buffer: Buffer.from(PNG_1X1_BASE64, "base64"),
+      });
+      await expect(page.getByRole("alert")).toContainText("could not be saved");
+      await expect(currentUpload, "a failed save must leave the authoritative file visible").toContainText(headshotFilename);
+      await page.getByRole("button", { name: "Try saving again", exact: true }).click();
+      await expect(currentUpload).toContainText(firstCandidateName);
+      expect(presignCalls, "retrying association must not upload the same bytes again").toBe(1);
+      expect(saveCalls).toBe(2);
+
+      candidateId = staleCandidateId;
+      failNextSave = true;
+      await page.locator('.file-upload input[type="file"]').setInputFiles({
+        name: `e2e-headshot-stale-${stamp}.png`,
+        mimeType: "image/png",
+        buffer: Buffer.from(PNG_1X1_BASE64, "base64"),
+      });
+      await expect(page.getByRole("button", { name: "Try saving again", exact: true })).toBeVisible();
+      const anotherPicker = page.waitForEvent("filechooser");
+      await page.getByRole("button", { name: "Choose another file", exact: true }).click();
+      await (await anotherPicker).setFiles([]);
+      await expect(page.getByRole("button", { name: "Try saving again", exact: true }), "cancelling another pick must retain the uploaded candidate's save retry").toBeVisible();
+      const savesBeforeAbandoning = saveCalls;
+      failPresign = true;
+      await page.locator('.file-upload input[type="file"]').setInputFiles({
+        name: `e2e-headshot-failed-${stamp}.png`,
+        mimeType: "image/png",
+        buffer: Buffer.from(PNG_1X1_BASE64, "base64"),
+      });
+      await expect(page.getByRole("alert")).toContainText("Replacement upload failed");
+      await expect(currentUpload).toContainText(firstCandidateName);
+      await expect(page.getByRole("button", { name: "Try saving again", exact: true })).toHaveCount(0);
+      expect(saveCalls, "a new upload attempt must discard the stale association retry").toBe(savesBeforeAbandoning);
+
+      await page.unroute("**/api/uploads/presign");
+      await page.unroute("**/__e2e-upload/**");
+      await page.unroute("**/api/uploads/finalize");
+      await page.unroute(`**${SPEAKERS}/${detail.contact.contactId}`);
     });
 
     await test.step("a grouped ZIP export contains only the selected deliverable's latest file, and nothing unselected", async () => {

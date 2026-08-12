@@ -139,6 +139,9 @@ export function FileUpload({
   }
 
   async function upload(picked: File) {
+    // Choosing another file abandons any replacement that uploaded but failed
+    // to associate. Its retry must never survive into this new attempt.
+    setPendingAssociation(null);
     setError("");
     setPhase("validating");
     if (picked.size > limitMb * 1024 * 1024) {
@@ -198,6 +201,12 @@ export function FileUpload({
   const busy = phase === "validating" || phase === "downscaling" || phase === "presigning" || phase === "uploading" || phase === "finalizing" || phase === "associating";
   const shownFileId = uploaded?.fileId ?? currentFileId ?? null;
 
+  function chooseAnotherFile() {
+    // A cancelled picker emits no change event, so preserve the current error
+    // and any retryable association until upload() receives an actual file.
+    inputRef.current?.click();
+  }
+
   return (
     <div className={cn("file-upload", `file-upload--${phase}`)}>
       <input
@@ -212,19 +221,19 @@ export function FileUpload({
         }}
       />
 
-      {phase === "done" && shownFileId ? (
+      {shownFileId ? (
         <div className="file-upload__done">
           {/* Immutable by construction: a replacement always mints a new fileId,
               which is what makes this URL cacheable forever. */}
           <PrivateFileLink fileId={shownFileId}>{uploaded?.meta.filename ?? "Current file"}</PrivateFileLink>
           {/* A cancelled native picker emits no change event. Keep the current
               file visible until the user actually chooses a replacement. */}
-          <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()}>
-            Replace
+          <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={busy || phase === "error"}>
+            {busy ? PHASE_LABEL[phase] : "Replace"}
           </button>
         </div>
       ) : (
-        <button type="button" className="file-upload__drop" onClick={() => inputRef.current?.click()} disabled={busy}>
+        <button type="button" className="file-upload__drop" onClick={() => inputRef.current?.click()} disabled={busy || phase === "error"}>
           <Upload size={18} />
           <span>{busy ? PHASE_LABEL[phase] : label}</span>
           <small>Up to {limitMb} MB</small>
@@ -240,11 +249,15 @@ export function FileUpload({
       {phase === "error" && (
         <p className="file-upload__error" role="alert">
           <X size={14} /> {error}{" "}
-          <button type="button" onClick={() => {
-            setError("");
-            if (pendingAssociation) void associate(pendingAssociation.fileId, pendingAssociation.meta);
-            else setPhase("idle");
-          }}>Try again</button>
+          {pendingAssociation ? (
+            <>
+              <button type="button" onClick={() => void associate(pendingAssociation.fileId, pendingAssociation.meta)}>Try saving again</button>
+              <span>or</span>
+              <button type="button" onClick={chooseAnotherFile}>Choose another file</button>
+            </>
+          ) : (
+            <button type="button" onClick={chooseAnotherFile}>{shownFileId ? "Choose another file" : "Try again"}</button>
+          )}
         </p>
       )}
     </div>
