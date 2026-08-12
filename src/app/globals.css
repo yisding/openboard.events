@@ -1896,6 +1896,8 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .embed-install-section .embed-code button{width:32px;height:32px;display:grid;place-items:center;flex:0 0 32px;border:0;border-radius:6px;background:transparent;color:var(--accent-dark);cursor:pointer}
 .embed-install-section .embed-code button:hover{background:var(--accent-soft)}
 .embed-install-section footer{grid-column:auto;display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.embed-manual-copy{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--amber);border-radius:8px;background:var(--amber-soft)}
+.embed-manual-copy>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.embed-manual-copy b{font-size:11px}.embed-manual-copy button{border:0;background:transparent;color:var(--ink);cursor:pointer;font-size:11px;text-decoration:underline}.embed-manual-copy textarea{min-height:88px;padding:10px;background:var(--surface);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.45}.embed-manual-copy small{color:var(--muted);font-size:10px}
 
 @media(max-width:768px){
   .embed-card-header{grid-template-columns:40px minmax(0,1fr);padding:16px}

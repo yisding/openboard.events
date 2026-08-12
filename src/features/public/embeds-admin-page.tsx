@@ -66,6 +66,7 @@ export function EmbedsAdminPage({
   const [busy, setBusy] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
   const [openConfigId, setOpenConfigId] = useState<string | null>(initialConfigs[0]?.id ?? null);
+  const [manualCopy, setManualCopy] = useState<{ contentType: CanonicalEmbedContentType; label: string; value: string } | null>(null);
 
   useEffect(() => setOrigin(window.location.origin), []);
 
@@ -127,24 +128,26 @@ export function EmbedsAdminPage({
     return `${origin}/e/${eventSlug}/${TYPE_META[contentType].route}`;
   }
 
-  async function copyText(value: string, success: string) {
+  async function copyText(contentType: CanonicalEmbedContentType, value: string, success: string, label: string) {
     if (!origin) return;
     try {
       await navigator.clipboard.writeText(value);
+      setManualCopy(null);
       toast(success);
     } catch {
-      toast("Copy failed — select the code and copy it manually", { kind: "error" });
+      setManualCopy({ contentType, label, value });
+      toast("Copy failed — use the manual copy field below", { kind: "error" });
     }
   }
 
   function copyIframe(contentType: CanonicalEmbedContentType) {
-    void copyText(iframeSnippet(contentType), `${TYPE_META[contentType].label} iframe snippet copied`);
+    void copyText(contentType, iframeSnippet(contentType), `${TYPE_META[contentType].label} iframe snippet copied`, "iframe code");
   }
   function copyScript(contentType: CanonicalEmbedContentType) {
-    void copyText(scriptSnippet(contentType), "Auto-resize script copied");
+    void copyText(contentType, scriptSnippet(contentType), "Auto-resize script copied", "auto-resize script");
   }
   function copyShareUrl(contentType: CanonicalEmbedContentType) {
-    void copyText(shareUrl(contentType), "Direct share URL copied");
+    void copyText(contentType, shareUrl(contentType), "Direct share URL copied", "share URL");
   }
 
   return (
@@ -299,6 +302,22 @@ export function EmbedsAdminPage({
                   <Button variant="ghost" disabled={!origin} onClick={() => copyScript(config.contentType)}>Copy auto-resize script</Button>
                   <Button variant="ghost" disabled={!origin} onClick={() => copyShareUrl(config.contentType)}><Link2 size={13} /> Copy share URL</Button>
                 </footer>
+                {manualCopy?.contentType === config.contentType && (
+                  <div className="embed-manual-copy" role="alert">
+                    <div>
+                      <b>Copy {manualCopy.label} manually</b>
+                      <button type="button" onClick={() => setManualCopy(null)}>Close</button>
+                    </div>
+                    <textarea
+                      aria-label={`${meta.label} ${manualCopy.label}`}
+                      readOnly
+                      value={manualCopy.value}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onClick={(event) => event.currentTarget.select()}
+                    />
+                    <small>Click or tap the field to select the complete value.</small>
+                  </div>
+                )}
               </section>
               </div>}
             </article>

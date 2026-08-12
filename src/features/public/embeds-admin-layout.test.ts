@@ -27,6 +27,10 @@ describe("embeds admin layout", () => {
 
   it("reports clipboard failures instead of claiming a copy succeeded", () => {
     expect(source).toContain("await navigator.clipboard.writeText(value)");
-    expect(source).toContain('toast("Copy failed — select the code and copy it manually", { kind: "error" })');
+    expect(source).toContain("setManualCopy({ contentType, label, value })");
+    expect(source).toContain('className="embed-manual-copy" role="alert"');
+    expect(source).toContain("readOnly");
+    expect(source).toContain("value={manualCopy.value}");
+    expect(source).toContain('toast("Copy failed — use the manual copy field below", { kind: "error" })');
   });
 });
