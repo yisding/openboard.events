@@ -1,7 +1,7 @@
 "use client";
 
 import type { Condition, VisibilityRule } from "@/shared/contracts";
-import { Segmented } from "@/shared/ui/ui-kit";
+import { Segmented, Select } from "@/shared/ui/ui-kit";
 import type { BuilderField } from "../../builder-types";
 import { ConditionRow } from "./condition-row";
 import { ruleSummary } from "./rule-summary";
@@ -86,10 +86,10 @@ export function VisibilityRuleEditor({
         <div className="visibility-rule-editor__body">
           <label className="match-select">
             <span>Show this field when</span>
-            <select value={value.match} onChange={(event) => onChange({ ...value, match: event.target.value as "all" | "any" })}>
+            <Select value={value.match} onChange={(event) => onChange({ ...value, match: event.target.value as "all" | "any" })}>
               <option value="all">all of the following</option>
               <option value="any">any of the following</option>
-            </select>
+            </Select>
           </label>
           <div className="condition-rows">
             {value.conditions.map((condition, index) => (

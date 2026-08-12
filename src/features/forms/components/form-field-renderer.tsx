@@ -10,6 +10,7 @@ import { cn } from "@/shared/lib/cn";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { useFormUploadEventId } from "@/shared/ui/app/form-upload-context";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
+import { Select } from "@/shared/ui/ui-kit";
 
 /**
  * The one renderer for a form snapshot, behind the frozen `FormFieldRendererProps`.
@@ -160,10 +161,10 @@ function Input({
     case "dropdown":
     case "radio":
       return (
-        <select id={id} {...controlProps} value={value?.t === "opt" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "opt", v: event.target.value } : undefined)}>
+        <Select id={id} {...controlProps} value={value?.t === "opt" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "opt", v: event.target.value } : undefined)}>
           <option value="">Choose one</option>
           {field.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-        </select>
+        </Select>
       );
     case "multiselect":
     case "checkbox": {

@@ -31,6 +31,14 @@
   --muted: #5c706b;
   --subtle: #778a84;
 
+  /* The kit's dropdown chevron, drawn where the OS arrow used to be. A data URI
+     cannot read a custom property, so the stroke is spelled out — it is `--muted`
+     and must be changed with it. Declared here because :root is where a raw hex
+     is allowed to live. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235c706b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  /* The same glyph in --on-dark-muted, for the dark embed shell. */
+  --select-chevron-on-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2393aca6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
   /* Dark surfaces and the text that sits on them.
 
      The app paints text on six dark grounds, not three: the three tokens
@@ -181,6 +189,18 @@ input { height: 40px; }
 textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
 select { height: 40px; }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+/* The `Select` primitive. `appearance: none` drops the OS arrow and popup chrome;
+   the chevron replaces it, and the right padding is the room it sits in. Must
+   come after the shorthand `background` above, which would otherwise reset the
+   image. Scoped to the class rather than to `select`, so that if a raw element
+   ever slips past the invariant it keeps a usable native arrow instead of none. */
+.select-control { appearance: none; cursor: pointer; padding-right: 34px; background-image: var(--select-chevron); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px 14px; }
+.select-control:disabled { cursor: not-allowed; }
+/* An always-open listbox has no closed state to hang a chevron on. */
+.select-control[multiple] { appearance: auto; cursor: default; height: auto; padding-right: 12px; background-image: none; }
+/* Contextual corrections live at the very end of this file — see "Select —
+   contextual corrections" there, and read that note before adding a rule that
+   gives a select a `background` shorthand. */
 input::placeholder, textarea::placeholder { color: var(--muted); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-stack { display: grid; gap: 16px; }
@@ -1754,3 +1774,31 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* ---------------------------------------------------------------------------
+   Select — contextual corrections.
+
+   These sit at the end of the file on purpose. Every rule below repairs a
+   context whose own select rule appears *later* in this stylesheet than
+   `.select-control` and sets the `background` shorthand — which resets
+   `background-image` to none. `appearance: none` is still in force at that
+   point, so the affected dropdowns would render with no OS arrow *and* no
+   chevron: worse than before the primitive existed.
+
+   Being last, and at least as specific as the rule each one repairs, is what
+   makes them win deterministically rather than by luck of ordering.
+
+   If you give a select a `background` shorthand anywhere above, add it here.
+   Using `background-color` instead is the better fix where you have the choice.
+   --------------------------------------------------------------------------- */
+/* Compact controls (26–30px tall) whose own rule reserves less right room than
+   the default chevron needs. */
+.panel-header .select-control,
+.crm-board-card-actions .select-control { padding-right: 26px; background-image: var(--select-chevron); background-position: right 8px center; background-size: 12px 12px; }
+/* The public schedule filters: `background` shorthand, and no right padding at all. */
+.sessions-filters > .select-control { padding-right: 28px; background-image: var(--select-chevron); }
+/* The comms log filters borrow `.filter-button`, which is a button treatment —
+   `background` shorthand and symmetric padding. */
+.select-control.filter-button { padding: 0 28px 0 12px; background-image: var(--select-chevron); }
+/* On the dark embed ground the muted chevron disappears into the surface. */
+.embed-shell.embed-dark .sessions-filters > .select-control { background-image: var(--select-chevron-on-dark); }

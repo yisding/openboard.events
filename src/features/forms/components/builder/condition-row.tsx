@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { CONDITION_OPS, type Condition, type ConditionOp, type FieldType } from "@/shared/contracts";
+import { Select } from "@/shared/ui/ui-kit";
 import type { BuilderField } from "../../builder-types";
 
 export type ConditionSourceField = Pick<BuilderField, "id" | "label" | "fieldType" | "options">;
@@ -84,27 +85,27 @@ export function ConditionRow({
   return (
     <div className={`condition-row${highlighted ? " condition-row--highlighted" : ""}`}>
       <div className="condition-row__controls">
-        <select
+        <Select
           aria-label="Source question"
           disabled={disabled}
           value={condition.sourceFieldId}
           onChange={(event) => changeSource(event.target.value)}
         >
           {sourceFields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="Operator"
           disabled={disabled}
           value={condition.op}
           onChange={(event) => changeOp(event.target.value as ConditionOp)}
         >
           {allowedOps.map((op) => <option key={op} value={op}>{OPERATOR_LABEL[op]}</option>)}
-        </select>
+        </Select>
         {requiresValue && sourceField?.fieldType === "dropdown" && (
-          <select aria-label="Value" disabled={disabled} value={typeof condition.value === "string" ? condition.value : ""} onChange={(event) => changeScalarValue(event.target.value)}>
+          <Select aria-label="Value" disabled={disabled} value={typeof condition.value === "string" ? condition.value : ""} onChange={(event) => changeScalarValue(event.target.value)}>
             <option value="" disabled>Choose an option</option>
             {sourceField.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-          </select>
+          </Select>
         )}
         {requiresValue && sourceField?.fieldType === "multiselect" && (
           <div className="condition-row__chips chip-picker" role="group" aria-label="Value">

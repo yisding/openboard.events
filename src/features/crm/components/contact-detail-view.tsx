@@ -19,7 +19,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Avatar, Button, Field, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Avatar, Button, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -317,10 +317,10 @@ export function ContactDetailView({
                     {customFields.map((field) => (
                       <Field key={field.id} label={field.label}>
                         {field.fieldType === "select" ? (
-                          <select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
+                          <Select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
                             <option value="">—</option>
                             {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </select>
+                          </Select>
                         ) : (
                           <input value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))} />
                         )}
@@ -338,9 +338,9 @@ export function ContactDetailView({
                     <p className="long-copy">Already linked to every event in this organization.</p>
                   ) : (
                     <>
-                      <select value={pushEventId} onChange={(event) => setPushEventId(event.target.value)}>
+                      <Select value={pushEventId} onChange={(event) => setPushEventId(event.target.value)}>
                         {pushableEvents.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
-                      </select>
+                      </Select>
                       <Button size="sm" disabled={pushBusy} onClick={() => void pushToEvent()}><Send size={14} /> {pushBusy ? "Pushing…" : "Push"}</Button>
                     </>
                   )}

@@ -7,7 +7,7 @@ import type { TaskRecord } from "@/shared/demo/types";
 import { endOfDayInTz } from "@/shared/lib/time";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { TzTime } from "@/shared/ui/app/tz-time";
-import { Button, Field, Modal, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 export function TasksAdminPage({ eventId }: { eventId: string }) {
@@ -134,10 +134,10 @@ export function TasksAdminPage({ eventId }: { eventId: string }) {
           </Field>
           <div className="form-grid">
             <Field label="Target">
-              <select value={target} onChange={(event) => setTarget(event.target.value as TaskRecord["target"])}>
+              <Select value={target} onChange={(event) => setTarget(event.target.value as TaskRecord["target"])}>
                 <option value="contact">Accepted speakers</option>
                 <option value="submission">Accepted submissions</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Due date"><DateTimePicker mode="date" tz={timezone} value={dueDate} onChange={setDueDate} /></Field>
           </div>

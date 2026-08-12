@@ -17,7 +17,7 @@ import {
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
-import { Avatar, Button, EmptyState, PageHeader } from "@/shared/ui/ui-kit";
+import { Avatar, Button, EmptyState, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { CrmNav } from "./crm-nav";
 import { ContactCreateDialog } from "./contact-create-dialog";
 import { CrmImportDialog } from "./crm-import-dialog";
@@ -218,14 +218,14 @@ export function DirectoryView({
               <input value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="Search name, email, or company" aria-label="Search the directory" />
               {draftSearch && <button type="button" aria-label="Clear search" onClick={() => { setDraftSearch(""); setParams({ search: null }); }}><X size={14} /></button>}
             </form>
-            <select className="compact-select" aria-label="Filter by event" value={eventId ?? ""} onChange={(event) => setParams({ eventIds: event.target.value || null })}>
+            <Select className="compact-select" aria-label="Filter by event" value={eventId ?? ""} onChange={(event) => setParams({ eventIds: event.target.value || null })}>
               <option value="">All events</option>
               {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
-            </select>
-            <select className="compact-select" aria-label="Filter by source" value={source ?? "all"} onChange={(event) => setParams({ source: event.target.value === "all" ? null : event.target.value })}>
+            </Select>
+            <Select className="compact-select" aria-label="Filter by source" value={source ?? "all"} onChange={(event) => setParams({ source: event.target.value === "all" ? null : event.target.value })}>
               <option value="all">Every source</option>
               {CRM_CONTACT_SOURCES.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
-            </select>
+            </Select>
             <label className="crm-unlinked-filter">
               <input type="checkbox" checked={hasEventLink === false} onChange={(event) => setParams({ hasEventLink: event.target.checked ? "false" : null })} />
               Not linked to an event yet

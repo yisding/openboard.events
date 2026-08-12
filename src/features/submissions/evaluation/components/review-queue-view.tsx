@@ -7,7 +7,7 @@ import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, Subm
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
-import { Button, EmptyState, Field, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { nextUnscored } from "../queue";
 import { isReviewComplete, weightedMean } from "../scoring";
@@ -266,7 +266,7 @@ export function ReviewQueueView({
   const roundSwitcher = plans.length > 1 ? {
     actions: (
       <Field label="Round">
-        <select
+        <Select
           value={plan.id}
           onChange={(event) => router.push(`?planId=${event.target.value}`)}
           aria-label="Review round"
@@ -276,7 +276,7 @@ export function ReviewQueueView({
               {option.name}{option.status === "closed" ? " (closed)" : ""}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
     ),
   } : {};
@@ -434,7 +434,7 @@ export function ReviewQueueView({
                             </div>
                           )}
                           {criterion.kind === "select" && (
-                            <select
+                            <Select
                               value={value?.kind === "select" ? value.optionId : ""}
                               onChange={(event) => setValue(criterion.id, event.target.value === "" ? undefined : { kind: "select", optionId: event.target.value })}
                             >
@@ -444,7 +444,7 @@ export function ReviewQueueView({
                                   {option.label}{option.score === null ? " (not scored)" : ` (${option.score})`}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                           )}
                           {criterion.kind === "text" && (
                             <textarea

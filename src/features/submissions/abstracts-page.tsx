@@ -7,7 +7,7 @@ import { useDemo, speakerName } from "@/shared/demo/demo-provider";
 import type { SubmissionRecord } from "@/shared/demo/types";
 import { formatInZone } from "@/shared/lib/time";
 import type { SubmissionStatus } from "@/shared/contracts";
-import { Avatar, Button, Drawer, Field, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Avatar, Button, Drawer, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 const filters: Array<{ id: "all" | SubmissionStatus; label: string }> = [{ id: "all", label: "All abstracts" }, { id: "pending", label: "Pending" }, { id: "accept_queue", label: "Accept queue" }, { id: "accepted", label: "Accepted" }, { id: "declined", label: "Declined" }, { id: "draft", label: "Drafts" }];
@@ -50,7 +50,7 @@ export function AbstractsPage({ eventId }: { eventId: string }) {
         This will finalize {submissions.filter((item) => item.status === "accept_queue" || item.status === "decline_queue").length} queued decisions and send each affected speaker one decision email. Already-notified decisions will not be sent again.
       </p>
     </Modal>
-    <Modal open={adding} onClose={()=>setAdding(false)} title="Add an abstract" description="Create a proposal on behalf of a speaker." footer={<><Button variant="secondary" onClick={()=>setAdding(false)}>Cancel</Button><Button disabled={!newTitle.trim()} onClick={addAbstract}>Create abstract</Button></>}><div className="form-stack"><Field label="Session title" required><input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} placeholder="Enter a clear session title"/></Field><Field label="Primary speaker" required><select value={newSpeaker} onChange={(e)=>setNewSpeaker(e.target.value)}>{state.speakers.map((speaker)=><option value={speaker.id} key={speaker.id}>{speakerName(speaker)} · {speaker.company}</option>)}</select></Field><Field label="Source"><input value="Manual entry" disabled/></Field></div></Modal>
+    <Modal open={adding} onClose={()=>setAdding(false)} title="Add an abstract" description="Create a proposal on behalf of a speaker." footer={<><Button variant="secondary" onClick={()=>setAdding(false)}>Cancel</Button><Button disabled={!newTitle.trim()} onClick={addAbstract}>Create abstract</Button></>}><div className="form-stack"><Field label="Session title" required><input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} placeholder="Enter a clear session title"/></Field><Field label="Primary speaker" required><Select value={newSpeaker} onChange={(e)=>setNewSpeaker(e.target.value)}>{state.speakers.map((speaker)=><option value={speaker.id} key={speaker.id}>{speakerName(speaker)} · {speaker.company}</option>)}</Select></Field><Field label="Source"><input value="Manual entry" disabled/></Field></div></Modal>
   </>;
 }
 

@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv } from "@/features/portal/server/speaker-csv";
 import { SPEAKER_CSV_FIELDS, type ImportSpeakersCsvResult, type SpeakerCsvColumnMapping, type SpeakerCsvField } from "@/shared/contracts";
-import { Button, Field, Modal, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 const FIELD_LABELS: Record<SpeakerCsvField, string> = {
@@ -178,15 +178,15 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "map" && (
         <div className="form-stack">
           <Field label="Email column" required>
-            <select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
+            <Select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
               <option value="">Select a column…</option>
               {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
-            </select>
+            </Select>
           </Field>
           <div className="form-grid">
             {SPEAKER_CSV_FIELDS.map((field) => (
               <Field key={field} label={FIELD_LABELS[field]}>
-                <select
+                <Select
                   value={fieldColumns[field] ?? NONE}
                   onChange={(event) => setFieldColumns((current) => {
                     const next = { ...current };
@@ -196,7 +196,7 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
                 >
                   <option value={NONE}>— not in this file —</option>
                   {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
-                </select>
+                </Select>
               </Field>
             ))}
           </div>

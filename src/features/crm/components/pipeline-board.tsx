@@ -24,7 +24,7 @@ import {
   type OrganizationContactSummaryDTO,
   type OrganizationId,
 } from "@/shared/contracts";
-import { Button, EmptyState, Field, Modal, PageHeader } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -44,9 +44,9 @@ function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDT
       {eventName && <span>Target: {eventName}</span>}
       {entry.notes && <span>{entry.notes}</span>}
       <div className="crm-board-card-actions" onPointerDown={(event) => event.stopPropagation()}>
-        <select aria-label={`Move ${contact?.name ?? "this prospect"} to a different stage`} value={entry.stage} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
+        <Select aria-label={`Move ${contact?.name ?? "this prospect"} to a different stage`} value={entry.stage} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
           {CRM_PIPELINE_STAGES.map((stage) => <option key={stage} value={stage}>{STAGE_LABEL[stage]}</option>)}
-        </select>
+        </Select>
       </div>
     </div>
   );
@@ -161,10 +161,10 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
               <button type="button" onClick={() => setPicked(null)} style={{ border: 0, background: "transparent", color: "var(--muted)", fontSize: 11 }}>Change</button>
             </div>
             <Field label="Target event" hint="Optional.">
-              <select value={targetEventId} onChange={(event) => setTargetEventId(event.target.value)}>
+              <Select value={targetEventId} onChange={(event) => setTargetEventId(event.target.value)}>
                 <option value="">No specific event yet</option>
                 {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
-              </select>
+              </Select>
             </Field>
             <Field label="Notes" hint="Optional.">
               <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
@@ -180,7 +180,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
  * M55 — the sourcing kanban (AC: "Move a prospect through open/won/lost
  * states and verify timestamped history"). Drag between columns
  * (`@dnd-kit/core`, the same library the agenda day-grid already depends on)
- * moves a card; each card also carries a plain `<select>` as the pointer-free
+ * moves a card; each card also carries a plain `<Select>` dropdown as the pointer-free
  * path to the identical `transitionCrmPipeline` call, since dnd-kit's drag
  * gesture has no keyboard equivalent on its own.
  */

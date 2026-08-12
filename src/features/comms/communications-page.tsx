@@ -3,7 +3,7 @@
 import { CheckCircle2, Clock3, Edit3, Mail, MoreHorizontal, Search, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
-import { Button, Drawer, Field, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Drawer, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { useToast } from "@/shared/ui/toast";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -169,16 +169,16 @@ export function CommunicationsPage() {
       >
         <div className="form-stack">
           <Field label="Audience">
-            <select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>
+            <Select value={audience} onChange={(event) => setAudience(event.target.value as Audience)}>
               <option value="unconfirmed">Unconfirmed speakers</option>
               <option value="confirmed">Confirmed speakers</option>
               <option value="current">All current speakers</option>
-            </select>
+            </Select>
           </Field>
           <Field label="Template">
-            <select value={sendTemplateKey} onChange={(event) => setSendTemplateKey(event.target.value)}>
+            <Select value={sendTemplateKey} onChange={(event) => setSendTemplateKey(event.target.value)}>
               {templates.filter((template) => template.enabled).map((template) => <option key={template.key} value={template.key}>{template.name}</option>)}
-            </select>
+            </Select>
           </Field>
           <div className="recipient-preview"><CheckCircle2 size={17} /><div><b>{recipients.length} unique {recipients.length === 1 ? "recipient" : "recipients"}</b><span>Suppression and current speaker state are rechecked at send time.</span></div></div>
         </div>
