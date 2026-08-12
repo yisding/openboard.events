@@ -8,6 +8,7 @@ import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { nextUnscored } from "../queue";
@@ -111,6 +112,7 @@ export function ReviewQueueView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const { allowNextNavigation } = useGuardedAction();
   const [activeId, setActiveId] = useState(rows[0]?.submissionId ?? "");
   const [detail, setDetail] = useState<SubmissionDetailDTO | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -142,6 +144,7 @@ export function ReviewQueueView({
 
   const draftDirty = isReviewDraftDirty(draft, savedDraft);
   const hasUnsavedWork = draftDirty || recusalReason.trim() !== "";
+  useUnsavedWorkGuard(hasUnsavedWork);
 
   const requestOpen = useCallback((submissionId: string) => {
     if (saving || submissionId === activeId) return;
@@ -166,8 +169,11 @@ export function ReviewQueueView({
     const destination = pendingNavigation;
     setPendingNavigation(null);
     if (destination.kind === "submission") openNow(destination.id);
-    else router.push(`?planId=${destination.id}`);
-  }, [pendingNavigation, openNow, router]);
+    else {
+      allowNextNavigation();
+      router.push(`?planId=${destination.id}`);
+    }
+  }, [pendingNavigation, openNow, router, allowNextNavigation]);
 
   const setValue = useCallback((criterionId: string, value: CriterionValue | undefined) => {
     setDraft((current) => {
@@ -195,16 +201,6 @@ export function ReviewQueueView({
     // one they have passed replace what they are reading now.
     return () => { cancelled = true; };
   }, [eventId, activeId, plan]);
-
-  useEffect(() => {
-    if (!hasUnsavedWork) return;
-    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    globalThis.addEventListener("beforeunload", warnBeforeUnload);
-    return () => globalThis.removeEventListener("beforeunload", warnBeforeUnload);
-  }, [hasUnsavedWork]);
 
   const save = useCallback(async () => {
     if (!plan || !active) return;

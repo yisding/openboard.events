@@ -19,7 +19,7 @@ describe("review queue request feedback", () => {
     expect(source).toContain('onClick={() => requestOpen(row.submissionId)}');
     expect(source).toContain("if (next) requestOpen(next.submissionId);");
     expect(source).toContain("onChange={(event) => requestRound(event.target.value)}");
-    expect(source).toContain('globalThis.addEventListener("beforeunload", warnBeforeUnload)');
+    expect(source).toContain("useUnsavedWorkGuard(hasUnsavedWork)");
     expect(source).toContain('<ConfirmDialog\n        open={pendingNavigation !== null}');
   });
 
