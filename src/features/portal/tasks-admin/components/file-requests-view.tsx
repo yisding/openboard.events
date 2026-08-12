@@ -65,6 +65,7 @@ export function FileRequestsView({
   useUnsavedWorkGuard(dirty);
 
   function startCreate() {
+    if (saving) return;
     createRequestId.current.reset();
     createRequestId.current.begin();
     const nextDraft = draftFromRequest(null);
@@ -73,6 +74,7 @@ export function FileRequestsView({
     setCreating(true);
   }
   function startEdit(request: FileRequestDTO) {
+    if (saving) return;
     createRequestId.current.reset();
     const nextDraft = draftFromRequest(request);
     setDraft(nextDraft);
@@ -129,7 +131,7 @@ export function FileRequestsView({
     <section className="panel">
       <header className="panel-header">
         <div><h2>File requests</h2><p>Reusable upload requests any task can point at</p></div>
-        <Button size="sm" onClick={startCreate}><Plus size={14} /> Add file request</Button>
+        <Button size="sm" onClick={startCreate} disabled={saving}><Plus size={14} /> Add file request</Button>
       </header>
 
       {requests.length === 0 && (
@@ -137,7 +139,7 @@ export function FileRequestsView({
           icon={<Upload size={20} />}
           title="No file requests yet"
           description="Create one to collect slides, headshots, or any other document from speakers."
-          action={<Button onClick={startCreate}>Add file request</Button>}
+          action={<Button onClick={startCreate} disabled={saving}>Add file request</Button>}
         />
       )}
 
@@ -150,8 +152,8 @@ export function FileRequestsView({
             <div><span>{request.targetType === "contact" ? "Accepted speakers" : "Accepted submissions"}</span></div>
           </div>
           <span className="row-actions">
-            <Button size="sm" variant="secondary" onClick={() => startEdit(request)}>Edit</Button>
-            <Button size="sm" variant="ghost" onClick={() => setPendingDelete(request)}>Delete</Button>
+            <Button size="sm" variant="secondary" onClick={() => startEdit(request)} disabled={saving}>Edit</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPendingDelete(request)} disabled={saving}>Delete</Button>
           </span>
         </article>
       ))}
