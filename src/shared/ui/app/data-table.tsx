@@ -349,7 +349,7 @@ export function DataTable<Row>({
                 type="button"
                 className="filter-button"
                 aria-expanded={pickerOpen}
-                aria-controls={pickerPanelId}
+                aria-controls={pickerOpen ? pickerPanelId : undefined}
                 onClick={() => setPickerOpen((open) => !open)}
               >
                 <Columns3 size={14} /> Columns

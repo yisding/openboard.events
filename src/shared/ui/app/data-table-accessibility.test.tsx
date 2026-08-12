@@ -58,11 +58,13 @@ describe("DataTable loading accessibility", () => {
 describe("DataTable column disclosure accessibility", () => {
   it("connects the Columns button to its disclosure panel", () => {
     const html = renderColumnPicker();
-    const button = html.match(/<button[^>]+id="([^"]+-button)"[^>]+aria-controls="([^"]+-panel)"[^>]*>/);
+    const source = readFileSync(new URL("./data-table.tsx", import.meta.url), "utf8");
+    const button = html.match(/<button[^>]+id="([^"]+-button)"[^>]*>/);
 
     expect(button).not.toBeNull();
-    expect(button?.[1]?.replace(/-button$/, "-panel")).toBe(button?.[2]);
     expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("aria-controls=");
+    expect(source).toContain("aria-controls={pickerOpen ? pickerPanelId : undefined}");
   });
 
   it("supports Escape focus return and outside dismissal while open", () => {
