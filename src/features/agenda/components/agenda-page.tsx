@@ -118,7 +118,6 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     ...props,
     sessions: visible,
     day: view === "day" ? activeGridDay : props.day ?? null,
-    onDayChange: (next) => selectDay(next),
     onEdit: setEditingId,
   };
 
