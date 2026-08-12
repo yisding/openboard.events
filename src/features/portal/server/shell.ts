@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts, events } from "@/db/schema";
 import type { ContactId, EventId } from "@/shared/contracts";
-import type { EventRecord, SpeakerRecord } from "@/shared/demo/types";
+import type { EventRecord, SpeakerRecord } from "../types";
 import type { PortalShellData } from "../portal-context";
 
 /**

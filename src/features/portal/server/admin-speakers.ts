@@ -12,7 +12,7 @@ import { listLogIn } from "@/features/comms/server/queries";
 // carries the exact same function without it.
 import { toPortalStatus } from "@/features/submissions/index.client";
 import type { CommLogRow, ConfirmationStatus, ContactId, EventId, OutstandingTasksRow, ParticipantRole, SubmissionId, SubmissionStatus } from "@/shared/contracts";
-import type { SpeakerRecord } from "@/shared/demo/types";
+import type { SpeakerRecord } from "../types";
 import { stripHtml } from "@/features/comms/server/render";
 import { listMyTasksIn } from "../task-runtime/server/queries";
 

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo } from "next/font/google";
 import "./globals.css";
-import { DemoProvider } from "@/shared/demo/demo-provider";
 import { ToastProvider } from "@/shared/ui/toast";
 
 // Archivo ships a 100-900 weight axis, which the type scale in globals.css
@@ -24,9 +23,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={archivo.variable}>
       <body>
-        <DemoProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </DemoProvider>
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

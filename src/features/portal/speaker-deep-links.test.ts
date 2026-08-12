@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SpeakerRecord } from "@/shared/demo/types";
+import type { SpeakerRecord } from "./types";
 import { matchesMissingAsset, parseSpeakerMissing } from "./speaker-deep-links";
 
 function speaker(overrides: Partial<SpeakerRecord> = {}): SpeakerRecord {
