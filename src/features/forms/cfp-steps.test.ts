@@ -7,10 +7,12 @@ import {
   CfpStaleRecovery,
   CfpSubmitFailureNotice,
   beginCfpSubmit,
+  cfpAutosaveDisposition,
   cfpRequest,
   cfpFlowSteps,
   cfpStepHeading,
   cfpSubmitFailure,
+  createDeferredCfpAutosave,
   focusCfpAccountControl,
   hasIncompleteParticipantEmail,
   participantEmail,
@@ -19,7 +21,7 @@ import {
   reloadUpdatedCfpForm,
   requiresCfpFormReload,
   settleCfpSubmitFailure,
-  skippedCfpAutosaveResult,
+  settleCfpSubmitSuccess,
   stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
@@ -215,29 +217,17 @@ describe("CFP stale form recovery", () => {
   });
 
   it("cannot submit the obsolete snapshot again after a stale rejection", () => {
-    const lock = { submitting: false, versionStale: false };
+    const lock = { submitting: false, versionStale: false, submitted: false };
     const stale = cfpSubmitFailure({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" });
 
     expect(beginCfpSubmit(lock)).toBe(true);
     settleCfpSubmitFailure(lock, stale);
-    expect(lock).toEqual({ submitting: false, versionStale: true });
+    expect(lock).toEqual({ submitting: false, versionStale: true, submitted: false });
     expect(beginCfpSubmit(lock)).toBe(false);
   });
 
-  it("marks a skipped post-stale autosave unsaved, never saved", () => {
-    const states: AutosaveState[] = [];
-    const skipped = skippedCfpAutosaveResult(
-      { submitting: false, versionStale: true },
-      (state) => states.push(state),
-    );
-
-    expect(skipped).toBe(false);
-    expect(states).toEqual(["failed"]);
-    expect(states).not.toContain("saved");
-  });
-
   it("keeps ordinary submit failures retryable", () => {
-    const lock = { submitting: false, versionStale: false };
+    const lock = { submitting: false, versionStale: false, submitted: false };
     const ordinary = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit proposal" });
 
     expect(beginCfpSubmit(lock)).toBe(true);
@@ -249,6 +239,63 @@ describe("CFP stale form recovery", () => {
     const reload = vi.fn();
     reloadUpdatedCfpForm(reload);
     expect(reload).toHaveBeenCalledOnce();
+  });
+});
+
+describe("CFP deferred autosave settlement", () => {
+  it("persists the skipped snapshot after an ordinary submit failure", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const deferred = createDeferredCfpAutosave<{ revision: number }>();
+    const states: AutosaveState[] = [];
+    const persist = vi.fn(async () => {
+      states.push("saving", "saved");
+      return true;
+    });
+    const ordinary = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit proposal" });
+
+    expect(beginCfpSubmit(lock)).toBe(true);
+    expect(cfpAutosaveDisposition(lock)).toBe("defer");
+    expect(deferred.defer({ revision: 2 }, (state) => states.push(state))).toBe(false);
+    settleCfpSubmitFailure(lock, ordinary);
+
+    await expect(deferred.settle("ordinary-failure", persist)).resolves.toBe(true);
+    expect(persist).toHaveBeenCalledWith({ revision: 2 });
+    expect(states).toEqual(["failed", "saving", "saved"]);
+    expect(cfpAutosaveDisposition(lock)).toBe("save");
+  });
+
+  it("keeps a skipped snapshot failed and locked after a stale submit failure", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const deferred = createDeferredCfpAutosave<{ revision: number }>();
+    const states: AutosaveState[] = [];
+    const persist = vi.fn(async () => true);
+    const stale = cfpSubmitFailure({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" });
+
+    expect(beginCfpSubmit(lock)).toBe(true);
+    expect(deferred.defer({ revision: 2 }, (state) => states.push(state))).toBe(false);
+    settleCfpSubmitFailure(lock, stale);
+
+    await expect(deferred.settle("stale-failure", persist)).resolves.toBeNull();
+    expect(persist).not.toHaveBeenCalled();
+    expect(states).toEqual(["failed"]);
+    expect(states).not.toContain("saved");
+    expect(cfpAutosaveDisposition(lock)).toBe("fail");
+  });
+
+  it("discards a skipped snapshot after success without patching the promoted draft", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const deferred = createDeferredCfpAutosave<{ revision: number }>();
+    const persist = vi.fn(async () => true);
+
+    expect(beginCfpSubmit(lock)).toBe(true);
+    deferred.defer({ revision: 2 }, () => undefined);
+    settleCfpSubmitSuccess(lock);
+
+    await expect(deferred.settle("success", persist)).resolves.toBeNull();
+    await expect(deferred.settle("ordinary-failure", persist)).resolves.toBeNull();
+    expect(persist).not.toHaveBeenCalled();
+    expect(cfpAutosaveDisposition(lock)).toBe("discard");
+    expect(beginCfpSubmit(lock)).toBe(false);
   });
 });
 

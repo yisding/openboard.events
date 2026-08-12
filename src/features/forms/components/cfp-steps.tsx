@@ -36,7 +36,8 @@ export type RequestResult = {
 };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
 export type CfpSubmitFailure = { kind: "stale"; message: string } | { kind: "ordinary"; message: string };
-export type CfpSnapshotLock = { submitting: boolean; versionStale: boolean };
+export type CfpSnapshotLock = { submitting: boolean; versionStale: boolean; submitted: boolean };
+export type CfpSubmitSettlement = "ordinary-failure" | "stale-failure" | "success";
 
 const STALE_FORM_MESSAGE = "The organizer updated this form while you were working. Reload the updated form to continue with the latest questions; your saved draft will be restored.";
 
@@ -184,7 +185,7 @@ export function preserveStaleCfpFailure(failure: CfpSubmitFailure | null): CfpSu
 }
 
 export function beginCfpSubmit(lock: CfpSnapshotLock): boolean {
-  if (lock.submitting || lock.versionStale) return false;
+  if (lock.submitting || lock.versionStale || lock.submitted) return false;
   lock.submitting = true;
   return true;
 }
@@ -194,19 +195,37 @@ export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmit
   if (requiresCfpFormReload(failure)) lock.versionStale = true;
 }
 
-export function skippedCfpAutosaveResult(
-  lock: CfpSnapshotLock,
-  onState: (state: AutosaveState) => void,
-): boolean | null {
-  if (lock.versionStale) {
-    onState("failed");
-    return false;
-  }
-  if (lock.submitting) {
-    onState("saved");
-    return true;
-  }
-  return null;
+export function settleCfpSubmitSuccess(lock: CfpSnapshotLock): void {
+  lock.submitting = false;
+  lock.submitted = true;
+}
+
+export function cfpAutosaveDisposition(lock: CfpSnapshotLock): "save" | "defer" | "fail" | "discard" {
+  if (lock.versionStale) return "fail";
+  if (lock.submitted) return "discard";
+  if (lock.submitting) return "defer";
+  return "save";
+}
+
+/** Retain the newest full snapshot while submit owns the draft write lock. */
+export function createDeferredCfpAutosave<T>() {
+  let pending: T | null = null;
+  return {
+    defer(snapshotState: T, onState: (state: AutosaveState) => void): false {
+      pending = snapshotState;
+      onState("failed");
+      return false;
+    },
+    async settle(
+      settlement: CfpSubmitSettlement,
+      persist: (snapshotState: T) => Promise<boolean>,
+    ): Promise<boolean | null> {
+      const snapshotState = pending;
+      pending = null;
+      if (settlement !== "ordinary-failure" || snapshotState === null) return null;
+      return persist(snapshotState);
+    },
+  };
 }
 
 export function reloadUpdatedCfpForm(reload: () => void = () => window.location.reload()): void {
@@ -285,17 +304,21 @@ export function CfpSteps({ data }: { data: PublicForm }) {
    * submission. An ordinary rejection reopens it because the speaker can keep
    * editing; a stale-version rejection locks this snapshot until a full reload.
    */
-  const snapshotLock = useRef<CfpSnapshotLock>({ submitting: false, versionStale: false });
+  const snapshotLock = useRef<CfpSnapshotLock>({ submitting: false, versionStale: false, submitted: false });
   const nextCoSpeaker = useRef(1);
   const stepRegion = useRef<HTMLElement>(null);
   const previousStep = useRef<Step>(step);
   const previousCodeRequested = useRef(codeRequested);
   const emailInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
+  const deferredAutosave = useRef<ReturnType<typeof createDeferredCfpAutosave<AutosaveSnapshot>> | null>(null);
+  deferredAutosave.current ??= createDeferredCfpAutosave<AutosaveSnapshot>();
   const autosave = useRef<((snapshotState: AutosaveSnapshot) => Promise<boolean>) | null>(null);
   autosave.current ??= serializeAutosaves((snapshotState) => {
-    const skipped = skippedCfpAutosaveResult(snapshotLock.current, setSaveState);
-    if (skipped !== null) return Promise.resolve(skipped);
+    const disposition = cfpAutosaveDisposition(snapshotLock.current);
+    if (disposition === "fail") { setSaveState("failed"); return Promise.resolve(false); }
+    if (disposition === "discard") return Promise.resolve(true);
+    if (disposition === "defer") return Promise.resolve(deferredAutosave.current?.defer(snapshotState, setSaveState) ?? false);
     const participants = snapshotState.participants
       .map((participant, index) => ({
         clientId: participant.clientId,
@@ -533,6 +556,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     if (!sent.ok) {
       const failure = cfpSubmitFailure(sent);
       settleCfpSubmitFailure(snapshotLock.current, failure);
+      const settlement = requiresCfpFormReload(failure) ? "stale-failure" : "ordinary-failure";
+      void deferredAutosave.current?.settle(
+        settlement,
+        (snapshotState) => autosave.current?.(snapshotState) ?? Promise.resolve(false),
+      );
       // A stale version stays closed to submit and autosave until the fresh
       // page loads. Mark any locally queued write as unsaved before rendering
       // the read-only recovery state.
@@ -547,6 +575,11 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       setSubmitFailure(failure);
       return;
     }
+    settleCfpSubmitSuccess(snapshotLock.current);
+    void deferredAutosave.current?.settle(
+      "success",
+      (snapshotState) => autosave.current?.(snapshotState) ?? Promise.resolve(false),
+    );
     setResult({ code: Number(sent.data.code) });
     setDraftId(null);
     setStep("done");
