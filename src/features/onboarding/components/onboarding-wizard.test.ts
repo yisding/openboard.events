@@ -45,6 +45,13 @@ describe("onboarding organization access", () => {
   it("does not advance while a custom track is still being saved", () => {
     expect(wizard).toContain("disabled={advancing || addingTrack}");
   });
+
+  it("makes the published handoff previewable and resilient to clipboard failure", () => {
+    expect(wizard).toContain('htmlFor="onboarding-public-form-link"');
+    expect(wizard).toContain('target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
+    expect(wizard).toContain('document.execCommand("copy")');
+    expect(wizard).toContain("Link selected — press Cmd/Ctrl+C to copy");
+  });
 });
 
 describe("OnboardingWizard event step accessibility", () => {

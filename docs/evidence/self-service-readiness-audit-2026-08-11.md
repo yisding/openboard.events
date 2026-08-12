@@ -44,6 +44,9 @@ the real database-backed surfaces.
   than creating a duplicate.
 - Added a persistent dashboard activation guide that carries an organizer from
   an absent/draft/scheduled/live form to the first public submission.
+- Completed the post-setup handoff with a direct form preview, resilient link
+  copying, and a dismissible first-submission milestone that opens the proposal
+  drawer for review.
 - Added product-level, encrypted, retryable authentication mail that works
   before an event exists. Password signup now requires verified email control,
   with check-inbox, resend, expired-link, and unverified-sign-in states.
@@ -61,8 +64,8 @@ the real database-backed surfaces.
    account through public signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
    verification link, signs in, names and provisions the organization, creates
-   an event and optional tracks, publishes a form, and opens the returned link in an
-   unauthenticated browser. The preview mailbox variable is configured; the
+   an event and optional tracks, publishes a form, and opens the returned link
+   in an unauthenticated browser. The preview mailbox variable is configured; the
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before
    production promotion.
