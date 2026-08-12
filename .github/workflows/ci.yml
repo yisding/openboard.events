@@ -35,12 +35,17 @@ jobs:
       - run: pnpm audit:prod
 
   tests:
-    name: Test suite
+    name: Test suite (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
-      - run: pnpm test
+      # Vitest's deterministic sharding keeps the full suite while letting
+      # independent runners cut the PR's test wall time roughly in half.
+      - run: pnpm test --shard=${{ matrix.shard }}/2
 
   artifacts:
     name: Worker and browser artifact gates

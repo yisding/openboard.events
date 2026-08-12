@@ -141,6 +141,13 @@
       "when": 1786249020000,
       "tag": "0019_scheduled_job_heartbeats",
       "breakpoints": false
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786249080000,
+      "tag": "0020_billing_catalog_reassert",
+      "breakpoints": false
     }
   ]
 }
