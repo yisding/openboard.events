@@ -9,6 +9,7 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
+import type { OnboardingStep } from "../progress-types";
 import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
@@ -48,7 +49,15 @@ function browserTimeZones(): string[] {
 // read its create/update responses with this same hand-rolled envelope
 // reader rather than a schema, and this wizard follows that precedent
 // instead of inventing a client-side validator for a type it does not own.
-type BuilderFormLite = { id: string; status: string; updatedAt: string };
+type BuilderFormLite = { id: string; status: string; updatedAt: string; internalName?: string };
+
+export type OnboardingResumeState = {
+  step: OnboardingStep;
+  event: EventDTO;
+  tracks: TrackDTO[];
+  formId: string | null;
+  form: BuilderFormLite | null;
+};
 
 export async function createOrPublishOnboardingForm(input: {
   existing: BuilderFormLite | null;
@@ -56,14 +65,17 @@ export async function createOrPublishOnboardingForm(input: {
   create: () => Promise<BuilderFormLite>;
   reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
-  onCreated: (form: BuilderFormLite) => void;
+  onReady: (form: BuilderFormLite) => void | Promise<void>;
 }): Promise<BuilderFormLite> {
   let form = input.existing ?? await input.create();
-  if (!input.existing) input.onCreated(form);
   // A previous PATCH may have committed even if its response was lost. Always
   // reconcile an existing form before deciding whether to publish or continue
   // as a draft, so neither path trusts a stale status/updatedAt pair.
-  else form = await input.reconcile(form);
+  if (input.existing) form = await input.reconcile(form);
+  // Associate the exact form with the durable checkpoint before publication.
+  // This is intentionally replayed for an existing form, so a lost checkpoint
+  // response cannot make resume fall back to some unrelated CFP form.
+  await input.onReady(form);
 
   if (!input.publishNow || form.status === "open") return form;
   try {
@@ -102,14 +114,16 @@ export function OnboardingWizard({
   organizationId,
   organizationName,
   hasExistingEvents,
+  initialState = null,
 }: {
   organizationId: OrganizationId;
   organizationName: string;
   hasExistingEvents: boolean;
+  initialState?: OnboardingResumeState | null;
 }) {
   const { toast } = useToast();
   const timeZones = useMemo(browserTimeZones, []);
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(() => initialState?.step === "form" ? 3 : initialState ? 2 : 1);
 
   // Step 1 — event basics
   const [name, setName] = useState("");
@@ -121,7 +135,7 @@ export function OnboardingWizard({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [event, setEvent] = useState<EventDTO | null>(null);
+  const [event, setEvent] = useState<EventDTO | null>(initialState?.event ?? null);
   const [eventCreateId] = useState(() => crypto.randomUUID());
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -135,18 +149,19 @@ export function OnboardingWizard({
 
   // Step 2 — vocabulary (tracks only — rooms/formats/tags are fine to leave
   // for the settings hub; tracks are the one that gates the form/routing UI).
-  const [tracks, setTracks] = useState<TrackDTO[]>([]);
+  const [tracks, setTracks] = useState<TrackDTO[]>(initialState?.tracks ?? []);
   const [trackName, setTrackName] = useState("");
   const [addingTrack, setAddingTrack] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
 
   // Step 3 — first form
-  const [formName, setFormName] = useState("Call for Speakers");
+  const [formName, setFormName] = useState(initialState?.form?.internalName ?? "Call for Speakers");
   const [publishNow, setPublishNow] = useState(true);
   const [creatingForm, setCreatingForm] = useState(false);
   const [formLink, setFormLink] = useState("");
   const [published, setPublished] = useState(false);
-  const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(null);
-  const [formCreateId] = useState(() => crypto.randomUUID());
+  const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(initialState?.form ?? null);
+  const [formCreateId] = useState(() => initialState?.formId ?? crypto.randomUUID());
 
   function fail(summary: string, fields: Record<string, string> = {}) {
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
@@ -214,11 +229,36 @@ export function OnboardingWizard({
     }
   }
 
+  async function continueToForm() {
+    if (!event || advancing) return;
+    setAdvancing(true);
+    try {
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "form" }),
+      });
+      setStep(3);
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : "Setup progress could not be saved", { kind: "error" });
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
   async function createFormStep() {
     if (!event || creatingForm) return;
     let hasCreatedForm = createdForm !== null;
     setCreatingForm(true);
     try {
+      // Reserve the stable client ID before the form INSERT. If the POST
+      // commits but its response is lost, a refresh retries this exact ID
+      // instead of orphaning the committed form and creating another.
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "form", formId: formCreateId }),
+      });
       const finalForm = await createOrPublishOnboardingForm({
         existing: createdForm,
         publishNow,
@@ -233,20 +273,30 @@ export function OnboardingWizard({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ expectedUpdatedAt: form.updatedAt, patch: { status: "open" } }),
         }),
-        onCreated: (form) => {
+        onReady: async (form) => {
           hasCreatedForm = true;
           setCreatedForm(form);
+          await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ eventId: event.id, step: "form", formId: form.id }),
+          });
         },
       });
       const isPublished = finalForm.status === "open";
       setCreatedForm(finalForm);
       setPublished(isPublished);
       setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
+      });
       toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
       toast(hasCreatedForm
-        ? `The form is saved, but publication could not be confirmed: ${caught instanceof Error ? caught.message : "try again"}`
+        ? `Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`
         : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);
@@ -332,7 +382,7 @@ export function OnboardingWizard({
           </Field>
           <footer className="cfp-actions">
             <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => setStep(3)}>Continue <ArrowRight size={16} /></Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing}>{advancing ? "Saving…" : "Continue"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}
@@ -348,7 +398,7 @@ export function OnboardingWizard({
             Publish immediately so the link is shareable right away
           </label>
           <footer className="cfp-actions">
-            <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
+            <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm?.status === "open" ? "Finish setup" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}

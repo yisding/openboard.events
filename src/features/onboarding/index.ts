@@ -12,3 +12,18 @@
  * `PATCH /api/internal/forms/[formId]`) rather than duplicating them here.
  */
 export { provisionOrganizationEvent, provisionOrganizationEventIn } from "./server/provisioning";
+export {
+  getActiveOrganizationOnboardingForUser,
+  getActiveOrganizationOnboardingForUserIn,
+  getActiveOrganizationOnboardingIn,
+  startOrganizationOnboardingIn,
+  updateOrganizationOnboarding,
+  updateOrganizationOnboardingIn,
+  type ActiveOnboardingProgress,
+} from "./server/progress";
+export {
+  onboardingProgressUpdateSchema,
+  onboardingStepSchema,
+  type OnboardingProgressUpdate,
+  type OnboardingStep,
+} from "./progress-types";

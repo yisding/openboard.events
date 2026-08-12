@@ -4,14 +4,28 @@ import { notFound, redirect } from "next/navigation";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
-import { OnboardingWizard } from "@/features/onboarding/components/onboarding-wizard";
+import { getEvent, listTracks } from "@/features/events";
+import { getFormForBuilder } from "@/features/forms";
+import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
+import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
-import { organizationIdSchema } from "@/shared/contracts";
+import { organizationIdSchema, type UserId } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Set up your event" };
 export const dynamic = "force-dynamic";
+
+async function getReservedOnboardingForm(eventId: Parameters<typeof getFormForBuilder>[0], formId: Parameters<typeof getFormForBuilder>[1]) {
+  try {
+    return await getFormForBuilder(eventId, formId, "cfp");
+  } catch (error) {
+    // The checkpoint reserves its stable ID before POST. A refresh between
+    // those operations should retry creation with that ID, not fail the page.
+    if (isAppError(error) && error.code === "NOT_FOUND") return null;
+    throw error;
+  }
+}
 
 /**
  * M45 — the guided setup wizard's page shell. This is the replacement for
@@ -29,8 +43,10 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
 
+  let actorUserId: UserId | null = null;
   try {
-    await requireOrganizationAdmin(organizationId);
+    const session = await requireOrganizationAdmin(organizationId, "organizer");
+    actorUserId = session.userId;
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {
@@ -39,15 +55,45 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     }
     notFound();
   }
+  if (!actorUserId) notFound();
 
-  const [organization, eventRows] = await Promise.all([
+  const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
     listOrganizationEvents(organizationId),
+    getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
 
+  let initialState: OnboardingResumeState | null = null;
+  if (progress) {
+    const [event, tracks, form] = await Promise.all([
+      getEvent(progress.eventId),
+      listTracks(progress.eventId),
+      progress.formId ? getReservedOnboardingForm(progress.eventId, progress.formId) : null,
+    ]);
+    if (event) {
+      initialState = {
+        event,
+        tracks,
+        step: form ? "form" : progress.step,
+        formId: progress.formId,
+        form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
+      };
+    }
+  }
   return <>
-    <PageHeader eyebrow="ORGANIZATION" title="Set up your event" description="Event basics, vocabulary, then your first call for speakers form." />
-    <OnboardingWizard organizationId={organizationId} organizationName={organization.name} hasExistingEvents={eventRows.length > 0} />
+    <PageHeader
+      eyebrow="ORGANIZATION"
+      title={initialState ? `Finish setting up ${initialState.event.name}` : "Set up your event"}
+      description={initialState
+        ? "Your progress was saved. Continue where you left off."
+        : "Event basics, vocabulary, then your first call for speakers form."}
+    />
+    <OnboardingWizard
+      organizationId={organizationId}
+      organizationName={organization.name}
+      hasExistingEvents={eventRows.length > 0}
+      initialState={initialState}
+    />
   </>;
 }
