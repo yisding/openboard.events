@@ -64,16 +64,6 @@ describe("communications activity table responsive styles", () => {
     expect(css).not.toContain(".reminder-rule{padding:16px;display:grid");
   });
 
-  it("gives the credential-free templates and reminder ladder deliberate card layouts", () => {
-    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    const source = readFileSync(new URL("./communications-page.tsx", import.meta.url), "utf8");
-    expect(source).toContain('className="panel communication-template-card"');
-    expect(source).toContain("reminder-rule reminder-rule-demo");
-    expect(source).toContain('<Switch label="Enable reminder ladder"');
-    expect(css).toContain(".communication-template-card{min-height:258px;display:flex;flex-direction:column;overflow:hidden}");
-    expect(css).toContain(".reminder-rule-demo{min-height:76px;display:grid;grid-template-columns:34px minmax(0,1fr) auto");
-  });
-
   it("gives the section switcher complete tab semantics and keyboard movement", () => {
     const source = readFileSync(new URL("./components/comms-admin-page.tsx", import.meta.url), "utf8");
     expect(source).toContain('role="tablist"');

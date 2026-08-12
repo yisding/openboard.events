@@ -6,9 +6,7 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationEvents } from "@/features/organizations";
 import { getOrganizationContact, listCrmPipeline } from "@/features/crm";
 import { PipelineBoard } from "@/features/crm/components/pipeline-board";
-import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type OrganizationContactId } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Sourcing pipeline" };
@@ -21,9 +19,6 @@ export const dynamic = "force-dynamic";
  * sourcing pipeline is small by nature (a handful to a few dozen open
  * prospects, not a directory-sized list). */
 export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
-  if (isCredentialFreeLocalDemo()) {
-    return <PageHeader eyebrow="ORGANIZATION" title="Sourcing pipeline" description="Unavailable in the credential-free demo." />;
-  }
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;

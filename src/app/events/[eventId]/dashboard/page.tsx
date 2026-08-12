@@ -4,11 +4,9 @@ import { requireAdmin } from "@/features/auth";
 import { getOverview } from "@/features/dashboard";
 import { DashboardTabs } from "@/features/dashboard/index.client";
 import { DashboardLoadError, type DashboardTab } from "@/features/dashboard/components/DashboardTabs";
-import { resolveDashboardTab, resolveLocalDashboardEventId } from "@/features/dashboard/lib/dashboard-tab";
+import { resolveDashboardTab } from "@/features/dashboard/lib/dashboard-tab";
 import { computeEventPhase, defaultTabForPhase } from "@/features/dashboard/lib/phase";
-import { eventIdSchema, type EventId } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
-import { FIXTURE_OVERVIEW } from "@/features/dashboard/fixtures";
+import { eventIdSchema } from "@/shared/contracts";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -16,17 +14,6 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params, searchParams }: { params: Promise<{ eventId: string }>; searchParams: Promise<{ tab?: string }> }) {
   const requestedEventId = (await params).eventId;
   const requestedTab = (await searchParams).tab;
-  const localDemo = isCredentialFreeLocalDemo();
-  if (localDemo) {
-    const eventId = resolveLocalDashboardEventId(requestedEventId);
-    if (!eventId) notFound();
-    // The credential-free fixture deliberately uses a readable non-UUID id;
-    // `live=false` guarantees it never reaches a database/API boundary.
-    const localEventId = eventId as EventId;
-    const overview = { ...FIXTURE_OVERVIEW, event: { ...FIXTURE_OVERVIEW.event, id: localEventId } };
-    const initialTab = resolveDashboardTab(requestedTab, defaultTabForPhase(computeEventPhase(overview)));
-    return <DashboardTabs eventId={localEventId} initialData={overview} initialTab={initialTab} firstName="Maya" live={false} />;
-  }
   const parsedEventId = eventIdSchema.safeParse(requestedEventId);
   if (!parsedEventId.success) notFound();
   const eventId = parsedEventId.data;

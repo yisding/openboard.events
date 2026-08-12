@@ -61,7 +61,6 @@ function hasRule(className: string): boolean {
 describe("event settings styles", () => {
   it.each([
     ["the DB-backed vocabulary editor", "./vocab-tab.tsx"],
-    ["the demo settings page", "../event-settings-page.tsx"],
     ["the settings shell", "./settings-shell.tsx"],
   ])("gives every class %s renders a rule in globals.css", (_label, path) => {
     const missing = renderedClasses(path).filter((name) => !hasRule(name));

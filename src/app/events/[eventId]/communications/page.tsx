@@ -4,10 +4,8 @@ import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { getDeliverabilityByDomain, listLog, listReminderRules, listSuppressions, listTemplates } from "@/features/comms";
-import { CommunicationsPage } from "@/features/comms/communications-page";
 import { CommsAdminPage, type CommsTab } from "@/features/comms/index.client";
 import { eventIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Communications" };
 export const dynamic = "force-dynamic";
@@ -27,10 +25,6 @@ export default async function Page({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { eventId: rawEventId } = await params;
-  // The credential-free demo has no database to read; everywhere else this is
-  // the event's real templates, reminder ladder and comms log.
-  if (isCredentialFreeLocalDemo()) return <CommunicationsPage />;
-
   const eventId = eventIdSchema.parse(rawEventId);
   await requireAdmin(eventId, "organizer");
 

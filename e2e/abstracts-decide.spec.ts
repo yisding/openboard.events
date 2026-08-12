@@ -30,8 +30,8 @@ test.describe("abstracts-decide", () => {
       await loginAsAdmin(page);
       await page.goto(ABSTRACTS);
 
-      await test.step("tab counts match submission_status_counts_v", async () => {
-        // The view is the contract (M03), the tabs are the claim. Reading both
+      await test.step("filter counts match submission_status_counts_v", async () => {
+        // The view is the contract (M03), the filters are the claim. Reading both
         // and comparing is the only way to catch the class of bug where a join
         // doubles a count — #37 was exactly that.
         const rows = await queryRows<{ status: string; n: number }>(
@@ -42,10 +42,10 @@ test.describe("abstracts-decide", () => {
         const total = [...expected.values()].reduce((sum, n) => sum + n, 0);
         expect(total, "the seeded event must have submissions to count").toBeGreaterThan(0);
 
-        const tabs = page.locator(".abstract-status-tabs [role='tab']");
+        const filters = page.getByRole("group", { name: "Filter abstracts by status" });
         const labelled = async (label: string) => {
-          const text = await tabs.filter({ hasText: label }).first().innerText();
-          return Number(text.replace(/[^\d]/g, ""));
+          const button = filters.getByRole("button", { name: new RegExp(`^${label}\\b`) });
+          return Number(await button.locator('[aria-hidden="true"]').innerText());
         };
         expect(await labelled("All")).toBe(total);
         expect(await labelled("Accepted")).toBe(expected.get("accepted") ?? 0);

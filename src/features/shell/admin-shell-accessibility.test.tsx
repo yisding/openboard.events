@@ -34,7 +34,6 @@ const ADMIN_CHILD_VIEWS = [
   "../comms/components/comms-admin-page.tsx",
   "../dashboard/components/DashboardTabs.tsx",
   "../events/components/settings-shell.tsx",
-  "../events/event-settings-page.tsx",
   "../forms/form-builder.tsx",
   "../portal/components/speakers-admin/speaker-detail-view.tsx",
   "../portal/components/speakers-admin/speakers-admin-view.tsx",

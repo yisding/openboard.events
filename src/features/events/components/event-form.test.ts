@@ -1,7 +1,8 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { EventForm } from "./event-form";
+import { AppError } from "@/shared/lib/errors";
+import { EventForm, eventCreateOutcomeUnknown } from "./event-form";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -26,5 +27,11 @@ describe("EventForm accessibility", () => {
     expect(html).toContain('id="event-starts-at"');
     expect(html).toContain('id="event-ends-at"');
     expect(html).toContain('type="submit"');
+  });
+
+  it("locks ambiguous retries but leaves definite validation failures editable", () => {
+    expect(eventCreateOutcomeUnknown(new TypeError("response lost"))).toBe(true);
+    expect(eventCreateOutcomeUnknown(new AppError("INTERNAL", "database unavailable"))).toBe(true);
+    expect(eventCreateOutcomeUnknown(new AppError("CONFLICT", "slug is already used"))).toBe(false);
   });
 });

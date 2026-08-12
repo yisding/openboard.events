@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
@@ -7,17 +7,12 @@ import { requireAdmin } from "@/features/auth";
 import { getSpeakerDetail, getSpeakerRosterExtras } from "@/features/portal";
 import { SpeakerDetailView } from "@/features/portal/components/speakers-admin/speaker-detail-view";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Speaker" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ eventId: string; contactId: string }> }) {
   const { eventId: rawEventId, contactId: rawContactId } = await params;
-
-  // The credential-free demo has no database to read; its speaker view is
-  // still the drawer on the list page.
-  if (isCredentialFreeLocalDemo()) redirect(`/events/${rawEventId}/speakers?contactId=${encodeURIComponent(rawContactId)}`);
 
   const eventId = eventIdSchema.parse(rawEventId);
   const parsedContactId = contactIdSchema.safeParse(rawContactId);

@@ -15,6 +15,7 @@ import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
@@ -56,6 +57,7 @@ export function SubmissionDrawer({
   canEdit = false,
   onClose,
   nav,
+  onBusyChange,
 }: {
   eventId: string;
   submissionId: string;
@@ -65,6 +67,8 @@ export function SubmissionDrawer({
   onClose: () => void;
   /** M57 — keyboard/click next-prev across the table's current rows. */
   nav?: { index: number; total: number; itemLabel?: string | undefined; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
+  /** Prevent the parent keyboard flow from leaving while this drawer is saving. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -99,6 +103,9 @@ export function SubmissionDrawer({
     setDetail(null);
     setError("");
     setSaveError("");
+    setValues(null);
+    setOriginal(null);
+    setRowVersion(null);
     setBusy(false);
     setReloading(false);
   }, [eventId, submissionId]);
@@ -133,6 +140,14 @@ export function SubmissionDrawer({
 
   const patch = values && original ? toPatch(values, original) : {};
   const dirty = Object.keys(patch).length > 0;
+  const interactionLocked = busy || reloading;
+  useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    onBusyChange?.(interactionLocked);
+  }, [interactionLocked, onBusyChange]);
+
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
   async function save() {
     if (!values || !original || rowVersion === null) return;
