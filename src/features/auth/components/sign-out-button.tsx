@@ -2,6 +2,7 @@
 
 import { LogOut } from "lucide-react";
 import { useState } from "react";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 
 export function SignOutButton({ kind, eventSlug, compact = false }: {
@@ -10,6 +11,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
   compact?: boolean;
 }) {
   const { toast } = useToast();
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
   const [busy, setBusy] = useState(false);
 
   async function signOut() {
@@ -22,6 +24,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
         body: kind === "admin" ? "{}" : JSON.stringify({ eventSlug }),
       });
       if (!response.ok) throw new Error("sign-out refused");
+      allowNextNavigation();
       window.location.assign(kind === "admin" ? "/login" : `/portal/${encodeURIComponent(eventSlug ?? "")}/login`);
     } catch {
       setBusy(false);
@@ -36,7 +39,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
       aria-label={compact ? "Sign out" : undefined}
       title={compact ? "Sign out" : undefined}
       disabled={busy}
-      onClick={() => void signOut()}
+      onClick={() => runGuarded(() => { void signOut(); })}
     >
       <LogOut size={compact ? 15 : 14} aria-hidden />
       {!compact && (busy ? "Signing out…" : "Sign out")}

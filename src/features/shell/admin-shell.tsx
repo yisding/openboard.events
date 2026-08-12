@@ -11,6 +11,7 @@ import { CommandPalette } from "@/features/shell/components/command-palette";
 import { EventSwitcher } from "@/features/events/components/event-switcher";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 import type { EventId, MemberRole } from "@/shared/contracts";
+import { UnsavedWorkGuardProvider } from "@/shared/ui/app/unsaved-work-guard";
 
 type NavigationGroup = { label: string; items: Array<{ label: string; href: string; icon: LucideIcon }> };
 
@@ -136,7 +137,7 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ch
   const accountName = user?.name.trim() || user?.email || "Maya Lin";
   const accountInitials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "ML";
   const mobileNavigation = adminMobileNavigationState(isMobile, open);
-  return <div className="app-shell">
+  return <UnsavedWorkGuardProvider><div className="app-shell">
     <button ref={menuButtonRef} type="button" className="mobile-menu" aria-label="Open navigation" aria-expanded={open} aria-controls="admin-navigation" onClick={() => setOpen(true)}><Menu size={20} /></button>
     <aside ref={sidebarRef} id="admin-navigation" className={`admin-sidebar ${open ? "open" : ""}`} aria-hidden={mobileNavigation.sidebarHidden || undefined} inert={mobileNavigation.sidebarHidden || undefined}>
       <div className="sidebar-brand"><Brand /><button ref={closeButtonRef} type="button" className="mobile-close" aria-label="Close navigation" onClick={closeMenu}><X size={18} /></button></div>
@@ -150,5 +151,5 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ch
     </aside>
     {open && <button type="button" tabIndex={-1} aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}
     <section className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><CommandPalette eventId={event.id} base={base} role={role} />{!serverEvent && <span className="save-indicator"><Sparkles size={14} /> Demo workspace</span>}</div></header><div className="app-content">{children}</div></section>
-  </div>;
+  </div></UnsavedWorkGuardProvider>;
 }
