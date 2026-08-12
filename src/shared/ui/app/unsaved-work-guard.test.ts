@@ -10,6 +10,7 @@ describe("shell unsaved-work guard wiring", () => {
     expect(source).toContain('globalThis.addEventListener("beforeunload", warnBeforeUnload)');
     expect(source).toContain("setPending((current) => current ?? { confirm: action");
     expect(source).toContain("allowNextRef.current = Boolean(action)");
+    expect(source).toContain("if (allowNextUnloadRef.current)");
   });
 
   it("guards sign-out before the authentication request and mounts at the event shell", () => {
@@ -19,6 +20,7 @@ describe("shell unsaved-work guard wiring", () => {
     expect(signOut).toContain('onClick={() => runGuarded(() => { void signOut(); })}');
     expect(signOut.indexOf("runGuarded")).toBeLessThan(signOut.indexOf('fetch(kind === "admin"'));
     expect(signOut).toContain("allowNextNavigation(() => {");
+    expect(signOut).toContain("{ hardUnload: true }");
     expect(shell).toContain("<UnsavedWorkGuardProvider><div className=\"app-shell\">");
   });
 });

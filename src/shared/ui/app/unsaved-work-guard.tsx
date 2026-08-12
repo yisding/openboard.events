@@ -7,7 +7,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 type GuardContext = {
   register: (token: symbol, active: boolean) => void;
   runGuarded: (action: () => void) => void;
-  allowNextNavigation: (action?: () => void) => void;
+  allowNextNavigation: (action?: () => void, options?: { hardUnload?: boolean }) => void;
 };
 
 const GuardContext = createContext<GuardContext>({
@@ -28,7 +28,6 @@ type NavigationEventLike = Event & {
 type NavigationTarget = EventTarget & { addEventListener: EventTarget["addEventListener"]; removeEventListener: EventTarget["removeEventListener"] };
 
 const HISTORY_GUARD_MARKER = "__openboardUnsavedWork";
-const HISTORY_GUARD_ACTIVE = "__openboardUnsavedWorkActive";
 
 type HistoryFallback = { leave: (action?: () => void) => void };
 
@@ -38,6 +37,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   const [guardCount, setGuardCount] = useState(0);
   const [pending, setPending] = useState<PendingDecision | null>(null);
   const allowNextRef = useRef(false);
+  const allowNextUnloadRef = useRef(false);
   const historyFallbackRef = useRef<HistoryFallback | null>(null);
   const hasUnsavedWork = guardCount > 0;
 
@@ -47,14 +47,21 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     setGuardCount(guardsRef.current.size);
   }, []);
 
-  const allowNextNavigation = useCallback((action?: () => void) => {
+  const allowNextNavigation = useCallback((action?: () => void, options?: { hardUnload?: boolean }) => {
+    allowNextUnloadRef.current = options?.hardUnload === true;
     const fallback = historyFallbackRef.current;
     if (fallback && action) {
       fallback.leave(action);
       return;
     }
     allowNextRef.current = true;
-    action?.();
+    try {
+      action?.();
+    } catch (error) {
+      allowNextRef.current = false;
+      allowNextUnloadRef.current = false;
+      throw error;
+    }
   }, []);
 
   const runGuarded = useCallback((action: () => void) => {
@@ -72,6 +79,10 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     if (!hasUnsavedWork) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowNextUnloadRef.current) {
+        allowNextUnloadRef.current = false;
+        return;
+      }
       if (allowNextRef.current) return;
       event.preventDefault();
       event.returnValue = "";
@@ -81,7 +92,10 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   }, [hasUnsavedWork]);
 
   useEffect(() => {
-    if (!hasUnsavedWork) allowNextRef.current = false;
+    if (!hasUnsavedWork) {
+      allowNextRef.current = false;
+      allowNextUnloadRef.current = false;
+    }
   }, [hasUnsavedWork]);
 
   useEffect(() => {
@@ -94,14 +108,9 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       const markerState = typeof previousState === "object" && previousState !== null
         ? { ...previousState, [HISTORY_GUARD_MARKER]: marker }
         : { [HISTORY_GUARD_MARKER]: marker };
-      const activeState = typeof previousState === "object" && previousState !== null
-        ? { ...previousState, [HISTORY_GUARD_ACTIVE]: marker }
-        : { [HISTORY_GUARD_ACTIVE]: marker };
       window.history.replaceState(markerState, "", currentUrl);
-      window.history.pushState(activeState, "", currentUrl);
       let restoringGuard = false;
       let restorationForwardSteps = 0;
-      let traversalStartedAtMarker = false;
       let active = true;
       const leave = (action?: () => void) => {
         if (!active) {
@@ -119,11 +128,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
           performAction();
         };
         const state = window.history.state as Record<string, unknown> | null;
-        if (state?.[HISTORY_GUARD_ACTIVE] === marker) {
-          allowNextRef.current = true;
-          globalThis.addEventListener("popstate", finish, { once: true });
-          window.history.back();
-        } else if (state?.[HISTORY_GUARD_MARKER] === marker) {
+        if (state?.[HISTORY_GUARD_MARKER] === marker) {
           finish();
         } else {
           performAction();
@@ -142,12 +147,12 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         const state = event.state as Record<string, unknown> | null;
         if (restoringGuard) {
           event.stopImmediatePropagation();
-          if (state?.[HISTORY_GUARD_ACTIVE] !== marker) {
+          if (state?.[HISTORY_GUARD_MARKER] !== marker) {
             restoreGuard();
             return;
           }
           restoringGuard = false;
-          const backSteps = traversalStartedAtMarker ? 1 : Math.max(1, restorationForwardSteps - 1);
+          const backSteps = Math.max(1, restorationForwardSteps);
           setPending((current) => current ?? {
             confirm: () => leave(() => {
               allowNextRef.current = true;
@@ -157,11 +162,10 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
           });
           return;
         }
-        if (state?.[HISTORY_GUARD_ACTIVE] === marker) return;
+        if (state?.[HISTORY_GUARD_MARKER] === marker) return;
         event.stopImmediatePropagation();
         restoringGuard = true;
         restorationForwardSteps = 0;
-        traversalStartedAtMarker = state?.[HISTORY_GUARD_MARKER] === marker;
         restoreGuard();
       };
       globalThis.addEventListener("popstate", guardHistory, { capture: true });

@@ -53,14 +53,15 @@ describe("speaker profile unsaved-work guard", () => {
     expect(demo).toContain("setSavedText(currentText)");
     expect(guard).toContain('globalThis.addEventListener("popstate", guardHistory, { capture: true })');
     expect(guard).toContain("window.history.replaceState(markerState");
-    expect(guard).toContain("window.history.pushState(activeState");
+    expect(guard).not.toContain("window.history.pushState");
     expect(guard).toContain("window.history.replaceState(previousState");
     expect(guard).toContain("fallback.leave(action)");
     expect(guard).toContain("event.stopImmediatePropagation()");
-    expect(guard).toContain("restorationForwardSteps - 1");
+    expect(guard).toContain("Math.max(1, restorationForwardSteps)");
     expect(guard).toContain("window.history.go(-backSteps)");
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
     expect(banner).toContain("data-unsaved-guard-owned");
+    expect(banner).toContain("event.metaKey || event.ctrlKey");
     expect(banner).toContain("onExit?.()");
   });
 });

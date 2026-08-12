@@ -9,6 +9,7 @@ export function ImpersonationBanner({ name, email, backHref, onExit }: { name: s
   const router = useRouter();
   const { runGuarded, allowNextNavigation } = useGuardedAction();
   return <div className="impersonation-banner"><Eye size={14} /><span>Viewing as <b>{name}</b> ({email})</span><Link href={backHref} data-unsaved-guard-owned onClick={(event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     event.preventDefault();
     runGuarded(() => allowNextNavigation(() => {
       onExit?.();

@@ -26,7 +26,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
       if (!response.ok) throw new Error("sign-out refused");
       allowNextNavigation(() => {
         window.location.assign(kind === "admin" ? "/login" : `/portal/${encodeURIComponent(eventSlug ?? "")}/login`);
-      });
+      }, { hardUnload: true });
     } catch {
       setBusy(false);
       toast("Could not sign out — check your connection and try again", { kind: "error" });
