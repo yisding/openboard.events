@@ -61,7 +61,7 @@ the real database-backed surfaces.
    account through public signup, waits for Resend to report the exact outbox
    message delivered to a controlled allowlisted address, follows its real
    verification link, signs in, names and provisions the organization, creates
-   an event and vocabulary, publishes a form, and opens the returned link in an
+   an event and optional tracks, publishes a form, and opens the returned link in an
    unauthenticated browser. The preview mailbox variable is configured; the
    remaining deployment action is to install the protected, read-capable
    `E2E_RESEND_API_KEY` secret and record the first deployed green run before

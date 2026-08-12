@@ -12,6 +12,7 @@ describe("verified signup handoff", () => {
     }));
 
     expect(html.match(/Continue to sign in/g)).toHaveLength(1);
+    expect(html).toContain('href="/login?next=%2Forganizations"');
     expect(html).not.toContain("Back to sign in");
   });
 

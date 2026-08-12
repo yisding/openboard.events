@@ -137,7 +137,7 @@ test.describe("self-service signup to first value", () => {
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
-      expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f-]{36}$/);
+      expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     });
 
     await test.step("an unauthenticated visitor can open the returned CFP", async () => {

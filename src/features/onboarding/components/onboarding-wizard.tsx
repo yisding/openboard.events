@@ -198,9 +198,9 @@ export function OnboardingWizard({
   async function createEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
     if (!startsAt || !endsAt) {
-      return fail("Start and end date are both required", {
-        ...(startsAt ? {} : { startsAt: "Start date and time is required" }),
-        ...(endsAt ? {} : { endsAt: "End date and time is required" }),
+      return fail("Both start and end dates are required", {
+        ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
+        ...(endsAt ? {} : { endsAt: "End date and time are required" }),
       });
     }
     setSaving(true);
@@ -409,7 +409,7 @@ export function OnboardingWizard({
           </Field>
           <footer className="cfp-actions">
             <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}

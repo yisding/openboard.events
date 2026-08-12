@@ -41,6 +41,10 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true');
     expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
   });
+
+  it("does not advance while a custom track is still being saved", () => {
+    expect(wizard).toContain("disabled={advancing || addingTrack}");
+  });
 });
 
 describe("OnboardingWizard event step accessibility", () => {
