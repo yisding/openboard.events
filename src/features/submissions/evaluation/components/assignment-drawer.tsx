@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCode } from "@/features/submissions/index.client";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -65,7 +65,11 @@ export function AssignmentDrawer({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const targetKey = `${eventId}:${plan.id}`;
+  const currentTargetRef = useRef(targetKey);
+  currentTargetRef.current = targetKey;
   const [submissions, setSubmissions] = useState<AssignableSubmission[] | null>(null);
+  const [loadedTarget, setLoadedTarget] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reviewerIds, setReviewerIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -77,7 +81,14 @@ export function AssignmentDrawer({
   useEffect(() => {
     let cancelled = false;
     setSubmissions(null);
+    setLoadedTarget(null);
     setLoadError("");
+    setReviewerIds([]);
+    setSelected([]);
+    setTrackFilter("");
+    setMode("add");
+    setBusy(false);
+    setConfirmEmptyReplace(false);
     fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: { submissions: AssignableSubmission[] }; error?: { message?: string } } | null;
@@ -88,6 +99,7 @@ export function AssignmentDrawer({
         } else {
           setLoadError("");
           setSubmissions(payload.data.submissions);
+          setLoadedTarget(targetKey);
         }
       })
       .catch(() => {
@@ -97,7 +109,7 @@ export function AssignmentDrawer({
         }
       });
     return () => { cancelled = true; };
-  }, [eventId, plan.id]);
+  }, [eventId, plan.id, targetKey]);
 
   const tracks = useMemo(() => {
     const seen = new Map<string, string>();
@@ -118,7 +130,7 @@ export function AssignmentDrawer({
 
   const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
   const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
-  const assignmentsLoaded = submissions !== null;
+  const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
   const controlsDisabled = !assignmentsLoaded || Boolean(loadError) || busy;
   const canAssign = canSubmitAssignments({
     loaded: assignmentsLoaded,
@@ -131,10 +143,11 @@ export function AssignmentDrawer({
   });
 
   async function saveAssignments() {
-    if (!submissions || loadError) {
+    if (!submissions || loadError || loadedTarget !== targetKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return false;
     }
+    const saveTarget = targetKey;
     setBusy(true);
     try {
       const result = await evaluationRequest<{ assigned: number; removed: number }>(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
@@ -142,6 +155,7 @@ export function AssignmentDrawer({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reviewerUserIds: reviewerIds, submissionIds: selected, mode }),
       }, "Those assignments did not save");
+      if (currentTargetRef.current !== saveTarget) return result.ok;
       if (!result.ok) {
         toast(evaluationFailureMessage(result), { kind: "error" });
         return false;
@@ -152,15 +166,17 @@ export function AssignmentDrawer({
       router.refresh();
       return true;
     } catch {
-      toast("Those assignments did not save — check your connection and try again", { kind: "error" });
+      if (currentTargetRef.current === saveTarget) {
+        toast("Those assignments did not save — check your connection and try again", { kind: "error" });
+      }
       return false;
     } finally {
-      setBusy(false);
+      if (currentTargetRef.current === saveTarget) setBusy(false);
     }
   }
 
   async function assign() {
-    if (!submissions || loadError) {
+    if (!submissions || loadError || loadedTarget !== targetKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return;
     }
@@ -249,6 +265,7 @@ export function AssignmentDrawer({
       </div>
       </Drawer>
       <ConfirmDialog
+        key={targetKey}
         open={confirmEmptyReplace}
         title="Empty the selected reviewer queues?"
         body={`This removes ${currentAssignmentCount} live assignment${currentAssignmentCount === 1 ? "" : "s"} from ${reviewerNames}. Their queues will be empty.`}
