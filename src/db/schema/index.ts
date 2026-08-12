@@ -12,6 +12,7 @@ export * from "./evaluation";
 export * from "./forms";
 export * from "./organizations";
 export * from "./operations";
+export * from "./onboarding";
 export * from "./portal";
 export * from "./speaker-roster";
 export * from "./submissions";

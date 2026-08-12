@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { organizationIdSchema } from "@/shared/contracts";
+import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard } from "./onboarding-wizard";
 
@@ -12,9 +12,28 @@ vi.mock("@/shared/ui/toast", () => ({
 Object.assign(globalThis, { React });
 
 describe("OnboardingWizard event step accessibility", () => {
+  const organizationId = organizationIdSchema.parse("00000000-0000-4000-8000-000000000001");
+  const event = eventDtoSchema.parse({
+    id: "10000000-0000-4000-8000-000000000001",
+    name: "Resumable Conf",
+    slug: "resumable-conf",
+    eventType: "conference",
+    websiteUrl: null,
+    location: null,
+    physicalAddress: null,
+    timezone: "America/Los_Angeles",
+    startsAt: "2026-09-15T16:00:00.000Z",
+    endsAt: "2026-09-17T01:00:00.000Z",
+    theme: null,
+    logoFileId: null,
+    backgroundFileId: null,
+    submissionCapPerUser: 3,
+    rowVersion: 1,
+  });
+
   it("uses a keyboard-submittable form with required and described controls", () => {
     const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
-      organizationId: organizationIdSchema.parse("00000000-0000-4000-8000-000000000001"),
+      organizationId,
       organizationName: "Test organization",
       hasExistingEvents: false,
     }));
@@ -29,6 +48,54 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('type="submit"');
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('class="sr-only">Step 1: Event basics</h2>');
+  });
+
+  it("resumes at vocabulary with the server-loaded event and tracks", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "vocabulary",
+        event,
+        tracks: [trackDtoSchema.parse({
+          id: "20000000-0000-4000-8000-000000000001",
+          name: "AI",
+          color: "#6958d7",
+          description: null,
+          sortOrder: 0,
+        })],
+        form: null,
+      },
+    }));
+
+    expect(html).toContain('class="sr-only">Step 2: Vocabulary</h2>');
+    expect(html).toContain("Add a few tracks");
+    expect(html).toContain("AI");
+    expect(html).not.toContain('id="onboarding-event-name"');
+  });
+
+  it("resumes at the form and can finish an already-published form", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      initialState: {
+        step: "form",
+        event,
+        tracks: [],
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "open",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+        },
+      },
+    }));
+
+    expect(html).toContain('class="sr-only">Step 3: First form</h2>');
+    expect(html).toContain('value="Speaker applications"');
+    expect(html).toContain("Finish setup");
   });
 
   it("renders and focuses the new heading after a step replacement", () => {

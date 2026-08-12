@@ -4,7 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
-import { OnboardingWizard } from "@/features/onboarding/components/onboarding-wizard";
+import { getEvent, listTracks } from "@/features/events";
+import { getFormForBuilder, listForms } from "@/features/forms";
+import { getActiveOrganizationOnboarding } from "@/features/onboarding";
+import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
@@ -40,14 +43,44 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     notFound();
   }
 
-  const [organization, eventRows] = await Promise.all([
+  const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
     listOrganizationEvents(organizationId),
+    getActiveOrganizationOnboarding(organizationId),
   ]);
   if (!organization) notFound();
 
+  let initialState: OnboardingResumeState | null = null;
+  if (progress) {
+    const [event, tracks, forms] = await Promise.all([
+      getEvent(progress.eventId),
+      listTracks(progress.eventId),
+      listForms(progress.eventId),
+    ]);
+    if (event) {
+      const firstForm = forms[0];
+      const form = firstForm ? await getFormForBuilder(progress.eventId, firstForm.id, "cfp") : null;
+      initialState = {
+        event,
+        tracks,
+        step: form ? "form" : progress.step,
+        form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
+      };
+    }
+  }
   return <>
-    <PageHeader eyebrow="ORGANIZATION" title="Set up your event" description="Event basics, vocabulary, then your first call for speakers form." />
-    <OnboardingWizard organizationId={organizationId} organizationName={organization.name} hasExistingEvents={eventRows.length > 0} />
+    <PageHeader
+      eyebrow="ORGANIZATION"
+      title={initialState ? `Finish setting up ${initialState.event.name}` : "Set up your event"}
+      description={initialState
+        ? "Your progress was saved. Continue where you left off."
+        : "Event basics, vocabulary, then your first call for speakers form."}
+    />
+    <OnboardingWizard
+      organizationId={organizationId}
+      organizationName={organization.name}
+      hasExistingEvents={eventRows.length > 0}
+      initialState={initialState}
+    />
   </>;
 }

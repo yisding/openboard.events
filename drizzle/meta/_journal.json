@@ -148,6 +148,13 @@
       "when": 1786249080000,
       "tag": "0020_billing_catalog_reassert",
       "breakpoints": false
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786249140000,
+      "tag": "0021_onboarding_progress",
+      "breakpoints": false
     }
   ]
 }

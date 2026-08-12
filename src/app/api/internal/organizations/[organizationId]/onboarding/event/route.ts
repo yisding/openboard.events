@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { organizationAuth } from "@/features/auth";
 import { createEventInputSchema } from "@/features/events";
-import { provisionOrganizationEvent } from "@/features/onboarding";
+import { onboardingProgressUpdateSchema, provisionOrganizationEvent, updateOrganizationOnboarding } from "@/features/onboarding";
 import { organizationIdSchema, userIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
@@ -28,8 +28,18 @@ const create = defineHandler({
     provisionOrganizationEvent(userIdSchema.parse(session?.actorId), requireOrganizationId(params), input),
 });
 
+const updateProgress = defineHandler({
+  auth: organizationAuth(),
+  input: onboardingProgressUpdateSchema,
+  handler: ({ input, params }) => updateOrganizationOnboarding(requireOrganizationId(params), input),
+});
+
 type Route = { params: Promise<{ organizationId: string }> };
 
 export function POST(request: NextRequest, route: Route): Promise<Response> {
   return create(request, route);
+}
+
+export function PATCH(request: NextRequest, route: Route): Promise<Response> {
+  return updateProgress(request, route);
 }

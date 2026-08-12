@@ -6,6 +6,7 @@ import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
+import { getActiveOrganizationOnboardingIn, updateOrganizationOnboardingIn } from "./progress";
 import { provisionOrganizationEventIn } from "./provisioning";
 
 // Same migration set `features/events/server/mutations.test.ts` needs for
@@ -23,6 +24,7 @@ const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_u
 // and `provisionOrganizationEventIn` now calls `assertOrganizationCanCreateEventIn`
 // / `incrementOrganizationUsageIn`, so this suite needs the billing tables too.
 const migrationBilling = readFileSync(new URL("../../../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
+const migrationOnboardingProgress = readFileSync(new URL("../../../../drizzle/0021_onboarding_progress.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof provisionOrganizationEventIn>[3]> = {}) {
   return {
@@ -64,6 +66,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationBilling);
+    await pglite.exec(migrationOnboardingProgress);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     const [user] = await database.insert(schema.users).values({ email: "founder@test.dev", name: "Founder" }).returning();
@@ -104,6 +107,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     const input = baseInput({ id: stableId, name: "Retry-safe event", slug: "retry-safe-event" });
 
     const first = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
+    await updateOrganizationOnboardingIn(database, organizationId, { eventId: stableId, step: "form" });
     const retry = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
     expect(retry.id).toBe(first.id);
     expect(await getEventOrganizationIn(database, stableId)).toBe(organizationId);
@@ -115,6 +119,55 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     );
     expect(rows.rows[0]?.n).toBe(1);
     expect(afterUsage.rows[0]?.count ?? 0).toBe((beforeUsage.rows[0]?.count ?? 0) + 1);
+    await expect(getActiveOrganizationOnboardingIn(database, organizationId)).resolves.toEqual({
+      eventId: stableId,
+      step: "form",
+    });
+  });
+
+  it("keeps resumable progress tenant-scoped, monotonic, and replay-safe", async () => {
+    const [user] = await database.insert(schema.users).values({
+      email: "resume-founder@test.dev",
+      name: "Resume Founder",
+    }).returning();
+    const resumeUserId = userIdSchema.parse(user?.id);
+    const resumeOrg = await createOrganizationIn(database, resumeUserId, {
+      name: "Resume Org",
+      slug: "resume-org",
+    });
+    const event = await provisionOrganizationEventIn(
+      database,
+      resumeUserId,
+      resumeOrg.id,
+      baseInput({ name: "Resume Event", slug: "resume-event" }),
+    );
+
+    await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toEqual({
+      eventId: event.id,
+      step: "vocabulary",
+    });
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "form",
+    })).resolves.toMatchObject({ step: "form" });
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "vocabulary",
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(updateOrganizationOnboardingIn(database, organizationId, {
+      eventId: event.id,
+      step: "complete",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "complete",
+    })).resolves.toMatchObject({ step: "complete" });
+    await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "complete",
+    })).resolves.toMatchObject({ step: "complete" });
   });
 
   it("scopes a second organization's events independently", async () => {

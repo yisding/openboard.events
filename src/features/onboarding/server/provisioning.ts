@@ -4,6 +4,7 @@ import { events } from "@/db/schema";
 import { assertOrganizationCanCreateEventIn, incrementOrganizationUsageIn } from "@/features/billing";
 import { createEventIn, type CreateEventInput } from "@/features/events";
 import type { EventDTO, OrganizationId, UserId } from "@/shared/contracts";
+import { startOrganizationOnboardingIn } from "./progress";
 
 /**
  * Self-serve onboarding's organization-aware event create. The tenant is
@@ -28,12 +29,17 @@ export async function provisionOrganizationEventIn(
       eq(events.id, input.id),
       eq(events.organizationId, organizationId),
     )).limit(1);
-    if (retry) return createEventIn(dbOrTx, actorUserId, input, organizationId);
+    if (retry) {
+      const event = await createEventIn(dbOrTx, actorUserId, input, organizationId);
+      await startOrganizationOnboardingIn(dbOrTx, organizationId, event.id);
+      return event;
+    }
   }
   await assertOrganizationCanCreateEventIn(dbOrTx, organizationId);
   // The organization is part of the INSERT itself. There is no intermediate
   // default-tenant row to strand if a later seed/metering call fails.
   const event = await createEventIn(dbOrTx, actorUserId, input, organizationId);
+  await startOrganizationOnboardingIn(dbOrTx, organizationId, event.id);
   await incrementOrganizationUsageIn(dbOrTx, organizationId, "events");
   return event;
 }

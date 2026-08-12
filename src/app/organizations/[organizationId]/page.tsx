@@ -9,6 +9,7 @@ import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
+import { getActiveOrganizationOnboarding } from "@/features/onboarding";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type EventDTO } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
@@ -46,11 +47,13 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     notFound();
   }
 
-  const organization = await getOrganization(organizationId);
+  const [organization, eventRows, progress] = await Promise.all([
+    getOrganization(organizationId),
+    listOrganizationEvents(organizationId),
+    getActiveOrganizationOnboarding(organizationId),
+  ]);
   if (!organization) notFound();
-
-  const eventRows = await listOrganizationEvents(organizationId);
-  if (eventRows.length === 0) redirect(`/organizations/${organizationId}/onboarding`);
+  if (eventRows.length === 0 || progress) redirect(`/organizations/${organizationId}/onboarding`);
 
   const events = (await Promise.all(eventRows.map((row) => getEvent(row.id))))
     .filter((event): event is EventDTO => event !== null);
