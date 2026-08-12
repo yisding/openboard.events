@@ -96,13 +96,22 @@ export const getActiveOrganizationOnboardingForUser = (
  */
 export async function updateOrganizationOnboardingIn(
   dbOrTx: DbOrTx,
+  actorUserId: UserId,
   organizationId: OrganizationId,
   input: OnboardingProgressUpdate,
 ): Promise<OnboardingProgressUpdate> {
-  const [ownedEvent] = await dbOrTx.select({ id: events.id }).from(events).where(and(
-    eq(events.id, input.eventId),
-    eq(events.organizationId, organizationId),
-  )).limit(1);
+  const [ownedEvent] = await dbOrTx.select({ id: events.id })
+    .from(events)
+    .innerJoin(eventMembers, and(
+      eq(eventMembers.eventId, events.id),
+      eq(eventMembers.userId, actorUserId),
+      inArray(eventMembers.role, ["owner", "organizer"]),
+    ))
+    .where(and(
+      eq(events.id, input.eventId),
+      eq(events.organizationId, organizationId),
+    ))
+    .limit(1);
   if (!ownedEvent) throw new AppError("NOT_FOUND", "Event not found");
 
   const [current] = await dbOrTx.select({
@@ -206,6 +215,7 @@ export async function updateOrganizationOnboardingIn(
 }
 
 export const updateOrganizationOnboarding = (
+  actorUserId: UserId,
   organizationId: OrganizationId,
   input: OnboardingProgressUpdate,
-): Promise<OnboardingProgressUpdate> => updateOrganizationOnboardingIn(db, organizationId, input);
+): Promise<OnboardingProgressUpdate> => updateOrganizationOnboardingIn(db, actorUserId, organizationId, input);

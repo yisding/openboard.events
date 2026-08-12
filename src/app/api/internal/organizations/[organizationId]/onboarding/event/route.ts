@@ -31,7 +31,11 @@ const create = defineHandler({
 const updateProgress = defineHandler({
   auth: organizationAuth(),
   input: onboardingProgressUpdateSchema,
-  handler: ({ input, params }) => updateOrganizationOnboarding(requireOrganizationId(params), input),
+  handler: ({ session, input, params }) => updateOrganizationOnboarding(
+    userIdSchema.parse(session?.actorId),
+    requireOrganizationId(params),
+    input,
+  ),
 });
 
 type Route = { params: Promise<{ organizationId: string }> };

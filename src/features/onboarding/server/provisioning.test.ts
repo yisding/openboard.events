@@ -107,7 +107,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     const input = baseInput({ id: stableId, name: "Retry-safe event", slug: "retry-safe-event" });
 
     const first = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
-    await updateOrganizationOnboardingIn(database, organizationId, { eventId: stableId, step: "form" });
+    await updateOrganizationOnboardingIn(database, actorUserId, organizationId, { eventId: stableId, step: "form" });
     const retry = await provisionOrganizationEventIn(database, actorUserId, organizationId, input);
     expect(retry.id).toBe(first.id);
     expect(await getEventOrganizationIn(database, stableId)).toBe(organizationId);
@@ -154,7 +154,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     ]).returning();
     const unrelatedFormId = formIdSchema.parse(unrelatedRow?.id);
     const onboardingFormId = formIdSchema.parse(onboardingRow?.id);
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "form",
       formId: onboardingFormId,
@@ -178,27 +178,31 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       eventId: event.id,
     });
     await expect(getActiveOrganizationOnboardingForUserIn(database, resumeOrg.id, collaboratorId)).resolves.toBeNull();
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, collaboratorId, resumeOrg.id, {
+      eventId: event.id,
+      step: "vocabulary",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "form",
       formId: unrelatedFormId,
     })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "vocabulary",
     })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(updateOrganizationOnboardingIn(database, organizationId, {
+    await expect(updateOrganizationOnboardingIn(database, actorUserId, organizationId, {
       eventId: event.id,
       step: "complete",
       formId: onboardingFormId,
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "complete",
       formId: unrelatedFormId,
     })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "complete",
       formId: onboardingFormId,
@@ -206,7 +210,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
     // A stale form-association replay and a delayed stable event-create replay
     // both preserve the completed tombstone instead of restarting setup.
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "form",
       formId: onboardingFormId,
@@ -222,7 +226,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       [event.id],
     );
     expect(tombstone.rows[0]).toEqual({ step: "complete", form_id: onboardingFormId });
-    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+    await expect(updateOrganizationOnboardingIn(database, resumeUserId, resumeOrg.id, {
       eventId: event.id,
       step: "complete",
       formId: onboardingFormId,
