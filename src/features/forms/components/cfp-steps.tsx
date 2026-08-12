@@ -194,8 +194,10 @@ export function abortCfpSubmit(lock: CfpSnapshotLock): void {
   lock.submitting = false;
 }
 
-export function lockStaleCfpSnapshot(lock: CfpSnapshotLock): void {
+export function lockStaleCfpSnapshot(lock: CfpSnapshotLock): boolean {
+  if (lock.submitted) return false;
   lock.versionStale = true;
+  return true;
 }
 
 export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmitFailure): void {
@@ -205,12 +207,13 @@ export function settleCfpSubmitFailure(lock: CfpSnapshotLock, failure: CfpSubmit
 
 export function settleCfpSubmitSuccess(lock: CfpSnapshotLock): void {
   lock.submitting = false;
+  lock.versionStale = false;
   lock.submitted = true;
 }
 
 export function cfpAutosaveDisposition(lock: CfpSnapshotLock): "save" | "defer" | "fail" | "discard" {
-  if (lock.versionStale) return "fail";
   if (lock.submitted) return "discard";
+  if (lock.versionStale) return "fail";
   if (lock.submitting) return "defer";
   return "save";
 }
@@ -256,7 +259,12 @@ export function scheduleCfpRecoveryFocus(
   return () => cancel(frame);
 }
 
-export function cfpStaleRecoveryState(failure: CfpSubmitFailure | null, unsavedEdits: boolean) {
+export function cfpStaleRecoveryState(
+  failure: CfpSubmitFailure | null,
+  unsavedEdits: boolean,
+  lock: Pick<CfpSnapshotLock, "submitted">,
+) {
+  if (lock.submitted) return null;
   return requiresCfpFormReload(failure) ? { failure, unsavedEdits } : null;
 }
 
@@ -312,10 +320,13 @@ export function saveCfpDraftWithRecovery(
   onStale: (failure: Extract<CfpSubmitFailure, { kind: "stale" }>) => void,
   wait?: (milliseconds: number) => Promise<void>,
 ): Promise<boolean> {
-  return saveWithRetry(save, onState, wait, (result) => {
+  return saveWithRetry(save, (state) => {
+    if (!lock.submitted) onState(state);
+  }, wait, (result) => {
+    if (lock.submitted) return;
     const failure = cfpSubmitFailure(result);
     if (!requiresCfpFormReload(failure)) return;
-    lockStaleCfpSnapshot(lock);
+    if (!lockStaleCfpSnapshot(lock)) return;
     onStale(failure);
   });
 }
@@ -649,12 +660,14 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       "success",
       (snapshotState) => autosave.current?.(snapshotState) ?? Promise.resolve(false),
     );
+    setSubmitFailure(null);
+    setStaleUnsavedEdits(false);
     setResult({ code: Number(sent.data.code) });
     setDraftId(null);
     setStep("done");
   }
 
-  const staleRecovery = cfpStaleRecoveryState(submitFailure, staleUnsavedEdits);
+  const staleRecovery = cfpStaleRecoveryState(submitFailure, staleUnsavedEdits, snapshotLock.current);
   if (staleRecovery) {
     return <CfpStaleRecovery {...staleRecovery} onReload={() => reloadUpdatedCfpForm()} />;
   }

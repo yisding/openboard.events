@@ -253,7 +253,7 @@ describe("CFP stale form recovery", () => {
     expect(states).toEqual(["saving", "failed"]);
     expect(lock).toEqual({ submitting: false, versionStale: true, submitted: false });
     expect(beginCfpSubmit(lock)).toBe(false);
-    const recovery = cfpStaleRecoveryState(onStale.mock.calls[0]?.[0] ?? null, true);
+    const recovery = cfpStaleRecoveryState(onStale.mock.calls[0]?.[0] ?? null, true, lock);
     expect(recovery).toMatchObject({ failure: { kind: "stale" }, unsavedEdits: true });
     if (!recovery) throw new Error("Expected stale recovery");
     const staleHtml = renderToStaticMarkup(React.createElement(CfpStaleRecovery, {
@@ -277,7 +277,46 @@ describe("CFP stale form recovery", () => {
 
     expect(lock.versionStale).toBe(false);
     expect(onStale).not.toHaveBeenCalled();
-    expect(cfpStaleRecoveryState(cfpSubmitFailure({ ok: false, data: {}, message: "Could not save" }), false)).toBeNull();
+    expect(cfpStaleRecoveryState(
+      cfpSubmitFailure({ ok: false, data: {}, message: "Could not save" }),
+      false,
+      lock,
+    )).toBeNull();
+  });
+
+  it("ignores an autosave stale response that arrives after submit succeeds", async () => {
+    const lock = { submitting: false, versionStale: false, submitted: false };
+    const states: AutosaveState[] = [];
+    const onStale = vi.fn();
+    let releaseSave: () => void = () => undefined;
+    const pendingSave = saveCfpDraftWithRecovery(
+      async () => {
+        await new Promise<void>((resolve) => { releaseSave = resolve; });
+        return { ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" };
+      },
+      lock,
+      (state) => states.push(state),
+      onStale,
+    );
+
+    expect(states).toEqual(["saving"]);
+    expect(beginCfpSubmit(lock)).toBe(true);
+    settleCfpSubmitSuccess(lock);
+    releaseSave();
+    await expect(pendingSave).resolves.toBe(false);
+
+    expect(lock).toEqual({ submitting: false, versionStale: false, submitted: true });
+    expect(cfpAutosaveDisposition(lock)).toBe("discard");
+    expect(onStale).not.toHaveBeenCalled();
+    expect(states).toEqual(["saving"]);
+    const lateStale = cfpSubmitFailure({ ok: false, data: {}, code: "FORM_VERSION_STALE", message: "Form changed" });
+    expect(cfpStaleRecoveryState(lateStale, true, lock)).toBeNull();
+  });
+
+  it("clears an earlier stale lock when submit success becomes authoritative", () => {
+    const lock = { submitting: true, versionStale: true, submitted: false };
+    settleCfpSubmitSuccess(lock);
+    expect(lock).toEqual({ submitting: false, versionStale: false, submitted: true });
   });
 
   it("keeps stale recovery locked through notice and step-navigation clears", () => {
