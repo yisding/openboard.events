@@ -172,10 +172,12 @@ async function rateLimitedPublicEmailPost(request: NextRequest, path: string): P
     : null;
   const policy = PUBLIC_EMAIL_PATHS.get(path);
   try {
-    if (policy && email && z.email().safeParse(email).success) {
+    if (policy) {
       const ip = clientIp(request);
       await checkRateLimit(db, { key: `auth-email:${path}:ip:${ip}`, limit: policy.ipLimit, windowMs: policy.windowMs });
-      await checkRateLimit(db, { key: `auth-email:${path}:email:${email}`, limit: policy.emailLimit, windowMs: policy.windowMs });
+      if (email && z.email().safeParse(email).success) {
+        await checkRateLimit(db, { key: `auth-email:${path}:email:${email}`, limit: policy.emailLimit, windowMs: policy.windowMs });
+      }
     }
     const response = await betterAuthHandler(new Request(request.url, { method: "POST", headers: request.headers, body: raw }));
     if (response.ok) nudgeAuthMail();

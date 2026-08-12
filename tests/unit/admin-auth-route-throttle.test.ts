@@ -140,6 +140,23 @@ describe("POST /api/auth/[...action] throttling", () => {
     expect(nudgeAdminAuthEmailOutbox).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["sign-up/email", ["sign-up", "email"]],
+    ["send-verification-email", ["send-verification-email"]],
+    ["request-password-reset", ["request-password-reset"]],
+  ])("IP-limits malformed requests to %s before Better Auth validation", async (path, action) => {
+    const response = await post(action, { email: "not-an-email" });
+
+    expect(response.status).toBe(200);
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledWith(expect.anything(), {
+      key: `auth-email:${path}:ip:203.0.113.7`,
+      limit: path === "sign-up/email" ? 10 : 20,
+      windowMs: path === "sign-up/email" ? 3_600_000 : 600_000,
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the email-not-verified state on the stable sign-in contract", async () => {
     handler.mockImplementationOnce(async () => new Response(JSON.stringify({
       code: "EMAIL_NOT_VERIFIED",
