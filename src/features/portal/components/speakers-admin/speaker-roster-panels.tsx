@@ -2,12 +2,13 @@
 
 import { FileText, Mail, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SpeakerRosterExtras } from "@/features/portal";
-import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus } from "@/shared/contracts";
+import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus, type UnavailabilityIntervalInput } from "@/shared/contracts";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerStatusOptions } from "./speaker-status-options";
@@ -16,9 +17,73 @@ import { SpeakerStatusOptions } from "./speaker-status-options";
  * A window mid-edit. `DateTimePicker` reads and writes UTC instants in the
  * event's zone, so the draft holds instants too — there is no naive wall-clock
  * string anywhere between the roster and the contract. A side is null until the
- * organizer fills it, and a half-filled row is dropped on save.
+ * organizer fills it. Validation keeps incomplete rows in place rather than
+ * silently omitting them from the full-set replacement.
  */
-type UnavailabilityDraftRow = { startsAt: string | null; endsAt: string | null; reason?: string };
+export type UnavailabilityDraftRow = { startsAt: string | null; endsAt: string | null; reason?: string };
+export type UnavailabilityDraftErrors = Array<{ startsAt?: string; endsAt?: string; reason?: string }>;
+
+export function unavailabilityDraftFrom(extras: SpeakerRosterExtras): UnavailabilityDraftRow[] {
+  return extras.unavailability.map((row) => ({
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    ...(row.reason ? { reason: row.reason } : {}),
+  }));
+}
+
+export function isUnavailabilityDraftDirty(draft: UnavailabilityDraftRow[], baseline: UnavailabilityDraftRow[]): boolean {
+  const comparable = (rows: UnavailabilityDraftRow[]) => rows.map((row) => ({
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    reason: row.reason?.trim() ?? "",
+  }));
+  return JSON.stringify(comparable(draft)) !== JSON.stringify(comparable(baseline));
+}
+
+export function validateUnavailabilityDraft(draft: UnavailabilityDraftRow[]): {
+  errors: UnavailabilityDraftErrors;
+  intervals: UnavailabilityIntervalInput[] | null;
+} {
+  const errors: UnavailabilityDraftErrors = [];
+  const intervals: UnavailabilityIntervalInput[] = [];
+  draft.forEach((row) => {
+    const rowErrors: UnavailabilityDraftErrors[number] = {};
+    if (!row.startsAt) rowErrors.startsAt = "Choose a start time";
+    if (!row.endsAt) rowErrors.endsAt = "Choose an end time";
+    if (row.startsAt && row.endsAt && Date.parse(row.endsAt) <= Date.parse(row.startsAt)) {
+      rowErrors.endsAt = "End must be after start";
+    }
+    if ((row.reason?.trim().length ?? 0) > 200) rowErrors.reason = "Reason must be 200 characters or fewer";
+    errors.push(rowErrors);
+    if (Object.keys(rowErrors).length === 0 && row.startsAt && row.endsAt) {
+      intervals.push({
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
+        ...(row.reason?.trim() ? { reason: row.reason.trim() } : {}),
+      });
+    }
+  });
+  return { errors, intervals: errors.some((row) => Object.keys(row).length > 0) ? null : intervals };
+}
+
+export function logisticsValuesFrom(extras: SpeakerRosterExtras): Record<string, string> {
+  const values = Object.fromEntries(extras.fields.map((field) => [field.id, ""]));
+  for (const entry of extras.values) values[entry.fieldId] = entry.value;
+  return values;
+}
+
+export function mergeIncomingLogisticsValues(
+  current: Record<string, string>,
+  baseline: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(Object.keys(incoming).map((fieldId) => [
+    fieldId,
+    current[fieldId] !== undefined && current[fieldId] !== (baseline[fieldId] ?? "")
+      ? current[fieldId]
+      : incoming[fieldId] ?? "",
+  ]));
+}
 
 function bytesLabel(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -152,18 +217,62 @@ function AddLogisticsFieldRow({ eventId, onCreated }: { eventId: string; onCreat
 function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: string; contactId: string; extras: SpeakerRosterExtras; onSaved: (extras: SpeakerRosterExtras) => void }) {
   const { toast } = useToast();
   const router = useRouter();
-  const [saving, setSaving] = useState<string | null>(null);
-  const valueByField = new Map(extras.values.map((value) => [value.fieldId, value.value]));
+  const incomingValues = useMemo(() => logisticsValuesFrom(extras), [extras]);
+  const [values, setValues] = useState<Record<string, string>>(incomingValues);
+  const [baseline, setBaseline] = useState<Record<string, string>>(incomingValues);
+  const baselineRef = useRef(incomingValues);
+  const [savingFields, setSavingFields] = useState<Set<string>>(() => new Set());
+  const [savedField, setSavedField] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const dirty = extras.fields.some((field) => (values[field.id] ?? "") !== (baseline[field.id] ?? ""));
+  useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    setValues((current) => mergeIncomingLogisticsValues(current, baselineRef.current, incomingValues));
+    baselineRef.current = incomingValues;
+    setBaseline(incomingValues);
+  }, [incomingValues]);
 
   async function save(fieldId: string, value: string) {
-    setSaving(fieldId);
+    if (savingFields.has(fieldId)) return;
+    const previous = baselineRef.current[fieldId] ?? "";
+    setSavingFields((current) => new Set(current).add(fieldId));
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
     try {
-      onSaved(await patchRoster(eventId, contactId, { logisticsValues: { [fieldId]: value } }));
+      const nextExtras = await patchRoster(eventId, contactId, { logisticsValues: { [fieldId]: value } });
+      const nextBaseline = logisticsValuesFrom(nextExtras);
+      setValues((current) => mergeIncomingLogisticsValues(current, baselineRef.current, nextBaseline));
+      baselineRef.current = nextBaseline;
+      setBaseline(nextBaseline);
+      setSavedField(fieldId);
+      onSaved(nextExtras);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save that field");
+      const message = error instanceof Error ? error.message : "Could not save that field";
+      setValues((current) => ({ ...current, [fieldId]: previous }));
+      setFieldErrors((current) => ({ ...current, [fieldId]: message }));
+      toast(`${message}. The previous value was restored.`);
     } finally {
-      setSaving(null);
+      setSavingFields((current) => {
+        const next = new Set(current);
+        next.delete(fieldId);
+        return next;
+      });
     }
+  }
+
+  function change(fieldId: string, value: string) {
+    setValues((current) => ({ ...current, [fieldId]: value }));
+    setSavedField((current) => current === fieldId ? null : current);
+    setFieldErrors((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
   }
 
   return (
@@ -175,16 +284,37 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
       <div className="drawer-content form-stack">
         {extras.fields.length === 0 && <p className="long-copy">No event-scoped logistics fields defined yet.</p>}
         {extras.fields.map((field) => {
-          const current = valueByField.get(field.id) ?? "";
+          const current = values[field.id] ?? "";
+          const saving = savingFields.has(field.id);
           return (
-            <Field key={field.id} label={field.label}>
+            <Field
+              key={field.id}
+              label={field.label}
+              error={fieldErrors[field.id]}
+              errorId={`logistics-${field.id}-error`}
+              {...(saving ? { hint: "Saving…" } : savedField === field.id ? { hint: "Saved" } : {})}
+            >
               {field.fieldType === "select" ? (
-                <Select defaultValue={current} onBlur={(event) => { if (event.target.value !== current) void save(field.id, event.target.value); }}>
+                <Select
+                  value={current}
+                  disabled={saving}
+                  aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
+                  aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
+                  onChange={(event) => change(field.id, event.target.value)}
+                  onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
+                >
                   <option value="">—</option>
                   {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
                 </Select>
               ) : (
-                <input defaultValue={current} disabled={saving === field.id} onBlur={(event) => { if (event.target.value !== current) void save(field.id, event.target.value); }} />
+                <input
+                  value={current}
+                  disabled={saving}
+                  aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
+                  aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
+                  onChange={(event) => change(field.id, event.target.value)}
+                  onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
+                />
               )}
             </Field>
           );
@@ -198,40 +328,56 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
   eventId: string; contactId: string; timezone: string; extras: SpeakerRosterExtras; onSaved: (extras: SpeakerRosterExtras) => void;
 }) {
   const { toast } = useToast();
+  const sectionRef = useRef<HTMLElement>(null);
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<UnavailabilityDraftRow[]>(
-    extras.unavailability.map((row) => ({
-      startsAt: row.startsAt,
-      endsAt: row.endsAt,
-      ...(row.reason ? { reason: row.reason } : {}),
-    })),
-  );
+  const incomingDraft = useMemo(() => unavailabilityDraftFrom(extras), [extras]);
+  const incomingDraftKey = JSON.stringify(incomingDraft);
+  const previousIncomingDraftKey = useRef(incomingDraftKey);
+  const [draft, setDraft] = useState<UnavailabilityDraftRow[]>(incomingDraft);
+  const [baseline, setBaseline] = useState<UnavailabilityDraftRow[]>(incomingDraft);
+  const [fieldErrors, setFieldErrors] = useState<UnavailabilityDraftErrors>([]);
+  const dirty = isUnavailabilityDraftDirty(draft, baseline);
+  useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    if (incomingDraftKey === previousIncomingDraftKey.current) return;
+    if (!isUnavailabilityDraftDirty(draft, baseline)) {
+      previousIncomingDraftKey.current = incomingDraftKey;
+      setDraft(incomingDraft);
+      setBaseline(incomingDraft);
+    } else if (!isUnavailabilityDraftDirty(incomingDraft, baseline)) {
+      previousIncomingDraftKey.current = incomingDraftKey;
+      setBaseline(incomingDraft);
+    }
+  }, [baseline, draft, incomingDraft, incomingDraftKey]);
 
   function updateRow(index: number, patch: Partial<UnavailabilityDraftRow>) {
     setDraft((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    setFieldErrors((current) => current.map((row, rowIndex) => rowIndex === index ? {} : row));
   }
 
   async function save() {
+    const validation = validateUnavailabilityDraft(draft);
+    if (!validation.intervals) {
+      setFieldErrors(validation.errors);
+      window.requestAnimationFrame(() => sectionRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      toast("Complete each availability window before saving");
+      return;
+    }
     setSaving(true);
     try {
-      // flatMap rather than filter+map: it narrows both sides to non-null, so
-      // the instants reach the contract without a cast.
-      const intervals = draft.flatMap((row) => row.startsAt && row.endsAt
-        ? [{ startsAt: row.startsAt, endsAt: row.endsAt, ...(row.reason?.trim() ? { reason: row.reason.trim() } : {}) }]
-        : []);
       const response = await fetch(`/api/internal/speakers/${eventId}/${contactId}/unavailability`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervals }),
+        body: JSON.stringify({ intervals: validation.intervals }),
       });
       const json = await response.json() as { data?: { intervals: SpeakerRosterExtras["unavailability"] }; error?: { message?: string } };
       if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not save availability");
       onSaved({ ...extras, unavailability: json.data.intervals });
-      setDraft(json.data.intervals.map((row) => ({
-        startsAt: row.startsAt,
-        endsAt: row.endsAt,
-        ...(row.reason ? { reason: row.reason } : {}),
-      })));
+      const saved = json.data.intervals.map((row) => ({ startsAt: row.startsAt, endsAt: row.endsAt, ...(row.reason ? { reason: row.reason } : {}) }));
+      setDraft(saved);
+      setBaseline(saved);
+      setFieldErrors([]);
       toast("Availability updated");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not save availability");
@@ -241,22 +387,28 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
   }
 
   return (
-    <section className="panel">
+    <section ref={sectionRef} className="panel">
       <header className="panel-header">
         <div><h2>Unavailability</h2><p>Blackout windows in {timezone}, applied by M54 when placing this speaker on the schedule.</p></div>
-        <Button size="sm" variant="secondary" onClick={() => setDraft((current) => [...current, { startsAt: null, endsAt: null, reason: "" }])}><Plus size={14} /> Add window</Button>
+        <Button size="sm" variant="secondary" disabled={draft.length >= 50} onClick={() => { setDraft((current) => [...current, { startsAt: null, endsAt: null, reason: "" }]); setFieldErrors((current) => [...current, {}]); }}><Plus size={14} /> Add window</Button>
       </header>
       <div className="drawer-content form-stack">
         {draft.length === 0 && <p className="long-copy">No declared blackout — this speaker is treated as available for the whole event.</p>}
         {draft.map((row, index) => (
           <div key={index} className="speaker-unavailability-form">
-            <Field label="Starts"><DateTimePicker value={row.startsAt} onChange={(startsAt) => updateRow(index, { startsAt })} tz={timezone} /></Field>
-            <Field label="Ends"><DateTimePicker value={row.endsAt} onChange={(endsAt) => updateRow(index, { endsAt })} tz={timezone} /></Field>
-            <Field label="Reason (optional)"><input value={row.reason ?? ""} onChange={(event) => updateRow(index, { reason: event.target.value })} placeholder="Flight, other commitment…" /></Field>
-            <button type="button" className="icon-button" aria-label="Remove window" onClick={() => setDraft((current) => current.filter((_row, rowIndex) => rowIndex !== index))}><Trash2 size={15} /></button>
+            <Field label="Starts" error={fieldErrors[index]?.startsAt} errorId={`unavailability-${index}-start-error`}>
+              <DateTimePicker value={row.startsAt} onChange={(startsAt) => updateRow(index, { startsAt })} tz={timezone} invalid={Boolean(fieldErrors[index]?.startsAt)} {...(fieldErrors[index]?.startsAt ? { ariaDescribedBy: `unavailability-${index}-start-error` } : {})} />
+            </Field>
+            <Field label="Ends" error={fieldErrors[index]?.endsAt} errorId={`unavailability-${index}-end-error`}>
+              <DateTimePicker value={row.endsAt} onChange={(endsAt) => updateRow(index, { endsAt })} tz={timezone} invalid={Boolean(fieldErrors[index]?.endsAt)} {...(fieldErrors[index]?.endsAt ? { ariaDescribedBy: `unavailability-${index}-end-error` } : {})} />
+            </Field>
+            <Field label="Reason (optional)" error={fieldErrors[index]?.reason} errorId={`unavailability-${index}-reason-error`}>
+              <input value={row.reason ?? ""} aria-invalid={Boolean(fieldErrors[index]?.reason) || undefined} aria-describedby={fieldErrors[index]?.reason ? `unavailability-${index}-reason-error` : undefined} onChange={(event) => updateRow(index, { reason: event.target.value })} placeholder="Flight, other commitment…" />
+            </Field>
+            <button type="button" className="icon-button" aria-label="Remove window" onClick={() => { setDraft((current) => current.filter((_row, rowIndex) => rowIndex !== index)); setFieldErrors((current) => current.filter((_row, rowIndex) => rowIndex !== index)); }}><Trash2 size={15} /></button>
           </div>
         ))}
-        <div><Button size="sm" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save availability"}</Button></div>
+        <div><Button size="sm" disabled={saving || !dirty} onClick={() => void save()}>{saving ? "Saving…" : "Save availability"}</Button></div>
       </div>
     </section>
   );
