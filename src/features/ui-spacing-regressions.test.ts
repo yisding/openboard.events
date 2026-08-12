@@ -40,8 +40,10 @@ describe("shared UI spacing regressions", () => {
     expect(preview).toContain('className="template-preview-heading"');
     expect(preview).toContain('className="template-preview-subject"');
     expect(preview).toContain('className="template-preview-body"');
-    expect(css).toContain(".template-preview-heading{min-height:44px;padding:0 16px;display:flex");
-    expect(css).toContain(".template-preview-subject{padding:12px 16px");
+    expect(preview).toContain('className="template-editor__preview message-preview"');
+    expect(css).toContain(".message-preview .template-preview-heading{min-height:44px;padding:0 16px;display:flex");
+    expect(css).toContain(".message-preview .template-preview-subject{padding:12px 16px");
+    expect(css).not.toContain("\n.template-editor__preview{display:block;padding:0");
   });
 
   it("overrides the gallery badge selector for centered speaker placeholders", () => {

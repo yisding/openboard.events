@@ -17,7 +17,7 @@ type MessagePreviewProps = {
  */
 export function MessagePreview({ label, hint, message, status }: MessagePreviewProps) {
   return (
-    <aside className="template-editor__preview" aria-live="polite">
+    <aside className="template-editor__preview message-preview" aria-live="polite">
       <header className="template-preview-heading">
         <span>{label}</span>
         <small>{hint}</small>
