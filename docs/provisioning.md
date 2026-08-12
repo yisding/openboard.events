@@ -263,9 +263,11 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   | `EMAIL_FROM` | omit while email is logged | verified production sender |
   | `EMAIL_ALLOWLIST` | only for deliberate real-send tests | unset |
 
-- [x] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset.
-- [ ] Manually run the `Deploy` workflow for `preview` and verify migration → web → jobs →
-  smoke succeeds.
+- [x] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset. While it is unset, a
+  successful `main` CI run deploys `preview` only.
+- [ ] Merge to `main` (or run the `Deploy` workflow for `preview`) and verify the automatic
+  migration → web → jobs → smoke succeeds. The `preview` environment must have no required
+  reviewer, or every merge will queue an approval instead of deploying.
 - [ ] Confirm an automatic deployment for a superseded `main` SHA reports that it was
   skipped before checkout, migration, or deployment. Do not remove this freshness gate or
   change deployment concurrency to cancel an in-progress migration/deploy.
@@ -302,7 +304,8 @@ stores only the credentials and direct database URL needed by the deployment wor
 - [ ] Confirm migration → web → jobs → smoke succeeds.
 - [ ] Confirm the real production health response and jobs cron logs.
 - [ ] Only after both preview and production are proven, add the repository variable
-  `PRODUCTION_DEPLOY_ENABLED=1` to enable successful `main` CI runs to deploy production.
+  `PRODUCTION_DEPLOY_ENABLED=1` to enable successful `main` CI runs to deploy production. The
+  production deploy then runs as a second leg after `preview`, and a failed preview stops it.
 
 Production web secrets are:
 

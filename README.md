@@ -166,7 +166,10 @@ argument checks. Treat production invocations accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub
-environments, but has not yet completed a non-`skipped` run end to end. Full provisioning steps
+environments, but has not yet completed a non-`skipped` run end to end. A merge to `main`
+deploys `preview` automatically once its CI run succeeds; `production` is a manual
+`workflow_dispatch` until the repository variable `PRODUCTION_DEPLOY_ENABLED=1` adds it as a
+second, sequential leg behind a preview that passed its own smoke test. Full provisioning steps
 (Neon, R2, Resend, Cloudflare, GitHub environments) are in
 [`docs/provisioning.md`](docs/provisioning.md); operational runbooks (backup/restore, rollback,
 Neon PITR rehearsal, R2 lifecycle, alerting) are in [`docs/runbooks/`](docs/runbooks).
