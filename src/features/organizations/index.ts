@@ -20,6 +20,8 @@ export {
   type OrganizationMemberInput,
 } from "./schemas";
 
+export { eventCreationDestination, manageableOrganizations } from "./event-creation";
+
 export {
   getEventOrganization,
   getEventOrganizationIn,

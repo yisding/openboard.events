@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { createEvent, createEventInputSchema, listEvents } from "@/features/events";
+import { createEventInputSchema, listEvents } from "@/features/events";
 import { eventsHubAuth } from "@/features/events/server/guards";
-import { resolvePrimaryOrganization } from "@/features/organizations";
+import { provisionEventForActor } from "@/features/onboarding";
 import { userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -15,9 +15,10 @@ import { defineHandler } from "@/shared/server/handler";
  *
  * - **GET** is scoped inside the query (`listEventsIn`). It used to return
  *   every tenant's events to every signed-in account.
- * - **POST** files the new event under the actor's own organization instead of
- *   letting `events.organization_id`'s column DEFAULT drop it into the shared
- *   default tenant, where the creator's organization surfaces cannot see it.
+ * - **POST** is compatibility-only. It delegates to the same organization
+ *   provisioning path as guided onboarding, including organizer-role and
+ *   plan-limit checks. The only exception is a hand-bootstrapped account with
+ *   no organization, which retains the original single-tenant create path.
  *
  * `POST /api/internal/organizations/[organizationId]/onboarding/event` (M45)
  * remains the explicit path — it names its organization and enforces the M49
@@ -35,8 +36,7 @@ const create = defineHandler({
   input: createEventInputSchema,
   handler: async ({ session, input }) => {
     const actorId = userIdSchema.parse(session?.actorId);
-    const organizationId = await resolvePrimaryOrganization(actorId);
-    return createEvent(actorId, input, organizationId ?? undefined);
+    return provisionEventForActor(actorId, input);
   },
 });
 

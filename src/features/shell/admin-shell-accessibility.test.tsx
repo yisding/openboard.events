@@ -55,6 +55,7 @@ describe("admin shell skip navigation", () => {
       <AdminShell
         eventId={eventId}
         role="organizer"
+        canCreateEvent
         event={{ id: eventId, slug: "summit", name: "Summit", shortName: "SUM" }}
       >
         <section aria-label="Dashboard">Dashboard content</section>

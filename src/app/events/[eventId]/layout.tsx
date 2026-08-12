@@ -6,6 +6,7 @@ import { getNavCounts, getReviewerQueueCount } from "@/features/shell/server/nav
 import { shortEventName } from "@/shared/lib/event-label";
 import { requireAdmin, requiredRoleForEventPath, type AdminSession } from "@/features/auth";
 import { getEvent } from "@/features/events";
+import { listOrganizationsForUser, manageableOrganizations } from "@/features/organizations";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { eventIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
@@ -32,7 +33,10 @@ export default async function EventLayout({ children, params }: { children: Reac
   // The shell's own event data comes from this server read, so the chrome shows
   // the same event the guard above authorized. Read after the guard, so an
   // unauthorized caller never learns whether the event exists.
-  const record = await getEvent(eventId);
+  const [record, organizationMemberships] = await Promise.all([
+    getEvent(eventId),
+    listOrganizationsForUser(session.userId),
+  ]);
   if (!record) notFound();
   const shellEvent: AdminShellEvent = { id: record.id, slug: record.slug, name: record.name, shortName: shortEventName(record.name) };
   // M56 — real, actionable sidebar counts. Reviewers only ever see the review
@@ -48,5 +52,12 @@ export default async function EventLayout({ children, params }: { children: Reac
       counts = { abstracts: nav.abstractsPending, speakers: nav.speakersMissing, tasks: nav.tasksOverdue };
     }
   }
-  return <AdminShell eventId={eventId} role={session?.role ?? "owner"} event={shellEvent} {...(counts ? { counts } : {})} {...(session ? { user: { name: session.name, email: session.email } } : {})}>{children}</AdminShell>;
+  return <AdminShell
+    eventId={eventId}
+    role={session?.role ?? "owner"}
+    event={shellEvent}
+    canCreateEvent={manageableOrganizations(organizationMemberships).length > 0}
+    {...(counts ? { counts } : {})}
+    {...(session ? { user: { name: session.name, email: session.email } } : {})}
+  >{children}</AdminShell>;
 }

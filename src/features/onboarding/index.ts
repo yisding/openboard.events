@@ -4,14 +4,19 @@
  * the manual provisioning runbook.
  *
  * This feature owns no schema and no independent write path. Its one server
- * export composes M11's `createEventIn` with M43's
- * `assignEventToOrganizationIn` so a self-serve organization's events are
- * scoped to it from creation; the vocabulary and first-form steps in the
+ * export calls M11's `createEventIn` with the organization on the initial
+ * INSERT so a self-serve organization's events are scoped from creation;
+ * the vocabulary and first-form steps in the
  * wizard UI call M11's and M12's own existing routes directly (`POST
  * /api/internal/events/[eventId]/vocab/[kind]`, `POST /api/internal/forms`,
  * `PATCH /api/internal/forms/[formId]`) rather than duplicating them here.
  */
-export { provisionOrganizationEvent, provisionOrganizationEventIn } from "./server/provisioning";
+export {
+  provisionEventForActor,
+  provisionEventForActorIn,
+  provisionOrganizationEvent,
+  provisionOrganizationEventIn,
+} from "./server/provisioning";
 export {
   getActiveOrganizationOnboardingForUser,
   getActiveOrganizationOnboardingForUserIn,

@@ -7,7 +7,7 @@ import { EventCard } from "./event-card";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 /** The real, server-backed `/events` list — `listEvents()` rows, no demo store. */
-export function EventsView({ events, user }: { events: EventDTO[]; user: { name: string; email: string } }) {
+export function EventsView({ events, user, createHref }: { events: EventDTO[]; user: { name: string; email: string }; createHref: string | null }) {
   const accountName = user.name.trim() || user.email;
   const initials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "OB";
   return (
@@ -26,18 +26,20 @@ export function EventsView({ events, user }: { events: EventDTO[]; user: { name:
             <h1>Your events</h1>
             <p>Choose an event to continue managing your program.</p>
           </div>
-          <div className="page-actions">
-            <Link href="/events/new" className="button button-primary">
+          {createHref && <div className="page-actions">
+            <Link href={createHref} className="button button-primary">
               <Plus size={17} /> Create event
             </Link>
-          </div>
+          </div>}
         </div>
         {events.length === 0 ? (
           <EmptyState
             icon={<Plus size={22} />}
-            title="Create your first event"
-            description="An event holds its own tracks, rooms, formats, tags, forms and program."
-            action={<Link href="/events/new"><Button>Create event</Button></Link>}
+            title={createHref ? "Create your first event" : "No events assigned"}
+            description={createHref
+              ? "An event holds its own tracks, rooms, formats, tags, forms and program."
+              : "No events are assigned to you yet. Ask an organization owner or organizer for event access."}
+            action={createHref ? <Link href={createHref}><Button>Create event</Button></Link> : undefined}
           />
         ) : (
           <div className="event-grid">

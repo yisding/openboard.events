@@ -7,7 +7,7 @@ import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, formIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
 import { getActiveOrganizationOnboardingForUserIn, getActiveOrganizationOnboardingIn, getOrganizationOnboardingForUserByEventIn, updateOrganizationOnboardingIn } from "./progress";
-import { provisionOrganizationEventIn } from "./provisioning";
+import { provisionEventForActorIn, provisionOrganizationEventIn } from "./provisioning";
 
 // Same migration set `features/events/server/mutations.test.ts` needs for
 // `createEventIn` (0004/0007/0008/0009 widen `template_key`, which
@@ -268,6 +268,90 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     expect(mineList.map((row) => row.id)).not.toContain(theirs.id);
     expect(theirsList.map((row) => row.id)).toContain(theirs.id);
     expect(theirsList.map((row) => row.id)).not.toContain(mine.id);
+  });
+
+  describe("the organization-blind compatibility entry", () => {
+    it("refuses reviewer-only members without creating an event", async () => {
+      const [owner, reviewer] = await database.insert(schema.users).values([
+        { email: "compat-owner@test.dev", name: "Compatibility Owner" },
+        { email: "compat-reviewer@test.dev", name: "Compatibility Reviewer" },
+      ]).returning();
+      const ownerId = userIdSchema.parse(owner?.id);
+      const reviewerId = userIdSchema.parse(reviewer?.id);
+      const organization = await createOrganizationIn(database, ownerId, {
+        name: "Compatibility Review Org",
+        slug: "compatibility-review-org",
+      });
+      await database.insert(schema.organizationMembers).values({
+        organizationId: organization.id,
+        userId: reviewerId,
+        role: "reviewer",
+      });
+
+      const before = await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM events WHERE organization_id=$1",
+        [organization.id],
+      );
+      await expect(provisionEventForActorIn(database, reviewerId, baseInput({ name: "Forbidden Review Event" })))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+      const after = await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM events WHERE organization_id=$1",
+        [organization.id],
+      );
+      expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    });
+
+    it("routes an organization organizer through guided provisioning", async () => {
+      const [owner, organizer] = await database.insert(schema.users).values([
+        { email: "compat-guide-owner@test.dev", name: "Guide Owner" },
+        { email: "compat-organizer@test.dev", name: "Guide Organizer" },
+      ]).returning();
+      const ownerId = userIdSchema.parse(owner?.id);
+      const organizerId = userIdSchema.parse(organizer?.id);
+      const organization = await createOrganizationIn(database, ownerId, {
+        name: "Compatibility Guided Org",
+        slug: "compatibility-guided-org",
+      });
+      await database.insert(schema.organizationMembers).values({
+        organizationId: organization.id,
+        userId: organizerId,
+        role: "organizer",
+      });
+
+      const event = await provisionEventForActorIn(database, organizerId, baseInput({
+        name: "Compatibility Guided Event",
+        slug: "compatibility-guided-event",
+      }));
+      await expect(getEventOrganizationIn(database, event.id)).resolves.toBe(organization.id);
+      await expect(getActiveOrganizationOnboardingIn(database, organization.id)).resolves.toMatchObject({
+        eventId: event.id,
+        step: "vocabulary",
+      });
+      const usage = await pglite.query<{ count: number }>(
+        "SELECT count FROM organization_usage_counters WHERE organization_id=$1 AND metric='events'",
+        [organization.id],
+      );
+      expect(usage.rows[0]?.count).toBe(1);
+    });
+
+    it("preserves the bootstrap path for an administrator with no organization", async () => {
+      const [bootstrapUser] = await database.insert(schema.users).values({
+        email: "compat-bootstrap@test.dev",
+        name: "Bootstrap Admin",
+      }).returning();
+      const bootstrapUserId = userIdSchema.parse(bootstrapUser?.id);
+
+      const event = await provisionEventForActorIn(database, bootstrapUserId, baseInput({
+        name: "Bootstrap Compatibility Event",
+        slug: "bootstrap-compatibility-event",
+      }));
+      await expect(getEventOrganizationIn(database, event.id)).resolves.toBe(DEFAULT_ORGANIZATION_ID);
+      const membership = await pglite.query<{ role: string }>(
+        "SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2",
+        [event.id, bootstrapUserId],
+      );
+      expect(membership.rows[0]?.role).toBe("owner");
+    });
   });
 
   /**

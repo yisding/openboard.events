@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
+import { Building2, Sparkles } from "lucide-react";
 import { Brand } from "@/shared/ui/brand";
 import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { listOrganizationsForUser } from "@/features/organizations";
+import { listOrganizationsForUser, manageableOrganizations } from "@/features/organizations";
+import { EmptyState } from "@/shared/ui/ui-kit";
 
 export const metadata: Metadata = { title: "Your organizations" };
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
  * yet), so it draws its own copy of the same shell `/events` uses rather than
  * relying on that layout.
  */
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ intent?: string }> }) {
   const identity = await getAdminSession();
   if (!identity) {
     const requestPath = safeInternalPath((await headers()).get("x-openboard-request-path"), "/organizations");
@@ -34,9 +35,15 @@ export default async function Page() {
   }
 
   const memberships = await listOrganizationsForUser(identity.userId);
+  const createIntent = (await searchParams).intent === "create-event";
+  const visibleMemberships = createIntent ? manageableOrganizations(memberships) : memberships;
+  const [onlyManageable] = visibleMemberships;
+  if (createIntent && visibleMemberships.length === 1 && onlyManageable) {
+    redirect(`/organizations/${onlyManageable.organization.id}/onboarding`);
+  }
   const [only] = memberships;
-  if (memberships.length === 0) redirect("/events");
-  if (memberships.length === 1 && only) redirect(`/organizations/${only.organization.id}`);
+  if (!createIntent && memberships.length === 0) redirect("/events");
+  if (!createIntent && memberships.length === 1 && only) redirect(`/organizations/${only.organization.id}`);
 
   return <main className="events-index">
     <header className="events-index-header">
@@ -47,13 +54,20 @@ export default async function Page() {
       <div className="events-title">
         <div>
           <div className="page-eyebrow">Workspace</div>
-          <h1>Your organizations</h1>
-          <p>Choose an organization to continue.</p>
+          <h1>{createIntent ? "Choose an organization" : "Your organizations"}</h1>
+          <p>{createIntent ? "Your new event will be created with guided setup in this organization." : "Choose an organization to continue."}</p>
         </div>
       </div>
-      <div className="event-grid">
-        {memberships.map(({ organization, role }) => (
-          <Link key={organization.id} href={`/organizations/${organization.id}`} className="panel settings-section org-picker-card">
+      {createIntent && visibleMemberships.length === 0 ? (
+        <EmptyState
+          icon={<Sparkles size={20} />}
+          title="Organizer access required"
+          description="Only organization owners and organizers can create events. Ask an organization owner to update your role."
+          action={<Link className="button button-secondary" href="/events">Back to events</Link>}
+        />
+      ) : <div className="event-grid">
+        {visibleMemberships.map(({ organization, role }) => (
+          <Link key={organization.id} href={createIntent ? `/organizations/${organization.id}/onboarding` : `/organizations/${organization.id}`} className="panel settings-section org-picker-card">
             <span className="metric-icon accent"><Building2 size={20} /></span>
             <span>
               <b>{organization.name}</b>
@@ -61,7 +75,7 @@ export default async function Page() {
             </span>
           </Link>
         ))}
-      </div>
+      </div>}
     </section>
   </main>;
 }
