@@ -182,12 +182,20 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
               </Button>
             </div>
           </div>
-          <aside className="template-editor__preview">
-            <span>LIVE PREVIEW</span>
-            {unknownTokens.length > 0 && <p className="long-copy">Fix the unknown variable to see a preview.</p>}
-            {unknownTokens.length === 0 && preview.isPending && <p className="long-copy">Rendering…</p>}
-            {unknownTokens.length === 0 && preview.data && <><b>{preview.data.subject || "(empty subject)"}</b><RichTextView html={preview.data.html} /></>}
-            {unknownTokens.length === 0 && preview.isError && <p className="long-copy">Preview unavailable.</p>}
+          <aside className="template-editor__preview" aria-live="polite">
+            <header className="template-preview-heading">
+              <span>LIVE PREVIEW</span>
+              <small>Updates as you type</small>
+            </header>
+            {unknownTokens.length > 0 && <p className="template-preview-status">Fix the unknown variable to see a preview.</p>}
+            {unknownTokens.length === 0 && preview.isPending && <p className="template-preview-status">Rendering…</p>}
+            {unknownTokens.length === 0 && preview.data && (
+              <article className="template-preview-message">
+                <b>{preview.data.subject || "(empty subject)"}</b>
+                <RichTextView html={preview.data.html} />
+              </article>
+            )}
+            {unknownTokens.length === 0 && preview.isError && <p className="template-preview-status">Preview unavailable.</p>}
           </aside>
         </div>
       </div>

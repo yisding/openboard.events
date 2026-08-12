@@ -276,10 +276,18 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               <Button onClick={() => setConfirmSend(true)} disabled={!canSend || compose.isPending}>{segment?.capped ? "Refine segment to send" : `Send to ${segment?.contactIds.length ?? 0} recipient${segment?.contactIds.length === 1 ? "" : "s"}`}</Button>
             </div>
           </div>
-          <aside className="template-editor__preview">
-            <span>PREVIEW</span>
-            {!currentPreview && <p className="long-copy">Resolve a segment, write a message, then Preview message.</p>}
-            {currentPreview && <><b>{currentPreview.subject || "(empty subject)"}</b><RichTextView html={currentPreview.bodyHtml} /></>}
+          <aside className="template-editor__preview" aria-live="polite">
+            <header className="template-preview-heading">
+              <span>PREVIEW</span>
+              <small>Rendered for the selected recipient</small>
+            </header>
+            {!currentPreview && <p className="template-preview-status">Resolve a segment, write a message, then Preview message.</p>}
+            {currentPreview && (
+              <article className="template-preview-message">
+                <b>{currentPreview.subject || "(empty subject)"}</b>
+                <RichTextView html={currentPreview.bodyHtml} />
+              </article>
+            )}
           </aside>
         </div>
         {result && (

@@ -164,7 +164,7 @@ button { color: inherit; }
 .icon-button { width: 36px; height: 36px; padding: 0; border-radius: 8px; border: 1px solid transparent; background: transparent; display: inline-grid; place-items: center; cursor: pointer; }
 .icon-button:hover { background: var(--fill); border-color: var(--line); }
 
-.field { display: grid; gap: 8px; color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.field { display: grid; align-content: start; gap: 8px; color: var(--ink); font-weight: 600; font-size: 12.5px; }
 /* DateTimePicker draws the border on its own wrapper and zeroes the inner
    input's, so a child combinator alone leaves "Ends At must be after Starts At"
    with an unmarked control. `.field-invalid .datetime-picker` (0-2-0) beats
@@ -204,7 +204,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
    contextual corrections" there, and read that note before adding a rule that
    gives a select a `background` shorthand. */
 input::placeholder, textarea::placeholder { color: var(--muted); }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .form-stack { display: grid; gap: 16px; }
 .segmented { display: inline-flex; padding: 4px; background: var(--fill); border-radius: 8px; gap: 2px; }
 .segmented button { border: 0; background: transparent; min-height: 32px; padding: 6px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
@@ -435,11 +435,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .speaker-attention { grid-column: 1; }
 .attention-list > div { min-height: 59px; padding: 8px 16px; display: grid; grid-template-columns: 34px minmax(130px, 1fr) 140px auto; gap: 12px; align-items: center; border-bottom: 1px solid var(--fill); }
 .attention-list > div:last-child { border-bottom: 0; }
-.person-avatar { flex: none; display: inline-grid; place-items: center; color: var(--on-fill); border-radius: 50%; font-weight: 700; letter-spacing: -.2px; }
+.person-avatar { flex: none; display: inline-grid; place-items: center; overflow: hidden; padding: 0; border-radius: 50%; font-weight: 700; line-height: 1; letter-spacing: -.2px; text-align: center; vertical-align: middle; }
 .person-avatar-sm { width: 27px; height: 27px; font-size: 10px; }
 .person-avatar-md { width: 34px; height: 34px; font-size: 11.5px; }
 .person-avatar-lg { width: 44px; height: 44px; font-size: 12.5px; }
 .person-avatar-xl { width: 72px; height: 72px; font-size: 20px; }
+.person-avatar-placeholder { --avatar-accent: var(--accent-dark); color: var(--avatar-accent); border: 1px solid color-mix(in srgb, var(--avatar-accent) 24%, var(--line)); background: var(--accent-soft); background: linear-gradient(145deg, color-mix(in srgb, var(--avatar-accent) 8%, var(--surface)), color-mix(in srgb, var(--avatar-accent) 18%, var(--surface))); box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), 0 1px 2px rgba(13,34,30,.08); }
+.person-avatar-image { border: 1px solid var(--line); background-color: var(--surface-subtle); }
+.person-avatar-icon { width: 50%; height: 50%; stroke-width: 1.8; }
 .attention-person b, .attention-person span { display: block; }
 .attention-person b { font-size: 11.5px; }.attention-person span { color: var(--muted); font-size: 10px; margin-top: 4px; }
 .attention-progress span { color: var(--muted); font-size: 10px; display: block; margin-bottom: 6px; }
@@ -511,9 +514,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .drawer-shell { position: fixed; z-index: 90; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; overflow: hidden; color: var(--ink); }
 .drawer-shell::backdrop { background: rgba(10,26,24,.35); backdrop-filter: blur(1px); }
 .drawer { position: absolute; right: 0; top: 0; bottom: 0; width: min(610px, 95vw); background: var(--surface); box-shadow: -16px 0 60px rgba(12,32,29,.16); animation: drawer-in .2s ease; overflow-y: auto; }
+.drawer-compact { width: min(480px, 95vw); }
 .drawer-title { position: sticky; z-index: 3; top: 0; height: 66px; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
 .drawer-title h2 { margin: 0; font-size: 16px; }
 .drawer-title h2 + .flow-nav-controls { margin-left: auto; margin-right: 16px; }
+.drawer-body { padding: 24px; }
+.drawer-form { display: grid; gap: 24px; }
+.drawer-body > .drawer-actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.reviewer-invite-note { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); line-height: 1.55; }
 .flow-nav-controls { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .flow-nav-controls .icon-button { width: 32px; height: 32px; }
 .flow-nav-controls span { margin-left: 4px; }
@@ -584,7 +592,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    greppable from this file, and the page was not in T8's surface list until
    this change put it there. */
 .settings-section>header h2{margin:0 0 4px;font-size:14px;letter-spacing:-.15px}
-.settings-section>header p{margin:0;color:var(--muted);font-size:12.5px}.template-editor textarea{min-height:220px}.template-editor__preview{position:sticky;top:88px;height:max-content;max-height:calc(100vh - 112px);overflow:auto;background:var(--surface-subtle);border:1px solid var(--line);border-radius:12px;padding:16px}.reminder-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}.reminder-rules{display:grid;gap:12px}.reminder-rule{padding:16px}.reminder-rules-editor .reminder-rule{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px;align-items:end}.reminder-rules>footer{display:flex;justify-content:flex-end;padding:4px 0}.reminder-explainer{padding:24px}.reminder-explainer>span{width:42px;height:42px;display:grid;place-items:center;border-radius:10px;background:var(--accent-soft);color:var(--accent-dark)}.reminder-explainer h3{margin:16px 0 8px;font-size:16px}.reminder-explainer p,.reminder-explainer li{color:var(--muted);font-size:12.5px;line-height:1.55}.reminder-explainer ul{display:grid;gap:8px;margin:16px 0 0;padding-left:18px}.checkbox-row{min-height:32px;display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:12.5px;font-weight:500}.checkbox-row input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;flex:0 0 16px;margin:0;padding:0;accent-color:var(--accent)}.checkbox-row>span{display:grid;gap:2px}.checkbox-row b{font-size:12.5px}.checkbox-row small{color:var(--muted);font-size:11px;font-weight:400}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}.settings-nav{display:flex;flex-direction:column;gap:6px}.settings-nav button{background:none;border:0;border-radius:10px;color:var(--muted);cursor:pointer;font:inherit;padding:12px 12px;text-align:left}.settings-nav button.active{background:var(--accent-soft);color:var(--accent-dark);font-weight:600}.settings-section{display:grid;gap:16px}.branding-preview{border:1px solid var(--line);border-radius:14px;overflow:hidden}.branding-preview__banner{min-height:120px;padding:24px}.branding-preview__body{padding:24px}.vocabulary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.login-page:has(> .login-card){align-items:center;display:flex;justify-content:center;padding:24px}.login-card{max-width:440px;padding:32px;width:100%}.login-card form{display:grid;gap:16px}.login-card__brand{align-items:center;display:flex;gap:12px;margin-bottom:24px}.login-card__brand img{height:32px;width:32px}
+.settings-section>header p{margin:0;color:var(--muted);font-size:12.5px}.template-editor textarea{min-height:220px}.template-editor__preview{position:sticky;top:88px;height:max-content;max-height:calc(100vh - 112px);overflow:auto;background:var(--surface-subtle);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:12px;align-content:start}.template-preview-heading{display:grid;gap:3px}.template-preview-heading span{color:var(--accent-dark);font-size:10px;font-weight:700;letter-spacing:.8px}.template-preview-heading small{color:var(--muted);font-size:10px}.template-preview-message{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--shadow-sm)}.template-preview-message>b{display:block;margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.45}.template-preview-message>.rich-text>:first-child{margin-top:0}.template-preview-message>.rich-text>:last-child{margin-bottom:0}.template-preview-status{margin:4px 0 0;padding:16px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface);color:var(--muted);font-size:12.5px;line-height:1.55}.reminder-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}.reminder-rules{display:grid;gap:12px}.reminder-rule{padding:16px}.reminder-rules-editor .reminder-rule{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px;align-items:end}.reminder-rules>footer{display:flex;justify-content:flex-end;padding:4px 0}.reminder-explainer{padding:24px}.reminder-explainer>span{width:42px;height:42px;display:grid;place-items:center;border-radius:10px;background:var(--accent-soft);color:var(--accent-dark)}.reminder-explainer h3{margin:16px 0 8px;font-size:16px}.reminder-explainer p,.reminder-explainer li{color:var(--muted);font-size:12.5px;line-height:1.55}.reminder-explainer ul{display:grid;gap:8px;margin:16px 0 0;padding-left:18px}.checkbox-row{min-height:32px;display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:12.5px;font-weight:500}.checkbox-row input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;flex:0 0 16px;margin:0;padding:0;accent-color:var(--accent)}.checkbox-row>span{display:grid;gap:2px}.checkbox-row b{font-size:12.5px}.checkbox-row small{color:var(--muted);font-size:11px;font-weight:400}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}.settings-nav{display:flex;flex-direction:column;gap:6px}.settings-nav button{background:none;border:0;border-radius:10px;color:var(--muted);cursor:pointer;font:inherit;padding:12px 12px;text-align:left}.settings-nav button.active{background:var(--accent-soft);color:var(--accent-dark);font-weight:600}.settings-section{display:grid;gap:16px}.branding-preview{border:1px solid var(--line);border-radius:14px;overflow:hidden}.branding-preview__banner{min-height:120px;padding:24px}.branding-preview__body{padding:24px}.vocabulary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.login-page:has(> .login-card){align-items:center;display:flex;justify-content:center;padding:24px}.login-card{max-width:440px;padding:32px;width:100%}.login-card form{display:grid;gap:16px}.login-card__brand{align-items:center;display:flex;gap:12px;margin-bottom:24px}.login-card__brand img{height:32px;width:32px}
 @media(max-width:1024px){.template-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.reminder-layout,.settings-layout{grid-template-columns:1fr}.settings-nav{flex-direction:row;overflow:auto}}
 @media(max-width:768px){.template-grid,.vocabulary-grid{grid-template-columns:1fr}.communications-tabs{width:100%;overflow:auto}.communications-tabs button{min-height:44px}.template-editor,.comm-detail,.settings-section{padding:16px}.template-editor-actions{align-items:stretch;flex-direction:column}.template-editor-actions .button{width:100%}}
 
@@ -668,7 +676,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .hero-art { width: 620px; min-width: 0; justify-self: start; margin-inline: 0; transform: scale(.58); transform-origin: top left; margin-bottom: -190px; }.floating-card-two { right: 10px; }
   .events-index-header { padding: 0 16px; }.header-help { display: none; }.events-index-content { width: calc(100% - 28px); padding-top: 32px; }.events-title { align-items: flex-start; gap: 24px; }.events-title .page-actions .button-secondary { display: none; }.event-grid { grid-template-columns: 1fr; }
   .app-content { padding: 24px 16px 32px; }.topbar { padding-right: 12px; }.breadcrumbs span, .breadcrumbs i { display: none; }.page-header { display: grid; }.page-header .page-actions { padding: 0; width: 100%; }.page-header .page-actions .button { flex: 1 1 auto; min-width: 0; }.metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.metric-card { min-height: 166px; padding: 12px; }.metric-card > strong { font-size: 24px; }.attention-banner { align-items: flex-start; }.attention-banner a { display: none; }.attention-list > div { grid-template-columns: 34px 1fr auto; }.attention-progress { display: none; }
-  .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }
+  .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }.drawer-body { padding: 20px 16px; }
 }
 
 @media (max-width: 480px) {
@@ -1007,10 +1015,18 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .section-title{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 12px}
 
 /* M05b rich primitives. */
-.datetime-picker{display:flex;align-items:center;gap:6px;border:1px solid var(--line-strong);border-radius:7px;padding:0 8px;height:36px;background:var(--surface)}
-.datetime-picker input{border:0;box-shadow:none;height:34px;padding:0;font-size:11.5px;background:transparent}
+.datetime-picker{display:flex;align-items:center;gap:6px;height:40px;padding:0 6px 0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);transition:border .15s,box-shadow .15s}
+.datetime-picker:focus-within{border-color:var(--accent);box-shadow:var(--focus-ring)}
+.datetime-picker.is-invalid{border-color:var(--red)}
+.datetime-picker input{min-width:0;flex:1;height:38px;padding:0;border:0;background:transparent;box-shadow:none;font-size:12.5px;color-scheme:light;accent-color:var(--accent)}
+.datetime-picker input:focus{border:0;box-shadow:none}
+.datetime-picker input::-webkit-calendar-picker-indicator{width:0;height:0;margin:0;padding:0;opacity:0}
+.datetime-picker-button{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:var(--accent-soft);color:var(--accent-dark);display:inline-grid;place-items:center;cursor:pointer}
+.datetime-picker-button:hover{background:var(--accent-faint)}
+.datetime-picker-button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.datetime-picker-button:disabled{cursor:not-allowed}
 .datetime-picker.is-disabled{opacity:.6}
-.datetime-zone{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.4px}
+.datetime-zone{flex:none;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.4px}
 .file-upload{display:grid;gap:8px}
 .file-upload__drop{display:grid;justify-items:center;gap:4px;padding:24px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface-raised);color:var(--muted);font-size:11.5px;cursor:pointer}
 .file-upload__drop:disabled{cursor:progress;opacity:.75}
@@ -1203,8 +1219,19 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .reviewer-assignment:last-child{border-bottom:0}
 .reviewer-assignment input[type="checkbox"]{margin-right:8px}
 .reviewer-assignment small{color:var(--muted);font-size:10px}
+.drawer-body section>h3{margin:0 0 12px;font-size:12.5px}
+.drawer-body .portal-note{margin:0;line-height:1.5}
+.evaluation-field-row{display:grid;gap:12px;align-items:start}
+.evaluation-number-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+.evaluation-window-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+.evaluation-criterion-row{grid-template-columns:minmax(140px,1.5fr) minmax(120px,1fr) 80px 76px 40px;align-items:end;padding:12px 0;border-bottom:1px solid var(--fill)}
+.evaluation-criterion-row>.field:has(textarea){grid-column:1/-1}
+.evaluation-criterion-row input[type="checkbox"]{width:16px;height:16px;margin:12px 0;accent-color:var(--accent)}
+.evaluation-criterion-row>.button{align-self:end;width:40px;padding:0}
+@media(max-width:768px){.evaluation-number-row,.evaluation-window-row{grid-template-columns:1fr}.evaluation-criterion-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.evaluation-criterion-row>.field:has(textarea){grid-column:1/-1}}
 
 /* M53 — five public widgets: sessions list, agenda, itinerary, speakers list, speaker gallery */
+.speaker-portrait > .person-avatar-placeholder { color: var(--avatar-accent); background: var(--accent-soft); background: linear-gradient(145deg, color-mix(in srgb, var(--avatar-accent) 8%, var(--surface)), color-mix(in srgb, var(--avatar-accent) 18%, var(--surface))); }
 .sessions-filters{display:flex;flex-wrap:wrap;gap:8px;padding:16px;border:1px solid var(--line);border-radius:10px 10px 0 0;background:var(--surface-raised)}
 .sessions-filters>label{flex:1 1 260px;height:37px;border:1px solid var(--line);background:var(--surface);border-radius:7px;display:flex;align-items:center;gap:8px;padding:0 8px;color:var(--muted)}
 .sessions-filters>label input{border:0;box-shadow:none;height:34px;font-size:11px}
@@ -1492,14 +1519,9 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .embed-shell.embed-dark .public-session-meta .public-calendar-link{background:var(--sidebar-2);border-color:var(--sidebar-line)}
 .public-session-main h3 button{border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;padding:0;cursor:pointer}
 
-/* Initials avatars are spans too; undo the legacy direct-child badge rules so
-   the fallback stays circular and centered when no headshot is available. */
-/* Undoes the `.speaker-portrait>span` badge rule, which out-specifies
-   `.person-avatar` and would paint the initials `--accent-dark` on the
-   avatar's own colour. The `#fff` restates `.person-avatar`'s existing value
-   rather than introducing a colour: no white token exists (`--on-dark` is
-   #e9f4f0), and the two must agree. */
-.speaker-portrait>.person-avatar{position:static;padding:0;border-radius:50%;color:var(--on-fill);font-size:24px;letter-spacing:-.2px}
+/* Initials avatars are spans too; undo the legacy direct-child badge geometry.
+   The placeholder primitive above owns its colour, border, and surface. */
+.speaker-portrait>.person-avatar{position:static;inset:auto;padding:0;border-radius:50%;font-size:20px;letter-spacing:-.2px}
 
 /* Interactive elements previously relied almost entirely on hover styling. */
 :where(a,button,[role="button"]):focus-visible{outline:2px solid var(--accent-dark);outline-offset:2px}

@@ -1,7 +1,7 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { UserRound, X } from "lucide-react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
 export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
@@ -43,8 +43,17 @@ export function StatusBadge({ value }: { value: string }) {
 export function Avatar({ initials, color = "var(--accent-dark)", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
   const style = imageUrl
     ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
-    : { background: color };
-  return <span className={`person-avatar person-avatar-${size}`} style={style}>{imageUrl ? null : initials}</span>;
+    : { "--avatar-accent": color } as CSSProperties;
+  const label = initials.trim().slice(0, 2).toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className={`person-avatar person-avatar-${size} ${imageUrl ? "person-avatar-image" : "person-avatar-placeholder"}`}
+      style={style}
+    >
+      {imageUrl ? null : label || <UserRound className="person-avatar-icon" />}
+    </span>
+  );
 }
 
 export function ProgressBar({ value, label, tone = "accent" }: { value: number; label: string; tone?: "accent" | "green" | "amber" }) {
@@ -104,9 +113,9 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
  * so the keyboard shortcut has a visible, clickable equivalent without every
  * caller reimplementing the title row.
  */
-export function Drawer({ open, onClose, children, title, headerExtra }: { open: boolean; onClose: () => void; children: ReactNode; title: string; headerExtra?: ReactNode }) {
+export function Drawer({ open, onClose, children, title, headerExtra, compact = false }: { open: boolean; onClose: () => void; children: ReactNode; title: string; headerExtra?: ReactNode; compact?: boolean }) {
   if (!open) return null;
-  return <DrawerDialog onClose={onClose} title={title}><aside className="drawer"><div className="drawer-title"><h2>{title}</h2>{headerExtra}<button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></DrawerDialog>;
+  return <DrawerDialog onClose={onClose} title={title}><aside className={cn("drawer", compact && "drawer-compact")}><div className="drawer-title"><h2>{title}</h2>{headerExtra}<button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></DrawerDialog>;
 }
 
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {

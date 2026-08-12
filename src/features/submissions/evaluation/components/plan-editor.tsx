@@ -253,7 +253,7 @@ export function PlanEditor({
 
   return (
     <Drawer open onClose={onClose} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
-      <div className="form-stack">
+      <div className="form-stack drawer-body">
         {pendingReviewerPlanId && (
           <p className="portal-note" role="alert">
             <b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.
@@ -264,7 +264,7 @@ export function PlanEditor({
           <input required value={draft.name} onChange={(event) => patch({ name: event.target.value })} placeholder="e.g. Round 1 · Program committee" />
         </Field>
 
-        <div className="field-row">
+        <div className="evaluation-field-row evaluation-number-row">
           <Field label="Round">
             <input type="number" min={1} value={draft.round} onChange={(event) => patch({ round: Number(event.target.value) })} />
           </Field>
@@ -278,7 +278,7 @@ export function PlanEditor({
 
         <TrackScope label="Track scope" tracks={tracks} value={draft.trackIds} onChange={(trackIds) => patch({ trackIds })} />
 
-        <div className="field-row">
+        <div className="evaluation-field-row evaluation-window-row">
           <Field label="Opens" hint="Reviewers cannot open assigned proposals before this">
             <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
@@ -316,7 +316,7 @@ export function PlanEditor({
             weighted mean, written feedback never does, and a review counts as finished once every required criterion is answered.
           </p>
           {draft.criteria.map((criterion, index) => (
-            <div className="field-row" key={criterion.id ?? `new-${index}`}>
+            <div className="evaluation-field-row evaluation-criterion-row" key={criterion.id ?? `new-${index}`}>
               <Field label="Label">
                 <input
                   value={criterion.label}
@@ -410,13 +410,12 @@ export function PlanEditor({
         <p className="portal-note">
           Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Abstracts by rating and move the survivors.
         </p>
-      </div>
-
-      <div className="drawer-actions">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
-          {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
-        </Button>
+        <div className="drawer-actions">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
+            {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
+          </Button>
+        </div>
       </div>
     </Drawer>
   );

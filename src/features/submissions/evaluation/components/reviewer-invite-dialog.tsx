@@ -82,8 +82,8 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
   }
 
   return (
-    <Drawer open onClose={onClose} title="Invite a reviewer">
-      <form noValidate onSubmit={(event) => { event.preventDefault(); void invite(); }}>
+    <Drawer open compact onClose={onClose} title="Invite a reviewer">
+      <form className="drawer-body drawer-form" noValidate onSubmit={(event) => { event.preventDefault(); void invite(); }}>
         <div className="form-stack">
           <Field label="Email" required error={emailError} errorId="reviewer-email-error">
             <input ref={emailRef} required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} onBlur={() => setEmailError(reviewerEmailValidationError(email) ?? "")} placeholder="reviewer@example.com" />
@@ -94,7 +94,7 @@ export function ReviewerInviteDialog({ eventId, onClose }: { eventId: string; on
           <Field label="Initial password" required hint="At least 12 characters. Share it with them directly — it is never emailed.">
             <input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
           </Field>
-          <p className="portal-note">
+          <p className="portal-note reviewer-invite-note">
             Reviewers get the lowest role on this event: their queue and the proposals assigned to them, and no organizer settings.
             An address that already has an account keeps its existing password and role.
           </p>

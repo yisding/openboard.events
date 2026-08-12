@@ -1,6 +1,7 @@
 "use client";
 
-import { X } from "lucide-react";
+import { useRef } from "react";
+import { CalendarDays, X } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { endOfDayInTz, eventDayKey, hourMinuteInZone, zoneAbbreviation, zonedInputToUtc } from "@/shared/lib/time";
 
@@ -36,6 +37,7 @@ export function DateTimePicker({
   invalid?: boolean;
   ariaDescribedBy?: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const dateISO = value ? eventDayKey(value, tz) : "";
   const { hour, minute } = value ? hourMinuteInZone(value, tz) : { hour: 0, minute: 0 };
   const localValue = value
@@ -52,9 +54,22 @@ export function DateTimePicker({
     onChange(mode === "date" ? endOfDayInTz(next, tz).toISOString() : zonedInputToUtc(next, tz).toISOString());
   }
 
+  function openPicker() {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    try {
+      input.showPicker();
+    } catch {
+      // `showPicker` is allowed only after a user gesture in some browsers.
+      // Keeping focus on the native control preserves its keyboard fallback.
+    }
+  }
+
   return (
-    <div className={cn("datetime-picker", disabled && "is-disabled")}>
+    <div className={cn("datetime-picker", invalid && "is-invalid", disabled && "is-disabled")}>
       <input
+        ref={inputRef}
         id={id}
         type={mode === "date" ? "date" : "datetime-local"}
         value={localValue}
@@ -64,6 +79,15 @@ export function DateTimePicker({
         aria-describedby={ariaDescribedBy}
         onChange={(event) => emit(event.target.value)}
       />
+      <button
+        type="button"
+        className="datetime-picker-button"
+        aria-label={mode === "date" ? "Open date picker" : "Open date and time picker"}
+        disabled={disabled}
+        onClick={openPicker}
+      >
+        <CalendarDays size={15} />
+      </button>
       {/* The zone label is not decoration: without it the field is ambiguous. */}
       <span className="datetime-zone">{zoneAbbreviation(value ?? new Date(), tz)}</span>
       {clearable && value && !disabled && (
