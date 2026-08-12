@@ -3,6 +3,7 @@ import { Archivo } from "next/font/google";
 import "./globals.css";
 import { DemoProvider } from "@/shared/demo/demo-provider";
 import { ToastProvider } from "@/shared/ui/toast";
+import { KonamiListener } from "@/shared/ui/konami";
 
 // Archivo ships a 100-900 weight axis, which the type scale in globals.css
 // relies on: without a variable face every intermediate weight snaps to the
@@ -25,7 +26,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className={archivo.variable}>
       <body>
         <DemoProvider>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider><KonamiListener />{children}</ToastProvider>
         </DemoProvider>
       </body>
     </html>
