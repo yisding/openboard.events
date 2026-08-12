@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, toHttp } from "@/shared/lib/errors";
+import { assertSameOrigin } from "@/shared/server/csrf";
 
 const confirmEmailSchema = z.object({
   token: z.string().trim().min(1).max(4_096),
@@ -55,6 +56,19 @@ export async function confirmAdminEmail(
     limit: () => Promise<void>;
   },
 ): Promise<NextResponse> {
+  try {
+    // The token is also a login credential once verification creates the
+    // session. Reject login CSRF before reading or consuming that credential.
+    assertSameOrigin(request);
+  } catch (error) {
+    if (isAppError(error)) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: toHttp(error.code) },
+      );
+    }
+    throw error;
+  }
   const input = confirmEmailSchema.safeParse(Object.fromEntries((await request.formData()).entries()));
   const next = safeInternalPath(input.success ? input.data.next : null, "/organizations");
   const failed = (reason: string) => NextResponse.redirect(

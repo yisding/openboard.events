@@ -45,7 +45,7 @@ describe("scanner-safe admin email confirmation", () => {
     });
     const request = new NextRequest("https://preview.example/api/auth/confirm-email", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://preview.example" },
       body,
     });
 
@@ -63,5 +63,24 @@ describe("scanner-safe admin email confirmation", () => {
     expect(response.headers.getSetCookie()).toEqual([
       "openboard_admin.session_token=session-secret; Path=/; HttpOnly; Secure; SameSite=Lax",
     ]);
+  });
+
+  it("rejects a cross-origin login CSRF before consuming the token", async () => {
+    const handler = vi.fn();
+    const limit = vi.fn();
+    const request = new NextRequest("https://preview.example/api/auth/confirm-email", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://attacker.example" },
+      body: new URLSearchParams({ token: "attacker-account-token", next: "/organizations/attacker" }),
+    });
+
+    const response = await confirmAdminEmail(request, { handler, limit });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "FORBIDDEN", message: "Cross-origin request rejected" },
+    });
+    expect(limit).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 });
