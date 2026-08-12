@@ -17,6 +17,14 @@ export type FormOpenStatus = "draft" | "open" | "closed";
 
 export type FormAvailability = "draft" | "scheduled" | "live" | "ended" | "closed";
 
+export type FormAvailabilityAction = "open" | "close";
+
+export type FormAvailabilityActionCopy = {
+  title: string;
+  body: string;
+  confirmLabel: string;
+};
+
 export function formOpenState(
   form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
   nowIso: string,
@@ -59,6 +67,42 @@ export function formAvailability(
   if (openState.reason === "not_open_yet") return "scheduled";
   if (openState.reason === "closed_by_date") return "ended";
   return "closed";
+}
+
+/** Honest preflight copy for the builder's consequential availability action. */
+export function formAvailabilityActionCopy(
+  action: FormAvailabilityAction,
+  form: { opensAt: string | null; closesAt: string | null },
+  nowIso: string,
+): FormAvailabilityActionCopy {
+  if (action === "close") {
+    return {
+      title: "Close this form now?",
+      body: "This immediately stops new submissions. People with in-progress drafts will not be able to submit them until you reopen the form.",
+      confirmLabel: "Close form",
+    };
+  }
+
+  const availability = formAvailability({ status: "open", ...form }, nowIso);
+  if (availability === "scheduled") {
+    return {
+      title: "Schedule this form to open?",
+      body: "This publishes the saved form and starts accepting submissions at its saved opening time. Until then, the public form remains unavailable.",
+      confirmLabel: "Schedule form",
+    };
+  }
+  if (availability === "ended") {
+    return {
+      title: "Set this ended form to open?",
+      body: "The saved closing time has already passed, so the form will remain unavailable. Update its schedule if you want to accept submissions again.",
+      confirmLabel: "Set status to open",
+    };
+  }
+  return {
+    title: "Open this form now?",
+    body: "This publishes the saved form and immediately starts accepting submissions through its public link.",
+    confirmLabel: "Open form",
+  };
 }
 
 /**

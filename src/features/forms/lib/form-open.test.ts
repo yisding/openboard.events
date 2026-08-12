@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveLimit, formAvailability, formOpenState } from "./form-open";
+import { effectiveLimit, formAvailability, formAvailabilityActionCopy, formOpenState } from "./form-open";
 
 const NOW = "2026-08-09T18:00:00.000Z";
 
@@ -104,6 +104,34 @@ describe("formAvailability", () => {
     ["closed", { status: "closed" as const, opensAt: null, closesAt: "2027-01-01T00:00:00.000Z" }],
   ])("labels an organizer form as %s", (expected, form) => {
     expect(formAvailability(form, NOW)).toBe(expected);
+  });
+});
+
+describe("formAvailabilityActionCopy", () => {
+  const now = "2026-08-12T20:00:00.000Z";
+
+  it("distinguishes opening now from scheduling a future opening", () => {
+    expect(formAvailabilityActionCopy("open", { opensAt: null, closesAt: null }, now)).toMatchObject({
+      title: "Open this form now?",
+      confirmLabel: "Open form",
+    });
+    expect(formAvailabilityActionCopy("open", { opensAt: "2026-08-13T20:00:00.000Z", closesAt: null }, now)).toMatchObject({
+      title: "Schedule this form to open?",
+      confirmLabel: "Schedule form",
+    });
+  });
+
+  it("warns that closing blocks in-progress submissions", () => {
+    const copy = formAvailabilityActionCopy("close", { opensAt: null, closesAt: null }, now);
+    expect(copy.title).toBe("Close this form now?");
+    expect(copy.body).toContain("in-progress drafts will not be able to submit");
+  });
+
+  it("does not imply a past closing time will accept submissions", () => {
+    expect(formAvailabilityActionCopy("open", { opensAt: null, closesAt: now }, now)).toMatchObject({
+      title: "Set this ended form to open?",
+      confirmLabel: "Set status to open",
+    });
   });
 });
 

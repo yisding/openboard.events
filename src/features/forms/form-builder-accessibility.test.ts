@@ -84,4 +84,26 @@ describe("form builder accessibility", () => {
     expect(source).toContain('href={`/events/${event.id}/forms/${form.id}/preview`}');
     expect(source).not.toContain("navigator.clipboard.writeText");
   });
+
+  it("blocks stale-content publishing and confirms every availability change", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+    const requestStart = source.indexOf("function requestAvailabilityChange()");
+    const confirmStart = source.indexOf("async function confirmAvailabilityChange()");
+
+    expect(source).toContain("const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty");
+    expect(source).toContain('action === "open" && hasUnsavedBuilderTargets');
+    expect(source).toContain('availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"');
+    expect(source).toContain("onClick={requestAvailabilityChange}");
+    expect(requestStart).toBeGreaterThan(0);
+    expect(source.slice(requestStart, confirmStart)).not.toContain("patchForm(");
+    expect(source.slice(confirmStart, source.indexOf("const section", confirmStart))).toContain("await run(");
+    expect(source).toContain('variant={pendingAvailabilityAction === "open" ? "primary" : "destructive"}');
+  });
+
+  it("keeps a new-question draft open when its save fails", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+    expect(source).toContain("const added = await run(");
+    expect(source).toContain("if (!added) return;");
+    expect(source.indexOf("if (!added) return;")).toBeLessThan(source.indexOf("setAdding(false);", source.indexOf("async function addField")));
+  });
 });
