@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { tracks } from "@/db/schema";
+import { events, tracks } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { EvaluationPage } from "@/features/evaluation/evaluation-page";
 import { listEventMembers, listPlans } from "@/features/submissions";
@@ -23,14 +23,23 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
   // /review and gets the layout's friendly refusal here.
   await requireAdmin(eventId, "organizer");
 
-  const [plans, members, trackRows] = await Promise.all([
+  const [plans, members, trackRows, event] = await Promise.all([
     listPlans(eventId),
     listEventMembers(eventId),
     db.select({ id: tracks.id, name: tracks.name, color: tracks.color })
       .from(tracks)
       .where(and(eq(tracks.eventId, eventId)))
       .orderBy(tracks.sortOrder),
+    db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1),
   ]);
 
-  return <PlansView eventId={eventId} plans={plans} members={members} tracks={trackRows} />;
+  return (
+    <PlansView
+      eventId={eventId}
+      plans={plans}
+      members={members}
+      tracks={trackRows}
+      timezone={event[0]?.timezone ?? "America/Los_Angeles"}
+    />
+  );
 }

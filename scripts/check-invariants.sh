@@ -31,6 +31,37 @@ check_forbidden "dangerouslySetInnerHTML" src --glob '*.tsx' --glob '!src/shared
 check_forbidden "runtime\\s*=\\s*['\"]edge" src
 check_forbidden "process\\.env\\." src --glob '!src/shared/lib/env.ts' --glob '!src/app/page.tsx'
 check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/time.ts'
+# DD-2 (#116): one date idiom, and it names its zone. A native date input speaks
+# wall-clock with no zone, so a deadline typed by an organizer outside the event
+# zone lands hours from where they meant. `<DateTimePicker tz>` is the only
+# control allowed to render one, because it is the only one that converts
+# against the event's zone and shows the label.
+#
+# The two halves are checked separately, because the exemptions differ:
+#
+#   - `datetime-local` is an *instant* with no zone. Nothing but the picker may
+#     render one — the form renderer is NOT exempt here, so a future
+#     `datetime-local` question in it still fails.
+#   - `date` alone is a calendar date. The picker owns it, and so does the form
+#     builder's `date` question, whose answer is a day the respondent picks (a
+#     birthday, a travel day) rather than a moment on the event's clock.
+#
+# `DATE_ATTR` matches the JSX attribute rather than arbitrary text:
+#   - the leading class rejects `data-type=` and `mytype=` while allowing the
+#     attribute at a line start or after whitespace, `<`, `{` or `;`;
+#   - `\{?` also catches the expression form `type={"date"}`;
+#   - `-U` lets `[[:space:]]` cross newlines, so an attribute broken over two
+#     lines cannot slip through.
+#
+# A computed value (`type={cond ? "date" : x}`) still escapes a grep; that is the
+# known ceiling of a regex check, and the reason the two exemptions above are
+# written as globs a reviewer must consciously widen.
+DATE_ATTR_PREFIX="(^|[^-[:alnum:]_])type[[:space:]]*=[[:space:]]*\{?[[:space:]]*[\"'\`]"
+check_forbidden "${DATE_ATTR_PREFIX}datetime-local[\"'\`]" src -U --glob '*.tsx' \
+  --glob '!src/shared/ui/app/datetime-picker.tsx'
+check_forbidden "${DATE_ATTR_PREFIX}date[\"'\`]" src -U --glob '*.tsx' \
+  --glob '!src/shared/ui/app/datetime-picker.tsx' \
+  --glob '!src/features/forms/components/form-field-renderer.tsx'
 check_forbidden "from ['\"]resend" src --glob '!src/features/comms/server/**'
 # Grep #11: no direct R2 access outside the storage module. A hand-rolled presign
 # elsewhere would bypass the kind policy, the key scheme and the finalize check.
