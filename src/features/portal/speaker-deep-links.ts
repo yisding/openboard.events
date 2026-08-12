@@ -1,5 +1,5 @@
 import { SPEAKERS_DEEPLINK_PARAMS } from "@/shared/contracts";
-import type { SpeakerRecord } from "@/shared/demo/types";
+import type { SpeakerRecord } from "./types";
 
 export type SpeakerMissingFilter = (typeof SPEAKERS_DEEPLINK_PARAMS.missing)[number];
 

@@ -39,9 +39,6 @@ describe("audited form metadata", () => {
     ];
     const progressPaths = [
       "./billing/components/billing-panel.tsx",
-      "./portal/portal-home.tsx",
-      "./portal/portal-profile.tsx",
-      "./portal/portal-tasks.tsx",
       "./portal/task-runtime/components/task-list.tsx",
       "./portal/tasks-admin/components/tasks-admin-view.tsx",
       "./submissions/evaluation/components/plans-view.tsx",

@@ -7,10 +7,8 @@ import {
   type PublishedScheduleDTO,
   type PublishedSpeakersDTO,
 } from "@/shared/contracts";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 import { eventDayKey } from "@/shared/lib/time";
-import { demoPublishedSchedule, demoPublishedSpeakers } from "./demo-public-data";
 
 /**
  * The public schedule and speaker gallery's only reads. Every row comes from
@@ -146,7 +144,6 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
 }
 
 export function getPublishedSchedule(eventSlug: string): Promise<PublishedScheduleDTO | null> {
-  if (isCredentialFreeLocalDemo()) return Promise.resolve(demoPublishedSchedule(eventSlug));
   return getPublishedScheduleIn(db, eventSlug);
 }
 
@@ -230,6 +227,5 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
 }
 
 export function getPublishedSpeakers(eventSlug: string): Promise<PublishedSpeakersDTO | null> {
-  if (isCredentialFreeLocalDemo()) return Promise.resolve(demoPublishedSpeakers(eventSlug));
   return getPublishedSpeakersIn(db, eventSlug);
 }

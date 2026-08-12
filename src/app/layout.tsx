@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo } from "next/font/google";
 import "./globals.css";
-import { DemoProvider } from "@/shared/demo/demo-provider";
 import { ToastProvider } from "@/shared/ui/toast";
 import { KonamiListener } from "@/shared/ui/konami";
 
@@ -25,9 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={archivo.variable}>
       <body>
-        <DemoProvider>
-          <ToastProvider><KonamiListener />{children}</ToastProvider>
-        </DemoProvider>
+        <ToastProvider><KonamiListener />{children}</ToastProvider>
       </body>
     </html>
   );

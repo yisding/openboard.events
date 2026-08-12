@@ -287,10 +287,3 @@ export function getEnv(): RuntimeEnv {
     .join("; ");
   throw new AppError("INTERNAL", `Server configuration is invalid: ${problems}`);
 }
-
-export function isCredentialFreeLocalDemo(
-  env: Pick<RuntimeEnv, "APP_ENV" | "DATABASE_URL" | "SESSION_SECRET"> = getEnv(),
-  nodeEnv = process.env.NODE_ENV,
-): boolean {
-  return nodeEnv === "development" && env.APP_ENV === "local" && !env.DATABASE_URL && !env.SESSION_SECRET;
-}

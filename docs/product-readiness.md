@@ -12,6 +12,18 @@ still renders from a localStorage demo adapter, and the plan's own cut lines rem
 buyer treats as table stakes. The gap is not quality; it is wiring, proof, and commercial scope
 that was never planned.
 
+> **Annotation, 2026-08-12 — §2's central finding is closed.** This is a dated audit and its
+> findings are left as written. The one that has since been resolved is the biggest: the
+> localStorage demo adapter is **deleted**. `src/app/layout.tsx` no longer mounts `DemoProvider`,
+> `src/shared/demo/` is gone along with the `isCredentialFreeLocalDemo()` predicate, and every
+> surface §2 lists under *Still demo-only* — events index/settings, form builder,
+> evaluation/scoring, agenda, communications admin, speakers/tasks/resources admin, embeds admin,
+> portal profile/tasks/resources, and the public schedule and speaker pages — now has exactly one
+> data source: Postgres. The related "demo scaffolding to delete" bullet in §7 is partly done too:
+> the committed demo credentials and the fixed OTP `424242` are gone from `docs/demo-script.md`
+> and from the code, while `EMAIL_FALLBACK_UI`, `/api/test/login` and the 34 MB `Requirements.odt`
+> remain (`docs/spend/` is already gone). Everything else below still stands on its own evidence.
+
 ---
 
 ## 1. What is going well (protect these)

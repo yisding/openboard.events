@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { initialDemoState } from "@/shared/demo/seed";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { apiV1ErrorResponse, checkV1RateLimit, corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
@@ -31,30 +29,6 @@ async function handleGet(request: Request, params: Promise<{ slug: string }>) {
   const { slug } = await params;
   const event = await resolvePublicEvent(slug);
   if (!event) return notFoundResponse();
-
-  if (isCredentialFreeLocalDemo()) {
-    const sessions = initialDemoState.sessions
-      .filter((item) => item.eventId === event.id && item.status === "published" && item.startsAt)
-      .map((session) => ({
-        id: session.id,
-        title: session.title,
-        descriptionHtml: session.description,
-        startsAt: session.startsAt,
-        endsAt: session.endsAt,
-        track: session.track || null,
-        trackColor: null,
-        room: session.room || null,
-        format: null,
-        speakers: session.speakerIds
-          .flatMap((id) => {
-            const speaker = initialDemoState.speakers.find((item) => item.id === id);
-            return speaker?.confirmation === "confirmed"
-              ? [{ id: speaker.id, firstName: speaker.firstName, lastName: speaker.lastName, company: speaker.company, title: speaker.title }]
-              : [];
-          }),
-      }));
-    return data(sessions, { count: sessions.length, event: { slug: event.slug, name: event.name, timezone: event.timezone } });
-  }
 
   const rows = await db.execute<{
     id: string; title: string; description_html: string | null; starts_at: string; ends_at: string | null;

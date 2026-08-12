@@ -1150,6 +1150,14 @@ only item that can break a page outright.
 
 #### Getting the gated surfaces on screen
 
+> **Annotation, 2026-08-12 — this procedure is obsolete; sign in instead.** The browser demo is
+> deleted, so `isCredentialFreeLocalDemo()`, the `DESIGN_AUDIT_DEMO=1` workaround and the
+> "no demo path, therefore CSS-review-only" exemption below no longer apply. Every gated surface
+> is reachable the ordinary way: run against a seeded database and sign in as
+> `organizer@openboard.dev` (`pnpm admin:bootstrap`), or `POST /api/test/login` where `TEST_AUTH=1`
+> is set. No surface is CSS-review-only on that account any more, and `next.config.ts` needs no
+> edit.
+
 Four of the surfaces above are behind `middleware.ts`'s `/events` gate, which
 only opens when `isCredentialFreeLocalDemo()` is true, and this worktree's
 `.dev.vars` carries a real `SESSION_SECRET`. **Do not edit `.dev.vars`** — the
