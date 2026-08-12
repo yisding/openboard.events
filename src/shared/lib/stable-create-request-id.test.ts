@@ -82,13 +82,17 @@ describe("stable create request ids", () => {
 
     expect(eventSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(1);
     expect(eventSource.indexOf("createRequestId.current.reset()")).toBeGreaterThan(eventSource.indexOf('await api("events"'));
+    expect(eventSource).toContain("setRecoveryRequired(eventCreateOutcomeUnknown(caught))");
+    expect(eventSource.match(/disabled=\{saving \|\| recoveryRequired\}/gu)?.length).toBeGreaterThanOrEqual(8);
+    expect(eventSource).toContain("Retry event creation");
 
     expect(formsSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(1);
     expect(formsSource).toContain("function openCreate() {");
     expect(formsSource).toContain("function closeCreate() {");
     expect(formsSource).toContain("openFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current);");
     expect(formsSource).toContain("if (!closeFormCreateLifecycle(createRequestId.current, createOutcomeUnknown.current, busy)) return;");
-    expect(formsSource).toContain("createOutcomeUnknown.current = formCreateOutcomeUnknown(error);");
+    expect(formsSource).toContain("const outcomeUnknown = formCreateOutcomeUnknown(error);");
+    expect(formsSource).toContain("createOutcomeUnknown.current = outcomeUnknown;");
     expect(formsSource).toContain('<Modal open={creating} onClose={closeCreate}');
     expect(formsSource).toContain('<Button variant="secondary" disabled={busy} onClick={closeCreate}>Cancel</Button>');
     expect(formsSource.indexOf("createRequestId.current.reset()", formsSource.indexOf("async function createForm")))

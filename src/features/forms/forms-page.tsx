@@ -64,6 +64,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   const [kind, setKind] = useState<"abstract" | "session">("abstract");
   const [collectParticipants, setCollectParticipants] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
   const createRequestId = useRef(createStableCreateRequestId());
   const createOutcomeUnknown = useRef(false);
   const visible = useMemo(() => forms.filter((form) => {
@@ -93,11 +94,14 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       });
       createRequestId.current.reset();
       createOutcomeUnknown.current = false;
+      setRecoveryRequired(false);
       toast("Form created with the required submission and identity fields");
       router.push(`/events/${event.id}/forms/${form.id}`);
       router.refresh();
     } catch (error) {
-      createOutcomeUnknown.current = formCreateOutcomeUnknown(error);
+      const outcomeUnknown = formCreateOutcomeUnknown(error);
+      createOutcomeUnknown.current = outcomeUnknown;
+      setRecoveryRequired(outcomeUnknown);
       toast(error instanceof Error ? error.message : "The form could not be created", { kind: "error" });
       setBusy(false);
     }
@@ -144,14 +148,15 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
         </div>
       </article>)}</div>}
     </section>
-    <Modal open={creating} onClose={closeCreate} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" disabled={busy} onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : "Create form"}</Button></>}>
+    <Modal open={creating} onClose={closeCreate} title="Create a submission form" description="The required Title, First Name, Last Name, and Email questions are locked in automatically." footer={<><Button variant="secondary" disabled={busy} onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : recoveryRequired ? "Retry form creation" : "Create form"}</Button></>}>
       <div className="form-stack">
-        <Field label="Internal form name" required><input autoFocus required maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
+        <Field label="Internal form name" required><input autoFocus required disabled={busy || recoveryRequired} maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
         <Field label="Submission type" group><div className="choice-cards">
-          <button type="button" aria-pressed={kind === "abstract"} className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
-          <button type="button" aria-pressed={kind === "session"} className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
+          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "abstract"} className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
+          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "session"} className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
         </div></Field>
-        <div className="inline-setting"><div><b>Collect participant information</b><small>Add the required speaker identity section.</small></div><Switch label="Collect participant information" checked={collectParticipants} onClick={() => setCollectParticipants((value) => !value)} /></div>
+        <div className="inline-setting"><div><b>Collect participant information</b><small>Add the required speaker identity section.</small></div><Switch label="Collect participant information" checked={collectParticipants} disabled={busy || recoveryRequired} onClick={() => setCollectParticipants((value) => !value)} /></div>
+        {recoveryRequired && <p className="portal-note" role="status">Creation could not be confirmed. Retry with the same details before making changes.</p>}
       </div>
     </Modal>
   </>;

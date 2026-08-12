@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import {
@@ -98,5 +99,15 @@ describe("form create request outcomes", () => {
     expect(nextLifecycle).not.toEqual(rejected);
     expect(nextLifecycle).toMatchObject({ id: "10000000-0000-4000-8000-000000000402" });
     expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("locks every form-create input until an ambiguous request is recovered", () => {
+    const source = readFileSync(new URL("./forms-page.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("setRecoveryRequired(outcomeUnknown)");
+    expect(source).toContain("disabled={busy || recoveryRequired}");
+    expect(source.match(/disabled=\{busy \|\| recoveryRequired\}/gu)?.length).toBeGreaterThanOrEqual(4);
+    expect(source).toContain("Retry form creation");
+    expect(source).toContain("Retry with the same details before making changes.");
   });
 });

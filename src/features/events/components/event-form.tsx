@@ -31,6 +31,10 @@ const FIELD_IDS: Record<string, string> = {
   endsAt: "event-ends-at",
 };
 
+export function eventCreateOutcomeUnknown(error: unknown): boolean {
+  return !isAppError(error) || error.code === "INTERNAL";
+}
+
 function browserTimeZones(): string[] {
   try {
     return Intl.supportedValuesOf("timeZone");
@@ -67,6 +71,7 @@ export function EventForm() {
   // validation failed".
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const createRequestId = useRef(createStableCreateRequestId());
 
@@ -131,9 +136,11 @@ export function EventForm() {
         }),
       });
       createRequestId.current.reset();
+      setRecoveryRequired(false);
       toast(`${created.name} created`);
       router.push(`/events/${created.id}/settings?tab=details`);
     } catch (caught) {
+      setRecoveryRequired(eventCreateOutcomeUnknown(caught));
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;
       const summary = caught instanceof Error ? caught.message : "That event did not save";
       fail(summary, fields ?? {});
@@ -145,42 +152,43 @@ export function EventForm() {
   return (
     <form className="form-stack" noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <Field label="Event name" required error={fieldErrors.name} errorId="event-name-error">
-        <input id="event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="AI.Engineer Sandbox — NYC" />
+        <input id="event-name" name="name" required disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="AI.Engineer Sandbox — NYC" />
       </Field>
       <Field label="Event slug" hint="Used in your public URLs: /submit/{slug}/… — leave blank to generate from the name" hintId="event-slug-help" error={fieldErrors.slug} errorId="event-slug-error">
-        <input id="event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "event-slug-error" : "event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="ai-engineer-sandbox" />
+        <input id="event-slug" name="slug" disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "event-slug-error" : "event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="ai-engineer-sandbox" />
       </Field>
       <div className="form-grid">
         <Field label="Event type" error={fieldErrors.eventType} errorId="event-type-error">
-          <Select id="event-type" name="eventType" aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
+          <Select id="event-type" name="eventType" disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
             {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
           </Select>
         </Field>
         <Field label="Timezone" required error={fieldErrors.timezone} errorId="event-timezone-error">
-          <Select id="event-timezone" name="timezone" required aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
+          <Select id="event-timezone" name="timezone" required disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
             {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
           </Select>
         </Field>
       </div>
       <div className="form-grid">
         <Field label="Event website URL" error={fieldErrors.websiteUrl} errorId="event-website-url-error">
-          <input id="event-website-url" name="websiteUrl" type="url" aria-invalid={Boolean(fieldErrors.websiteUrl) || undefined} aria-describedby={fieldErrors.websiteUrl ? "event-website-url-error" : undefined} value={websiteUrl} onChange={(event) => { setWebsiteUrl(event.target.value); clearFieldError("websiteUrl"); }} placeholder="https://…" />
+          <input id="event-website-url" name="websiteUrl" type="url" disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.websiteUrl) || undefined} aria-describedby={fieldErrors.websiteUrl ? "event-website-url-error" : undefined} value={websiteUrl} onChange={(event) => { setWebsiteUrl(event.target.value); clearFieldError("websiteUrl"); }} placeholder="https://…" />
         </Field>
         <Field label="Event location" error={fieldErrors.location} errorId="event-location-error">
-          <input id="event-location" name="location" aria-invalid={Boolean(fieldErrors.location) || undefined} aria-describedby={fieldErrors.location ? "event-location-error" : undefined} value={location} onChange={(event) => { setLocation(event.target.value); clearFieldError("location"); }} placeholder="New York, NY" />
+          <input id="event-location" name="location" disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.location) || undefined} aria-describedby={fieldErrors.location ? "event-location-error" : undefined} value={location} onChange={(event) => { setLocation(event.target.value); clearFieldError("location"); }} placeholder="New York, NY" />
         </Field>
       </div>
       <div className="form-grid">
         <Field label="Starts At" required error={fieldErrors.startsAt} errorId="event-starts-at-error">
-          <DateTimePicker id="event-starts-at" required invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
+          <DateTimePicker id="event-starts-at" required disabled={saving || recoveryRequired} invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
         </Field>
         <Field label="Ends At" required error={fieldErrors.endsAt} errorId="event-ends-at-error">
-          <DateTimePicker id="event-ends-at" required invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
+          <DateTimePicker id="event-ends-at" required disabled={saving || recoveryRequired} invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
         </Field>
       </div>
       {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
+      {recoveryRequired && <p className="portal-note" role="status">Creation could not be confirmed. Retry with the same details before making changes.</p>}
       <footer>
-        <Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create event"}</Button>
+        <Button type="submit" disabled={saving}>{saving ? "Creating…" : recoveryRequired ? "Retry event creation" : "Create event"}</Button>
       </footer>
     </form>
   );
