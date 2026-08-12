@@ -28,8 +28,12 @@ export function defineJobRoute(job: JobName, run: () => Promise<JobStats>) {
     } catch (error) {
       // Same seam as defineHandler's INTERNAL branch (PLAN P3-OPS): capture
       // the raw error before it is flattened to a string for the job log.
-      captureError(error, { requestId: "cron", feature: "jobs", code: job });
-      const result: JobResult = { job, ok: false, stats: {}, ms: Date.now() - started, error: String(error) };
+      const requestId = request.headers.get("cf-ray") ?? "cron";
+      captureError(error, { requestId, feature: "jobs", code: job });
+      // The raw message/stack is already in the structured error.captured log.
+      // Do not duplicate it into the HTTP body, where the dispatcher would
+      // otherwise copy database/provider details into a second log stream.
+      const result: JobResult = { job, ok: false, stats: {}, ms: Date.now() - started, error: "Job failed" };
       console.log(JSON.stringify(result));
       return Response.json(result, { status: 500 });
     }

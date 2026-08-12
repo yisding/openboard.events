@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +12,9 @@ afterEach(() => {
 
 describe("post-deploy smoke retries", () => {
   it("does not retain an early schedule status failure after a later success", () => {
-    const root = mkdtempSync(join(tmpdir(), "openboard-smoke-test-"));
+    const scratch = join(homedir(), "Code");
+    mkdirSync(scratch, { recursive: true });
+    const root = mkdtempSync(join(scratch, "openboard-smoke-test-"));
     created.push(root);
     const bin = join(root, "bin");
     const state = join(root, "state");
@@ -49,7 +51,7 @@ cold_then_cached() {
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"ms":1}' ;;
+  */api/health) payload='{"ok":true,"errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"ms":1}' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     extra=$'Content-Security-Policy: frame-ancestors *\\r\\n'

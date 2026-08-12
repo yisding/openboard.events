@@ -10,8 +10,9 @@
 #
 # Thresholds mirror docs/runbooks/alerting.md's `/api/health` table exactly —
 # update both together, in the same change, if either changes. Two exit tiers:
-#   - `page` breaches (unreachable, non-200, ok=false, db.ok=false, or a comms
-#     metric past its page threshold) print `::error::` and exit 1, failing the
+#   - `page` breaches (unreachable, non-200, ok=false, db.ok=false, any caught
+#     unexpected error in the last hour, or a comms metric past its page
+#     threshold) print `::error::` and exit 1, failing the
 #     workflow run — a failed scheduled run is itself today's alert (see
 #     alerting.md's header for why no separate paging integration exists yet).
 #   - `warn` breaches (comms.ok=false on its own, or a comms metric past its
@@ -76,6 +77,30 @@ fi
 if [[ "$fail" -ne 0 ]]; then
   echo "$body" | jq . >&2
   exit 1
+fi
+
+# This field is additive. A missing field warns during the one-deploy rollout
+# window; once present, an unavailable aggregate query or any caught unexpected
+# error in the last hour is an incident. The protected post-deploy smoke pins
+# the new schema so a deployment cannot claim success without the field.
+errors_present="$(jq -r 'has("errors")' <<<"$body")"
+if [[ "$errors_present" != "true" ]]; then
+  echo "::warning::health has no errors aggregate for $base_url — deploy the current health schema"
+  warn=1
+else
+  errors_ok="$(jq -r '.errors.ok // false' <<<"$body")"
+  recent_errors="$(jq -r '.errors.recentCount // empty' <<<"$body")"
+  error_window="$(jq -r '.errors.windowSeconds // empty' <<<"$body")"
+  if [[ "$errors_ok" != "true" ]]; then
+    echo "::error::health reports errors.ok=false for $base_url — automated unexpected-error tracking is unavailable"
+    fail=1
+  elif [[ ! "$recent_errors" =~ ^[0-9]+$ || "$error_window" != "3600" ]]; then
+    echo "::error::health returned an invalid errors aggregate for $base_url"
+    fail=1
+  elif (( recent_errors > 0 )); then
+    echo "::error::errors.recentCount=$recent_errors in the last hour for $base_url — inspect structured error.captured logs"
+    fail=1
+  fi
 fi
 
 comms_ok="$(jq -r '.comms.ok // false' <<<"$body")"

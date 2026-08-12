@@ -127,6 +127,7 @@ echo
 if expect_status "$base_url/api/health" 200 "health responds"; then
   expect_body '"ok":true' "health reports ok" \
     && expect_body 'ms' "health reports a database timing" \
+    && expect_body '"errors":\{"ok":true' "health reports operational error tracking" \
     && pass "/api/health"
 fi
 

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { applyBillingProviderEvent, getBillingProviderAdapter } from "@/features/billing";
+import { applyBillingProviderEvent, billingSurfaceUnavailableResponse, getBillingProviderAdapter, isBillingSurfaceEnabled } from "@/features/billing";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 
@@ -23,6 +23,7 @@ export const dynamic = "force-dynamic";
  * before any live provider is chosen, not bolted on afterward.
  */
 export async function POST(request: NextRequest): Promise<Response> {
+  if (!isBillingSurfaceEnabled()) return billingSurfaceUnavailableResponse();
   const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
   try {
     const adapter = getBillingProviderAdapter();

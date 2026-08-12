@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { Contact, CreditCard, ScrollText, Sparkles, Users as UsersIcon } from "lucide-react";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
+import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
@@ -53,6 +54,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
 
   const events = (await Promise.all(eventRows.map((row) => getEvent(row.id))))
     .filter((event): event is EventDTO => event !== null);
+  const billingEnabled = isBillingSurfaceEnabled();
 
   return <>
     <PageHeader
@@ -61,7 +63,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
       description="Your organization's events."
       actions={<>
         <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
-        <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>
+        {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>
         <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>

@@ -30,6 +30,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm invariants
+      # Fail closed when a production dependency has a known advisory at any
+      # severity; reviewed transitive fixes are pinned in pnpm-workspace.yaml.
+      - run: pnpm audit:prod
 
   tests:
     name: Test suite
@@ -45,12 +48,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-node
-      # Run this before build:worker. Once .open-next/worker.js exists,
-      # Wrangler resolves the local service binding to that transient module
-      # and generates artifact-dependent declarations that are not valid in a
-      # clean checkout.
+      # The wrapper preserves clean-checkout semantics even when a developer
+      # has a local artifact; CI still runs it before build for the cheapest
+      # possible failure.
       - run: pnpm cf-typegen:check
       - run: pnpm build:worker
+      # A prior named-chunk optimization passed every static gate but made
+      # every deployed route fail under workerd. Boot the built artifact and
+      # exercise multiple server entries before accepting its size.
+      - run: pnpm smoke:worker
       # build:worker produces both .next and .open-next. Keep these consumers in
       # the same job so the expensive build runs once and no artifact upload or
       # download is needed.

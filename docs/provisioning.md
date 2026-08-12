@@ -14,13 +14,15 @@ GitHub Actions workflow owns the required migration → web → jobs → smoke o
 
   ```bash
   pnpm install --frozen-lockfile
-  pnpm check
-  pnpm cf-typegen:check
-  pnpm worker:size
+  pnpm release:check
   ```
 
-`pnpm check` must run before `pnpm cf-typegen:check` because the generated Cloudflare types
-include the OpenNext worker built by `pnpm check`.
+`pnpm release:check` orders the gates deliberately: it checks generated Cloudflare types with
+local artifacts hidden, then builds once before checking browser and Worker size budgets and
+running the local-workerd artifact smoke. The Worker build temporarily isolates ignored local
+`.dev.vars`/`.env*` files, so the release artifact is derived from committed configuration and
+explicit process environment only. The same boundary covers the OpenNext deploy helper's cache
+population step; the files are restored even when either command fails.
 
 ## 1. Record the environment map
 
@@ -50,12 +52,15 @@ issuing R2 credentials, is separate from upgrading the Workers plan.
 - [ ] Generate an independent production `SESSION_SECRET` of at least 32 random characters.
 - [x] Generate an independent preview `CRON_SECRET` of at least 32 random characters.
 - [ ] Generate an independent production `CRON_SECRET` of at least 32 random characters.
-- [ ] Generate an independent preview `UNSUBSCRIBE_SECRET` of at least 32 random characters
-  (M46 — signs unsubscribe tokens; kept separate from `SESSION_SECRET` so the two can rotate
-  independently). Optional/additive: until it is set, non-essential email that needs to mint an
-  unsubscribe link fails closed with a clear `INTERNAL` error rather than the environment
-  refusing to parse.
+- [ ] Generate independent preview `UNSUBSCRIBE_SECRET` and `SPEAKER_SHARE_SECRET` values of at
+  least 32 random characters. They sign different public payloads and must not reuse
+  `SESSION_SECRET` or one another.
+- [ ] Create the preview webhook in Resend and copy its provider-issued signing secret into
+  `RESEND_WEBHOOK_SECRET`; do not generate or substitute this value locally.
 - [ ] Generate an independent production `UNSUBSCRIBE_SECRET` of at least 32 random characters.
+- [ ] Generate an independent production `SPEAKER_SHARE_SECRET` of at least 32 random characters.
+- [ ] Create the production webhook in Resend and copy its provider-issued signing secret into
+  `RESEND_WEBHOOK_SECRET`; do not reuse the preview webhook or its secret.
 - [ ] Store the values in a password manager; do not commit them or paste them into issue or
   PR comments.
 
@@ -154,17 +159,21 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   exist:
 
   ```bash
-  pnpm deploy:web:preview
+  ALLOW_MISSING_DEPLOY_SECRETS=1 pnpm deploy:web:preview
   ```
 
-- [x] Set these secrets on `sb-web-preview`:
+- [ ] Complete the required secret inventory on `sb-web-preview`. The original baseline secrets
+  are present; `UNSUBSCRIBE_SECRET`, `RESEND_WEBHOOK_SECRET`, and `SPEAKER_SHARE_SECRET` remain to
+  be added before the next application deploy:
 
   | Secret | Value |
   |---|---|
   | `DATABASE_URL` | `sb-test` pooled Neon URL |
   | `SESSION_SECRET` | preview session secret |
   | `CRON_SECRET` | preview cron secret |
-  | `UNSUBSCRIBE_SECRET` | preview unsubscribe-token secret (M46; optional but recommended — see §2) |
+  | `UNSUBSCRIBE_SECRET` | preview unsubscribe-token secret |
+  | `RESEND_WEBHOOK_SECRET` | provider-issued preview Resend webhook signing secret |
+  | `SPEAKER_SHARE_SECRET` | preview speaker-share token secret |
   | `R2_ACCESS_KEY_ID` | preview bucket credential |
   | `R2_SECRET_ACCESS_KEY` | preview bucket credential |
   | `RESEND_API_KEY` | domain-scoped sending key (preview runs `EMAIL_MODE=send` behind a one-address allowlist since #50) |
@@ -174,12 +183,14 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   pnpm exec wrangler secret put SESSION_SECRET --env preview
   pnpm exec wrangler secret put CRON_SECRET --env preview
   pnpm exec wrangler secret put UNSUBSCRIBE_SECRET --env preview
+  pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env preview
+  pnpm exec wrangler secret put SPEAKER_SHARE_SECRET --env preview
   pnpm exec wrangler secret put R2_ACCESS_KEY_ID --env preview
   pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY --env preview
   pnpm exec wrangler secret put RESEND_API_KEY --env preview
   ```
 
-- [x] Redeploy the preview web Worker after its secrets exist:
+- [ ] Redeploy the preview web Worker after the complete inventory exists:
 
   ```bash
   pnpm deploy:web:preview
@@ -314,11 +325,19 @@ Production web secrets are:
 | `DATABASE_URL` (pooled `sb-prod` URL) | yes |
 | `SESSION_SECRET` | yes |
 | `CRON_SECRET` | yes |
-| `UNSUBSCRIBE_SECRET` | recommended, not enforced (M46 — additive; unset only degrades non-essential-email unsubscribe links, not the whole environment) |
+| `UNSUBSCRIBE_SECRET` | yes |
+| `RESEND_WEBHOOK_SECRET` | yes |
+| `SPEAKER_SHARE_SECRET` | yes |
 | `R2_ACCESS_KEY_ID` | yes |
 | `R2_SECRET_ACCESS_KEY` | yes |
 | `RESEND_API_KEY` | yes |
 | `AIRTABLE_API_KEY` | only if the deferred M39 integration is enabled |
+
+`pnpm deploy:preflight web|jobs preview|production` compares this inventory with Cloudflare's
+secret names without reading any secret value. Both the protected deploy workflow and the local
+deploy wrapper run it before release. `ALLOW_MISSING_DEPLOY_SECRETS=1` exists only for the first
+bootstrap of a Worker that does not exist yet; after that first deploy, provision the complete
+inventory before deploying application code again.
 
 ## 10. Record deployment proof
 

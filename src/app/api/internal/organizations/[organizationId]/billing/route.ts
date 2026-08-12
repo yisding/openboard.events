@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
-import { getOrganizationBillingSummary } from "@/features/billing";
+import { billingSurfaceUnavailableResponse, getOrganizationBillingSummary, isBillingSurfaceEnabled } from "@/features/billing";
 import { organizationIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
@@ -27,5 +27,6 @@ const get = defineHandler({
 type Route = { params: Promise<{ organizationId: string }> };
 
 export function GET(request: NextRequest, route: Route): Promise<Response> {
+  if (!isBillingSurfaceEnabled()) return Promise.resolve(billingSurfaceUnavailableResponse());
   return get(request, route);
 }

@@ -9,6 +9,7 @@
   "observability": { "enabled": true },
   "vars": {
     "APP_ENV": "local",
+    "BILLING_MODE": "disabled",
     "EMAIL_MODE": "log",
     "EMAIL_FALLBACK_UI": "1",
     "AIRTABLE_CRON": "0",
@@ -27,6 +28,7 @@
       "name": "sb-web-preview",
       "vars": {
         "APP_ENV": "preview",
+        "BILLING_MODE": "disabled",
         // Preview sends for real now that mail.openboard.events is verified, but
         // only to the allowlist: a preview that can mail anybody is one bad
         // seed away from mailing a stranger.
@@ -56,6 +58,7 @@
       "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
       "vars": {
         "APP_ENV": "production",
+        "BILLING_MODE": "disabled",
         "EMAIL_MODE": "send",
         "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
         "EMAIL_FALLBACK_UI": "0",

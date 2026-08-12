@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { organizationAuth } from "@/features/auth";
-import { getBillingProviderAdapter, startBillingCheckoutInputSchema } from "@/features/billing";
+import { billingSurfaceUnavailableResponse, getBillingProviderAdapter, isBillingSurfaceEnabled, startBillingCheckoutInputSchema } from "@/features/billing";
 import { organizationIdSchema } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
@@ -34,5 +34,6 @@ const post = defineHandler({
 type Route = { params: Promise<{ organizationId: string }> };
 
 export function POST(request: NextRequest, route: Route): Promise<Response> {
+  if (!isBillingSurfaceEnabled()) return Promise.resolve(billingSurfaceUnavailableResponse());
   return post(request, route);
 }

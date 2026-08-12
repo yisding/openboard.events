@@ -13,6 +13,8 @@ experience layer of dashboards, flow-through lists, and a command palette on top
 - **Build history and current status:** [`plan/`](plan/), starting with
   [`plan/status.md`](plan/status.md) (the live evidence ledger) and
   [`plan/product-roadmap.md`](plan/product-roadmap.md)
+- **Latest production-readiness audit:**
+  [`docs/evidence/production-readiness-audit-2026-08-11.md`](docs/evidence/production-readiness-audit-2026-08-11.md)
 
 ## Honest status
 
@@ -35,12 +37,15 @@ a Worker bundle inside the Cloudflare Workers Free budget.
 **What is not yet proven anywhere:** a green run of the `Deploy` GitHub Actions workflow (every
 deploy so far is a laptop operation via `scripts/deploy-cloudflare.sh`); production (`sb-prod`) is
 provisioned — database migrated through the full journal, both workers deployed with secrets —
-but its first healthy post-deploy smoke is still pending (this post-dates the ledger's rev. 12
-snapshot; the recorded proof is [`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §11.2,
-which the ledger's next revision will absorb); an Outlook delivery probe; and full end-to-end passes of the review
+and `/api/health` is green, but its first strict post-deploy smoke through the protected workflow
+is still pending (the recorded provisioning proof is
+[`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §11.2); an Outlook delivery probe; and full end-to-end passes of the review
 reminders, speaker-roster, and content-operations e2e specs (each has failed on a real but narrow
 gap — see `plan/status.md` §3 for the specifics rather than treating the surface as untested).
 `TEST_AUTH` remains enabled on the preview and must be disabled before any non-demo deployment.
+The billing provider remains a scaffold and is explicitly outside the current launch scope:
+`BILLING_MODE=disabled` hides its link and returns 404 from the page, internal endpoints, and
+webhook in preview and production. `BILLING_MODE=scaffold` is accepted only for local seam tests.
 
 **Numbers, pulled from the tree, not memory:** 17 migrations in [`drizzle/`](drizzle), 9
 Playwright specs in [`e2e/`](e2e), and (last recorded, `plan/status.md` §2h) 1299 passing Vitest
@@ -94,8 +99,8 @@ Inside `src`:
 
 ## Getting started
 
-Prerequisites: Node.js, pnpm (`packageManager` pins `pnpm@11.8.0`), and — for the database-backed
-path — a Postgres URL (Neon or otherwise).
+Prerequisites: Node.js 22 (pinned in `.node-version`), pnpm (`packageManager` pins
+`pnpm@11.8.0`), and — for the database-backed path — a Postgres URL (Neon or otherwise).
 
 ```bash
 pnpm install
@@ -129,11 +134,14 @@ seed.
 pnpm typecheck          # tsc --noEmit
 pnpm lint                # eslint --max-warnings=0
 pnpm invariants          # CI greps: single sanitizer/evaluator/dispatcher, no stray process.env, etc.
+pnpm audit:prod          # fail on any known production-dependency advisory
 pnpm test                # vitest: unit + PGlite integration suites
 pnpm e2e                 # Playwright — set E2E_BASE_URL to a deployed target to run against it
 pnpm check               # typecheck + lint + invariants + test + next build + worker build
 pnpm worker:size         # Workers Free compressed-size gate
+pnpm smoke:worker        # boots the built OpenNext artifact under local workerd
 pnpm cf-typegen:check    # generated Cloudflare bindings match wrangler.jsonc
+pnpm release:check       # full credential-free CI and artifact gate
 bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
 ```
 
@@ -161,8 +169,9 @@ pnpm deploy:jobs:production
 ```
 
 The protected `production` GitHub environment gates the `Deploy` Actions workflow only — these
-local commands bypass that gate entirely and are restrained by nothing but the script's
-argument checks. Treat production invocations accordingly.
+local commands bypass that approval gate. The wrapper still validates the exact origin and checks
+the remote Worker secret inventory before it builds or deploys; treat production invocations
+accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub

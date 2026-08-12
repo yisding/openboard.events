@@ -127,6 +127,13 @@
       "when": 1787544000000,
       "tag": "0017_crm_merge_recovery",
       "breakpoints": false
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787630400000,
+      "tag": "0018_operational_error_buckets",
+      "breakpoints": false
     }
   ]
 }
