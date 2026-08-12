@@ -187,11 +187,12 @@ export function AbstractsTable({
           <button
             key={tab.id}
             type="button"
+            aria-label={`${tab.label}, ${counts[tab.id]} ${counts[tab.id] === 1 ? "abstract" : "abstracts"}`}
             aria-pressed={status === tab.id}
             className={status === tab.id ? "active" : ""}
             onClick={() => onFilter({ status: tab.id })}
           >
-            {tab.label} <span aria-hidden="true">{counts[tab.id]}</span><span className="sr-only">{counts[tab.id]} {counts[tab.id] === 1 ? "abstract" : "abstracts"}</span>
+            {tab.label} <span aria-hidden="true">{counts[tab.id]}</span>
           </button>
         ))}
       </div>
