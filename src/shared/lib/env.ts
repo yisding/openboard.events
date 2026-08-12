@@ -28,6 +28,16 @@ const optionalEmailFrom = z.preprocess(
   ).optional(),
 );
 
+const optionalLegalVersion = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9._-]*$/iu, "must be a stable version identifier").optional(),
+);
+
+const optionalLegalUrl = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.url().optional(),
+);
+
 /** Secret bindings every deployed web Worker must carry before release. */
 export const WEB_DEPLOY_SECRET_NAMES = [
   "DATABASE_URL",
@@ -112,6 +122,16 @@ const envSchema = z.object({
   ADMIN_AUTH_PROVIDER: z.enum(["fallback", "better-auth"]).default("fallback"),
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
+  // Reviewed customer terms live outside the repository until their drafts in
+  // docs/legal are approved. These four values are therefore one atomic
+  // configuration: the URLs identify the published documents and the stable
+  // versions are what signup records. Any environment may omit all four while
+  // legal review is pending; as soon as one is configured, all four are
+  // required and signup enforcement activates.
+  LEGAL_TERMS_URL: optionalLegalUrl,
+  LEGAL_TERMS_VERSION: optionalLegalVersion,
+  LEGAL_PRIVACY_URL: optionalLegalUrl,
+  LEGAL_PRIVACY_VERSION: optionalLegalVersion,
   /**
    * The origin Better Auth builds callback and email URLs from. Optional and
    * defaulted to `APP_BASE_URL` at the point of use — one origin, not two, is
@@ -172,6 +192,24 @@ const envSchema = z.object({
   }
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
     context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together" });
+  }
+
+  const legalKeys = [
+    "LEGAL_TERMS_URL",
+    "LEGAL_TERMS_VERSION",
+    "LEGAL_PRIVACY_URL",
+    "LEGAL_PRIVACY_VERSION",
+  ] as const;
+  const configuredLegalKeys = legalKeys.filter((key) => Boolean(env[key]));
+  if (configuredLegalKeys.length > 0 && configuredLegalKeys.length < legalKeys.length) {
+    for (const key of legalKeys) {
+      if (!env[key]) context.addIssue({ code: "custom", path: [key], message: "is required when signup legal consent is configured" });
+    }
+  }
+  for (const key of ["LEGAL_TERMS_URL", "LEGAL_PRIVACY_URL"] as const) {
+    if (env.APP_ENV !== "local" && env[key] && new URL(env[key]).protocol !== "https:") {
+      context.addIssue({ code: "custom", path: [key], message: "must use https when deployed" });
+    }
   }
 
   // Hygiene applies whenever the value is present, not only when deployed —

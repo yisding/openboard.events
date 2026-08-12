@@ -7,6 +7,7 @@ import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { signupAndAwaitVerification } from "../signup-request";
+import type { SignupLegalConsent } from "../legal-consent";
 
 /**
  * M44 — self-serve signup. Posts straight to Better Auth's own
@@ -28,7 +29,7 @@ import { signupAndAwaitVerification } from "../signup-request";
  * wizard and the organization-scoped create-event route both have to exist
  * first, or this redirect would hand a fresh signup to an empty screen.
  */
-export function SignupForm() {
+export function SignupForm({ legalConsent = null }: { legalConsent?: SignupLegalConsent | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"), "/organizations");
@@ -53,6 +54,8 @@ export function SignupForm() {
         name,
         organizationName,
         invitationToken,
+        legalConsent,
+        legalConsentAccepted: data.get("legalConsentAccepted") === "on",
         next,
       });
       if ("error" in transition) {
@@ -79,6 +82,12 @@ export function SignupForm() {
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <label className="field"><span>Password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" aria-describedby="signup-password-help" /></label>
     <small id="signup-password-help">Use at least 12 characters.</small>
+    {legalConsent && <label className="auth-consent">
+      <input name="legalConsentAccepted" required type="checkbox" />
+      <span>
+        I agree to the <a href={legalConsent.termsUrl} target="_blank" rel="noreferrer">Terms of Service</a> and acknowledge the <a href={legalConsent.privacyUrl} target="_blank" rel="noreferrer">Privacy Policy</a>.
+      </span>
+    </label>}
     {error && <p className="field-error" role="alert">{error}</p>}
     <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
