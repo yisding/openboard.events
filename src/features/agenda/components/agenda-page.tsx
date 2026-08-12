@@ -100,7 +100,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   const viewProps: AgendaViewProps = { ...props, sessions: visible, onEdit: setEditingId };
 
   return (
-    <main className="page">
+    <div className="page">
       <PageHeader
         eyebrow="PROGRAM"
         title="Agenda"
@@ -161,6 +161,6 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         formats={props.formats}
         speakers={props.speakers}
       />
-    </main>
+    </div>
   );
 }

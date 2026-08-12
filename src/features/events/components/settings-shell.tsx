@@ -48,13 +48,13 @@ export function SettingsShell({ event, vocabulary }: { event: EventDTO; vocabula
             </button>
           ))}
         </nav>
-        <main>
+        <div className="settings-main">
           {tab === "details" && <DetailsTab event={current} onSaved={setCurrent} />}
           {tab === "tracks" && <VocabTab eventId={event.id} kind="tracks" initialItems={vocabulary.tracks} />}
           {tab === "rooms" && <VocabTab eventId={event.id} kind="rooms" initialItems={vocabulary.rooms} />}
           {tab === "formats" && <VocabTab eventId={event.id} kind="formats" initialItems={vocabulary.formats} />}
           {tab === "tags" && <VocabTab eventId={event.id} kind="tags" initialItems={vocabulary.tags} />}
-        </main>
+        </div>
       </div>
     </>
   );

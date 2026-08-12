@@ -151,7 +151,7 @@ export function EmbedsAdminPage({
   }
 
   return (
-    <main className="page embeds-admin-page">
+    <div className="page embeds-admin-page">
       <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live sessions, agenda, itinerary, and speakers on any website." />
       <section className="embed-cards">
         {configs.map((config) => {
@@ -324,6 +324,6 @@ export function EmbedsAdminPage({
           );
         })}
       </section>
-    </main>
+    </div>
   );
 }
