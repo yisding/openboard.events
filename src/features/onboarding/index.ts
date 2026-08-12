@@ -13,7 +13,8 @@
  */
 export { provisionOrganizationEvent, provisionOrganizationEventIn } from "./server/provisioning";
 export {
-  getActiveOrganizationOnboarding,
+  getActiveOrganizationOnboardingForUser,
+  getActiveOrganizationOnboardingForUserIn,
   getActiveOrganizationOnboardingIn,
   startOrganizationOnboardingIn,
   updateOrganizationOnboarding,

@@ -6,10 +6,10 @@ import { safeInternalPath } from "@/features/auth/safe-next";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
 import { getEvent, listTracks } from "@/features/events";
 import { getFormForBuilder } from "@/features/forms";
-import { getActiveOrganizationOnboarding } from "@/features/onboarding";
+import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
 import { OnboardingWizard, type OnboardingResumeState } from "@/features/onboarding/components/onboarding-wizard";
 import { PageHeader } from "@/shared/ui/ui-kit";
-import { organizationIdSchema } from "@/shared/contracts";
+import { organizationIdSchema, type UserId } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
@@ -32,8 +32,10 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
 
+  let actorUserId: UserId | null = null;
   try {
-    await requireOrganizationAdmin(organizationId, "organizer");
+    const session = await requireOrganizationAdmin(organizationId, "organizer");
+    actorUserId = session.userId;
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {
@@ -42,11 +44,12 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     }
     notFound();
   }
+  if (!actorUserId) notFound();
 
   const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
     listOrganizationEvents(organizationId),
-    getActiveOrganizationOnboarding(organizationId),
+    getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
 

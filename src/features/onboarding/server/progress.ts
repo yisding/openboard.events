@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { eventOnboardingProgress, events, forms } from "@/db/schema";
-import { eventIdSchema, formIdSchema, type EventId, type FormId, type OrganizationId } from "@/shared/contracts";
+import { eventMembers, eventOnboardingProgress, events, forms } from "@/db/schema";
+import { eventIdSchema, formIdSchema, type EventId, type FormId, type OrganizationId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import type { OnboardingProgressUpdate, OnboardingStep } from "../progress-types";
 
@@ -32,7 +32,10 @@ export async function getActiveOrganizationOnboardingIn(
     step: eventOnboardingProgress.step,
   })
     .from(eventOnboardingProgress)
-    .where(eq(eventOnboardingProgress.organizationId, organizationId))
+    .where(and(
+      eq(eventOnboardingProgress.organizationId, organizationId),
+      inArray(eventOnboardingProgress.step, ["vocabulary", "form"]),
+    ))
     .orderBy(desc(eventOnboardingProgress.updatedAt), desc(eventOnboardingProgress.eventId))
     .limit(1);
   if (!row) return null;
@@ -46,8 +49,45 @@ export async function getActiveOrganizationOnboardingIn(
   };
 }
 
-export const getActiveOrganizationOnboarding = (organizationId: OrganizationId): Promise<ActiveOnboardingProgress | null> =>
-  getActiveOrganizationOnboardingIn(db, organizationId);
+/** Finds the newest checkpoint this user can actually advance. Organization
+ * membership alone deliberately does not widen event-level access. */
+export async function getActiveOrganizationOnboardingForUserIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  userId: UserId,
+): Promise<ActiveOnboardingProgress | null> {
+  const [row] = await dbOrTx.select({
+    eventId: eventOnboardingProgress.eventId,
+    formId: eventOnboardingProgress.formId,
+    step: eventOnboardingProgress.step,
+  })
+    .from(eventOnboardingProgress)
+    .innerJoin(eventMembers, and(
+      eq(eventMembers.eventId, eventOnboardingProgress.eventId),
+      eq(eventMembers.userId, userId),
+      inArray(eventMembers.role, ["owner", "organizer"]),
+    ))
+    .where(and(
+      eq(eventOnboardingProgress.organizationId, organizationId),
+      inArray(eventOnboardingProgress.step, ["vocabulary", "form"]),
+    ))
+    .orderBy(desc(eventOnboardingProgress.updatedAt), desc(eventOnboardingProgress.eventId))
+    .limit(1);
+  if (!row) return null;
+  if (row.step !== "vocabulary" && row.step !== "form") {
+    throw new AppError("INTERNAL", "Onboarding checkpoint has an invalid step");
+  }
+  return {
+    eventId: eventIdSchema.parse(row.eventId),
+    formId: row.formId ? formIdSchema.parse(row.formId) : null,
+    step: row.step,
+  };
+}
+
+export const getActiveOrganizationOnboardingForUser = (
+  organizationId: OrganizationId,
+  userId: UserId,
+): Promise<ActiveOnboardingProgress | null> => getActiveOrganizationOnboardingForUserIn(db, organizationId, userId);
 
 /**
  * Advances (or completes) one organization's event setup. Event ownership is
@@ -77,20 +117,46 @@ export async function updateOrganizationOnboardingIn(
     .limit(1);
 
   if (input.step === "complete") {
-    // No row means a prior completion committed and its response was lost.
+    // No row supports events created before durable checkpoints existed.
     if (!current) return input;
+    if (current.step === "complete") {
+      if (current.formId && current.formId !== input.formId) {
+        throw new AppError("CONFLICT", "A different form completed this setup");
+      }
+      return input;
+    }
     if (!input.formId || current.formId !== input.formId) {
       throw new AppError("CONFLICT", "Finish the onboarding form associated with this setup");
     }
-    await dbOrTx.delete(eventOnboardingProgress).where(and(
-      eq(eventOnboardingProgress.eventId, input.eventId),
-      eq(eventOnboardingProgress.organizationId, organizationId),
-      eq(eventOnboardingProgress.formId, input.formId),
-    ));
+    const [completed] = await dbOrTx.update(eventOnboardingProgress)
+      .set({ step: "complete", updatedAt: new Date() })
+      .where(and(
+        eq(eventOnboardingProgress.eventId, input.eventId),
+        eq(eventOnboardingProgress.organizationId, organizationId),
+        eq(eventOnboardingProgress.formId, input.formId),
+        eq(eventOnboardingProgress.step, current.step),
+      ))
+      .returning();
+    if (!completed) {
+      const [latest] = await dbOrTx.select({ step: eventOnboardingProgress.step })
+        .from(eventOnboardingProgress)
+        .where(and(
+          eq(eventOnboardingProgress.eventId, input.eventId),
+          eq(eventOnboardingProgress.organizationId, organizationId),
+        ))
+        .limit(1);
+      if (latest?.step !== "complete") throw new AppError("CONFLICT", "Onboarding progress changed; reload and try again");
+    }
     return input;
   }
 
   if (!current) throw new AppError("CONFLICT", "This event setup is already complete");
+  // A stale tab may retry association after its completion response was lost.
+  // Treat that replay as success without moving the tombstone backwards.
+  if (current.step === "complete") return input;
+  if (current.step === "form" && input.step === "vocabulary") {
+    throw new AppError("CONFLICT", "Event setup cannot move back to an earlier step");
+  }
 
   if (input.formId) {
     if (current.formId && current.formId !== input.formId) {
@@ -116,7 +182,7 @@ export async function updateOrganizationOnboardingIn(
     .where(and(
       eq(eventOnboardingProgress.eventId, input.eventId),
       eq(eventOnboardingProgress.organizationId, organizationId),
-      ...(input.step === "vocabulary" ? [eq(eventOnboardingProgress.step, "vocabulary")] : []),
+      eq(eventOnboardingProgress.step, current.step),
       ...(input.formId
         ? [current.formId
           ? eq(eventOnboardingProgress.formId, current.formId)
@@ -132,6 +198,7 @@ export async function updateOrganizationOnboardingIn(
         eq(eventOnboardingProgress.organizationId, organizationId),
       ))
       .limit(1);
+    if (latest?.step === "complete") return input;
     if (!latest) throw new AppError("CONFLICT", "This event setup is already complete");
     throw new AppError("CONFLICT", "Onboarding progress changed; reload and try again");
   }

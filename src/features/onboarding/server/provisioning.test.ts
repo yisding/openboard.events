@@ -6,7 +6,7 @@ import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { createOrganizationIn, getEventOrganizationIn, listOrganizationEventsIn } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, formIdSchema, TEMPLATE_KEYS, userIdSchema, type OrganizationId, type UserId } from "@/shared/contracts";
-import { getActiveOrganizationOnboardingIn, updateOrganizationOnboardingIn } from "./progress";
+import { getActiveOrganizationOnboardingForUserIn, getActiveOrganizationOnboardingIn, updateOrganizationOnboardingIn } from "./progress";
 import { provisionOrganizationEventIn } from "./provisioning";
 
 // Same migration set `features/events/server/mutations.test.ts` needs for
@@ -164,6 +164,20 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       formId: onboardingFormId,
       step: "form",
     });
+    const [collaborator] = await database.insert(schema.users).values({
+      email: "resume-collaborator@test.dev",
+      name: "Resume Collaborator",
+    }).returning();
+    const collaboratorId = userIdSchema.parse(collaborator?.id);
+    await database.insert(schema.organizationMembers).values({
+      organizationId: resumeOrg.id,
+      userId: collaboratorId,
+      role: "organizer",
+    });
+    await expect(getActiveOrganizationOnboardingForUserIn(database, resumeOrg.id, resumeUserId)).resolves.toMatchObject({
+      eventId: event.id,
+    });
+    await expect(getActiveOrganizationOnboardingForUserIn(database, resumeOrg.id, collaboratorId)).resolves.toBeNull();
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "form",
@@ -190,6 +204,24 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
       formId: onboardingFormId,
     })).resolves.toMatchObject({ step: "complete" });
     await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
+    // A stale form-association replay and a delayed stable event-create replay
+    // both preserve the completed tombstone instead of restarting setup.
+    await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
+      eventId: event.id,
+      step: "form",
+      formId: onboardingFormId,
+    })).resolves.toMatchObject({ step: "form" });
+    await provisionOrganizationEventIn(database, resumeUserId, resumeOrg.id, baseInput({
+      id: event.id,
+      name: "Resume Event",
+      slug: "resume-event",
+    }));
+    await expect(getActiveOrganizationOnboardingIn(database, resumeOrg.id)).resolves.toBeNull();
+    const tombstone = await pglite.query<{ step: string; form_id: string }>(
+      "SELECT step, form_id FROM event_onboarding_progress WHERE event_id=$1",
+      [event.id],
+    );
+    expect(tombstone.rows[0]).toEqual({ step: "complete", form_id: onboardingFormId });
     await expect(updateOrganizationOnboardingIn(database, resumeOrg.id, {
       eventId: event.id,
       step: "complete",

@@ -18,8 +18,9 @@ describe("onboarding organization access", () => {
 
   it("redirects only organizers and owners into setup", () => {
     expect(organizationPage).toContain('canManageEvents = roleSatisfies(session.role, "organizer")');
-    expect(organizationPage).toContain("if (canManageEvents && (eventRows.length === 0 || progress))");
+    expect(organizationPage).toContain("getActiveOrganizationOnboardingForUser(organizationId, actorUserId)");
     expect(onboardingPage).toContain('requireOrganizationAdmin(organizationId, "organizer")');
+    expect(onboardingPage).toContain("getActiveOrganizationOnboardingForUser(organizationId, actorUserId)");
   });
 
   it("resumes only the form explicitly associated with the checkpoint", () => {

@@ -9,9 +9,9 @@ import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
 import { getOrganization, listOrganizationEvents } from "@/features/organizations";
-import { getActiveOrganizationOnboarding } from "@/features/onboarding";
+import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
 import { PageHeader } from "@/shared/ui/ui-kit";
-import { organizationIdSchema, type EventDTO } from "@/shared/contracts";
+import { organizationIdSchema, type EventDTO, type UserId } from "@/shared/contracts";
 import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { isAppError } from "@/shared/lib/errors";
 
@@ -37,8 +37,10 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   const organizationId = parsed.data;
 
   let canManageEvents = false;
+  let actorUserId: UserId | null = null;
   try {
     const session = await requireOrganizationAdmin(organizationId);
+    actorUserId = session.userId;
     canManageEvents = roleSatisfies(session.role, "organizer");
   } catch (error) {
     if (!isAppError(error)) throw error;
@@ -48,14 +50,15 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     }
     notFound();
   }
+  if (!actorUserId) notFound();
 
   const [organization, eventRows, progress] = await Promise.all([
     getOrganization(organizationId),
     listOrganizationEvents(organizationId),
-    getActiveOrganizationOnboarding(organizationId),
+    getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
-  if (canManageEvents && (eventRows.length === 0 || progress)) {
+  if ((canManageEvents && eventRows.length === 0) || (canManageEvents && progress)) {
     redirect(`/organizations/${organizationId}/onboarding`);
   }
 
