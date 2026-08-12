@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSubmitAssignments, needsEmptyReplacementConfirmation } from "./assignment-drawer";
+import { canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
 
 const ready = {
   loaded: true,
@@ -44,5 +44,21 @@ describe("assignment drawer submission safety", () => {
       selectedCount: 1,
       currentAssignmentCount: 3,
     })).toBe(false);
+  });
+
+  it("drops selected submissions that a new track filter hides", () => {
+    expect(keepShownAssignmentSelection(
+      ["platform-a", "agents-a"],
+      ["platform-a", "platform-b"],
+    )).toEqual(["platform-a"]);
+    expect(keepShownAssignmentSelection(["platform-a"], ["agents-a"])).toEqual([]);
+  });
+
+  it("preserves only still-selected IDs when a filter widens", () => {
+    expect(keepShownAssignmentSelection(
+      ["platform-b", "platform-a"],
+      ["platform-a", "platform-b", "agents-a"],
+    )).toEqual(["platform-b", "platform-a"]);
+    expect(keepShownAssignmentSelection(["platform-a"], [])).toEqual([]);
   });
 });

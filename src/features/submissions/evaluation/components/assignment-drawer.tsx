@@ -45,6 +45,15 @@ export function needsEmptyReplacementConfirmation({
   return mode === "replace" && selectedCount === 0 && currentAssignmentCount > 0;
 }
 
+export function keepShownAssignmentSelection(selectedIds: readonly string[], shownIds: readonly string[]) {
+  const shown = new Set(shownIds);
+  return selectedIds.filter((id) => shown.has(id));
+}
+
+export function submissionsForTrack(submissions: readonly AssignableSubmission[], trackId: string) {
+  return submissions.filter((submission) => trackId === "" || submission.trackId === trackId);
+}
+
 /**
  * Handing work out.
  *
@@ -120,7 +129,7 @@ export function AssignmentDrawer({
   }, [submissions]);
 
   const visible = useMemo(
-    () => (submissions ?? []).filter((submission) => trackFilter === "" || submission.trackId === trackFilter),
+    () => submissionsForTrack(submissions ?? [], trackFilter),
     [submissions, trackFilter],
   );
 
@@ -190,6 +199,23 @@ export function AssignmentDrawer({
 
   const reviewerNames = selectedReviewers.map((reviewer) => reviewer.name || reviewer.email).join(", ");
 
+  function changeTrackFilter(nextTrack: string) {
+    const nextVisible = submissionsForTrack(submissions ?? [], nextTrack);
+    setSelected((current) => keepShownAssignmentSelection(
+      current,
+      nextVisible.map((submission) => submission.submissionId),
+    ));
+    setTrackFilter(nextTrack);
+  }
+
+  const assignLabel = busy
+    ? "Assigning…"
+    : selected.length === 0 && mode === "replace"
+      ? "Empty queues"
+      : mode === "replace"
+        ? `Replace queues with ${selected.length}`
+        : `Assign ${selected.length}`;
+
   return (
     <>
       <Drawer open onClose={onClose} title={`Assign work · ${plan.name}`}>
@@ -214,8 +240,8 @@ export function AssignmentDrawer({
             </section>
           )}
 
-        <Field label="Filter by track" hint="Narrows the list below; it does not change what gets assigned.">
-          <Select disabled={controlsDisabled} value={trackFilter} onChange={(event) => setTrackFilter(event.target.value)}>
+        <Field label="Filter by track" hint="Changing tracks clears selected submissions that are no longer shown.">
+          <Select disabled={controlsDisabled} value={trackFilter} onChange={(event) => changeTrackFilter(event.target.value)}>
             <option value="">Every track in this round</option>
             {tracks.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </Select>
@@ -232,6 +258,9 @@ export function AssignmentDrawer({
             </Button>
             <Button disabled={controlsDisabled} size="sm" variant="ghost" onClick={() => setSelected([])}>Clear</Button>
           </span>
+          <p className="portal-note" role="status">
+            {selected.length} submission{selected.length === 1 ? "" : "s"} selected from {visible.length} shown.
+          </p>
           {visible.map((submission) => (
             <label key={submission.submissionId} className="reviewer-assignment">
               <input
@@ -260,7 +289,7 @@ export function AssignmentDrawer({
       <div className="drawer-actions">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button disabled={!canAssign} onClick={assign}>
-          {busy ? "Assigning…" : "Assign"}
+          {assignLabel}
         </Button>
       </div>
       </Drawer>

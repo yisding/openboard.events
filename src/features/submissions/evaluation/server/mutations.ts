@@ -551,9 +551,14 @@ export async function assignSubmissionsIn(
         AND s.status NOT IN ('draft', 'withdrawn')
         AND (p.track_ids IS NULL OR s.track_id = ANY(p.track_ids))
     ),
+    valid AS (
+      SELECT (SELECT count(*) FROM reviewers) = ${reviewerIds.length}
+        AND (SELECT count(*) FROM targets) = ${submissionIds.length} AS ok
+    ),
     removed AS (
       DELETE FROM review_assignments ra USING plan
-      WHERE ${input.mode === "replace"} AND ra.plan_id = plan.id AND ra.event_id = plan.event_id
+      WHERE (SELECT ok FROM valid) AND ${input.mode === "replace"}
+        AND ra.plan_id = plan.id AND ra.event_id = plan.event_id
         AND ra.reviewer_user_id IN (SELECT user_id FROM reviewers)
         AND ra.submission_id NOT IN (SELECT id FROM targets)
         -- A recusal is an audit record. Replacing a queue must not erase the
@@ -565,6 +570,7 @@ export async function assignSubmissionsIn(
       INSERT INTO review_assignments (event_id, plan_id, submission_id, reviewer_user_id)
       SELECT plan.event_id, plan.id, targets.id, reviewers.user_id
       FROM plan, targets, reviewers
+      WHERE (SELECT ok FROM valid)
       ON CONFLICT ON CONSTRAINT review_assignments_natural_key DO NOTHING
       RETURNING id
     )
