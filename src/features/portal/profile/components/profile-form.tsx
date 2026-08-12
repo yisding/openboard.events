@@ -8,6 +8,7 @@ import type { SpeakerProfileDTO } from "@/features/portal";
 import { LIMITS, plainTextLength } from "@/shared/contracts";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { Avatar, Button, Field } from "@/shared/ui/ui-kit";
 
@@ -31,6 +32,40 @@ type Payload = {
   facebookUrl?: string | null;
   websiteUrl?: string | null;
 };
+
+export type ProfileTextDraft = {
+  bioHtml: string;
+  salutation: string;
+  honorific: string;
+  firstName: string;
+  lastName: string;
+  pronouns: string;
+  gender: string;
+  linkedinUrl: string;
+  twitterUrl: string;
+  facebookUrl: string;
+  websiteUrl: string;
+};
+
+export function profileTextDraft(profile: SpeakerProfileDTO): ProfileTextDraft {
+  return {
+    bioHtml: profile.bioHtml ?? "",
+    salutation: profile.salutation ?? "",
+    honorific: profile.honorific ?? "",
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    pronouns: profile.pronouns ?? "",
+    gender: profile.gender ?? "",
+    linkedinUrl: profile.linkedinUrl ?? "",
+    twitterUrl: profile.twitterUrl ?? "",
+    facebookUrl: profile.facebookUrl ?? "",
+    websiteUrl: profile.websiteUrl ?? "",
+  };
+}
+
+export function profileTextChanged(draft: ProfileTextDraft, baseline: ProfileTextDraft): boolean {
+  return JSON.stringify(draft) !== JSON.stringify(baseline);
+}
 
 async function patchProfile(eventId: string, payload: Payload): Promise<
   { ok: true; profile: SpeakerProfileDTO } | { ok: false; message: string; fieldErrors?: Record<string, string> }
@@ -70,22 +105,30 @@ async function patchProfile(eventId: string, payload: Payload): Promise<
 export function ProfileForm({ eventId, profile }: { eventId: string; profile: SpeakerProfileDTO }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [bioHtml, setBioHtml] = useState(profile.bioHtml ?? "");
-  const [salutation, setSalutation] = useState(profile.salutation ?? "");
-  const [honorific, setHonorific] = useState(profile.honorific ?? "");
-  const [firstName, setFirstName] = useState(profile.firstName);
-  const [lastName, setLastName] = useState(profile.lastName);
-  const [pronouns, setPronouns] = useState(profile.pronouns ?? "");
-  const [gender, setGender] = useState(profile.gender ?? "");
-  const [linkedinUrl, setLinkedinUrl] = useState(profile.linkedinUrl ?? "");
-  const [twitterUrl, setTwitterUrl] = useState(profile.twitterUrl ?? "");
-  const [facebookUrl, setFacebookUrl] = useState(profile.facebookUrl ?? "");
-  const [websiteUrl, setWebsiteUrl] = useState(profile.websiteUrl ?? "");
+  const initialText = profileTextDraft(profile);
+  const [bioHtml, setBioHtml] = useState(initialText.bioHtml);
+  const [salutation, setSalutation] = useState(initialText.salutation);
+  const [honorific, setHonorific] = useState(initialText.honorific);
+  const [firstName, setFirstName] = useState(initialText.firstName);
+  const [lastName, setLastName] = useState(initialText.lastName);
+  const [pronouns, setPronouns] = useState(initialText.pronouns);
+  const [gender, setGender] = useState(initialText.gender);
+  const [linkedinUrl, setLinkedinUrl] = useState(initialText.linkedinUrl);
+  const [twitterUrl, setTwitterUrl] = useState(initialText.twitterUrl);
+  const [facebookUrl, setFacebookUrl] = useState(initialText.facebookUrl);
+  const [websiteUrl, setWebsiteUrl] = useState(initialText.websiteUrl);
+  const [savedText, setSavedText] = useState(initialText);
   const [headshotFileId, setHeadshotFileId] = useState(profile.headshotFileId);
   const [headshotUrl, setHeadshotUrl] = useState(profile.headshotUrl);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const formRef = useRef<HTMLFormElement>(null);
+  const currentText: ProfileTextDraft = {
+    bioHtml, salutation, honorific, firstName, lastName, pronouns, gender,
+    linkedinUrl, twitterUrl, facebookUrl, websiteUrl,
+  };
+  const dirty = profileTextChanged(currentText, savedText);
+  useUnsavedWorkGuard(dirty);
 
   // The exact function the server's .refine() rejects with — the counter and
   // the rejection can never disagree (R12).
@@ -100,20 +143,21 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
 
   async function save() {
     if (bioOverLimit) return;
+    const submittedText = currentText;
     setSaving(true);
     setFieldErrors({});
     const result = await patchProfile(eventId, {
-      bioHtml,
-      salutation,
-      honorific,
-      firstName,
-      lastName,
-      pronouns,
-      gender,
-      linkedinUrl: nullIfBlank(linkedinUrl),
-      twitterUrl: nullIfBlank(twitterUrl),
-      facebookUrl: nullIfBlank(facebookUrl),
-      websiteUrl: nullIfBlank(websiteUrl),
+      bioHtml: submittedText.bioHtml,
+      salutation: submittedText.salutation,
+      honorific: submittedText.honorific,
+      firstName: submittedText.firstName,
+      lastName: submittedText.lastName,
+      pronouns: submittedText.pronouns,
+      gender: submittedText.gender,
+      linkedinUrl: nullIfBlank(submittedText.linkedinUrl),
+      twitterUrl: nullIfBlank(submittedText.twitterUrl),
+      facebookUrl: nullIfBlank(submittedText.facebookUrl),
+      websiteUrl: nullIfBlank(submittedText.websiteUrl),
     });
     setSaving(false);
     if (!result.ok) {
@@ -121,6 +165,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
       toast(result.message, { kind: "error" });
       return;
     }
+    setSavedText(submittedText);
     toast("Saved successfully.");
     router.refresh();
   }
