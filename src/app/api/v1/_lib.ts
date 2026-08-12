@@ -4,8 +4,6 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { apiErrorSchema } from "@/shared/contracts";
-import { initialDemoState } from "@/shared/demo/seed";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
 import type { AuthSession } from "@/shared/server/handler";
@@ -38,12 +36,10 @@ export function v1RateLimit(bucket: string) {
 
 /**
  * Manual call for the three `/api/v1` routes built without `defineHandler`
- * (unauthenticated public DTOs). A no-op under `isCredentialFreeLocalDemo()`
- * — that mode's whole point is answering from the in-memory fixture with no
- * `DATABASE_URL` at all, and `checkRateLimit` unconditionally queries `db`.
+ * (unauthenticated public DTOs). Keyed on the caller's IP — those routes have
+ * no API key to key on.
  */
 export function checkV1RateLimit(bucket: string, request: NextRequest | Request): Promise<void> {
-  if (isCredentialFreeLocalDemo()) return Promise.resolve();
   return checkRateLimit(db, { key: `v1:${bucket}:${clientIp(request)}`, limit: 300, windowMs: 5 * 60 * 1000 });
 }
 
@@ -86,9 +82,6 @@ export function apiV1ErrorResponse(error: unknown): Response {
   const envelope = apiErrorSchema.parse({ error: { code: appError.code, message: appError.message, data: appError.details } });
   return Response.json(envelope, { status: toHttp(appError.code), headers: privateHeaders });
 }
-export function resolveEvent(slug: string) {
-  return initialDemoState.events.find((item) => item.slug === slug);
-}
 
 export type PublicEvent = {
   id: string;
@@ -115,24 +108,11 @@ export function publicEventDto(event: PublicEvent) {
 }
 
 /**
- * The public API answers about a real event unless there is no database at all.
- * Falling back to the fixture whenever a lookup misses would let the API claim
- * an event exists that a judge cannot find anywhere else.
+ * The public API only ever answers about a real event: an unknown slug is a
+ * `null` here and a 404 at the edge, never a synthesized stand-in that claims
+ * an event exists which a judge cannot find anywhere else.
  */
 export async function resolvePublicEvent(slug: string): Promise<PublicEvent | null> {
-  if (isCredentialFreeLocalDemo()) {
-    const demo = resolveEvent(slug);
-    return demo ? {
-      id: demo.id,
-      slug: demo.slug,
-      name: demo.name,
-      websiteUrl: null,
-      timezone: demo.timezone,
-      location: demo.venue || demo.city || null,
-      startsAt: demo.startsAt,
-      endsAt: demo.endsAt,
-    } : null;
-  }
   const [row] = await db
     .select({
       id: events.id,

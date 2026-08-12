@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { initialDemoState } from "@/shared/demo/seed";
-import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { apiV1ErrorResponse, checkV1RateLimit, corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
@@ -28,13 +26,6 @@ async function handleGet(request: Request, params: Promise<{ slug: string }>) {
   const { slug } = await params;
   const event = await resolvePublicEvent(slug);
   if (!event) return notFoundResponse();
-
-  if (isCredentialFreeLocalDemo()) {
-    const speakers = initialDemoState.speakers
-      .filter((item) => item.eventId === event.id && item.confirmation === "confirmed")
-      .map((item) => ({ id: item.id, firstName: item.firstName, lastName: item.lastName, company: item.company, title: item.title, bio: item.bio, website: item.website, linkedin: item.linkedin }));
-    return data(speakers, { count: speakers.length });
-  }
 
   const rows = await db.execute<{
     contact_id: string; first_name: string; last_name: string; job_title: string | null;
