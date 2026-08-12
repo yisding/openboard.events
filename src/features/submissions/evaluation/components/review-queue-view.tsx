@@ -170,8 +170,7 @@ export function ReviewQueueView({
     setPendingNavigation(null);
     if (destination.kind === "submission") openNow(destination.id);
     else {
-      allowNextNavigation();
-      router.push(`?planId=${destination.id}`);
+      allowNextNavigation(() => router.push(`?planId=${destination.id}`));
     }
   }, [pendingNavigation, openNow, router, allowNextNavigation]);
 

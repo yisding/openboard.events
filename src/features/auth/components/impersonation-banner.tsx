@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 
 export function ImpersonationBanner({ name, email, backHref, onExit }: { name: string; email: string; backHref: string; onExit?: () => void }) {
-  return <div className="impersonation-banner"><Eye size={14} /><span>Viewing as <b>{name}</b> ({email})</span><Link href={backHref} {...(onExit ? { onClick: onExit } : {})}>Back to Admin</Link></div>;
+  const router = useRouter();
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
+  return <div className="impersonation-banner"><Eye size={14} /><span>Viewing as <b>{name}</b> ({email})</span><Link href={backHref} data-unsaved-guard-owned onClick={(event) => {
+    event.preventDefault();
+    runGuarded(() => allowNextNavigation(() => {
+      onExit?.();
+      router.push(backHref);
+    }));
+  }}>Back to Admin</Link></div>;
 }

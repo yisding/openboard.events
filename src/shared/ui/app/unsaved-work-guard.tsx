@@ -7,13 +7,13 @@ import { ConfirmDialog } from "./confirm-dialog";
 type GuardContext = {
   register: (token: symbol, active: boolean) => void;
   runGuarded: (action: () => void) => void;
-  allowNextNavigation: () => void;
+  allowNextNavigation: (action?: () => void) => void;
 };
 
 const GuardContext = createContext<GuardContext>({
   register: () => undefined,
   runGuarded: (action) => action(),
-  allowNextNavigation: () => undefined,
+  allowNextNavigation: (action) => action?.(),
 });
 
 type PendingDecision = { confirm: () => void | Promise<void>; cancel: () => void };
@@ -28,6 +28,9 @@ type NavigationEventLike = Event & {
 type NavigationTarget = EventTarget & { addEventListener: EventTarget["addEventListener"]; removeEventListener: EventTarget["removeEventListener"] };
 
 const HISTORY_GUARD_MARKER = "__openboardUnsavedWork";
+const HISTORY_GUARD_ACTIVE = "__openboardUnsavedWorkActive";
+
+type HistoryFallback = { leave: (action?: () => void) => void };
 
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -35,6 +38,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   const [guardCount, setGuardCount] = useState(0);
   const [pending, setPending] = useState<PendingDecision | null>(null);
   const allowNextRef = useRef(false);
+  const historyFallbackRef = useRef<HistoryFallback | null>(null);
   const hasUnsavedWork = guardCount > 0;
 
   const register = useCallback((token: symbol, active: boolean) => {
@@ -43,8 +47,14 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     setGuardCount(guardsRef.current.size);
   }, []);
 
-  const allowNextNavigation = useCallback(() => {
+  const allowNextNavigation = useCallback((action?: () => void) => {
+    const fallback = historyFallbackRef.current;
+    if (fallback && action) {
+      fallback.leave(action);
+      return;
+    }
     allowNextRef.current = true;
+    action?.();
   }, []);
 
   const runGuarded = useCallback((action: () => void) => {
@@ -79,38 +89,68 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     const navigation = (globalThis as typeof globalThis & { navigation?: NavigationTarget }).navigation;
     if (!navigation) {
       const marker = `${Date.now()}-${Math.random()}`;
+      const currentUrl = window.location.href;
       const previousState = window.history.state;
       const markerState = typeof previousState === "object" && previousState !== null
         ? { ...previousState, [HISTORY_GUARD_MARKER]: marker }
         : { [HISTORY_GUARD_MARKER]: marker };
-      window.history.pushState(markerState, "", window.location.href);
+      const activeState = typeof previousState === "object" && previousState !== null
+        ? { ...previousState, [HISTORY_GUARD_ACTIVE]: marker }
+        : { [HISTORY_GUARD_ACTIVE]: marker };
+      window.history.replaceState(markerState, "", currentUrl);
+      window.history.pushState(activeState, "", currentUrl);
       let restoringMarker = false;
+      let active = true;
+      const leave = (action?: () => void) => {
+        if (!active) {
+          action?.();
+          return;
+        }
+        active = false;
+        historyFallbackRef.current = null;
+        const finish = () => {
+          window.history.replaceState(previousState, "", currentUrl);
+          allowNextRef.current = false;
+          action?.();
+        };
+        const state = window.history.state as Record<string, unknown> | null;
+        if (state?.[HISTORY_GUARD_ACTIVE] === marker) {
+          allowNextRef.current = true;
+          globalThis.addEventListener("popstate", finish, { once: true });
+          window.history.back();
+        } else if (state?.[HISTORY_GUARD_MARKER] === marker) {
+          finish();
+        } else {
+          action?.();
+        }
+      };
+      historyFallbackRef.current = { leave };
       const guardHistory = (event: PopStateEvent) => {
         if (allowNextRef.current) {
           allowNextRef.current = false;
           return;
         }
         const state = event.state as Record<string, unknown> | null;
-        if (restoringMarker && state?.[HISTORY_GUARD_MARKER] === marker) {
+        if (restoringMarker && state?.[HISTORY_GUARD_ACTIVE] === marker) {
           restoringMarker = false;
           setPending((current) => current ?? {
-            confirm: () => {
+            confirm: () => leave(() => {
               allowNextRef.current = true;
-              window.history.go(-2);
-            },
+              window.history.back();
+            }),
             cancel: () => undefined,
           });
           return;
         }
-        if (state?.[HISTORY_GUARD_MARKER] === marker) return;
-        restoringMarker = true;
-        window.history.forward();
+        if (state?.[HISTORY_GUARD_MARKER] === marker) {
+          restoringMarker = true;
+          window.history.forward();
+        }
       };
       globalThis.addEventListener("popstate", guardHistory);
       return () => {
         globalThis.removeEventListener("popstate", guardHistory);
-        const currentState = window.history.state as Record<string, unknown> | null;
-        if (!allowNextRef.current && currentState?.[HISTORY_GUARD_MARKER] === marker) window.history.back();
+        if (active) leave();
       };
     }
     const guardNavigation = (rawEvent: Event) => {
@@ -141,15 +181,15 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     if (!(origin instanceof Element)) return;
     const anchor = origin.closest<HTMLAnchorElement>("a[href]");
     if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+    if (anchor.hasAttribute("data-unsaved-guard-owned")) return;
     const destination = new URL(anchor.href, window.location.href);
     if (destination.origin !== window.location.origin) return;
     if (destination.pathname === window.location.pathname && destination.search === window.location.search) return;
     event.preventDefault();
     event.stopPropagation();
-    runGuarded(() => {
-      allowNextNavigation();
+    runGuarded(() => allowNextNavigation(() => {
       router.push(`${destination.pathname}${destination.search}${destination.hash}`);
-    });
+    }));
   }
 
   return (

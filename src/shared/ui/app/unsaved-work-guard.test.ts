@@ -17,7 +17,7 @@ describe("shell unsaved-work guard wiring", () => {
 
     expect(signOut).toContain('onClick={() => runGuarded(() => { void signOut(); })}');
     expect(signOut.indexOf("runGuarded")).toBeLessThan(signOut.indexOf('fetch(kind === "admin"'));
-    expect(signOut).toContain("allowNextNavigation();");
+    expect(signOut).toContain("allowNextNavigation(() => {");
     expect(shell).toContain("<UnsavedWorkGuardProvider><div className=\"app-shell\">");
   });
 });
