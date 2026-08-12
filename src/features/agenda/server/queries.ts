@@ -210,12 +210,10 @@ export async function getMySessionsIn(
     id: string; title: string; starts_at: string | Date | null; ends_at: string | Date | null;
     room_name: string | null; track_name: string | null;
   }>(sql`
-    SELECT s.id, s.title, s.starts_at, s.ends_at, r.name AS room_name, t.name AS track_name
+    SELECT s.id, s.title, s.starts_at, s.ends_at, s.room_name, s.track_name
     FROM session_speakers ss
-    JOIN sessions s ON s.id = ss.session_id AND s.event_id = ss.event_id
-    LEFT JOIN rooms r ON r.id = s.room_id AND r.event_id = s.event_id
-    LEFT JOIN tracks t ON t.id = s.track_id AND t.event_id = s.event_id
-    WHERE ss.event_id = ${eventId} AND ss.contact_id = ${contactId} AND s.starts_at IS NOT NULL
+    JOIN published_sessions_v s ON s.id = ss.session_id AND s.event_id = ss.event_id
+    WHERE ss.event_id = ${eventId} AND ss.contact_id = ${contactId}
     ORDER BY s.starts_at ASC, s.id ASC
   `);
   return (result.rows ?? []).map((row) => mySessionDtoSchema.parse({
