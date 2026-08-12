@@ -297,10 +297,8 @@ export function DataTable<Row>({
   const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
-    <section className="data-panel" aria-busy={isLoading}>
-      {isLoading && (
-        <p className="sr-only" role="status">Loading table data…</p>
-      )}
+    <section className="data-panel">
+      <p className="sr-only" role="status">{isLoading ? "Loading table data…" : ""}</p>
 
       {(toolbar || columnVisibilityKey) && (
         <div className="data-toolbar">
@@ -336,7 +334,7 @@ export function DataTable<Row>({
         </div>
       )}
 
-      <div className="table-scroll">
+      <div className="table-scroll" aria-busy={isLoading}>
         <table className="data-table">
           <thead>
             {table.getHeaderGroups().map((group) => (

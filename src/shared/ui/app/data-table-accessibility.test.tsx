@@ -37,7 +37,8 @@ describe("DataTable loading accessibility", () => {
     const html = renderTable(false);
 
     expect(html).toContain('aria-busy="false"');
-    expect(html).not.toContain('role="status"');
+    expect(html).toContain('<p class="sr-only" role="status"></p>');
+    expect(html).not.toContain("Loading table data…");
     expect(html).toContain("No rows");
   });
 });
