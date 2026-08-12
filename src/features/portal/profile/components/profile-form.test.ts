@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { SpeakerProfileDTO } from "@/features/portal";
 import { profileTextChanged, profileTextDraft } from "./profile-form";
 
-const profile = {
+const profile: SpeakerProfileDTO = {
+  contactId: "contact_1",
+  email: "ada@example.com",
   firstName: "Ada",
   lastName: "Lovelace",
   bioHtml: null,
@@ -11,11 +13,13 @@ const profile = {
   honorific: null,
   pronouns: null,
   gender: null,
+  headshotFileId: null,
+  headshotUrl: null,
   linkedinUrl: null,
   twitterUrl: null,
   facebookUrl: null,
   websiteUrl: null,
-} as SpeakerProfileDTO;
+};
 
 describe("speaker profile unsaved-work guard", () => {
   it("normalizes nullable profile fields before dirty comparison", () => {
@@ -24,6 +28,8 @@ describe("speaker profile unsaved-work guard", () => {
     expect(baseline.bioHtml).toBe("");
     expect(baseline.linkedinUrl).toBe("");
     expect(profileTextChanged({ ...baseline }, baseline)).toBe(false);
+    const { firstName, ...rest } = baseline;
+    expect(profileTextChanged({ ...rest, firstName }, baseline)).toBe(false);
     expect(profileTextChanged({ ...baseline, firstName: "Augusta" }, baseline)).toBe(true);
   });
 
@@ -45,22 +51,30 @@ describe("speaker profile unsaved-work guard", () => {
     expect(shell).toContain("const open=openPath===pathname");
   });
 
-  it("guards the credential-free demo profile and browser-history fallback", () => {
+  it("guards the credential-free demo profile", () => {
     const demo = readFileSync(new URL("../../portal-profile.tsx", import.meta.url), "utf8");
+
+    expect(demo).toContain("useUnsavedWorkGuard(textDraftChanged(currentText, savedText))");
+    expect(demo).toContain("setSavedText(currentText)");
+  });
+
+  it("guards browser-history traversal without probing adjacent entries", () => {
     const guard = readFileSync(new URL("../../../../shared/ui/app/unsaved-work-guard.tsx", import.meta.url), "utf8");
 
-    expect(demo).toContain("useUnsavedWorkGuard(JSON.stringify(currentText) !== JSON.stringify(savedText))");
-    expect(demo).toContain("setSavedText(currentText)");
     expect(guard).toContain('globalThis.addEventListener("popstate", guardHistory, { capture: true })');
     expect(guard).toContain("window.history.replaceState(markerState");
     expect(guard).not.toContain("window.history.pushState");
     expect(guard).toContain("window.history.replaceState(previousState");
     expect(guard).toContain("fallback.leave(action)");
     expect(guard).toContain("event.stopImmediatePropagation()");
-    expect(guard).toContain("restorationDirection = -1");
-    expect(guard).toContain("const requestedDelta = -restorationOffset");
-    expect(guard).toContain("window.history.go(requestedDelta)");
+    expect(guard).toContain("const decision = holdHistoryTraversal(");
+    expect(guard).toContain('new PopStateEvent("popstate", { state: replayState })');
+    expect(guard).not.toContain("window.history.go(");
+  });
+
+  it("guards the owned impersonation exit without breaking modified clicks", () => {
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
+
     expect(banner).toContain("data-unsaved-guard-owned");
     expect(banner).toContain("event.metaKey || event.ctrlKey");
     expect(banner).toContain("onExit?.()");

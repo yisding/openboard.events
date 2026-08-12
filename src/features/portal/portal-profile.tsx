@@ -8,6 +8,7 @@ import { usePortal } from "./portal-context";
 import { Avatar, Button, Field, ProgressBar } from "@/shared/ui/ui-kit";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
+import { textDraftChanged } from "./profile/profile-text-draft";
 
 // Keyed by speaker id so the draft state re-initializes when the portal
 // session identity changes (e.g. impersonation resolving after first render).
@@ -31,7 +32,7 @@ function ProfileForm() {
   const initialText = { bio: speaker.bio, company: speaker.company, title: speaker.title, location: speaker.location, website: speaker.website, linkedin: speaker.linkedin };
   const [savedText, setSavedText] = useState(initialText);
   const currentText = { bio, company, title, location, website, linkedin };
-  useUnsavedWorkGuard(JSON.stringify(currentText) !== JSON.stringify(savedText));
+  useUnsavedWorkGuard(textDraftChanged(currentText, savedText));
   const speakerId = speaker.id;
   function choosePhoto(file: File | undefined) {
     if (!file) return;

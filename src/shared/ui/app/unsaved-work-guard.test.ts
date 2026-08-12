@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { isSameNavigationDestination, shouldInterceptNavigation } from "./unsaved-work-guard";
+import { describe, expect, it, vi } from "vitest";
+import { holdHistoryTraversal, isSameNavigationDestination, shouldInterceptNavigation } from "./unsaved-work-guard";
 
 describe("shell unsaved-work guard wiring", () => {
   it("covers links, browser navigation, and document unloads", () => {
@@ -23,9 +23,31 @@ describe("shell unsaved-work guard wiring", () => {
     expect(isSameNavigationDestination("?planId=two", "https://openboard.events/events/one/review?planId=two")).toBe(true);
     expect(isSameNavigationDestination("?planId=three", "https://openboard.events/events/one/review?planId=two")).toBe(false);
 
-    const navigation = { canIntercept: true, downloadRequest: null, hashChange: false };
+    const navigation = { canIntercept: true, destination: { sameDocument: true }, downloadRequest: null, hashChange: false };
     expect(shouldInterceptNavigation({ ...navigation, navigationType: "push" })).toBe(true);
     expect(shouldInterceptNavigation({ ...navigation, navigationType: "reload" })).toBe(false);
+    expect(shouldInterceptNavigation({ ...navigation, destination: { sameDocument: false }, navigationType: "push" })).toBe(false);
+  });
+
+  it("holds a history target in place and restores it only on confirmation", async () => {
+    const replaceState = vi.fn();
+    const replay = vi.fn();
+    const targetState = { __NA: true, page: "target" };
+    const decision = holdHistoryTraversal(
+      { replaceState },
+      "https://openboard.events/current",
+      { __NA: true, guarded: true },
+      "https://openboard.events/target",
+      targetState,
+      replay,
+    );
+
+    expect(replaceState).toHaveBeenCalledOnce();
+    decision.cancel();
+    expect(replaceState).toHaveBeenCalledOnce();
+    await decision.confirm();
+    expect(replaceState).toHaveBeenLastCalledWith(targetState, "", "https://openboard.events/target");
+    expect(replay).toHaveBeenCalledWith(targetState);
   });
 
   it("guards sign-out before the authentication request and mounts at the event shell", () => {

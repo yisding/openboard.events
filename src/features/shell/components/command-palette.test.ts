@@ -30,6 +30,8 @@ describe("PaletteDialog", () => {
     const go = source.slice(source.indexOf("function go"), source.indexOf("function onKeyDown"));
     const guardedNavigation = go.slice(go.indexOf("runGuarded"));
 
+    expect(go).toContain("isSameNavigationDestination");
+    expect(guardedNavigation).toContain("router.push(item.href)");
     expect(go.indexOf("isSameNavigationDestination")).toBeLessThan(go.indexOf("runGuarded"));
     expect(go).toContain("runGuarded(() => allowNextNavigation(() => {");
     expect(go).toContain("{ destination: item.href }");

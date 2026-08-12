@@ -11,6 +11,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { Avatar, Button, Field } from "@/shared/ui/ui-kit";
+import { textDraftChanged } from "../profile-text-draft";
 
 /** Empty on submit becomes null — an unset link, not a link to the empty string. */
 function nullIfBlank(value: string): string | null {
@@ -64,7 +65,7 @@ export function profileTextDraft(profile: SpeakerProfileDTO): ProfileTextDraft {
 }
 
 export function profileTextChanged(draft: ProfileTextDraft, baseline: ProfileTextDraft): boolean {
-  return JSON.stringify(draft) !== JSON.stringify(baseline);
+  return textDraftChanged(draft, baseline);
 }
 
 async function patchProfile(eventId: string, payload: Payload): Promise<

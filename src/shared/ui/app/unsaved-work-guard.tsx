@@ -22,6 +22,7 @@ type PendingDecision = { confirm: () => void | Promise<void>; cancel: () => void
 
 type NavigationEventLike = Event & {
   canIntercept: boolean;
+  destination: { sameDocument: boolean };
   downloadRequest: string | null;
   hashChange: boolean;
   navigationType?: string;
@@ -38,8 +39,30 @@ export function isSameNavigationDestination(destination: string, currentHref: st
   return new URL(destination, currentHref).href === new URL(currentHref).href;
 }
 
-export function shouldInterceptNavigation(event: Pick<NavigationEventLike, "canIntercept" | "downloadRequest" | "hashChange" | "navigationType">) {
-  return event.navigationType !== "reload" && event.canIntercept && event.downloadRequest === null && !event.hashChange;
+export function shouldInterceptNavigation(event: Pick<NavigationEventLike, "canIntercept" | "destination" | "downloadRequest" | "hashChange" | "navigationType">) {
+  return event.navigationType !== "reload"
+    && event.destination.sameDocument
+    && event.canIntercept
+    && event.downloadRequest === null
+    && !event.hashChange;
+}
+
+export function holdHistoryTraversal(
+  history: Pick<History, "replaceState">,
+  currentUrl: string,
+  markerState: unknown,
+  targetUrl: string,
+  targetState: unknown,
+  replay: (state: unknown) => void,
+): PendingDecision {
+  history.replaceState(markerState, "", currentUrl);
+  return {
+    confirm: () => {
+      history.replaceState(targetState, "", targetUrl);
+      replay(targetState);
+    },
+    cancel: () => undefined,
+  };
 }
 
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
@@ -71,7 +94,13 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     }
     const fallback = historyFallbackRef.current;
     if (fallback && action) {
-      fallback.leave(action);
+      try {
+        fallback.leave(action);
+      } catch (error) {
+        allowNextRef.current = false;
+        allowNextUnloadRef.current = false;
+        throw error;
+      }
       return;
     }
     allowNextRef.current = true;
@@ -129,11 +158,6 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         ? { ...previousState, [HISTORY_GUARD_MARKER]: marker }
         : { [HISTORY_GUARD_MARKER]: marker };
       window.history.replaceState(markerState, "", currentUrl);
-      let restoringGuard = false;
-      let restorationDirection: 1 | -1 = 1;
-      let restorationOffset = 0;
-      let expectedRestorationOffset = 0;
-      let restorationTimer: ReturnType<typeof setTimeout> | null = null;
       let active = true;
       const leave = (action?: () => void) => {
         if (!active) {
@@ -144,7 +168,16 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         historyFallbackRef.current = null;
         const performAction = () => {
           allowNextRef.current = Boolean(action);
-          action?.();
+          try {
+            action?.();
+          } catch (error) {
+            allowNextRef.current = false;
+            allowNextUnloadRef.current = false;
+            active = true;
+            window.history.replaceState(markerState, "", currentUrl);
+            historyFallbackRef.current = { leave };
+            throw error;
+          }
         };
         const finish = () => {
           window.history.replaceState(previousState, "", currentUrl);
@@ -158,61 +191,39 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         }
       };
       historyFallbackRef.current = { leave };
-      const clearRestorationTimer = () => {
-        if (restorationTimer !== null) clearTimeout(restorationTimer);
-        restorationTimer = null;
-      };
-      const restoreGuard = () => {
-        expectedRestorationOffset = restorationOffset + restorationDirection;
-        window.history.go(restorationDirection);
-        clearRestorationTimer();
-        restorationTimer = setTimeout(() => {
-          restorationTimer = null;
-          if (!restoringGuard) return;
-          if (restorationDirection === 1) {
-            // The attempted target was in Forward history and the forward
-            // probe reached that stack's boundary. Walk backward from there;
-            // the protected marker is guaranteed to be on this side.
-            restorationDirection = -1;
-            restoreGuard();
-          }
-        }, 250);
-      };
       const guardHistory = (event: PopStateEvent) => {
         if (allowNextRef.current) {
           allowNextRef.current = false;
           return;
         }
         const state = event.state as Record<string, unknown> | null;
-        if (restoringGuard) {
-          clearRestorationTimer();
-          event.stopImmediatePropagation();
-          restorationOffset = expectedRestorationOffset;
-          if (state?.[HISTORY_GUARD_MARKER] !== marker) {
-            restoreGuard();
-            return;
-          }
-          restoringGuard = false;
-          const requestedDelta = -restorationOffset;
-          setPending((current) => current ?? {
-            confirm: () => leave(() => {
-              allowNextRef.current = true;
-              window.history.go(requestedDelta);
-            }),
-            cancel: () => undefined,
-          });
-          return;
-        }
         if (state?.[HISTORY_GUARD_MARKER] === marker) return;
         event.stopImmediatePropagation();
-        restoringGuard = true;
-        restorationDirection = 1;
-        restorationOffset = 0;
-        restoreGuard();
+        const targetState = event.state;
+        const targetUrl = window.location.href;
+        // Popstate is delivered after a same-document traversal. Temporarily
+        // turn the traversed entry into the guarded page instead of probing in
+        // either direction, which could cross into an unrelated document.
+        // Confirm restores the exact target entry and replays the event for
+        // Next; cancel intentionally leaves this one entry replaced.
+        const decision = holdHistoryTraversal(
+          window.history,
+          currentUrl,
+          markerState,
+          targetUrl,
+          targetState,
+          (replayState) => {
+            allowNextRef.current = true;
+            window.dispatchEvent(new PopStateEvent("popstate", { state: replayState }));
+          },
+        );
+        setPending((current) => current ?? {
+          confirm: () => leave(decision.confirm),
+          cancel: decision.cancel,
+        });
       };
       globalThis.addEventListener("popstate", guardHistory, { capture: true });
       return () => {
-        clearRestorationTimer();
         globalThis.removeEventListener("popstate", guardHistory, { capture: true });
         if (active) leave();
       };
@@ -223,8 +234,9 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
         allowNextRef.current = false;
         return;
       }
-      // Intercepting a reload turns it into a same-document navigation. Let
-      // beforeunload own reloads so confirming actually reloads the document.
+      // Intercepting reloads or cross-document transitions turns them into
+      // same-document navigation. Let beforeunload own both so confirming
+      // actually loads the requested document.
       if (!shouldInterceptNavigation(event)) return;
       event.intercept({
         handler: () => new Promise<void>((resolve, reject) => {
