@@ -27,6 +27,8 @@ type NavigationEventLike = Event & {
 
 type NavigationTarget = EventTarget & { addEventListener: EventTarget["addEventListener"]; removeEventListener: EventTarget["removeEventListener"] };
 
+const HISTORY_GUARD_MARKER = "__openboardUnsavedWork";
+
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const guardsRef = useRef(new Set<symbol>());
@@ -69,9 +71,48 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   }, [hasUnsavedWork]);
 
   useEffect(() => {
+    if (!hasUnsavedWork) allowNextRef.current = false;
+  }, [hasUnsavedWork]);
+
+  useEffect(() => {
     if (!hasUnsavedWork) return;
     const navigation = (globalThis as typeof globalThis & { navigation?: NavigationTarget }).navigation;
-    if (!navigation) return;
+    if (!navigation) {
+      const marker = `${Date.now()}-${Math.random()}`;
+      const previousState = window.history.state;
+      const markerState = typeof previousState === "object" && previousState !== null
+        ? { ...previousState, [HISTORY_GUARD_MARKER]: marker }
+        : { [HISTORY_GUARD_MARKER]: marker };
+      window.history.pushState(markerState, "", window.location.href);
+      let restoringMarker = false;
+      const guardHistory = (event: PopStateEvent) => {
+        if (allowNextRef.current) {
+          allowNextRef.current = false;
+          return;
+        }
+        const state = event.state as Record<string, unknown> | null;
+        if (restoringMarker && state?.[HISTORY_GUARD_MARKER] === marker) {
+          restoringMarker = false;
+          setPending((current) => current ?? {
+            confirm: () => {
+              allowNextRef.current = true;
+              window.history.go(-2);
+            },
+            cancel: () => undefined,
+          });
+          return;
+        }
+        if (state?.[HISTORY_GUARD_MARKER] === marker) return;
+        restoringMarker = true;
+        window.history.forward();
+      };
+      globalThis.addEventListener("popstate", guardHistory);
+      return () => {
+        globalThis.removeEventListener("popstate", guardHistory);
+        const currentState = window.history.state as Record<string, unknown> | null;
+        if (!allowNextRef.current && currentState?.[HISTORY_GUARD_MARKER] === marker) window.history.back();
+      };
+    }
     const guardNavigation = (rawEvent: Event) => {
       const event = rawEvent as NavigationEventLike;
       if (allowNextRef.current) {

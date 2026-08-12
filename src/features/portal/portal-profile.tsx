@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
 import { usePortal } from "./portal-context";
 import { Avatar, Button, Field, ProgressBar } from "@/shared/ui/ui-kit";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 
 // Keyed by speaker id so the draft state re-initializes when the portal
@@ -27,6 +28,10 @@ function ProfileForm() {
   const [location, setLocation] = useState(speaker.location);
   const [website, setWebsite] = useState(speaker.website);
   const [linkedin, setLinkedin] = useState(speaker.linkedin);
+  const initialText = { bio: speaker.bio, company: speaker.company, title: speaker.title, location: speaker.location, website: speaker.website, linkedin: speaker.linkedin };
+  const [savedText, setSavedText] = useState(initialText);
+  const currentText = { bio, company, title, location, website, linkedin };
+  useUnsavedWorkGuard(JSON.stringify(currentText) !== JSON.stringify(savedText));
   const speakerId = speaker.id;
   function choosePhoto(file: File | undefined) {
     if (!file) return;
@@ -47,6 +52,7 @@ function ProfileForm() {
   }
   function save() {
     dispatch({ type: "UPDATE_SPEAKER", speakerId, patch: { bio, company, title, location, website, linkedin, profileCompletion: 100 } });
+    setSavedText(currentText);
     toast("Profile changes saved in this browser");
   }
   return <div className="portal-container portal-page">

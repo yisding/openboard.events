@@ -42,5 +42,17 @@ describe("speaker profile unsaved-work guard", () => {
 
     expect(shell).toContain("<UnsavedWorkGuardProvider><div className=\"portal-shell\">");
     expect(shell.indexOf("<UnsavedWorkGuardProvider>")).toBeLessThan(shell.indexOf("<SignOutButton"));
+    expect(shell).toContain("const open=openPath===pathname");
+  });
+
+  it("guards the credential-free demo profile and browser-history fallback", () => {
+    const demo = readFileSync(new URL("../../portal-profile.tsx", import.meta.url), "utf8");
+    const guard = readFileSync(new URL("../../../../shared/ui/app/unsaved-work-guard.tsx", import.meta.url), "utf8");
+
+    expect(demo).toContain("useUnsavedWorkGuard(JSON.stringify(currentText) !== JSON.stringify(savedText))");
+    expect(demo).toContain("setSavedText(currentText)");
+    expect(guard).toContain('globalThis.addEventListener("popstate", guardHistory)');
+    expect(guard).toContain("window.history.pushState(markerState");
+    expect(guard).toContain("window.history.go(-2)");
   });
 });
