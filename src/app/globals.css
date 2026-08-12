@@ -596,6 +596,23 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 @media(max-width:1024px){.template-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.reminder-layout,.settings-layout{grid-template-columns:1fr}.settings-nav{flex-direction:row;overflow:auto}}
 @media(max-width:768px){.template-grid,.vocabulary-grid{grid-template-columns:1fr}.communications-tabs{width:100%;overflow:auto}.communications-tabs button{min-height:44px}.template-editor,.comm-detail,.settings-section{padding:16px}.template-editor-actions{align-items:stretch;flex-direction:column}.template-editor-actions .button{width:100%}}
 
+/* The members table has only three columns, so making it horizontally
+   scrollable on phones hides both the current role and the destructive action
+   behind the panel's clipped edge. Keep the identity readable and stack the
+   two controls in a fixed-width rail that fits inside the card. Invitations
+   remain a conventional scrollable table because they carry four data
+   columns. */
+@media(max-width:480px){
+  .organization-members-section .data-table tr{display:grid;grid-template-columns:minmax(0,1fr) 124px}
+  .organization-members-section .organization-member-name{min-width:0;white-space:normal;overflow-wrap:anywhere}
+  .organization-members-section th.organization-member-name{grid-column:1}
+  .organization-members-section th.organization-member-role{grid-column:2}
+  .organization-members-section th.organization-member-actions{display:none}
+  .organization-members-section td.organization-member-name{grid-column:1;grid-row:1/3;height:auto;display:flex;align-items:center}
+  .organization-members-section td.organization-member-role{grid-column:2;grid-row:1;height:54px;padding-block:6px;border-bottom:0}
+  .organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:54px;padding-block:4px 6px}
+}
+
 /* M37 — comms admin UI (server-backed template editor, reminder ladder, log) */
 .comms-templates{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
 .template-editor-grid{display:grid;gap:24px;grid-template-columns:minmax(0,1fr) 320px}
