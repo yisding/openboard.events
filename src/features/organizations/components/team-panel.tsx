@@ -124,11 +124,12 @@ export function TeamPanel({
   }
 
   const memberColumns = useMemo<Array<ColumnDef<OrganizationMemberDTO, unknown>>>(() => [
-    { id: "email", header: "Member", accessorKey: "email", cell: ({ row }) => <div><strong>{row.original.name || row.original.email}</strong>{row.original.name && <small style={{ display: "block" }}>{row.original.email}</small>}</div> },
+    { id: "email", header: "Member", accessorKey: "email", meta: { className: "organization-member-name" }, cell: ({ row }) => <div><strong>{row.original.name || row.original.email}</strong>{row.original.name && <small style={{ display: "block" }}>{row.original.email}</small>}</div> },
     {
       id: "role",
       header: "Role",
       accessorKey: "role",
+      meta: { className: "organization-member-role" },
       cell: ({ row }) => canManage
         ? <Select value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
             {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
@@ -138,6 +139,7 @@ export function TeamPanel({
     {
       id: "actions",
       header: "",
+      meta: { className: "organization-member-actions" },
       cell: ({ row }) => canManage
         ? <Button variant="danger" size="sm" onClick={() => setPendingRemove(row.original)} disabled={row.original.userId === currentUserId}>Remove</Button>
         : null,
@@ -152,7 +154,7 @@ export function TeamPanel({
   ], [canManage]);
 
   return <>
-    <section className="panel settings-section">
+    <section className="panel settings-section organization-members-section">
       <header>
         <h2><Users size={16} /> Members</h2>
         <p>Everyone who can sign in and act on this organization&apos;s events.</p>
