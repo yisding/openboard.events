@@ -582,13 +582,18 @@ describe("agenda sessions", () => {
   });
 
   describe("getMySessions", () => {
-    it("returns only the caller's scheduled sessions, with room and track names", async () => {
+    it("returns only the caller's published scheduled sessions, with room and track names", async () => {
       await createSession({
         title: "Ada speaks", roomId: mainStage, trackId: agentsTrack, speakerContactIds: [ada], status: "published",
         startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
       });
-      // Unscheduled, so it must not appear on the portal card.
+      // Neither an unplaced draft nor a timed draft can cross the publication
+      // boundary into the speaker portal.
       await createSession({ title: "Ada's unplaced idea", speakerContactIds: [ada] });
+      await createSession({
+        title: "Ada's tentative slot", roomId: studio, speakerContactIds: [ada], status: "draft",
+        startsAt: at("2026-09-15T19:00:00Z"), endsAt: at("2026-09-15T19:30:00Z"),
+      });
       await createSession({
         title: "Grace speaks", roomId: studio, speakerContactIds: [grace], status: "published",
         startsAt: at("2026-09-15T18:00:00Z"), endsAt: at("2026-09-15T18:30:00Z"),
@@ -597,6 +602,7 @@ describe("agenda sessions", () => {
       const mine = await getMySessions(eventId, ada);
       expect(mine).toHaveLength(1);
       expect(mine[0]).toMatchObject({ title: "Ada speaks", roomName: "Main Stage", trackName: "AI Agents" });
+      expect(mine.map((session) => session.title)).not.toContain("Ada's tentative slot");
 
       // A mismatched contact sees nothing, not somebody else's schedule.
       expect(await getMySessions(eventId, alan)).toEqual([]);
