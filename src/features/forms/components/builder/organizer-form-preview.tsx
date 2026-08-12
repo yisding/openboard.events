@@ -60,7 +60,7 @@ export function OrganizerFormPreview({ event, form }: { event: BuilderEvent; for
         </div>
       </aside>
 
-      <main className="organizer-form-preview__canvas">
+      <div className="organizer-form-preview__canvas">
         {form.showWelcome && (
           <section className="organizer-form-preview__welcome" aria-labelledby="organizer-preview-welcome-title">
             <span>WELCOME SCREEN</span>
@@ -96,7 +96,7 @@ export function OrganizerFormPreview({ event, form }: { event: BuilderEvent; for
             />
           </section>
         ))}
-      </main>
+      </div>
     </div>
   );
 }
