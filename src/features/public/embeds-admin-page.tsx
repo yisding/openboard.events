@@ -159,7 +159,7 @@ export function EmbedsAdminPage({
           const Icon = meta.icon;
           const sessionShaped = SESSION_SHAPED.has(config.contentType);
           const settingsDirty = !embedStylesEqual(styleDraft, config.style)
-            || !embedFiltersEqual(filters, sanitizeEmbedFilters(config.filters, filterVocabulary));
+            || !embedFiltersEqual(filters, config.filters);
           const open = openConfigId === config.id;
           return (
             <article className={`panel embed-card ${config.enabled ? "" : "is-disabled"}`} key={config.id}>

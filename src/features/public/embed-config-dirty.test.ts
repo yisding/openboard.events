@@ -26,4 +26,8 @@ describe("embed config dirty comparisons", () => {
     expect(embedFiltersEqual({ roomIds: ["room-a"] }, { roomIds: ["room-b"] })).toBe(false);
     expect(embedFiltersEqual({}, { fields: { speakerBio: false } })).toBe(false);
   });
+
+  it("keeps a sanitized draft dirty while stale vocabulary ids remain persisted", () => {
+    expect(embedFiltersEqual({ trackIds: [] }, { trackIds: ["deleted-track"] })).toBe(false);
+  });
 });
