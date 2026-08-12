@@ -9,6 +9,8 @@
 - **Deadline:** Wed Aug 12, 10:00 PM PT; submit by 8:00 PM PT. The buffer day is gone (PLAN delta #21).
 - **Goal reframe (rev. 8):** the owner's target is now a **sellable product**, not only the judged demo. The judging bar remains the nearest milestone; the product bar beyond it lives in [`product-roadmap.md`](product-roadmap.md), and the audit that motivated it is [`../docs/product-readiness.md`](../docs/product-readiness.md).
 
+- **Annotation, 2026-08-12 — the browser demo is deleted; the rows that cite it are history, not description.** The credential-free localStorage demo (`isCredentialFreeLocalDemo()`, `<DemoProvider>`, `src/shared/demo/`, the demo-only route files and components, the `/submit/<slug>/<formId>/done` route, the public-page and `/api/v1` demo fallbacks, and the `DEMO_ADMIN_EMAIL`/`DEMO_ADMIN_PASSWORD` sign-in branch) was removed from the tree in a staged deletion. **Nothing in this ledger is retracted:** where a row below says a surface renders the demo adapter, or counts the demo as what a PR delivered, it is an accurate record of the tree *at that revision*. Read every such row as past tense. Going forward there is one runtime path — Postgres — so the **STACK-DEMO** label can no longer be earned by new work, and any future row using it is describing pre-2026-08-12 history. `docs/demo-script.md` is rewritten to the single database-backed world; `docs/manual-test-plans.md` has lost its Env B.
+
 This document is the current execution overlay for `PLAN.md` and `execution.md`. It records evidence and priority; it does not change frozen contracts, invariants, dependencies, or the minimum judging bar.
 
 ## 1. Counting rules
@@ -23,7 +25,7 @@ A module is `DONE` only when all four statements are true:
 Use these evidence labels in status notes:
 
 - **MERGED-PARTIAL** — useful implementation is on `main`, but the module AC is not green.
-- **STACK-DEMO** — merged code operates on the typed browser demo adapter or seed fixtures rather than the required server path.
+- **STACK-DEMO** — merged code operates on the typed browser demo adapter or seed fixtures rather than the required server path. *(Historical as of 2026-08-12: the browser demo adapter is deleted, so this label survives only on the rows that earned it before that date.)*
 - **SERVER-GAP** — the judged server/database/integration path does not exist yet.
 - **REVIEW-BLOCKED** — a current review or CI failure must be fixed before merge.
 - **PR-OPEN** — the implementation exists only on an unmerged PR branch. Rule 1 fails, so the module cannot be `DONE` and no downstream module may treat it as a satisfied hard dependency. Added in rev. 5 for the #10–#12 stack.

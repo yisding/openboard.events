@@ -128,7 +128,9 @@ probe "/login" "200"
 # This production-mode artifact smoke deliberately exercises the fallback
 # provider. The signup entry still has to load cleanly, but it must route users
 # to sign-in instead of presenting an account form backed by a disabled API.
-# `next dev` keeps the credential-free local experience on `/events`.
+# `/events` is an authenticated surface in every environment (the credential-free
+# local demo that once rendered it signed-out is gone), so the probe below allows
+# both the sign-in redirect and whatever this database-less artifact renders.
 probe_redirect "/signup" "/login"
 probe "/events" "200|302|307"
 probe "/api/health" "503"
