@@ -72,12 +72,22 @@ export async function postJson(path: string, body: unknown): Promise<{ ok: boole
   return { ok: true, data: payload.data, message: "" };
 }
 
+/**
+ * Content-Length is signed into the presigned request, but the browser derives
+ * it from the File body and forbids JavaScript from setting it. Filter it here
+ * as rollout protection for an older presign response that still advertises
+ * the header; calling setRequestHeader would otherwise log a console error.
+ */
+export function browserSettableUploadHeaders(headers: Record<string, string>): Array<[string, string]> {
+  return Object.entries(headers).filter(([name]) => name.toLowerCase() !== "content-length");
+}
+
 /** XHR rather than fetch: only XHR reports upload progress. */
 function putWithProgress(url: string, file: File, headers: Record<string, string>, onProgress: (percent: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("PUT", url);
-    for (const [name, value] of Object.entries(headers)) request.setRequestHeader(name, value);
+    for (const [name, value] of browserSettableUploadHeaders(headers)) request.setRequestHeader(name, value);
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     });

@@ -98,6 +98,7 @@ test.describe("portal-tasks", () => {
     test.skip(!landed("M21", "M25"), waitingOn("M21", "M25"));
 
     test("a speaker completes a manual task and a file-request task", async ({ page, request }) => {
+      const assertClean = expectNoConsoleErrors(page);
       // Two open tasks at least: the manual one and the file request. The seed
       // marks one manual completion for its first contact, so a speaker with
       // fewer than two open would be that contact.
@@ -140,6 +141,8 @@ test.describe("portal-tasks", () => {
         await expect.poll(() => outstandingCount(page), { message: "two completions should reduce the open count", timeout: 30_000 })
           .toBe(before - 2);
       });
+
+      assertClean();
     });
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { postJson } from "./file-upload";
+import { browserSettableUploadHeaders, postJson } from "./file-upload";
 
 describe("file upload API requests", () => {
   afterEach(() => {
@@ -13,5 +13,16 @@ describe("file upload API requests", () => {
       ok: false,
       message: "The server could not be reached — check your connection and retry",
     });
+  });
+
+  it("leaves the browser to supply a signed Content-Length header", () => {
+    expect(browserSettableUploadHeaders({
+      "Content-Type": "application/pdf",
+      "Content-Length": "2048",
+      "x-amz-meta-checksum": "verified",
+    })).toEqual([
+      ["Content-Type", "application/pdf"],
+      ["x-amz-meta-checksum", "verified"],
+    ]);
   });
 });
