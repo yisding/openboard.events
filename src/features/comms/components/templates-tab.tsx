@@ -5,7 +5,7 @@ import type { EmailTemplateRow } from "@/features/comms";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Button, Field } from "@/shared/ui/ui-kit";
+import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useSaveTemplate, useTemplates } from "../hooks/use-templates";
 import { useTemplatePreview } from "../hooks/use-template-preview";
@@ -173,10 +173,10 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
               </p>
             )}
             <div className="template-editor-actions">
-              <label className="checkbox-row">
-                <input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} />
-                <span><b>Enabled</b><small>Allow this template to send when its trigger runs</small></span>
-              </label>
+              <div className="inline-setting template-enabled-setting">
+                <div><b>Enabled</b><small>Allow this template to send when its trigger runs</small></div>
+                <Switch label={`${humanizeKey(selectedKey)} enabled`} checked={enabled} onClick={() => { setEnabled((current) => !current); setDirty(true); }} />
+              </div>
               <Button onClick={() => void onSave()} disabled={unknownTokens.length > 0 || save.isPending || !dirty}>
                 {save.isPending ? "Saving…" : "Save template"}
               </Button>

@@ -3,7 +3,7 @@
 import { CheckCircle2, Clock3, Edit3, Mail, MoreHorizontal, Search, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useDemo } from "@/shared/demo/demo-provider";
-import { Button, Drawer, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Drawer, Field, Modal, PageHeader, Select, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { useToast } from "@/shared/ui/toast";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -87,7 +87,7 @@ export function CommunicationsPage() {
   }
 
   return (
-    <>
+    <div className="communications-page">
       <PageHeader
         eyebrow="ENGAGE"
         title="Communications"
@@ -136,10 +136,17 @@ export function CommunicationsPage() {
       {tab === "templates" && (
         <div className="template-grid">
           {templates.map((template) => (
-            <article className="panel" key={template.key}>
-              <header><span className="template-icon"><Mail size={18} /></span><StatusBadge value={template.enabled ? "Active" : "Paused"} /></header>
-              <h2>{template.name}</h2><p>{template.trigger}</p><div><small>SUBJECT</small><b>{template.subject}</b></div>
-              <footer><span>Last edited 2 days ago</span><Button size="sm" variant="secondary" onClick={() => setEditKey(template.key)}><Edit3 size={14} /> Edit</Button></footer>
+            <article className="panel communication-template-card" key={template.key}>
+              <header className="communication-template-card__header">
+                <span className="template-icon"><Mail size={18} /></span>
+                <StatusBadge value={template.enabled ? "Active" : "Paused"} />
+              </header>
+              <div className="communication-template-card__body">
+                <h2>{template.name}</h2>
+                <p>{template.trigger}</p>
+                <div className="communication-template-subject"><small>Subject</small><b>{template.subject}</b></div>
+              </div>
+              <footer><span>Edited 2 days ago</span><Button size="sm" variant="secondary" onClick={() => setEditKey(template.key)}><Edit3 size={14} /> Edit</Button></footer>
             </article>
           ))}
         </div>
@@ -183,7 +190,7 @@ export function CommunicationsPage() {
           <div className="recipient-preview"><CheckCircle2 size={17} /><div><b>{recipients.length} unique {recipients.length === 1 ? "recipient" : "recipients"}</b><span>Suppression and current speaker state are rechecked at send time.</span></div></div>
         </div>
       </Modal>
-    </>
+    </div>
   );
 }
 function TemplateEditor({template,onClose,onSave}:{template:Template|null;onClose:()=>void;onSave:(template:Template)=>void}){const[subject,setSubject]=useState(template?.subject??"");const[body,setBody]=useState(template?.body??"");function insertVariable(value:string){setBody((current)=>current+value)}if(!template)return null;return <Modal open={Boolean(template)} onClose={onClose} title={`Edit ${template.name}`} description="Use only variables shown below; HTML is sanitized on save." wide footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={()=>onSave({...template,subject,body:sanitize(body)})}>Save template</Button></>}><div className="template-editor"><div className="form-stack"><Field label="Subject"><input value={subject} onChange={(e)=>setSubject(e.target.value)}/></Field><Field label="Email body" hint="Allowed variables: {{contact.first_name}}, {{event.name}}, {{submission.title}}, {{portal.url}}"><textarea value={body} onChange={(e)=>setBody(e.target.value)}/></Field><div className="template-vars"><button type="button" onClick={()=>insertVariable("{{contact.first_name}}")}>{"{{contact.first_name}}"}</button><button type="button" onClick={()=>insertVariable("{{event.name}}")}>{"{{event.name}}"}</button><button type="button" onClick={()=>insertVariable("{{portal.url}}")}>{"{{portal.url}}"}</button></div></div><aside><span>PREVIEW</span><div><b>{subject}</b><RichTextView html={body}/><span className="button button-primary button-sm">Open speaker portal</span></div></aside></div></Modal>}
@@ -191,5 +198,5 @@ function ReminderRules({ onSave }: { onSave: () => void }) {
   const rules = [{ label: "7 days before", tone: "accent" }, { label: "1 day before", tone: "amber" }, { label: "When overdue", tone: "red" }];
   const [enabled, setEnabled] = useState(true);
   const [ruleEnabled, setRuleEnabled] = useState(() => rules.map(() => true));
-  return <div className="reminder-layout"><section className="panel reminder-rules"><header className="panel-header"><div><h2>Task reminder ladder</h2><p>Only the latest eligible rung sends in each scan.</p></div><button type="button" className={`switch ${enabled ? "on" : ""}`} aria-label="Enable reminder ladder" aria-pressed={enabled} onClick={() => setEnabled((value) => !value)}><i/></button></header>{rules.map((rule,index)=><div className="reminder-rule" key={rule.label}><span className={`rule-step ${rule.tone}`}>{index+1}</span><div><b>{rule.label}</b><small>Send “Task reminder” to open assignments</small></div><button type="button" className={`switch ${ruleEnabled[index] ? "on" : ""}`} aria-label={`Enable ${rule.label} reminder`} aria-pressed={ruleEnabled[index]} disabled={!enabled} onClick={() => setRuleEnabled((current) => current.map((value, position) => position === index ? !value : value))}><i/></button></div>)}<footer><Button onClick={onSave}>Save reminder rules</Button></footer></section><aside className="panel reminder-explainer"><span><Clock3 size={21}/></span><h3>Burst-safe by design</h3><p>If a scheduled scan is delayed, Openboard sends only the most recent eligible reminder—not every missed rung.</p><ul><li>Rechecks completion before send</li><li>One idempotency key per rung</li><li>Retires obsolete queued reminders</li></ul></aside></div>;
+  return <div className="reminder-layout"><section className="panel reminder-rules reminder-rules-demo"><header className="panel-header"><div><h2>Task reminder ladder</h2><p>Only the latest eligible rung sends in each scan.</p></div><Switch label="Enable reminder ladder" checked={enabled} onClick={() => setEnabled((value) => !value)} /></header><div className="reminder-ladder">{rules.map((rule,index)=><div className={`reminder-rule reminder-rule-demo ${!enabled ? "is-disabled" : ""}`} key={rule.label}><span className={`rule-step ${rule.tone}`}>{index+1}</span><div className="reminder-rule-copy"><b>{rule.label}</b><small>Send “Task reminder” to open assignments</small></div><Switch label={`Enable ${rule.label} reminder`} checked={ruleEnabled[index] ?? false} disabled={!enabled} onClick={() => setRuleEnabled((current) => current.map((value, position) => position === index ? !value : value))} /></div>)}</div><footer><Button onClick={onSave}>Save reminder rules</Button></footer></section><aside className="panel reminder-explainer"><span><Clock3 size={21}/></span><h3>Burst-safe by design</h3><p>If a scheduled scan is delayed, Openboard sends only the most recent eligible reminder—not every missed rung.</p><ul><li>Rechecks completion before send</li><li>One idempotency key per rung</li><li>Retires obsolete queued reminders</li></ul></aside></div>;
 }
