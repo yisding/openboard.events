@@ -217,7 +217,9 @@ export function FileUpload({
           {/* Immutable by construction: a replacement always mints a new fileId,
               which is what makes this URL cacheable forever. */}
           <PrivateFileLink fileId={shownFileId}>{uploaded?.meta.filename ?? "Current file"}</PrivateFileLink>
-          <button type="button" className="button button-secondary button-sm" onClick={() => { setPhase("idle"); inputRef.current?.click(); }}>
+          {/* A cancelled native picker emits no change event. Keep the current
+              file visible until the user actually chooses a replacement. */}
+          <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()}>
             Replace
           </button>
         </div>

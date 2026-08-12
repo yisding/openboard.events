@@ -550,8 +550,9 @@ test.describe("content-deliverables (M52)", () => {
       await page.goto(`/events/${EVENT}/speakers/${detail.contact.contactId}`);
       await expect(page.getByText(bioText)).toBeVisible();
 
+      const headshotFilename = `e2e-headshot-${stamp}.png`;
       await page.locator('.file-upload input[type="file"]').setInputFiles({
-        name: `e2e-headshot-${stamp}.png`,
+        name: headshotFilename,
         mimeType: "image/png",
         buffer: Buffer.from(PNG_1X1_BASE64, "base64"),
       });
@@ -559,6 +560,13 @@ test.describe("content-deliverables (M52)", () => {
 
       const savedDetail = await apiData<{ contact: { headshotFileId: string | null } }>(request, `${SPEAKERS}/${detail.contact.contactId}`);
       expect(savedDetail.contact.headshotFileId).toBeTruthy();
+
+      const currentUpload = page.locator(".file-upload__done");
+      await expect(currentUpload).toContainText(headshotFilename);
+      const picker = page.waitForEvent("filechooser");
+      await currentUpload.getByRole("button", { name: "Replace", exact: true }).click();
+      await (await picker).setFiles([]);
+      await expect(currentUpload, "cancelling Replace must retain the file that will still submit").toContainText(headshotFilename);
     });
 
     await test.step("a grouped ZIP export contains only the selected deliverable's latest file, and nothing unselected", async () => {
