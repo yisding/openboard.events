@@ -1481,11 +1481,28 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 }
 
 @media(max-width:768px){
-  /* Below the sidebar collapse the toolbar drops its trailing action group
-     (`.agenda-toolbar>div:last-child{display:none}`) and its tab icons, so the
-     row fits on one line again — exactly what the band's 769px floor used to
-     express. Same selector, so it out-orders the ≤1024 rule above. */
-  .page:has(.agenda-workspace)>.agenda-toolbar{height:49px;flex-wrap:nowrap;padding-block:0}
+  /* Keep the organizer's complete agenda workflow available after the sidebar
+     collapses. The earlier compact rule hides the action group and accepted
+     tray; these later, more specific rules restore them as wrapped and
+     wrapped and horizontally scrollable mobile surfaces, respectively. */
+  .page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap;padding-block:8px;gap:8px}
+  .agenda-toolbar>div:last-child{display:flex;width:100%;margin-left:0;align-items:center;flex-wrap:wrap;gap:8px}
+  .agenda-toolbar>div:last-child .table-search{min-width:180px;flex:1 1 180px}
+  .agenda-toolbar>div:last-child .button{flex:0 0 auto}
+  .agenda-invited-link{min-height:44px;display:inline-flex;align-items:center;flex:0 0 auto}
+
+  /* The tray remains a single horizontal rail. Accepted abstracts join the
+     unscheduled cards instead of disappearing, and their add controls meet the
+     mobile touch-target floor. */
+  .accepted-tray{display:flex;flex:0 0 auto;align-items:stretch;gap:8px;border-top:0;border-left:1px solid var(--line);margin:0;padding:0 0 0 12px}
+  .accepted-tray>span{width:96px;display:flex;align-items:center}
+  .accepted-tray>div{min-width:180px;min-height:72px;padding:8px;grid-template-columns:1fr 44px;border:1px solid var(--line);border-radius:7px}
+  .accepted-tray>p{min-width:180px;margin:0;align-self:center}
+  .accepted-tray button{width:44px;height:44px}
+}
+
+@media(max-width:480px){
+  .agenda-toolbar>div:last-child .table-search{flex-basis:100%;width:100%}
 }
 
 @media(max-width:768px){
