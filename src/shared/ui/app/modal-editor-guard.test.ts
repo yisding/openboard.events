@@ -30,7 +30,7 @@ describe("modal editor unsaved-work guard", () => {
     expect(requestId.payload(undefined, { title: "Guide" })).toEqual(firstPayload);
     requestGuardedEditorClose({ busy: false, dirty: true, runGuarded: (action) => action(), close });
     requestId.begin();
-    expect(requestId.payload(undefined, { title: "Guide" }).id).toBe("request-two");
+    expect(requestId.payload(undefined, { title: "Guide" })).toEqual({ id: "request-two", title: "Guide" });
   });
 
   it("confirms dirty dismissals and closes clean editors directly", () => {
