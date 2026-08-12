@@ -31,8 +31,8 @@ export {
 // M14 — form settings + notifications: the pure open/close-limit twin of the
 // SQL `is_form_open()` predicate, and the Settings/Notifications steps'
 // server-side save + template-variable validation.
-export type { FormOpenReason, FormOpenStatus } from "./lib/form-open";
-export { effectiveLimit, formOpenState } from "./lib/form-open";
+export type { FormAvailability, FormOpenReason, FormOpenStatus } from "./lib/form-open";
+export { effectiveLimit, formAvailability, formOpenState } from "./lib/form-open";
 export type { NotificationsPatch, SettingsPatch } from "./server/settings-mutations";
 export {
   assertValidConfirmationTemplate,

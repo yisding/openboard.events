@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveLimit, formOpenState } from "./form-open";
+import { effectiveLimit, formAvailability, formOpenState } from "./form-open";
 
 const NOW = "2026-08-09T18:00:00.000Z";
 
@@ -92,6 +92,18 @@ describe("formOpenState", () => {
       opensAt: "2027-01-01T00:00:00.000Z",
       closesAt: "2026-01-01T00:00:00.000Z",
     }, NOW)).toEqual({ open: false, reason: "not_open_yet" });
+  });
+});
+
+describe("formAvailability", () => {
+  it.each([
+    ["draft", { status: "draft" as const, opensAt: null, closesAt: null }],
+    ["scheduled", { status: "open" as const, opensAt: "2026-08-10T00:00:00.000Z", closesAt: null }],
+    ["live", { status: "open" as const, opensAt: NOW, closesAt: "2026-08-09T18:00:00.001Z" }],
+    ["ended", { status: "open" as const, opensAt: null, closesAt: NOW }],
+    ["closed", { status: "closed" as const, opensAt: null, closesAt: "2027-01-01T00:00:00.000Z" }],
+  ])("labels an organizer form as %s", (expected, form) => {
+    expect(formAvailability(form, NOW)).toBe(expected);
   });
 });
 

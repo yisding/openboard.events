@@ -110,4 +110,15 @@ describe("form create request outcomes", () => {
     expect(source).toContain("Retry form creation");
     expect(source).toContain("Retry with the same details before making changes.");
   });
+
+  it("only exposes public sharing for live forms and previews every non-live state safely", () => {
+    const source = readFileSync(new URL("./forms-page.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('form.availability === "live" ? <>');
+    expect(source).toContain('href={`/submit/${event.slug}/${form.id}`}');
+    expect(source).toContain('aria-label={`Copy live link: ${form.internalName}`}');
+    expect(source).toContain('href={`/events/${event.id}/forms/${form.id}/preview`}');
+    expect(source).toContain('formAvailability(form, new Date().toISOString()) !== "live"');
+    expect(source).not.toContain("navigator.clipboard.writeText");
+  });
 });

@@ -26,12 +26,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contracts";
 import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { copyText } from "@/shared/ui/app/copy-text";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, Select, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
+import { formAvailability } from "./lib/form-open";
 // M13b: the visibility editor, live preview, and routing panel are that
 // module's — this file only mounts them at the right point in the wizard.
 import { BuilderPreview as LiveBuilderPreview } from "./components/builder/builder-preview";
@@ -86,6 +88,12 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const requestedStep = searchParams.get("step");
   const step: BuilderStep = BUILDER_STEPS.includes(requestedStep as BuilderStep) ? requestedStep as BuilderStep : "abstract";
   const [form, setForm] = useState(initialForm);
+  const [persistedAvailabilityInput, setPersistedAvailabilityInput] = useState(() => ({
+    status: initialForm.status,
+    opensAt: initialForm.opensAt,
+    closesAt: initialForm.closesAt,
+  }));
+  const [availabilityNow, setAvailabilityNow] = useState(() => new Date().toISOString());
   const [selected, setSelected] = useState<{ sectionId: string; fieldId: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
@@ -96,6 +104,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
+  const availability = formAvailability(persistedAvailabilityInput, availabilityNow);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
   // unsaved) draft, so a conditional field visibly appears/disappears as the
   // organizer edits it — no save round trip. Falls back to the mock preview
@@ -150,6 +159,8 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     setBusy(true);
     try {
       const next = await action();
+      setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt });
+      setAvailabilityNow(new Date().toISOString());
       for (const [target, revision] of savedRevisions) {
         if (dirtyRevisions.current.get(target) === revision) dirtyRevisions.current.delete(target);
       }
@@ -275,14 +286,21 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(`${window.location.origin}/submit/${event.slug}/${form.id}`);
-    toast("Public form link copied");
+    const clickedAt = new Date().toISOString();
+    if (formAvailability(persistedAvailabilityInput, clickedAt) !== "live") {
+      setAvailabilityNow(clickedAt);
+      toast("This form is not live, so its public link was not copied", { kind: "error" });
+      return;
+    }
+
+    const copied = await copyText(`${window.location.origin}/submit/${event.slug}/${form.id}`);
+    toast(copied ? "Live form link copied" : "Couldn’t copy the live link. Open it and copy the address from your browser.", copied ? undefined : { kind: "error" });
   }
 
   const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
   return <div className="builder-wrap">
-    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={form.status} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
-      <button className="button button-secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy link</button>
+    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
+      {availability === "live" && <button type="button" className="button button-secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</button>}
       <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
       <Button disabled={busy} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
       <Button variant={form.status === "open" ? "secondary" : "primary"} disabled={busy} onClick={() => void run(() => patchForm({ status: form.status === "open" ? "closed" : "open" }), form.status === "open" ? "Form closed" : "Form is open")}><Rocket size={16} /> {form.status === "open" ? "Close" : "Open form"}</Button>

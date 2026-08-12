@@ -14,7 +14,7 @@ export type ActivationState =
   | { kind: "draft"; form: DashboardForm }
   | { kind: "closed"; form: DashboardForm }
   | { kind: "scheduled"; form: DashboardForm }
-  | { kind: "expired"; form: DashboardForm }
+  | { kind: "ended"; form: DashboardForm }
   | { kind: "live"; form: DashboardForm }
   | null;
 
@@ -36,8 +36,8 @@ export function resolveActivationState(overview: DashboardOverview): ActivationS
   const draft = overview.forms.find((form) => form.availability === "draft");
   if (draft) return { kind: "draft", form: draft };
 
-  const expired = overview.forms.find((form) => form.availability === "expired");
-  if (expired) return { kind: "expired", form: expired };
+  const ended = overview.forms.find((form) => form.availability === "ended");
+  if (ended) return { kind: "ended", form: ended };
 
   const [closed] = overview.forms;
   return closed ? { kind: "closed", form: closed } : { kind: "no_form" };
@@ -125,7 +125,7 @@ export function ActivationGuide({ overview }: { overview: DashboardOverview }) {
       ? `${state.form.name} opens ${formatInZone(state.form.opensAt, overview.event.timezone, "long")}. Review the timing before you announce it.`
       : `${state.form.name} is scheduled to open later. Review the timing before you announce it.`;
     action = "Review timing";
-  } else if (state.kind === "expired") {
+  } else if (state.kind === "ended") {
     icon = <RotateCcw size={18} />;
     title = "Extend your submission window";
     description = state.form.closesAt

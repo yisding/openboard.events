@@ -5,6 +5,7 @@ import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-s
 import { type FormId, type FormSnapshot, type OrganizationId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { participantRoleSettingsSchema, type ParticipantRoleSetting } from "../participant-roles";
+import { formOpenState, type FormOpenStatus } from "../lib/form-open";
 import { getCurrentSnapshotIn } from "./snapshots";
 
 /**
@@ -53,15 +54,14 @@ export type PublicForm = {
  * a page that says open while the write says FORM_CLOSED is worse than either.
  */
 export function decideOpenState(
-  form: { status: string; opensAt: Date | null; closesAt: Date | null },
+  form: { status: FormOpenStatus; opensAt: Date | null; closesAt: Date | null },
   now: Date,
 ): PublicFormOpenState {
-  // An admin closing a form outranks its dates: they may have closed it early,
-  // and telling a speaker to "come back on the 12th" would be a lie.
-  if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
-  if (form.opensAt && now < form.opensAt) return { open: false, reason: "not_open_yet" };
-  if (form.closesAt && now >= form.closesAt) return { open: false, reason: "closed_by_date" };
-  return { open: true, reason: "ok" };
+  return formOpenState({
+    status: form.status,
+    opensAt: form.opensAt?.toISOString() ?? null,
+    closesAt: form.closesAt?.toISOString() ?? null,
+  }, now.toISOString());
 }
 
 export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId: FormId): Promise<PublicForm> {

@@ -15,6 +15,8 @@ export type FormOpenReason = "ok" | "not_open_yet" | "closed_by_date" | "closed_
 
 export type FormOpenStatus = "draft" | "open" | "closed";
 
+export type FormAvailability = "draft" | "scheduled" | "live" | "ended" | "closed";
+
 export function formOpenState(
   form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
   nowIso: string,
@@ -39,6 +41,24 @@ export function formOpenState(
   }
 
   return { open: true, reason: "ok" };
+}
+
+/**
+ * Organizer-facing label for the same state enforced by `formOpenState`.
+ * `status` remains the stored publishing intent; availability explains what
+ * that intent plus the configured window means right now.
+ */
+export function formAvailability(
+  form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
+  nowIso: string,
+): FormAvailability {
+  if (form.status === "draft") return "draft";
+
+  const openState = formOpenState(form, nowIso);
+  if (openState.open) return "live";
+  if (openState.reason === "not_open_yet") return "scheduled";
+  if (openState.reason === "closed_by_date") return "ended";
+  return "closed";
 }
 
 /**

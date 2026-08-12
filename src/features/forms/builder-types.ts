@@ -12,6 +12,7 @@ import type {
   TaskTarget,
   VisibilityRule,
 } from "@/shared/contracts";
+import type { FormAvailability } from "./lib/form-open";
 
 export const BUILDER_STEPS = ["setup", "welcome", "abstract", "participant", "settings", "notifications"] as const;
 export type BuilderStep = (typeof BUILDER_STEPS)[number];
@@ -89,9 +90,11 @@ export type FormListRow = {
   internalName: string;
   externalTitle: string;
   status: FormStatus;
+  availability: FormAvailability;
   kind: SubmissionKind;
   targetType: TaskTarget | null;
   collectParticipants: boolean;
+  opensAt: string | null;
   closesAt: string | null;
   createdAt: string;
   submissionCount: number;

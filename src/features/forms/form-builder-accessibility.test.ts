@@ -70,4 +70,18 @@ describe("form builder accessibility", () => {
     expect(css).toContain('.builder-inspector{display:none}');
     expect(css).toContain('.compact-field-inspector .inspector-content>.form-stack{max-height:none;overflow:visible;padding:0}');
   });
+
+  it("uses the persisted form window, not unsaved date edits, to gate public-link copying", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("const [persistedAvailabilityInput, setPersistedAvailabilityInput]");
+    expect(source).toContain("setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt })");
+    expect(source).toContain("formAvailability(persistedAvailabilityInput, availabilityNow)");
+    expect(source).toContain("setAvailabilityNow(clickedAt)");
+    expect(source).toContain('availability === "live" && <button type="button"');
+    expect(source).toContain("Copy live link");
+    expect(source).toContain('formAvailability(persistedAvailabilityInput, clickedAt) !== "live"');
+    expect(source).toContain('href={`/events/${event.id}/forms/${form.id}/preview`}');
+    expect(source).not.toContain("navigator.clipboard.writeText");
+  });
 });

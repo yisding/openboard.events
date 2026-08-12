@@ -13,7 +13,7 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import type { BuilderEvent, BuilderField, BuilderForm, BuilderSection, FormListRow } from "../builder-types";
-import { decideOpenState } from "./public-form";
+import { formAvailability } from "../lib/form-open";
 
 const participantRolesSchema = z.array(z.object({
   role: z.enum(["speaker", "co_speaker", "moderator", "panelist"]),
@@ -46,7 +46,12 @@ export function getBuilderEvent(eventId: EventId): Promise<BuilderEvent> {
 // (the CFP forms list page/route) is unaffected; M24's portal forms list
 // passes context="portal" to get the disjoint set — never both, per the
 // module's "never both on one list" invariant (M24 §3).
-export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId, context: FormContext = "cfp"): Promise<FormListRow[]> {
+export async function listFormsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  context: FormContext = "cfp",
+  now = new Date(),
+): Promise<FormListRow[]> {
   const rows = await dbOrTx.select({
     id: forms.id,
     internalName: forms.internalName,
@@ -69,17 +74,15 @@ export async function listFormsIn(dbOrTx: DbOrTx, eventId: EventId, context: For
     .groupBy(forms.id)
     .orderBy(asc(forms.createdAt), asc(forms.id));
 
-  const now = new Date();
   return rows.map((row) => {
-    const { opensAt, ...visible } = row;
-    const effectiveStatus = row.status === "open" && !decideOpenState({ status: row.status, opensAt, closesAt: row.closesAt }, now).open
-      ? "closed"
-      : row.status;
+    const opensAt = row.opensAt?.toISOString() ?? null;
+    const closesAt = row.closesAt?.toISOString() ?? null;
     return {
-      ...visible,
-      status: effectiveStatus,
+      ...row,
       id: formIdSchema.parse(row.id),
-      closesAt: row.closesAt?.toISOString() ?? null,
+      availability: formAvailability({ status: row.status, opensAt, closesAt }, now.toISOString()),
+      opensAt,
+      closesAt,
       createdAt: row.createdAt.toISOString(),
       submissionCount: Number(row.submissionCount),
       draftCount: Number(row.draftCount),
