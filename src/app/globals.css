@@ -1427,7 +1427,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .public-form-progress li{display:flex;align-items:center;gap:6px}
 .public-form-progress li:not(:last-child)::after{content:"";width:18px;height:1px;background:var(--line-strong);margin-left:8px}
 .public-form-progress li.active{color:var(--accent-dark);font-weight:600}
+.cfp-account-form{align-items:end}
+.cfp-account-form>.button{height:40px}
 .cfp-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;grid-column:1/-1}
+.cfp-account-form>.demo-code{margin:0}
+.cfp-account-form>.demo-code+.cfp-code-actions{grid-column:2;align-self:center;gap:6px}
+.cfp-account-form>.demo-code+.cfp-code-actions>.button{padding-inline:14px}
 
 .recipient-preview{display:flex;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint)}
 .recipient-preview>svg{flex:0 0 auto;color:var(--accent-dark)}
@@ -1523,6 +1528,14 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .login-form-panel{min-height:calc(100vh - 76px);padding:32px 24px;place-items:start center}
   .login-form-panel>div>:is(form,div) h1{font-size:32px}
 
+  /* Nine formatting tools form a deliberate 5 / 4 grid instead of letting
+     auto-fit pick a viewport-dependent 6 / 3 or the old flex wrap's 4 / 4 / 1.
+     Every tool keeps its 44px touch-target floor. */
+  .rich-text-editor__toolbar{display:grid;grid-template-columns:repeat(5,minmax(44px,56px));gap:4px;align-items:center;overflow-x:auto}
+  .rich-text-editor__tool{width:100%}
+
+  .cfp-account-form>.demo-code+.cfp-code-actions{grid-column:1}
+
   /* Keep the agenda shell viewport-bound; the day view's own scroll region
      carries the wide timeline instead of widening the document. */
   .agenda-workspace>.day-grid{min-width:0;width:100%}
@@ -1543,6 +1556,17 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      the file, so the earlier declaration never won and the documented "the ≤480
      block steps it to 14" never rendered. */
   .public-event-header .public-event-logo{font-size:14px}
+
+  /* At phone widths three nowrap labels cannot share one line. Give the two
+     secondary actions matching columns and the forward action a stable row. */
+  .cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}
+  .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
+
+  /* Four progress labels otherwise land as an unstable 2 / 2 at 390px but
+     3 / 1 around 440px. Keep the same two-column rhythm across phone widths. */
+  .public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .public-form-progress:has(>li:nth-child(4)) li:not(:last-child)::after{margin-left:auto}
+  .public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}
 }
 
 .communications-tabs button{display:inline-flex;align-items:center;gap:7px}

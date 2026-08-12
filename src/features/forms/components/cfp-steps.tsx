@@ -698,7 +698,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       {step === "account" && (
         <>
         <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
-        <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
+        <form className="form-grid cfp-account-form" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
           <label className="field">
             <span>Email address</span>
             <input ref={emailInput} type="email" required value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
