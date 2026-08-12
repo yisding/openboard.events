@@ -28,6 +28,8 @@
       "name": "sb-web-preview",
       "vars": {
         "APP_ENV": "preview",
+        "ADMIN_AUTH_PROVIDER": "better-auth",
+        "BETTER_AUTH_URL": "https://sb-web-preview.yi-ding.workers.dev",
         "BILLING_MODE": "disabled",
         // Preview sends for real now that mail.openboard.events is verified, but
         // only to the allowlist: a preview that can mail anybody is one bad
@@ -58,6 +60,8 @@
       "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
       "vars": {
         "APP_ENV": "production",
+        "ADMIN_AUTH_PROVIDER": "better-auth",
+        "BETTER_AUTH_URL": "https://sb-web.yi-ding.workers.dev",
         "BILLING_MODE": "disabled",
         "EMAIL_MODE": "send",
         "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",

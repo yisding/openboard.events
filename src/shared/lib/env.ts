@@ -39,6 +39,8 @@ export const WEB_DEPLOY_SECRET_NAMES = [
   "RESEND_WEBHOOK_SECRET",
   "UNSUBSCRIBE_SECRET",
   "SPEAKER_SHARE_SECRET",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
 ] as const;
 
 const envSchema = z.object({
@@ -160,6 +162,12 @@ const envSchema = z.object({
       if (!parsed.success || new URL(parsed.data).origin !== env.BETTER_AUTH_URL) {
         context.addIssue({ code: "custom", path: ["BETTER_AUTH_URL"], message: "must be an origin with no path or trailing slash" });
       }
+    }
+    if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_ID) {
+      context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_ID"], message: `is required for Google sign-in in ${env.APP_ENV}` });
+    }
+    if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_SECRET) {
+      context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: `is required for Google sign-in in ${env.APP_ENV}` });
     }
   }
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {

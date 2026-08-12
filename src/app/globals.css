@@ -1409,6 +1409,10 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .login-form-panel form h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
 .login-form-panel form>p{margin:0;color:var(--muted)}
 .login-form-panel form>p:last-child a{color:var(--accent-dark);font-weight:600}
+.google-signin{width:100%}
+.google-mark{width:18px;height:18px;flex:0 0 18px}
+.auth-divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.auth-divider::before,.auth-divider::after{content:"";height:1px;flex:1;background:var(--line)}
 
 @media(max-width:768px){
   /* The hosted event nav is the only route switcher on public pages. Preserve

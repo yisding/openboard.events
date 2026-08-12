@@ -68,6 +68,10 @@ deploy script rather than storing a placeholder `workers.dev` hostname.
 | `AIRTABLE_BASE_ID` | variable | deferred; do not provision yet | Target Airtable base reserved for M39 |
 | `AIRTABLE_CRON` | variable | all | Must remain `0` until M39 replaces its contract stub with a production-proven sync |
 | `TEST_AUTH` | variable | local/isolated preview only | Enables test authentication; absent in production |
+| `ADMIN_AUTH_PROVIDER` | variable | preview and production | `better-auth`; local development may keep the `fallback` default |
+| `GOOGLE_CLIENT_ID` | secret | preview and production | Google OAuth web-client identifier |
+| `GOOGLE_CLIENT_SECRET` | secret | preview and production | Google OAuth web-client secret |
+| `BETTER_AUTH_URL` | variable | preview and production | Exact environment origin used to build the Google callback URL |
 
 `FILES` and `NEXT_INC_CACHE_R2_BUCKET` are Wrangler R2 bindings, not secrets. Both point to
 the environment's bucket; the OpenNext cache uses its own prefix. `ASSETS` is the generated

@@ -59,6 +59,8 @@ const env = parseEnv({
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
   ADMIN_AUTH_PROVIDER: "better-auth",
+  GOOGLE_CLIENT_ID: "test-google-client-id",
+  GOOGLE_CLIENT_SECRET: "test-google-client-secret",
 });
 
 describe("M42 admin auth on Better Auth", () => {
@@ -108,6 +110,22 @@ describe("M42 admin auth on Better Auth", () => {
   function sessionCookie(response: Response): string {
     return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
   }
+
+  it("starts Google sign-in with the configured callback and safe app destination", async () => {
+    const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-in/social", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({ provider: "google", callbackURL: "/organizations" }),
+    }));
+    const body = await response.json() as { url?: string; redirect?: boolean };
+    const authorizationUrl = new URL(body.url ?? "");
+
+    expect(response.status).toBe(200);
+    expect(body.redirect).toBe(true);
+    expect(authorizationUrl.origin).toBe("https://accounts.google.com");
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("test-google-client-id");
+    expect(authorizationUrl.searchParams.get("redirect_uri")).toBe("http://localhost:3000/api/auth/callback/google");
+  });
 
   it("backfills a credential account for every pre-existing password, and none for accounts without one", async () => {
     const accounts = await database.select({ userId: adminAccounts.userId, password: adminAccounts.password })

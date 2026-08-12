@@ -6,15 +6,53 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { safeInternalPath } from "../safe-next";
 
-export function LoginForm() {
+type LoginFormProps = {
+  googleEnabled?: boolean;
+};
+
+function GoogleMark() {
+  return <svg aria-hidden="true" className="google-mark" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.6h3.3c1.9-1.8 2.9-4.4 2.9-7.5Z" />
+    <path fill="#34A853" d="M12 22c2.7 0 5-.9 6.7-2.3l-3.3-2.6c-.9.6-2.1 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.7A10 10 0 0 0 12 22Z" />
+    <path fill="#FBBC05" d="M6.5 14a6 6 0 0 1 0-3.9V7.4H3.1a10 10 0 0 0 0 9.3L6.5 14Z" />
+    <path fill="#EA4335" d="M12 5.9c1.5 0 2.8.5 3.9 1.5l2.9-2.9A9.8 9.8 0 0 0 3.1 7.4l3.4 2.7A5.9 5.9 0 0 1 12 5.9Z" />
+  </svg>;
+}
+
+export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState("");
+
+  async function signInWithGoogle() {
+    setPending("google");
+    setError("");
+    try {
+      const response = await fetch("/api/auth/sign-in/social", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: "google",
+          callbackURL: safeInternalPath(searchParams.get("next")),
+        }),
+      });
+      const body = await response.json().catch(() => null) as { url?: string } | null;
+      if (!response.ok || !body?.url || new URL(body.url).protocol !== "https:") {
+        setError("Google sign-in is temporarily unavailable");
+        return;
+      }
+      window.location.assign(body.url);
+    } catch {
+      setError("Google sign-in is temporarily unavailable");
+    } finally {
+      setPending(null);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
+    setPending("password");
     setError("");
     const data = new FormData(event.currentTarget);
     try {
@@ -32,7 +70,7 @@ export function LoginForm() {
     } catch {
       setError("Sign-in is temporarily unavailable");
     } finally {
-      setPending(false);
+      setPending(null);
     }
   }
 
@@ -40,10 +78,16 @@ export function LoginForm() {
     <span className="metric-icon accent"><LockKeyhole size={20} /></span>
     <h1>Welcome back</h1>
     <p>Sign in to your Openboard workspace.</p>
+    {googleEnabled && <>
+      <button className="button button-secondary button-lg google-signin" disabled={pending !== null} onClick={signInWithGoogle} type="button">
+        <GoogleMark /> {pending === "google" ? "Connecting…" : "Continue with Google"}
+      </button>
+      <div className="auth-divider"><span>or continue with email</span></div>
+    </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <label className="field"><span>Password</span><input name="password" autoComplete="current-password" required minLength={8} type="password" /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
+    <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "password" ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
     {/* The only route into M42's reset flow. `/login/reset` is where the
         emailed link lands; `/login/forgot` is what causes it to be sent. */}
     <p><Link href="/login/forgot">Forgot your password?</Link></p>
