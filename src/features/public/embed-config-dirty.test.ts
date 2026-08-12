@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { embedFiltersEqual, embedStylesEqual } from "./embed-config-dirty";
+import { embedFiltersEqual, embedStylesEqual, hasUnsavedEmbedSettings } from "./embed-config-dirty";
+import type { EmbedConfigDTO } from "./embed-config-types";
 
 describe("embed config dirty comparisons", () => {
   it("compares styles by value instead of object insertion order", () => {
@@ -29,5 +30,25 @@ describe("embed config dirty comparisons", () => {
 
   it("keeps a sanitized draft dirty while stale vocabulary ids remain persisted", () => {
     expect(embedFiltersEqual({ trackIds: [] }, { trackIds: ["deleted-track"] })).toBe(false);
+  });
+
+  it("aggregates clean, dirty, and reverted drafts across every embed card", () => {
+    const configs = [
+      { contentType: "agenda", style: { theme: "light" }, filters: {} },
+      { contentType: "speaker_gallery", style: {}, filters: { fields: { speakerBio: true } } },
+    ] satisfies Array<Pick<EmbedConfigDTO, "contentType" | "style" | "filters">>;
+    const cleanStyles = { agenda: { theme: "light" as const }, speaker_gallery: {} };
+    const cleanFilters = { agenda: {}, speaker_gallery: {} };
+
+    expect(hasUnsavedEmbedSettings(configs, cleanStyles, cleanFilters)).toBe(false);
+    expect(hasUnsavedEmbedSettings(configs, {
+      ...cleanStyles,
+      speaker_gallery: { accent: "#123456" },
+    }, cleanFilters)).toBe(true);
+    expect(hasUnsavedEmbedSettings(configs, cleanStyles, {
+      ...cleanFilters,
+      agenda: { roomIds: ["room-a"] },
+    })).toBe(true);
+    expect(hasUnsavedEmbedSettings(configs, cleanStyles, cleanFilters)).toBe(false);
   });
 });

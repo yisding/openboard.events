@@ -6,7 +6,8 @@ import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { embedFiltersEqual, embedStylesEqual } from "./embed-config-dirty";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { embedFiltersEqual, embedStylesEqual, hasUnsavedEmbedSettings } from "./embed-config-dirty";
 import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
@@ -67,6 +68,9 @@ export function EmbedsAdminPage({
   const [origin, setOrigin] = useState("");
   const [openConfigId, setOpenConfigId] = useState<string | null>(null);
   const [manualCopy, setManualCopy] = useState<{ contentType: CanonicalEmbedContentType; label: string; value: string } | null>(null);
+  const hasUnsavedSettings = hasUnsavedEmbedSettings(configs, styleDrafts, filterDrafts);
+
+  useUnsavedWorkGuard(hasUnsavedSettings);
 
   useEffect(() => setOrigin(window.location.origin), []);
 

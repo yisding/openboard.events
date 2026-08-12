@@ -1,5 +1,5 @@
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import type { EmbedFilters, EmbedStyle } from "./embed-config-types";
+import type { CanonicalEmbedContentType, EmbedConfigDTO, EmbedFilters, EmbedStyle } from "./embed-config-types";
 
 function normalizedIds(ids: string[] | undefined): string[] {
   return [...new Set(ids ?? [])].sort();
@@ -27,4 +27,14 @@ export function embedFiltersEqual(left: EmbedFilters, right: EmbedFilters): bool
     && (left.fields?.description ?? true) === (right.fields?.description ?? true)
     && (left.fields?.speakerCompany ?? true) === (right.fields?.speakerCompany ?? true)
     && (left.fields?.speakerBio ?? true) === (right.fields?.speakerBio ?? true);
+}
+
+/** Aggregate every card's staged settings into the single page-exit decision. */
+export function hasUnsavedEmbedSettings(
+  configs: readonly Pick<EmbedConfigDTO, "contentType" | "style" | "filters">[],
+  styleDrafts: Partial<Record<CanonicalEmbedContentType, EmbedStyle>>,
+  filterDrafts: Partial<Record<CanonicalEmbedContentType, EmbedFilters>>,
+): boolean {
+  return configs.some((config) => !embedStylesEqual(styleDrafts[config.contentType] ?? {}, config.style)
+    || !embedFiltersEqual(filterDrafts[config.contentType] ?? {}, config.filters));
 }
