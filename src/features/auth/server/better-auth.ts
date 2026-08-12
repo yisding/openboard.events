@@ -22,7 +22,7 @@ import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
-import { sendAdminAuthEmailIn } from "./admin-mail";
+import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -178,7 +178,8 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // message on every password attempt.
       sendOnSignIn: false,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: async ({ user, url }) => {
+      sendVerificationEmail: async ({ user, url }, request) => {
+        const provisioningSignup = request && new URL(request.url).pathname.endsWith("/sign-up/email");
         await sendAdminAuthEmailIn(database, {
           templateKey: "admin_email_verification",
           userId: user.id as UserId,
@@ -188,6 +189,9 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           // signup/resend UI survives the email round-trip.
           url,
           expiresIn: "1 hour",
+          // The user-create `after` hook below releases this row immediately
+          // after it swaps in the concrete organization destination.
+          ...(provisioningSignup ? { notBefore: new Date(Date.now() + 60 * 1000) } : {}),
         }, env);
       },
     },
@@ -228,6 +232,20 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           },
           after: async (user, context) => {
             const result = await provisionNewUser(database, user, signupProvisioningInput(context));
+            try {
+              await retargetSignupVerificationEmailIn(database, user.id as UserId, result.organizationId, env);
+            } catch (error) {
+              // The deferred generic link remains valid and becomes claimable
+              // after one minute, so retargeting is latency/navigation
+              // polish rather than a reason to strand an otherwise valid
+              // account and workspace.
+              log({
+                level: "warn",
+                msg: `signup verification retarget failed: ${errorChainMessages(error)}`,
+                requestId: user.id,
+                feature: "auth",
+              });
+            }
             if (result.viaInvitation) context?.setHeader(SIGNUP_ORGANIZATION_HEADER, result.organizationId);
           },
         },

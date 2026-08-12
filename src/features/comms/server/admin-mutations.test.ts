@@ -83,7 +83,22 @@ describe("comms admin mutations", () => {
     // for the length guard.
     it("returns every template key in enum order, never DB order", async () => {
       const rows = await listTemplatesIn(tx, eventId);
-      expect(rows.map((row) => row.key)).toEqual(EVENT_EDITABLE_TEMPLATE_KEYS);
+      const keys = rows.map((row) => row.key);
+      expect(keys).toEqual(EVENT_EDITABLE_TEMPLATE_KEYS);
+      expect(keys).not.toContain("admin_password_reset");
+      expect(keys).not.toContain("admin_email_verification");
+    });
+
+    it("rejects attempts to edit a platform authentication template", async () => {
+      await expectAppError(
+        saveTemplateIn(tx, eventId, "admin_password_reset", {
+          subject: "Reset your password",
+          bodyHtml: "<p>Reset</p>",
+          enabled: true,
+          expectedUpdatedAt: new Date().toISOString(),
+        }),
+        "VALIDATION",
+      );
     });
 
     it("rejects an unknown template variable with the offending token named", async () => {

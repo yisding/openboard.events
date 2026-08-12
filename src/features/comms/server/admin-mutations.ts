@@ -84,6 +84,9 @@ export async function listTemplates(eventId: EventId): Promise<EmailTemplateRow[
  * silent overwrite of a colleague's edit.
  */
 export async function saveTemplateIn(dbOrTx: DbOrTx, eventId: EventId, key: TemplateKey, input: Omit<TemplateSaveInput, "key">): Promise<EmailTemplateRow> {
+  if (!(EVENT_EDITABLE_TEMPLATE_KEYS as readonly TemplateKey[]).includes(key)) {
+    throw new AppError("VALIDATION", "Platform authentication templates are not event-editable");
+  }
   const validation = validateTemplateBody(key, input.subject, input.bodyHtml);
   if (!validation.ok) {
     throw new AppError(

@@ -5,10 +5,10 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
-import { SIGNUP_ORGANIZATION_HEADER } from "@/features/auth/signup-context";
+import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "@/features/auth/server/admin-password";
 import { upsertCredentialAccount } from "@/features/auth/server/credential-account";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
@@ -273,7 +273,12 @@ describe("M42 admin auth on Better Auth", () => {
     const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
-      body: JSON.stringify({ email: "stranger@example.com", password: "a perfectly fine password", name: "Stranger" }),
+      body: JSON.stringify({
+        email: "stranger@example.com",
+        password: "a perfectly fine password",
+        name: "Stranger",
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+      }),
     }));
     expect(response.ok).toBe(true);
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
@@ -285,6 +290,13 @@ describe("M42 admin auth on Better Auth", () => {
     let queued = await database.select().from(adminAuthEmailOutbox)
       .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
     expect(queued).toHaveLength(1);
+    expect(queued[0]?.nextAttemptAt.getTime()).toBeLessThanOrEqual(Date.now() + 1_000);
+    const [membership] = await database.select({ organizationId: organizationMembers.organizationId })
+      .from(organizationMembers).where(eq(organizationMembers.userId, stranger?.id ?? ""));
+    const firstLink = await getAdminAuthFallbackLinkIn(database, "stranger@example.com", env);
+    if (!firstLink || !membership) throw new Error("expected a workspace-specific first verification link");
+    expect(new URL(firstLink).searchParams.get("callbackURL"))
+      .toBe(`/signup/verified?confirmed=1&next=%2Forganizations%2F${membership.organizationId}`);
 
     const resent = await auth.handler(new Request("http://localhost:3000/api/auth/send-verification-email", {
       method: "POST",
@@ -346,6 +358,7 @@ describe("M42 admin auth on Better Auth", () => {
           password: "a perfectly fine password",
           name: "Wrong Address",
           invitationToken: issued.raw,
+          callbackURL: SIGNUP_VERIFICATION_CALLBACK,
         }),
       }));
       expect(wrongAddress.ok).toBe(false);
@@ -361,10 +374,15 @@ describe("M42 admin auth on Better Auth", () => {
           password: "a perfectly fine password",
           name: "Invited Signup",
           invitationToken: issued.raw,
+          callbackURL: SIGNUP_VERIFICATION_CALLBACK,
         }),
       }));
       expect(response.ok).toBe(true);
       expect(response.headers.get(SIGNUP_ORGANIZATION_HEADER)).toBe(organization.id);
+      const firstLink = await getAdminAuthFallbackLinkIn(database, "invited-through-signup@example.com", env);
+      if (!firstLink) throw new Error("expected an invited workspace verification link");
+      expect(new URL(firstLink).searchParams.get("callbackURL"))
+        .toBe(`/signup/verified?confirmed=1&next=%2Forganizations%2F${organization.id}`);
       const [newUser] = await database.select({ id: users.id }).from(users)
         .where(eq(users.email, "invited-through-signup@example.com")).limit(1);
       expect(newUser?.id).toBeTruthy();

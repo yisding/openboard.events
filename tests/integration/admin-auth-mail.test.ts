@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAuthEmailOutbox } from "@/db/schema";
@@ -51,6 +51,10 @@ describe("platform admin auth mail outbox", () => {
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   }, 60_000);
 
+  beforeEach(async () => {
+    await pglite.query("DELETE FROM admin_auth_email_outbox");
+  });
+
   afterAll(async () => pglite.close());
 
   it("queues eventless reset mail and encrypts the bearer link under row-bound AAD", async () => {
@@ -89,10 +93,18 @@ describe("platform admin auth mail outbox", () => {
   });
 
   it("dispatches through log mode, clears ciphertext, and renders product-level copy", async () => {
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId: orphanId,
+      email: "orphan@example.com",
+      name: "Eventless Owner",
+      url: "http://localhost:3000/login/reset?token=super-secret-reset-token",
+      expiresIn: "1 hour",
+    }, logEnv);
     const stats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: logEnv });
     expect(stats).toMatchObject({ claimed: 1, sent: 1, failed: 0, retried: 0 });
 
-    const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.userId, orphanId));
+    const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, result.messageId));
     expect(row).toMatchObject({ status: "sent", subjectRendered: "Reset your Openboard password", providerMessageId: "log-mode" });
     expect(row?.secretPayloadCiphertext).toBeNull();
     expect(row?.bodyRenderedHtml).toContain("super-secret-reset-token");
@@ -116,6 +128,14 @@ describe("platform admin auth mail outbox", () => {
   });
 
   it("retries transient provider failures with the same idempotency key, then redacts the stored link", async () => {
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_email_verification",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: "http://localhost:3000/api/auth/verify-email?token=verification-token&callbackURL=%2Fsignup%2Fverified",
+      expiresIn: "1 hour",
+    }, logEnv);
     const sendEnv = parseEnv({
       ...logEnv,
       EMAIL_MODE: "send",
@@ -128,7 +148,7 @@ describe("platform admin auth mail outbox", () => {
     const first = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: failure });
     expect(first).toMatchObject({ claimed: 1, retried: 1 });
 
-    const [queued] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.templateKey, "admin_email_verification"));
+    const [queued] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, result.messageId));
     expect(queued?.status).toBe("queued");
     expect(queued?.attempts).toBe(1);
     await pglite.query("UPDATE admin_auth_email_outbox SET next_attempt_at=now() WHERE id=$1", [queued?.id]);
@@ -143,6 +163,24 @@ describe("platform admin auth mail outbox", () => {
     expect(sent?.bodyRenderedHtml).toContain("token=[redacted]");
     expect(sent?.bodyRenderedHtml).not.toContain("verification-token");
     expect(sent?.secretPayloadCiphertext).toBeNull();
+  });
+
+  it("retains encrypted payloads when a rotated secret makes a row terminal", async () => {
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId: orphanId,
+      email: "orphan@example.com",
+      name: "Eventless Owner",
+      url: "http://localhost:3000/login/reset?token=rotation-recovery",
+      expiresIn: "1 hour",
+    }, logEnv);
+    const rotatedEnv = parseEnv({ ...logEnv, SESSION_SECRET: "a-different-test-session-secret-at-least-32-bytes" });
+
+    const stats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: rotatedEnv });
+    expect(stats).toMatchObject({ claimed: 1, failed: 1, retried: 0 });
+    const [failed] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, result.messageId));
+    expect(failed?.status).toBe("failed");
+    expect(failed?.secretPayloadCiphertext).not.toBeNull();
   });
 
   it("skips preview recipients outside the configured allowlist", async () => {
@@ -200,5 +238,41 @@ describe("platform admin auth mail outbox", () => {
     const stats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender });
     expect(stats).toMatchObject({ claimed: 1, skipped: 1 });
     expect(sender).not.toHaveBeenCalled();
+
+    // Bounces may be transient. Once the suppression is 30 days old, a new
+    // recovery request is allowed through again.
+    await pglite.query(
+      "UPDATE admin_auth_email_outbox SET suppressed_at=now() - interval '31 days' WHERE provider_message_id='auth-bounce-id'",
+    );
+    await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: "http://localhost:3000/login/reset?token=after-bounce-expiry",
+      expiresIn: "1 hour",
+    }, logEnv);
+    const recoveredSender = vi.fn().mockResolvedValue("auth-complaint-id");
+    const recovered = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: recoveredSender });
+    expect(recovered).toMatchObject({ claimed: 1, sent: 1 });
+    expect(recoveredSender).toHaveBeenCalledOnce();
+
+    // Complaints remain permanent regardless of age.
+    await expect(recordAdminAuthEmailSuppressionIn(tx, { providerMessageId: "auth-complaint-id", reason: "complaint" })).resolves.toBe(true);
+    await pglite.query(
+      "UPDATE admin_auth_email_outbox SET suppressed_at=now() - interval '31 days' WHERE provider_message_id='auth-complaint-id'",
+    );
+    await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: "http://localhost:3000/login/reset?token=after-complaint",
+      expiresIn: "1 hour",
+    }, logEnv);
+    const permanentlySuppressed = vi.fn();
+    const complaintStats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: permanentlySuppressed });
+    expect(complaintStats).toMatchObject({ claimed: 1, skipped: 1 });
+    expect(permanentlySuppressed).not.toHaveBeenCalled();
   });
 });

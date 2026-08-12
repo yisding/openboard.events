@@ -21,6 +21,7 @@ CREATE TABLE admin_auth_email_outbox (
   locked_until timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   sent_at timestamptz,
+  suppressed_at timestamptz,
   CONSTRAINT admin_auth_email_outbox_template_ck
     CHECK (template_key IN ('admin_password_reset', 'admin_email_verification'))
 );
@@ -30,3 +31,6 @@ CREATE INDEX admin_auth_email_outbox_due_idx
 
 CREATE INDEX admin_auth_email_outbox_provider_idx
   ON admin_auth_email_outbox (provider_message_id);
+
+CREATE INDEX admin_auth_email_outbox_recipient_idx
+  ON admin_auth_email_outbox (recipient_email, status, suppressed_at);

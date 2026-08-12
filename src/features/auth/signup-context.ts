@@ -1,4 +1,5 @@
 export const SIGNUP_ORGANIZATION_HEADER = "x-openboard-signup-organization-id";
+export const SIGNUP_VERIFICATION_CALLBACK = "/signup/verified?confirmed=1&next=%2Forganizations";
 
 const INTERNAL_ORIGIN = "https://openboard.invalid";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;

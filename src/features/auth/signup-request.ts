@@ -1,4 +1,4 @@
-import { SIGNUP_ORGANIZATION_HEADER, signupDestination } from "./signup-context";
+import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK, signupDestination } from "./signup-context";
 
 type SignupRequest = {
   email: string;
@@ -28,7 +28,9 @@ export async function signupAndAwaitVerification(
         email: input.email,
         password: input.password,
         name: input.name,
-        callbackURL: "/signup/verified?confirmed=1&next=%2Forganizations",
+        // The server replaces this neutral destination in the queued link
+        // after provisioning, before it releases the first email for delivery.
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
         ...(input.invitationToken ? { invitationToken: input.invitationToken } : { organizationName: input.organizationName }),
       }),
     });

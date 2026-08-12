@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminAuthEmailOutbox } from "@/db/schema";
 import type { JobStats, TemplateKey, UserId } from "@/shared/contracts";
@@ -7,6 +7,7 @@ import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { emailLayout } from "@/features/comms/server/layout";
 import { sendViaResend, type EmailMessage } from "@/features/comms/server/resend";
+import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
 import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./secret-payload";
 
 export type AdminAuthTemplateKey = Extract<TemplateKey, "admin_password_reset" | "admin_email_verification">;
@@ -74,6 +75,8 @@ export async function sendAdminAuthEmailIn(
     name: string;
     url: string;
     expiresIn: string;
+    /** Keep a just-created user's first link out of the claim loop until provisioning can retarget it. */
+    notBefore?: Date;
   },
   env: RuntimeEnv = getEnv(),
 ): Promise<{ queued: true; messageId: string }> {
@@ -91,12 +94,63 @@ export async function sendAdminAuthEmailIn(
     templateKey: args.templateKey,
     idempotencyKey: `admin-auth:${args.templateKey}:${args.userId}:${messageId}`,
     secretPayloadCiphertext,
+    ...(args.notBefore ? { nextAttemptAt: args.notBefore } : {}),
   });
   return { queued: true, messageId };
 }
 
 export const sendAdminAuthEmail = (args: Parameters<typeof sendAdminAuthEmailIn>[1], env?: RuntimeEnv) =>
   sendAdminAuthEmailIn(db, args, env ?? getEnv());
+
+/**
+ * The automatic signup email is queued before Better Auth runs its user-create
+ * `after` hook. Once that hook has provisioned the workspace, replace the
+ * neutral callback in the still-encrypted link and release the row for claim.
+ * A one-minute `notBefore` fallback on the original row prevents a cron race;
+ * if this update ever fails, the generic `/organizations` route remains a
+ * working (slightly delayed) recovery destination.
+ */
+export async function retargetSignupVerificationEmailIn(
+  dbOrTx: DbOrTx,
+  userId: UserId,
+  organizationId: string,
+  env: RuntimeEnv = getEnv(),
+): Promise<number> {
+  const rows = await dbOrTx.select().from(adminAuthEmailOutbox).where(and(
+    eq(adminAuthEmailOutbox.userId, userId),
+    eq(adminAuthEmailOutbox.templateKey, "admin_email_verification"),
+    eq(adminAuthEmailOutbox.status, "queued"),
+  ));
+  let updated = 0;
+  for (const row of rows) {
+    if (!row.secretPayloadCiphertext) continue;
+    const payload = await openPlatformAdminLinkPayload(
+      row.secretPayloadCiphertext,
+      { userId, messageId: row.id },
+      requiredSecret(env),
+    );
+    const verificationUrl = new URL(payload.url);
+    if (verificationUrl.searchParams.get("callbackURL") !== SIGNUP_VERIFICATION_CALLBACK) continue;
+    verificationUrl.searchParams.set(
+      "callbackURL",
+      `/signup/verified?confirmed=1&next=${encodeURIComponent(`/organizations/${organizationId}`)}`,
+    );
+    const secretPayloadCiphertext = await sealPlatformAdminLinkPayload(
+      { ...payload, url: verificationUrl.toString() },
+      { userId, messageId: row.id },
+      requiredSecret(env),
+    );
+    const changed = await dbOrTx.update(adminAuthEmailOutbox).set({
+      secretPayloadCiphertext,
+      nextAttemptAt: sql`now()`,
+    }).where(and(
+      eq(adminAuthEmailOutbox.id, row.id),
+      eq(adminAuthEmailOutbox.status, "queued"),
+    )).returning();
+    updated += changed.length;
+  }
+  return updated;
+}
 
 function emptyStats(): AdminAuthOutboxStats {
   return { claimed: 0, sent: 0, skipped: 0, failed: 0, retried: 0 };
@@ -133,7 +187,11 @@ async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<
     error: errorMessage(error),
     lockedUntil: null,
     ...(isTerminal
-      ? { secretPayloadCiphertext: null }
+      // A rotated SESSION_SECRET and a malformed payload both surface as a
+      // terminal validation failure. Keep the still-encrypted bearer value so
+      // an operator with the previous key can diagnose/requeue the row; sent,
+      // skipped, and allowlist-rejected rows still erase it immediately.
+      ? {}
       : { nextAttemptAt: sql`now() + ${delayMinutes} * interval '1 minute'` }),
   }).where(eq(adminAuthEmailOutbox.id, row.id));
   return isTerminal ? "failed" : "retried";
@@ -143,6 +201,13 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
   const [suppressed] = await dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
     eq(adminAuthEmailOutbox.recipientEmail, row.recipientEmail),
     inArray(adminAuthEmailOutbox.status, ["bounced", "complained"]),
+    // Complaints are permanent. A bounce may be transient (mailbox full or a
+    // temporary receiving-domain failure), so it ages out instead of locking
+    // the account out of password recovery forever.
+    or(
+      eq(adminAuthEmailOutbox.status, "complained"),
+      gt(adminAuthEmailOutbox.suppressedAt, sql`now() - interval '30 days'`),
+    ),
   )).limit(1);
   if (suppressed) {
     await dbOrTx.update(adminAuthEmailOutbox).set({
@@ -269,6 +334,7 @@ export async function recordAdminAuthEmailSuppressionIn(
 ): Promise<boolean> {
   const [updated] = await dbOrTx.update(adminAuthEmailOutbox).set({
     status: args.reason === "bounce" ? "bounced" : "complained",
+    suppressedAt: sql`now()`,
   }).where(and(
     eq(adminAuthEmailOutbox.providerMessageId, args.providerMessageId),
     eq(adminAuthEmailOutbox.status, "sent"),

@@ -12,6 +12,7 @@ export function ActivationResendForm({ initialEmail = "", next = "/organizations
     event.preventDefault();
     setPending(true);
     setError("");
+    setSent(false);
     const data = new FormData(event.currentTarget);
     try {
       const response = await fetch("/api/auth/send-verification-email", {
@@ -36,11 +37,10 @@ export function ActivationResendForm({ initialEmail = "", next = "/organizations
     }
   }
 
-  if (sent) return <p className="auth-inline-success" role="status">If that address still needs confirmation, a fresh link is on its way.</p>;
-
   return <form className="auth-resend-form" onSubmit={submit}>
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" defaultValue={initialEmail} required type="email" /></div></label>
+    {sent && <p className="auth-inline-success" role="status">If that address still needs confirmation, a fresh link is on its way.</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-secondary" disabled={pending} type="submit">{pending ? "Sending…" : "Send a new link"} <ArrowRight size={16} /></button>
+    <button className="button button-secondary" disabled={pending} type="submit">{pending ? "Sending…" : sent ? "Send another link" : "Send a new link"} <ArrowRight size={16} /></button>
   </form>;
 }

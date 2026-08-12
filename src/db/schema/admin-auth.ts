@@ -1,4 +1,5 @@
-import { customType, index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, customType, index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { users } from "./core";
 import { commStatusEnum, templateKeyEnum } from "./enums";
 
@@ -78,7 +79,12 @@ export const adminAuthEmailOutbox = pgTable("admin_auth_email_outbox", {
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   sentAt: timestamp("sent_at", { withTimezone: true }),
+  suppressedAt: timestamp("suppressed_at", { withTimezone: true }),
 }, (table) => [
+  check("admin_auth_email_outbox_template_ck", sql`
+    ${table.templateKey} in ('admin_password_reset', 'admin_email_verification')
+  `),
   index("admin_auth_email_outbox_due_idx").on(table.status, table.nextAttemptAt, table.lockedUntil, table.createdAt),
   index("admin_auth_email_outbox_provider_idx").on(table.providerMessageId),
+  index("admin_auth_email_outbox_recipient_idx").on(table.recipientEmail, table.status, table.suppressedAt),
 ]);
