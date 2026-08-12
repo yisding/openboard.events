@@ -113,8 +113,8 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       <ConfirmDialog
         open={pending !== null}
         title="Discard unsaved work?"
-        body="Your unsaved score, notes, or recusal reason will be lost if you leave this page."
-        confirmLabel="Discard and leave"
+        body="Your unsaved changes will be lost if you leave this page or switch to another item."
+        confirmLabel="Discard changes"
         onConfirm={async () => {
           const decision = pending;
           setPending(null);

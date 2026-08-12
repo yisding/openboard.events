@@ -14,6 +14,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
@@ -22,7 +23,7 @@ import { useSessionMutations } from "../hooks/use-session-mutations";
 
 const revisionsSchema = z.array(sessionContentRevisionDtoSchema);
 
-type Draft = {
+export type SessionDraft = {
   title: string;
   descriptionHtml: string;
   formatId: string;
@@ -34,12 +35,16 @@ type Draft = {
   status: "draft" | "published";
 };
 
-const EMPTY: Draft = {
+export function isSessionDraftDirty(draft: SessionDraft, original: SessionDraft): boolean {
+  return JSON.stringify(draft) !== JSON.stringify(original);
+}
+
+const EMPTY: SessionDraft = {
   title: "", descriptionHtml: "", formatId: "", trackId: "", roomId: "",
   startsAt: null, endsAt: null, speakerContactIds: [], status: "draft",
 };
 
-function toDraft(session: ScheduledSessionDTO): Draft {
+function toDraft(session: ScheduledSessionDTO): SessionDraft {
   return {
     title: session.title,
     descriptionHtml: session.descriptionHtml,
@@ -92,8 +97,10 @@ export function SessionFormDialog({
   session: ScheduledSessionDTO | null;
 } & Pick<AgendaViewProps, "eventId" | "event" | "rooms" | "tracks" | "formats" | "speakers">) {
   const { toast } = useToast();
+  const { runGuarded } = useGuardedAction();
   const { save, remove, restoreContent } = useSessionMutations(eventId);
-  const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [draft, setDraft] = useState<SessionDraft>(() => session ? toDraft(session) : EMPTY);
+  const [original, setOriginal] = useState<SessionDraft>(() => session ? toDraft(session) : EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -102,7 +109,9 @@ export function SessionFormDialog({
   // one row to the next.
   const identity = session ? `${session.id}:${session.rowVersion}` : "new";
   useEffect(() => {
-    setDraft(session ? toDraft(session) : EMPTY);
+    const next = session ? toDraft(session) : EMPTY;
+    setDraft(next);
+    setOriginal(next);
     setError(null);
     setConfirmingDelete(false);
   }, [identity, session]);
@@ -197,12 +206,19 @@ export function SessionFormDialog({
   };
 
   const busy = save.isPending || remove.isPending;
+  const dirty = isSessionDraftDirty(draft, original);
+  useUnsavedWorkGuard(open && dirty);
+
+  const requestClose = () => {
+    if (busy) return;
+    runGuarded(onClose);
+  };
 
   return (
     <>
       <Modal
         open={open}
-        onClose={onClose}
+        onClose={requestClose}
         title={session ? "Edit session" : "Create a session"}
         description={session ? "Update the details, speakers and placement." : "Add it now and schedule it whenever you are ready."}
         wide
@@ -221,7 +237,7 @@ export function SessionFormDialog({
                 {remove.isPending ? "Deleting…" : "Delete"}
               </Button>
             )}
-            <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button variant="secondary" onClick={requestClose} disabled={busy}>Cancel</Button>
             <Button disabled={draft.title.trim().length === 0 || busy} onClick={() => { void submit(); }}>
               {save.isPending ? "Saving…" : "Save session"}
             </Button>
