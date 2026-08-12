@@ -18,6 +18,10 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 const migrationProductAuth = readFileSync(new URL("../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
 // M43 added `events.organization_id` — same reason as the line above.
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+// `seedEvents` restores the billing catalog and default subscription after a
+// wipe, so this focused fixture needs M49's tables even though it does not
+// assert on billing directly.
+const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
 // The seed now writes a `contacts` row per admin so seeded reviewers are
 // addressable by the outbox, and Drizzle names every mapped column on that
 // insert: M51's `contacts.workflow_status` (0008) and M59's
@@ -37,6 +41,7 @@ describe("events seed", () => {
     await pglite.exec(migrationProductAuth);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationBilling);
     await pglite.exec(migrationSpeakerMoments);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
