@@ -53,9 +53,11 @@ test.describe("admin-setup", () => {
   test.describe("event creation", () => {
     test.skip(!landed("M11"), waitingOn("M11"));
 
-    test("creating an event validates its dates and its slug", async ({ page }) => {
+    test("guided event creation validates, provisions defaults, and finishes setup", async ({ page }) => {
       await loginAsAdmin(page);
       await page.goto("/events/new");
+      await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
+      await page.getByText("Customize public URL", { exact: true }).click();
 
       await test.step("an end before the start is refused inline", async () => {
         // The form must reject it, not the database, and the message must appear
@@ -68,23 +70,23 @@ test.describe("admin-setup", () => {
         // claim rather than an accident.
         await page.getByLabel("Event name").fill("E2E backwards dates");
         await page.getByLabel("Event slug").fill(uniqueSlug("e2e-backwards"));
-        await page.getByLabel("Starts At").fill(localInput(30, "09:00"));
-        await page.getByLabel("Ends At").fill(localInput(30, "08:00"));
+        await page.getByLabel("Starts", { exact: true }).fill(localInput(30, "09:00"));
+        await page.getByLabel("Ends", { exact: true }).fill(localInput(30, "08:00"));
         await page.getByRole("button", { name: /create event/i }).click();
         await expect(page.locator(".field-error")).toHaveText(/ends at must be after starts at/i);
-        await expect(page).toHaveURL(/\/events\/new/);
+        await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
       });
 
       await test.step("a reserved slug is refused", async () => {
         // `api` must not become an event slug — it would shadow the API routes.
         await page.getByLabel("Event slug").fill("api");
-        await page.getByLabel("Ends At").fill(localInput(31, "17:00"));
+        await page.getByLabel("Ends", { exact: true }).fill(localInput(31, "17:00"));
         await page.getByRole("button", { name: /create event/i }).click();
         await expect(page.locator(".field-error")).toHaveText(/reserved word/i);
-        await expect(page).toHaveURL(/\/events\/new/);
+        await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
       });
 
-      await test.step("the new event's settings show every event-editable email template", async () => {
+      await test.step("the guided create finishes and seeds every event-editable email template", async () => {
         // 7 domain keys + portal_login + M50's two review keys + M51's
         // speaker_bulk_message + M42's two admin keys + M44's
         // organization_invited. This is what proves M11 called
@@ -93,11 +95,22 @@ test.describe("admin-setup", () => {
         const slug = uniqueSlug("e2e-event");
         await page.getByLabel("Event name").fill("E2E created event");
         await page.getByLabel("Event slug").fill(slug);
+        const createdResponse = page.waitForResponse((response) =>
+          response.url().includes("/api/internal/organizations/")
+          && response.url().endsWith("/onboarding/event")
+          && response.request().method() === "POST");
         await page.getByRole("button", { name: /create event/i }).click();
-        await expect(page).toHaveURL(/\/events\/[0-9a-f-]{36}\/settings/, { timeout: 30_000 });
+        const created = await createdResponse;
+        expect(created.status(), "guided event creation should succeed").toBe(200);
+        const createdBody = await created.json() as { data?: { id?: string } };
+        const eventId = createdBody.data?.id ?? "";
+        expect(eventId, "the guided create should return the new event id").toMatch(/^[0-9a-f-]{36}$/);
 
-        const eventId = /\/events\/([0-9a-f-]{36})\//.exec(page.url())?.[1] ?? "";
-        expect(eventId, "the create should have redirected to the new event's settings").not.toEqual("");
+        await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
+        await page.getByRole("button", { name: "Skip for now" }).click();
+        await expect(page.getByRole("heading", { name: "Step 3: First form" })).toBeVisible({ timeout: 30_000 });
+        await page.getByRole("button", { name: "Create form" }).click();
+        await expect(page.getByRole("heading", { name: "E2E created event is ready" })).toBeVisible({ timeout: 30_000 });
 
         // Communications exposes event mail only. The two platform-auth
         // templates are seeded too, but intentionally have no event-level

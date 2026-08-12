@@ -1033,8 +1033,8 @@ mode, hide the navigation entry, and return 404 from the billing surface.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | `/signup` with a fresh address | Account created and signed in |
-| 2 | Complete onboarding — organization + first event | Both created; you land on that event's dashboard |
+| 1 | `/signup` with a fresh address | Account and named workspace created without a session; **Check your inbox** names the address and offers resend/restart recovery |
+| 2 | Follow the delivered link, explicitly confirm, then complete guided event/form setup | A session starts only on confirmation; the organization, first event and public CFP are ready without operator provisioning |
 | 3 | `/organizations` | Your new org listed |
 | 4 | Hand-type another org's URL | Denied |
 | 5 | Hand-type an event id from another org | Denied |

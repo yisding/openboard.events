@@ -93,6 +93,10 @@ the real database-backed surfaces.
 - Made mailbox activation recovery explicit: the check-inbox resend cannot
   masquerade as an email-address change, a mistyped address has a clear restart
   path, and expired-link sign-in recovery keeps the intended workspace.
+- Consolidated every visible create-event entry onto organization-scoped guided
+  onboarding. A single eligible workspace continues immediately, several
+  require an explicit choice, and reviewer-only accounts get a permission
+  recovery instead of silently creating under a guessed tenant.
 
 ## Remaining launch gaps, in priority order
 
