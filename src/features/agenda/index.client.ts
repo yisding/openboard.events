@@ -36,11 +36,13 @@ export type AgendaViewProps = {
   /** Accepted abstracts, with `alreadyPromoted` already computed server-side. */
   accepted: AcceptedForSchedulingRow[];
   day?: string | null;
+  /** Keeps the Day grid, toolbar URL and create-dialog default on one day. */
+  onDayChange?: (day: string) => void;
   /** Opens the session dialog; the toolbar and every view share one dialog instance. */
   onEdit?: (sessionId: string) => void;
 };
 
 export type { SpeakerOption };
-export { AGENDA_VIEWS, agendaHref, conflictsForSession, eventDayKeys, nameLookup, parseDay, parseView, scheduledOnDay, unscheduled } from "./store";
+export { AGENDA_VIEWS, agendaHref, conflictsForSession, createSessionDefaultDay, eventDayKeys, nameLookup, parseDay, parseView, scheduledOnDay, unscheduled } from "./store";
 export type { AgendaView, NameLookup } from "./store";
 export { AgendaPage } from "./components/agenda-page";
