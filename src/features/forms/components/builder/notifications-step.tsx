@@ -5,8 +5,8 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
-const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-10px 0 16px" } as const;
-const fallbackNote = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "6px 0 14px" } as const;
+const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-12px 0 16px" } as const;
+const fallbackNote = { color: "var(--muted)", fontSize: 11, lineHeight: 1.5, margin: "6px 0 16px" } as const;
 
 /**
  * "Notifications" — the Submission Confirmation email.
@@ -54,7 +54,7 @@ export function NotificationsStep({ form, onChange }: {
         <button
           type="button"
           className="button button-secondary"
-          style={{ marginTop: 14 }}
+          style={{ marginTop: 16 }}
           onClick={() => setExpanded((current) => !current)}
         >{expanded ? "Hide customization" : "Customize"}</button>
         {expanded && (

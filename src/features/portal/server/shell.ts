@@ -20,7 +20,7 @@ export type { PortalShellData };
 
 // The seeded avatar palette. Picked by a stable hash of the contact id so a
 // speaker keeps the same colour between renders without storing one.
-const AVATAR_COLORS = ["#007454", "#2672a8", "#2d8d79", "#347d87", "#4d9078", "#6f7fa9", "#8c6bb1", "#ad5d92", "#b35f65", "#b9832f"] as const;
+const AVATAR_COLORS = ["#007454", "#2672a8", "#2a8471", "#347d87", "#45816c", "#6475a2", "#8967af", "#ac5a90", "#b25c63", "#9a6d27"] as const;
 
 export function avatarColorFor(id: string): string {
   let hash = 0;

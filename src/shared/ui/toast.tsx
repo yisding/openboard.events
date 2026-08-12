@@ -13,7 +13,10 @@ export function ToastMessage({ message, kind, onDismiss }: ToastState & { onDism
   const error = kind === "error";
   return (
     <div className="toast" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true">
-      {error ? <AlertCircle size={18} aria-hidden color="#ff9b9b" /> : <CheckCircle2 size={18} aria-hidden />}
+      {/* The error tint comes from `.toast[role="alert"] > svg` (var(--red-bright)),
+          not an inline hex: a colour in JSX is invisible to the stylesheet and to
+          every audit that reads it. */}
+      {error ? <AlertCircle size={18} aria-hidden /> : <CheckCircle2 size={18} aria-hidden />}
       <span>{message}</span>
       <button type="button" aria-label="Dismiss" onClick={onDismiss}><X size={16} /></button>
     </div>

@@ -89,7 +89,7 @@ export function BillingPanel({
         </div>
         <ProgressBar label="Event usage" value={usage.events.limit === null ? 0 : usagePercent} tone={usageTone} />
       </div>
-      {counters.length > 0 && <ul style={{ marginTop: 14, display: "grid", gap: 4, fontSize: 12.5, color: "var(--muted)" }}>
+      {counters.length > 0 && <ul style={{ marginTop: 16, display: "grid", gap: 4, fontSize: 12.5, color: "var(--muted)" }}>
         {counters.map((counter) => <li key={counter.metric}>{counter.metric}: {counter.count}</li>)}
       </ul>}
     </section>
@@ -102,9 +102,9 @@ export function BillingPanel({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {plans.map((candidate) => {
           const isCurrent = candidate.id === plan.id;
-          return <div key={candidate.id} style={{ border: `1px solid ${isCurrent ? "var(--accent-border)" : "var(--line)"}`, borderRadius: 11, padding: 14, background: isCurrent ? "var(--accent-faint)" : "var(--surface)" }}>
+          return <div key={candidate.id} style={{ border: `1px solid ${isCurrent ? "var(--accent-border)" : "var(--line)"}`, borderRadius: 11, padding: 16, background: isCurrent ? "var(--accent-faint)" : "var(--surface)" }}>
             <strong>{candidate.name}</strong>
-            <p style={{ margin: "4px 0 10px", color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
+            <p style={{ margin: "4px 0 12px", color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
             {isCurrent
               ? <StatusBadge value="current plan" />
               : canManage

@@ -149,14 +149,19 @@ export function TaskMatrixDrawer({
           {rows !== null && rows.map((row) => {
             const key = assignmentKey(row);
             return (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
+                {/* `.checkbox-hit` carries the 44x44 touch target the bare
+                    native control cannot — padding does not grow a checkbox.
+                    The label toggles it with no extra handler. */}
                 {!row.completed && (
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${row.contactName}`}
-                    checked={selected.has(key)}
-                    onChange={() => toggle(key)}
-                  />
+                  <label className="checkbox-hit">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${row.contactName}`}
+                      checked={selected.has(key)}
+                      onChange={() => toggle(key)}
+                    />
+                  </label>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b style={{ display: "block", fontSize: 11.5 }}>{row.contactName}</b>

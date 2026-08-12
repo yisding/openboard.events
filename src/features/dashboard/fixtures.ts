@@ -102,7 +102,7 @@ export const FIXTURE_DASHBOARD_SPEAKERS: SpeakerRecord[] = [
     website: "",
     linkedin: "",
     avatar: "GH",
-    avatarColor: "#2d8d79",
+    avatarColor: "#2a8471",
     hasHeadshot: true,
     confirmation: "confirmed",
     profileCompletion: 100,

@@ -17,7 +17,7 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "#007454", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
+export function Avatar({ initials, color = "var(--accent-dark)", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
   const style = imageUrl
     ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
     : { background: color };

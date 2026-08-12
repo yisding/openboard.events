@@ -22,10 +22,14 @@ type DemoRow = {
   submittedAt: string;
 };
 
+/* Demo data standing in for organiser-chosen track colours (T6 carve-out 5).
+   Seeded from the palette's own semantic foregrounds — --blue, --accent-dark,
+   --amber — rather than arbitrary hues, so the showcase route demonstrates the
+   shipped system instead of introducing an off-palette indigo beside it. */
 const TRACKS = [
-  { label: "Agents", color: "#6958d7" },
-  { label: "Evals", color: "#2f8f5b" },
-  { label: "Infra", color: "#b6742a" },
+  { label: "Agents", color: "#2a6486" },
+  { label: "Evals", color: "#007454" },
+  { label: "Infra", color: "#8a5312" },
 ];
 
 // 25 rows, matching seed volume. Every third row has no rating and every fifth
@@ -85,14 +89,14 @@ export function KitchenSink() {
         actions={<Button variant="secondary" onClick={() => setConfirming("stale")}>Show a 409</Button>}
       />
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Status badges</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {SUBMISSION_STATUSES.map((status) => <StatusBadge key={status} value={status} />)}
         </div>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Dash and TzTime</h2>
         <p>
           Empty values render <Dash />, never the string &quot;undefined&quot;. A time renders as{" "}
@@ -101,7 +105,7 @@ export function KitchenSink() {
         </p>
       </section>
 
-      <section style={{ marginBottom: 28 }}>
+      <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">DataTable</h2>
         <p>
           Sort <b>Rating</b> in both directions: unrated rows stay last either way. Filter to nothing
@@ -134,7 +138,7 @@ export function KitchenSink() {
             />
           }
         />
-        <p style={{ marginTop: 10 }}>{selected.length} row(s) selected on this page.</p>
+        <p style={{ marginTop: 12 }}>{selected.length} row(s) selected on this page.</p>
       </section>
 
       <section>

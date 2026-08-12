@@ -205,8 +205,8 @@ export function TaskDetailView({
             </ul>
           )}
 
-          <section className="drawer-content" style={{ padding: "18px 0 0" }}>
-            <h3><MessageSquare size={12} style={{ verticalAlign: "-2px", marginRight: 5 }} />Comments</h3>
+          <section className="drawer-content" style={{ padding: "16px 0 0" }}>
+            <h3><MessageSquare size={12} style={{ verticalAlign: "-2px", marginRight: 6 }} />Comments</h3>
             {task.comments.length === 0
               ? <p className="portal-note">No comments yet — ask a question about this deliverable here.</p>
               : task.comments.map((comment) => (

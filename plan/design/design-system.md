@@ -173,6 +173,52 @@ case the indicator is redundant with an `--accent-dark` label that passes at
 5.50. Do not introduce an `--accent` indicator on canvas that is the *only*
 signal.
 
+**Avatar fills are text grounds, and the seed data is UI.** `.avatar` sets
+`color: white`, so every value that reaches it as a background is carrying
+text and owes 4.5:1. Nine of the twelve `avatarColor` values in
+`src/shared/demo/seed.ts` (and its two copies) sat between 3.22 and 4.43, and
+`.avatar-3` itself was a raw `#db715a` at 3.22. Each was darkened in HSL —
+hue and saturation held, lightness reduced to the first value clearing 4.55 —
+and the third avatar hue is now the `--avatar-3` token. A colour in a seed
+file is not exempt from the contrast floor just because it lives in `.ts`
+rather than in a rule body; what decides is whether it ends up painted under
+text.
+
+**The stylesheet is now hex-free, and closing it moved two tokens.** The 71
+raw hexes outside `:root` were not a rename — near-duplicate values collapsed
+onto the tokens that already meant what they meant: nine light-surface greys
+onto `--ink`/`--muted` (T6's own rule is "text is `--ink` or `--muted`"), eight
+accent-family borders onto `--accent-border`, and the rest onto the semantic
+and neutral tokens. Two genuinely had no token and got one: `--on-fill` (white
+on saturated fills and as the top emphasis step on dark chrome — 24 sites,
+plus three spelled `white`, which no hex grep can see) and `--accent-on-dark`
+(supporting jade on dark chrome, split from `--accent-bright` for the same
+reason `--red-bright` exists).
+
+Collapsing the dark-surface greys is what exposed the real defect: the
+`--on-dark` ramp had been verified against `--sidebar` **only**, and the app
+paints text on six dark grounds. On the two raised card gradients and on
+`--sidebar-line`, `--on-dark-muted` was 4.14–4.35 and `--on-dark-faint` 3.52 —
+below the floor, at sites already shipping. `--on-dark-muted` is now `#9db4ae`,
+set to clear 4.5:1 on the lightest ground any dark surface reaches. The faint
+step could not follow: lightening it to the same floor lands on the muted
+value, and a third step equal to the second is not a step, so it is now
+documented as valid on `--sidebar`/`--sidebar-2` only, and its one use on a
+raised gradient (`.welcome-card > div small`, 3.52) moved up to muted. **A
+contrast-verified token is verified against a ground, not in the abstract.**
+
+**A `dialog` resets its own colour, and no grep over this file can see it.**
+The abstracts submission drawer is a `<dialog>`, and the UA sheet gives
+`dialog` `color: CanvasText` — an origin-level declaration, not an inherited
+value, so it wins over everything this stylesheet says about `--ink`. Every
+heading, decision button, speaker name and track name in that drawer rendered
+pure `#000`. It is not a contrast failure (black on white is 21:1); it is the
+app's busiest admin surface silently leaving the palette. `.drawer-shell` now
+restates `color: var(--ink)`. This is the same class of defect as `small`'s
+inherited `.8333em` ratio in [T1](#t1-type-scale--eleven-steps) and the UA's
+`1em` block margins in [T4](#t4-spacing--eleven-steps-in-three-tiers): **the
+UA origin is part of the cascade, and only a rendered measurement reads it.**
+
 ## Typography
 
 ### Typeface
@@ -577,9 +623,14 @@ the second is the admin clamp.
   near-misses, which do function as spacing and are swept above.
 - **Offsets that mirror a fixed component dimension** must keep mirroring it:
   `.app-main { margin-left: 236px }` equals the sidebar width;
-  `.input-icon input`'s left padding (34px) equals the icon well; and
+  `.input-icon input`'s left padding (34px) equals the icon well;
   `.landing-section`'s `scroll-margin-top` equals the sticky `.landing-nav`
-  height at each width — **78px** desktop, **66px** below 768. These are
+  height at each width — **78px** desktop, **66px** below 768;
+  `.topbar { padding-left: 64px }` below 768 clears the fixed `.mobile-menu`
+  button (12px inset + 44px touch box + 8px clearance), and clamping it to the
+  admin tier's 32 slides the topbar's first control under that button; and
+  `.session-card-body, .public-session-meta { padding-right: 54px }` below 768
+  clears the 44px calendar button with its 5px inset each side. These are
   equalities, not steps: snapping one to the grid without moving the thing it
   mirrors is what lands an anchored heading half-hidden under the nav.
   `scroll-margin-*` is included here because a naive audit sees the substring
@@ -587,6 +638,16 @@ the second is the admin clamp.
 - **Negative margins that compensate a `transform: scale()`**
   (`.hero-art { margin-bottom: -190px / -220px }`) are paint corrections tied
   to the scale factor, not spacing.
+- **One fluid padding clamp**, on the sign-in brand panel and nowhere else:
+  `.login-brand-panel { padding: 64px clamp(48px, 6vw, 96px) }`. Both ends are
+  macro-tier steps and `.login-*` is a generous surface, so the clamp
+  interpolates *between two legal values* rather than leaving the grid — but
+  it does render off-grid (61.44px at 1024, 86.4px at 1440, measured), which
+  is why it needs naming rather than assuming. This entry exists because the
+  rendered-DOM sweep reported it and the exemption list, being exhaustive, had
+  no room for it; the choice was to add the entry or delete the clamp. It is
+  the exact counterpart of [T1](#t1-type-scale--eleven-steps)'s display clamp,
+  and like that one it is permitted on **one selector with one formula**.
 - **Fixed component dimensions themselves** — heights, widths, `min-width`,
   grid track sizes, `border-radius` — are out of scope for this grid. Only
   `gap`, `column-gap`, `row-gap`, `padding*` and `margin*` snap.
@@ -825,6 +886,25 @@ breaches one; if a fold-in would, the fold-in loses.
   `getBoundingClientRect()` on a rendered page, which is why T8's touch-target
   check is a browser sweep and not a CSS audit.
 
+  **The 32×32 half of this rule went unimplemented for two years of passes,
+  and the reason is worth keeping.** Every earlier sweep ran at ≤768 because
+  that is where the 44px floor bites, and at that width `.brand,
+  .portal-event-brand, .dashboard-tabs a { min-height: 44px }` already covers
+  the wordmarks — so they passed. Measured at 1024 and 1440, where that rule
+  does not apply and no other sets a height, the landing and sidebar wordmarks
+  render **27px** tall, the portal event brand 25, the CFP footer wordmark 20,
+  the landing nav links 14 and the portal footer links 11. All are named
+  discrete controls; all were under the floor; none of it was visible to a
+  grep, because none of those rules mentions a height at all. The base-width
+  floor is now written next to the ≤768 one. **A floor with two thresholds
+  needs sweeping at both, or the looser one silently becomes the only one.**
+
+  Two controls were under *both* floors at every width and needed more than a
+  `min-height`: the portal session card's 20×20 chevron link, which sits in a
+  20px grid column and so takes an absolutely-positioned `::before` expander
+  rather than growing its column, and the completed-task card's 33×13 "View"
+  button.
+
   **Known residual, accepted:** the landing hero's `.preview-window` holds a
   mock app UI built from real `<a>`/`<button>` elements (a 14×22 brand mark, a
   29×14 "＋ Add"). They are decoration inside a screenshot-like illustration,
@@ -860,7 +940,9 @@ grep -oE "font-size:\s*clamp\([^)]*\)" src/app/globals.css | sort -u  # expect 1
 # T2 — line-heights: expect exactly 1, 1.25, 1.4, 1.5, 1.65 and no px
 grep -oE "line-height:\s*[0-9.]+[a-z%]*" src/app/globals.css | sed -E 's/line-height:\s*//' | sort -u
 
-# T3 — weights: expect only 400, 600, 700; 700 under 30 declarations
+# T3 — weights: expect only 400, 600, 700; 700 at most 30 declarations
+# ("at most 30" is the rule, per T3's table and its prose. The stylesheet
+# currently sits at exactly 30, so a new 700 is a violation, not a drift.)
 grep -oE "font-weight:\s*[0-9]+" src/app/globals.css | sed -E 's/font-weight:\s*//' | sort -n | uniq -c
 grep -rhoE "fontWeight:\s*[0-9]+" src --include=*.tsx | sort | uniq -c
 
@@ -876,7 +958,14 @@ grep -oE "(gap|column-gap|row-gap|padding(-[a-z]+)?|margin(-[a-z]+)?):[^;}]*" sr
 # breakpoint) or a new query form has appeared that the first command is
 # blind to.
 grep -oE "@media[^{]*max-width:\s*[0-9]+px" src/app/globals.css | grep -oE "[0-9]+px" | sort -n -u
-grep -noE "@media\([^)]*\)" src/app/globals.css | grep -vE "max-width|prefers-reduced-motion"  # expect no output
+# NB: `@media\(` only matches the minified, no-space form. The stylesheet also
+# holds ~10 space-separated queries (`@media (max-width: 768px)`), which that
+# pattern cannot see at all — it would report "no output" even if one of them
+# used min-width. Match the prelude instead, and sweep every stylesheet, not
+# just this one: the app's other CSS file kept a 650px query through the whole
+# 2026-08 pass precisely because these greps are scoped to globals.css.
+grep -rnoE "@media[^{]*" src --include=*.css | grep -vE "max-width|prefers-reduced-motion"  # expect no output
+grep -rnoE "@media[^{]*" src --include=*.css | grep -oE "max-width: ?[0-9]+px" | sort -u  # expect only 480/768/1024/1280
 
 # T6 — accent as text: every hit must be an SVG on --surface/#fff
 # NB: this pattern also matches the tails of `border-color:` and
@@ -898,19 +987,34 @@ perl -0777 -pe '
   s{/\*.*?\*/}{}gs;
   s{--[a-zA-Z0-9-]+:\s*\#[0-9a-fA-F]{3,8}}{}g;
   s{[a-z-]*gradient\((?:[^()]|\([^()]*\))*\)}{}g;
-  s{fill:\s*\#fff\b}{}g;
-' src/app/globals.css | grep -noE "#[0-9a-fA-F]{3,8}"
-grep -rnE "#[0-9a-fA-F]{6}" src --include=*.tsx | grep -v "seed.ts"
+' src/app/globals.css | grep -noE "#[0-9a-fA-F]{3,8}"   # expect no output
+# Sweep every stylesheet, not just this one — same scoping bug as T5's:
+for f in $(git ls-files '*.css'); do perl -0777 -pe '
+  s{/\*.*?\*/}{}gs; s{--[a-zA-Z0-9-]+:\s*\#[0-9a-fA-F]{3,8}}{}g;
+  s{[a-z-]*gradient\((?:[^()]|\([^()]*\))*\)}{}g;' $f | grep -noE "#[0-9a-fA-F]{3,8}"; done
+# `white`/`black` are the same literal by another spelling and the hex pattern
+# cannot see them. So is a colour hidden in a JSX attribute (`stopColor`).
+grep -noE "(color|background|border-color|fill|stroke):\s*(white|black)\b" src/app/globals.css
+grep -rnE "#[0-9a-fA-F]{6}" src --include=*.tsx | grep -v "seed.ts\|fixtures.ts\|cfp-wizard.tsx"
 ```
 
-Run against the current stylesheet, the corrected command is not zero: it
-reports 79 raw-hex matches across 60 lines, almost all of them pre-existing
-component rules (`.admin-sidebar`, `.toast`, `.rich-text`, `.stat-tile--warning`,
-`.donut__total`, `.file-drop`, and dozens more) that this pass never touched.
-This pass's T6 scope was the `ColorChip`/`.rating` demotions and the three
-named off-token files above — not a stylesheet-wide retokenization. The
-command is a lint aid for catching *new* raw hex and for auditing the sites
-this pass actually claims, not a promise that the stylesheet is hex-free.
+**This is now zero, and it is meant to stay zero.** The `fill: #fff` clause the
+filter used to carry is gone with the last raw `#fff`: white is `--on-fill`.
+The retokenization that closed it out is recorded under "Known deviations"
+below; what matters here is that the command changed status. It used to be a
+lint aid that reported 79 pre-existing matches and could only catch *new* raw
+hex against that noise floor. With the floor at zero it is a real gate: any
+output at all is a regression.
+
+Two caveats on the `.tsx` sweep, both about what a hex in a `.tsx` file
+actually is. Track and accent colours are **organiser data** — they live in
+DB defaults, zod schemas and fixtures, and a hex is the correct representation
+there; those files are excluded by name. But a hex in a *presentational*
+attribute is a rule body wearing a disguise: `stopColor="#00a878"` on an SVG
+gradient stop was invisible to every check here until it was moved into
+`.chart-plot linearGradient stop { stop-color: var(--accent) }`. The test is
+not the file extension, it is whether the value paints a pixel this stylesheet
+should own.
 
 Screenshot verification is part of the definition of done, not a follow-up:
 390 / 768 / 1024 / 1440 on landing, login, dashboard, abstracts (list and open
@@ -951,7 +1055,36 @@ widths, asserting on `getComputedStyle` and `getBoundingClientRect`:
 The script used for the 2026-08 pass lives outside the repo (it is a
 verification tool, not shipped code) at
 `~/Code/tmp/ultracode-design/final/verify.mjs`, with its output in
-`report.json` beside the screenshots.
+`report.json` beside the screenshots. The rerun after the retokenization is at
+`~/Code/tmp/ob-retoken/verify.mjs` — 8 surfaces × 4 widths, Playwright rather
+than CDP, with the same six assertions plus a dump of every distinct computed
+text colour.
+
+**Three things that pass make the sweep worth writing carefully**, because
+each one was a false positive that hid a real finding underneath it:
+
+1. **`margin: auto` must be read from the CSSOM, not inferred from the box.**
+   `getComputedStyle` reports the *resolved* free space — 426px, 2.9375px,
+   250.797px — with no trace of the keyword, so a naive sweep reports 361
+   spacing violations that are all one exemption. Inferring it from shape
+   ("equal left and right margins on a narrow block") only finds centring and
+   misses every one-sided `margin-left: auto`, which is the form this app
+   actually uses. Walk `document.styleSheets`, collect the rules that declare
+   `auto` on a margin longhand or shorthand, skip `@media` blocks whose
+   `conditionText` does not currently match, and ask `el.matches()`.
+2. **Inherited exemptions need `closest`, not `matches`.** A `<span>` inside
+   the clamped `<h1>` renders at 51.2px with no declaration of its own.
+3. **A hue-bucket count cannot measure [T6](#t6-colour-restraint--the-accent-budget)
+   in this palette.** The neutrals are deliberately tinted — `--ink` is
+   62% "saturated" by the usual formula — so every grey lands in a hue bucket
+   and the number means nothing. Dump the distinct computed `color` values and
+   check them against the token list instead. Doing that is what surfaced the
+   `<dialog>` reset: 28 elements at `rgb(0, 0, 0)`, a value no token has.
+
+Current state, measured across all 32 view/width combinations: **zero**
+off-scale font sizes, line-heights, weights, or spacing values; zero
+page-level horizontal overflow; zero touch targets under floor; and ten
+distinct computed text colours, every one of them a token.
 
 #### Order of application
 

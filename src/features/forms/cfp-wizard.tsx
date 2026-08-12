@@ -116,7 +116,7 @@ export function CfpWizard({ eventSlug, formId }: { eventSlug: string; formId: st
       const coId = existingCo?.id ?? `spk_co_${Date.now()}`;
       if (!existingCo) {
         const [coFirst = "", ...coRest] = coName.trim().split(/\s+/);
-        dispatch({ type: "ADD_SPEAKER", speaker: { id: coId, eventId: currentEvent.id, firstName: coFirst, lastName: coRest.join(" "), email: coEmail, company: "", title: "", bio: "", location: "", website: "", linkedin: "", avatar: `${coFirst[0] ?? "?"}${coRest[0]?.[0] ?? ""}`.toUpperCase(), avatarColor: "#2d8d79", confirmation: "unconfirmed", profileCompletion: 20, tags: [] } });
+        dispatch({ type: "ADD_SPEAKER", speaker: { id: coId, eventId: currentEvent.id, firstName: coFirst, lastName: coRest.join(" "), email: coEmail, company: "", title: "", bio: "", location: "", website: "", linkedin: "", avatar: `${coFirst[0] ?? "?"}${coRest[0]?.[0] ?? ""}`.toUpperCase(), avatarColor: "#2a8471", confirmation: "unconfirmed", profileCompletion: 20, tags: [] } });
       }
       speakerIds.push(coId);
     }

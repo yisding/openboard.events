@@ -86,7 +86,7 @@ export const VOCAB_KINDS = ["tracks", "rooms", "formats", "tags"] as const;
 export type VocabKind = (typeof VOCAB_KINDS)[number];
 export const vocabKindSchema = z.enum(VOCAB_KINDS);
 
-const hexColor = z.string().trim().regex(/^#[0-9a-f]{6}$/i, "Color must be a hex value like #6366f1");
+const hexColor = z.string().trim().regex(/^#[0-9a-f]{6}$/i, "Color must be a hex value like #00a878");
 
 export const trackInputSchema = z.object({
   id: z.uuid().optional(),

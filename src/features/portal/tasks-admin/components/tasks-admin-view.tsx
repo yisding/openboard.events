@@ -346,4 +346,4 @@ export function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTas
   );
 }
 
-const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: 0, background: "transparent", fontSize: 11.5, borderRadius: 6, cursor: "pointer" };
+const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: 0, background: "transparent", fontSize: 11.5, borderRadius: 6, cursor: "pointer" };

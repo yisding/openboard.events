@@ -11,6 +11,13 @@ import { isCredentialFreeLocalDemo } from "@/shared/lib/env";
 import { eventDayKey } from "@/shared/lib/time";
 import { demoPublishedSchedule, demoPublishedSpeakers } from "./demo-public-data";
 
+/* A track with no colour renders in the brand jade, matching the `tracks.color`
+   column default and `CUSTOM_TRACK_COLOR` in the onboarding wizard. This was
+   indigo (#6366f1) — off-palette entirely, and it disagreed with the column
+   default, so an unset colour rendered differently depending on whether the row
+   predated the default. See design-system.md T6. */
+const TRACK_COLOR_FALLBACK = "#00a878";
+
 /**
  * The public schedule and speaker gallery's only reads. Every row comes from
  * `published_sessions_v` / `published_speakers_v` — the draft-leak firewall
@@ -117,7 +124,7 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
     startsAt: new Date(row.starts_at).toISOString(),
     endsAt: new Date(row.ends_at).toISOString(),
     dayKey: eventDayKey(row.starts_at, event.timezone),
-    track: row.track_id ? { id: row.track_id, name: row.track_name ?? "", color: row.track_color ?? "#6366f1" } : null,
+    track: row.track_id ? { id: row.track_id, name: row.track_name ?? "", color: row.track_color ?? TRACK_COLOR_FALLBACK } : null,
     room: row.room_id ? { id: row.room_id, name: row.room_name ?? "" } : null,
     format: row.format_id ? { id: row.format_id, name: row.format_name ?? "" } : null,
     speakers: (row.speakers ?? []).map((speaker) => ({
@@ -217,7 +224,7 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
       endsAt: new Date(session.endsAt).toISOString(),
       dayKey: eventDayKey(session.startsAt, event.timezone),
       room: session.roomId ? { id: session.roomId, name: session.roomName ?? "" } : null,
-      track: session.trackId ? { id: session.trackId, name: session.trackName ?? "", color: session.trackColor ?? "#6366f1" } : null,
+      track: session.trackId ? { id: session.trackId, name: session.trackName ?? "", color: session.trackColor ?? TRACK_COLOR_FALLBACK } : null,
       format: session.formatId ? { id: session.formatId, name: session.formatName ?? "" } : null,
     })),
   }));

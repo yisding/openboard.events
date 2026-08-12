@@ -50,7 +50,7 @@ async function nextSortOrder(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind):
 async function insertRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, input: VocabInput, sortOrder: number) {
   switch (kind) {
     case "tracks": {
-      const [row] = await dbOrTx.insert(tracks).values({ eventId, name: input.name, color: input.color ?? "#6366f1", description: input.description ?? null, sortOrder }).returning();
+      const [row] = await dbOrTx.insert(tracks).values({ eventId, name: input.name, color: input.color ?? "#00a878", description: input.description ?? null, sortOrder }).returning();
       return row;
     }
     case "rooms": {
