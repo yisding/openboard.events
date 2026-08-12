@@ -132,6 +132,14 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
         ))}
       </nav>
       <div className="template-editor">
+        <header className="template-editor-header">
+          <div>
+            <span className="page-eyebrow">Email template</span>
+            <h2>{humanizeKey(selectedKey)}</h2>
+            <p>Changes affect every future message that uses this template.</p>
+          </div>
+          <span className={`template-state ${enabled ? "is-enabled" : ""}`}>{enabled ? "Enabled" : "Paused"}</span>
+        </header>
         {staleConflict && (
           <div className="stale-write-banner">
             <span>This template changed since you loaded it.</span>
@@ -164,13 +172,15 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
                 Unknown variable {unknownTokens.map((token) => `{{${token}}}`).join(", ")} — remove it or pick from the list above.
               </p>
             )}
-            <label className="checkbox-row">
-              <input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} />
-              Enabled
-            </label>
-            <Button onClick={() => void onSave()} disabled={unknownTokens.length > 0 || save.isPending || !dirty}>
-              {save.isPending ? "Saving…" : "Save template"}
-            </Button>
+            <div className="template-editor-actions">
+              <label className="checkbox-row">
+                <input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setDirty(true); }} />
+                <span><b>Enabled</b><small>Allow this template to send when its trigger runs</small></span>
+              </label>
+              <Button onClick={() => void onSave()} disabled={unknownTokens.length > 0 || save.isPending || !dirty}>
+                {save.isPending ? "Saving…" : "Save template"}
+              </Button>
+            </div>
           </div>
           <aside className="template-editor__preview">
             <span>LIVE PREVIEW</span>

@@ -36,4 +36,28 @@ describe("communications activity table responsive styles", () => {
     expect(css).not.toContain("@media(max-width:899px)");
     expect(css).not.toContain("@media(max-width:900px)");
   });
+
+  it("keeps communications checkboxes compact instead of inheriting full-width text-input sizing", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    expect(css).toContain(".checkbox-row input[type=\"checkbox\"]{width:16px;height:16px;min-width:16px;min-height:16px;flex:0 0 16px");
+    expect(css).toContain(".bulk-send-checkboxes .checkbox-row:has(input:checked)");
+  });
+
+  it("stacks the reminder editor and its actions at the canonical mobile breakpoint", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const anchor = css.indexOf(".reminder-rule{grid-template-columns:1fr}");
+    expect(anchor).toBeGreaterThanOrEqual(0);
+    const start = css.lastIndexOf("@media", anchor);
+    expect(css.startsWith("@media(max-width:768px)", start)).toBe(true);
+    expect(cssBlockAt(css, start)).toContain(".template-editor-actions{align-items:stretch;flex-direction:column}");
+  });
+
+  it("gives the section switcher complete tab semantics and keyboard movement", () => {
+    const source = readFileSync(new URL("./components/comms-admin-page.tsx", import.meta.url), "utf8");
+    expect(source).toContain('role="tablist"');
+    expect(source).toContain('role="tabpanel"');
+    expect(source).toContain("tabIndex={tab === entry.id ? 0 : -1}");
+    expect(source).toContain('event.key === "ArrowRight"');
+    expect(source).toContain('event.key === "ArrowLeft"');
+  });
 });

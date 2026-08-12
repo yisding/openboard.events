@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Check, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, MonitorSmartphone, Users } from "lucide-react";
+import { Calendar, Check, ChevronDown, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, MonitorSmartphone, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
@@ -64,6 +64,7 @@ export function EmbedsAdminPage({
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
+  const [openConfigId, setOpenConfigId] = useState<string | null>(initialConfigs[0]?.id ?? null);
 
   useEffect(() => setOrigin(window.location.origin), []);
 
@@ -125,23 +126,28 @@ export function EmbedsAdminPage({
     return `${origin}/e/${eventSlug}/${TYPE_META[contentType].route}`;
   }
 
+  async function copyText(value: string, success: string) {
+    if (!origin) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast(success);
+    } catch {
+      toast("Copy failed — select the code and copy it manually", { kind: "error" });
+    }
+  }
+
   function copyIframe(contentType: CanonicalEmbedContentType) {
-    void navigator.clipboard.writeText(iframeSnippet(contentType));
-    toast(`${TYPE_META[contentType].label} iframe snippet copied`);
+    void copyText(iframeSnippet(contentType), `${TYPE_META[contentType].label} iframe snippet copied`);
   }
-
   function copyScript(contentType: CanonicalEmbedContentType) {
-    void navigator.clipboard.writeText(scriptSnippet(contentType));
-    toast("Auto-resize script copied");
+    void copyText(scriptSnippet(contentType), "Auto-resize script copied");
   }
-
   function copyShareUrl(contentType: CanonicalEmbedContentType) {
-    void navigator.clipboard.writeText(shareUrl(contentType));
-    toast("Direct share URL copied");
+    void copyText(shareUrl(contentType), "Direct share URL copied");
   }
 
   return (
-    <>
+    <main className="page embeds-admin-page">
       <PageHeader eyebrow="ENGAGE" title="Embeds" description="Put your live sessions, agenda, itinerary, and speakers on any website." />
       <section className="embed-cards">
         {configs.map((config) => {
@@ -151,111 +157,153 @@ export function EmbedsAdminPage({
           const filters = filtersFor(config.contentType);
           const Icon = meta.icon;
           const sessionShaped = SESSION_SHAPED.has(config.contentType);
+          const settingsDirty = JSON.stringify(styleDraft) !== JSON.stringify(config.style)
+            || JSON.stringify(filters) !== JSON.stringify(sanitizeEmbedFilters(config.filters, filterVocabulary));
+          const open = openConfigId === config.id;
           return (
-            <article className="panel embed-card" key={config.id}>
-              <span className="summary-icon accent"><Icon size={20} /></span>
-              <div>
-                <h2>{meta.label}</h2>
-                <p>{meta.description}</p>
-              </div>
-              <a href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">View embed <ExternalLink size={14} /></a>
-              <div className="inline-setting">
-                <div><b>Enabled</b><small>Turn off to blank this embed without breaking the host page</small></div>
-                <Switch
-                  label={`${meta.label} embed`}
-                  checked={config.enabled}
-                  disabled={busy === config.id}
-                  onClick={() => void toggleEnabled(config)}
-                />
-              </div>
-              <div className="form-stack">
-                <div className="field">
-                  <span>Color theme</span>
-                  <Segmented label={`${meta.label} color theme`} value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
-                </div>
-                <label className="field">
-                  <span>Accent color</span>
-                  <div className="color-input">
-                    <i style={{ background: style.accent }} />
-                    <input value={style.accent} onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })} />
+            <article className={`panel embed-card ${config.enabled ? "" : "is-disabled"}`} key={config.id}>
+              <header className="embed-card-header">
+                <span className="summary-icon accent"><Icon size={20} /></span>
+                <div className="embed-card-heading">
+                  <div>
+                    <h2>{meta.label}</h2>
+                    <span className={`embed-status ${config.enabled ? "is-enabled" : ""}`}>{config.enabled ? "Live" : "Off"}</span>
+                    {settingsDirty && <span className="embed-status is-unsaved">Unsaved</span>}
                   </div>
-                </label>
-                <div className="inline-setting">
-                  <div><b>Show event header</b><small>Include the event name above content</small></div>
-                  <Switch label={`${meta.label}: show event header`} checked={style.showHeader} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })} />
+                  <p>{meta.description}</p>
                 </div>
+                <div className="embed-card-header-actions">
+                  <div className="embed-card-links">
+                    <Button size="sm" variant="secondary" aria-expanded={open} aria-controls={`embed-settings-${config.id}`} onClick={() => setOpenConfigId(open ? null : config.id)}>
+                      {open ? "Close" : "Customize"}<ChevronDown className={open ? "is-open" : ""} size={14} />
+                    </Button>
+                    <a className="button button-ghost button-sm" href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">Preview <ExternalLink size={14} /></a>
+                  </div>
+                  <div className="embed-enable-control">
+                    <span>{config.enabled ? "Enabled" : "Disabled"}</span>
+                    <Switch
+                      label={`${meta.label} embed`}
+                      checked={config.enabled}
+                      disabled={busy !== null}
+                      onClick={() => void toggleEnabled(config)}
+                    />
+                  </div>
+                </div>
+              </header>
 
-                {sessionShaped ? (
-                  <>
-                    <div className="inline-setting">
-                      <div><b>Show description</b><small>Hide session descriptions in this embed</small></div>
-                      <Switch label={`${meta.label}: show description`} checked={filters.fields?.description !== false}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, description: filters.fields?.description === false } })} />
+              {open && <div id={`embed-settings-${config.id}`}>
+              <div className="embed-settings-grid">
+                <section className="embed-settings-section">
+                  <header><h3>Appearance</h3><p>Match the host site without rebuilding the embed.</p></header>
+                  <div className="form-stack">
+                    <div className="field">
+                      <span>Color theme</span>
+                      <Segmented label={`${meta.label} color theme`} value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
                     </div>
+                    <label className="field">
+                      <span>Accent color</span>
+                      <div className="color-input">
+                        <i style={{ background: style.accent }} />
+                        <input value={style.accent} onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })} />
+                      </div>
+                    </label>
+                    <div className="inline-setting">
+                      <div><b>Show event header</b><small>Include the event name above content</small></div>
+                      <Switch label={`${meta.label}: show event header`} checked={style.showHeader} disabled={busy !== null} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })} />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="embed-settings-section">
+                  <header><h3>Content</h3><p>Choose what visitors can see in this surface.</p></header>
+                  <div className="form-stack">
+                    {sessionShaped ? (
+                      <div className="inline-setting">
+                        <div><b>Show description</b><small>Include session descriptions in this embed</small></div>
+                        <Switch label={`${meta.label}: show description`} checked={filters.fields?.description !== false} disabled={busy !== null}
+                          onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, description: filters.fields?.description === false } })} />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="inline-setting">
+                          <div><b>Show company</b><small>Include job title and company</small></div>
+                          <Switch label={`${meta.label}: show company`} checked={filters.fields?.speakerCompany !== false} disabled={busy !== null}
+                            onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })} />
+                        </div>
+                        <div className="inline-setting">
+                          <div><b>Show bio</b><small>Include the speaker&rsquo;s biography</small></div>
+                          <Switch label={`${meta.label}: show bio`} checked={filters.fields?.speakerBio !== false} disabled={busy !== null}
+                            onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {sessionShaped && (tracks.length > 0 || formats.length > 0 || rooms.length > 0) && (
+                <section className="embed-filters-section">
+                  <header><h3>Filters</h3><p>Leave a group empty to include every value.</p></header>
+                  <div className="embed-filter-grid">
                     {tracks.length > 0 && (
                       <fieldset className="embed-filter-group">
-                        <legend>Tracks {filters.trackIds && filters.trackIds.length > 0 ? "(filtered)" : "(all)"}</legend>
-                        {tracks.map((t) => (
-                          <label key={t.id}>
-                            <input type="checkbox" checked={!!filters.trackIds?.includes(t.id)} onChange={() => setFilterDraft(config.contentType, { trackIds: toggleId(filters.trackIds, t.id) })} />
-                            {t.name}
+                        <legend>Tracks {filters.trackIds && filters.trackIds.length > 0 ? `· ${filters.trackIds.length} selected` : "· All"}</legend>
+                        {tracks.map((track) => (
+                          <label key={track.id}>
+                            <input type="checkbox" checked={!!filters.trackIds?.includes(track.id)} onChange={() => setFilterDraft(config.contentType, { trackIds: toggleId(filters.trackIds, track.id) })} />
+                            <span>{track.name}</span>
                           </label>
                         ))}
                       </fieldset>
                     )}
                     {formats.length > 0 && (
                       <fieldset className="embed-filter-group">
-                        <legend>Formats {filters.formatIds && filters.formatIds.length > 0 ? "(filtered)" : "(all)"}</legend>
-                        {formats.map((f) => (
-                          <label key={f.id}>
-                            <input type="checkbox" checked={!!filters.formatIds?.includes(f.id)} onChange={() => setFilterDraft(config.contentType, { formatIds: toggleId(filters.formatIds, f.id) })} />
-                            {f.name}
+                        <legend>Formats {filters.formatIds && filters.formatIds.length > 0 ? `· ${filters.formatIds.length} selected` : "· All"}</legend>
+                        {formats.map((format) => (
+                          <label key={format.id}>
+                            <input type="checkbox" checked={!!filters.formatIds?.includes(format.id)} onChange={() => setFilterDraft(config.contentType, { formatIds: toggleId(filters.formatIds, format.id) })} />
+                            <span>{format.name}</span>
                           </label>
                         ))}
                       </fieldset>
                     )}
                     {rooms.length > 0 && (
                       <fieldset className="embed-filter-group">
-                        <legend>Locations {filters.roomIds && filters.roomIds.length > 0 ? "(filtered)" : "(all)"}</legend>
-                        {rooms.map((r) => (
-                          <label key={r.id}>
-                            <input type="checkbox" checked={!!filters.roomIds?.includes(r.id)} onChange={() => setFilterDraft(config.contentType, { roomIds: toggleId(filters.roomIds, r.id) })} />
-                            {r.name}
+                        <legend>Locations {filters.roomIds && filters.roomIds.length > 0 ? `· ${filters.roomIds.length} selected` : "· All"}</legend>
+                        {rooms.map((room) => (
+                          <label key={room.id}>
+                            <input type="checkbox" checked={!!filters.roomIds?.includes(room.id)} onChange={() => setFilterDraft(config.contentType, { roomIds: toggleId(filters.roomIds, room.id) })} />
+                            <span>{room.name}</span>
                           </label>
                         ))}
                       </fieldset>
                     )}
-                  </>
-                ) : (
-                  <>
-                    <div className="inline-setting">
-                      <div><b>Show company</b><small>Include job title/company on speaker cards and rows</small></div>
-                      <Switch label={`${meta.label}: show company`} checked={filters.fields?.speakerCompany !== false}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })} />
-                    </div>
-                    <div className="inline-setting">
-                      <div><b>Show bio</b><small>Include the speaker&rsquo;s bio</small></div>
-                      <Switch label={`${meta.label}: show bio`} checked={filters.fields?.speakerBio !== false}
-                        onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })} />
-                    </div>
-                  </>
-                )}
+                  </div>
+                </section>
+              )}
 
-                <Button variant="secondary" disabled={busy === config.id} onClick={() => void saveSettings(config)}><Check size={16} /> Save settings</Button>
+              <div className="embed-save-row">
+                <span aria-live="polite">{settingsDirty ? "Unsaved settings" : "Settings up to date"}</span>
+                <Button disabled={busy !== null || !settingsDirty} onClick={() => void saveSettings(config)}><Check size={16} /> {busy === config.id ? "Saving…" : "Save settings"}</Button>
               </div>
-              <div className="embed-code">
-                <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}?…" …>`}</code>
-                <button type="button" aria-label={`Copy ${meta.label} embed code`} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /></button>
-              </div>
-              <footer>
-                <Button variant="secondary" onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /> Copy iframe</Button>
-                <Button variant="ghost" onClick={() => copyScript(config.contentType)}>Copy auto-resize script</Button>
-                <Button variant="ghost" onClick={() => copyShareUrl(config.contentType)}><Link2 size={13} /> Copy share URL</Button>
-              </footer>
+
+              <section className="embed-install-section">
+                <header><h3>Install</h3><p>Use the iframe anywhere, or the script when the host page should resize automatically.</p></header>
+                <div className="embed-code">
+                  <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}?…" …>`}</code>
+                  <button type="button" disabled={!origin} aria-label={`Copy ${meta.label} embed code`} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /></button>
+                </div>
+                <footer>
+                  <Button variant="secondary" disabled={!origin} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /> Copy iframe</Button>
+                  <Button variant="ghost" disabled={!origin} onClick={() => copyScript(config.contentType)}>Copy auto-resize script</Button>
+                  <Button variant="ghost" disabled={!origin} onClick={() => copyShareUrl(config.contentType)}><Link2 size={13} /> Copy share URL</Button>
+                </footer>
+              </section>
+              </div>}
             </article>
           );
         })}
       </section>
-    </>
+    </main>
   );
 }

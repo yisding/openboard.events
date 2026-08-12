@@ -4,7 +4,7 @@ import { Clock3 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { EventId } from "@/shared/contracts";
 import type { ReminderRuleRow } from "@/features/comms";
-import { Button } from "@/shared/ui/ui-kit";
+import { Button, Field } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useReminderRules, useSaveReminderRules } from "../hooks/use-reminder-rules";
 
@@ -60,16 +60,18 @@ export function RemindersTab({ eventId, initialData }: { eventId: EventId; initi
           <div className="reminder-rule" key={index}>
             <label className="checkbox-row">
               <input type="checkbox" checked={row.enabled} onChange={(event) => updateRow(index, { enabled: event.target.checked })} />
-              <b>{offsetLabel(row.offsetDays)}</b>
+              <span>
+                <b>{offsetLabel(row.offsetDays)}</b>
+                <small>{row.enabled ? "Active reminder" : "Paused"}</small>
+              </span>
             </label>
-            <label>
-              Offset (days from due date)
+            <Field label="Offset (days from due date)">
               <input
                 type="number"
                 value={row.offsetDays}
                 onChange={(event) => { const next = Number(event.target.value); if (Number.isFinite(next)) updateRow(index, { offsetDays: Math.trunc(next) }); }}
               />
-            </label>
+            </Field>
           </div>
         ))}
         {rows.length === 0 && <p className="long-copy">No reminder rungs are configured — task reminders will never send.</p>}
