@@ -274,7 +274,7 @@ export function FilesAdminView({
           <label className="table-search">
             <Search size={16} />
             <input value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
-            {draftSearch && <button type="button" onClick={clearSearch}><X size={14} /></button>}
+            {draftSearch && <button type="button" aria-label="Clear search" onClick={clearSearch}><X size={14} /></button>}
           </label>
           <Select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
