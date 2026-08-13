@@ -29,6 +29,10 @@ function eventDateTimeInput(page: Page, label: "Starts" | "Ends") {
   return page.getByRole("combobox", { name: new RegExp(`^${label}\\b`, "u") });
 }
 
+function eventTimezoneInput(page: Page) {
+  return page.getByRole("combobox", { name: /^Timezone\s*\*?$/u });
+}
+
 async function chooseEventDateTime(page: Page, label: "Starts" | "Ends", daysFromNow: number, time: string): Promise<void> {
   const currentDay = eventDayKey(new Date(), ONBOARDING_TIMEZONE);
   const targetDay = addCalendarDays(currentDay, daysFromNow);
@@ -163,6 +167,8 @@ test.describe("self-service signup to first value", () => {
 
     await test.step("create the first event and tracks", async () => {
       await eventNameInput(page).fill(eventName);
+      await eventTimezoneInput(page).selectOption(ONBOARDING_TIMEZONE);
+      await expect(eventTimezoneInput(page)).toHaveValue(ONBOARDING_TIMEZONE);
       await chooseEventDateTime(page, "Starts", 30, "09:00");
       await chooseEventDateTime(page, "Ends", 31, "17:00");
       const createPayloads: unknown[] = [];
@@ -182,7 +188,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("button", { name: /retry event creation/i })).toBeVisible();
       await expect(eventNameInput(page)).toBeDisabled();
       await expect(page.getByLabel("Event type")).toBeDisabled();
-      await expect(page.getByLabel("Timezone")).toBeDisabled();
+      await expect(eventTimezoneInput(page)).toBeDisabled();
       await expect(eventDateTimeInput(page, "Starts")).toBeDisabled();
       await expect(eventDateTimeInput(page, "Ends")).toBeDisabled();
       const committedAfterLostResponse = await queryRows<{ id: string }>(`
