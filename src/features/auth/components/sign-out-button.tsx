@@ -4,11 +4,19 @@ import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
+import { safeInternalPath } from "../safe-next";
 
-export function SignOutButton({ kind, eventSlug, compact = false }: {
+export function signOutDestination(kind: "admin" | "portal", eventSlug?: string, redirectTo?: string): string {
+  const fallback = kind === "admin" ? "/login" : `/portal/${encodeURIComponent(eventSlug ?? "")}/login`;
+  return safeInternalPath(redirectTo, fallback);
+}
+
+export function SignOutButton({ kind, eventSlug, compact = false, redirectTo, label = "Sign out" }: {
   kind: "admin" | "portal";
   eventSlug?: string;
   compact?: boolean;
+  redirectTo?: string;
+  label?: string;
 }) {
   const { toast } = useToast();
   const { runGuarded, allowNextNavigation } = useGuardedAction();
@@ -25,7 +33,7 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
       });
       if (!response.ok) throw new Error("sign-out refused");
       allowNextNavigation(() => {
-        window.location.assign(kind === "admin" ? "/login" : `/portal/${encodeURIComponent(eventSlug ?? "")}/login`);
+        window.location.assign(signOutDestination(kind, eventSlug, redirectTo));
       }, { hardUnload: true });
     } catch {
       setBusy(false);
@@ -37,13 +45,13 @@ export function SignOutButton({ kind, eventSlug, compact = false }: {
     <button
       type="button"
       className={compact ? "icon-button" : "button button-ghost button-sm"}
-      aria-label={compact ? "Sign out" : undefined}
-      title={compact ? "Sign out" : undefined}
+      aria-label={compact ? label : undefined}
+      title={compact ? label : undefined}
       disabled={busy}
       onClick={() => runGuarded(() => { void signOut(); })}
     >
       <LogOut size={compact ? 15 : 14} aria-hidden />
-      {!compact && (busy ? "Signing out…" : "Sign out")}
+      {!compact && (busy ? "Signing out…" : label)}
     </button>
   );
 }

@@ -6,10 +6,11 @@ import { CheckCircle2, CircleAlert, LogIn, Users } from "lucide-react";
 import { z } from "zod";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { SignOutButton } from "./sign-out-button";
 
 const acceptedSchema = z.object({ organizationId: z.string(), role: z.string(), eventId: z.string().nullable() });
 
-type Status = "checking" | "signed-out" | "accepting" | "accepted" | "error";
+type Status = "checking" | "signed-out" | "wrong-account" | "accepting" | "accepted" | "error";
 
 /**
  * M44/M61 — the landing page for a workspace or reviewer invitation link. No
@@ -47,6 +48,10 @@ export function JoinInvitationView() {
           setStatus("signed-out");
           return;
         }
+        if (isAppError(caught) && caught.code === "FORBIDDEN") {
+          setStatus("wrong-account");
+          return;
+        }
         setStatus("error");
         setMessage(isAppError(caught) ? caught.message : "That invitation could not be accepted");
       }
@@ -67,6 +72,16 @@ export function JoinInvitationView() {
       <p>Sign in or create an account with the email this invitation was sent to.</p>
       <a className="button button-primary button-lg" href={`/login?next=${encodeURIComponent(next)}`}>Sign in <LogIn size={16} /></a>
       <p><a href={`/signup?next=${encodeURIComponent(next)}`}>New here? Create an account</a></p>
+    </div>;
+  }
+
+  if (status === "wrong-account") {
+    return <div>
+      <span className="metric-icon amber"><CircleAlert size={20} /></span>
+      <h1>Switch accounts to join</h1>
+      <p>This invitation was sent to a different email address. Sign out, then use the account that received it.</p>
+      <SignOutButton kind="admin" redirectTo={`/login?next=${encodeURIComponent(next)}`} label="Switch account" />
+      <p><a href="/organizations">Stay signed in</a></p>
     </div>;
   }
 

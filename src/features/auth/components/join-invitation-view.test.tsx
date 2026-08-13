@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/shared/lib/errors";
+import { ToastProvider } from "@/shared/ui/toast";
 import { JoinInvitationView } from "./join-invitation-view";
 
 const navigation = vi.hoisted(() => ({ searchParams: new URLSearchParams() }));
@@ -23,7 +24,7 @@ async function renderInvitation(): Promise<{ container: HTMLDivElement; unmount:
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<JoinInvitationView />);
+    root.render(<ToastProvider><JoinInvitationView /></ToastProvider>);
     await Promise.resolve();
   });
   return {
@@ -73,6 +74,19 @@ describe("invitation recovery", () => {
     try {
       expect(view.container.querySelector<HTMLAnchorElement>('a[href="/login?next=%2Fjoin%3Ftoken%3Dinvite-123"]')).not.toBeNull();
       expect(view.container.querySelector<HTMLAnchorElement>('a[href="/signup?next=%2Fjoin%3Ftoken%3Dinvite-123"]')).not.toBeNull();
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("lets a signed-in user switch to the account that received the invitation", async () => {
+    navigation.searchParams = new URLSearchParams("token=invite-123");
+    apiMock.mockRejectedValue(new AppError("FORBIDDEN", "This invitation was sent to a different email address"));
+    const view = await renderInvitation();
+    try {
+      expect(view.container.textContent).toContain("Switch accounts to join");
+      expect(view.container.querySelector<HTMLButtonElement>("button")?.textContent).toContain("Switch account");
+      expect(view.container.querySelector<HTMLAnchorElement>('a[href="/organizations"]')?.textContent).toContain("Stay signed in");
     } finally {
       await view.unmount();
     }
