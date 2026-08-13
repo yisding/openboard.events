@@ -73,7 +73,7 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
         {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
             an unsized image on the first public page a judge opens is a layout
             shift they watch happen. Optimization is off globally on Workers. */}
-        {event.logoUrl && <Image src={event.logoUrl} alt={event.name} className="cfp-logo" width={160} height={48} />}
+        {event.logoUrl && <Image src={event.logoUrl} alt="" aria-hidden="true" className="cfp-logo" width={160} height={48} />}
         <p className={styles.eventName}>{event.name}</p>
         <h1>{form.pageHeading || "Welcome!"}</h1>
         {form.showWelcome && form.welcomeHtml && <RichTextView html={form.welcomeHtml} />}

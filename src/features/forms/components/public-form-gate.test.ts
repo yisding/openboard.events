@@ -76,7 +76,8 @@ describe("PublicFormGate event identity", () => {
     ));
 
     expect(markup).toContain("%2Ff%2Fevent-logo");
-    expect(markup).toContain('alt="OpenBoard Conf"');
+    expect(markup).toContain('alt=""');
+    expect(markup).toContain('aria-hidden="true"');
     expect(markup).toContain(">OpenBoard Conf</p>");
   });
 });
