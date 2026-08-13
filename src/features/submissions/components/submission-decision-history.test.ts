@@ -23,7 +23,8 @@ describe("submission decision history", () => {
     expect(notifyRoute).toContain("userIdSchema.parse(session?.actorId)");
     expect(component).toContain("Queue moves, final decisions, reversals, and withdrawals remain visible here.");
     expect(component).toContain('role="alert"');
-    expect(component).toContain("Finalized and notified by");
+    expect(component).toContain("Finalized by");
+    expect(component).not.toContain("notified");
     expect(component).toContain("Changed by speaker");
     expect(component).toContain("<TzTime instant={entry.changedAt} tz={timezone}");
     expect(drawer).toContain("<SubmissionDecisionHistory eventId={eventId} submissionId={submissionId} timezone={timezone} />");

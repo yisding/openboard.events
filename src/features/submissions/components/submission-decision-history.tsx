@@ -18,7 +18,7 @@ const STATUS_LABEL: Record<SubmissionStatus, string> = {
 function attribution(entry: SubmissionStatusHistoryEntry): string {
   const actor = entry.actorName ?? entry.actorEmail;
   if (entry.source === "baseline") return "Baseline captured when decision history was enabled";
-  if (entry.source === "notification") return actor ? `Finalized and notified by ${actor}` : "Finalized during notification";
+  if (entry.source === "notification") return actor ? `Finalized by ${actor}` : "Finalized";
   if (entry.source === "speaker") return actor ? `Changed by speaker ${actor}` : "Changed by speaker";
   if (entry.source === "organizer") return actor ? `Changed by ${actor}` : "Changed by an organizer";
   return "Changed by the system";
