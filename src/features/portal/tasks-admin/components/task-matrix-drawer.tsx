@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
@@ -51,22 +51,34 @@ export function TaskMatrixDrawer({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reminding, setReminding] = useState(false);
 
-  async function load() {
+  // Flowing down the task list opens several tasks in a row; a late response
+  // for one already passed must not replace what is on screen now. `seqRef`
+  // drops a fetch that a newer one has superseded, and `activeTaskRef` drops
+  // one that reopen()'s stale closure fired for the previous task.
+  const seqRef = useRef(0);
+  const activeTaskRef = useRef(task.id);
+
+  async function load(taskId: string = task.id) {
+    if (taskId !== activeTaskRef.current) return;
+    const seq = ++seqRef.current;
+    const current = () => seq === seqRef.current && taskId === activeTaskRef.current;
     setLoadError(false);
     try {
-      const response = await fetch(`/api/internal/tasks/${task.id}?eventId=${eventId}`);
+      const response = await fetch(`/api/internal/tasks/${taskId}?eventId=${eventId}`);
       const payload = await response.json().catch(() => null) as { data?: { assignments: AdminTaskAssignmentDTO[] } } | null;
+      if (!current()) return;
       if (!response.ok || !payload?.data) throw new Error("assignment refresh failed");
       setRows(payload.data.assignments);
     } catch {
-      setLoadError(true);
+      if (current()) setLoadError(true);
     }
   }
 
   useEffect(() => {
+    activeTaskRef.current = task.id;
     setRows(null);
     setSelected(new Set());
-    void load();
+    void load(task.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
 

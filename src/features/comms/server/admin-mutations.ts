@@ -52,8 +52,8 @@ function toEmailTemplateRow(row: typeof emailTemplates.$inferSelect): EmailTempl
 
 /**
  * Event-editable keys in canonical enum order, never database order. Product
- * authentication templates are intentionally absent: they are platform mail,
- * not event configuration.
+ * authentication templates and the team invitation are intentionally absent:
+ * they are platform mail, not event configuration.
  */
 export async function listTemplatesIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmailTemplateRow[]> {
   const rows = await dbOrTx.select().from(emailTemplates).where(eq(emailTemplates.eventId, eventId));
@@ -85,7 +85,7 @@ export async function listTemplates(eventId: EventId): Promise<EmailTemplateRow[
  */
 export async function saveTemplateIn(dbOrTx: DbOrTx, eventId: EventId, key: TemplateKey, input: Omit<TemplateSaveInput, "key">): Promise<EmailTemplateRow> {
   if (!(EVENT_EDITABLE_TEMPLATE_KEYS as readonly TemplateKey[]).includes(key)) {
-    throw new AppError("VALIDATION", "Platform authentication templates are not event-editable");
+    throw new AppError("VALIDATION", "Platform templates are not event-editable");
   }
   const validation = validateTemplateBody(key, input.subject, input.bodyHtml);
   if (!validation.ok) {

@@ -135,8 +135,9 @@ test.describe("admin-setup", () => {
         await expect(page.getByRole("heading", { name: "E2E created event is ready" })).toBeVisible({ timeout: 30_000 });
 
         // Communications exposes event mail only. The two platform-auth
-        // templates are seeded too, but intentionally have no event-level
-        // controls because they may be sent before an event exists.
+        // templates and the team invitation are seeded too, but intentionally
+        // have no event-level controls because they may be sent before an
+        // event exists.
         await page.goto(`/events/${eventId}/communications?tab=templates`);
         await expect(page.locator("nav[aria-label='Template keys'] button")).toHaveCount(EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT);
         // And the same count from the route the rail reads, so a rail that

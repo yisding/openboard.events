@@ -5,11 +5,14 @@ import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contract
 /**
  * Event organizers can edit event mail. Product authentication mail now uses
  * a platform-level fixed template because it may be sent before an event
- * exists; leaving those two keys in the event editor would be a control that
- * no longer affects anything.
+ * exists; leaving those keys in the event editor would be a control that
+ * no longer affects anything. `organization_invited` joined them in M44:
+ * team invitations go out through `adminAuthEmailOutbox`/`admin-mail.ts`,
+ * which renders fixed copy and never reads `email_templates`, so editing the
+ * row — or switching it off — would not change a single invitation sent.
  */
 export const EVENT_EDITABLE_TEMPLATE_KEYS: TemplateKey[] = TEMPLATE_KEYS.filter(
-  (key) => key !== "admin_password_reset" && key !== "admin_email_verification",
+  (key) => key !== "admin_password_reset" && key !== "admin_email_verification" && key !== "organization_invited",
 );
 
 export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml: string }> = {

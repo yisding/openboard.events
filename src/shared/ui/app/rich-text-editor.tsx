@@ -6,7 +6,7 @@ import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { plainTextLength } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -18,6 +18,10 @@ import { sanitize } from "@/shared/lib/sanitize";
  *
  * `onChange` emits **sanitized HTML**, not TipTap JSON — the stored value is the
  * same shape every render surface reads.
+ *
+ * `value` is a real controlled prop: TipTap only reads `content` when it builds
+ * the instance, so a caller that replaces the value from outside the editor
+ * (restoring a revision, say) is pushed into the live document by hand.
  *
  * Loaded through `next/dynamic` with `ssr: false` by `rich-text-editor-lazy` so
  * TipTap never enters the server graph.
@@ -73,6 +77,25 @@ export function RichTextEditor({
     },
     onUpdate: ({ editor: instance }) => onChange(sanitize(instance.getHTML())),
   });
+
+  // `useEditor` never rebuilds the instance for a changed `content`, and
+  // `setOptions` only merges options — without this the document keeps whatever
+  // it was seeded with, and the writer's next keystroke emits that stale HTML
+  // back to the caller, silently undoing whatever the caller had just set.
+  //
+  // Guarded by a sanitize-and-compare because the common case is the editor's
+  // own `onChange` arriving back as `value`: re-parsing on every keystroke would
+  // rebuild the document and drop the cursor mid-word. `emitUpdate: false` keeps
+  // an externally driven change from firing `onChange` straight back out.
+  useEffect(() => {
+    if (!editor) return;
+    const current = sanitize(editor.getHTML());
+    if (current === value) return;
+    // An empty document round-trips as `<p></p>`, which callers that store "no
+    // answer" as `""` would otherwise re-seed on every emptying keystroke.
+    if (plainTextLength(current) === 0 && plainTextLength(value) === 0) return;
+    editor.commands.setContent(value, { emitUpdate: false });
+  }, [editor, value]);
 
   const addLink = useCallback(() => {
     if (!editor) return;

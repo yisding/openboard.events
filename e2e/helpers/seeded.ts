@@ -125,11 +125,11 @@ export const TASKS = {
 // length and not "whichever keys existed when the event was created".
 export const TEMPLATE_KEYS_PER_EVENT = 14;
 
-// Password-reset and email-verification messages are platform authentication
+// Password-reset, email-verification and team-invitation messages are platform
 // mail: they can be sent before an event exists and are therefore fixed rather
 // than event-editable. The database still carries all 14 defaults per event,
-// while the Communications template rail and its API deliberately expose 12.
-export const EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT = TEMPLATE_KEYS_PER_EVENT - 2;
+// while the Communications template rail and its API deliberately expose 11.
+export const EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT = TEMPLATE_KEYS_PER_EVENT - 3;
 
 /**
  * Every seeded address is on a domain the project owns, and so is every address
