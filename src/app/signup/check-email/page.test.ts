@@ -31,7 +31,7 @@ describe("signup check-inbox recovery", () => {
     expect(html).toContain('readOnly=""');
     expect(html).toContain("If this address still needs confirmation, a fresh link is on its way");
     expect(html).toContain("A new link can only be sent to the address used to create this account.");
-    expect(html).toContain('href="/signup"');
+    expect(html).toContain('href="/signup?next=%2Forganizations%2F00000000-0000-4000-8000-000000000002"');
     expect(html).toContain("Start again with the correct address");
     expect(html).toContain('href="/login?next=%2Forganizations%2F00000000-0000-4000-8000-000000000002"');
   });
@@ -43,6 +43,17 @@ describe("signup check-inbox recovery", () => {
 
     expect(html).not.toContain('readOnly=""');
     expect(html).not.toContain("Start again with the correct address");
+  });
+
+  it("keeps an invitation when correcting a signup address", async () => {
+    const html = renderToStaticMarkup(await CheckEmailPage({
+      searchParams: Promise.resolve({
+        email: "wrong@example.com",
+        next: "/join?token=invite-123",
+      }),
+    }));
+
+    expect(html).toContain('href="/signup?next=%2Fjoin%3Ftoken%3Dinvite-123"');
   });
 
   it("presents the non-production activation link as demo access", async () => {
@@ -66,5 +77,7 @@ describe("signup check-inbox recovery", () => {
     }));
 
     expect(html).toContain('href="/login?next=%2Forganizations"');
+    expect(html).toContain('href="/signup?next=%2Forganizations"');
+    expect(html).not.toContain("attacker.example");
   });
 });
