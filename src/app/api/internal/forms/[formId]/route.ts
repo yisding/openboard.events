@@ -11,7 +11,7 @@ import { deleteFormIn, updateFormIn } from "@/features/forms/server/builder-muta
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
-import { db } from "@/db/client";
+import { db, withTx } from "@/db/client";
 import { defineHandler } from "@/shared/server/handler";
 
 const routeInput = z.object({ formId: formIdSchema });
@@ -65,7 +65,7 @@ const update = defineHandler({
     const formId = routeInput.parse(params).formId;
     assertValidSubmissionLimit(input.patch.submissionLimit);
     await assertValidConfirmationTemplate(db, parsedEventId, formId, input.patch);
-    return updateFormIn(db, parsedEventId, formId, input.patch, input.expectedUpdatedAt);
+    return withTx((tx) => updateFormIn(tx, parsedEventId, formId, input.patch, input.expectedUpdatedAt));
   },
 });
 

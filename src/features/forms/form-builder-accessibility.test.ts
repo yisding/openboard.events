@@ -96,8 +96,9 @@ describe("form builder accessibility", () => {
     expect(source).toContain("onClick={requestAvailabilityChange}");
     expect(requestStart).toBeGreaterThan(0);
     expect(source.slice(requestStart, confirmStart)).not.toContain("patchForm(");
-    expect(source.slice(confirmStart, source.indexOf("const section", confirmStart))).toContain("await run(");
+    expect(source.slice(confirmStart, source.indexOf("const section", confirmStart))).toContain("await patchForm(");
     expect(source).toContain('variant={pendingAvailabilityAction === "open" ? "primary" : "destructive"}');
+    expect(source).toContain("confirmDisabled={availabilityRecovery !== null}");
   });
 
   it("keeps a new-question draft open when its save fails", () => {
