@@ -20,6 +20,7 @@ import {
   getReviewerSubmissionDetailIn,
   listAssignableSubmissionsIn,
   listReviewerPlansIn,
+  listReviewHistoryIn,
   listReviewQueueIn,
   planInputSchema,
   recuseAssignmentIn,
@@ -514,6 +515,61 @@ describe("review operations", () => {
     }));
     expect(written).toMatchObject({ complete: true, overallScore: null });
     expect((await getRatingsIn(db, eventId, textOnly)).has(one)).toBe(false);
+  });
+
+  it("retains attributed score revisions with their historical criterion labels", async () => {
+    const planId = await seedPlan({
+      criteria: [{ label: "Relevance", weight: 1, kind: "numeric", required: true }],
+    });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
+    const firstVerdict = verdict({
+      criterionScores: { [criterion?.id ?? ""]: { kind: "numeric", value: 3 } },
+      comment: "Promising, but narrow",
+    });
+
+    await submitReviewIn(db, eventId, planId, one, ada, firstVerdict, AT_OPEN);
+    // A lost-response retry preserves the original completion time and does not
+    // pretend the same verdict was a new historical decision.
+    await submitReviewIn(db, eventId, planId, one, ada, firstVerdict, new Date(AT_OPEN.getTime() + 60_000));
+    expect(await listReviewHistoryIn(db, eventId, one)).toHaveLength(1);
+
+    await savePlanIn(db, eventId, plan({
+      planId,
+      criteria: [{
+        id: criterion?.id,
+        label: "Program fit",
+        weight: 1,
+        kind: "numeric",
+        required: true,
+      }],
+    }));
+    await submitReviewIn(db, eventId, planId, one, ada, verdict({
+      criterionScores: { [criterion?.id ?? ""]: { kind: "numeric", value: 5 } },
+      comment: "Strong fit after the program changed",
+    }), new Date(AT_OPEN.getTime() + 120_000));
+
+    const history = await listReviewHistoryIn(db, eventId, one);
+    expect(history.map((entry) => entry.revision)).toEqual([2, 1]);
+    expect(history[0]).toMatchObject({
+      planName: "Round 1",
+      reviewerName: "Ada Lovelace",
+      reviewerEmail: "ada@example.com",
+      overallScore: 5,
+      complete: true,
+      answers: [{ label: "Program fit", value: "5" }],
+      comment: "Strong fit after the program changed",
+    });
+    expect(history[1]).toMatchObject({
+      overallScore: 3,
+      answers: [{ label: "Relevance", value: "3" }],
+      comment: "Promising, but narrow",
+    });
+    expect(await listReviewHistoryIn(
+      db,
+      eventIdSchema.parse("c5000000-0000-4000-8000-000000000099"),
+      one,
+    )).toEqual([]);
   });
 
   it("rejects a value of the wrong kind, an unknown option, and a number outside its bounds", async () => {

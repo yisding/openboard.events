@@ -227,6 +227,24 @@ export type ReviewQueueDTO = {
   window: ReviewWindow | null;
 };
 
+/** One immutable scorecard revision, as organizers see it on a proposal. */
+export type ReviewHistoryEntry = {
+  id: string;
+  reviewId: string;
+  planId: PlanId;
+  planName: string;
+  reviewerUserId: UserId;
+  reviewerName: string;
+  reviewerEmail: string;
+  revision: number;
+  overallScore: number | null;
+  isAi: boolean;
+  answers: Array<{ criterionId: string; label: string; value: string }>;
+  comment: string | null;
+  complete: boolean;
+  recordedAt: string;
+};
+
 /** What the organizer's assignment picker chooses between. */
 export type AssignableSubmission = {
   submissionId: SubmissionId;

@@ -677,11 +677,9 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
   `);
   const keys = (deleted.rows ?? []).map((row) => row.r2_key);
   if (keys.length > 0) {
-    const bucket = filesBucket();
-    const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
     // The row that held the key is already gone, so a failed delete can never be
     // retried from the database — log the keys or the object is silently stranded.
-    const stranded = keys.filter((_key, index) => results[index]?.status === "rejected");
+    const { stranded } = await deleteObjects(keys);
     if (stranded.length > 0) {
       log({ level: "warn", msg: "r2.cleanup.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
     }
@@ -821,11 +819,7 @@ export async function sweepOrphanStagingObjectsIn(
   const orphanKeys = candidates.filter((key) => !ownedKeys.has(key));
   if (orphanKeys.length === 0) return { deleted: 0, scanned, skipped: false };
 
-  const results = await Promise.allSettled(orphanKeys.map((key) => deleteKey(key)));
-  const stranded = orphanKeys.filter((_key, index) => {
-    const result = results[index];
-    return !result || result.status === "rejected" || result.value === false;
-  });
+  const stranded = await failedDeleteKeys(orphanKeys, deleteKey);
   if (stranded.length > 0) {
     log({ level: "warn", msg: "r2.orphan_sweep.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
   }
@@ -876,8 +870,19 @@ export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
 export async function deleteObjects(keys: readonly string[]): Promise<{ stranded: string[] }> {
   if (keys.length === 0) return { stranded: [] };
   const bucket = filesBucket();
-  const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
-  return { stranded: keys.filter((_key, index) => results[index]?.status === "rejected") };
+  return { stranded: await failedDeleteKeys(keys, (key) => bucket.delete(key)) };
+}
+
+/** Run independent deletes and retain every key whose deletion rejected or explicitly failed. */
+async function failedDeleteKeys(
+  keys: readonly string[],
+  deleteKey: (key: string) => Promise<unknown>,
+): Promise<string[]> {
+  const results = await Promise.allSettled(keys.map((key) => deleteKey(key)));
+  return keys.filter((_key, index) => {
+    const result = results[index];
+    return !result || result.status === "rejected" || result.value === false;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -911,9 +916,7 @@ export async function purgeOrphanedFileAssets(candidateIds: readonly string[]): 
   `);
   const keys = (deleted.rows ?? []).map((row) => row.r2_key);
   if (keys.length === 0) return { deleted: 0 };
-  const bucket = filesBucket();
-  const results = await Promise.allSettled(keys.map((key) => bucket.delete(key)));
-  const stranded = keys.filter((_key, index) => results[index]?.status === "rejected");
+  const { stranded } = await deleteObjects(keys);
   if (stranded.length > 0) {
     log({ level: "warn", msg: "r2.contact_erasure.object_delete_failed", requestId: "gdpr", feature: "uploads", code: stranded.join(",") });
   }
