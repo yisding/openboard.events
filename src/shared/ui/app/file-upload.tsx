@@ -67,7 +67,7 @@ export async function postJson(path: string, body: unknown): Promise<{ ok: boole
   }
   const payload = await response.json().catch(() => null) as { data?: Record<string, unknown>; error?: { message?: string } } | null;
   if (!response.ok || !payload?.data) {
-    return { ok: false, message: payload?.error?.message ?? "Something went wrong" };
+    return { ok: false, message: payload?.error?.message ?? "The upload could not be completed. Try again." };
   }
   return { ok: true, data: payload.data, message: "" };
 }

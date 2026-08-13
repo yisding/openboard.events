@@ -329,6 +329,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       <div className="vocab-add">
         <input
           value={newName}
+          aria-label={`New ${copy.title.toLowerCase().slice(0, -1)} name`}
           placeholder={`Add ${copy.title.toLowerCase().slice(0, -1)}`}
           onChange={(event) => setNewName(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void addItem(); }}

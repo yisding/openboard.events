@@ -170,7 +170,9 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "upload" && (
         <div className="form-stack">
           <p className="long-copy">A row is matched to an existing speaker by normalized email; a new email creates a speaker. No field already filled in is ever overwritten — the preview names every change before anything is written.</p>
-          <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          <Field label="CSV file" required>
+            <input ref={fileInput} type="file" accept=".csv,text/csv" required onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          </Field>
           {error && <p className="field-error" role="alert">{error}</p>}
         </div>
       )}

@@ -31,6 +31,8 @@ describe("authenticated control names", () => {
     const expectations = [
       ["./comms/components/comms-log-table.tsx", '"Search recipients"'],
       ["./comms/components/suppressions-tab.tsx", '"Search suppressed addresses"'],
+      ["./crm/components/contact-detail-view.tsx", '"Search the directory"'],
+      ["./crm/components/pipeline-board.tsx", '"Search the directory"'],
       ["./portal/deliverables/components/files-admin-view.tsx", '"Search deliverables"'],
       ["./portal/tasks-admin/components/tasks-admin-view.tsx", '"Search tasks"'],
     ] as const;
@@ -38,6 +40,17 @@ describe("authenticated control names", () => {
     for (const [path, label] of expectations) {
       const source = parse(path);
       expect(openings(source, "input").some((node) => attribute(source, node, "aria-label") === label), path).toBe(true);
+    }
+  });
+
+  it("names vocabulary creation and CSV file inputs", () => {
+    const vocab = parse("./events/components/vocab-tab.tsx");
+    expect(openings(vocab, "input").some((node) => attribute(vocab, node, "aria-label") === '{`New ${copy.title.toLowerCase().slice(0, -1)} name`}')).toBe(true);
+
+    for (const path of ["./crm/components/crm-import-dialog.tsx", "./portal/components/speakers-admin/speaker-import-dialog.tsx"]) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8");
+      expect(source, path).toContain('<Field label="CSV file" required>');
+      expect(source, path).toContain('accept=".csv,text/csv" required');
     }
   });
 
