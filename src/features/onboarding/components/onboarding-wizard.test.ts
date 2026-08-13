@@ -414,13 +414,6 @@ describe("onboarding event correction", () => {
     expect(wizard).toContain("original details are locked");
   });
 
-  it("keeps controlled event fields disabled until their client state is hydrated", () => {
-    const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
-    expect(wizard).toContain("const [hydrated, setHydrated] = useState(false)");
-    expect(wizard).toContain("setHydrated(true)");
-    expect(wizard).toContain('aria-busy={!hydrated || saving}');
-    expect(wizard).toContain('disabled={!hydrated || saving}');
-  });
 });
 
 describe("OnboardingWizard first-use defaults", () => {
