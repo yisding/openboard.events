@@ -406,6 +406,17 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     }
     completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
     setRecovery(null);
+    // A restored receipt is complete, not a draft waiting to be sent again.
+    // Keep its audience and copy visible, but require a fresh preview/send ID
+    // before another intentional send and mark the visible state as saved.
+    setPreview(null);
+    setSavedDraftFingerprint(bulkMessageDraftFingerprint({
+      workflowStatus,
+      confirmationStatus,
+      subject,
+      bodyHtml,
+      previewSendId: null,
+    }));
     toast("Completed recovery cleared");
   }
 
