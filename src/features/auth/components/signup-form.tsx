@@ -53,6 +53,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
   const next = safeInternalPath(searchParams.get("next"), "/organizations");
   const loginHref = authPathWithNext("/login", next);
   const invitationToken = invitationTokenFromNextPath(next);
+  const startsGuidedSetup = !invitationToken && next === "/organizations";
   const oauthReturnedWithError = googleEnabled && Boolean(searchParams.get("error"));
   const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError);
   const [pending, setPending] = useState<"email" | "google" | null>(null);
@@ -123,7 +124,17 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <h1>{invitationToken ? "Join with Google" : "Set up with Google"}</h1>
     <p>{invitationToken
       ? "Use the Google account that received this invitation. We’ll take you straight to the invited workspace."
-      : "Name your organization, then continue securely with your Google account."}</p>
+      : startsGuidedSetup
+        ? "Name your organization, then continue securely with your Google account."
+        : "Name your organization, then continue securely with Google and return to the page you requested."}</p>
+    <aside className="auth-help auth-signup-path">
+      <b>What happens next</b>
+      <span>{invitationToken
+        ? "Google confirms your identity, then you’ll continue straight to the workspace that invited you."
+        : startsGuidedSetup
+          ? "Google confirms your identity, then guided setup takes you from event details to a shareable CFP."
+          : "Google confirms your identity, creates your workspace, then returns you to the page you requested."}</span>
+    </aside>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
@@ -141,12 +152,16 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <h1>{invitationToken ? "Create your account" : "Create your workspace"}</h1>
     <p>{invitationToken
       ? "Create an Openboard account to securely join the workspace that invited you."
-      : "Start your organization now, then publish your first call for speakers in guided setup."}</p>
+      : startsGuidedSetup
+        ? "Start your organization now, then publish your first call for speakers in guided setup."
+        : "Create your Openboard workspace, then return to the page you requested."}</p>
     <aside className="auth-help auth-signup-path">
       <b>What happens next</b>
       <span>{invitationToken
         ? "Confirm your email, then continue straight to the workspace that invited you."
-        : "Confirm your email, add your event details, and leave with a ready-to-share CFP."}</span>
+        : startsGuidedSetup
+          ? "Confirm your email, add your event details, and leave with a ready-to-share CFP."
+          : "Confirm your email, sign in, and continue where you left off."}</span>
     </aside>
     {googleEnabled && <>
       <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
