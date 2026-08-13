@@ -157,7 +157,7 @@ export async function cfpRequest(path: string, body: unknown, method: "POST" | "
     return {
       ok: false,
       data: {},
-      message: payload?.error?.message ?? "Something went wrong",
+      message: payload?.error?.message ?? "We couldn’t complete that request. Try again.",
       ...(payload?.error?.code ? { code: payload.error.code } : {}),
       ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
       ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),

@@ -394,7 +394,7 @@ export function ContactDetailView({
                 </header>
                 {event.sessions.length > 0 && (
                   <ul>
-                    {event.sessions.map((session) => <li key={session.sessionId}><span>{session.title}</span><span>{session.status}</span></li>)}
+                    {event.sessions.map((session) => <li key={session.sessionId}><span>{session.title}</span><StatusBadge value={session.status} /></li>)}
                   </ul>
                 )}
               </div>

@@ -301,7 +301,7 @@ export function FilesAdminView({
                 </b>
                 <small>
                   {exportJob.status === "completed" && `${exportJob.entryCount} file${exportJob.entryCount === 1 ? "" : "s"} zipped`}
-                  {exportJob.status === "failed" && (exportJob.error ?? "Something went wrong")}
+                  {exportJob.status === "failed" && (exportJob.error ?? "The export could not be prepared. Use the export menu to try again.")}
                   {(exportJob.status === "pending" || exportJob.status === "processing") && "This updates automatically."}
                 </small>
               </p>
