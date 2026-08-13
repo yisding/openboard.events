@@ -109,6 +109,7 @@ describe("OnboardingWizard event step accessibility", () => {
     }));
 
     expect(html).toContain('<form class="cfp-step form-stack"');
+    expect(html).toContain('aria-busy="true"');
     expect(html).toContain('id="onboarding-event-name"');
     expect(html).toContain('name="name"');
     expect(html).toContain('aria-describedby="onboarding-event-slug-help"');
@@ -406,11 +407,19 @@ describe("onboarding event correction", () => {
 
   it("freezes every correlation field and labels the retry honestly", () => {
     const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
-    expect(wizard.match(/disabled=\{saving \|\| eventCreateRecoveryRequired\}/gu)).toHaveLength(6);
+    expect(wizard.match(/disabled=\{!hydrated \|\| saving \|\| eventCreateRecoveryRequired\}/gu)).toHaveLength(6);
     expect(wizard).toContain("eventCreateFieldsRef.current = fields");
     expect(wizard).toContain("Creation could not be confirmed.");
     expect(wizard).toContain("Retry event creation");
     expect(wizard).toContain("original details are locked");
+  });
+
+  it("keeps controlled event fields disabled until their client state is hydrated", () => {
+    const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
+    expect(wizard).toContain("const [hydrated, setHydrated] = useState(false)");
+    expect(wizard).toContain("setHydrated(true)");
+    expect(wizard).toContain('aria-busy={!hydrated || saving}');
+    expect(wizard).toContain('disabled={!hydrated || saving}');
   });
 });
 

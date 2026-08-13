@@ -184,7 +184,7 @@ test.describe("self-service signup to first value", () => {
       });
       await page.getByRole("button", { name: /^create event/i }).click();
 
-      await expect(page.getByRole("alert")).toContainText("Creation could not be confirmed");
+      await expect(page.locator(".field-error")).toHaveText("Creation could not be confirmed.");
       await expect(page.getByRole("button", { name: /retry event creation/i })).toBeVisible();
       await expect(eventNameInput(page)).toBeDisabled();
       await expect(page.getByLabel("Event type")).toBeDisabled();
