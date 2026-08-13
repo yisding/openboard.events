@@ -756,7 +756,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
             <div className="co-speaker-fields" key={participant.clientId}>
               <div className="review-block__header">
                 <h3>{PARTICIPANT_ROLE_LABELS[participant.role]} {coSpeakers.slice(0, index + 1).filter((candidate) => candidate.role === participant.role).length}</h3>
-                <button type="button" className="button button-secondary" onClick={() => removeCoSpeaker(participant.clientId)}>Remove</button>
+                <Button variant="secondary" onClick={() => removeCoSpeaker(participant.clientId)}>Remove</Button>
               </div>
               <FormFieldRenderer
                 snapshot={snapshot}

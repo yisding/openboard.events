@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
-import { Field, Switch } from "@/shared/ui/ui-kit";
+import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
 const captionStyle = { color: "var(--muted)", fontSize: 11.5, margin: "-12px 0 16px" } as const;
@@ -51,12 +51,11 @@ export function NotificationsStep({ form, onChange }: {
             onClick={() => onChange({ sendConfirmation: !form.sendConfirmation })}
           />
         </div>
-        <button
-          type="button"
-          className="button button-secondary"
+        <Button
+          variant="secondary"
           style={{ marginTop: 16 }}
           onClick={() => setExpanded((current) => !current)}
-        >{expanded ? "Hide customization" : "Customize"}</button>
+        >{expanded ? "Hide customization" : "Customize"}</Button>
         {expanded && (
           <div className="form-stack" style={{ marginTop: 16 }}>
             <p style={fallbackNote}>Leave blank to use the event&rsquo;s default template.</p>

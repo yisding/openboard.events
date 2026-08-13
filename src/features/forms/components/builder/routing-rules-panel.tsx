@@ -405,9 +405,9 @@ function RuleEditorBody({
           />
         ))}
       </div>
-      <button type="button" className="button button-ghost add-question" disabled={draft.conditions.length >= 5} onClick={addCondition}>
+      <Button variant="ghost" className="add-question" disabled={draft.conditions.length >= 5} onClick={addCondition}>
         Add condition
-      </button>
+      </Button>
       {draft.conditions.length >= 5 && <small>Up to 5 conditions</small>}
 
       <label className="match-select">

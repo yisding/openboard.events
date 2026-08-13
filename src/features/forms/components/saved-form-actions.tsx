@@ -5,6 +5,7 @@ import { Copy, ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formAvailability, type FormAvailability, type FormOpenStatus } from "@/features/forms/lib/form-open";
 import { copyText, type ClipboardWriter, type CopyFallback } from "@/shared/ui/app/copy-text";
+import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 const AVAILABILITY_GUIDANCE: Record<Exclude<FormAvailability, "live">, string> = {
@@ -137,14 +138,14 @@ export function SavedFormActions({
       >
         Open live form <ExternalLink size={compact ? 14 : 16} />
       </Link>
-      <button
-        className={`button button-secondary${sizeClass}`}
-        type="button"
+      <Button
+        variant="secondary"
+        size={compact ? "sm" : "md"}
         aria-label={`Copy public link: ${formName}`}
         onClick={() => void copyLink()}
       >
         <Copy size={compact ? 14 : 16} /> Copy link
-      </button>
+      </Button>
       {manualUrl && (
         <input
           ref={manualInputRef}

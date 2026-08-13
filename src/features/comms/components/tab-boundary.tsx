@@ -2,6 +2,7 @@
 
 import { AlertTriangle } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { EmptyState } from "@/shared/ui/ui-kit";
 
 /**
  * A broken tab hides its own panel rather than crashing the whole comms page
@@ -22,11 +23,11 @@ export class TabBoundary extends Component<{ children: ReactNode; name: string }
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="empty-state">
-        <div className="empty-icon"><AlertTriangle size={20} /></div>
-        <h3>This tab couldn&apos;t load</h3>
-        <p>Try switching tabs or reloading the page. The rest of Comms is unaffected.</p>
-      </div>
+      <EmptyState
+        icon={<AlertTriangle size={20} />}
+        title="This tab couldn't load"
+        description="Try switching tabs or reloading the page. The rest of Comms is unaffected."
+      />
     );
   }
 }

@@ -3,7 +3,7 @@
 import { CheckCircle2, ClipboardCheck, FileText, Upload } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { EmptyState, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { formatCode } from "@/features/submissions/index.client";
 import { taskHref } from "@/features/portal/lib/task-href";
@@ -142,15 +142,13 @@ export function TaskList({
 
       <div id="task-panel" role="tabpanel" aria-labelledby={`task-tab-${tab}`}>
       {shown.length === 0 ? (
-        <div className="empty-state">
-          <ClipboardCheck size={28} />
-          <h3>{counts.all === 0 ? "Nothing is needed from you yet" : "Nothing here right now"}</h3>
-          <p>
-            {counts.all === 0
-              ? "When the team needs something — a bio, a headshot, your slides — it will appear here."
-              : "Try another tab or filter; your other tasks are still there."}
-          </p>
-        </div>
+        <EmptyState
+          icon={<ClipboardCheck size={28} />}
+          title={counts.all === 0 ? "Nothing is needed from you yet" : "Nothing here right now"}
+          description={counts.all === 0
+            ? "When the team needs something — a bio, a headshot, your slides — it will appear here."
+            : "Try another tab or filter; your other tasks are still there."}
+        />
       ) : (
         <div className="portal-task-board">
           {mine.length > 0 && (

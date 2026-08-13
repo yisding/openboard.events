@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Clock3, Copy, ExternalLink, FilePlus2, Rocket, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { formatInZone } from "@/shared/lib/time";
 import type { DashboardOverview } from "../index";
@@ -92,7 +93,7 @@ function CopyablePublicLink({ path }: { path: string }) {
         value={publicUrl}
         onFocus={(event) => event.currentTarget.select()}
       />
-      <button className="button button-primary" type="button" onClick={() => void copyLink()}><Copy size={15} /> Copy link</button>
+      <Button onClick={() => void copyLink()}><Copy size={15} /> Copy link</Button>
     </div>
   );
 }
