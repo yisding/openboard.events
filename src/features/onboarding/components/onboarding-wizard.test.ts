@@ -118,6 +118,8 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('type="submit"');
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('class="sr-only">Step 1: Event details</h2>');
+    expect(html).toContain("Guided setup");
+    expect(html).toContain("Step 1 of 4 · Completed steps are saved, so you can return anytime.");
     expect(html).toContain('<summary>Customize public URL</summary>');
   });
 
@@ -144,6 +146,8 @@ describe("OnboardingWizard event step accessibility", () => {
     }));
 
     expect(html).toContain('class="sr-only">Step 2: Tracks</h2>');
+    expect(html).toContain("Progress restored");
+    expect(html).toContain("Step 2 of 4 · Completed steps are saved, so you can return anytime.");
     expect(html).toContain("Tracks help organize submissions");
     expect(html).toContain('aria-label="Event details, completed"');
     expect(html).toContain("AI");

@@ -62,6 +62,15 @@ describe("authentication destination continuity", () => {
     expect(html).not.toContain("Organization name");
   });
 
+  it("explains the Google invitation handoff after an OAuth recovery", () => {
+    navigation.searchParams = new URLSearchParams("error=access_denied&next=%2Fjoin%3Ftoken%3Dinvite-123");
+    const html = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(html).toContain("Join with Google");
+    expect(html).toContain("Google confirms your identity, then you’ll continue straight to the workspace that invited you.");
+    expect(html).not.toContain("Organization name");
+  });
+
   it("explains activation and lets email users verify the password they typed", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
@@ -80,6 +89,21 @@ describe("authentication destination continuity", () => {
     expect(html).toContain("Start your organization now, then publish your first call for speakers in guided setup.");
     expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share CFP.");
     expect(html).toContain("Organization name");
+  });
+
+  it("describes a preserved protected destination without promising guided setup", () => {
+    navigation.searchParams = new URLSearchParams("next=%2Fevents%2Fevent-123%2Freview");
+    const email = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(email).toContain("Create your Openboard workspace, then return to the page you requested.");
+    expect(email).toContain("Confirm your email, sign in, and continue where you left off.");
+    expect(email).not.toContain("add your event details");
+
+    navigation.searchParams = new URLSearchParams("error=access_denied&next=%2Fevents%2Fevent-123%2Freview");
+    const google = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(google).toContain("Google confirms your identity, creates your workspace, then returns you to the page you requested.");
+    expect(google).not.toContain("guided setup takes you");
   });
 
   it("reveals the password on request and hides it again after changing signup methods", async () => {
@@ -105,6 +129,7 @@ describe("authentication destination continuity", () => {
       const continueWithGoogle = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Continue with Google"));
       await act(async () => continueWithGoogle?.click());
+      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable CFP.");
       const useEmail = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Use email instead"));
       await act(async () => useEmail?.click());
