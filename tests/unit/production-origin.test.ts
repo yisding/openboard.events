@@ -14,15 +14,18 @@ describe("canonical production origin", () => {
     const deploy = source("scripts/deploy-cloudflare.sh");
     const wrangler = source("wrangler.jsonc");
     const readme = source("README.md");
+    // The deploy quickstart moved from the README to the developer docs.
+    const development = source("docs/development.md");
 
     expect(uptime).toContain(`UPTIME_PRODUCTION_URL || '${productionOrigin}'`);
     expect(deploy).toContain(`production) expected_app_base_url="${productionOrigin}"`);
     expect(wrangler).toContain(`"BETTER_AUTH_URL": "${productionOrigin}"`);
-    expect(readme).toContain(`export APP_BASE_URL=${productionOrigin}`);
+    expect(development).toContain(`export APP_BASE_URL=${productionOrigin}`);
 
     expect(uptime).not.toContain(retiredWorkerOrigin);
     expect(deploy).not.toContain(retiredWorkerOrigin);
     expect(wrangler).not.toContain(retiredWorkerOrigin);
     expect(readme).not.toContain(retiredWorkerOrigin);
+    expect(development).not.toContain(retiredWorkerOrigin);
   });
 });
