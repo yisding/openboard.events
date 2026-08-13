@@ -57,7 +57,7 @@ export function PortalHomeWidgets({
     <div className="portal-container portal-page">
       <header className="portal-page-header">
         <span className="public-eyebrow">SPEAKER PORTAL</span>
-        <h1>{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</h1>
+        <h1>{firstName ? `Welcome, ${firstName}` : "Welcome"}</h1>
         <p>Everything the organizers need from you, in one place.</p>
       </header>
 

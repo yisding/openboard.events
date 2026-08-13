@@ -50,6 +50,22 @@ describe("PublicSessions", () => {
     expect(html).not.toContain("<p>Agents</p>");
   });
 
+  it("omits missing descriptions and rooms instead of publishing placeholders", () => {
+    const session = PUBLISHED_SCHEDULE_FIXTURE.sessions[0];
+    if (!session) throw new Error("fixture must carry a session");
+    const schedule = {
+      ...PUBLISHED_SCHEDULE_FIXTURE,
+      sessions: [{ ...session, descriptionHtml: null, room: null }],
+    };
+    const html = renderToStaticMarkup(React.createElement(PublicSessions, {
+      eventSlug: "openboard-summit",
+      schedule,
+    }));
+
+    expect(html).not.toContain("No description yet");
+    expect(html).not.toContain("session-detail-empty");
+  });
+
   it("narrows to a single session with a track+format+location combination that excludes it", () => {
     const html = renderToStaticMarkup(React.createElement(PublicSessions, {
       eventSlug: "openboard-summit",

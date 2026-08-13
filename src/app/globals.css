@@ -216,6 +216,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .landing-nav { height: 78px; display: flex; align-items: center; justify-content: space-between; position: relative; z-index: 5; }
 .landing-links { display: flex; align-items: center; gap: 24px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .landing-links > a:not(.button):hover { color: var(--accent-dark); }
+.landing-mobile-nav { display: none; position: relative; }
+.landing-mobile-nav > button { width: 38px; height: 38px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); place-items: center; cursor: pointer; }
+.landing-mobile-links { position: fixed; top: 65px; right: 14px; width: min(250px, calc(100vw - 28px)); padding: 8px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.landing-mobile-links a { min-height: 42px; padding: 0 12px; display: flex; align-items: center; border-radius: 7px; color: var(--ink); }
+.landing-mobile-links a:hover { background: var(--accent-faint); color: var(--accent-dark); }
 .hero { min-height: 690px; display: grid; grid-template-columns: .92fr 1.08fr; gap: 64px; align-items: center; padding-block: 64px 96px; position: relative; }
 .hero::before { content: ""; position: absolute; width: 620px; height: 620px; left: -410px; top: 30px; border-radius: 50%; background: radial-gradient(circle, rgba(0,168,120,.09), transparent 68%); pointer-events: none; }
 .hero-copy { position: relative; z-index: 2; }
@@ -689,12 +694,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      the fixed menu button. Recorded in design-system.md T4. */
   .topbar { padding-left: 64px; }.search-trigger { width: 44px; height: 44px; }.search-trigger span, .search-trigger kbd, .save-indicator { display: none; }
   .dashboard-grid { grid-template-columns: 1fr; }.speaker-attention, .quick-actions { grid-column: 1; grid-row: auto; }
-  /* Keep authentication discoverable on compact layouts. The section and
-     sample links are repeated in the hero immediately below, but "Sign in"
-     has no other direct entry point for an existing anonymous user. */
+  /* Keep every landing destination discoverable without crowding the brand
+     and primary workspace action into an overflowing row. */
   .landing-links > a:not(.button) { display: none; }
+  .landing-links > .button-secondary { display: none; }
   .landing-links { gap: 8px; }
   .landing-links .button-primary svg { display: none; }
+  .landing-mobile-nav { display: block; }
+  .landing-mobile-nav > button { width: 44px; height: 44px; display: grid; }
 }
 
 @media (max-width: 768px) {
@@ -902,7 +909,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* Public schedule/gallery: clickable rows, the session-detail accordion, and
    the speaker-detail takeover (M32 real published-view queries). */
-.schedule-time-group article{cursor:pointer}
+.schedule-time-group article.session-has-details{cursor:pointer}
+.schedule-time-group article:not(.session-has-details):hover{box-shadow:none;border-color:var(--line)}
 .session-detail{padding:16px 16px 24px;border:1px solid var(--line);border-top:0;margin-top:-1px;border-radius:0 0 9px 9px;background:var(--surface-raised)}
 .session-detail-empty{color:var(--muted);font-size:11px;display:flex;align-items:center;gap:6px}
 .session-detail-speakers{list-style:none;padding:0;margin:16px 0 0;display:flex;flex-wrap:wrap;gap:16px}
