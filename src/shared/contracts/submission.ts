@@ -97,6 +97,7 @@ export const createSubmissionInputSchema = z.object({
   kind: z.enum(["abstract", "session"]),
   initialStatus: submissionStatusSchema.optional(),
   submitterContactId: contactIdSchema.nullable(),
+  requestedSubmissionId: submissionIdSchema.nullable().optional(),
   draftSubmissionId: submissionIdSchema.nullable().optional(),
   fields: z.object({
     title: z.string(),

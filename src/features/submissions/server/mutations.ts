@@ -235,6 +235,33 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
   `).then((result) => result.rows ?? []);
   if (!event) throw new AppError("NOT_FOUND", "Event not found");
 
+  // Organizer-created abstracts have no speaker draft to promote, so their
+  // client-generated row id is the replay key. The event lock above serializes
+  // concurrent retries; a committed first attempt is returned before another
+  // code, participant set, or tag set can be allocated.
+  if (input.requestedSubmissionId) {
+    if (input.source !== "manual") {
+      throw new AppError("VALIDATION", "Only organizer-created abstracts can supply a creation request ID");
+    }
+    const replay = (await tx.execute<{ event_id: string; code: number; status: SubmissionStatus; source: string }>(sql`
+      SELECT event_id, code, status, source
+      FROM submissions
+      WHERE id = ${input.requestedSubmissionId}
+      FOR UPDATE
+    `)).rows?.[0];
+    if (replay) {
+      if (replay.event_id !== eventId || replay.source !== "manual") {
+        throw new AppError("CONFLICT", "That abstract creation request was already used");
+      }
+      return {
+        submissionId: input.requestedSubmissionId,
+        code: Number(replay.code),
+        status: replay.status,
+        promotedFromDraft: false,
+      };
+    }
+  }
+
   // Idempotency precedes mutable deadline and limit gates. A response can be
   // lost after commit; retrying that exact draft must return the committed row,
   // even if the form closed or the first submit consumed the final slot.
@@ -309,6 +336,7 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
   } else {
     code = await nextSubmissionCode(tx, eventId);
     const [inserted] = await tx.insert(submissions).values({
+      ...(input.requestedSubmissionId ? { id: input.requestedSubmissionId } : {}),
       eventId,
       formId: input.formId,
       formVersion: input.formVersion,

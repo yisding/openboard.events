@@ -6,6 +6,7 @@ import {
   contactIdSchema,
   formatIdSchema,
   participantRoleSchema,
+  submissionIdSchema,
   tagIdSchema,
   trackIdSchema,
 } from "@/shared/contracts";
@@ -23,6 +24,9 @@ import {
  * (#117) — it used to hardcode `participants: []`.
  */
 export const manualAbstractSchema = z.object({
+  // Optional during rollout so an already-open organizer tab still works.
+  // Current clients always send it and use it as their idempotency key.
+  id: submissionIdSchema.optional(),
   title: z.string().trim().min(1).max(LIMITS.TITLE),
   status: z.enum(["pending", "accept_queue", "decline_queue", "accepted", "declined"]).default("pending"),
   descriptionHtml: z.string().max(100_000).nullable().default(null),
@@ -78,6 +82,7 @@ export function toCreateSubmissionInput(input: ManualAbstractInput): CreateSubmi
     kind: "abstract",
     initialStatus: input.status,
     submitterContactId: null,
+    requestedSubmissionId: input.id ?? null,
     // `sortOrder` is the order the organizer listed them in; the primary is
     // whichever row says so, not whichever row happens to be first.
     participants: input.participants.map((participant, index) => ({
