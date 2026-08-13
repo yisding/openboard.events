@@ -4,7 +4,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarDays } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
-import { isAppError } from "@/shared/lib/errors";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
@@ -126,7 +125,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         : `${result.changed} session${result.changed === 1 ? "" : "s"} ${published ? "published" : "unpublished"}${result.emailsQueued > 0 ? `, ${result.emailsQueued} speaker email${result.emailsQueued === 1 ? "" : "s"} queued` : ""}`);
       return true;
     } catch (caught) {
-      toast(bulkPublishFailureMessage(published, isAppError(caught) ? caught.message : undefined), { kind: "error" });
+      toast(bulkPublishFailureMessage(published, caught), { kind: "error" });
       return false;
     }
   };
