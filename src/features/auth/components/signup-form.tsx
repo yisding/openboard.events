@@ -124,6 +124,12 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <p>{invitationToken
       ? "Use the Google account that received this invitation. We’ll take you straight to the invited workspace."
       : "Name your organization, then continue securely with your Google account."}</p>
+    <aside className="auth-help auth-signup-path">
+      <b>What happens next</b>
+      <span>{invitationToken
+        ? "Google confirms your identity, then you’ll continue straight to the workspace that invited you."
+        : "Google confirms your identity, then guided setup takes you from event details to a shareable CFP."}</span>
+    </aside>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}

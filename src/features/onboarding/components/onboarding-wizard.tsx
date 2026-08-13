@@ -695,6 +695,10 @@ export function OnboardingWizard({
         })}
       </ol>
       <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
+      {step < 4 && <p className="onboarding-progress-note">
+        <b>{initialState ? "Progress restored" : "Guided setup"}</b>
+        <span>Step {step} of 4 · Completed steps are saved, so you can return anytime.</span>
+      </p>}
 
       {step === 1 && (
         <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void saveEventStep(); }}>

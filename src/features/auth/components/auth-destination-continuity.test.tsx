@@ -62,6 +62,15 @@ describe("authentication destination continuity", () => {
     expect(html).not.toContain("Organization name");
   });
 
+  it("explains the Google invitation handoff after an OAuth recovery", () => {
+    navigation.searchParams = new URLSearchParams("error=access_denied&next=%2Fjoin%3Ftoken%3Dinvite-123");
+    const html = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(html).toContain("Join with Google");
+    expect(html).toContain("Google confirms your identity, then you’ll continue straight to the workspace that invited you.");
+    expect(html).not.toContain("Organization name");
+  });
+
   it("explains activation and lets email users verify the password they typed", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
@@ -105,6 +114,7 @@ describe("authentication destination continuity", () => {
       const continueWithGoogle = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Continue with Google"));
       await act(async () => continueWithGoogle?.click());
+      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable CFP.");
       const useEmail = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Use email instead"));
       await act(async () => useEmail?.click());
