@@ -106,9 +106,10 @@ the real database-backed surfaces.
   now have accessible remove actions and a consequence-confirmation step. The
   wizard blocks conflicting progress while a delete is pending, reconciles a
   lost or malformed response by replaying the idempotent delete before reading
-  the authoritative server list, and blocks progress behind an explicit retry if neither request can establish the
-  saved state. The protected first-user journey exercises add, confirm remove,
-  re-add, and continue before publishing the first form.
+  the authoritative server list, and blocks progress behind an explicit retry
+  if neither request can establish the saved state. Focused tests cover these
+  failure paths; the protected first-user journey exercises the successful add,
+  confirm remove, re-add, and continue path before publishing the first form.
 
 ## Remaining launch gaps, in priority order
 

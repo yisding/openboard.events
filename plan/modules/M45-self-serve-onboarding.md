@@ -39,7 +39,7 @@ still records the signature for M10-style e2e authorship.
 
 ## Acceptance criteria
 
-Proven (PGlite, code-complete):
+Proven (automated, code-complete):
 
 1. `provisionOrganizationEventIn` creates the event scoped to the calling organization, not the
    default organization (`src/features/onboarding/server/provisioning.test.ts:77`).
@@ -51,21 +51,23 @@ Proven (PGlite, code-complete):
    the usage counter for every event that was allowed through before the block
    (`:121`).
 5. `pnpm exec vitest run src/features/onboarding/server/provisioning.test.ts` is green (5/5).
+6. Track removal confirms that existing submissions become unassigned and routing rules are
+   disabled. Focused client tests prove confirmed deletion, idempotent replay after a lost
+   response, definitive refusal, final absence, causally unordered presence, and fully failed
+   reconciliation (`src/features/onboarding/components/onboarding-wizard.test.ts`).
 
 Deployed evidence — **automated, protected run outstanding**:
 
-6. Walk the full 4-step wizard (basics → vocabulary/tracks → default CFP form → shareable link) on
+7. Walk the full 4-step wizard (basics → vocabulary/tracks → default CFP form → shareable link) on
    the deployed preview as a freshly onboarded organization admin, then complete
    the generated CFP as a real OTP-authenticated speaker and see that proposal
    arrive back in the organizer dashboard. The spec also removes and re-adds a
    suggested track in step 2, proving that accidental setup choices are
-   recoverable without leaving onboarding. Removal confirms its effects on
-   existing submissions and routing rules and replays an ambiguous idempotent
-   delete before the wizard can continue.
-7. Confirm the resulting public CFP link is reachable, hides empty optional
+   recoverable without leaving onboarding on the successful delivery path.
+8. Confirm the resulting public CFP link is reachable, hides empty optional
    vocabulary controls, accepts a real submission, returns its SESS reference,
    and produces the organizer's first-submission dashboard handoff.
-8. Confirm the un-disabled "New event" button on M11's events list correctly routes into this
+9. Confirm the un-disabled "New event" button on M11's events list correctly routes into this
    wizard rather than the old disabled state. The protected browser spec covers the first-event
    route and completed-handoff reload; its first preview run awaits `E2E_RESEND_API_KEY`.
 
