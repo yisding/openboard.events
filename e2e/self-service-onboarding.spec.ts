@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { eventDayKey, formatDayKeyInZone } from "../src/shared/lib/time";
 import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
 import { queryRows, withDatabase } from "./helpers/db";
 import {
@@ -12,9 +13,50 @@ import {
   targetConfigured,
 } from "./helpers/env";
 
-function localInput(daysFromNow: number, time: string): string {
-  const date = new Date(Date.now() + daysFromNow * 86_400_000);
-  return `${date.toISOString().slice(0, 10)}T${time}`;
+const ONBOARDING_TIMEZONE = "America/Los_Angeles";
+
+function addCalendarDays(dayKey: string, days: number): string {
+  const date = new Date(`${dayKey}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function eventNameInput(page: Page) {
+  return page.getByRole("textbox", { name: /^Event name\s*\*?$/u });
+}
+
+function eventDateTimeInput(page: Page, label: "Starts" | "Ends") {
+  return page.getByRole("combobox", { name: new RegExp(`^${label}\\b`, "u") });
+}
+
+async function chooseEventDateTime(page: Page, label: "Starts" | "Ends", daysFromNow: number, time: string): Promise<void> {
+  const currentDay = eventDayKey(new Date(), ONBOARDING_TIMEZONE);
+  const targetDay = addCalendarDays(currentDay, daysFromNow);
+  const currentYear = Number(currentDay.slice(0, 4));
+  const currentMonth = Number(currentDay.slice(5, 7));
+  const targetYear = Number(targetDay.slice(0, 4));
+  const targetMonth = Number(targetDay.slice(5, 7));
+  const monthDelta = (targetYear - currentYear) * 12 + targetMonth - currentMonth;
+  const [hour, minute] = time.split(":").map(Number);
+  const input = eventDateTimeInput(page, label);
+
+  await input.click();
+  const picker = page.getByRole("dialog", { name: "Choose a date and time" });
+  await expect(picker).toBeVisible();
+  for (let month = 0; month < monthDelta; month += 1) {
+    await picker.getByRole("button", { name: "Next month", exact: true }).click();
+  }
+  const targetDayName = formatDayKeyInZone(targetDay, ONBOARDING_TIMEZONE, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  await picker.getByRole("button", { name: targetDayName, exact: true }).click();
+  await picker.getByLabel("Hour", { exact: true }).selectOption(String(hour));
+  await picker.getByLabel("Minute", { exact: true }).selectOption(String(minute));
+  await picker.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(input).not.toHaveValue("");
 }
 
 /**
@@ -120,9 +162,9 @@ test.describe("self-service signup to first value", () => {
     });
 
     await test.step("create the first event and tracks", async () => {
-      await page.getByLabel("Event name").fill(eventName);
-      await page.getByLabel("Starts").fill(localInput(30, "09:00"));
-      await page.getByLabel("Ends").fill(localInput(31, "17:00"));
+      await eventNameInput(page).fill(eventName);
+      await chooseEventDateTime(page, "Starts", 30, "09:00");
+      await chooseEventDateTime(page, "Ends", 31, "17:00");
       const createPayloads: unknown[] = [];
       let dropFirstCreateResponse = true;
       await page.route("**/api/internal/organizations/*/onboarding/event", async (route) => {
@@ -138,11 +180,11 @@ test.describe("self-service signup to first value", () => {
 
       await expect(page.getByRole("alert")).toContainText("Creation could not be confirmed");
       await expect(page.getByRole("button", { name: /retry event creation/i })).toBeVisible();
-      await expect(page.getByLabel("Event name")).toBeDisabled();
+      await expect(eventNameInput(page)).toBeDisabled();
       await expect(page.getByLabel("Event type")).toBeDisabled();
       await expect(page.getByLabel("Timezone")).toBeDisabled();
-      await expect(page.getByLabel("Starts")).toBeDisabled();
-      await expect(page.getByLabel("Ends")).toBeDisabled();
+      await expect(eventDateTimeInput(page, "Starts")).toBeDisabled();
+      await expect(eventDateTimeInput(page, "Ends")).toBeDisabled();
       const committedAfterLostResponse = await queryRows<{ id: string }>(`
         SELECT event.id
         FROM events event
@@ -163,8 +205,8 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
       await page.getByRole("button", { name: "Edit event details" }).click();
       await expect(page.getByRole("heading", { name: "Step 1: Event details" })).toBeVisible();
-      await expect(page.getByLabel("Event name")).toHaveValue(eventName);
-      await page.getByLabel("Event name").fill(correctedEventName);
+      await expect(eventNameInput(page)).toHaveValue(eventName);
+      await eventNameInput(page).fill(correctedEventName);
       const correctedResponse = page.waitForResponse((response) =>
         /\/api\/internal\/events\/[0-9a-f-]{36}$/.test(new URL(response.url()).pathname)
         && response.request().method() === "PATCH");
