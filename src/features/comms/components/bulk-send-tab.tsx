@@ -21,6 +21,7 @@ import {
 } from "@/shared/contracts";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import {
   bulkSendPreviewFingerprint,
@@ -35,6 +36,22 @@ import { templateVariablePaths } from "./sample-vars";
 import { unknownTokensClientSide } from "./validate-client";
 
 const KEY = "speaker_bulk_message" as const;
+
+export function bulkMessageDraftFingerprint(input: {
+  workflowStatus: readonly SpeakerWorkflowStatus[];
+  confirmationStatus: readonly ConfirmationStatus[];
+  subject: string;
+  bodyHtml: string;
+  previewSendId?: string | null;
+}): string {
+  return JSON.stringify({
+    workflowStatus: [...input.workflowStatus].sort(),
+    confirmationStatus: [...input.confirmationStatus].sort(),
+    subject: input.subject,
+    bodyHtml: input.bodyHtml,
+    previewSendId: input.previewSendId ?? null,
+  });
+}
 
 function humanize(value: string): string {
   return value.replaceAll("_", " ");
@@ -65,11 +82,28 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [previewContactId, setPreviewContactId] = useState<ContactId | "">("");
   const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string; attempt: BulkSendAttempt } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
   const [focusTarget, setFocusTarget] = useState<"subject" | "body">("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const resolveGeneration = useRef(0);
+
+  const currentDraftFingerprint = useMemo(() => bulkMessageDraftFingerprint({
+    workflowStatus,
+    confirmationStatus,
+    subject,
+    bodyHtml,
+    previewSendId: preview?.attempt.sendId,
+  }), [bodyHtml, confirmationStatus, preview?.attempt.sendId, subject, workflowStatus]);
+  const [savedDraftFingerprint, setSavedDraftFingerprint] = useState(() => bulkMessageDraftFingerprint({
+    workflowStatus: [],
+    confirmationStatus: [],
+    subject: "",
+    bodyHtml: "",
+  }));
+  const draftDirty = currentDraftFingerprint !== savedDraftFingerprint;
+  useUnsavedWorkGuard(draftDirty);
 
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
@@ -187,6 +221,15 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const sent = mergeBulkSendResults(results);
       completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
       setResult(sent);
+      // Keep the completed message visible as a receipt, but it is no longer
+      // an unsent draft that should block navigation.
+      setSavedDraftFingerprint(bulkMessageDraftFingerprint({
+        workflowStatus,
+        confirmationStatus,
+        subject,
+        bodyHtml,
+        previewSendId: null,
+      }));
       // A completed attempt needs a fresh preview (and therefore a fresh
       // send id) before the organizer can intentionally send it again.
       setPreview(null);
@@ -200,6 +243,26 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       toast("Could not send this message", { kind: "error" });
       return false;
     }
+  }
+
+  function discardDraft() {
+    resolveGeneration.current += 1;
+    setWorkflowStatus([]);
+    setConfirmationStatus([]);
+    setSegment(null);
+    setSubject("");
+    setBodyHtml("");
+    setPreviewContactId("");
+    setPreview(null);
+    setResult(null);
+    setConfirmSend(false);
+    setConfirmDiscard(false);
+    setSavedDraftFingerprint(bulkMessageDraftFingerprint({
+      workflowStatus: [],
+      confirmationStatus: [],
+      subject: "",
+      bodyHtml: "",
+    }));
   }
 
   return (
@@ -272,6 +335,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               </Field>
             )}
             <div className="bulk-send-actions">
+              {draftDirty && <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>Discard draft</Button>}
               <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || segment?.capped || !previewContactId || compose.isPending}>Preview message</Button>
               <Button onClick={() => setConfirmSend(true)} disabled={!canSend || compose.isPending}>{segment?.capped ? "Refine segment to send" : `Send to ${segment?.contactIds.length ?? 0} recipient${segment?.contactIds.length === 1 ? "" : "s"}`}</Button>
             </div>
@@ -306,6 +370,15 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         confirmLabel="Send"
         onConfirm={async () => { if (await onSend()) setConfirmSend(false); }}
         onCancel={() => setConfirmSend(false)}
+      />
+      <ConfirmDialog
+        open={confirmDiscard}
+        variant="destructive"
+        title="Discard this bulk email draft?"
+        body="The selected audience, subject, message, and preview will be cleared. This cannot be undone."
+        confirmLabel="Discard draft"
+        onConfirm={discardDraft}
+        onCancel={() => setConfirmDiscard(false)}
       />
     </div>
   );
