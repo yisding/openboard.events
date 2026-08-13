@@ -31,16 +31,16 @@ export const idem = {
   // outbox.
   adminAuthLink: (eventId: EventId, templateKey: "admin_password_reset" | "admin_email_verification", userId: UserId, linkId: string) =>
     `${eventId}:${templateKey}:${userId}:${linkId}`,
-  // M44. `eventId` is the organization's routing event (`homeEventId` in
-  // `features/organizations/server/invitations.ts`, the same "oldest
-  // membership" trick `adminAuthLink` above uses one scope down), never the
-  // organization id itself — the outbox row it stamps is always addressed
-  // through an event and a contact. `sendId` is one fresh value per "invite" /
-  // "resend" click, so a resend enqueues a new row instead of colliding with
-  // (and silently no-op'ing against) the first one on `idempotency_key`'s
-  // unique index.
+  // M44's legacy event-scoped invitation key. Kept for already-queued rows
+  // created before organization invitations moved to the product outbox.
   organizationInvited: (eventId: EventId, invitationId: OrganizationInvitationId, sendId: string) =>
     `${eventId}:organization_invited:${invitationId}:${sendId}`,
+  // Product-scoped organization invitations cannot depend on an event: a new
+  // workspace must be able to invite its team before creating its first one.
+  // Keep the invitation id in segment 2 so delivery can reject a revoked or
+  // superseded token immediately before handing the message to the provider.
+  platformOrganizationInvited: (invitationId: OrganizationInvitationId, messageId: string) =>
+    `platform:organization_invited:${invitationId}:${messageId}`,
 } as const;
 
 // Assignments are lazy view rows with no PK — keys are composed from the

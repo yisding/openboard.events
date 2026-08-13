@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmailTemplateRow } from "@/features/comms";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
-import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useSaveTemplate, useTemplates } from "../hooks/use-templates";
 import { useTemplatePreview } from "../hooks/use-template-preview";
+import { MessagePreview } from "./message-preview";
 import { templateVariablePaths } from "./sample-vars";
 import { unknownTokensClientSide } from "./validate-client";
 
@@ -187,21 +187,20 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
               </Button>
             </div>
           </div>
-          <aside className="template-editor__preview" aria-live="polite">
-            <header className="template-preview-heading">
-              <span>LIVE PREVIEW</span>
-              <small>Updates as you type</small>
-            </header>
-            {unknownTokens.length > 0 && <p className="template-preview-status">Fix the unknown variable to see a preview.</p>}
-            {unknownTokens.length === 0 && preview.isPending && <p className="template-preview-status">Rendering…</p>}
-            {unknownTokens.length === 0 && preview.data && (
-              <article className="template-preview-message">
-                <b>{preview.data.subject || "(empty subject)"}</b>
-                <RichTextView html={preview.data.html} />
-              </article>
-            )}
-            {unknownTokens.length === 0 && preview.isError && <p className="template-preview-status">Preview unavailable.</p>}
-          </aside>
+          <MessagePreview
+            label="LIVE PREVIEW"
+            hint="Updates as you type"
+            message={unknownTokens.length === 0 && preview.data
+              ? { subject: preview.data.subject, bodyHtml: preview.data.html }
+              : undefined}
+            status={unknownTokens.length > 0
+              ? "Fix the unknown variable to see a preview."
+              : preview.isPending
+                ? "Rendering…"
+                : preview.isError
+                  ? "Preview unavailable."
+                  : undefined}
+          />
         </div>
       </div>
     </div>

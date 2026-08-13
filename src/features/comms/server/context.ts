@@ -24,12 +24,9 @@ export function isAdminAuthTemplate(key: TemplateKey): boolean {
 }
 
 /**
- * M44 — team invitations. Grouped separately from `isAdminAuthTemplate`
- * because the two mint their credential differently (a fresh bearer token at
- * *render* time here, vs. a sealed payload opened from what was already
- * minted at enqueue time there — see `issueOrganizationInvitationTokenIn`'s
- * doc comment) even though both share the same "no speaker-portal magic
- * link" treatment below.
+ * M44 legacy event-scoped team invitations. New invitations use the encrypted
+ * product outbox; this branch remains so rows queued before that migration can
+ * still render without a speaker-portal credential.
  */
 export function isOrganizationInviteTemplate(key: TemplateKey): boolean {
   return key === "organization_invited";
@@ -232,9 +229,8 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     if (!linkId) throw new AppError("VALIDATION", "admin auth idempotency key is malformed");
     adminLink = await openAdminLinkPayload(row.secretPayloadCiphertext, { eventId, contactId, linkId }, env.SESSION_SECRET);
   } else if (isOrganizationInviteTemplate(row.templateKey)) {
-    // M44 — mint the join token fresh at render time; see
-    // `issueOrganizationInvitationTokenIn`'s doc comment for why this reads
-    // as "no sealed payload" rather than an oversight.
+    // M44 legacy compatibility: mint the join token for an event-scoped row
+    // queued before product-level invitation delivery existed.
     const invitationId = organizationInvitationIdSchema.safeParse(row.idempotencyKey.split(":")[2]);
     if (!invitationId.success) throw new AppError("VALIDATION", "organization invite idempotency key is malformed");
     const issued = await issueOrganizationInvitationTokenIn(dbOrTx, invitationId.data);

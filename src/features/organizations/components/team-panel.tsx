@@ -98,7 +98,7 @@ export function TeamPanel({
         body: { email, role: inviteRole },
       });
       setInvitations((current) => [created.invitation, ...current.filter((row) => row.email !== created.invitation.email)]);
-      toast(created.emailQueued ? `Invitation sent to ${email}` : `Invitation created for ${email} — no event to mail it from yet`);
+      toast(created.emailQueued ? `Invitation sent to ${email}` : `Invitation queued for ${email}`);
       setInviting(false);
       setInviteEmail("");
       setInviteRole("organizer");

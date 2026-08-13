@@ -36,13 +36,16 @@ describe("event creation entry points", () => {
     expect(html).toContain("Ask an organization owner or organizer for event access");
   });
 
-  it("keeps the old URL and API as compatibility doors into the canonical flow", () => {
+  it("keeps the direct URL and API as compatibility doors into the canonical flow", () => {
     const newPage = readFileSync(new URL("../../../app/events/new/page.tsx", import.meta.url), "utf8");
     const eventsRoute = readFileSync(new URL("../../../app/api/internal/events/route.ts", import.meta.url), "utf8");
     const eventLayout = readFileSync(new URL("../../../app/events/[eventId]/layout.tsx", import.meta.url), "utf8");
     const eventSwitcher = readFileSync(new URL("./event-switcher.tsx", import.meta.url), "utf8");
 
-    expect(newPage).toContain("redirect(eventCreationDestination(memberships))");
+    expect(newPage).toContain('.filter(({ role }) => roleSatisfies(role, "organizer"))');
+    expect(newPage).toContain("memberships.length === 1 && only");
+    expect(newPage).toContain("Choose the workspace that should own this event.");
+    expect(newPage).toContain("`/organizations/${only.organization.id}/onboarding`");
     expect(newPage).not.toContain("<EventForm");
     expect(eventsRoute).toContain("provisionEventForActor(actorId, input)");
     expect(eventsRoute).not.toContain("createEvent(actorId");

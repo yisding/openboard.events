@@ -226,14 +226,14 @@ export function AssignmentDrawer({
             <section>
               <h3>Reviewers</h3>
               {plan.reviewers.map((reviewer) => (
-                <label key={reviewer.userId} className="reviewer-assignment">
+                <label key={reviewer.userId} className="assignment-choice">
                   <input
                     type="checkbox"
                     checked={reviewerIds.includes(reviewer.userId)}
                     disabled={controlsDisabled}
                     onChange={() => setReviewerIds((current) => toggle(current, reviewer.userId))}
                   />
-                  <b>{reviewer.name || reviewer.email}</b>{" "}
+                  <b>{reviewer.name || reviewer.email}</b>
                   <small>{reviewer.completed}/{reviewer.assigned} done{reviewer.recused > 0 ? ` · ${reviewer.recused} recused` : ""}</small>
                 </label>
               ))}
@@ -262,14 +262,14 @@ export function AssignmentDrawer({
             {selected.length} submission{selected.length === 1 ? "" : "s"} selected from {visible.length} shown.
           </p>
           {visible.map((submission) => (
-            <label key={submission.submissionId} className="reviewer-assignment">
+            <label key={submission.submissionId} className="assignment-choice">
               <input
                 type="checkbox"
                 checked={selected.includes(submission.submissionId)}
                 disabled={controlsDisabled}
                 onChange={() => setSelected((current) => toggle(current, submission.submissionId))}
               />
-              <b>{formatCode(submission.code)} {submission.title}</b>{" "}
+              <b>{formatCode(submission.code)} {submission.title}</b>
               <small>{submission.trackName ?? "Uncategorized"} · {submission.assignedTo.length} assigned</small>
             </label>
           ))}

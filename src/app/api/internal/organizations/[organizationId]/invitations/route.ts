@@ -1,6 +1,7 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { organizationAuth } from "@/features/auth";
+import { nudgeAdminAuthEmailOutbox, organizationAuth } from "@/features/auth";
 import { inviteOrganizationMember, inviteOrganizationMemberInputSchema, listPendingOrganizationInvitations } from "@/features/organizations";
 import { organizationIdSchema, userIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -34,6 +35,17 @@ export function GET(request: NextRequest, route: Route): Promise<Response> {
   return list(request, route);
 }
 
-export function POST(request: NextRequest, route: Route): Promise<Response> {
-  return invite(request, route);
+export async function POST(request: NextRequest, route: Route): Promise<Response> {
+  const response = await invite(request, route);
+  if (response.ok) {
+    // Invitation acceptance is a short-lived credential flow. Start delivery
+    // immediately; the durable product outbox and cron remain the guarantee.
+    try {
+      const ctx = getCloudflareContext().ctx;
+      nudgeAdminAuthEmailOutbox(ctx.waitUntil.bind(ctx));
+    } catch {
+      // No Worker context under next dev/unit tests; cron still drains it.
+    }
+  }
+  return response;
 }

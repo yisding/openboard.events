@@ -94,7 +94,9 @@ one visibility rule, one routing rule) → set deadline and per-user limit → p
 **Current state:** the public landing and sign-in screens lead into self-service account creation.
 Email or explicit Google signup provisions the named workspace and continues directly into M45's
 durable guided event setup: details → optional tracks → persistent CFP form → shareable public
-link. Google sign-in cannot silently create a workspace for an unknown identity. Preview and
+link. Every later Create event entry uses the same organization-scoped guide; a customer with
+several workspaces chooses the owner explicitly instead of relying on an inferred default.
+Google sign-in cannot silently create a workspace for an unknown identity. Preview and
 copy-link actions use the same published form a speaker receives, and the dashboard guides the
 organizer until its first proposal arrives.
 
