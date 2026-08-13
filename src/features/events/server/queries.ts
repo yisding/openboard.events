@@ -1,14 +1,16 @@
-import { and, asc, eq, exists, or, sql } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { eventMembers, events, organizationMembers, rooms, sessionFormats, tags, tracks } from "@/db/schema";
+import { eventMembers, events, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
   eventDtoSchema,
+  memberRoleSchema,
   roomDtoSchema,
   sessionFormatDtoSchema,
   tagDtoSchema,
   trackDtoSchema,
   type EventDTO,
   type EventId,
+  type EventAccessDTO,
   type RoomDTO,
   type SessionFormatDTO,
   type TagDTO,
@@ -86,34 +88,20 @@ export const getEventBySlug = (slug: string): Promise<EventDTO | null> => getEve
  * self-serve signup went live it meant a stranger could enumerate every
  * customer's event roster with one signup.
  *
- * The scope is the union of the two memberships the app already authorizes
- * against, and nothing wider:
- *
- * - `event_members` — the row `requireAdmin` reads. Someone who can open an
- *   event must be able to see it in the switcher.
- * - `organization_members` — the row `authorizeOrganization` reads. An
- *   organization's own team sees its events even before anyone grants them
- *   per-event membership, which is what makes the invite-then-assign flow
- *   (M44) usable.
- *
- * It deliberately does *not* widen event access: this is a list query, and
- * every event-scoped route still goes through `requireAdmin`, which reads
- * `event_members` and nothing else.
+ * The hub is an actionable list, not the broader organization directory, so
+ * it follows the same `event_members` authority as `requireAdmin`. Workspace
+ * membership alone belongs on the organization page, where inaccessible
+ * events are rendered explicitly as locked instead of as links that fail.
  */
-export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId): Promise<EventDTO[]> {
-  const memberOfEvent = dbOrTx.select({ one: sql`1` })
+export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId): Promise<EventAccessDTO[]> {
+  const rows = await dbOrTx.select({ event: events, role: eventMembers.role })
     .from(eventMembers)
-    .where(and(eq(eventMembers.eventId, events.id), eq(eventMembers.userId, userId)));
-  const memberOfOrganization = dbOrTx.select({ one: sql`1` })
-    .from(organizationMembers)
-    .where(and(eq(organizationMembers.organizationId, events.organizationId), eq(organizationMembers.userId, userId)));
-  const rows = await dbOrTx.select()
-    .from(events)
-    .where(or(exists(memberOfEvent), exists(memberOfOrganization)))
+    .innerJoin(events, eq(events.id, eventMembers.eventId))
+    .where(eq(eventMembers.userId, userId))
     .orderBy(asc(events.startsAt), asc(events.id));
-  return rows.map(toEventDto);
+  return rows.map((row) => ({ ...toEventDto(row.event), role: memberRoleSchema.parse(row.role) }));
 }
-export const listEvents = (userId: UserId): Promise<EventDTO[]> => listEventsIn(db, userId);
+export const listEvents = (userId: UserId): Promise<EventAccessDTO[]> => listEventsIn(db, userId);
 
 export async function listTracksIn(dbOrTx: DbOrTx, eventId: EventId): Promise<TrackDTO[]> {
   const rows = await dbOrTx.select().from(tracks).where(eq(tracks.eventId, eventId)).orderBy(asc(tracks.sortOrder), asc(tracks.id));

@@ -13,11 +13,13 @@ export {
   createOrganizationInputSchema,
   inviteOrganizationMemberInputSchema,
   organizationMemberInputSchema,
+  eventAccessRoleInputSchema,
   type AcceptOrganizationInvitationInput,
   type ChangeOrganizationMemberRoleInput,
   type CreateOrganizationInput,
   type InviteOrganizationMemberInput,
   type OrganizationMemberInput,
+  type EventAccessRoleInput,
 } from "./schemas";
 
 export { eventCreationDestination, manageableOrganizations } from "./event-creation";
@@ -32,6 +34,8 @@ export {
   getOrganizationMemberRole,
   getOrganizationMemberRoleIn,
   listOrganizationEvents,
+  listOrganizationEventsForUser,
+  listOrganizationEventsForUserIn,
   listOrganizationEventsIn,
   listOrganizationMemberIdsIn,
   listOrganizationMembers,
@@ -40,9 +44,24 @@ export {
   listOrganizationsForUserIn,
   resolvePrimaryOrganization,
   resolvePrimaryOrganizationIn,
+  type OrganizationEventAccessRow,
   type OrganizationEventRow,
   type OrganizationMembership,
 } from "./server/queries";
+
+export {
+  listEventAccessMembers,
+  listEventAccessMembersIn,
+  listManageableEventAccessForMember,
+  listManageableEventAccessForMemberIn,
+  removeExplicitEventAccess,
+  removeExplicitEventAccessIn,
+  removeEventAccessMember,
+  removeEventAccessMemberIn,
+  setExplicitEventAccess,
+  setExplicitEventAccessIn,
+  type AssignableEventRole,
+} from "./server/event-access";
 
 export {
   assignEventToOrganization,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { memberRoleSchema } from "./enums";
 import { eventIdSchema, fileIdSchema, formatIdSchema, roomIdSchema, tagIdSchema, trackIdSchema } from "./ids";
 
 const iso = z.iso.datetime();
@@ -21,6 +22,10 @@ export const eventDtoSchema = z.object({
   rowVersion: z.int().positive(),
 });
 export type EventDTO = z.infer<typeof eventDtoSchema>;
+
+/** An event the current actor can actually open, plus its event-scoped role. */
+export const eventAccessDtoSchema = eventDtoSchema.extend({ role: memberRoleSchema });
+export type EventAccessDTO = z.infer<typeof eventAccessDtoSchema>;
 
 export const trackDtoSchema = z.object({ id: trackIdSchema, name: z.string(), color: z.string(), description: z.string().nullable(), sortOrder: z.int() });
 export const roomDtoSchema = z.object({ id: roomIdSchema, name: z.string(), capacity: z.int().nullable(), sortOrder: z.int() });

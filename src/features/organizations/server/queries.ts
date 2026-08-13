@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { events, organizationMembers, organizations, users } from "@/db/schema";
+import { eventMembers, events, organizationMembers, organizations, users } from "@/db/schema";
 import {
   eventIdSchema,
   organizationDtoSchema,
@@ -107,6 +107,13 @@ export async function listOrganizationMembersIn(dbOrTx: DbOrTx, organizationId: 
     createdAt: organizationMembers.createdAt,
     email: users.email,
     name: users.name,
+    eventAccessCount: sql<number>`(
+      SELECT count(*)::int
+      FROM event_members member_access
+      JOIN events member_event ON member_event.id = member_access.event_id
+      WHERE member_access.user_id = ${organizationMembers.userId}
+        AND member_event.organization_id = ${organizationId}
+    )`,
   })
     .from(organizationMembers)
     .innerJoin(users, eq(users.id, organizationMembers.userId))
@@ -118,6 +125,7 @@ export async function listOrganizationMembersIn(dbOrTx: DbOrTx, organizationId: 
     email: row.email,
     name: row.name,
     role: row.role,
+    eventAccessCount: row.eventAccessCount,
     createdAt: row.createdAt.toISOString(),
   }));
 }
@@ -141,6 +149,7 @@ export const getOrganizationMemberRole = (organizationId: OrganizationId, userId
  * producer of that frozen contract to change in lockstep.
  */
 export type OrganizationEventRow = { id: EventId; name: string; slug: string; startsAt: string; endsAt: string };
+export type OrganizationEventAccessRow = OrganizationEventRow & { eventRole: MemberRole | null };
 
 export async function listOrganizationEventsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationEventRow[]> {
   const rows = await dbOrTx.select({
@@ -163,6 +172,40 @@ export async function listOrganizationEventsIn(dbOrTx: DbOrTx, organizationId: O
 }
 export const listOrganizationEvents = (organizationId: OrganizationId): Promise<OrganizationEventRow[]> =>
   listOrganizationEventsIn(db, organizationId);
+
+/**
+ * The complete workspace directory with the caller's separate event access.
+ * A null role is intentionally retained so the UI can show a truthful locked
+ * card without either hiding the organization event or widening access.
+ */
+export async function listOrganizationEventsForUserIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  userId: UserId,
+): Promise<OrganizationEventAccessRow[]> {
+  const rows = await dbOrTx.select({
+    id: events.id,
+    name: events.name,
+    slug: events.slug,
+    startsAt: events.startsAt,
+    endsAt: events.endsAt,
+    eventRole: eventMembers.role,
+  })
+    .from(events)
+    .leftJoin(eventMembers, and(eq(eventMembers.eventId, events.id), eq(eventMembers.userId, userId)))
+    .where(eq(events.organizationId, organizationId))
+    .orderBy(asc(events.startsAt), asc(events.name));
+  return rows.map((row) => ({
+    id: eventIdSchema.parse(row.id),
+    name: row.name,
+    slug: row.slug,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    eventRole: row.eventRole,
+  }));
+}
+export const listOrganizationEventsForUser = (organizationId: OrganizationId, userId: UserId): Promise<OrganizationEventAccessRow[]> =>
+  listOrganizationEventsForUserIn(db, organizationId, userId);
 
 /**
  * The event -> organization link, read on its own rather than folded into

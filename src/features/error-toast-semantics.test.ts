@@ -67,7 +67,7 @@ describe("audited mutation failure toasts", () => {
       ["./auth/components/sessions-panel.tsx", 2],
       ["./dashboard/components/ApiKeysPanel.tsx", 3],
       ["./forms/components/builder/routing-rules-panel.tsx", 4],
-      ["./organizations/components/team-panel.tsx", 4],
+      ["./organizations/components/team-panel.tsx", 6],
       ["./portal/resources/components/resource-page-editor.tsx", 4],
     ] as const) {
       const source = parse(path);

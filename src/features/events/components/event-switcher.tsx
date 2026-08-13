@@ -4,7 +4,8 @@ import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
-import { eventDtoSchema, type EventDTO, type EventId } from "@/shared/contracts";
+import { eventAccessDtoSchema, type EventAccessDTO, type EventId, type MemberRole } from "@/shared/contracts";
+import { eventManagementHref } from "@/features/events/access";
 import { api } from "@/shared/lib/api-client";
 import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
@@ -14,6 +15,7 @@ type SwitcherEvent = {
   startsAt: string;
   endsAt: string;
   timezone: string;
+  role?: MemberRole;
 };
 
 function initials(name: string): string {
@@ -39,7 +41,7 @@ export function EventSwitcher({
   canCreateEvent: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
+  const [remoteEvents, setRemoteEvents] = useState<EventAccessDTO[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,7 +52,7 @@ export function EventSwitcher({
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
     let cancelled = false;
-    void api("events", z.array(eventDtoSchema))
+    void api("events", z.array(eventAccessDtoSchema))
       .then((nextEvents) => {
         if (!cancelled) setRemoteEvents(nextEvents);
       })
@@ -121,7 +123,7 @@ export function EventSwitcher({
           {events?.map((event) => (
             <Link
               key={event.id}
-              href={`/events/${event.id}/dashboard`}
+              href={eventManagementHref(event.id as EventId, event.role ?? "organizer") ?? "/events"}
               onClick={() => setOpen(false)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 7, textDecoration: "none",

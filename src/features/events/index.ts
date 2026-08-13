@@ -65,3 +65,4 @@ export {
 } from "./server/mutations";
 
 export { eventsHubAuth } from "./server/guards";
+export { eventManagementHref } from "./access";

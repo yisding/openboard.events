@@ -1,12 +1,16 @@
 "use client";
 
-import { Mail, UserPlus, Users } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { KeyRound, Mail, UserPlus, Users } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { z } from "zod";
 import {
   organizationInvitationDtoSchema,
+  manageableEventAccessDtoSchema,
+  memberRoleSchema,
   organizationMemberDtoSchema,
+  eventIdSchema,
+  type ManageableEventAccessDTO,
   type MemberRole,
   type OrganizationId,
   type OrganizationInvitationDTO,
@@ -29,12 +33,15 @@ const ROLES: MemberRole[] = ["owner", "organizer", "reviewer"];
 // assignable from what the server actually returns.
 const revokedSchema = z.object({ revoked: z.boolean() });
 const removedSchema = z.object({ removed: z.boolean() });
+const eventAccessResultSchema = z.object({ eventId: eventIdSchema, role: memberRoleSchema });
+type AssignableEventRole = "organizer" | "reviewer";
 
 /**
  * M44 — role management UI over M43's `organization_members`, plus team
  * invitations through the outbox. One panel, two tables: pending invitations
  * are the top half of the same story members are the bottom half of — who
- * can act on this organization, whether they have accepted yet or not.
+ * can enter this organization workspace, whether they have accepted yet or
+ * not. Event access remains an explicit, event-scoped grant.
  */
 export function TeamPanel({
   organizationId,
@@ -58,6 +65,14 @@ export function TeamPanel({
   const [busy, setBusy] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<OrganizationMemberDTO | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<OrganizationInvitationDTO | null>(null);
+  const [accessMember, setAccessMember] = useState<OrganizationMemberDTO | null>(null);
+  const [eventAccess, setEventAccess] = useState<ManageableEventAccessDTO[]>([]);
+  const [eventAccessDraft, setEventAccessDraft] = useState<Record<string, AssignableEventRole>>({});
+  const [eventAccessLoading, setEventAccessLoading] = useState(false);
+  const [eventAccessBusy, setEventAccessBusy] = useState<string | null>(null);
+  const [eventAccessError, setEventAccessError] = useState("");
+  const [pendingAccessRemoval, setPendingAccessRemoval] = useState<ManageableEventAccessDTO | null>(null);
+  const eventAccessRequest = useRef(0);
 
   const canManage = currentRole === "owner" || currentRole === "organizer";
 
@@ -73,6 +88,87 @@ export function TeamPanel({
       toast(isAppError(caught) ? caught.message : "That role change failed", { kind: "error" });
     }
   }, [members, organizationId, toast]);
+
+  const openEventAccess = useCallback(async (member: OrganizationMemberDTO) => {
+    const request = eventAccessRequest.current + 1;
+    eventAccessRequest.current = request;
+    setAccessMember(member);
+    setEventAccess([]);
+    setEventAccessError("");
+    setEventAccessLoading(true);
+    try {
+      const rows = await api(
+        `organizations/${organizationId}/members/${member.userId}/event-access`,
+        z.array(manageableEventAccessDtoSchema),
+      );
+      if (eventAccessRequest.current !== request) return;
+      setEventAccess(rows);
+      setEventAccessDraft(Object.fromEntries(rows.map((row) => [
+        row.eventId,
+        row.role === "reviewer" ? "reviewer" : "organizer",
+      ])));
+    } catch (caught) {
+      if (eventAccessRequest.current !== request) return;
+      setEventAccessError(isAppError(caught) ? caught.message : "Event access could not be loaded");
+    } finally {
+      if (eventAccessRequest.current === request) setEventAccessLoading(false);
+    }
+  }, [organizationId]);
+
+  function closeEventAccess() {
+    eventAccessRequest.current += 1;
+    setAccessMember(null);
+    setEventAccessLoading(false);
+  }
+
+  async function saveEventAccess(row: ManageableEventAccessDTO) {
+    if (!accessMember || eventAccessBusy) return;
+    const requestedRole = eventAccessDraft[row.eventId] ?? "reviewer";
+    setEventAccessBusy(row.eventId);
+    try {
+      const updated = await api(
+        `organizations/${organizationId}/members/${accessMember.userId}/event-access/${row.eventId}`,
+        eventAccessResultSchema,
+        { method: "PATCH", body: { role: requestedRole } },
+      );
+      setEventAccess((current) => current.map((entry) => entry.eventId === row.eventId ? { ...entry, role: updated.role } : entry));
+      setEventAccessDraft((current) => ({ ...current, [row.eventId]: updated.role === "reviewer" ? "reviewer" : "organizer" }));
+      if (!row.role) {
+        setMembers((current) => current.map((member) => member.userId === accessMember.userId
+          ? { ...member, eventAccessCount: member.eventAccessCount + 1 }
+          : member));
+      }
+      toast(`${accessMember.email} now has ${updated.role} access to ${row.eventName}`);
+    } catch (caught) {
+      toast(isAppError(caught) ? caught.message : "That event access change failed", { kind: "error" });
+    } finally {
+      setEventAccessBusy(null);
+    }
+  }
+
+  async function removeEventAccess() {
+    if (!accessMember || !pendingAccessRemoval || eventAccessBusy) return;
+    const row = pendingAccessRemoval;
+    setEventAccessBusy(row.eventId);
+    try {
+      await api(
+        `organizations/${organizationId}/members/${accessMember.userId}/event-access/${row.eventId}`,
+        removedSchema,
+        { method: "DELETE" },
+      );
+      setEventAccess((current) => current.map((entry) => entry.eventId === row.eventId ? { ...entry, role: null } : entry));
+      setEventAccessDraft((current) => ({ ...current, [row.eventId]: "reviewer" }));
+      setMembers((current) => current.map((member) => member.userId === accessMember.userId
+        ? { ...member, eventAccessCount: Math.max(0, member.eventAccessCount - 1) }
+        : member));
+      toast(`${accessMember.email} no longer has access to ${row.eventName}`);
+      setPendingAccessRemoval(null);
+    } catch (caught) {
+      toast(isAppError(caught) ? caught.message : "That event access removal failed", { kind: "error" });
+    } finally {
+      setEventAccessBusy(null);
+    }
+  }
 
   async function confirmRemove() {
     if (!pendingRemove) return;
@@ -141,10 +237,15 @@ export function TeamPanel({
       header: "",
       meta: { className: "organization-member-actions" },
       cell: ({ row }) => canManage
-        ? <Button variant="danger" size="sm" onClick={() => setPendingRemove(row.original)} disabled={row.original.userId === currentUserId}>Remove</Button>
+        ? <div className="team-member-actions">
+            {row.original.userId !== currentUserId && (
+              <Button variant="secondary" size="sm" onClick={() => void openEventAccess(row.original)}><KeyRound size={14} /> Event access</Button>
+            )}
+            <Button variant="danger" size="sm" onClick={() => setPendingRemove(row.original)} disabled={row.original.userId === currentUserId}>Remove</Button>
+          </div>
         : null,
     },
-  ], [canManage, currentUserId, currentRole, changeRole]);
+  ], [canManage, currentUserId, currentRole, changeRole, openEventAccess]);
 
   const invitationColumns = useMemo<Array<ColumnDef<OrganizationInvitationDTO, unknown>>>(() => [
     { id: "email", header: "Invited", accessorKey: "email" },
@@ -157,7 +258,7 @@ export function TeamPanel({
     <section className="panel settings-section organization-members-section">
       <header>
         <h2><Users size={16} /> Members</h2>
-        <p>Everyone who can sign in and act on this organization&apos;s events.</p>
+        <p>Everyone who can access this organization workspace. Access to each event is assigned separately.</p>
       </header>
       <DataTable
         columns={memberColumns}
@@ -177,7 +278,7 @@ export function TeamPanel({
         data={invitations}
         getRowId={(invitation) => invitation.id}
         toolbar={canManage ? <Button size="sm" onClick={() => setInviting(true)}><UserPlus size={15} /> Invite teammate</Button> : undefined}
-        empty={<EmptyState icon={<Mail size={20} />} title="No pending invitations" description="Invite a teammate to give them access to this organization." />}
+        empty={<EmptyState icon={<Mail size={20} />} title="No pending invitations" description="Invite a teammate to this workspace. Event owners grant access to specific events separately." />}
       />
     </section>
 
@@ -185,7 +286,7 @@ export function TeamPanel({
       open={inviting}
       onClose={() => (busy ? undefined : setInviting(false))}
       title="Invite a teammate"
-      description="They'll get an email with a link to join. Ownership is transferred later, not invited."
+      description="They'll get an email with a link to join this workspace. This invitation does not grant access to any event."
       footer={<>
         <Button variant="secondary" onClick={() => setInviting(false)} disabled={busy}>Cancel</Button>
         <Button onClick={() => void sendInvite()} disabled={busy || !inviteEmail.trim()}>{busy ? "Sending…" : "Send invitation"}</Button>
@@ -199,13 +300,69 @@ export function TeamPanel({
           <option value="organizer">Organizer</option>
           <option value="reviewer">Reviewer</option>
         </Select>
+        <small>This role controls organization access only; it does not add them to any event.</small>
       </Field>
+    </Modal>
+
+    <Modal
+      open={accessMember !== null && pendingAccessRemoval === null}
+      onClose={() => (eventAccessBusy ? undefined : closeEventAccess())}
+      title={`Event access for ${accessMember?.name || accessMember?.email || "teammate"}`}
+      description="Organization membership and event access are separate. You can manage only events where you are already an organizer."
+      wide
+      footer={<Button variant="secondary" disabled={Boolean(eventAccessBusy)} onClick={closeEventAccess}>Done</Button>}
+    >
+      {eventAccessLoading && <p className="loading-note" role="status">Loading manageable events…</p>}
+      {eventAccessError && <p className="field-error" role="alert">{eventAccessError}</p>}
+      {!eventAccessLoading && !eventAccessError && eventAccess.length === 0 && (
+        <EmptyState
+          icon={<KeyRound size={20} />}
+          title="No manageable events"
+          description="You must be an organizer of an event before you can grant another teammate access to it."
+        />
+      )}
+      {eventAccess.length > 0 && (
+        <div className="team-event-access-list">
+          {eventAccess.map((row) => {
+            const desired = eventAccessDraft[row.eventId] ?? "reviewer";
+            const accessOperationBusy = eventAccessBusy !== null;
+            const savingThisRow = eventAccessBusy === row.eventId;
+            return (
+              <article key={row.eventId}>
+                <div>
+                  <b>{row.eventName}</b>
+                  <small>{row.role ? `Current access: ${row.role}` : "No event access"}</small>
+                </div>
+                {row.role === "owner"
+                  ? <><StatusBadge value="owner" /><small>Ownership is managed inside the event.</small></>
+                  : <>
+                      <Select
+                        aria-label={`Role for ${row.eventName}`}
+                        value={desired}
+                        disabled={accessOperationBusy}
+                        onChange={(event) => setEventAccessDraft((current) => ({ ...current, [row.eventId]: event.target.value as AssignableEventRole }))}
+                      >
+                        <option value="reviewer" disabled={row.role === "organizer"}>Reviewer</option>
+                        <option value="organizer">Organizer</option>
+                      </Select>
+                      <Button size="sm" disabled={accessOperationBusy || row.role === desired} onClick={() => void saveEventAccess(row)}>
+                        {savingThisRow ? "Saving…" : row.role ? "Update" : "Grant access"}
+                      </Button>
+                      {row.role && <Button size="sm" variant="danger" disabled={accessOperationBusy} onClick={() => setPendingAccessRemoval(row)}>Remove access</Button>}
+                    </>}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </Modal>
 
     <ConfirmDialog
       open={pendingRemove !== null}
       title={`Remove ${pendingRemove?.email ?? "this member"}?`}
-      body="They lose access to every event in this organization immediately. This cannot be undone."
+      body={pendingRemove && pendingRemove.eventAccessCount > 0
+        ? `They lose access to this organization workspace, but retain access to ${pendingRemove.eventAccessCount} event${pendingRemove.eventAccessCount === 1 ? "" : "s"}. Review Settings → Access in each event to revoke it.`
+        : "They lose access to this organization workspace. They have no separately granted event access in this organization."}
       confirmLabel="Remove"
       onConfirm={() => void confirmRemove()}
       onCancel={() => setPendingRemove(null)}
@@ -217,6 +374,14 @@ export function TeamPanel({
       confirmLabel="Revoke"
       onConfirm={() => void confirmRevoke()}
       onCancel={() => setPendingRevoke(null)}
+    />
+    <ConfirmDialog
+      open={pendingAccessRemoval !== null}
+      title={`Remove access to ${pendingAccessRemoval?.eventName ?? "this event"}?`}
+      body={`${accessMember?.email ?? "This teammate"} will no longer be able to open this event. Their organization membership is unchanged.`}
+      confirmLabel="Remove event access"
+      onConfirm={removeEventAccess}
+      onCancel={() => setPendingAccessRemoval(null)}
     />
   </>;
 }

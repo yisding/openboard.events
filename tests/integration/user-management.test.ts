@@ -201,6 +201,11 @@ describe("M44 user management", () => {
 
     it("accepts a token only for the identity whose email it was sent to, and only once", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Accept Co", slug: "accept-co" });
+      const invitedEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000098");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at) VALUES($1,$2,'Invitation Scope Conf','invitation-scope-conf','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z')",
+        [invitedEventId, org.id],
+      );
       await pglite.query(
         "INSERT INTO users(id,email,name) VALUES($1,'invitee@example.com','Invitee')",
         [userIdSchema.parse("e4400000-0000-4000-8000-000000000099")],
@@ -218,6 +223,11 @@ describe("M44 user management", () => {
         const accepted = await acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: inviteeId, email: "invitee@example.com" });
         expect(accepted).toMatchObject({ organizationId: org.id, role: "reviewer" });
         await expect(getOrganizationMemberRoleIn(db, org.id, inviteeId)).resolves.toBe("reviewer");
+        const eventMemberships = await pglite.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM event_members WHERE event_id=$1 AND user_id=$2",
+          [invitedEventId, inviteeId],
+        );
+        expect(eventMemberships.rows[0]?.count).toBe(0);
 
         // A second accept of the same token fails — it is no longer pending.
         await expect(acceptOrganizationInvitationByTokenIn(db, issued.raw, { userId: inviteeId, email: "invitee@example.com" }))
@@ -226,6 +236,7 @@ describe("M44 user management", () => {
         const audits = await listOrganizationAuditLogIn(db, org.id);
         expect(audits.some((entry) => entry.action === "invitation.accepted" && entry.targetUserId === inviteeId)).toBe(true);
       } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [invitedEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });
@@ -278,17 +289,32 @@ describe("M44 user management", () => {
 
     it("lets an organizer remove a non-owner, but refuses to remove an owner", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Remove Co", slug: "remove-co" });
+      const independentlyAssignedEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000097");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at) VALUES($1,$2,'Independent Access Conf','independent-access-conf','2026-11-15T16:00:00Z','2026-11-17T01:00:00Z')",
+        [independentlyAssignedEventId, org.id],
+      );
       await setOrganizationMemberIn(db, org.id, organizerId, "organizer");
       await setOrganizationMemberIn(db, org.id, reviewerId, "reviewer");
+      await pglite.query(
+        "INSERT INTO event_members(event_id,user_id,role) VALUES($1,$2,'reviewer')",
+        [independentlyAssignedEventId, reviewerId],
+      );
       try {
         await removeOrganizationMemberAuditedIn(db, org.id, organizerId, "organizer", reviewerId);
         await expect(getOrganizationMemberRoleIn(db, org.id, reviewerId)).resolves.toBeNull();
+        const eventMembership = await pglite.query<{ role: string }>(
+          "SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2",
+          [independentlyAssignedEventId, reviewerId],
+        );
+        expect(eventMembership.rows).toEqual([{ role: "reviewer" }]);
 
         await expect(removeOrganizationMemberAuditedIn(db, org.id, organizerId, "organizer", ownerId)).rejects.toMatchObject({ code: "FORBIDDEN" });
 
         const audits = await listOrganizationAuditLogIn(db, org.id);
         expect(audits.some((entry) => entry.action === "member.removed" && entry.targetUserId === reviewerId)).toBe(true);
       } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [independentlyAssignedEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });

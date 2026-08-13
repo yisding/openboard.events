@@ -1,13 +1,13 @@
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import type { EventDTO } from "@/shared/contracts";
+import type { EventAccessDTO } from "@/shared/contracts";
 import { Brand } from "@/shared/ui/brand";
 import { Button, EmptyState } from "@/shared/ui/ui-kit";
 import { EventCard } from "./event-card";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 /** The real, server-backed `/events` list — `listEvents()` rows, no demo store. */
-export function EventsView({ events, user, createHref }: { events: EventDTO[]; user: { name: string; email: string }; createHref: string | null }) {
+export function EventsView({ events, user, createHref, hasOrganizations }: { events: EventAccessDTO[]; user: { name: string; email: string }; createHref: string | null; hasOrganizations: boolean }) {
   const accountName = user.name.trim() || user.email;
   const initials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "OB";
   return (
@@ -38,12 +38,18 @@ export function EventsView({ events, user, createHref }: { events: EventDTO[]; u
             title={createHref ? "Create your first event" : "No events assigned"}
             description={createHref
               ? "An event holds its own tracks, rooms, formats, tags, forms and program."
-              : "No events are assigned to you yet. Ask an organization owner or organizer for event access."}
-            action={createHref ? <Link href={createHref}><Button>Create event</Button></Link> : undefined}
+              : hasOrganizations
+                ? "You have workspace access, but no events are assigned to you yet."
+                : "Ask an administrator to add you to an organization and assign an event."}
+            action={createHref
+              ? <Link href={createHref}><Button>Create event</Button></Link>
+              : hasOrganizations
+                ? <Link href="/organizations"><Button variant="secondary">View organization directory</Button></Link>
+                : undefined}
           />
         ) : (
           <div className="event-grid">
-            {events.map((event) => <EventCard key={event.id} event={event} />)}
+            {events.map((event) => <EventCard key={event.id} event={event} eventRole={event.role} />)}
           </div>
         )}
       </section>

@@ -1,12 +1,14 @@
-import { ArrowRight, CalendarDays, MapPin } from "lucide-react";
+import { ArrowRight, CalendarDays, LockKeyhole, MapPin } from "lucide-react";
 import Link from "next/link";
-import type { EventDTO } from "@/shared/contracts";
+import type { EventDTO, MemberRole } from "@/shared/contracts";
+import { eventManagementHref } from "@/features/events/access";
 import { eventInitials } from "@/shared/lib/event-label";
 import { formatDateRangeInZone } from "@/shared/lib/time";
 
-export function EventCard({ event }: { event: EventDTO }) {
+export function EventCard({ event, eventRole }: { event: EventDTO; eventRole: MemberRole | null }) {
+  const managementHref = eventManagementHref(event.id, eventRole);
   return (
-    <article className="event-card">
+    <article className={`event-card${managementHref ? "" : " event-card-locked"}`}>
       {/* The cover carries a monogram, not the name again: printing the name
           in both the cover and the <h2> gave the card two nodes with the same
           text, so the event had no single accessible name and any strict
@@ -32,9 +34,16 @@ export function EventCard({ event }: { event: EventDTO }) {
           )}
           <span>/{event.slug}</span>
         </div>
-        <Link href={`/events/${event.id}/dashboard`} className="button button-secondary event-open">
-          Open event <ArrowRight size={16} />
-        </Link>
+        {managementHref ? (
+          <Link href={managementHref} className="button button-secondary event-open">
+            {eventRole === "reviewer" ? "Open review queue" : "Open event"} <ArrowRight size={16} />
+          </Link>
+        ) : (
+          <div className="event-access-locked" role="note">
+            <LockKeyhole size={16} aria-hidden="true" />
+            <span><b>Event access not assigned</b><small>You can see this event in the organization directory. Ask an event owner for access.</small></span>
+          </div>
+        )}
       </div>
     </article>
   );

@@ -16,6 +16,7 @@ describe("event creation entry points", () => {
       events={[]}
       user={{ name: "Ada Organizer", email: "ada@example.test" }}
       createHref="/organizations/30000000-0000-4000-8000-000000000001/onboarding"
+      hasOrganizations
     />);
 
     expect(html.match(/Create event/g)).toHaveLength(2);
@@ -28,12 +29,13 @@ describe("event creation entry points", () => {
       events={[]}
       user={{ name: "Rae Reviewer", email: "rae@example.test" }}
       createHref={null}
+      hasOrganizations
     />);
 
     expect(html).not.toContain("Create event");
     expect(html).toContain("No events assigned");
-    expect(html).toContain("No events are assigned to you yet");
-    expect(html).toContain("Ask an organization owner or organizer for event access");
+    expect(html).toContain("You have workspace access, but no events are assigned to you yet.");
+    expect(html).toContain("View organization directory");
   });
 
   it("keeps the direct URL and API as compatibility doors into the canonical flow", () => {
