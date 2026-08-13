@@ -133,26 +133,34 @@ const formAvailabilityAuthoritySchema = z.object({
   currentVersion: z.int().positive(),
   updatedAt: z.iso.datetime(),
 });
-type FormAvailabilityAuthority = z.infer<typeof formAvailabilityAuthoritySchema>;
 type FormAvailabilityRecovery = {
   action: FormAvailabilityAction;
   expectedUpdatedAt: string;
 };
 
-/** Accept authoritative lifecycle metadata without replacing local authoring drafts. */
-export function mergeFormAvailabilityAuthority(local: BuilderForm, server: FormAvailabilityAuthority): BuilderForm {
-  if (local.id !== server.id || local.eventId !== server.eventId || local.context !== server.context) {
+/** Accept the full server form, then restore only editor targets still dirty locally. */
+export function mergeFormAvailabilityAuthority(
+  local: BuilderForm,
+  server: BuilderForm,
+  dirtyTargets: ReadonlySet<BuilderDirtyTarget>,
+): BuilderForm {
+  const authority = formAvailabilityAuthoritySchema.parse(server);
+  if (local.id !== authority.id || local.eventId !== authority.eventId || local.context !== authority.context) {
     throw new AppError("INTERNAL", "The latest form status did not match this form");
   }
+  const merged = mergeUnsavedBuilderEdits(server, local, dirtyTargets);
   return {
-    ...local,
-    id: server.id,
-    eventId: server.eventId,
-    context: server.context,
-    targetType: server.targetType,
-    status: server.status,
-    currentVersion: server.currentVersion,
-    updatedAt: server.updatedAt,
+    ...merged,
+    // A dirty Settings target contains the locally displayed prior status.
+    // Never let that draft undo the causally confirmed lifecycle operation or
+    // its identity/version baseline; subsequent saves must use the server CAS.
+    id: authority.id,
+    eventId: authority.eventId,
+    context: authority.context,
+    targetType: authority.targetType,
+    status: authority.status,
+    currentVersion: authority.currentVersion,
+    updatedAt: authority.updatedAt,
   };
 }
 
@@ -433,14 +441,16 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     }
   }
 
-  function applyAvailabilityAuthority(latest: FormAvailabilityAuthority) {
+  function applyAvailabilityAuthority(latest: BuilderForm) {
+    const remaining = new Set(dirtyRevisions.current.keys());
     // Validate against this mounted builder before scheduling the state update,
-    // so a mismatched GET is caught by the reconciliation try/catch rather than
+    // so a mismatched response is caught by the reconciliation try/catch rather than
     // thrown later from inside React's updater.
-    mergeFormAvailabilityAuthority(form, latest);
+    mergeFormAvailabilityAuthority(form, latest, remaining);
     setPersistedAvailabilityInput({ status: latest.status, opensAt: latest.opensAt, closesAt: latest.closesAt });
     setAvailabilityNow(new Date().toISOString());
-    setForm((current) => mergeFormAvailabilityAuthority(current, latest));
+    setForm((current) => mergeFormAvailabilityAuthority(current, latest, remaining));
+    setDirty(remaining.size > 0);
     router.refresh();
   }
 
@@ -454,9 +464,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
 
   async function replayAvailability(recovery: FormAvailabilityRecovery): Promise<boolean> {
     try {
-      const latest = formAvailabilityAuthoritySchema.parse(await availabilityPatch(recovery, true));
+      const latest = await availabilityPatch(recovery, true);
+      const authority = formAvailabilityAuthoritySchema.parse(latest);
       const requestedStatus = recovery.action === "open" ? "open" : "closed";
-      if (latest.status !== requestedStatus) {
+      if (authority.status !== requestedStatus) {
         throw new AppError("INTERNAL", "The replay did not confirm the requested form status");
       }
       applyAvailabilityAuthority(latest);

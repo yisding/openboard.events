@@ -6,15 +6,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fieldIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
 import type { BuilderEvent, BuilderForm } from "./builder-types";
-import { FormBuilder } from "./form-builder";
+import { FormBuilder, mergeFormAvailabilityAuthority } from "./form-builder";
 
-const routerMock = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
+const navigationMock = vi.hoisted(() => ({ search: "step=welcome", push: vi.fn(), refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/events/e1000000-0000-4000-8000-000000000001/forms/f1000000-0000-4000-8000-000000000001",
-  useRouter: () => routerMock,
-  useSearchParams: () => new URLSearchParams("step=welcome"),
+  useRouter: () => navigationMock,
+  useSearchParams: () => new URLSearchParams(navigationMock.search),
 }));
 vi.mock("next/link", () => ({
   default: ({ children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props}>{children}</a>,
@@ -134,8 +134,9 @@ async function requestClose() {
 }
 
 beforeEach(() => {
-  routerMock.push.mockReset();
-  routerMock.refresh.mockReset();
+  navigationMock.search = "step=welcome";
+  navigationMock.push.mockReset();
+  navigationMock.refresh.mockReset();
   toastMock.mockReset();
   fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
@@ -162,16 +163,27 @@ afterEach(async () => {
 });
 
 describe("form availability outcome recovery", () => {
-  it("recovers a committed close by replaying the original CAS request without replacing dirty authoring content", async () => {
+  it("adopts the full concurrent server form while preserving only dirty authoring targets after recovery", async () => {
+    const opensAt = "2026-09-01T16:00:00.000Z";
+    const closesAt = "2026-09-15T23:00:00.000Z";
     const latest = form({
       status: "closed",
       externalTitle: "Server title must not replace the draft",
+      opensAt,
+      closesAt,
+      submissionLimit: 7,
       currentVersion: 2,
       updatedAt: "2026-08-13T12:01:00.000Z",
     });
+    const saved = form({
+      ...latest,
+      currentVersion: 3,
+      updatedAt: "2026-08-13T12:02:00.000Z",
+    });
     fetchMock
       .mockRejectedValueOnce(new TypeError("connection dropped after commit"))
-      .mockResolvedValueOnce(response({ data: latest }));
+      .mockResolvedValueOnce(response({ data: latest }))
+      .mockResolvedValueOnce(response({ data: saved }));
     await mount();
 
     let title: HTMLInputElement | undefined;
@@ -193,6 +205,56 @@ describe("form availability outcome recovery", () => {
     });
     expect(replayBody).toEqual({ ...firstBody, availabilityReplay: true });
     expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the completed request");
+
+    navigationMock.search = "step=settings";
+    await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
+    const deadlineInputs = [...container.querySelectorAll<HTMLInputElement>(".datetime-picker-input")];
+    const display = (value: string) => new Intl.DateTimeFormat("en-US", {
+      timeZone: event.timezone,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+    expect(deadlineInputs.map((input) => input.value)).toEqual([display(opensAt), display(closesAt)]);
+    expect(container.querySelector<HTMLInputElement>('input[type="number"]')?.value).toBe("7");
+
+    await act(async () => buttonNamed("Save")?.click());
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const settingsBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
+    expect(settingsBody).toMatchObject({
+      expectedUpdatedAt: latest.updatedAt,
+      patch: { status: "closed", opensAt, closesAt, submissionLimit: 7 },
+    });
+    navigationMock.search = "step=welcome";
+    await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
+    expect(container.querySelector<HTMLInputElement>('input[value="Unsaved local title"]')?.value).toBe("Unsaved local title");
+    expect(container.textContent).toContain("Version 3");
+  });
+
+  it("keeps a dirty Settings draft without letting its prior status undo the confirmed lifecycle result", () => {
+    const local = form({
+      status: "open",
+      opensAt: "2026-10-01T16:00:00.000Z",
+      closesAt: "2026-10-15T23:00:00.000Z",
+    });
+    const authoritative = form({
+      status: "closed",
+      opensAt: "2026-09-01T16:00:00.000Z",
+      closesAt: "2026-09-15T23:00:00.000Z",
+      currentVersion: 4,
+      updatedAt: "2026-08-13T12:04:00.000Z",
+    });
+
+    expect(mergeFormAvailabilityAuthority(local, authoritative, new Set(["step:settings"]))).toMatchObject({
+      status: "closed",
+      opensAt: local.opensAt,
+      closesAt: local.closesAt,
+      currentVersion: authoritative.currentVersion,
+      updatedAt: authoritative.updatedAt,
+    });
   });
 
   it("keeps repeated offline ambiguity locked and replays the same original operation from the recovery control", async () => {
