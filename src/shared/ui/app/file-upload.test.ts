@@ -15,6 +15,18 @@ describe("file upload API requests", () => {
     });
   });
 
+  it("gives an actionable fallback when the upload API omits an error message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    })));
+
+    await expect(postJson("/api/uploads/presign", { filename: "slides.pdf" })).resolves.toEqual({
+      ok: false,
+      message: "The upload could not be completed. Try again.",
+    });
+  });
+
   it("leaves the browser to supply a signed Content-Length header", () => {
     expect(browserSettableUploadHeaders({
       "Content-Type": "application/pdf",

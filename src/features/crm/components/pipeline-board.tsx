@@ -145,7 +145,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
           <>
             <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void search(); }}>
               <Search size={16} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
+              <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
             </form>
             {searching && <p className="long-copy">Searching…</p>}
             {!searching && results.map((row) => (

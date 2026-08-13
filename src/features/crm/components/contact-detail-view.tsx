@@ -106,7 +106,7 @@ function MergeSearchDialog({
       <div className="form-stack">
         <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void run(); }}>
           <Search size={16} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
+          <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
         </form>
         {busy && <p className="long-copy">Searching…</p>}
         {!busy && results.map((row) => (
