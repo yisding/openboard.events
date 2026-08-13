@@ -307,7 +307,7 @@ describe("M42 admin auth on Better Auth", () => {
     expect(staleConsent.status).toBe(400);
     expect(await database.select({ id: users.id }).from(users).where(eq(users.email, "stranger@example.com"))).toHaveLength(0);
 
-    const response = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+    const signUpStranger = () => auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
       body: JSON.stringify({
@@ -318,6 +318,7 @@ describe("M42 admin auth on Better Auth", () => {
         ...LEGAL_REQUEST,
       }),
     }));
+    const response = await signUpStranger();
     expect(response.ok).toBe(true);
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
@@ -349,6 +350,20 @@ describe("M42 admin auth on Better Auth", () => {
     expect(new URL(firstLink).searchParams.get("callbackURL"))
       .toBe(`/signup/verified?confirmed=1&next=%2Forganizations%2F${membership.organizationId}`);
 
+    // Better Auth deliberately returns a generic success for a duplicate
+    // signup. The check-inbox screen must still be true: an unverified
+    // account gets a fresh confirmation without creating another user or
+    // session, and the generic organization destination resolves it safely.
+    const duplicate = await signUpStranger();
+    expect(duplicate.ok).toBe(true);
+    queued = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
+    expect(queued).toHaveLength(2);
+    const duplicateLink = await getAdminAuthFallbackLinkIn(database, "stranger@example.com", env);
+    if (!duplicateLink) throw new Error("expected a duplicate-signup verification link");
+    expect(new URL(duplicateLink).searchParams.get("callbackURL")).toBe(SIGNUP_VERIFICATION_CALLBACK);
+    expect(await database.select().from(adminSessions).where(eq(adminSessions.userId, stranger?.id ?? ""))).toHaveLength(0);
+
     const resent = await auth.handler(new Request("http://localhost:3000/api/auth/send-verification-email", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://localhost:3000" },
@@ -360,7 +375,7 @@ describe("M42 admin auth on Better Auth", () => {
     expect(resent.ok).toBe(true);
     queued = await database.select().from(adminAuthEmailOutbox)
       .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
-    expect(queued).toHaveLength(2);
+    expect(queued).toHaveLength(3);
     const link = await getAdminAuthFallbackLinkIn(database, "stranger@example.com", env);
     if (!link) throw new Error("expected a local verification link");
     expect(new URL(link).searchParams.get("callbackURL")).toBe("/signup/verified?confirmed=1&next=%2Forganizations");
@@ -375,6 +390,14 @@ describe("M42 admin auth on Better Auth", () => {
       .where(eq(organizationOnboardingMilestones.organizationId, membership.organizationId)))
       .map((row) => row.milestone).sort())
       .toEqual(["email_verified", "signup_completed"]);
+
+    // The generic response stays enumeration-safe once activated, but no
+    // useless verification credential is queued for an already-valid email.
+    const alreadyVerified = await signUpStranger();
+    expect(alreadyVerified.ok).toBe(true);
+    queued = await database.select().from(adminAuthEmailOutbox)
+      .where(eq(adminAuthEmailOutbox.userId, stranger?.id ?? ""));
+    expect(queued).toHaveLength(3);
   });
 
   it("queues password recovery for an eventless account without revealing whether an address exists", async () => {

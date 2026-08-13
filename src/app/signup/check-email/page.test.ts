@@ -29,6 +29,7 @@ describe("signup check-inbox recovery", () => {
     expect(getAdminAuthFallbackLinkMock).toHaveBeenCalledWith("new.owner@example.com");
     expect(html).toContain('value="new.owner@example.com"');
     expect(html).toContain('readOnly=""');
+    expect(html).toContain("If this address still needs confirmation, a fresh link is on its way");
     expect(html).toContain("A new link can only be sent to the address used to create this account.");
     expect(html).toContain('href="/signup"');
     expect(html).toContain("Start again with the correct address");
