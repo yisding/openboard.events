@@ -9,9 +9,6 @@ export const BASE_URL = process.env.E2E_BASE_URL ?? "";
 /** The Neon `sb-test` branch the seed loads into and the specs read back. */
 export const TEST_DATABASE_URL = process.env.NEON_TEST_URL ?? "";
 
-/** Dedicated allowlisted mailbox used only by the public self-service journey. */
-export const SIGNUP_EMAIL = process.env.E2E_SIGNUP_EMAIL?.trim().toLowerCase() ?? "";
-
 /**
  * Read-capable key for the preview Resend account. The test retrieves only the
  * provider message id written by its own outbox row; the key is never sent to
@@ -21,6 +18,15 @@ export const E2E_RESEND_API_KEY = process.env.E2E_RESEND_API_KEY ?? "";
 
 /** Explicit non-production escape hatch for local or preview demo journeys. */
 export const E2E_FALLBACK_ACTIVATION = process.env.E2E_FALLBACK_ACTIVATION === "1";
+
+/**
+ * Delivery-probe runs use their configured mailbox. Preview fallback runs use
+ * a reserved, non-deliverable address even if only half of the provider pair
+ * was configured, so they can never collide with a customer account.
+ */
+export const SIGNUP_EMAIL = E2E_FALLBACK_ACTIVATION
+  ? "e2e-self-service@openboard.invalid"
+  : process.env.E2E_SIGNUP_EMAIL?.trim().toLowerCase() ?? "";
 
 /**
  * The whole suite is opt-in. With no target configured, `pnpm e2e` reports the
@@ -41,8 +47,8 @@ export function databaseConfigured(): boolean {
 
 export const NO_DATABASE = "set NEON_TEST_URL to the sb-test branch for the database assertions";
 
-export function signupMailboxConfigured(): boolean {
+export function signupJourneyConfigured(): boolean {
   return SIGNUP_EMAIL.length > 0 && (E2E_RESEND_API_KEY.length > 0 || E2E_FALLBACK_ACTIVATION);
 }
 
-export const NO_SIGNUP_MAILBOX = "set E2E_SIGNUP_EMAIL and either E2E_RESEND_API_KEY or explicit non-production E2E_FALLBACK_ACTIVATION=1";
+export const NO_SIGNUP_JOURNEY = "set E2E_SIGNUP_EMAIL with E2E_RESEND_API_KEY, or use explicit non-production E2E_FALLBACK_ACTIVATION=1";

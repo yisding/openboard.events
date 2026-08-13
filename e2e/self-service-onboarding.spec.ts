@@ -5,10 +5,10 @@ import {
   databaseConfigured,
   E2E_FALLBACK_ACTIVATION,
   NO_DATABASE,
-  NO_SIGNUP_MAILBOX,
+  NO_SIGNUP_JOURNEY,
   NO_TARGET,
   SIGNUP_EMAIL,
-  signupMailboxConfigured,
+  signupJourneyConfigured,
   targetConfigured,
 } from "./helpers/env";
 
@@ -64,7 +64,7 @@ async function removePriorTestAccount(email: string): Promise<void> {
 test.describe("self-service signup to first value", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.skip(!databaseConfigured(), NO_DATABASE);
-  test.skip(!signupMailboxConfigured(), NO_SIGNUP_MAILBOX);
+  test.skip(!signupJourneyConfigured(), NO_SIGNUP_JOURNEY);
 
   test("a new customer verifies, provisions, publishes, and receives their first proposal", async ({ page, browser }) => {
     test.setTimeout(180_000);
@@ -78,7 +78,7 @@ test.describe("self-service signup to first value", () => {
 
     await removePriorTestAccount(SIGNUP_EMAIL);
 
-    await test.step("create an account and receive a real verification message", async () => {
+    await test.step("create an account and activate the verified address", async () => {
       await page.goto("/");
       await expect(page.getByRole("link", { name: "Create your workspace", exact: true })).toBeVisible();
       await page.getByRole("link", { name: "Create your workspace", exact: true }).click();

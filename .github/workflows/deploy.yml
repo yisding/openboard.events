@@ -157,25 +157,27 @@ jobs:
             smoke_args+=(--production)
           fi
           bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"
-      - name: Explain a skipped self-service journey
+      - name: Select the self-service journey credential path
         if: >-
           steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview' &&
-          (env.E2E_SIGNUP_EMAIL == '' || env.E2E_RESEND_API_KEY == '')
-        run: echo "::warning::self-service browser proof skipped; configure preview E2E_SIGNUP_EMAIL and E2E_RESEND_API_KEY"
+          matrix.environment == 'preview'
+        run: |
+          if [[ -n "$E2E_SIGNUP_EMAIL" && -n "$E2E_RESEND_API_KEY" ]]; then
+            echo "E2E_FALLBACK_ACTIVATION=0" >> "$GITHUB_ENV"
+            echo "::notice::self-service browser proof will verify real Resend delivery"
+          else
+            echo "E2E_FALLBACK_ACTIVATION=1" >> "$GITHUB_ENV"
+            echo "::notice::self-service browser proof will use the preview-only activation fallback; configure both E2E_SIGNUP_EMAIL and E2E_RESEND_API_KEY to additionally verify provider delivery"
+          fi
       - name: Install Chromium for the self-service journey
         if: >-
           steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview' &&
-          env.E2E_SIGNUP_EMAIL != '' &&
-          env.E2E_RESEND_API_KEY != ''
+          matrix.environment == 'preview'
         run: pnpm exec playwright install --with-deps chromium
       - name: Prove signup to first public CFP on preview
         if: >-
           steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview' &&
-          env.E2E_SIGNUP_EMAIL != '' &&
-          env.E2E_RESEND_API_KEY != ''
+          matrix.environment == 'preview'
         env:
           E2E_BASE_URL: ${{ env.APP_BASE_URL }}
           NEON_TEST_URL: ${{ env.DATABASE_URL_DIRECT }}
