@@ -95,5 +95,4 @@ export async function seedContacts(ctx: SeedCtx): Promise<void> {
   ctx.log(`seeded ${SPEAKERS.length} speakers (${missingBio} without a bio, ${missingHeadshot} without a headshot)`);
 }
 
-export const SEEDED_SPEAKER_KEYS = SPEAKERS.map((speaker) => speaker.key);
 export const SEEDED_HEADSHOT_KEYS = SPEAKERS.filter((speaker) => speaker.headshot).map((speaker) => speaker.key);

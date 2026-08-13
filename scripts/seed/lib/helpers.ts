@@ -23,7 +23,7 @@ export type SeedModule = (ctx: SeedCtx) => Promise<void>;
 /** The demo world's timezone; agents and judges are usually somewhere else. */
 export const EVENT_TIMEZONE = "America/Los_Angeles";
 
-export const SEED_KEYS = { event: "aie-nyc", emptyEvent: "empty-conf" } as const;
+const SEED_KEYS = { event: "aie-nyc", emptyEvent: "empty-conf" } as const;
 
 export const SEEDED_EVENT_ID = seedId("event", SEED_KEYS.event) as EventId;
 export const SEEDED_EMPTY_EVENT_ID = seedId("event", SEED_KEYS.emptyEvent) as EventId;
