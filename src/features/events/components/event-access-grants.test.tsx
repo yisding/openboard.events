@@ -101,6 +101,18 @@ describe("Event Settings access grants", () => {
     expect(dialog?.textContent).not.toContain("Blair Organizer");
 
     await act(async () => buttonNamed("Alex Speaker", dialog ?? container)?.click());
+    await act(async () => {
+      if (!search) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "blair");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(buttonNamed("Grant access", dialog?.querySelector("footer") ?? dialog ?? container)?.disabled).toBe(true);
+    await act(async () => {
+      if (!search) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "alex");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonNamed("Alex Speaker", dialog ?? container)?.click());
     const role = dialog?.querySelector<HTMLSelectElement>("select");
     await act(async () => {
       if (!role) return;

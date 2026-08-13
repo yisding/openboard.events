@@ -210,7 +210,11 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
                 <input
                   ref={grantSearchRef}
                   value={grantSearch}
-                  onChange={(event) => setGrantSearch(event.target.value)}
+                  onChange={(event) => {
+                    setGrantSearch(event.target.value);
+                    setSelectedUserId(null);
+                    setGrantError("");
+                  }}
                   placeholder="Search by name or email"
                 />
               </div>
