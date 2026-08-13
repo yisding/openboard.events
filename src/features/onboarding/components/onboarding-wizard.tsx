@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { z } from "zod";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -24,6 +26,8 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
 ];
 const STEPS = ["Event details", "Tracks", "First form", "Share"] as const;
 const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
+const deletedSchema = z.object({ deleted: z.boolean() });
+const tracksListSchema = z.array(trackDtoSchema);
 const FIELD_IDS: Record<string, string> = {
   name: "onboarding-event-name",
   slug: "onboarding-event-slug",
@@ -84,6 +88,53 @@ export type OnboardingResumeState = {
   publicFormUrl: string | null;
   formAvailability: OnboardingFormAvailability | null;
 };
+
+export async function deleteAndReconcileOnboardingTrack(input: {
+  trackId: string;
+  remove: () => Promise<unknown>;
+  list: () => Promise<TrackDTO[]>;
+}): Promise<
+  | { status: "removed"; tracks?: TrackDTO[] }
+  | { status: "restored"; tracks: TrackDTO[]; error: unknown }
+  | { status: "unconfirmed"; error: unknown }
+> {
+  try {
+    await input.remove();
+    return { status: "removed" };
+  } catch (error) {
+    // A structured non-INTERNAL response means the server completed the
+    // request and refused it before the mutation. In that case a list read is
+    // causally safe and can restore the authoritative row (or observe a
+    // concurrent deletion by someone else).
+    if (!isAppError(error) || error.code === "INTERNAL") {
+      try {
+        // DELETE is idempotent. Waiting for a successful replay establishes
+        // completion even when the first request is still running after its
+        // connection was interrupted; a GET alone could overtake that write.
+        await input.remove();
+        return { status: "removed" };
+      } catch {
+        // If both responses are ambiguous, absence is final but presence is
+        // not: the original write may still remove a row returned by this GET.
+        try {
+          const tracks = await input.list();
+          if (!tracks.some((track) => track.id === input.trackId)) return { status: "removed", tracks };
+        } catch {
+          // The caller blocks progress behind another idempotent retry.
+        }
+        return { status: "unconfirmed", error };
+      }
+    }
+    try {
+      const tracks = await input.list();
+      return tracks.some((track) => track.id === input.trackId)
+        ? { status: "restored", tracks, error }
+        : { status: "removed", tracks };
+    } catch {
+      return { status: "unconfirmed", error };
+    }
+  }
+}
 
 export async function createOrPublishOnboardingForm(input: {
   existing: BuilderFormLite | null;
@@ -184,6 +235,9 @@ export function OnboardingWizard({
   const [tracks, setTracks] = useState<TrackDTO[]>(initialState?.tracks ?? []);
   const [trackName, setTrackName] = useState("");
   const [addingTrack, setAddingTrack] = useState(false);
+  const [removingTrackId, setRemovingTrackId] = useState<string | null>(null);
+  const [pendingTrackDelete, setPendingTrackDelete] = useState<TrackDTO | null>(null);
+  const [trackSyncError, setTrackSyncError] = useState<TrackDTO | null>(null);
   const [advancing, setAdvancing] = useState(false);
 
   // Step 3 — first form
@@ -248,7 +302,7 @@ export function OnboardingWizard({
   }
 
   async function addTrack(candidateName: string, color: string) {
-    if (!event || !candidateName.trim() || addingTrack) return;
+    if (!event || !candidateName.trim() || addingTrack || removingTrackId || trackSyncError) return;
     if (tracks.some((track) => track.name.toLowerCase() === candidateName.trim().toLowerCase())) return;
     setAddingTrack(true);
     try {
@@ -265,8 +319,36 @@ export function OnboardingWizard({
     }
   }
 
+  async function removeTrack(track: TrackDTO) {
+    if (!event || addingTrack || removingTrackId) return;
+    if (!tracks.some((candidate) => candidate.id === track.id) && trackSyncError?.id !== track.id) return;
+    setRemovingTrackId(track.id);
+    setTracks((current) => current.filter((candidate) => candidate.id !== track.id));
+    const result = await deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: () => api(`events/${event.id}/vocab/tracks/${track.id}`, deletedSchema, { method: "DELETE" }),
+      list: () => api(`events/${event.id}/vocab/tracks`, tracksListSchema),
+    });
+    if (result.status === "removed") {
+      if (result.tracks) setTracks(result.tracks);
+      setTrackSyncError(null);
+      toast(`${track.name} removed`);
+    } else if (result.status === "restored") {
+      setTracks(result.tracks);
+      setTrackSyncError(null);
+      toast(isAppError(result.error) ? result.error.message : "That track could not be removed", { kind: "error" });
+    } else {
+      // The delete and the reconciliation request both failed, so neither a
+      // restored nor a removed row would be truthful. Keep progress blocked
+      // until an idempotent delete retry establishes the server state.
+      setTrackSyncError(track);
+      toast("We could not confirm whether that track was removed", { kind: "error" });
+    }
+    setRemovingTrackId(null);
+  }
+
   async function continueToForm() {
-    if (!event || advancing) return;
+    if (!event || advancing || addingTrack || removingTrackId || trackSyncError) return;
     setAdvancing(true);
     try {
       await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
@@ -438,7 +520,7 @@ export function OnboardingWizard({
           {remainingSuggestions.length > 0 && (
             <div className="chip-picker">
               {remainingSuggestions.map((suggestion) => (
-                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
+                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
                   <Plus size={12} /> {suggestion.name}
                 </button>
               ))}
@@ -446,11 +528,31 @@ export function OnboardingWizard({
           )}
           {tracks.length > 0 && (
             <ul className="onboarding-track-list">
-              {tracks.map((track) => <li key={track.id}><i style={{ background: track.color }} />{track.name}</li>)}
+              {tracks.map((track) => <li key={track.id}>
+                <span><i style={{ background: track.color }} />{track.name}</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Remove ${track.name}`}
+                  disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
+                  onClick={() => setPendingTrackDelete(track)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </li>)}
             </ul>
+          )}
+          {trackSyncError && (
+            <div className="onboarding-track-sync" role="alert">
+              <p>We could not confirm whether this track was removed. Retry the removal before continuing.</p>
+              <Button size="sm" variant="secondary" disabled={Boolean(removingTrackId)} onClick={() => void removeTrack(trackSyncError)}>
+                {removingTrackId ? "Retrying…" : "Retry removal"}
+              </Button>
+            </div>
           )}
           <Field label="Add a custom track" hint="Optional — press Enter or click Add">
             <input
+              disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
               value={trackName}
               onChange={(event) => setTrackName(event.target.value)}
               placeholder="Custom track name"
@@ -458,9 +560,22 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
-            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
+            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
+          <ConfirmDialog
+            open={pendingTrackDelete !== null}
+            title={`Remove ${pendingTrackDelete?.name ?? "this track"}?`}
+            body="Submissions assigned to this track will become unassigned. Routing rules that use it will be disabled until you update them."
+            confirmLabel="Remove track"
+            onConfirm={async () => {
+              const track = pendingTrackDelete;
+              if (!track) return;
+              await removeTrack(track);
+              setPendingTrackDelete(null);
+            }}
+            onCancel={() => setPendingTrackDelete(null)}
+          />
         </div>
       )}
 

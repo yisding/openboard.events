@@ -3,8 +3,9 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
+import { createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -44,8 +45,17 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
   });
 
-  it("does not advance while a custom track is still being saved", () => {
-    expect(wizard).toContain("disabled={advancing || addingTrack}");
+  it("does not advance while a track mutation is still being saved", () => {
+    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}");
+  });
+
+  it("confirms destructive track removal and blocks progress while server state is ambiguous", () => {
+    expect(wizard).toContain('aria-label={`Remove ${track.name}`}');
+    expect(wizard).toContain('title={`Remove ${pendingTrackDelete?.name ?? "this track"}?`}');
+    expect(wizard).toContain('confirmLabel="Remove track"');
+    expect(wizard).toContain("Submissions assigned to this track will become unassigned");
+    expect(wizard).toContain("Routing rules that use it will be disabled");
+    expect(wizard).toContain("Retry removal");
   });
 
   it("makes the published handoff previewable and resilient to clipboard failure", () => {
@@ -132,6 +142,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("Tracks help organize submissions");
     expect(html).toContain('aria-label="Event details, completed"');
     expect(html).toContain("AI");
+    expect(html).toContain('aria-label="Remove AI"');
     expect(html).not.toContain('id="onboarding-event-name"');
   });
 
@@ -271,6 +282,73 @@ describe("OnboardingWizard first-use defaults", () => {
     expect(preferredTimeZone("UTC", supported)).toBe("UTC");
     expect(preferredTimeZone("Not/A_Zone", supported)).toBe("America/Los_Angeles");
     expect(preferredTimeZone(undefined, supported)).toBe("America/Los_Angeles");
+  });
+});
+
+describe("onboarding track deletion recovery", () => {
+  const track = trackDtoSchema.parse({
+    id: "20000000-0000-4000-8000-000000000001",
+    name: "AI",
+    color: "#6958d7",
+    description: null,
+    sortOrder: 0,
+  });
+
+  it("does not perform an unnecessary reconciliation after a confirmed delete", async () => {
+    const list = vi.fn(async () => [track]);
+    await expect(deleteAndReconcileOnboardingTrack({ trackId: track.id, remove: vi.fn(async () => undefined), list }))
+      .resolves.toEqual({ status: "removed" });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("replays an interrupted delete before reading and recognizes completion", async () => {
+    const remove = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(undefined);
+    const list = vi.fn(async () => [track]);
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove,
+      list,
+    })).resolves.toEqual({ status: "removed" });
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("restores the authoritative list only after a definitive server refusal", async () => {
+    const error = new AppError("CONFLICT", "delete refused");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => [track]),
+    })).resolves.toEqual({ status: "restored", tracks: [track], error });
+  });
+
+  it("accepts final absence after both delete responses were lost", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => []),
+    })).resolves.toEqual({ status: "removed", tracks: [] });
+  });
+
+  it("does not restore a present row from a read that may have overtaken interrupted deletes", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => [track]),
+    })).resolves.toEqual({ status: "unconfirmed", error });
+  });
+
+  it("keeps progress blocked when both delete responses and reconciliation fail", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => { throw new Error("offline"); }),
+    })).resolves.toEqual({ status: "unconfirmed", error });
   });
 });
 

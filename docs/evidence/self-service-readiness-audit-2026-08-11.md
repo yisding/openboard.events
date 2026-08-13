@@ -12,7 +12,7 @@ the real database-backed surfaces.
 | Invitation signup | `/join?token=…` → `/signup?next=…` | Token-bound in this slice; email matching alone no longer grants membership |
 | Organization creation | Better Auth user hook → organization + owner + free entitlement | Functional; signup now collects the intended organization name |
 | First event | `/organizations/<id>/onboarding` step 1 | Functional and tenant-scoped |
-| First tracks | onboarding step 2 | Functional and explicitly optional |
+| First tracks | onboarding step 2 | Functional and explicitly optional; accidental additions can be removed without leaving the wizard, with destructive consequences confirmed and ambiguous responses reconciled against the server |
 | First CFP | onboarding step 3 → create/publish form | Functional and retry-aware across refreshes and lost completion responses |
 | First value | onboarding step 4 → copy public submission link → receive first proposal | Functional; the exact completed event/form handoff survives reload, the generated form omits unanswerable empty choice controls, and the dashboard acknowledges the first submitted proposal |
 
@@ -102,6 +102,14 @@ the real database-backed surfaces.
   outbox; resends retire stale queued links, provider retries reuse the same
   token, and delivery revalidates revocation and recipient binding immediately
   before send.
+- Made track setup recoverable inside onboarding. Suggested and custom tracks
+  now have accessible remove actions and a consequence-confirmation step. The
+  wizard blocks conflicting progress while a delete is pending, reconciles a
+  lost or malformed response by replaying the idempotent delete before reading
+  the authoritative server list, and blocks progress behind an explicit retry
+  if neither request can establish the saved state. Focused tests cover these
+  failure paths; the protected first-user journey exercises the successful add,
+  confirm remove, re-add, and continue path before publishing the first form.
 
 ## Remaining launch gaps, in priority order
 
