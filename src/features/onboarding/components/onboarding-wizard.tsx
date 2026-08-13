@@ -318,6 +318,7 @@ export function OnboardingWizard({
 }) {
   const { toast } = useToast();
   const timeZones = useMemo(browserTimeZones, []);
+  const [hydrated, setHydrated] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(() => initialState?.step === "complete" ? 4 : initialState?.step === "form" ? 3 : initialState ? 2 : 1);
 
   // Step 1 — event basics
@@ -339,6 +340,13 @@ export function OnboardingWizard({
   const slugDetailsRef = useRef<HTMLDetailsElement>(null);
   const formLinkRef = useRef<HTMLInputElement>(null);
   const previousStepRef = useRef(step);
+
+  useEffect(() => {
+    // Controlled fields are rendered on the server before React can attach
+    // their handlers. Keep the event step read-only until hydration so a fast
+    // first edit cannot be replaced by the initial client state.
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (initialState?.event) return;
@@ -774,7 +782,7 @@ export function OnboardingWizard({
       </p>}
 
       {step === 1 && (
-        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void saveEventStep(); }}>
+        <form className="cfp-step form-stack" aria-busy={!hydrated || saving} noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void saveEventStep(); }}>
           <p className="onboarding-lede">
             {event
               ? "Correct the event details below, then continue setup where you left off."
@@ -783,38 +791,38 @@ export function OnboardingWizard({
                 : `Welcome to ${organizationName} — let's set up your first event.`}
           </p>
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
-            <input id="onboarding-event-name" name="name" required disabled={saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
+            <input id="onboarding-event-name" name="name" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
           </Field>
           <details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event) || eventCreateRecoveryRequired}>
             <summary>{event ? "Public URL" : "Customize public URL"}</summary>
             <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
-              <input id="onboarding-event-slug" name="slug" required={Boolean(event)} disabled={saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
+              <input id="onboarding-event-slug" name="slug" required={Boolean(event)} disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
             </Field>
           </details>
           <div className="form-grid">
             <Field label="Event type" error={fieldErrors.eventType} errorId="onboarding-event-type-error">
-              <Select id="onboarding-event-type" name="eventType" disabled={saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
+              <Select id="onboarding-event-type" name="eventType" disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.eventType) || undefined} aria-describedby={fieldErrors.eventType ? "onboarding-event-type-error" : undefined} value={eventType} onChange={(event) => { setEventType(event.target.value as EventType); clearFieldError("eventType"); }}>
                 {EVENT_TYPES.map((type) => <option key={type} value={type}>{type[0]?.toUpperCase()}{type.slice(1)}</option>)}
               </Select>
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
-              <Select id="onboarding-event-timezone" name="timezone" required disabled={saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
+              <Select id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
                 {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
               </Select>
             </Field>
           </div>
           <div className="form-grid">
             <Field label="Starts" required error={fieldErrors.startsAt} errorId="onboarding-event-starts-at-error">
-              <DateTimePicker id="onboarding-event-starts-at" required disabled={saving || eventCreateRecoveryRequired} invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "onboarding-event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
+              <DateTimePicker id="onboarding-event-starts-at" required disabled={!hydrated || saving || eventCreateRecoveryRequired} invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "onboarding-event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
             </Field>
             <Field label="Ends" required error={fieldErrors.endsAt} errorId="onboarding-event-ends-at-error">
-              <DateTimePicker id="onboarding-event-ends-at" required disabled={saving || eventCreateRecoveryRequired} invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "onboarding-event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
+              <DateTimePicker id="onboarding-event-ends-at" required disabled={!hydrated || saving || eventCreateRecoveryRequired} invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "onboarding-event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
             </Field>
           </div>
           {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           {eventCreateRecoveryRequired && <p className="portal-note" role="status">Your original details are locked so retrying can safely recover the same event.</p>}
           <footer className="cfp-actions">
-            <Button type="submit" disabled={saving}>{saving ? eventCreateRecoveryRequired ? "Retrying…" : "Saving…" : eventCreateRecoveryRequired ? "Retry event creation" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
+            <Button type="submit" disabled={!hydrated || saving}>{saving ? eventCreateRecoveryRequired ? "Retrying…" : "Saving…" : eventCreateRecoveryRequired ? "Retry event creation" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>
         </form>
       )}
