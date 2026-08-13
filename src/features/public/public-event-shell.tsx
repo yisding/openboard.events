@@ -115,13 +115,13 @@ export function PublicEventShell({
          * its own <h1> or a screen reader lands in a page with no outline —
          * the content's <h2> is hidden by `.embed-shell>.embed-content>header`
          * and the shell used to name the event with a plain <b>. The heading
-         * carries the old <b>'s typography inline (`font: inherit` + the UA
-         * `b { font-weight: bolder }`, margins zeroed) so `.embed-header`'s
-         * flex/baseline row is pixel-identical, and drops back to a
+         * carries the compact heading typography inline (`font: inherit` plus
+         * the shared emphasis weight, margins zeroed) so `.embed-header` keeps
+         * its small flex/baseline row, and drops back to a
          * visually-hidden heading when the organizer turns the header off. */}
         {embedOptions.header ? (
           <header className="embed-header">
-            <h1 style={{ font: "inherit", fontWeight: "bolder", margin: 0 }}>{event.name}</h1>
+            <h1 style={{ font: "inherit", fontWeight: 600, margin: 0 }}>{event.name}</h1>
             {range && <span>{range}</span>}
           </header>
         ) : (
