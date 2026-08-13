@@ -92,6 +92,18 @@ function confirmedSegmentResult(snapshot: BulkSendRecoverySnapshot): ComposeBulk
   return parsed.success ? parsed.data : null;
 }
 
+type DisplacedBulkSendDraft = {
+  workflowStatus: SpeakerWorkflowStatus[];
+  confirmationStatus: ConfirmationStatus[];
+  segment: ResolvedSpeakerSegment | null;
+  subject: string;
+  bodyHtml: string;
+  previewContactId: ContactId | "";
+  preview: { subject: string; bodyHtml: string; bodyText: string; fingerprint: string; attempt: BulkSendAttempt } | null;
+  result: ComposeBulkSpeakerEmailResult | null;
+  savedDraftFingerprint: string;
+};
+
 /**
  * M46 — "bulk segmented sends with preview." Two steps, both explicit:
  * (1) a filter resolves to an audience (`useResolveSpeakerSegment`) with
@@ -140,14 +152,59 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const recoveryRequired = recovery !== null;
   const sendBlocked = recoveryRequired || recoveryUnreadable;
   const draftDirty = currentDraftFingerprint !== savedDraftFingerprint;
+  const liveDraftRef = useRef<DisplacedBulkSendDraft>({
+    workflowStatus,
+    confirmationStatus,
+    segment,
+    subject,
+    bodyHtml,
+    previewContactId,
+    preview,
+    result,
+    savedDraftFingerprint,
+  });
+  liveDraftRef.current = {
+    workflowStatus,
+    confirmationStatus,
+    segment,
+    subject,
+    bodyHtml,
+    previewContactId,
+    preview,
+    result,
+    savedDraftFingerprint,
+  };
+  const recoveryRef = useRef(recovery);
+  recoveryRef.current = recovery;
+  const draftDirtyRef = useRef(draftDirty);
+  draftDirtyRef.current = draftDirty;
+  const displacedDraftRef = useRef<DisplacedBulkSendDraft | null>(null);
   useUnsavedWorkGuard(draftDirty || recoveryRequired || compose.isPending, { blocking: compose.isPending });
 
   useEffect(() => {
     const storageKey = bulkSendRecoveryStorageKey(recoveryIdentity);
-    const refreshRecovery = () => {
+    const restoreDraft = (draft: DisplacedBulkSendDraft) => {
+      setWorkflowStatus(draft.workflowStatus);
+      setConfirmationStatus(draft.confirmationStatus);
+      setSegment(draft.segment);
+      setSubject(draft.subject);
+      setBodyHtml(draft.bodyHtml);
+      setPreviewContactId(draft.previewContactId);
+      setPreview(draft.preview);
+      setResult(draft.result);
+      setSavedDraftFingerprint(draft.savedDraftFingerprint);
+    };
+    const refreshRecovery = (restoreDisplacedWhenMissing = false) => {
       const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
       setRecovery(null);
       setRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+      if (!loaded.ok && loaded.reason === "missing" && restoreDisplacedWhenMissing && displacedDraftRef.current) {
+        restoreDraft(displacedDraftRef.current);
+        displacedDraftRef.current = null;
+        return;
+      }
+      setWorkflowStatus([]);
+      setConfirmationStatus([]);
       setSegment(null);
       setSubject("");
       setBodyHtml("");
@@ -188,7 +245,11 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     };
     refreshRecovery();
     const onStorage = (event: StorageEvent) => {
-      if (event.key === storageKey) refreshRecovery();
+      if (event.key !== storageKey) return;
+      if (event.newValue !== null && !recoveryRef.current && !displacedDraftRef.current && (draftDirtyRef.current || liveDraftRef.current.segment !== null)) {
+        displacedDraftRef.current = liveDraftRef.current;
+      }
+      refreshRecovery(event.newValue === null);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);

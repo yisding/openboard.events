@@ -43,6 +43,14 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
+async function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(control, value);
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function completedRecovery(): BulkSendRecoverySnapshot {
   const subject = "Program update";
   const bodyHtml = "<p>Hello speakers</p>";
@@ -207,5 +215,36 @@ describe("segment bulk email recovery", () => {
     expect(container.textContent).not.toContain("1 recipient will be emailed");
     expect(buttonNamed("Preview audience")?.disabled).toBe(false);
     expect(buttonNamed("Preview message")?.disabled).toBe(true);
+  });
+
+  it("restores a local draft after another tab's recovery is cleared", async () => {
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+    const subject = container.querySelector<HTMLInputElement>(".bulk-send-compose input");
+    if (!subject) throw new Error("Subject field was not rendered");
+    await change(subject, "My local draft");
+
+    const snapshot = completedRecovery();
+    const storageKey = bulkSendRecoveryStorageKey(snapshot);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      oldValue: null,
+      newValue: window.localStorage.getItem(storageKey),
+      storageArea: window.localStorage,
+    })));
+    expect(subject.value).toBe("Program update");
+    expect(container.textContent).toContain("Send confirmed; cleanup needed");
+
+    const oldValue = window.localStorage.getItem(storageKey);
+    window.localStorage.removeItem(storageKey);
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      oldValue,
+      newValue: null,
+      storageArea: window.localStorage,
+    })));
+
+    expect(subject.value).toBe("My local draft");
+    expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
   });
 });
