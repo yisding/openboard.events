@@ -3,6 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatInZone } from "@/shared/lib/time";
+import { copyPublicFormLink } from "@/features/forms/components/saved-form-actions";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";
@@ -21,6 +22,19 @@ const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.u
 
 function renderActivation(overview: typeof FIXTURE_OVERVIEW) {
   return renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(ActivationGuide, { overview })));
+}
+
+function renderFormProgress(form: typeof FIXTURE_OVERVIEW.forms[number]) {
+  return renderToStaticMarkup(React.createElement(
+    ToastProvider,
+    null,
+    React.createElement(FormProgressCards, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      eventSlug: FIXTURE_OVERVIEW.event.slug,
+      timezone: FIXTURE_OVERVIEW.event.timezone,
+      forms: [form],
+    }),
+  ));
 }
 
 describe("dashboard components", () => {
@@ -144,12 +158,7 @@ describe("dashboard components", () => {
   ];
 
   it.each(formVariants)("renders $availability form availability with a truthful action", ({ availability, form, timing }) => {
-    const html = renderToStaticMarkup(React.createElement(FormProgressCards, {
-      eventId: FIXTURE_OVERVIEW.event.id,
-      eventSlug: FIXTURE_OVERVIEW.event.slug,
-      timezone: FIXTURE_OVERVIEW.event.timezone,
-      forms: [form],
-    }));
+    const html = renderFormProgress(form);
     const manageHref = `/events/${FIXTURE_OVERVIEW.event.id}/forms/${form.formId}`;
     const previewHref = `${manageHref}/preview`;
     const publicHref = `/submit/${FIXTURE_OVERVIEW.event.slug}/${form.formId}`;
@@ -163,6 +172,8 @@ describe("dashboard components", () => {
     if (availability === "live") {
       expect(html).toContain(`href="${publicHref}"`);
       expect(html).toContain("Open live form");
+      expect(html).toContain("Copy link");
+      expect(html).toContain(`aria-label="Copy public link: ${form.name}"`);
       expect(html).toContain(`aria-label="Open live form: ${form.name} (opens in a new tab)"`);
       expect(html).not.toContain(`href="${previewHref}"`);
       expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.id}/`);
@@ -171,7 +182,23 @@ describe("dashboard components", () => {
       expect(html).toContain(">Preview</a>");
       expect(html).toContain(`aria-label="Preview form: ${form.name} (opens in a new tab)"`);
       expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.slug}/`);
+      expect(html).not.toContain("Copy link");
     }
+  });
+
+  it("keeps a live form shareable after the first submission", () => {
+    const form = { ...fixtureForm, availability: "live" as const, submitted: 12 };
+    const html = renderFormProgress(form);
+
+    expect(html).toContain("Open live form");
+    expect(html).toContain("Copy link");
+  });
+
+  it("falls back when the Clipboard API rejects a public-link copy", async () => {
+    const clipboard = { writeText: async () => { throw new Error("denied"); } };
+    const fallback = (value: string) => value === "https://events.test/submit/conf/form-1";
+
+    await expect(copyPublicFormLink("/submit/conf/form-1", "https://events.test", clipboard, fallback)).resolves.toBe(true);
   });
 
   it("routes speaker task rows through the implemented list drawer", () => {
