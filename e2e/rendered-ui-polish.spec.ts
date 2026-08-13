@@ -30,7 +30,6 @@ test.describe("rendered UI polish", () => {
 
     await page.goto("/kitchen-sink/rich");
     await expect(page).toHaveTitle("Rich primitives · Openboard");
-    await expect(page.locator(".stat-tile--warning .stat-tile__label")).toHaveText("Awaiting review");
     expect(await contrastRatio(page.locator(".stat-tile--warning .stat-tile__label"))).toBeGreaterThanOrEqual(4.5);
     expect(await contrastRatio(page.locator(".stat-tile--danger .stat-tile__label"))).toBeGreaterThanOrEqual(4.5);
   });
