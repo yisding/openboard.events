@@ -14,6 +14,16 @@ import { AppError } from "@/shared/lib/errors";
 import { activePlanIdSql } from "../evaluation/server/queries";
 import type { SubmissionFilters } from "./filters";
 
+export type SubmissionStatusHistoryEntry = {
+  id: string;
+  fromStatus: SubmissionStatus | null;
+  toStatus: SubmissionStatus;
+  source: "baseline" | "organizer" | "notification" | "speaker" | "system";
+  actorName: string | null;
+  actorEmail: string | null;
+  changedAt: string;
+};
+
 /**
  * The Abstracts table's reads. Every query is event-scoped and every one of them
  * goes through the same WHERE clause, so the tab counts and the rows in the tab
@@ -201,6 +211,42 @@ export async function getStatusCountsIn(
   return counts;
 }
 
+/** Attributed proposal-state changes for the organizer's audit drawer. */
+export async function listSubmissionStatusHistoryIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  submissionId: SubmissionId,
+): Promise<SubmissionStatusHistoryEntry[]> {
+  const result = await dbOrTx.execute<{
+    id: string;
+    from_status: SubmissionStatus | null;
+    to_status: SubmissionStatus;
+    source: SubmissionStatusHistoryEntry["source"];
+    actor_name: string | null;
+    actor_email: string | null;
+    changed_at: string;
+  }>(sql`
+    SELECT h.id, h.from_status, h.to_status, h.source,
+      COALESCE(nullif(btrim(u.name), ''), nullif(btrim(c.first_name || ' ' || c.last_name), '')) AS actor_name,
+      COALESCE(u.email, c.email) AS actor_email,
+      h.changed_at
+    FROM submission_status_revisions h
+    LEFT JOIN users u ON u.id = h.actor_user_id
+    LEFT JOIN contacts c ON c.id = h.actor_contact_id AND c.event_id = h.event_id
+    WHERE h.event_id = ${eventId} AND h.submission_id = ${submissionId}
+    ORDER BY h.changed_at DESC, h.id
+  `);
+  return (result.rows ?? []).map((row) => ({
+    id: row.id,
+    fromStatus: row.from_status,
+    toStatus: row.to_status,
+    source: row.source,
+    actorName: row.actor_name,
+    actorEmail: row.actor_email,
+    changedAt: new Date(row.changed_at).toISOString(),
+  }));
+}
+
 /**
  * The drawer. Answers come back with the snapshot they were submitted against —
  * the *pinned* one, not the current form — so a question renamed after the fact
@@ -307,6 +353,10 @@ export function listSubmissions(eventId: EventId, filters: SubmissionFilters) {
 
 export function getStatusCounts(eventId: EventId, filters: Omit<SubmissionFilters, "status" | "page">) {
   return getStatusCountsIn(db, eventId, filters);
+}
+
+export function listSubmissionStatusHistory(eventId: EventId, submissionId: SubmissionId) {
+  return listSubmissionStatusHistoryIn(db, eventId, submissionId);
 }
 
 export function getSubmissionDetail(eventId: EventId, submissionId: SubmissionId) {
