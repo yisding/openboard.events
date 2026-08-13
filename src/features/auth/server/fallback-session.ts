@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
-import { userIdSchema, type UserId } from "@/shared/contracts";
+import { userIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { randomBytes, toBase64Url } from "./crypto";
@@ -87,8 +87,4 @@ export function adminCookieOptions() {
     path: "/",
     maxAge: ADMIN_SESSION_SECONDS,
   };
-}
-
-export function asUserId(value: string): UserId {
-  return userIdSchema.parse(value);
 }

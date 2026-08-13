@@ -52,17 +52,14 @@ async function findRow(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalE
 }
 
 /**
- * Absence of a row means "never configured, still enabled" — the public
- * embed routes must serve before any admin ever visits the embeds settings
- * page. This is the gate the bare-shell pages call before fetching any
- * published data, never after.
+ * Read the kill switch without creating a default config row. Absence means
+ * "never configured, still enabled" so public embeds can serve before an
+ * admin first visits settings.
  */
 export async function isEmbedEnabledIn(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType): Promise<boolean> {
   const row = await findRow(dbOrTx, eventId, contentType);
   return row?.enabled ?? true;
 }
-export const isEmbedEnabled = (eventId: EventId, contentType: CanonicalEmbedContentType): Promise<boolean> =>
-  isEmbedEnabledIn(db, eventId, contentType);
 
 /**
  * Reads the config row, creating a default (enabled, no style overrides) row
