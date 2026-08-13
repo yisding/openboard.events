@@ -42,8 +42,9 @@ export type TxDb = Parameters<Parameters<WsDb["transaction"]>[0]>[0];
 export type DbOrTx = typeof db | TxDb;
 
 /**
- * Runtime transactions are confined to requestPortalLogin, createSubmission,
- * upsertDraft, updateSubmissionFromCfp, notifyQueues (PLAN's
+ * Runtime transactions are confined to requestPortalLogin, the organizer's
+ * single-speaker portal-invite route, createSubmission, upsertDraft,
+ * updateSubmissionFromCfp, notifyQueues (PLAN's
  * "notifyDecisions" — its withTx body),
  * completeTaskViaResponse, completeTaskViaUpload, and moveSession —
  * plus, added in the M47 (data lifecycle & GDPR) run, eraseContactData
@@ -64,6 +65,9 @@ export type DbOrTx = typeof db | TxDb;
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).
+ * The single-speaker portal invite likewise commits its token rotation,
+ * credential-bearing outbox row, and organizer pipeline status together; a
+ * failed status write must not make an already-queued invitation look unsent.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {
