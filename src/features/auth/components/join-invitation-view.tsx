@@ -80,7 +80,7 @@ export function JoinInvitationView() {
   }
 
   return <div>
-    <span className="metric-icon warn"><CircleAlert size={20} /></span>
+    <span className="metric-icon amber"><CircleAlert size={20} /></span>
     <h1>This invitation isn&apos;t valid</h1>
     <p>{message || "It may have expired or already been used. Ask whoever invited you to send a new one."}</p>
     <a className="button button-secondary button-lg" href="/login">Go to sign in <LogIn size={16} /></a>

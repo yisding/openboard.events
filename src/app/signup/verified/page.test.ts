@@ -58,6 +58,7 @@ describe("verified signup handoff", () => {
     }));
 
     expect(html).toContain("That link did not work");
+    expect(html).toContain('class="metric-icon amber"');
     expect(html.match(/Back to sign in/g)).toHaveLength(1);
     expect(html).toContain('href="/login?next=%2Forganizations%2F00000000-0000-4000-8000-000000000002"');
     expect(getAdminSessionMock).not.toHaveBeenCalled();

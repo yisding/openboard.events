@@ -59,6 +59,7 @@ describe("invitation recovery", () => {
     const view = await renderInvitation();
     try {
       expect(view.container.textContent).toContain("That invitation has expired");
+      expect(view.container.querySelector(".metric-icon.amber")).not.toBeNull();
       expect(view.container.querySelector<HTMLAnchorElement>('a[href="/login"]')?.textContent).toContain("Go to sign in");
     } finally {
       await view.unmount();
