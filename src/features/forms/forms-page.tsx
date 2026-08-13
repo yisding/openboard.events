@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CalendarClock, Copy, ExternalLink, Eye, FileEdit, FileText, Plus, Send, Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { BuilderEvent, BuilderForm, FormListRow } from "./builder-types";
+import { duplicateFormAsDraft, formDuplicateOutcomeUnknown } from "./duplicate-form";
 import { formAvailability, type FormAvailability } from "./lib/form-open";
 import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
@@ -38,6 +39,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   const [kind, setKind] = useState<"abstract" | "session">("abstract");
   const [collectParticipants, setCollectParticipants] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const createRequestId = useRef(createStableCreateRequestId());
   const createOutcomeUnknown = useRef(false);
@@ -99,6 +101,25 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     router.refresh();
   }
 
+  async function duplicateAsDraft(form: FormListRow) {
+    if (busy || duplicatingId !== null) return;
+    setDuplicatingId(form.id);
+    try {
+      const copy = await duplicateFormAsDraft(event.id, form.id);
+      toast(`${form.internalName} duplicated as a new draft`);
+      router.push(`/events/${event.id}/forms/${copy.id}`);
+      router.refresh();
+    } catch (error) {
+      const unknown = formDuplicateOutcomeUnknown(error);
+      toast(unknown
+        ? "Couldn’t confirm whether the draft copy was created. Refresh the form list before trying again."
+        : error instanceof Error ? error.message : "The form could not be duplicated", { kind: "error" });
+      if (unknown) router.refresh();
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
   const totalSubmissions = forms.reduce((total, form) => total + form.submissionCount, 0);
   const totalDrafts = forms.reduce((total, form) => total + form.draftCount, 0);
   return <>
@@ -135,6 +156,15 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
             <Link className="icon-button" href={`/submit/${event.slug}/${form.id}`} target="_blank" rel="noreferrer" title={`Open live form: ${form.internalName}`} aria-label={`Open live form: ${form.internalName}`} onClick={(current) => openLiveForm(current, form)}><ExternalLink size={17} /></Link>
             <button type="button" className="icon-button" title={`Copy live link: ${form.internalName}`} aria-label={`Copy live link: ${form.internalName}`} onClick={() => void copyLink(form)}><Copy size={17} /></button>
           </> : <Link className="button button-secondary" href={`/events/${event.id}/forms/${form.id}/preview`} target="_blank" rel="noreferrer"><Eye size={16} /> Preview</Link>}
+          <Button
+            variant="secondary"
+            disabled={busy || duplicatingId !== null}
+            title="Creates a new draft without submissions, routing rules, or opening and closing dates"
+            aria-label={`Duplicate ${form.internalName} as a draft without submissions, routing rules, or opening and closing dates`}
+            onClick={() => void duplicateAsDraft(form)}
+          >
+            <Copy size={16} /> {duplicatingId === form.id ? "Duplicating…" : "Duplicate as draft"}
+          </Button>
           <Link className="button button-secondary" href={`/events/${event.id}/forms/${form.id}`}>Edit form</Link>
         </div>
       </article>)}</div>}

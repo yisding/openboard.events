@@ -23,9 +23,9 @@ seed changes only.
 
 - [ ] Repository is public
 - [ ] `LICENSE` present (MIT)
-- [ ] `README.md` setup followed on a **clean clone by someone who did not write it**, reaching a
+- [ ] `docs/development.md` setup followed on a **clean clone by someone who did not write it**, reaching a
       seeded local app — not read, actually run
-- [ ] `README.md`'s honest-status section matches reality on the day, including anything cut
+- [ ] `docs/development.md`'s honest-status section matches reality on the day, including anything cut
 - [ ] `docs/demo-script.md` complete, with admin, reviewer and speaker credentials
 - [ ] `docs/api.md` examples paste-and-run against production
 - [ ] `docs/spend/` holds one usage export per agent per day

@@ -121,4 +121,14 @@ describe("form create request outcomes", () => {
     expect(source).toContain('formAvailability(form, new Date().toISOString()) !== "live"');
     expect(source).not.toContain("navigator.clipboard.writeText");
   });
+
+  it("offers a truthful duplicate-as-draft action on every CFP form card", () => {
+    const source = readFileSync(new URL("./forms-page.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("duplicateFormAsDraft(event.id, form.id)");
+    expect(source).toContain("Duplicate as draft");
+    expect(source).toContain("without submissions, routing rules, or opening and closing dates");
+    expect(source).toContain("duplicatingId === form.id ? \"Duplicating…\"");
+    expect(source).toContain("Refresh the form list before trying again.");
+  });
 });
