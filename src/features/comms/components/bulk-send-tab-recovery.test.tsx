@@ -185,4 +185,27 @@ describe("segment bulk email recovery", () => {
     expect(buttonNamed("Clear completed recovery")).toBeDefined();
     expect(composeMock).not.toHaveBeenCalled();
   });
+
+  it("resets a restored audience when another tab clears shared recovery", async () => {
+    const snapshot = completedRecovery();
+    const storageKey = bulkSendRecoveryStorageKey(snapshot);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+    expect(container.textContent).toContain("Send confirmed; cleanup needed");
+    expect(container.textContent).toContain("1 recipient will be emailed");
+
+    const oldValue = window.localStorage.getItem(storageKey);
+    window.localStorage.removeItem(storageKey);
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      oldValue,
+      newValue: null,
+      storageArea: window.localStorage,
+    })));
+
+    expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
+    expect(container.textContent).not.toContain("1 recipient will be emailed");
+    expect(buttonNamed("Preview audience")?.disabled).toBe(false);
+    expect(buttonNamed("Preview message")?.disabled).toBe(true);
+  });
 });

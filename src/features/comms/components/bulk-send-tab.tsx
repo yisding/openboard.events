@@ -15,6 +15,7 @@ import {
   BULK_SEND_RECOVERY_VERSION,
   browserBulkSendRecoveryLockManager,
   bulkSendAttemptScope,
+  bulkSendRecoveryStorageKey,
   classifyBulkSendFailure,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
@@ -142,30 +143,37 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   useUnsavedWorkGuard(draftDirty || recoveryRequired || compose.isPending, { blocking: compose.isPending });
 
   useEffect(() => {
-    setRecovery(null);
-    setRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
-    if (!loaded.ok) {
-      if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setRecoveryUnreadable(true);
-      return;
-    }
-    const snapshot = loaded.snapshot;
-    const restoredSegment = resolvedSpeakerSegmentSchema.safeParse({
-      matchedCount: snapshot.recipients.length,
-      contactIds: snapshot.recipients.map((recipient) => recipient.id),
-      capped: false,
-      excludedSuppressedCount: 0,
-      excludedUnsubscribedCount: 0,
-      preview: snapshot.previewRecipients.map((recipient) => ({
-        contactId: recipient.id,
-        name: recipient.name,
-        email: recipient.email,
-      })),
-    });
-    if (!restoredSegment.success) {
-      // The generic recovery is still valid, so the corrupt-record clear path
-      // must not delete it. Keep it as a blocked recovery that the organizer
-      // can explicitly abandon (or clear if its receipt was confirmed).
+    const storageKey = bulkSendRecoveryStorageKey(recoveryIdentity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
+      setRecovery(null);
+      setRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+      setSegment(null);
+      setSubject("");
+      setBodyHtml("");
+      setPreviewContactId("");
+      setPreview(null);
+      setResult(null);
+      if (!loaded.ok) return;
+      const snapshot = loaded.snapshot;
+      const restoredSegment = resolvedSpeakerSegmentSchema.safeParse({
+        matchedCount: snapshot.recipients.length,
+        contactIds: snapshot.recipients.map((recipient) => recipient.id),
+        capped: false,
+        excludedSuppressedCount: 0,
+        excludedUnsubscribedCount: 0,
+        preview: snapshot.previewRecipients.map((recipient) => ({
+          contactId: recipient.id,
+          name: recipient.name,
+          email: recipient.email,
+        })),
+      });
+      if (restoredSegment.success) {
+        setSegment(restoredSegment.data);
+        setPreviewContactId(restoredSegment.data.preview.find((recipient) => recipient.contactId === snapshot.previewRecipientId)?.contactId ?? "");
+      }
+      // Even if the frozen audience cannot be represented by this sender, the
+      // generic recovery remains valid and explicitly abandonable/clearable.
       setSubject(snapshot.subject);
       setBodyHtml(snapshot.bodyHtml);
       setPreview({
@@ -177,22 +185,14 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       });
       setResult(confirmedSegmentResult(snapshot));
       setRecovery(snapshot);
-      return;
-    }
-    setSegment(restoredSegment.data);
-    setSubject(snapshot.subject);
-    setBodyHtml(snapshot.bodyHtml);
-    setPreviewContactId(restoredSegment.data.preview.find((recipient) => recipient.contactId === snapshot.previewRecipientId)?.contactId ?? "");
-    setPreview({
-      subject: snapshot.approvedPreview.subject,
-      bodyHtml: snapshot.approvedPreview.bodyHtml,
-      bodyText: snapshot.approvedPreview.bodyText,
-      fingerprint: snapshot.fingerprint,
-      attempt: { sendId: snapshot.sendId, storageKey: snapshot.attemptStorageKey },
-    });
-    setResult(confirmedSegmentResult(snapshot));
-    setRecovery(snapshot);
-  }, [eventId, recoveryIdentity]);
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [recoveryIdentity]);
 
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
