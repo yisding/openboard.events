@@ -7,6 +7,7 @@
   var origin = new URL(script.src).origin;
   var eventSlug = script.getAttribute("data-event");
   var type = script.getAttribute("data-type") || "sessions";
+  var title = script.getAttribute("data-title");
   // Retain optional params for backwards compatibility with hand-authored
   // snippets. Canonical admin-generated snippets do not need them because
   // appearance and content settings come from the saved embed config.
@@ -16,9 +17,10 @@
   iframe.src = origin + "/embed/" + encodeURIComponent(eventSlug) + "/" + encodeURIComponent(type) + (params ? "?" + params : "");
   iframe.style.width = "100%";
   iframe.style.border = "0";
+  iframe.style.display = "block";
   iframe.style.height = "760px";
   iframe.loading = "lazy";
-  iframe.title = "Openboard " + type + " embed";
+  iframe.title = title || "Openboard " + type + " embed";
   script.parentNode.insertBefore(iframe, script);
   window.addEventListener("message", function (event) {
     if (event.origin !== origin || event.source !== iframe.contentWindow) return;
