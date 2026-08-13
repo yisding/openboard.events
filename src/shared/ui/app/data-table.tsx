@@ -55,13 +55,30 @@ declare module "@tanstack/react-table" {
  * />
  * ```
  *
- * Selection is **page-local**: selecting all selects the rows you can see, which
- * is what the bulk bar's count means and what the decision mutations expect.
+ * Selection is **page-local by default**: selecting all selects the rows you
+ * can see, which is what the bulk bar's count means and what the decision
+ * mutations expect. A caller that already owns the complete filtered data may
+ * opt into a bounded all-row scope; the default and server-paginated paths do
+ * not change.
  */
+export type DataTableSelectionScope = "page" | "allRows";
+
+export type DataTableAllRowsSelection = {
+  maxRows: number;
+  singularNoun: string;
+  pluralNoun: string;
+};
+
 export type DataTableSelectionContext<Row> = {
   selectedRows: Row[];
   countLabel: string;
   clearSelection: () => void;
+  scope: DataTableSelectionScope;
+  pageSelectedCount: number;
+  pageRowCount: number;
+  totalRowCount: number;
+  /** Present only while the caller's complete local row set is within its cap. */
+  selectAllRows?: () => void;
 };
 
 export type DataTableProps<Row> = {
@@ -79,6 +96,12 @@ export type DataTableProps<Row> = {
   onSelectionChange?: (rows: Row[]) => void;
   /** Replaces the default count-only selection bar at its canonical location. */
   renderSelectionBar?: (selection: DataTableSelectionContext<Row>) => ReactNode;
+  /**
+   * Opt into retaining selection across local pages and exposing
+   * `selectAllRows`. Above `maxRows`, behavior falls back to the default
+   * page-local scope. Never use this for a server-paginated partial row set.
+   */
+  allRowsSelection?: DataTableAllRowsSelection;
   /** localStorage key for hidden columns. Scope it per event. */
   columnVisibilityKey?: string;
   onRowClick?: (row: Row) => void;
@@ -148,9 +171,40 @@ export function selectionLabel<Row>(row: Row, rowId: string, getRowLabel?: (row:
   return `Select ${label || `row ${rowId}`}`;
 }
 
-export function selectionAnnouncement(previousCount: number, count: number): string | null {
+export function dataTableCanSelectAllRows(
+  rowCount: number,
+  allRowsSelection?: DataTableAllRowsSelection,
+): boolean {
+  if (!allRowsSelection) return false;
+  const { maxRows } = allRowsSelection;
+  return Number.isInteger(maxRows) && maxRows > 0 && rowCount > 0 && rowCount <= maxRows;
+}
+
+function selectionNoun(count: number, wording: DataTableAllRowsSelection): string {
+  return count === 1 ? wording.singularNoun : wording.pluralNoun;
+}
+
+export function dataTableSelectionCountLabel(
+  count: number,
+  scope: DataTableSelectionScope,
+  wording?: DataTableAllRowsSelection,
+): string {
+  if (!wording) return `${count} selected on this page`;
+  const noun = selectionNoun(count, wording);
+  return scope === "allRows"
+    ? `${count} matching ${noun} selected`
+    : `${count} ${noun} selected on this page`;
+}
+
+export function selectionAnnouncement(
+  previousCount: number,
+  count: number,
+  scope: DataTableSelectionScope = "page",
+  wording?: DataTableAllRowsSelection,
+): string | null {
   if (previousCount === count) return null;
   if (count === 0) return previousCount > 0 ? "Selection cleared." : null;
+  if (wording) return `${dataTableSelectionCountLabel(count, scope, wording)}.`;
   return `${count} row${count === 1 ? "" : "s"} selected on this page.`;
 }
 
@@ -175,6 +229,7 @@ export function DataTable<Row>({
   getRowLabel,
   onSelectionChange,
   renderSelectionBar,
+  allRowsSelection,
   columnVisibilityKey,
   onRowClick,
   pageSize = 25,
@@ -186,6 +241,7 @@ export function DataTable<Row>({
 }: DataTableProps<Row>) {
   const [localSorting, setLocalSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const [activeSelectionScope, setActiveSelectionScope] = useState<DataTableSelectionScope>("page");
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [localPagination, setLocalPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -249,7 +305,12 @@ export function DataTable<Row>({
     },
     state: { sorting, rowSelection, columnVisibility, pagination },
     onSortingChange: updateSorting,
-    onRowSelectionChange: setRowSelection,
+    onRowSelectionChange: (updater) => {
+      // A manual checkbox interaction means exactly the visible page again.
+      // An all-row scope is entered only through the explicit escalation.
+      setActiveSelectionScope("page");
+      setRowSelection(updater);
+    },
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: updatePagination,
     enableRowSelection: enableSelection
@@ -268,7 +329,9 @@ export function DataTable<Row>({
   });
 
   useEffect(() => {
-    if (selectionEpoch !== undefined) setRowSelection({});
+    if (selectionEpoch === undefined) return;
+    setActiveSelectionScope("page");
+    setRowSelection({});
   }, [selectionEpoch]);
 
   const pageCount = table.getPageCount();
@@ -282,16 +345,35 @@ export function DataTable<Row>({
   }, [pageCount, pagination.pageIndex, requestServerPage]);
 
   const rows = table.getRowModel().rows;
-  // Page-local means hidden or newly ineligible selections do not merely
-  // disappear from the count: changing page/filter/data discards their keys so
-  // returning (or an action refresh) cannot resurrect them.
+  const allRows = table.getPrePaginationRowModel().rows;
+  const previousDataRef = useRef(data);
+  const dataChanged = previousDataRef.current !== data;
+  const canSelectAllRows = !serverPagination
+    && !dataChanged
+    && dataTableCanSelectAllRows(allRows.length, allRowsSelection);
+  const selectionScope = activeSelectionScope === "allRows" && canSelectAllRows ? "allRows" : "page";
+  const selectionRows = selectionScope === "allRows" ? allRows : rows;
   useEffect(() => {
-    const visibleIds = new Set(rows.filter((row) => row.getCanSelect()).map((row) => row.id));
+    if (canSelectAllRows || activeSelectionScope === "page") return;
+    setActiveSelectionScope("page");
+  }, [activeSelectionScope, canSelectAllRows]);
+  useEffect(() => {
+    if (previousDataRef.current === data) return;
+    previousDataRef.current = data;
+    setActiveSelectionScope("page");
+    setRowSelection({});
+  }, [data]);
+  // Page-local remains the default. An explicitly bounded all-row caller uses
+  // the complete pre-pagination model instead, so its selected ids survive a
+  // local page change but are still pruned as soon as data/filter eligibility
+  // removes them.
+  useEffect(() => {
+    const visibleIds = new Set(selectionRows.filter((row) => row.getCanSelect()).map((row) => row.id));
     setRowSelection((current) => {
       const visible = Object.fromEntries(Object.entries(current).filter(([id]) => visibleIds.has(id)));
       return Object.keys(visible).length === Object.keys(current).length ? current : visible;
     });
-  }, [rows]);
+  }, [selectionRows]);
 
   // M58 — a ref, not a dependency: `selectAllEpoch` should select whatever is
   // on screen the moment it changes, not re-select on every later page/filter
@@ -308,6 +390,7 @@ export function DataTable<Row>({
     if (selectAllEpoch === previousSelectAllEpochRef.current) return;
     previousSelectAllEpochRef.current = selectAllEpoch;
     if (selectAllEpoch === undefined) return;
+    setActiveSelectionScope("page");
     const next: Record<string, boolean> = {};
     for (const row of rowsRef.current) {
       if (row.getCanSelect()) next[row.id] = true;
@@ -320,15 +403,26 @@ export function DataTable<Row>({
     [rowSelection],
   );
   const selectedRows = useMemo(
-    () => rows.filter((row) => selectedIds.has(row.id)).map((row) => row.original),
-    [rows, selectedIds],
+    () => selectionRows.filter((row) => selectedIds.has(row.id)).map((row) => row.original),
+    [selectionRows, selectedIds],
   );
+  const pageSelectedCount = rows.filter((row) => selectedIds.has(row.id)).length;
+  const countLabel = dataTableSelectionCountLabel(selectedRows.length, selectionScope, allRowsSelection);
+  const clearSelection = () => {
+    setActiveSelectionScope("page");
+    setRowSelection({});
+  };
   useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
   useEffect(() => {
-    const next = selectionAnnouncement(previousSelectionCount.current, selectedRows.length);
+    const next = selectionAnnouncement(
+      previousSelectionCount.current,
+      selectedRows.length,
+      selectionScope,
+      allRowsSelection,
+    );
     previousSelectionCount.current = selectedRows.length;
     if (next) setSelectionStatus(next);
-  }, [selectedRows.length]);
+  }, [allRowsSelection, selectedRows.length, selectionScope]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -417,13 +511,29 @@ export function DataTable<Row>({
       {enableSelection && (renderSelectionBar
         ? renderSelectionBar({
             selectedRows,
-            countLabel: `${selectedRows.length} selected on this page`,
-            clearSelection: () => setRowSelection({}),
+            countLabel,
+            clearSelection,
+            scope: selectionScope,
+            pageSelectedCount,
+            pageRowCount: rows.length,
+            totalRowCount: allRows.length,
+            ...(canSelectAllRows
+              ? {
+                  selectAllRows: () => {
+                    const next: Record<string, boolean> = {};
+                    for (const row of allRows) {
+                      if (row.getCanSelect()) next[row.id] = true;
+                    }
+                    setActiveSelectionScope("allRows");
+                    setRowSelection(next);
+                  },
+                }
+              : {}),
           })
         : <BulkActionBar
             count={selectedRows.length}
-            countLabel={`${selectedRows.length} selected on this page`}
-            onClear={() => setRowSelection({})}
+            countLabel={countLabel}
+            onClear={clearSelection}
           />)}
 
       <div className="table-scroll" aria-busy={isLoading}>

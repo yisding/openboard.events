@@ -318,7 +318,7 @@ export async function sendReminderNow(
 }
 
 /**
- * M52's central Files view "remind the visible selection" bar. A thin loop
+ * M52's central Files view "remind the selection" bar. A thin loop
  * over the same single-target `sendReminderNowIn` this module already proves
  * idempotent — not a second enqueue path — capped by the route's own zod
  * schema (200) so a bulk click never spends more of the Workers Free

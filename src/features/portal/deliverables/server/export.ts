@@ -24,6 +24,7 @@ import {
   uploadExportPart,
   type MultipartPart,
 } from "@/shared/server/r2";
+import { DELIVERABLE_BULK_LIMIT } from "../bulk-limit";
 import { appendZipBatch, concat, finishZipStream, uniqueZipNamesFrom, type ZipNameDedupeState, type ZipStreamState } from "./zip";
 
 /**
@@ -91,8 +92,6 @@ function uuidArraySql(ids: readonly string[]): SQL {
   return sql`ARRAY[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`;
 }
 
-const MAX_TARGETS = 200;
-
 /**
  * Re-derives the latest `file_uploads` row for every requested slot through
  * the same `task_assignments_v` boundary the upload and reminder paths
@@ -106,7 +105,9 @@ export async function createFileExportJobIn(
   groupBy: FileExportGroupBy,
 ): Promise<FileExportJobDTO> {
   if (targets.length === 0) throw new AppError("VALIDATION", "Select at least one deliverable to export");
-  if (targets.length > MAX_TARGETS) throw new AppError("VALIDATION", `Export up to ${MAX_TARGETS} deliverables at a time`);
+  if (targets.length > DELIVERABLE_BULK_LIMIT) {
+    throw new AppError("VALIDATION", `Export up to ${DELIVERABLE_BULK_LIMIT} deliverables at a time`);
+  }
 
   const wantedSql = sql.join(
     targets.map((target) => sql`(${target.taskId}::uuid, ${target.contactId}::uuid, ${target.submissionId}::uuid)`),

@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { createFileExportJob, processFileExportJob } from "@/features/portal/deliverables";
+import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limit";
 import { tasksAdminAuth } from "@/features/portal/tasks-admin/server/queries";
 import { contactIdSchema, eventIdSchema, submissionIdSchema, taskIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -13,7 +14,7 @@ const createInput = z.object({
     taskId: taskIdSchema,
     contactId: contactIdSchema,
     submissionId: submissionIdSchema.nullable(),
-  })).min(1).max(200),
+  })).min(1).max(DELIVERABLE_BULK_LIMIT),
   groupBy: z.enum(["none", "session", "speaker"]).default("none"),
 });
 
