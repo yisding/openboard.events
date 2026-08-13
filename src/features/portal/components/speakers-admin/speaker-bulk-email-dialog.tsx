@@ -15,9 +15,12 @@ import {
 } from "@/features/comms/bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  browserBulkSendRecoveryLockManager,
   classifyBulkSendFailure,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
+  speakerBulkSendRecoveryIdentity,
+  withBulkSendRecoveryLock,
   type BulkSendRecoverySnapshot,
 } from "@/features/comms/bulk-send-recovery";
 import { composeBulkSpeakerEmailResultSchema, type ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
@@ -67,8 +70,8 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const recoveryScope = `selected:${eventId}`;
-  const restored = initialRecovery?.surface === "speaker" && initialRecovery.scope === recoveryScope
+  const recoveryIdentity = speakerBulkSendRecoveryIdentity(eventId);
+  const restored = initialRecovery?.surface === "speaker" && initialRecovery.scope === recoveryIdentity.scope
     ? initialRecovery
     : null;
   const audience = restored
@@ -180,6 +183,17 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   }
 
   async function runSend(): Promise<boolean> {
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), runSendLocked);
+    if (!locked.ok) {
+      setError(locked.reason === "lock_busy"
+        ? "Another tab is already preparing or sending email for this event. Finish there before trying again."
+        : "This browser can’t safely coordinate bulk email across tabs. Try a current browser or check its privacy settings.");
+      return false;
+    }
+    return locked.value;
+  }
+
+  async function runSendLocked(): Promise<boolean> {
     const retryingRecovery = recovery !== null;
     if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
@@ -188,7 +202,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
     const approved = recovery ?? (currentPreview ? {
       version: BULK_SEND_RECOVERY_VERSION,
       surface: "speaker" as const,
-      scope: recoveryScope,
+      scope: recoveryIdentity.scope,
       recipients: audience.map((recipient) => ({ id: recipient.contactId, name: recipient.name, email: recipient.email })),
       previewRecipients: audience.map((recipient) => ({ id: recipient.contactId, name: recipient.name, email: recipient.email })),
       subject,
@@ -263,31 +277,43 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
     }
   }
 
-  function abandonRecovery() {
+  async function abandonRecovery() {
     if (!recovery) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
+      onRecoveryChange?.(null);
+      finishClose();
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
       setConfirmAbandon(false);
-      setError("Recovery could not be cleared safely. Keep this draft and try again.");
+      setError(locked.ok
+        ? "Recovery could not be cleared safely. Keep this draft and try again."
+        : "Another tab is using this email recovery. Finish there before abandoning it.");
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    onRecoveryChange?.(null);
-    finishClose();
   }
 
-  function clearCompletedRecovery() {
+  async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
-      setError("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.");
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
+      onRecoveryChange?.(null);
+      setError(null);
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
+      setError(locked.ok
+        ? "The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again."
+        : "Another tab is using this email recovery. Finish there before clearing it.");
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    onRecoveryChange?.(null);
-    setError(null);
   }
 
   return (

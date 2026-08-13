@@ -11,10 +11,13 @@ import {
 } from "../bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  browserBulkSendRecoveryLockManager,
   classifyBulkSendFailure,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
+  speakerBulkSendRecoveryIdentity,
+  withBulkSendRecoveryLock,
   type BulkSendRecoveryBatchResult,
   type BulkSendRecoverySnapshot,
 } from "../bulk-send-recovery";
@@ -97,6 +100,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const { toast } = useToast();
   const resolveSegment = useResolveSpeakerSegment(eventId);
   const compose = useComposeBulkSpeakerEmail(eventId);
+  const recoveryIdentity = useMemo(() => speakerBulkSendRecoveryIdentity(eventId), [eventId]);
 
   const [workflowStatus, setWorkflowStatus] = useState<SpeakerWorkflowStatus[]>([]);
   const [confirmationStatus, setConfirmationStatus] = useState<ConfirmationStatus[]>([]);
@@ -137,7 +141,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   useEffect(() => {
     setRecovery(null);
     setRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `segment:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
     if (!loaded.ok) {
       if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setRecoveryUnreadable(true);
       return;
@@ -169,7 +173,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     });
     setResult(confirmedSegmentResult(snapshot));
     setRecovery(snapshot);
-  }, [eventId]);
+  }, [eventId, recoveryIdentity]);
 
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
@@ -273,6 +277,20 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   }
 
   async function onSend(): Promise<boolean> {
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), onSendLocked);
+    if (!locked.ok) {
+      toast(
+        locked.reason === "lock_busy"
+          ? "Another tab is already preparing or sending email for this event. Finish there before trying again."
+          : "This browser can’t safely coordinate bulk email across tabs. Try a current browser or check its privacy settings.",
+        { kind: "error", durationMs: 8_000 },
+      );
+      return false;
+    }
+    return locked.value;
+  }
+
+  async function onSendLocked(): Promise<boolean> {
     if (recoveryUnreadable) {
       toast("Clear the unreadable browser recovery before starting another send", { kind: "error" });
       return false;
@@ -286,7 +304,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     const candidate = recovery ?? (segment && currentPreview && previewRecipient ? {
       version: BULK_SEND_RECOVERY_VERSION,
       surface: "speaker" as const,
-      scope: `segment:${eventId}`,
+      scope: recoveryIdentity.scope,
       recipients: segment.contactIds.map((id) => {
         const known = segment.preview.find((recipient) => recipient.contactId === id);
         return { id, name: known?.name ?? id, email: known?.email ?? "" };
@@ -400,41 +418,53 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     }
   }
 
-  function abandonRecovery() {
+  async function abandonRecovery() {
     if (!recovery) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
       setConfirmAbandon(false);
-      toast("Recovery could not be cleared safely. Keep this draft and try again.", { kind: "error" });
+      discardDraft();
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
+      setConfirmAbandon(false);
+      toast(locked.ok
+        ? "Recovery could not be cleared safely. Keep this draft and try again."
+        : "Another tab is using this email recovery. Finish there before abandoning it.", { kind: "error" });
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    setConfirmAbandon(false);
-    discardDraft();
   }
 
-  function clearCompletedRecovery() {
+  async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
-      toast("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.", { kind: "error" });
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
+      // A restored receipt is complete, not a draft waiting to be sent again.
+      // Keep its audience and copy visible, but require a fresh preview/send ID
+      // before another intentional send and mark the visible state as saved.
+      setPreview(null);
+      setSavedDraftFingerprint(bulkMessageDraftFingerprint({
+        workflowStatus,
+        confirmationStatus,
+        subject,
+        bodyHtml,
+        previewSendId: null,
+      }));
+      toast("Completed recovery cleared");
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
+      toast(locked.ok
+        ? "The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again."
+        : "Another tab is using this email recovery. Finish there before clearing it.", { kind: "error" });
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    // A restored receipt is complete, not a draft waiting to be sent again.
-    // Keep its audience and copy visible, but require a fresh preview/send ID
-    // before another intentional send and mark the visible state as saved.
-    setPreview(null);
-    setSavedDraftFingerprint(bulkMessageDraftFingerprint({
-      workflowStatus,
-      confirmationStatus,
-      subject,
-      bodyHtml,
-      previewSendId: null,
-    }));
-    toast("Completed recovery cleared");
   }
 
   function discardDraft() {
@@ -460,7 +490,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   return (
     <div className="bulk-send-tab">
       {recoveryUnreadable && <UnreadableBulkSendRecovery
-        identity={{ surface: "speaker", scope: `segment:${eventId}` }}
+        identity={recoveryIdentity}
         onCleared={() => setRecoveryUnreadable(false)}
       />}
       <section className="panel bulk-send-filters">

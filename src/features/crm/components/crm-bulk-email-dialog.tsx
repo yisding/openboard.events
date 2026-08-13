@@ -15,8 +15,10 @@ import {
 } from "@/features/comms/bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  browserBulkSendRecoveryLockManager,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
+  withBulkSendRecoveryLock,
   type BulkSendRecoveryBatchResult,
   type BulkSendRecoverySnapshot,
 } from "@/features/comms/bulk-send-recovery";
@@ -82,6 +84,7 @@ export function CrmBulkEmailDialog({
   const router = useRouter();
   const { toast } = useToast();
   const recoveryScope = organizationId as string;
+  const recoveryIdentity = { surface: "crm" as const, scope: recoveryScope };
   const restored = initialRecovery?.surface === "crm" && initialRecovery.scope === recoveryScope
     ? initialRecovery
     : null;
@@ -172,6 +175,21 @@ export function CrmBulkEmailDialog({
   }
 
   async function runSend(): Promise<boolean> {
+    const locked = await withBulkSendRecoveryLock(
+      recoveryIdentity,
+      browserBulkSendRecoveryLockManager(),
+      runSendLocked,
+    );
+    if (!locked.ok) {
+      setError(locked.reason === "lock_busy"
+        ? "Another tab is already preparing or sending CRM email. Finish there before trying again."
+        : "This browser can’t safely coordinate bulk email across tabs. Try a current browser or check its privacy settings.");
+      return false;
+    }
+    return locked.value;
+  }
+
+  async function runSendLocked(): Promise<boolean> {
     if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
       return false;
@@ -265,31 +283,43 @@ export function CrmBulkEmailDialog({
     }
   }
 
-  function abandonRecovery() {
+  async function abandonRecovery() {
     if (!recovery) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
+      onRecoveryChange?.(null);
+      finishClose();
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
       setConfirmAbandon(false);
-      setError("Recovery could not be cleared safely. Keep this draft and try again.");
+      setError(locked.ok
+        ? "Recovery could not be cleared safely. Keep this draft and try again."
+        : "Another tab is using this email recovery. Finish there before abandoning it.");
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    onRecoveryChange?.(null);
-    finishClose();
   }
 
-  function clearCompletedRecovery() {
+  async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
-    const removed = removeBulkSendRecovery(window.localStorage, recovery);
-    if (!removed.ok) {
-      setError("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.");
+    const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const removed = removeBulkSendRecovery(window.localStorage, recovery);
+      if (!removed.ok) return false;
+      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      setRecovery(null);
+      onRecoveryChange?.(null);
+      setError(null);
+      return true;
+    });
+    if (!locked.ok || !locked.value) {
+      setError(locked.ok
+        ? "The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again."
+        : "Another tab is using this email recovery. Finish there before clearing it.");
       return;
     }
-    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
-    setRecovery(null);
-    onRecoveryChange?.(null);
-    setError(null);
   }
 
   return (

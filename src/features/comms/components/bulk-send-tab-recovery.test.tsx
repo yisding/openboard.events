@@ -11,6 +11,7 @@ import {
   bulkSendRecoveryStorageKey,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
+  speakerBulkSendRecoveryIdentity,
   type BulkSendRecoverySnapshot,
 } from "../bulk-send-recovery";
 import { BulkSendTab } from "./bulk-send-tab";
@@ -48,7 +49,7 @@ function completedRecovery(): BulkSendRecoverySnapshot {
   return {
     version: BULK_SEND_RECOVERY_VERSION,
     surface: "speaker",
-    scope: `segment:${eventId}`,
+    scope: eventId,
     recipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
     previewRecipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
     subject,
@@ -80,6 +81,10 @@ beforeEach(() => {
   toastMock.mockReset();
   window.sessionStorage.clear();
   window.localStorage.clear();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: { request: async (_name: string, _options: unknown, callback: (lock: object) => unknown) => callback({}) },
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -111,7 +116,7 @@ describe("segment bulk email recovery", () => {
   });
 
   it("surfaces and explicitly clears an unreadable recovery before allowing another send", async () => {
-    const identity = { surface: "speaker" as const, scope: `segment:${eventId}` };
+    const identity = speakerBulkSendRecoveryIdentity(eventId);
     const storageKey = bulkSendRecoveryStorageKey(identity);
     window.localStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
 

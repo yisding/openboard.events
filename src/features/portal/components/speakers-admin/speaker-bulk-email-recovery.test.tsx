@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBulkSendRecovery } from "@/features/comms/bulk-send-recovery";
+import { loadBulkSendRecovery, speakerBulkSendRecoveryIdentity } from "@/features/comms/bulk-send-recovery";
 import { AppError } from "@/shared/lib/errors";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 
@@ -42,6 +42,10 @@ beforeEach(() => {
   toastMock.mockReset();
   window.sessionStorage.clear();
   window.localStorage.clear();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: { request: async (_name: string, _options: unknown, callback: (lock: object) => unknown) => callback({}) },
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -55,6 +59,39 @@ afterEach(async () => {
 });
 
 describe("targeted speaker email recovery", () => {
+  it("does not send when another tab owns the event-wide email lock", async () => {
+    const preview = {
+      recipientEmail: "alex@example.com",
+      recipientName: "Alex Speaker",
+      subject: "Program update",
+      bodyHtml: "<p>Hello Alex</p>",
+      bodyText: "Hello Alex",
+    };
+    apiMock.mockResolvedValueOnce({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview });
+    await act(async () => root.render(<SpeakerBulkEmailDialog eventId={eventId} open selected={selected} onClose={vi.fn()} />));
+    const subject = container.querySelector<HTMLInputElement>('input[placeholder^="A note"]');
+    const body = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!subject || !body) throw new Error("Compose fields were not rendered");
+    await change(subject, "Program update");
+    await change(body, "<p>Hello</p>");
+    await act(async () => {
+      buttonsNamed("Refresh preview")[0]?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: async (_name: string, _options: unknown, callback: (lock: null) => unknown) => callback(null) },
+    });
+
+    await act(async () => buttonsNamed("Send to 1")[0]?.click());
+    await act(async () => buttonsNamed("Send to 1").at(-1)?.click());
+
+    expect(container.textContent).toContain("Another tab is already preparing or sending email for this event");
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId))).toEqual({ ok: false, reason: "missing" });
+  });
+
   it("freezes an ambiguous send, persists it, and resumes with the same send id", async () => {
     const preview = {
       recipientEmail: "alex@example.com",
@@ -90,7 +127,7 @@ describe("targeted speaker email recovery", () => {
     expect(subject?.disabled).toBe(true);
     expect(body?.disabled).toBe(true);
     expect(buttonsNamed("Retry this send")).toHaveLength(1);
-    const recovered = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    const recovered = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
     expect(recovered.ok).toBe(true);
     if (!recovered.ok) return;
     const originalSendId = recovered.snapshot.sendId;
@@ -98,7 +135,7 @@ describe("targeted speaker email recovery", () => {
     apiMock.mockRejectedValueOnce(new AppError("FORBIDDEN", "Your access changed"));
     await act(async () => buttonsNamed("Retry this send")[0]?.click());
     expect(container.textContent).toContain("couldn’t confirm whether every email was queued");
-    expect(loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` })).toMatchObject({
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId))).toMatchObject({
       ok: true,
       snapshot: { sendId: originalSendId },
     });
@@ -115,14 +152,14 @@ describe("targeted speaker email recovery", () => {
     expect(container.textContent).toContain("1 accepted");
     expect(container.textContent).toContain("send is confirmed, but browser recovery could not be cleared");
     expect(buttonsNamed("Clear completed recovery")).toHaveLength(1);
-    expect(loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` })).toMatchObject({
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId))).toMatchObject({
       ok: true,
       snapshot: { confirmedResult: { alreadyQueued: 1 } },
     });
 
     removeItem.mockRestore();
     await act(async () => buttonsNamed("Clear completed recovery")[0]?.click());
-    expect(loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` }))
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId)))
       .toEqual({ ok: false, reason: "missing" });
   });
 

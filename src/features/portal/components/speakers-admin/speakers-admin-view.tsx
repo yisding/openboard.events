@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
-import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
@@ -95,7 +95,7 @@ export function SpeakersAdminView({
   useEffect(() => {
     setBulkEmailRecovery(null);
     setBulkEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
     if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
     else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setBulkEmailRecoveryUnreadable(true);
   }, [eventId]);
@@ -112,7 +112,7 @@ export function SpeakersAdminView({
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
 
   function openBulkEmail(selectedRows: ContactListRow[]) {
-    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
     if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
       setBulkEmailRecoveryUnreadable(true);
       return;
@@ -249,7 +249,7 @@ export function SpeakersAdminView({
         <Button size="sm" onClick={() => setBulkEmailOpen(true)}>{bulkEmailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
       </div>}
       {bulkEmailRecoveryUnreadable && <UnreadableBulkSendRecovery
-        identity={{ surface: "speaker", scope: `selected:${eventId}` }}
+        identity={speakerBulkSendRecoveryIdentity(eventId)}
         onCleared={() => setBulkEmailRecoveryUnreadable(false)}
       />}
 

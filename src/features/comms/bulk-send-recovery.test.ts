@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppError } from "@/shared/lib/errors";
 import { bulkSendPreviewFingerprint } from "./bulk-send-attempt";
 import {
@@ -13,6 +13,8 @@ import {
   persistBulkSendRecovery,
   removeBulkSendRecovery,
   removeUnreadableBulkSendRecovery,
+  speakerBulkSendRecoveryIdentity,
+  withBulkSendRecoveryLock,
   type BulkSendRecoverySnapshot,
   type BulkSendRecoveryStorage,
 } from "./bulk-send-recovery";
@@ -69,6 +71,10 @@ function memoryStorage(): BulkSendRecoveryStorage {
 }
 
 describe("bulk send recovery snapshot", () => {
+  it("uses one event-wide identity for every speaker bulk-send surface", () => {
+    expect(speakerBulkSendRecoveryIdentity("event-1")).toEqual({ surface: "speaker", scope: "event-1" });
+  });
+
   it("round-trips a versioned speaker snapshot with its frozen rendered preview", () => {
     const storage = memoryStorage();
     const value = snapshot();
@@ -223,5 +229,31 @@ describe("bulk send failure classification", () => {
   it("keeps every failure unknown once the organizer is retrying an ambiguous attempt", () => {
     expect(classifyBulkSendFailure(new AppError("VALIDATION", "Request rejected"), [], true)).toBe("unknown");
     expect(classifyBulkSendFailure(new AppError("FORBIDDEN", "Access changed"), [], true)).toBe("unknown");
+  });
+});
+
+describe("bulk send cross-tab lock", () => {
+  it("runs the transaction while an exclusive lock is available", async () => {
+    const action = vi.fn(async () => "sent");
+    const lockManager = {
+      request: async <T>(_name: string, _options: { mode: "exclusive"; ifAvailable: true }, callback: (lock: object | null) => T | PromiseLike<T>) => callback({}),
+    };
+
+    await expect(withBulkSendRecoveryLock({ surface: "crm", scope: "org-1" }, lockManager, action))
+      .resolves.toEqual({ ok: true, value: "sent" });
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed without running when another tab owns the lock or locking is unavailable", async () => {
+    const action = vi.fn();
+    const busyManager = {
+      request: async <T>(_name: string, _options: { mode: "exclusive"; ifAvailable: true }, callback: (lock: object | null) => T | PromiseLike<T>) => callback(null),
+    };
+
+    await expect(withBulkSendRecoveryLock({ surface: "speaker", scope: "event-1" }, busyManager, action))
+      .resolves.toEqual({ ok: false, reason: "lock_busy" });
+    await expect(withBulkSendRecoveryLock({ surface: "speaker", scope: "event-1" }, null, action))
+      .resolves.toEqual({ ok: false, reason: "lock_unavailable" });
+    expect(action).not.toHaveBeenCalled();
   });
 });

@@ -122,6 +122,8 @@ export type BulkSendRecoveryFailureReason =
   | "identity_mismatch"
   | "send_id_mismatch"
   | "recovery_readable"
+  | "lock_busy"
+  | "lock_unavailable"
   | "storage_unavailable"
   | "write_unverified"
   | "remove_unverified";
@@ -132,12 +134,63 @@ export type LoadBulkSendRecoveryResult = { ok: true; snapshot: BulkSendRecoveryS
 export type PersistBulkSendRecoveryResult = { ok: true; snapshot: BulkSendRecoverySnapshot; storageKey: string } | Failure;
 export type RemoveBulkSendRecoveryResult = { ok: true; removed: boolean; storageKey: string } | Failure;
 
+export type BulkSendRecoveryLockManager = {
+  request<T>(
+    name: string,
+    options: { mode: "exclusive"; ifAvailable: true },
+    callback: (lock: object | null) => T | PromiseLike<T>,
+  ): Promise<T>;
+};
+
+export type WithBulkSendRecoveryLockResult<T> = { ok: true; value: T } | Failure;
+
+export function browserBulkSendRecoveryLockManager(): BulkSendRecoveryLockManager | null {
+  if (typeof navigator === "undefined") return null;
+  return (navigator as Navigator & { locks?: BulkSendRecoveryLockManager }).locks ?? null;
+}
+
 /** The key identifies only the owning surface and resource, never its audience or message. */
 export function bulkSendRecoveryStorageKey(identity: BulkSendRecoveryIdentity): string {
   // Keep discovery stable across schema versions. The version belongs in the
   // value so an older, unreadable recovery can block a new send instead of
   // disappearing behind a new key and being overwritten.
   return `openboard:bulk-send-recovery:${identity.surface}:${encodeURIComponent(identity.scope)}`;
+}
+
+/** Selected-recipient and segment sends share one event-wide recovery slot. */
+export function speakerBulkSendRecoveryIdentity(eventId: string): BulkSendRecoveryIdentity {
+  return { surface: "speaker", scope: eventId };
+}
+
+/**
+ * Holds one non-waiting, origin-wide Web Lock for the full send transaction.
+ * Keeping the lock through the API response and verified cleanup closes the
+ * localStorage check-then-set race without allowing a queued click in another
+ * tab to become a surprise second send after the first finishes.
+ */
+export async function withBulkSendRecoveryLock<T>(
+  identity: BulkSendRecoveryIdentity,
+  lockManager: BulkSendRecoveryLockManager | null | undefined,
+  action: () => T | Promise<T>,
+): Promise<WithBulkSendRecoveryLockResult<T>> {
+  const expected = parsedIdentity(identity);
+  if (!expected) return { ok: false, reason: "invalid_identity" };
+  if (!lockManager) return { ok: false, reason: "lock_unavailable" };
+  let actionStarted = false;
+  try {
+    return await lockManager.request(
+      `openboard:bulk-send-lock:${bulkSendRecoveryStorageKey(expected)}`,
+      { mode: "exclusive", ifAvailable: true },
+      async (lock) => {
+        if (!lock) return { ok: false, reason: "lock_busy" } as const;
+        actionStarted = true;
+        return { ok: true, value: await action() } as const;
+      },
+    );
+  } catch (error) {
+    if (actionStarted) throw error;
+    return { ok: false, reason: "lock_unavailable" };
+  }
 }
 
 function parsedIdentity(identity: unknown): BulkSendRecoveryIdentity | null {
