@@ -23,6 +23,11 @@ import { sanitize } from "@/shared/lib/sanitize";
 import { stableUuid } from "@/shared/server/stable-uuid";
 import type { BuilderField, BuilderForm, BuilderStep, FieldPatch, FormPatch, SectionPatch } from "../builder-types";
 import {
+  normalizeParticipantStepRoles,
+  participantStepOperationSchema,
+  type ParticipantStepOperation,
+} from "../participant-step";
+import {
   assertMapsToMatchesTarget,
   assertNotLockedField,
   assertStructuralAllowed,
@@ -441,6 +446,95 @@ export async function updateSectionIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
   }).where(and(eq(formSections.id, section.id), eq(formSections.eventId, eventId), eq(formSections.formId, formId)));
   await storeVersionIn(dbOrTx, eventId, form, snapshot);
   return getFormForBuilderIn(dbOrTx, eventId, formId);
+}
+
+function participantStepValues(operation: ParticipantStepOperation) {
+  return {
+    participantRoles: normalizeParticipantStepRoles(operation.participantRoles),
+    section: {
+      title: operation.section.title.trim(),
+      pageHeading: operation.section.pageHeading.trim(),
+      descriptionHtml: sanitize(operation.section.descriptionHtml),
+    },
+  };
+}
+
+function participantStepMatches(form: BuilderForm, operation: ParticipantStepOperation): boolean {
+  const requested = participantStepValues(operation);
+  const section = form.sections.find((candidate) => candidate.id === operation.sectionId && candidate.key === "participant");
+  if (!section || form.participantRoles.length !== requested.participantRoles.length) return false;
+  const rolesMatch = requested.participantRoles.every((role) =>
+    form.participantRoles.some((current) => current.role === role.role && current.enabled === role.enabled));
+  return rolesMatch
+    && section.title === requested.section.title
+    && section.pageHeading === requested.section.pageHeading
+    && section.descriptionHtml === requested.section.descriptionHtml;
+}
+
+/** One participant-step click owns one CAS, one snapshot, and one version. */
+export async function updateParticipantStepIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  formId: FormId,
+  rawOperation: ParticipantStepOperation,
+): Promise<BuilderForm> {
+  const operation = participantStepOperationSchema.parse(rawOperation);
+  const form = await getFormForBuilderIn(dbOrTx, eventId, formId);
+  const section = form.sections.find((candidate) => candidate.id === operation.sectionId);
+  if (form.context !== "cfp" || section?.key !== "participant") {
+    throw new AppError("VALIDATION", "Participant step updates require this form's participant section");
+  }
+  const requested = participantStepValues(operation);
+  const hypothetical = {
+    ...form,
+    participantRoles: requested.participantRoles,
+    sections: form.sections.map((candidate) => candidate.id === section.id
+      ? { ...candidate, ...requested.section }
+      : candidate),
+  } as BuilderForm;
+  const snapshot = nextSnapshot(hypothetical);
+  const now = new Date();
+  await touchFormIn(dbOrTx, eventId, form, operation.expectedUpdatedAt, now);
+  await dbOrTx.update(forms).set({
+    participantRoles: requested.participantRoles.map((role) => ({
+      ...role,
+      min: role.role === "speaker" ? 1 : null,
+      max: null,
+    })),
+  }).where(and(eq(forms.id, formId), eq(forms.eventId, eventId)));
+  await dbOrTx.update(formSections).set({
+    ...requested.section,
+    updatedAt: now,
+  }).where(and(
+    eq(formSections.id, section.id),
+    eq(formSections.eventId, eventId),
+    eq(formSections.formId, formId),
+  ));
+  await storeVersionIn(dbOrTx, eventId, form, snapshot);
+  return getFormForBuilderIn(dbOrTx, eventId, formId);
+}
+
+/**
+ * The replay attempts the original CAS first, so it waits behind an in-flight
+ * original transaction. Only a stale operation whose complete normalized
+ * participant payload is already authoritative can be recovered as success.
+ */
+export async function updateParticipantStepWithReplayIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  formId: FormId,
+  rawOperation: ParticipantStepOperation,
+  participantReplay: boolean,
+): Promise<BuilderForm> {
+  const operation = participantStepOperationSchema.parse(rawOperation);
+  try {
+    return await updateParticipantStepIn(dbOrTx, eventId, formId, operation);
+  } catch (error) {
+    if (!participantReplay || !isAppError(error) || error.code !== "STALE_WRITE") throw error;
+    const current = await getFormForBuilderIn(dbOrTx, eventId, formId);
+    if (!participantStepMatches(current, operation)) throw error;
+    return current;
+  }
 }
 
 export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId, input: CreateFieldInput, expectedUpdatedAt: string): Promise<BuilderForm> {
