@@ -151,7 +151,7 @@ describe("evaluation reminder exact-recipient preflight", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/internal/evaluation/${EVENT_ID}/plans/${PLAN_A.id}/reminders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reviewerUserIds: null, attemptId: ATTEMPT_A }),
+      body: JSON.stringify({ reviewerUserIds: [ADA.reviewerUserId, GRACE.reviewerUserId], attemptId: ATTEMPT_A }),
     });
     expect(buttonNamed("Working…")?.disabled).toBe(true);
     await act(async () => confirm?.click());
@@ -231,10 +231,10 @@ describe("evaluation reminder exact-recipient preflight", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.filter(([, init]) => init === undefined)).toHaveLength(1);
-    const firstAttempt = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { attemptId: string };
-    const retriedAttempt = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as { attemptId: string };
-    expect(firstAttempt.attemptId).toBe(ATTEMPT_A);
-    expect(retriedAttempt.attemptId).toBe(firstAttempt.attemptId);
+    const firstAttempt = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { reviewerUserIds: string[]; attemptId: string };
+    const retriedAttempt = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as { reviewerUserIds: string[]; attemptId: string };
+    expect(firstAttempt).toEqual({ reviewerUserIds: [ADA.reviewerUserId], attemptId: ATTEMPT_A });
+    expect(retriedAttempt).toEqual(firstAttempt);
     expect(toastMock).toHaveBeenCalledWith("Reminded 1 reviewer");
   });
 
@@ -262,7 +262,7 @@ describe("evaluation reminder exact-recipient preflight", () => {
     await act(async () => buttonNamed("Send reminders")?.click());
     await settle();
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/internal/evaluation/${EVENT_ID}/plans/${PLAN_B.id}/reminders`, expect.objectContaining({ method: "POST" }));
-    const body = JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body)) as { attemptId: string };
-    expect(body.attemptId).toBe(ATTEMPT_B);
+    const body = JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body)) as { reviewerUserIds: string[]; attemptId: string };
+    expect(body).toEqual({ reviewerUserIds: [GRACE.reviewerUserId], attemptId: ATTEMPT_B });
   });
 });

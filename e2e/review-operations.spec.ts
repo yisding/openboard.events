@@ -17,6 +17,7 @@ const EVENT = EVENTS.main.id;
 const EVALUATION = `/events/${EVENT}/evaluation`;
 const REVIEW = `/events/${EVENT}/review`;
 const API = `/api/internal/evaluation/${EVENT}`;
+const REMINDER_ATTEMPT_ID = "c4200000-0000-4000-8009-000000000010";
 
 type PlanDTO = {
   id: string;
@@ -340,9 +341,12 @@ test.describe("review-operations", () => {
       expect(reviewer?.completed ?? 0).toBeGreaterThan(0);
       expect(reviewer?.recused ?? 0).toBeGreaterThan(0);
 
+      const preview = await apiData<{ reviewers: Array<{ reviewerUserId: string }> }>(request, `${API}/plans/${round2.id}/reminders`);
+      const reviewerUserIds = preview.reviewers.map((entry) => entry.reviewerUserId);
+      expect(reviewerUserIds.length, "the reminder preview must name its approved audience").toBeGreaterThan(0);
       const result = await apiData<{ enqueued: number; skipped: number }>(request, `${API}/plans/${round2.id}/reminders`, {
         method: "POST",
-        data: { reviewerUserIds: null },
+        data: { reviewerUserIds, attemptId: REMINDER_ATTEMPT_ID },
       });
       const after = Number((await queryRows<{ n: number }>(
         "SELECT count(*)::int AS n FROM communication_logs WHERE event_id = $1 AND template_key = 'review_reminder'",
@@ -357,12 +361,10 @@ test.describe("review-operations", () => {
       expect(result.skipped, "a reviewer the outbox cannot address is a provisioning gap, not a pass").toBe(0);
       expect(result.enqueued, "the round still has outstanding reviewers to remind").toBeGreaterThan(0);
 
-      // `>= enqueued`, not `> before`: the reminder is idempotent per minute
-      // bucket on purpose (`idem.reviewReminder`'s `cycle`), so a Playwright
-      // retry seconds after the first attempt re-issues the same key and
-      // collapses onto the rows already written. The claim that survives that —
-      // and the one worth making — is that the outbox holds a reminder for
-      // every reviewer this call named.
+      // `>= enqueued`, not `> before`: the stable attempt id makes a Playwright
+      // retry re-issue the same key even across a minute boundary, collapsing
+      // onto the rows already written. The outbox must hold a reminder for
+      // every reviewer this preview approved.
       expect(after, "the enqueued reminders must be in the outbox").toBeGreaterThanOrEqual(result.enqueued);
     });
 

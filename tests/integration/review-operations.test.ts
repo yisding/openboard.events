@@ -919,6 +919,40 @@ describe("review operations", () => {
     ]);
   });
 
+  it("sends only to the reviewer IDs approved by the preview when the round expands", async () => {
+    const planId = await seedPlan({
+      opensAt: AT_OPEN.toISOString(),
+      closesAt: AT_CLOSE.toISOString(),
+    });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    const preview = await listOutstandingReviewersIn(db, eventId, planId);
+    expect(preview.map((target) => target.reviewerUserId)).toEqual([ada]);
+
+    await assignReviewersIn(db, eventId, planId, [
+      { userId: ada, trackIds: null },
+      { userId: grace, trackIds: null },
+    ]);
+    expect((await listOutstandingReviewersIn(db, eventId, planId)).map((target) => target.reviewerUserId).sort())
+      .toEqual([ada, grace].sort());
+
+    await sendReviewRemindersIn(
+      db,
+      eventId,
+      planId,
+      preview.map((target) => target.reviewerUserId),
+      REMINDER_ATTEMPT_A,
+      AT_OPEN.getTime(),
+    );
+    const recipients = await pglite.query<{ email: string }>(
+      `SELECT c.email FROM communication_logs l
+       JOIN contacts c ON c.id = l.contact_id
+       WHERE l.event_id=$1 AND l.template_key='review_reminder'
+       ORDER BY c.email`,
+      [eventId],
+    );
+    expect(recipients.rows.map((row) => row.email)).toEqual(["ada@example.com"]);
+  });
+
 });
 
 function verdict(
