@@ -1,191 +1,182 @@
 # Openboard
 
-Openboard is an open-source event and speaker-management platform for conferences: a public
-call for speakers with conditional logic and routing, multi-round submission review, a speaker
-portal, automated transactional communications, a drag-and-drop agenda with conflict detection,
-public schedule/speaker/embed pages, and dashboards — plus a commercial layer (organizations,
-user management, Better Auth incl. Google sign-in, a billing scaffold, GDPR tooling) and an
-experience layer of dashboards, flow-through lists, and a command palette on top.
+Openboard is an open-source platform for running the speaker side of a conference: open a
+call for speakers, review the proposals, keep your speakers on track, build a conflict-free
+schedule, and publish it — all from one place, with the routine email handled for you.
 
-- **Deployed preview (seeded sample event, real database):** <https://sb-web-preview.yi-ding.workers.dev>
-- **Judge/reviewer walkthrough:** [`docs/demo-script.md`](docs/demo-script.md)
-- **Public API reference:** [`docs/api.md`](docs/api.md)
-- **Build history and current status:** [`plan/`](plan/), starting with
-  [`plan/status.md`](plan/status.md) (the live evidence ledger) and
-  [`plan/product-roadmap.md`](plan/product-roadmap.md)
-- **Latest production-readiness audit:**
-  [`docs/evidence/production-readiness-audit-2026-08-11.md`](docs/evidence/production-readiness-audit-2026-08-11.md)
+This README is a tour for **event organizers**. If you want to hack on Openboard or host it
+yourself, jump to [For developers and self-hosters](#for-developers-and-self-hosters).
 
-## Honest status
+- **Try it now:** <https://sb-web-preview.yi-ding.workers.dev> — a live preview seeded with a
+  sample conference (*AI.Engineer Sandbox — NYC*).
+- **Guided walkthrough:** [`docs/demo-script.md`](docs/demo-script.md) steps through everything
+  below against the seeded event.
 
-This project was built against an aggressive hackathon deadline and then continued past it toward
-a sellable product. The codebase is broad and largely server-backed, but **not every acceptance
-criterion has been demonstrated against a deployed environment**, and the ledger in
-[`plan/status.md`](plan/status.md) is the source of truth — read it before trusting a claim below.
+## Your event at a glance
 
-**What is proven against the deployed preview:** a real Neon-backed health check; admin sign-in
-through Better Auth with server-side session revocation (Google OAuth is wired and its
-callback is accepted by Google — verified to the sign-in redirect, per the evidence file §11.1;
-the interactive login itself is a demo-time step); portal OTP login; a CFP submission stored with routing applied; email delivered to a
-real Gmail inbox from a verified sending domain (SPF/DKIM/DMARC aligned); accept → notify → a real
-Resend send; reviewer scoring with a rating that matches a hand-computed average; a browser-driven
-R2 file upload (presign → PUT → finalize); all five public/embed surfaces (sessions, agenda,
-itinerary with ICS export, speakers list, speaker gallery); an assisted agenda-placement apply;
-a deployed application-layer sign-in throttle (paced attempts return `429` after five tries); and
-a Worker bundle inside the Cloudflare Workers Free budget.
+Sign in, pick your event, and the dashboard tells you where your attention is needed *today*:
+proposals awaiting a decision, accepted sessions without a time slot, speakers missing a bio or
+headshot. Each line links straight to the screen where you fix it.
 
-**What is not yet proven anywhere:** a green run of the `Deploy` GitHub Actions workflow (every
-deploy so far is a laptop operation via `scripts/deploy-cloudflare.sh`); production (`sb-prod`) is
-provisioned — database migrated through the full journal, both workers deployed with secrets —
-and `/api/health` is green, but its first strict post-deploy smoke through the protected workflow
-is still pending (the recorded provisioning proof is
-[`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §11.2); an Outlook delivery probe; and full end-to-end passes of the review
-reminders, speaker-roster, and content-operations e2e specs (each has failed on a real but narrow
-gap — see `plan/status.md` §3 for the specifics rather than treating the surface as untested).
-`TEST_AUTH` remains enabled on the preview and must be disabled before any non-demo deployment.
-The billing provider remains a scaffold and is explicitly outside the current launch scope:
-`BILLING_MODE=disabled` hides its link and returns 404 from the page, internal endpoints, and
-webhook in preview and production. `BILLING_MODE=scaffold` is accepted only for local seam tests.
+![The event dashboard, with a needs-attention queue and submission status counts](docs/screenshots/dashboard.png)
 
-**Numbers, pulled from the tree, not memory:** 17 migrations in [`drizzle/`](drizzle), 9
-Playwright specs in [`e2e/`](e2e), and (last recorded, `plan/status.md` §2h) 1299 passing Vitest
-cases across 153 files with a merged-tree Worker size of ~2.3 MiB gzip against the 3 MiB Free
-ceiling. Nothing here is a target — it's a snapshot; re-run the commands in **Testing** below for
-the current count.
+The left rail is the whole product: **Forms → Abstracts → Evaluation → Agenda** for the program,
+**Speakers → Tasks → Files** for the people, and **Communications → Resources → Embeds** to reach
+your audience.
 
-## What's inside
+## 1. Open your call for speakers
 
-| Area | Capability |
-|---|---|
-| Call for speakers | Six-step form builder, 8 field types, visibility/routing rules, immutable per-save snapshots, public 5-step CFP wizard with OTP, server-persisted drafts, deadline/limit enforcement, edit-until-close |
-| Review | Multi-round evaluation plans, typed criteria, explicit reviewer assignments, blind review, recusal, reviewer provisioning/reminders, a scoring queue against the pinned submission snapshot |
-| Speaker portal | Magic-link/OTP login, profile + headshot upload, tasks (manual/form/file), submissions with status, admin impersonation |
-| Communications | 8 editable templates, a transactional outbox, reminder ladder, ICS invite/cancel with Google/Outlook deeplinks, bounce/complaint webhook, suppression + `List-Unsubscribe` |
-| Agenda | Session CRUD, drag-and-drop day grid, pure conflict detection (room/speaker/track), list/day/week/track/room views, assisted conflict-safe placement |
-| Public surfaces | Sessions, agenda, schedule itinerary with ICS export, speakers list, speaker gallery — each with a matching configurable `/embed/*` variant |
-| Dashboards | Aggregated server endpoint over SQL reporting views, an attention-first queue, phase-aware ordering |
-| Commercial layer | Organizations/tenancy, user management + invitations + audit log, Better Auth (email/password + Google), self-serve onboarding, GDPR export/erasure/retention, a billing scaffold, org-level speaker CRM (directory, segments, pipeline, merge) |
-| Experience layer | Slide-over detail panels with keyboard next/prev, a shared bulk-action bar, a command palette, speaker "I'm speaking!" share moments, public schedule liveness |
+Create a submission form under **Forms**. The builder walks you through six steps — setup,
+welcome page, the abstract itself, participant details, settings, and notifications — with a live
+preview of what speakers will see as you type. Deadlines and per-speaker submission limits are
+enforced for you.
 
-The full feature-to-module mapping lives in [`PLAN.md`](PLAN.md) §1's product table.
+![The six-step form builder with live preview](docs/screenshots/form-builder.png)
 
-## Architecture
+Questions come in eight field types (short/long text, rich text, dropdowns, multi-selects, and
+more). Two features do a lot of quiet work here:
 
-Two Cloudflare Workers, one Next.js repository:
+- **Conditional visibility** — a question can appear only when it's relevant ("Workshop
+  duration" only when the format is *Workshop*).
+- **Category routing** — rules like *"When Format is Workshop → set Track AI Agents, add tag
+  Tooling"* file each submission into the right bucket the moment it arrives.
 
-- **`sb-web`** — Next.js 15 (App Router) deployed via OpenNext. Owns the web application's bindings: Neon
-  Postgres, sessions, R2 presigning, Resend, ICS, Better Auth. (The jobs Worker below holds the
-  only two bindings outside it.)
-- **`workers/jobs`** — a dumb cron dispatcher with no application imports. It holds only
-  `APP_BASE_URL` and a `CRON_SECRET`, and calls back into `sb-web`'s `/api/jobs/*` routes on a
-  minute-modulo schedule (outbox drain, reminders, cleanup).
+<img src="docs/screenshots/form-questions-routing.png" alt="The question list with a conditional field, and a category routing rule" width="560">
 
-Inside `src`:
+Every save pins an immutable snapshot of the form, so a proposal is always reviewed against the
+exact form the speaker filled in — even if you tweak the wording later. Once submissions exist,
+the structure locks (labels, guidance, and dates stay editable).
 
-- `src/app` — thin route handlers; logic lives in features.
-- `src/features/*` — vertical slices (events, forms, submissions, portal, evaluation, comms,
-  agenda, public, dashboard, organizations, billing, crm, data-lifecycle, onboarding, shell).
-  Features talk to each other only through `src/shared/contracts` or a feature's `index.ts`.
-- `src/shared/contracts` — the single source for cross-feature types, enums, branded ids, and
-  error codes.
-- `src/shared/lib` — the one condition evaluator, snapshot compiler, timezone API, and sanitizer
-  profiles — each has exactly one implementation, enforced by CI greps.
-- `drizzle/` — Postgres schema, views, and triggers. Additive-only after the initial migration.
-- Every event-scoped table carries a composite foreign key back to `(event_id)`, so a
-  cross-tenant or cross-event row is a database-level rejection, not an application check;
-  organization-scoped tables extend the same pattern one level up.
-- Outbound email never writes to Resend inline: a domain event enqueues a row in the
-  transactional outbox, and the cron-driven dispatcher is the one place that calls Resend.
+When the form is ready, publish it and share the public link — each row in the Forms list has a
+copy-link button.
 
-## Getting started
+![The forms list with submission counts, status, and copy-link actions](docs/screenshots/forms-list.png)
 
-Prerequisites: Node.js 22 (pinned in `.node-version`), pnpm (`packageManager` pins
-`pnpm@11.8.0`), and — for the database-backed path — a Postgres URL (Neon or otherwise).
+### What speakers see
 
-```bash
-pnpm install
-cp .dev.vars.example .dev.vars     # fill in DATABASE_URL / DATABASE_URL_DIRECT and SESSION_SECRET
-pnpm db:migrate                    # applies drizzle/ to whatever DATABASE_URL_DIRECT points at
-pnpm seed                          # loads the sample event; pass --wipe to reset first
-pnpm dev                           # http://localhost:3000
-```
+Speakers get a clean five-step wizard: verify email with a one-time code, fill in the proposal,
+add speaker details, review, submit. Drafts save to the server as they go, so nothing is lost to
+a closed tab, and speakers can come back and **edit their proposal until the form closes or you
+decide** — no "please re-open my submission" email threads.
 
-Then create the first admin/reviewer accounts:
+<img src="docs/screenshots/cfp-wizard.png" alt="The public submission wizard, showing the conditional Workshop duration question" width="640">
 
-```bash
-BOOTSTRAP_EVENT_ID=<event uuid> \
-BOOTSTRAP_ADMIN_PASSWORD=<12+ chars> \
-BOOTSTRAP_REVIEWER_PASSWORD=<12+ chars> \
-pnpm admin:bootstrap
-```
+That *Workshop duration* question is the conditional one from the builder above — it appeared
+because this speaker picked *Workshop*.
 
-See [`docs/admin-bootstrap.md`](docs/admin-bootstrap.md) and
-[`docs/provisioning.md`](docs/provisioning.md) (Neon/R2/Resend/Cloudflare setup) for the full
-flow.
+## 2. Review proposals and decide
 
-**A database is required.** Openboard has one runtime path — every screen reads and writes
-Postgres. The credential-free browser demo (`Open demo` on `/`, a localStorage fixture store,
-**Reset demo**) was removed on 2026-08-12; without `DATABASE_URL` the app starts but its pages
-error rather than falling back to fixtures. Point `.dev.vars` at a Neon branch (or any Postgres)
-and run `pnpm seed` — that is the local walkthrough environment, and
-[`docs/demo-script.md`](docs/demo-script.md) walks it.
+**Abstracts** is every proposal for the event with its status, track, and rating in one table.
+Tabs slice it into the queues you actually work: pending, accept queue, decline queue, decided.
+Click any row to work the proposal in a slide-over panel — no page loads, and keyboard next/prev
+lets you clear a queue without touching the mouse. Bulk-select rows to move a batch at once, or
+export the lot to CSV.
 
-## Testing
+![The abstracts table with status queues, tracks, ratings, and a queued-decisions banner](docs/screenshots/abstracts-list.png)
 
-```bash
-pnpm typecheck          # tsc --noEmit
-pnpm lint                # eslint --max-warnings=0
-pnpm invariants          # CI greps: single sanitizer/evaluator/dispatcher, no stray process.env, etc.
-pnpm audit:prod          # fail on any known production-dependency advisory
-pnpm test                # vitest: unit + PGlite integration suites
-pnpm e2e                 # Playwright — set E2E_BASE_URL to a deployed target to run against it
-pnpm check               # typecheck + lint + invariants + test + next build + worker build
-pnpm worker:size         # Workers Free compressed-size gate
-pnpm smoke:worker        # boots the built OpenNext artifact under local workerd
-pnpm cf-typegen:check    # generated Cloudflare bindings match wrangler.jsonc
-pnpm release:check       # full credential-free CI and artifact gate
-bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
-```
+The panel shows the speaker's answers exactly as submitted, rendered against the form version
+they saw:
 
-The nine specs in [`e2e/`](e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
-`agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
-`review-operations`, `speaker-content-ops`) are written to run against a deployed target plus the
-`sb-test` Neon branch, not against `localhost` fixtures — set `E2E_BASE_URL` and `NEON_TEST_URL`
-first. `plan/status.md` §3 and [`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md)
-record the current pass/fail state and the specific, narrow gaps behind the remaining failures.
+<img src="docs/screenshots/submission-drawer.png" alt="The submission panel with answers pinned to the form snapshot" width="480">
 
-## Deploying
+### Structured scoring, if you want it
 
-Deploys are currently a laptop operation via `scripts/deploy-cloudflare.sh`, not a green
-`Deploy` GitHub Actions run (see Honest status):
+For a lightweight event, decide straight from the Abstracts queues. For a program committee,
+**Evaluation** runs scoring rounds: pick the scale and criteria, choose which tracks are in
+scope, assign reviewers (with recusal for conflicts of interest), and optionally make a round
+**blind** — reviewers see the proposal content but not who wrote it. Progress bars show who is
+falling behind, and reviewer invitations and reminders are sent for you.
 
-```bash
-export APP_BASE_URL=https://sb-web-preview.yi-ding.workers.dev   # exact deployed origin; the script refuses anything else
-export R2_ACCOUNT_ID=<cloudflare account id>
-pnpm deploy:web:preview      # OpenNext build + wrangler deploy, preview environment
-pnpm deploy:jobs:preview
+![Two evaluation rounds with reviewer progress, one marked blind review](docs/screenshots/evaluation-rounds.png)
 
-export APP_BASE_URL=https://openboard.events
-pnpm deploy:web:production
-pnpm deploy:jobs:production
-```
+Scores roll up into the rating column in Abstracts, so the decision queue is already sorted by
+the committee's verdict.
 
-The protected `production` GitHub environment gates the `Deploy` Actions workflow only — these
-local commands bypass that approval gate. The wrapper still validates the exact origin and checks
-the remote Worker secret inventory before it builds or deploys, except for the explicit
-`ALLOW_MISSING_DEPLOY_SECRETS=1` first-web-Worker bootstrap. That override first proves through
-Cloudflare's API that the target Worker does not exist and is rejected for jobs or any existing
-Worker; treat production invocations accordingly.
+### Telling the speakers
 
-`.github/workflows/ci.yml` runs the credential-free validation set on every PR.
-`.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub
-environments, but has not yet completed a non-`skipped` run end to end. A merge to `main`
-deploys `preview` automatically once its CI run succeeds; `production` is a manual
-`workflow_dispatch` until the repository variable `PRODUCTION_DEPLOY_ENABLED=1` adds it as a
-second, sequential leg behind a preview that passed its own smoke test. Full provisioning steps
-(Neon, R2, Resend, Cloudflare, GitHub environments) are in
-[`docs/provisioning.md`](docs/provisioning.md); operational runbooks (backup/restore, rollback,
-Neon PITR rehearsal, R2 lifecycle, alerting) are in [`docs/runbooks/`](docs/runbooks).
+Decisions queue rather than send instantly — accept and decline in any order, then hit
+**Notify** once (the banner at the top of Abstracts counts what's queued). Each speaker gets one
+clear email, and the notification is recorded in the delivery log.
+
+## 3. Keep speakers on track
+
+**Speakers** tracks every accepted human: confirmation status, what's missing (bio, headshot),
+and their open tasks — with filter tabs for exactly the chasing lists you need before the
+printed program deadline. Import speakers by CSV for invited talks, or let the CFP populate the
+roster.
+
+![The speaker roster with confirmation status, open tasks, and missing-item flags](docs/screenshots/speakers-roster.png)
+
+Each speaker gets a **portal** — they sign in with a one-time code or magic link (no password to
+forget), update their profile, upload a headshot, see their submissions and statuses, and
+complete the **tasks** you assign (sign the speaker agreement, upload slides, confirm AV needs —
+manual, form, or file-upload tasks, with deadlines and automatic reminders).
+
+When a speaker is stuck, open their portal *as them* from the Speakers screen (real
+impersonation, clearly badged) and fix it together on the phone.
+
+## 4. Build the schedule
+
+**Agenda** is where accepted talks become a program. Unscheduled sessions wait in a tray on the
+left; drag one onto the day grid to give it a time and room. Conflicts — same room double-booked,
+same speaker in two places, two sessions of one track overlapping — are computed server-side and
+flagged in red, in the grid, the list, and the Conflicts tab, always in agreement. **Auto-place**
+suggests a conflict-free slot when you don't want to hunt for one.
+
+![The day grid with an unscheduled tray, auto-place, and two conflicts highlighted in red](docs/screenshots/agenda-day.png)
+
+List, week, track, and room views cover the other ways you'll want to look at the same program.
+
+## 5. Publish your event site
+
+Nothing leaks until you publish: the public pages render only published sessions and speakers.
+Your event gets a public site with sessions, a day-by-day agenda, a speaker directory and photo
+gallery, and a personal itinerary where attendees star sessions and export them to their
+calendar (ICS).
+
+![The public schedule page for the sample event](docs/screenshots/public-schedule.png)
+
+Already have a conference website? **Embeds** gives you an iframe for each surface — agenda,
+sessions list, itinerary, speakers list, speaker gallery — that you paste into your own site.
+They're live: reschedule a talk in the Agenda and every embed updates.
+
+![The embeds screen with five live embeddable surfaces](docs/screenshots/embeds.png)
+
+## 6. Let the email run itself
+
+**Communications** owns every routine message: submission received, accepted, declined, task
+assigned and overdue, schedule assigned and changed, portal sign-in. Edit any template with live
+preview and merge tags; schedule-assigned mail carries a calendar invite with Google/Outlook
+links, and schedule *changes* send an updated one.
+
+![The template editor with live preview and merge tags](docs/screenshots/communications-templates.png)
+
+The other tabs are your deliverability cockpit: a **reminder ladder** (how many nudges, how far
+apart), the full **delivery log**, **suppressions** (bounces and unsubscribes are honored
+automatically — every message carries `List-Unsubscribe`), and a **bulk send** for the one-off
+"speaker dinner is Thursday" announcement.
+
+## Beyond one event
+
+Openboard is multi-tenant: an **organization** holds your team and all its events. Invite
+co-organizers and reviewers with role-based access and an audit log, sign in with email/password
+or Google, and reuse your speaker relationships across years with the org-level **speaker CRM**
+(directory, segments, pipeline, duplicate merge). GDPR tooling — per-contact export, erasure,
+and retention rules — is built in, and there's a [public API](docs/api.md) for whatever we
+didn't think of.
+
+## For developers and self-hosters
+
+Openboard is MIT-licensed TypeScript: Next.js 15 on Cloudflare Workers, Postgres (Neon),
+Drizzle, Resend for email, R2 for files.
+
+- [`docs/development.md`](docs/development.md) — architecture, local setup, testing, deploying,
+  and an **honest status** section on what is and isn't yet proven against a deployed
+  environment (worth reading before you rely on anything).
+- [`docs/provisioning.md`](docs/provisioning.md) — standing up Neon/R2/Resend/Cloudflare from
+  scratch.
+- [`docs/api.md`](docs/api.md) — the public API reference.
+- [`plan/status.md`](plan/status.md) — the live evidence ledger behind every claim.
 
 ## License
 

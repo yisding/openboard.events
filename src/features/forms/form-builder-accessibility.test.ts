@@ -106,4 +106,13 @@ describe("form builder accessibility", () => {
     expect(source).toContain("if (!added) return;");
     expect(source.indexOf("if (!added) return;")).toBeLessThan(source.indexOf("setAdding(false);", source.indexOf("async function addField")));
   });
+
+  it("turns the structural-lock notice into a guarded duplicate escape hatch", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.");
+    expect(source).toContain("duplicateFormAsDraft(event.id, form.id)");
+    expect(source).toContain("runGuarded(() => { void duplicateAsDraft(); })");
+    expect(source).toContain("Return to Submission Forms and refresh before trying again.");
+  });
 });

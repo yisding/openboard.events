@@ -58,4 +58,13 @@ describe("unsaved organizer draft coverage", () => {
     expect(assignments).toContain("<Drawer open onClose={requestClose}");
     expect(assignments).toContain("onClick={requestClose}>Cancel</Button>");
   });
+
+  it("guards a composed bulk email until it is sent or explicitly discarded", () => {
+    const bulk = source("./comms/components/bulk-send-tab.tsx");
+    expect(bulk).toContain("useUnsavedWorkGuard(draftDirty)");
+    expect(bulk).toContain("previewSendId: preview?.attempt.sendId ?? null");
+    expect(bulk).toContain("setSavedDraftFingerprint(bulkMessageDraftFingerprint({");
+    expect(bulk).toContain("Discard this bulk email draft?");
+    expect(bulk).toContain("onConfirm={discardDraft}");
+  });
 });
