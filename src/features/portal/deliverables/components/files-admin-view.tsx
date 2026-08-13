@@ -43,7 +43,7 @@ type DeliverableDetail = {
   error: string;
 };
 
-type CommentDraft = { key: string | null; id: string; body: string };
+type CommentDraft = { key: string | null; id: string; body: string; attemptedBody: string | null };
 type CommentDraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type CommentDraftStorageProvider = () => CommentDraftStorage;
 
@@ -57,12 +57,36 @@ export function parseStoredCommentDraft(value: string | null, expectedKey: strin
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as Partial<CommentDraft>;
-    return parsed.key === expectedKey && typeof parsed.id === "string" && /^[0-9a-f-]{36}$/i.test(parsed.id) && typeof parsed.body === "string"
-      ? { key: expectedKey, id: parsed.id, body: parsed.body.slice(0, 5_000) }
-      : null;
+    if (parsed.key !== expectedKey || typeof parsed.id !== "string" || !/^[0-9a-f-]{36}$/i.test(parsed.id) || typeof parsed.body !== "string") return null;
+    const body = parsed.body.slice(0, 5_000);
+    return {
+      key: expectedKey,
+      id: parsed.id,
+      body,
+      // Markers written before attemptedBody was introduced represented an
+      // in-flight request, so treating their canonical body as attempted is
+      // the safe backwards-compatible interpretation.
+      attemptedBody: typeof parsed.attemptedBody === "string" ? parsed.attemptedBody.slice(0, 5_000) : body.trim(),
+    };
   } catch {
     return null;
   }
+}
+
+export function commentDraftAfterEdit(
+  current: CommentDraft,
+  key: string,
+  body: string,
+  createId: () => string = () => crypto.randomUUID(),
+): CommentDraft {
+  const sameDraft = current.key === key && current.id;
+  const changedAttempt = sameDraft && current.attemptedBody !== null && body.trim() !== current.attemptedBody;
+  return {
+    key,
+    id: changedAttempt || !sameDraft ? createId() : current.id,
+    body,
+    attemptedBody: changedAttempt || !sameDraft ? null : current.attemptedBody,
+  };
 }
 
 export function loadStoredCommentDraft(
@@ -519,7 +543,7 @@ function DeliverableDrawer({
   const { runGuarded } = useGuardedAction();
   const [detail, setDetail] = useState<DeliverableDetail>({ key: "", status: "loading", versions: [], comments: [], error: "" });
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "" });
+  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "", attemptedBody: null });
   const [sending, setSending] = useState(false);
 
   const key = row ? `${row.fileRequestId}:${row.contactId}:${row.submissionId ?? "-"}` : null;
@@ -534,14 +558,14 @@ function DeliverableDrawer({
   useEffect(() => {
     if (!key) return;
     const stored = loadStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), key);
-    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "" });
+    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "", attemptedBody: null });
   }, [eventId, key]);
 
   useEffect(() => {
-    if (!key || currentDetail.status !== "ready" || draft.key !== key || !draft.body.trim()) return;
-    if (!currentDetail.comments.some((comment) => comment.id === draft.id)) return;
+    if (!key || currentDetail.status !== "ready" || draft.key !== key || draft.attemptedBody === null) return;
+    if (!currentDetail.comments.some((comment) => comment.id === draft.id && comment.body === draft.attemptedBody)) return;
     removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
-    setDraft({ key, id: crypto.randomUUID(), body: "" });
+    setDraft({ key, id: crypto.randomUUID(), body: "", attemptedBody: null });
     toast("Comment sent");
   }, [currentDetail, draft, eventId, key, toast]);
 
@@ -572,18 +596,19 @@ function DeliverableDrawer({
     if (sending) return;
     runGuarded(() => {
       if (key) removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
-      setDraft({ key: null, id: "", body: "" });
+      setDraft({ key: null, id: "", body: "", attemptedBody: null });
       onClose();
     });
   }
 
   async function send() {
     if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
-    const pendingDraft = { key, id: draft.id, body: draftBody };
+    const pendingDraft = { key, id: draft.id, body: draftBody, attemptedBody: draftBody.trim() };
     if (!persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)) {
       toast("Can't send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
       return;
     }
+    setDraft(pendingDraft);
     setSending(true);
     try {
       const response = await fetch(`/api/internal/deliverables/comments?eventId=${encodeURIComponent(eventId)}`, {
@@ -654,12 +679,7 @@ function DeliverableDrawer({
                 disabled={sending}
                 onChange={(event) => {
                   if (!key) return;
-                  const next = {
-                    key,
-                    id: draft.key === key && draft.id ? draft.id : crypto.randomUUID(),
-                    body: event.target.value,
-                  };
-                  setDraft(next);
+                  setDraft(commentDraftAfterEdit(draft, key, event.target.value));
                 }}
                 placeholder="Reply to the speaker…"
                 maxLength={5000}

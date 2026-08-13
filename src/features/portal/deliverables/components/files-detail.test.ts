@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { FileCommentDTO, FileVersionDTO } from "@/shared/contracts";
 import {
+  commentDraftAfterEdit,
   deliverableDetailPaths,
   fetchDeliverableDetail,
   fileCommentDraftStorageKey,
@@ -74,7 +75,7 @@ describe("Files deliverable detail recovery", () => {
     const id = "e5000000-0000-4000-8000-000000000090";
     expect(fileCommentDraftStorageKey("event-a", key)).toBe(`openboard:files-comment:event-a:${key}`);
     expect(parseStoredCommentDraft(JSON.stringify({ key, id, body: "Still sending" }), key))
-      .toEqual({ key, id, body: "Still sending" });
+      .toEqual({ key, id, body: "Still sending", attemptedBody: "Still sending" });
     expect(parseStoredCommentDraft(JSON.stringify({ key: "other", id, body: "Wrong slot" }), key)).toBeNull();
     expect(parseStoredCommentDraft("not json", key)).toBeNull();
   });
@@ -85,11 +86,33 @@ describe("Files deliverable detail recovery", () => {
     };
     const key = "request-a:contact-a:-";
     const storageKey = fileCommentDraftStorageKey("event-a", key);
-    const draft = { key, id: "e5000000-0000-4000-8000-000000000090", body: "Please check this" };
+    const draft = { key, id: "e5000000-0000-4000-8000-000000000090", body: "Please check this", attemptedBody: "Please check this" };
 
     expect(loadStoredCommentDraft(storageKey, key, unavailableStorage)).toBeNull();
     expect(persistStoredCommentDraft(storageKey, draft, unavailableStorage)).toBe(false);
     expect(removeStoredCommentDraft(storageKey, unavailableStorage)).toBe(false);
+  });
+
+  it("rotates the request id when an organizer edits an attempted comment", () => {
+    const key = "request-a:contact-a:-";
+    const attempted = {
+      key,
+      id: "e5000000-0000-4000-8000-000000000090",
+      body: "Original message",
+      attemptedBody: "Original message",
+    };
+    const nextId = "e5000000-0000-4000-8000-000000000091";
+
+    expect(commentDraftAfterEdit(attempted, key, "Original message ", () => nextId)).toEqual({
+      ...attempted,
+      body: "Original message ",
+    });
+    expect(commentDraftAfterEdit(attempted, key, "Corrected message", () => nextId)).toEqual({
+      key,
+      id: nextId,
+      body: "Corrected message",
+      attemptedBody: null,
+    });
   });
 
   it("guards reply drafts and blocks every drawer close path while sending", () => {
@@ -101,9 +124,10 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain('aria-label="Reply to speaker"');
     expect(source).toContain("persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)");
     expect(source).toContain("recovery storage is unavailable");
-    expect(source).toContain("currentDetail.comments.some((comment) => comment.id === draft.id)");
+    expect(source).toContain("comment.id === draft.id && comment.body === draft.attemptedBody");
+    expect(source).toContain("commentDraftAfterEdit(draft, key, event.target.value)");
     expect(source).toContain('toast("Comment sent")');
-    const receipt = source.indexOf("currentDetail.comments.some((comment) => comment.id === draft.id)");
+    const receipt = source.indexOf("comment.id === draft.id && comment.body === draft.attemptedBody");
     expect(source.indexOf("removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
   });
 });
