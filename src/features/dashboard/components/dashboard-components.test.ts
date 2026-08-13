@@ -31,6 +31,8 @@ describe("dashboard components", () => {
     expect(speakerHtml).toContain("No outstanding tasks");
     expect(speakerHtml).toContain("Nothing overdue");
     expect(speakerHtml).toContain("No data");
+    expect(speakerHtml).toContain("Ready for event workflows");
+    expect(speakerHtml).not.toContain("accepted_speakers_v");
     expect(speakerHtml).not.toContain("dashboard-missing-alert");
     expect(todayHtml).toContain("No submission forms yet");
     expect(todayHtml).toContain("No submissions yet");

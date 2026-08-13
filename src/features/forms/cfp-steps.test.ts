@@ -164,6 +164,16 @@ describe("CFP success redirect", () => {
 });
 
 describe("CFP stale form recovery", () => {
+  it("provides actionable recovery when an error response has no message", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({}, { status: 500 })));
+
+    await expect(cfpRequest("/api/internal/forms/form-1/submit", {})).resolves.toMatchObject({
+      ok: false,
+      message: "We couldn’t complete that request. Try again.",
+      retryable: true,
+    });
+  });
+
   it("preserves the server error code and fresh snapshot data", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({
       error: {
