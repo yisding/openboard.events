@@ -241,6 +241,15 @@ export function SegmentsView({
   }
 
   async function email(segment: CrmSegmentDTO) {
+    const storedRecovery = emailRecovery ?? (() => {
+      const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+      return loaded.ok ? loaded.snapshot : null;
+    })();
+    if (storedRecovery) {
+      setEmailRecovery(storedRecovery);
+      setEmailRecoveryOpen(true);
+      return;
+    }
     const isLatestRequest = beginLatestRequest(emailRequestSequence);
     setResolving(segment.id, true);
     setEmailSegment(null);
@@ -309,7 +318,12 @@ export function SegmentsView({
                 <Button size="sm" variant="secondary" onClick={() => void resolve(segment.id)} disabled={resolving}>
                   <Users size={14} /> {resolving ? "Resolving…" : result ? `${result.matchedCount} match` : "View members"}
                 </Button>
-                <Button size="sm" onClick={() => void email(segment)} disabled={resolving}>
+                <Button
+                  size="sm"
+                  onClick={() => void email(segment)}
+                  disabled={resolving || emailRecovery !== null}
+                  title={emailRecovery ? "Resume or abandon the unconfirmed email before starting another send" : undefined}
+                >
                   <Mail size={14} /> {resolving ? "Resolving…" : "Email segment"}
                 </Button>
               </div>

@@ -37,6 +37,12 @@ type RecipientRow = {
   suppressedAt: Date | null;
 };
 
+type ComposeBulkSpeakerEmailServerInput = ComposeBulkSpeakerEmailInput & {
+  /** Server-only override used by CRM to keep retries stable if its latest
+   * event/contact link changes after an ambiguous first attempt. */
+  idempotencyKeys?: ReadonlyMap<string, string>;
+};
+
 async function loadRecipients(dbOrTx: DbOrTx, eventId: EventId, contactIds: readonly ContactId[]): Promise<Map<string, RecipientRow>> {
   if (contactIds.length === 0) return new Map();
   const rows = await dbOrTx.select({
@@ -84,7 +90,7 @@ function varsFor(event: { name: string; slug: string; timezone: string; startsAt
  * so the returned totals are the same "queued/skipped" story a re-opened
  * comms log would tell.
  */
-export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId, input: ComposeBulkSpeakerEmailInput): Promise<ComposeBulkSpeakerEmailResult> {
+export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId, input: ComposeBulkSpeakerEmailServerInput): Promise<ComposeBulkSpeakerEmailResult> {
   // Sanitized once, up front — same write-boundary discipline as
   // `saveTemplateIn`/`updateSpeakerBioIn` (resolution #2): this is
   // organizer-authored HTML that lands directly in a speaker's inbox, and
@@ -129,7 +135,8 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   }
 
   const sendId = input.sendId;
-  const idempotencyKeys = input.contactIds.map((contactId) => idem.speakerBulk(eventId, contactId, sendId));
+  const idempotencyKeyFor = (contactId: ContactId) => input.idempotencyKeys?.get(contactId) ?? idem.speakerBulk(eventId, contactId, sendId);
+  const idempotencyKeys = input.contactIds.map(idempotencyKeyFor);
   const existingKeys = new Set(
     (await dbOrTx.select({ idempotencyKey: speakerBulkMessages.idempotencyKey })
       .from(speakerBulkMessages)
@@ -143,7 +150,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   for (const contactId of input.contactIds) {
     const row = recipients.get(contactId);
     if (!row) { errors.push({ contactId, reason: "Not found in this event" }); continue; }
-    const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
+    const idempotencyKey = idempotencyKeyFor(contactId);
     if (existingKeys.has(idempotencyKey)) {
       // The first response may have been lost after the message insert. Count
       // that recipient as accepted by this attempt and retry enqueueing so a

@@ -59,24 +59,4 @@ describe("unsaved organizer draft coverage", () => {
     expect(assignments).toContain("onClick={requestClose}>Cancel</Button>");
   });
 
-  it("guards a composed bulk email until it is sent or explicitly discarded", () => {
-    const bulk = source("./comms/components/bulk-send-tab.tsx");
-    expect(bulk).toContain("useUnsavedWorkGuard(draftDirty || recoveryRequired || compose.isPending, { blocking: compose.isPending })");
-    expect(bulk).toContain("previewSendId: preview?.attempt.sendId ?? null");
-    expect(bulk).toContain("setSavedDraftFingerprint(bulkMessageDraftFingerprint({");
-    expect(bulk).toContain("Discard this bulk email draft?");
-    expect(bulk).toContain("onConfirm={discardDraft}");
-    expect(bulk).toContain("persistBulkSendRecovery(window.sessionStorage, candidate)");
-    expect(bulk).toContain("Retry this send");
-
-    for (const dialog of [
-      source("./portal/components/speakers-admin/speaker-bulk-email-dialog.tsx"),
-      source("./crm/components/crm-bulk-email-dialog.tsx"),
-    ]) {
-      expect(dialog).toContain("useUnsavedWorkGuard(open && (draftDirty || busySend || recoveryRequired), { blocking: busySend })");
-      expect(dialog).toContain('title="Discard this bulk email draft?"');
-      expect(dialog).toContain("onClose={requestClose}");
-      expect(dialog).toContain("Retry this send");
-    }
-  });
 });

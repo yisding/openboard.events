@@ -132,7 +132,10 @@ export type RemoveBulkSendRecoveryResult = { ok: true; removed: boolean; storage
 
 /** The key identifies only the owning surface and resource, never its audience or message. */
 export function bulkSendRecoveryStorageKey(identity: BulkSendRecoveryIdentity): string {
-  return `openboard:bulk-send-recovery:v${BULK_SEND_RECOVERY_VERSION}:${identity.surface}:${encodeURIComponent(identity.scope)}`;
+  // Keep discovery stable across schema versions. The version belongs in the
+  // value so an older, unreadable recovery can block a new send instead of
+  // disappearing behind a new key and being overwritten.
+  return `openboard:bulk-send-recovery:${identity.surface}:${encodeURIComponent(identity.scope)}`;
 }
 
 function parsedIdentity(identity: unknown): BulkSendRecoveryIdentity | null {
@@ -179,6 +182,15 @@ export function persistBulkSendRecovery(storage: BulkSendRecoveryStorage, value:
   const raw = JSON.stringify(snapshot);
   if (raw.length > MAX_BULK_SEND_RECOVERY_SERIALIZED_LENGTH) return { ok: false, reason: "invalid_snapshot" };
   try {
+    const existingRaw = storage.getItem(storageKey);
+    if (existingRaw !== null) {
+      const existing = parsedSnapshot(existingRaw);
+      if (!existing) return { ok: false, reason: "corrupt" };
+      if (existing.surface !== snapshot.surface || existing.scope !== snapshot.scope) {
+        return { ok: false, reason: "identity_mismatch" };
+      }
+      if (existing.sendId !== snapshot.sendId) return { ok: false, reason: "send_id_mismatch" };
+    }
     storage.setItem(storageKey, raw);
     if (storage.getItem(storageKey) !== raw) return { ok: false, reason: "write_unverified" };
     return { ok: true, snapshot, storageKey };
@@ -221,7 +233,8 @@ export type BulkSendFailureClassification = "definite" | "unknown";
 export function classifyBulkSendFailure(
   error: unknown,
   completedResults: readonly BulkSendRecoveryBatchResult[],
+  retryingRecovery = false,
 ): BulkSendFailureClassification {
-  if (completedResults.length > 0 || !isAppError(error) || error.code === "INTERNAL") return "unknown";
+  if (retryingRecovery || completedResults.length > 0 || !isAppError(error) || error.code === "INTERNAL") return "unknown";
   return "definite";
 }

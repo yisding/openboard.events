@@ -252,6 +252,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   }
 
   async function onSend(): Promise<boolean> {
+    const retryingRecovery = recovery !== null;
     if (!recovery && (!segment || !currentPreview || !canSend)) {
       toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending");
       return false;
@@ -337,7 +338,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       );
       return true;
     } catch (caught) {
-      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completedThisRun]) === "definite") {
+      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completedThisRun], retryingRecovery) === "definite") {
         removeBulkSendRecovery(window.sessionStorage, approved);
         completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
         setRecovery(null);

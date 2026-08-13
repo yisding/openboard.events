@@ -162,6 +162,7 @@ export function CrmBulkEmailDialog({
   }
 
   async function runSend(): Promise<boolean> {
+    const retryingRecovery = recovery !== null;
     if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
       return false;
@@ -235,7 +236,7 @@ export function CrmBulkEmailDialog({
         skipped: batch.skipped,
         errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
       }));
-      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completed]) === "definite") {
+      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completed], retryingRecovery) === "definite") {
         removeBulkSendRecovery(window.sessionStorage, approved);
         completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
         setRecovery(null);

@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, idem, organizationContactIdSchema, organizationIdSchema } from "@/shared/contracts";
 import { parseEnv } from "@/shared/lib/env";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { composeBulkSpeakerEmailIn } from "./server/speaker-bulk";
@@ -35,6 +35,8 @@ const grace = contactIdSchema.parse("e1000000-0000-4000-8000-000000000011");
 const unsubscribed = contactIdSchema.parse("e1000000-0000-4000-8000-000000000012");
 const suppressed = contactIdSchema.parse("e1000000-0000-4000-8000-000000000013");
 const unknownContact = contactIdSchema.parse("e1000000-0000-4000-8000-000000000099");
+const movedEventId = eventIdSchema.parse("e2000000-0000-4000-8000-000000000001");
+const movedContact = contactIdSchema.parse("e2000000-0000-4000-8000-000000000010");
 
 const secret = "speaker-bulk-test-secret-that-is-at-least-32-bytes";
 const logEnv = parseEnv({
@@ -75,6 +77,15 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     await pglite.query("UPDATE contacts SET unsubscribed_at = now() WHERE id=$1", [unsubscribed]);
     await pglite.query("INSERT INTO contact_suppressions(contact_id,event_id,reason) VALUES($1,$2,'bounce')", [suppressed, eventId]);
     await seedDefaultTemplates(tx, eventId);
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'New Event','new-event','Oakland','America/Los_Angeles','2027-09-15T16:00:00Z','2027-09-17T01:00:00Z')",
+      [movedEventId],
+    );
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES ($1,$2,'ada@example.com','Ada','Lovelace')",
+      [movedContact, movedEventId],
+    );
+    await seedDefaultTemplates(tx, movedEventId);
   }, 30_000);
 
   afterAll(async () => pglite.close());
@@ -206,5 +217,37 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     );
     expect(logs.rows[0]?.n).toBe(1);
     expect(messages.rows[0]?.n).toBe(1);
+  });
+
+  it("deduplicates a CRM retry even when the durable contact now resolves to another event", async () => {
+    const sendId = "91000000-0000-4000-8000-000000000020";
+    const organizationId = organizationIdSchema.parse("e3000000-0000-4000-8000-000000000001");
+    const organizationContactId = organizationContactIdSchema.parse("e3000000-0000-4000-8000-000000000010");
+    const idempotencyKey = idem.crmBulk(organizationId, organizationContactId, sendId);
+    const message = { subject: "Stable CRM update", bodyHtml: "<p>Hello {{speaker.first_name}}</p>", mode: "send" as const, sendId };
+
+    const first = await composeBulkSpeakerEmailIn(tx, eventId, {
+      ...message,
+      contactIds: [ada],
+      idempotencyKeys: new Map([[ada, idempotencyKey]]),
+    });
+    const retry = await composeBulkSpeakerEmailIn(tx, movedEventId, {
+      ...message,
+      contactIds: [movedContact],
+      idempotencyKeys: new Map([[movedContact, idempotencyKey]]),
+    });
+
+    expect(first).toMatchObject({ queued: 1, alreadyQueued: 0 });
+    expect(retry).toMatchObject({ queued: 0, alreadyQueued: 1 });
+    const messages = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM speaker_bulk_messages WHERE idempotency_key=$1",
+      [idempotencyKey],
+    );
+    const logs = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM communication_logs WHERE idempotency_key=$1",
+      [idempotencyKey],
+    );
+    expect(messages.rows[0]?.n).toBe(1);
+    expect(logs.rows[0]?.n).toBe(1);
   });
 });

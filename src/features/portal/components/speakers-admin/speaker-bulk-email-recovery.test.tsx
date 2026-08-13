@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadBulkSendRecovery } from "@/features/comms/bulk-send-recovery";
+import { AppError } from "@/shared/lib/errors";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -92,6 +93,14 @@ describe("targeted speaker email recovery", () => {
     expect(recovered.ok).toBe(true);
     if (!recovered.ok) return;
     const originalSendId = recovered.snapshot.sendId;
+
+    apiMock.mockRejectedValueOnce(new AppError("FORBIDDEN", "Your access changed"));
+    await act(async () => buttonsNamed("Retry this send")[0]?.click());
+    expect(container.textContent).toContain("couldn’t confirm whether every email was queued");
+    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` })).toMatchObject({
+      ok: true,
+      snapshot: { sendId: originalSendId },
+    });
 
     apiMock.mockResolvedValueOnce({ queued: 0, alreadyQueued: 1, skipped: 0, errors: [], preview: null });
     await act(async () => buttonsNamed("Retry this send")[0]?.click());

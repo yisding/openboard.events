@@ -175,6 +175,21 @@ describe("bulk send recovery storage", () => {
     expect(removeBulkSendRecovery(storage, value)).toMatchObject({ ok: true, removed: true });
     expect(loadBulkSendRecovery(storage, value)).toEqual({ ok: false, reason: "missing" });
   });
+
+  it("never overwrites unreadable state or a different unconfirmed attempt", () => {
+    const storage = memoryStorage();
+    const value = snapshot();
+    const key = bulkSendRecoveryStorageKey(value);
+    storage.setItem(key, "{old unreadable recovery");
+    expect(persistBulkSendRecovery(storage, value)).toEqual({ ok: false, reason: "corrupt" });
+    expect(storage.getItem(key)).toBe("{old unreadable recovery");
+
+    storage.removeItem(key);
+    expect(persistBulkSendRecovery(storage, value).ok).toBe(true);
+    const differentAttempt = snapshot({ sendId: "b3000000-0000-4000-8000-000000000002" });
+    expect(persistBulkSendRecovery(storage, differentAttempt)).toEqual({ ok: false, reason: "send_id_mismatch" });
+    expect(loadBulkSendRecovery(storage, value)).toMatchObject({ ok: true, snapshot: value });
+  });
 });
 
 describe("bulk send failure classification", () => {
@@ -187,5 +202,10 @@ describe("bulk send failure classification", () => {
   it("treats a later failure as unknown after any earlier batch completed", () => {
     const completed = [{ queued: 200, alreadyQueued: 0, skipped: 0, errors: [] }];
     expect(classifyBulkSendFailure(new AppError("VALIDATION", "Second batch rejected"), completed)).toBe("unknown");
+  });
+
+  it("keeps every failure unknown once the organizer is retrying an ambiguous attempt", () => {
+    expect(classifyBulkSendFailure(new AppError("VALIDATION", "Request rejected"), [], true)).toBe("unknown");
+    expect(classifyBulkSendFailure(new AppError("FORBIDDEN", "Access changed"), [], true)).toBe("unknown");
   });
 });

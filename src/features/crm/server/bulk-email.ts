@@ -6,6 +6,8 @@ import {
   composeCrmBulkEmailResultSchema,
   contactIdSchema,
   eventIdSchema,
+  idem,
+  organizationContactIdSchema,
   type ComposeCrmBulkEmailInput,
   type ComposeCrmBulkEmailResult,
   type OrganizationId,
@@ -21,9 +23,10 @@ import { AppError } from "@/shared/lib/errors";
  * `organization_contact_links` row (a cross-event segment naturally
  * contains contacts pushed into different events); contacts that resolve to
  * the same event are batched into one `composeBulkSpeakerEmailIn` call so
- * that function's own suppression/unsubscribe checks and idempotent
- * `speaker_bulk_messages` rows apply exactly as they do for an
- * event-scoped bulk send. An organization contact with no event link yet
+ * that function's own suppression/unsubscribe checks apply exactly as they
+ * do for an event-scoped bulk send. CRM supplies an organization-contact
+ * idempotency key so a retry remains stable even if the latest event link
+ * changes after an ambiguous first response. An organization contact with no event link yet
  * cannot receive mail this way — it is reported back as an explicit error,
  * never silently dropped.
  */
@@ -67,22 +70,28 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
     return composeCrmBulkEmailResultSchema.parse({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: result.preview });
   }
 
-  const byEvent = new Map<string, string[]>();
+  const byEvent = new Map<string, { contactId: string; organizationContactId: string }[]>();
   for (const organizationContactId of input.organizationContactIds) {
     const link = links.get(organizationContactId);
     if (!link) { errors.push({ organizationContactId, reason: "Not linked to any event yet — push this contact into an event first" }); continue; }
     const bucket = byEvent.get(link.eventId) ?? [];
-    bucket.push(link.contactId);
+    bucket.push({ contactId: link.contactId, organizationContactId });
     byEvent.set(link.eventId, bucket);
   }
 
   let queued = 0;
   let alreadyQueued = 0;
   let skipped = 0;
-  for (const [eventId, contactIds] of byEvent) {
+  for (const [eventId, linkedContacts] of byEvent) {
+    const contactIds = linkedContacts.map((link) => contactIdSchema.parse(link.contactId));
+    const idempotencyKeys = new Map(linkedContacts.map((link) => [
+      link.contactId,
+      idem.crmBulk(organizationId, organizationContactIdSchema.parse(link.organizationContactId), input.sendId),
+    ]));
     const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(eventId), {
-      mode: "send", contactIds: contactIds.map((id) => contactIdSchema.parse(id)), subject: input.subject, bodyHtml: input.bodyHtml,
+      mode: "send", contactIds, subject: input.subject, bodyHtml: input.bodyHtml,
       sendId: input.sendId,
+      idempotencyKeys,
     });
     queued += result.queued;
     alreadyQueued += result.alreadyQueued;

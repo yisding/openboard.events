@@ -169,6 +169,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   }
 
   async function runSend(): Promise<boolean> {
+    const retryingRecovery = recovery !== null;
     if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
       return false;
@@ -215,7 +216,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       router.refresh();
       return true;
     } catch (sendError) {
-      if (classifyBulkSendFailure(sendError, approved.completedResults) === "definite") {
+      if (classifyBulkSendFailure(sendError, approved.completedResults, retryingRecovery) === "definite") {
         removeBulkSendRecovery(window.sessionStorage, approved);
         completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
         setRecovery(null);
