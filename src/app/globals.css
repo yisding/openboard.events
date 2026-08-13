@@ -2178,7 +2178,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .embed-overview p{margin:4px 0 0;color:var(--muted);font-size:11.5px}
 .embed-overview-hint{max-width:260px;color:var(--muted);font-size:10.5px;line-height:1.45;text-align:right}
 .embed-cards{display:grid;gap:10px}
-.embed-cards>article.embed-card{display:block;padding:0;overflow:hidden}
+.embed-cards>article.embed-card{display:block;padding:0;overflow:clip}
 .embed-card.is-open{border-color:var(--accent-border);box-shadow:0 8px 28px rgba(8,65,53,.08)}
 .embed-card.is-disabled{background:var(--surface-raised)}
 .embed-card-header{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:80px;padding:14px 18px}

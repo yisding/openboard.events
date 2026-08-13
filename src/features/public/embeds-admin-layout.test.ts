@@ -21,6 +21,11 @@ describe("embeds admin layout", () => {
     expect(css).toContain(".embed-editor-sidebar{position:sticky");
   });
 
+  it("clips card chrome without trapping sticky editor controls in a non-scrolling ancestor", () => {
+    expect(css).toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:clip}");
+    expect(css).not.toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:hidden}");
+  });
+
   it("collapses optional filter groups and summarizes each selection", () => {
     expect(source).toContain('<details className="embed-filter-group">');
     expect(source).toContain('selectedCount > 0 ? `${selectedCount} selected` : "All included"');
