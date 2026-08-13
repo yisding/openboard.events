@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Row as TableRow } from "@tanstack/react-table";
-import { defaultRowId, nullsLast, selectionAnnouncement, selectionLabel } from "./data-table";
+import {
+  dataTableCanSelectAllRows,
+  dataTableSelectionCountLabel,
+  defaultRowId,
+  nullsLast,
+  selectionAnnouncement,
+  selectionLabel,
+} from "./data-table";
 
 type ValueRow = { value: number | null };
 
@@ -39,5 +46,28 @@ describe("DataTable helpers", () => {
     expect(selectionAnnouncement(0, 1)).toBe("1 row selected on this page.");
     expect(selectionAnnouncement(1, 3)).toBe("3 rows selected on this page.");
     expect(selectionAnnouncement(3, 0)).toBe("Selection cleared.");
+  });
+
+  it("keeps the default selection scope page-local regardless of local row count", () => {
+    expect(dataTableCanSelectAllRows(12)).toBe(false);
+    expect(dataTableCanSelectAllRows(200)).toBe(false);
+    expect(dataTableSelectionCountLabel(25, "page"))
+      .toBe("25 selected on this page");
+    expect(selectionAnnouncement(0, 25)).toBe("25 rows selected on this page.");
+  });
+
+  it("exposes bounded capability separately from the explicitly activated scope", () => {
+    const wording = { maxRows: 200, singularNoun: "deliverable", pluralNoun: "deliverables" };
+
+    expect(dataTableCanSelectAllRows(0, wording)).toBe(false);
+    expect(dataTableCanSelectAllRows(199, wording)).toBe(true);
+    expect(dataTableCanSelectAllRows(200, wording)).toBe(true);
+    expect(dataTableCanSelectAllRows(201, wording)).toBe(false);
+    expect(dataTableSelectionCountLabel(25, "page", wording))
+      .toBe("25 deliverables selected on this page");
+    expect(selectionAnnouncement(25, 200, "allRows", wording))
+      .toBe("200 matching deliverables selected.");
+    expect(selectionAnnouncement(0, 25, "page", wording))
+      .toBe("25 deliverables selected on this page.");
   });
 });

@@ -6,15 +6,23 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliverableRowDTO, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
 import type { DeliverableStateCounts } from "@/features/portal/deliverables";
+import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limit";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { deliverableBulkTargets, filesSelectionBarState } from "./files-selection";
 
 type State = "all" | "open" | "overdue" | "completed";
 type HasUpload = "" | "yes" | "no";
+
+const FILES_ALL_ROWS_SELECTION = {
+  maxRows: DELIVERABLE_BULK_LIMIT,
+  singularNoun: "deliverable",
+  pluralNoun: "deliverables",
+} as const;
 
 function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -121,7 +129,7 @@ export function FilesAdminView({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          targets: targets.map((row) => ({ taskId: row.taskId, contactId: row.contactId, submissionId: row.submissionId })),
+          targets: deliverableBulkTargets(targets),
         }),
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
@@ -157,7 +165,7 @@ export function FilesAdminView({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           groupBy,
-          targets: targets.map((row) => ({ taskId: row.taskId, contactId: row.contactId, submissionId: row.submissionId })),
+          targets: deliverableBulkTargets(targets),
         }),
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: FileExportJobDTO; error?: { message?: string } } | null;
@@ -308,14 +316,42 @@ export function FilesAdminView({
           data={displayRows}
           empty={<EmptyState icon={<FolderOpen size={28} />} title="No deliverables match" description="Adjust the filters above, or wait for speakers to complete their tasks." />}
           enableSelection
+          allRowsSelection={FILES_ALL_ROWS_SELECTION}
           getRowLabel={(row) => `${row.contactName}, ${row.fileRequestTitle}`}
           onSelectionChange={setSelected}
-          renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
-            <BulkActionBar
+          renderSelectionBar={({
+            selectedRows,
+            countLabel,
+            clearSelection,
+            scope,
+            pageSelectedCount,
+            pageRowCount,
+            totalRowCount,
+            selectAllRows,
+          }) => {
+            const selection = filesSelectionBarState({
+              scope,
+              selectedCount: selectedRows.length,
+              pageSelectedCount,
+              pageRowCount,
+              matchingCount: totalRowCount,
+              canSelectAllRows: selectAllRows !== undefined,
+            });
+            return <BulkActionBar
               count={selectedRows.length}
               countLabel={countLabel}
               onClear={clearSelection}
               actions={<>
+                {selection.canSelectAllMatching && selectAllRows && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={reminding || exporting}
+                    onClick={selectAllRows}
+                  >
+                    Select all {totalRowCount} matching deliverables
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" disabled={reminding} onClick={() => { void bulkRemind(selectedRows); }}>
                   <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
                 </Button>
@@ -331,8 +367,8 @@ export function FilesAdminView({
                   <option value="session">Grouped by session</option>
                 </Select>
               </>}
-            />
-          )}
+            />;
+          }}
           selectionEpoch={selectionEpoch}
           getRowId={(row) => `${row.taskId}:${row.contactId}:${row.submissionId ?? "-"}`}
           onRowClick={(row) => setActive(row)}

@@ -11,6 +11,7 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { addFileCommentIn } from "../../server/deliverable-slot";
+import { DELIVERABLE_BULK_LIMIT } from "../bulk-limit";
 
 /**
  * The organizer's half of a deliverable's comment thread. The speaker's half
@@ -34,13 +35,13 @@ export function addOrganizerComment(eventId: EventId, actorUserId: UserId, input
   );
 }
 
-/** The central Files view's bulk bar: remind every visible, selected, still-open row. */
+/** The central Files view's bulk bar: remind every selected, still-open row. */
 export const bulkRemindInputSchema = z.object({
   targets: z.array(z.object({
     taskId: taskIdSchema,
     contactId: contactIdSchema,
     submissionId: submissionIdSchema.nullable(),
-  })).min(1).max(200),
+  })).min(1).max(DELIVERABLE_BULK_LIMIT),
 });
 export type BulkRemindInput = z.infer<typeof bulkRemindInputSchema>;
 
