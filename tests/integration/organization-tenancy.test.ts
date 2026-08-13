@@ -11,6 +11,7 @@ import {
   assignEventToOrganizationIn,
   createOrganizationIn,
   getEventOrganizationIn,
+  getEventAccessOverviewIn,
   getOrganizationBySlugIn,
   getOrganizationMemberRoleIn,
   listOrganizationEventsIn,
@@ -26,6 +27,7 @@ import {
   resolvePrimaryOrganizationIn,
   setOrganizationMemberIn,
   setExplicitEventAccessIn,
+  setEventAccessMemberIn,
 } from "@/features/organizations";
 import { DEFAULT_ORGANIZATION_ID, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
 
@@ -474,6 +476,24 @@ describe("organization tenancy (M43)", () => {
           [legacyEventA, "reviewer"],
           [legacyEventB, null],
         ]);
+
+        const grantOverview = await getEventAccessOverviewIn(db, legacyEventB, organizerUserId);
+        expect(grantOverview).toMatchObject({ canGrant: true, grantRestriction: null });
+        expect(grantOverview.candidates.map((candidate) => candidate.userId)).toEqual([reviewerUserId]);
+        await expect(setEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, organizerUserId, "reviewer",
+        )).rejects.toMatchObject({ code: "VALIDATION" });
+        await expect(setEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, reviewerUserId, "organizer",
+        )).resolves.toMatchObject({ userId: reviewerUserId, role: "organizer", organizationMember: true });
+        // A concurrent or stale weaker request reports the stronger truth and
+        // never creates a second membership or demotes the first grant.
+        await expect(setEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, reviewerUserId, "reviewer",
+        )).resolves.toMatchObject({ userId: reviewerUserId, role: "organizer" });
+        expect((await getEventAccessOverviewIn(db, legacyEventB, organizerUserId)).candidates).toEqual([]);
+        await removeEventAccessMemberIn(db, legacyEventB, organizerUserId, reviewerUserId);
+
         await expect(removeEventAccessMemberIn(
           db, legacyEventA, reviewerUserId, organizerUserId,
         )).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -487,6 +507,11 @@ describe("organization tenancy (M43)", () => {
         )).resolves.toBe("organizer");
         await expect(authorizeAdmin(db, identityOf(reviewerUserId, "reviewer@example.com"), legacyEventA, "organizer"))
           .resolves.toMatchObject({ role: "organizer" });
+        await expect(getEventAccessOverviewIn(db, legacyEventA, reviewerUserId)).resolves.toMatchObject({
+          canGrant: false,
+          candidates: [],
+          grantRestriction: expect.stringContaining("both this event and its organization"),
+        });
 
         // Event-only authority is fail-closed for reviewers and unrelated actors.
         await expect(removeEventAccessMemberIn(
