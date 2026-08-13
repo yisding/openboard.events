@@ -164,7 +164,7 @@ export function SpeakersAdminView({
       cell: ({ row }) => (
         <div className="speaker-table-person">
           <SpeakerHeadshot name={row.original.name} initials={initialsFor(row.original)} headshotFileId={row.original.headshotFileId} />
-          <div>
+          <div className="speaker-table-person-copy">
             <b>{row.original.name}</b>
             <span>{row.original.jobTitle ?? ""}{row.original.jobTitle && row.original.company ? " · " : ""}{row.original.company ?? ""}</span>
             <small>{row.original.email}</small>

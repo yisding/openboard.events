@@ -93,6 +93,25 @@ describe("shared UI spacing regressions", () => {
     expect(flow).toContain('className="speaker-card-copy"');
   });
 
+  it("scopes speaker-table copy styles away from shared avatar spans", () => {
+    const directory = read("./crm/components/directory-view.tsx");
+    const speakers = read("./portal/components/speakers-admin/speakers-admin-view.tsx");
+
+    expect(css).toMatch(/\.speaker-table-person-copy\b/gu);
+    expect(css).not.toMatch(/\.speaker-table-person(?:\s*>\s*|\s+)(?:b|span|small)\b/gu);
+    for (const source of [directory, speakers]) {
+      expect(source).toContain('className="speaker-table-person-copy"');
+    }
+  });
+
+  it("targets the public preview label without restyling its avatar", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+
+    expect(profile).toContain('className="public-preview-label"');
+    expect(css).toMatch(/\.public-preview-label\b/gu);
+    expect(css).not.toMatch(/\.public-preview\s*>\s*span\b/gu);
+  });
+
   it("keeps every landing destination available in a compact navigation menu", () => {
     const home = read("../app/page.tsx");
     const mobileNav = read("../app/landing-mobile-nav.tsx");
