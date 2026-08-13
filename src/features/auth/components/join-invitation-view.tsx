@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, LogIn, Users } from "lucide-react";
@@ -81,7 +82,7 @@ export function JoinInvitationView() {
       <h1>Switch accounts to join</h1>
       <p>This invitation was sent to a different email address. Sign out, then use the account that received it.</p>
       <SignOutButton kind="admin" redirectTo={`/login?next=${encodeURIComponent(next)}`} label="Switch account" />
-      <p><a href="/organizations">Stay signed in</a></p>
+      <p><Link href="/organizations">Stay signed in</Link></p>
     </div>;
   }
 
