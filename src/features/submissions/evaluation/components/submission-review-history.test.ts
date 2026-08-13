@@ -18,6 +18,6 @@ describe("submission review history", () => {
     expect(component).toContain('entry.isAi ? "AI-generated review"');
     expect(component).toContain("Generated for ${entry.reviewerName}");
     expect(component).toContain("<TzTime instant={entry.recordedAt} tz={timezone}");
-    expect(drawer).toContain("{canEdit && (\n              <SubmissionReviewHistory");
+    expect(drawer).toMatch(/\{canEdit && \(\s*<>\s*<SubmissionReviewHistory/);
   });
 });
