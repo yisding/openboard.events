@@ -121,6 +121,7 @@ export function RichTextEditor({
 
   const applyLink = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     if (!editor) return;
     const error = richTextLinkError(linkHref);
     if (error) {
