@@ -232,7 +232,7 @@ describe("OnboardingWizard event step accessibility", () => {
 
     expect(html).toContain('value="custom" selected=""');
     expect(html).toContain('id="onboarding-cfp-custom-deadline"');
-    expect(html).toContain('value="2026-08-27"');
+    expect(html).toContain('value="Aug 27, 2026"');
   });
 
   it("restores the completed handoff with direct actions for the exact form", () => {

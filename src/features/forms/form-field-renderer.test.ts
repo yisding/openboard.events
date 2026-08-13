@@ -75,6 +75,25 @@ describe("form field controls", () => {
     expect(html).toContain("Choose a file");
   });
 
+  it("renders participant date questions with the shared themed calendar", () => {
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT) as FormSnapshot;
+    const dateField = { ...field("title"), type: "date" as const, required: true };
+    const firstSection = snapshot.sections[0];
+    if (!firstSection) throw new Error("Expected a form section");
+    snapshot.sections = [{ ...firstSection, fields: [dateField] }];
+    const html = renderToStaticMarkup(createElement(FormFieldRenderer, {
+      snapshot,
+      answers: { [dateField.id]: { t: "d", v: "2026-09-15" } } as Record<FieldId, AnswerValue>,
+      onChange: () => undefined,
+      mode: "edit",
+    }));
+
+    expect(html).toContain('class="datetime-picker"');
+    expect(html).toContain('value="Sep 15, 2026"');
+    expect(html).toContain('aria-label="Open date picker"');
+    expect(html).not.toContain(`type=${JSON.stringify("date")}`);
+  });
+
   it("uses the authorized download flow for a private file answer", () => {
     const supporting = field("supporting");
     const html = renderToStaticMarkup(createElement(FormFieldRenderer, {
