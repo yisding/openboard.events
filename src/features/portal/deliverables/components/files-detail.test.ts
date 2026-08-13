@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { FileCommentDTO, FileVersionDTO } from "@/shared/contracts";
-import { deliverableDetailPaths, fetchDeliverableDetail, visibleDeliverableDetail } from "./files-admin-view";
+import { deliverableDetailPaths, fetchDeliverableDetail, fileCommentDraftStorageKey, parseStoredCommentDraft, visibleDeliverableDetail } from "./files-admin-view";
 
 describe("Files deliverable detail recovery", () => {
   it("never exposes one deliverable's loaded data under another deliverable key", () => {
@@ -60,6 +60,16 @@ describe("Files deliverable detail recovery", () => {
     });
   });
 
+  it("stores a bounded, slot-specific stable comment draft for hard-navigation recovery", () => {
+    const key = "request-a:contact-a:-";
+    const id = "e5000000-0000-4000-8000-000000000090";
+    expect(fileCommentDraftStorageKey("event-a", key)).toBe(`openboard:files-comment:event-a:${key}`);
+    expect(parseStoredCommentDraft(JSON.stringify({ key, id, body: "Still sending" }), key))
+      .toEqual({ key, id, body: "Still sending" });
+    expect(parseStoredCommentDraft(JSON.stringify({ key: "other", id, body: "Wrong slot" }), key)).toBeNull();
+    expect(parseStoredCommentDraft("not json", key)).toBeNull();
+  });
+
   it("guards reply drafts and blocks every drawer close path while sending", () => {
     const source = readFileSync(new URL("./files-admin-view.tsx", import.meta.url), "utf8");
     expect(source).toContain("useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending })");
@@ -67,5 +77,8 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain("runGuarded(() => {");
     expect(source).toContain("onClose={requestClose}");
     expect(source).toContain('aria-label="Reply to speaker"');
+    expect(source).toContain("localStorage.setItem(fileCommentDraftStorageKey(eventId, key)");
+    expect(source).toContain("currentDetail.comments.some((comment) => comment.id === draft.id)");
+    expect(source).toContain("Your comment was sent before you left");
   });
 });

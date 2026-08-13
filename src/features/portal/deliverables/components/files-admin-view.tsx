@@ -43,6 +43,24 @@ type DeliverableDetail = {
   error: string;
 };
 
+type CommentDraft = { key: string | null; id: string; body: string };
+
+export function fileCommentDraftStorageKey(eventId: string, detailKey: string): string {
+  return `openboard:files-comment:${eventId}:${detailKey}`;
+}
+
+export function parseStoredCommentDraft(value: string | null, expectedKey: string): CommentDraft | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<CommentDraft>;
+    return parsed.key === expectedKey && typeof parsed.id === "string" && /^[0-9a-f-]{36}$/i.test(parsed.id) && typeof parsed.body === "string"
+      ? { key: expectedKey, id: parsed.id, body: parsed.body.slice(0, 5_000) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function visibleDeliverableDetail(detail: DeliverableDetail, key: string): DeliverableDetail {
   return detail.key === key
     ? detail
@@ -460,7 +478,7 @@ function DeliverableDrawer({
   const { runGuarded } = useGuardedAction();
   const [detail, setDetail] = useState<DeliverableDetail>({ key: "", status: "loading", versions: [], comments: [], error: "" });
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [draft, setDraft] = useState<{ key: string | null; body: string }>({ key: null, body: "" });
+  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "" });
   const [sending, setSending] = useState(false);
 
   const key = row ? `${row.fileRequestId}:${row.contactId}:${row.submissionId ?? "-"}` : null;
@@ -471,6 +489,20 @@ function DeliverableDrawer({
   const draftBody = key && draft.key === key ? draft.body : "";
   const draftDirty = draftBody.trim().length > 0;
   useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending });
+
+  useEffect(() => {
+    if (!key) return;
+    const stored = parseStoredCommentDraft(localStorage.getItem(fileCommentDraftStorageKey(eventId, key)), key);
+    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "" });
+  }, [eventId, key]);
+
+  useEffect(() => {
+    if (!key || currentDetail.status !== "ready" || draft.key !== key || !draft.body.trim()) return;
+    if (!currentDetail.comments.some((comment) => comment.id === draft.id)) return;
+    localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
+    setDraft({ key, id: crypto.randomUUID(), body: "" });
+    toast("Your comment was sent before you left");
+  }, [currentDetail, draft, eventId, key, toast]);
 
   useEffect(() => {
     if (!key || !versionsPath || !commentsPath) return;
@@ -498,19 +530,22 @@ function DeliverableDrawer({
   function requestClose() {
     if (sending) return;
     runGuarded(() => {
-      setDraft({ key: null, body: "" });
+      if (key) localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
+      setDraft({ key: null, id: "", body: "" });
       onClose();
     });
   }
 
   async function send() {
-    if (!row || !key || currentDetail.status !== "ready" || !draftBody.trim()) return;
+    if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
+    const pendingDraft = { key, id: draft.id, body: draftBody };
+    localStorage.setItem(fileCommentDraftStorageKey(eventId, key), JSON.stringify(pendingDraft));
     setSending(true);
     try {
       const response = await fetch(`/api/internal/deliverables/comments?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileRequestId: row.fileRequestId, contactId: row.contactId, submissionId: row.submissionId, body: draftBody.trim() }),
+        body: JSON.stringify({ id: draft.id, fileRequestId: row.fileRequestId, contactId: row.contactId, submissionId: row.submissionId, body: draftBody.trim() }),
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: FileCommentDTO } | null;
       const created = payload?.data;
@@ -525,7 +560,8 @@ function DeliverableDrawer({
         return { ...current, comments };
       });
       onCommentAdded(row.fileRequestId, row.contactId, row.submissionId, commentCount);
-      setDraft({ key, body: "" });
+      localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
+      setDraft({ key, id: crypto.randomUUID(), body: "" });
     } finally {
       setSending(false);
     }
@@ -574,7 +610,15 @@ function DeliverableDrawer({
                 aria-label="Reply to speaker"
                 value={draftBody}
                 disabled={sending}
-                onChange={(event) => setDraft({ key, body: event.target.value })}
+                onChange={(event) => {
+                  if (!key) return;
+                  const next = {
+                    key,
+                    id: draft.key === key && draft.id ? draft.id : crypto.randomUUID(),
+                    body: event.target.value,
+                  };
+                  setDraft(next);
+                }}
                 placeholder="Reply to the speaker…"
                 maxLength={5000}
               />
