@@ -6,8 +6,8 @@ import {
   closeFormCreateLifecycle,
   formCreateOutcomeUnknown,
   openFormCreateLifecycle,
-  requestData,
-} from "./forms-page";
+  requestFormCreate,
+} from "./form-create-request";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -15,7 +15,7 @@ describe("form create request outcomes", () => {
   it("marks a transport failure as ambiguous", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("response lost")));
 
-    await expect(requestData("/forms", { method: "POST" })).rejects.toMatchObject({
+    await expect(requestFormCreate("/forms", { method: "POST" })).rejects.toMatchObject({
       name: "FormCreateRequestError",
       outcomeUnknown: true,
     });
@@ -24,7 +24,7 @@ describe("form create request outcomes", () => {
   it("marks an unreadable successful response as ambiguous", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("not json", { status: 200 })));
 
-    await expect(requestData("/forms", { method: "POST" })).rejects.toMatchObject({
+    await expect(requestFormCreate("/forms", { method: "POST" })).rejects.toMatchObject({
       outcomeUnknown: true,
     });
   });
@@ -34,7 +34,7 @@ describe("form create request outcomes", () => {
       error: { message: "The database connection dropped" },
     }, { status: 503 })));
 
-    await expect(requestData("/forms", { method: "POST" })).rejects.toEqual(
+    await expect(requestFormCreate("/forms", { method: "POST" })).rejects.toEqual(
       new FormCreateRequestError("The database connection dropped", true),
     );
   });
@@ -44,7 +44,7 @@ describe("form create request outcomes", () => {
       error: { message: "Name is already in use" },
     }, { status: 409 })));
 
-    await expect(requestData("/forms", { method: "POST" })).rejects.toEqual(
+    await expect(requestFormCreate("/forms", { method: "POST" })).rejects.toEqual(
       new FormCreateRequestError("Name is already in use", false),
     );
   });
@@ -60,7 +60,7 @@ describe("form create request outcomes", () => {
 
     openFormCreateLifecycle(requestId, false);
     const first = requestId.payload(undefined, { internalName: "Main CFP" });
-    const pending = requestData("/forms", { method: "POST", body: JSON.stringify(first) });
+    const pending = requestFormCreate("/forms", { method: "POST", body: JSON.stringify(first) });
     expect(closeFormCreateLifecycle(requestId, false, true)).toBe(false);
     resolveFirst?.(Response.json({ error: { message: "Write outcome unknown" } }, { status: 500 }));
     const failure = await pending.catch((error: unknown) => error);
@@ -69,7 +69,7 @@ describe("form create request outcomes", () => {
     openFormCreateLifecycle(requestId, outcomeUnknown);
     const retry = requestId.payload(undefined, { internalName: "Main CFP" });
 
-    await expect(requestData("/forms", { method: "POST", body: JSON.stringify(retry) })).resolves.toEqual({
+    await expect(requestFormCreate("/forms", { method: "POST", body: JSON.stringify(retry) })).resolves.toEqual({
       id: "10000000-0000-4000-8000-000000000501",
     });
     expect(outcomeUnknown).toBe(true);
@@ -89,7 +89,7 @@ describe("form create request outcomes", () => {
 
     openFormCreateLifecycle(requestId, false);
     const rejected = requestId.payload(undefined, { internalName: "Main CFP" });
-    const failure = await requestData("/forms", { method: "POST", body: JSON.stringify(rejected) }).catch((error: unknown) => error);
+    const failure = await requestFormCreate("/forms", { method: "POST", body: JSON.stringify(rejected) }).catch((error: unknown) => error);
     const outcomeUnknown = formCreateOutcomeUnknown(failure);
     expect(closeFormCreateLifecycle(requestId, outcomeUnknown, false)).toBe(true);
     openFormCreateLifecycle(requestId, outcomeUnknown);
