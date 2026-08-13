@@ -300,20 +300,38 @@ test.describe("self-service signup to first value", () => {
       publicLink = await linkInput.inputValue();
       expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
-      await page.reload();
+      const restoredResponse = await page.reload();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?event=[0-9a-f-]{36}$/);
       eventId = new URL(page.url()).searchParams.get("event") ?? "";
       formId = new URL(publicLink).pathname.split("/").at(-1) ?? "";
       expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
       expect(formId).toMatch(/^[0-9a-f-]{36}$/);
-      const publishedForm = await queryRows<{ closes_at: string | null; status: string }>(
-        "SELECT closes_at::text AS closes_at, status FROM forms WHERE id = $1",
+      const publishedForm = await queryRows<{
+        closes_at: string | null;
+        event_name: string;
+        progress_step: string;
+        status: string;
+      }>(
+        `SELECT form.closes_at::text AS closes_at, form.status,
+                event.name AS event_name, progress.step AS progress_step
+         FROM forms form
+         JOIN events event ON event.id = form.event_id
+         JOIN event_onboarding_progress progress
+           ON progress.event_id = event.id AND progress.form_id = form.id
+         WHERE form.id = $1`,
         [formId],
       );
       expect(publishedForm).toHaveLength(1);
       expect(publishedForm[0]?.status).toBe("open");
+      expect(publishedForm[0]?.event_name).toBe(correctedEventName);
+      expect(publishedForm[0]?.progress_step).toBe("complete");
       expect(publishedForm[0]?.closes_at, "onboarding must not publish an indefinitely open CFP by default").not.toBeNull();
-      await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible();
+      expect(restoredResponse?.status(), "the completed onboarding checkpoint should restore as a page").toBe(200);
+      const restoredHeading = page.getByRole("heading", { name: `${correctedEventName} is ready` });
+      await expect(
+        restoredHeading,
+        `restored onboarding page did not show completion; body: ${(await page.locator("body").innerText()).slice(0, 1_000)}`,
+      ).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
       await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
 
