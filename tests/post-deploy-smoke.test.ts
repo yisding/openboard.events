@@ -39,7 +39,8 @@ extra=''
 # canonical cached page, /e/<slug>/schedule is the legacy redirect, and the
 # embed reads its style from the saved row so it is edge-cached too. Both cached
 # surfaces open cold — a 503, then STALE and HIT responses carrying the old
-# build marker — before regeneration succeeds and HIT carries the new marker.
+# deployment marker — before regeneration succeeds and HIT carries the unique
+# marker for this run (the git build may be identical on a workflow rerun).
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
@@ -49,17 +50,17 @@ cold_then_cached() {
   if (( count == 1 )); then status=503
   elif (( count == 2 )); then
     extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
-    payload='<span hidden data-openboard-build="old-build"></span>'
+    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
   elif (( count == 3 )); then
     extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
-    payload='<span hidden data-openboard-build="old-build"></span>'
+    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
   else
     extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
-    payload='<span hidden data-openboard-build="new-build"></span>'
+    payload='<span hidden data-openboard-deployment="new-deployment"></span>'
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"sha":"new-build","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
+  */api/health) payload='{"ok":true,"sha":"same-build","deployment":"new-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
   */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
@@ -88,7 +89,8 @@ printf '%s' "$status"
         ...process.env,
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         SMOKE_FAKE_STATE: state,
-        NEXT_PUBLIC_BUILD_SHA: "new-build",
+        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        DEPLOYMENT_ID: "new-deployment",
       },
     });
 

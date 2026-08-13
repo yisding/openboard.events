@@ -27,9 +27,10 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     getContent: getPublishedSchedule,
     renderContent: (schedule, context) => <PublicAgenda {...context} schedule={schedule} embed />,
   });
+  const env = getEnv();
   return (
     <>
-      <PublicBuildMarker sha={getEnv().NEXT_PUBLIC_BUILD_SHA ?? "local"} />
+      <PublicBuildMarker deploymentId={env.DEPLOYMENT_ID ?? "local"} />
       {content}
     </>
   );

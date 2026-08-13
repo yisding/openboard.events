@@ -28,6 +28,7 @@ export async function GET() {
       ok: true,
       service: "sb-web",
       sha: env.NEXT_PUBLIC_BUILD_SHA ?? "local",
+      deployment: env.DEPLOYMENT_ID ?? "local",
       env: appEnv,
       db: { ok: true, version },
       comms,

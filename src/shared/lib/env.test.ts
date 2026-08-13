@@ -9,6 +9,7 @@ const deployed = {
   R2_ACCOUNT_ID: "account",
   R2_ACCESS_KEY_ID: "access",
   R2_SECRET_ACCESS_KEY: "secret",
+  DEPLOYMENT_ID: "31738715715-2-preview",
   RESEND_API_KEY: "resend",
   RESEND_WEBHOOK_SECRET: "w".repeat(32),
   UNSUBSCRIBE_SECRET: "u".repeat(32),
@@ -30,6 +31,12 @@ describe("parseEnv", () => {
 
   it("accepts the isolated preview contract", () => {
     expect(parseEnv({ ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview", TEST_AUTH: "1" }).APP_ENV).toBe("preview");
+  });
+
+  it("requires a stable identity for every deployed Worker instance", () => {
+    const preview = { ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview" };
+    expect(() => parseEnv({ ...preview, DEPLOYMENT_ID: undefined })).toThrow(/DEPLOYMENT_ID/);
+    expect(() => parseEnv({ ...preview, DEPLOYMENT_ID: "run id with spaces" })).toThrow(/DEPLOYMENT_ID/);
   });
 
   it("allows preview to omit the entire policy set while legal review is pending", () => {
@@ -157,6 +164,7 @@ describe("EMAIL_FROM", () => {
     R2_ACCESS_KEY_ID: "key",
     R2_SECRET_ACCESS_KEY: "secret",
     R2_BUCKET_NAME: "sb-files-preview",
+    DEPLOYMENT_ID: "email-test-preview",
     RESEND_WEBHOOK_SECRET: "w".repeat(32),
     UNSUBSCRIBE_SECRET: "u".repeat(32),
     SPEAKER_SHARE_SECRET: "p".repeat(32),

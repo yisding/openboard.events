@@ -18,9 +18,10 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   const { eventSlug } = await params;
   const schedule = await getPublishedSchedule(eventSlug);
   if (!schedule) notFound();
+  const env = getEnv();
   return (
     <>
-      <PublicBuildMarker sha={getEnv().NEXT_PUBLIC_BUILD_SHA ?? "local"} />
+      <PublicBuildMarker deploymentId={env.DEPLOYMENT_ID ?? "local"} />
       <PublicAgenda eventSlug={eventSlug} schedule={schedule} />
     </>
   );

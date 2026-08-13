@@ -42,6 +42,7 @@ headers_file="$(mktemp)"
 body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$body_file"' EXIT
 deployed_build_sha=""
+deployed_id=""
 
 # Fetches once into $headers_file/$body_file and stores the status code, so no
 # assertion costs a second request. Calling this function directly preserves
@@ -94,11 +95,12 @@ is_edge_cache_fresh() {
 }
 
 # The cache signal alone can describe an unexpired entry written by the
-# previous Worker. This marker is part of the cached document itself, so a
-# matching value proves this artifact completed the render.
-is_current_build() {
-  [[ -n "$deployed_build_sha" ]] \
-    && grep -qF -- "data-openboard-build=\"$deployed_build_sha\"" "$body_file"
+# previous Worker — even one built from the same commit. This per-deployment
+# marker is part of the cached document itself, so a matching value proves this
+# exact Worker deployment completed the render.
+is_current_deployment() {
+  [[ -n "$deployed_id" ]] \
+    && grep -qF -- "data-openboard-deployment=\"$deployed_id\"" "$body_file"
 }
 
 expect_status() {
@@ -163,10 +165,16 @@ if expect_status "$base_url/api/health" 200 "health responds"; then
     && expect_body '"errors":\{"ok":true' "health reports operational error tracking" \
     && expect_body '"jobs":\{"ok":true' "health reports scheduled-job heartbeat tracking"; then
     deployed_build_sha="$(sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
+    deployed_id="$(sed -n 's/.*"deployment":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
     if [[ -z "$deployed_build_sha" ]]; then
       fail "$base_url/api/health" "health identifies the deployed build"
+    elif [[ -z "$deployed_id" ]]; then
+      fail "$base_url/api/health" "health identifies the unique deployment"
     elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
       && ! expect_body_literal "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "health matches the requested build"; then
+      :
+    elif [[ -n "${DEPLOYMENT_ID:-}" ]] \
+      && ! expect_body_literal "\"deployment\":\"$DEPLOYMENT_ID\"" "health matches the requested deployment"; then
       :
     else
       pass "/api/health"
@@ -198,7 +206,7 @@ for attempt in {1..15}; do
   # later attempt succeeds.
   fetch "$base_url/e/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if is_edge_cache_fresh && is_current_build; then schedule_ok=1; break; fi
+    if is_edge_cache_fresh && is_current_deployment; then schedule_ok=1; break; fi
   fi
   if (( attempt < 15 )); then sleep 5; fi
 done
@@ -207,7 +215,7 @@ if (( schedule_ok )); then
 elif [[ "$last_status" != "200" ]]; then
   fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 15 attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from build $deployed_build_sha after 15 attempts"
+  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id after 15 attempts"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -227,7 +235,7 @@ embed_ok=0
 for attempt in {1..15}; do
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if is_edge_cache_fresh && is_current_build; then embed_ok=1; break; fi
+    if is_edge_cache_fresh && is_current_deployment; then embed_ok=1; break; fi
   fi
   if (( attempt < 15 )); then sleep 5; fi
 done
@@ -238,7 +246,7 @@ if (( embed_ok )); then
 elif [[ "$last_status" != "200" ]]; then
   fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 15 attempts, got $last_status)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from build $deployed_build_sha after 15 attempts"
+  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id after 15 attempts"
 fi
 
 # 4. The public API answers with an envelope.
