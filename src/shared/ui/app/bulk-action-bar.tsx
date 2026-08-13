@@ -22,12 +22,15 @@ import type { ReactNode } from "react";
  */
 export function BulkActionBar({
   count,
+  countLabel,
   onClear,
   actions,
   emptyNote,
   trailing,
 }: {
   count: number;
+  /** Optional context-specific wording, such as page-local table selection. */
+  countLabel?: ReactNode;
   onClear: () => void;
   actions?: ReactNode;
   /** Shown instead of "N selected" when `count` is 0 — omit to hide the bar entirely at zero. */
@@ -38,7 +41,7 @@ export function BulkActionBar({
   return (
     <div className="bulk-bar">
       {count > 0
-        ? <><span>{count} selected</span>{actions}<button type="button" onClick={onClear}>Clear</button></>
+        ? <><span>{countLabel ?? `${count} selected`}</span>{actions}<button type="button" onClick={onClear}>Clear</button></>
         : emptyNote}
       {trailing}
     </div>

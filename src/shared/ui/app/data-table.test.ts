@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Row as TableRow } from "@tanstack/react-table";
-import { defaultRowId, nullsLast, selectionLabel } from "./data-table";
+import { defaultRowId, nullsLast, selectionAnnouncement, selectionLabel } from "./data-table";
 
 type ValueRow = { value: number | null };
 
@@ -32,5 +32,12 @@ describe("DataTable helpers", () => {
   it("names a selection checkbox for its specific row", () => {
     expect(selectionLabel({ code: "SESS-104", title: "Useful forms" }, "fallback", (row) => `${row.code}, ${row.title}`)).toBe("Select SESS-104, Useful forms");
     expect(selectionLabel({}, "row-7")).toBe("Select row row-7");
+  });
+
+  it("announces page-local selection changes without speaking the initial empty state", () => {
+    expect(selectionAnnouncement(0, 0)).toBeNull();
+    expect(selectionAnnouncement(0, 1)).toBe("1 row selected on this page.");
+    expect(selectionAnnouncement(1, 3)).toBe("3 rows selected on this page.");
+    expect(selectionAnnouncement(3, 0)).toBe("Selection cleared.");
   });
 });

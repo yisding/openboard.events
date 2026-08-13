@@ -18,6 +18,7 @@ import {
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Dash } from "./dash";
+import { BulkActionBar } from "./bulk-action-bar";
 
 // Additive column-meta support: a column definition may carry a stable class
 // name that DataTable stamps onto both its <th> and every <td> in that
@@ -57,6 +58,12 @@ declare module "@tanstack/react-table" {
  * Selection is **page-local**: selecting all selects the rows you can see, which
  * is what the bulk bar's count means and what the decision mutations expect.
  */
+export type DataTableSelectionContext<Row> = {
+  selectedRows: Row[];
+  countLabel: string;
+  clearSelection: () => void;
+};
+
 export type DataTableProps<Row> = {
   columns: Array<ColumnDef<Row, unknown>>;
   data: Row[];
@@ -68,6 +75,8 @@ export type DataTableProps<Row> = {
   /** Human-readable identity used by that row's selection checkbox. */
   getRowLabel?: (row: Row) => string;
   onSelectionChange?: (rows: Row[]) => void;
+  /** Replaces the default count-only selection bar at its canonical location. */
+  renderSelectionBar?: (selection: DataTableSelectionContext<Row>) => ReactNode;
   /** localStorage key for hidden columns. Scope it per event. */
   columnVisibilityKey?: string;
   onRowClick?: (row: Row) => void;
@@ -137,6 +146,12 @@ export function selectionLabel<Row>(row: Row, rowId: string, getRowLabel?: (row:
   return `Select ${label || `row ${rowId}`}`;
 }
 
+export function selectionAnnouncement(previousCount: number, count: number): string | null {
+  if (previousCount === count) return null;
+  if (count === 0) return previousCount > 0 ? "Selection cleared." : null;
+  return `${count} row${count === 1 ? "" : "s"} selected on this page.`;
+}
+
 function readVisibility(key: string | undefined): VisibilityState {
   if (!key || typeof window === "undefined") return {};
   try {
@@ -156,6 +171,7 @@ export function DataTable<Row>({
   enableSelection = false,
   getRowLabel,
   onSelectionChange,
+  renderSelectionBar,
   columnVisibilityKey,
   onRowClick,
   pageSize = 25,
@@ -170,6 +186,8 @@ export function DataTable<Row>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [localPagination, setLocalPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectionStatus, setSelectionStatus] = useState("");
+  const previousSelectionCount = useRef(0);
   const pickerId = useId();
   const pickerButtonId = `${pickerId}-button`;
   const pickerPanelId = `${pickerId}-panel`;
@@ -298,6 +316,11 @@ export function DataTable<Row>({
     [rows, selectedIds],
   );
   useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
+  useEffect(() => {
+    const next = selectionAnnouncement(previousSelectionCount.current, selectedRows.length);
+    previousSelectionCount.current = selectedRows.length;
+    if (next) setSelectionStatus(next);
+  }, [selectedRows.length]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -337,6 +360,7 @@ export function DataTable<Row>({
   return (
     <section className="data-panel">
       <p className="sr-only" role="status">{isLoading ? "Loading table data…" : ""}</p>
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionStatus}</p>
 
       {(toolbar || columnVisibilityKey) && (
         <div className="data-toolbar">
@@ -382,12 +406,17 @@ export function DataTable<Row>({
         </div>
       )}
 
-      {enableSelection && selectedRows.length > 0 && (
-        <div className="bulk-bar">
-          <span>{selectedRows.length} selected on this page</span>
-          <button type="button" onClick={() => setRowSelection({})}>Clear</button>
-        </div>
-      )}
+      {enableSelection && (renderSelectionBar
+        ? renderSelectionBar({
+            selectedRows,
+            countLabel: `${selectedRows.length} selected on this page`,
+            clearSelection: () => setRowSelection({}),
+          })
+        : <BulkActionBar
+            count={selectedRows.length}
+            countLabel={`${selectedRows.length} selected on this page`}
+            onClear={() => setRowSelection({})}
+          />)}
 
       <div className="table-scroll" aria-busy={isLoading}>
         <table className="data-table">

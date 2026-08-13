@@ -219,17 +219,6 @@ export function SpeakersAdminView({
         </>}
       />
 
-      <BulkActionBar
-        count={selected.length}
-        onClear={() => { setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
-        actions={<>
-          <Button size="sm" onClick={() => setBulkEmailOpen(true)}><Mail size={14} /> Email selected</Button>
-          <Button size="sm" variant="secondary" disabled={reminding || reminderTargetCount === 0} onClick={() => setConfirmReminders(true)}>
-            <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
-          </Button>
-        </>}
-      />
-
       <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
         <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
         <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
@@ -247,6 +236,20 @@ export function SpeakersAdminView({
         enableSelection
         getRowLabel={(row) => row.name || row.email}
         onSelectionChange={setSelected}
+        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => {
+          const reminderCount = selectedRows.filter((row) => row.openTasks > 0).length;
+          return <BulkActionBar
+            count={selectedRows.length}
+            countLabel={countLabel}
+            onClear={clearSelection}
+            actions={<>
+              <Button size="sm" onClick={() => { setSelected(selectedRows); setBulkEmailOpen(true); }}><Mail size={14} /> Email selected</Button>
+              <Button size="sm" variant="secondary" disabled={reminding || reminderCount === 0} onClick={() => { setSelected(selectedRows); setConfirmReminders(true); }}>
+                <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
+              </Button>
+            </>}
+          />;
+        }}
         selectionEpoch={selectionEpoch}
         selectAllEpoch={selectAllEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}

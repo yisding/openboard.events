@@ -9,7 +9,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, MapPin } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { zonedInputToUtc } from "@/shared/lib/time";
@@ -18,11 +18,11 @@ import { toScheduledSession, detectConflicts } from "../conflicts";
 import { DayGridStateProvider, useDayGridActions } from "../hooks/use-day-grid-state";
 import { useMoveSession } from "../hooks/use-move-session";
 import type { AgendaViewProps } from "../index.client";
-import { eventDayKeys, nameLookup, scheduledOnDay, unscheduled } from "../store";
+import { eventDayKeys, nameLookup, scheduledNeedingRoom, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { agendaDayDndContextId } from "./day-view/dnd-context-id";
 import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
-import { UnscheduledPanel } from "./day-view/unscheduled-panel";
+import { NeedsRoomPanel, UnscheduledPanel } from "./day-view/unscheduled-panel";
 
 type DragData =
   | { type: "session" | "unscheduled"; session: ScheduledSessionDTO }
@@ -66,6 +66,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
   const dayScheduled = useMemo(() => scheduledOnDay(sessions, selectedDay, event.timezone), [sessions, selectedDay, event.timezone]);
   const dayUnscheduled = useMemo(() => unscheduled(sessions), [sessions]);
+  const needsRoom = useMemo(() => scheduledNeedingRoom(dayScheduled, rooms), [dayScheduled, rooms]);
   const range = useMemo(() => computeGridRange(dayScheduled, event.timezone), [dayScheduled, event.timezone]);
 
   const { setConflicts, setDragging } = useDayGridActions();
@@ -172,17 +173,33 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
         : (
           <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
             <div className="dv-layout">
-              <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} />
-              <div className="dv-scroll">
-                <DayGrid
-                  sessions={dayScheduled}
-                  rooms={rooms}
-                  range={range}
-                  lookup={lookup}
-                  timezone={event.timezone}
-                  {...(onEdit ? { onEdit } : {})}
-                />
+              <div className="dv-side-panels">
+                <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />
+                <NeedsRoomPanel sessions={needsRoom} lookup={lookup} timezone={event.timezone} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />
               </div>
+              {rooms.length === 0
+                ? (
+                  <div className="dv-no-rooms">
+                    <EmptyState
+                      icon={<MapPin size={26} />}
+                      title="Add a room to build the day grid"
+                      description="Timed sessions stay in Needs a room until there is a room column to place them in."
+                      action={<a className="button button-primary" href={`/events/${eventId}/settings?tab=rooms`}>Open room settings</a>}
+                    />
+                  </div>
+                )
+                : (
+                  <div className="dv-scroll">
+                    <DayGrid
+                      sessions={dayScheduled}
+                      rooms={rooms}
+                      range={range}
+                      lookup={lookup}
+                      timezone={event.timezone}
+                      {...(onEdit ? { onEdit } : {})}
+                    />
+                  </div>
+                )}
             </div>
           </AgendaDayDndContext>
         )}

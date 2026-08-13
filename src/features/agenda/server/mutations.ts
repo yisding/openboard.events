@@ -575,13 +575,42 @@ export async function bulkSetPublishedIn(
 ): Promise<{ changed: number; emailsQueued: number }> {
   if (ids.length === 0) return { changed: 0, emailsQueued: 0 };
   const status: SessionStatus = published ? "published" : "draft";
+
+  const unscheduledCandidates = async () => {
+    const rows = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM sessions
+      WHERE event_id = ${eventId}
+        AND id = ANY(${uuidArraySql(ids)})
+        AND status IS DISTINCT FROM 'published'
+        AND (starts_at IS NULL OR ends_at IS NULL)
+      ORDER BY id
+    `);
+    return rows.rows ?? [];
+  };
+
+  if (published) {
+    const unscheduled = await unscheduledCandidates();
+    if (unscheduled.length > 0) {
+      throw new AppError(
+        "VALIDATION",
+        `Schedule ${unscheduled.length} selected session${unscheduled.length === 1 ? "" : "s"} before publishing`,
+        { unscheduledSessionIds: unscheduled.map((row) => row.id) },
+      );
+    }
+  }
+
   const result = await dbOrTx.execute<{
     id: string; status: SessionStatus; starts_at: string | Date | null; schedule_revision: number;
     prior_status: SessionStatus; prior_starts_at: string | Date | null; prior_revision: number;
   }>(sql`
     WITH prior AS (
-      SELECT id, status, starts_at, schedule_revision FROM sessions
+      SELECT id, status, starts_at, ends_at, schedule_revision FROM sessions
       WHERE event_id = ${eventId} AND id = ANY(${uuidArraySql(ids)})
+    ), blockers AS MATERIALIZED (
+      SELECT id FROM prior
+      WHERE ${status}::text = 'published'
+        AND status IS DISTINCT FROM 'published'
+        AND (starts_at IS NULL OR ends_at IS NULL)
     ), upd AS (
       UPDATE sessions s SET
         status = ${status},
@@ -589,14 +618,35 @@ export async function bulkSetPublishedIn(
         schedule_revision = s.schedule_revision + CASE WHEN ${status}::text = 'published' AND s.starts_at IS NOT NULL THEN 1 ELSE 0 END,
         updated_at = now()
       FROM prior
-      WHERE s.id = prior.id AND s.event_id = ${eventId} AND s.status IS DISTINCT FROM ${status}
+      WHERE s.id = prior.id
+        AND s.event_id = ${eventId}
+        AND s.status IS DISTINCT FROM ${status}
+        AND NOT EXISTS (SELECT 1 FROM blockers)
+        AND (${status}::text <> 'published' OR (s.starts_at IS NOT NULL AND s.ends_at IS NOT NULL))
       RETURNING s.id, s.status, s.starts_at, s.schedule_revision,
                 prior.status AS prior_status, prior.starts_at AS prior_starts_at, prior.schedule_revision AS prior_revision
     )
     SELECT * FROM upd
   `);
   const rows = result.rows ?? [];
-  if (rows.length === 0) return { changed: 0, emailsQueued: 0 };
+  if (rows.length === 0) {
+    // The CTE repeats the all-or-none blocker test inside the UPDATE snapshot.
+    // If a concurrent edit removed a time after the friendly preflight above,
+    // surface the same actionable error instead of claiming a successful
+    // no-op. The direct UPDATE predicate is the final defense against ever
+    // writing a published-but-publicly-invisible row.
+    if (published) {
+      const unscheduled = await unscheduledCandidates();
+      if (unscheduled.length > 0) {
+        throw new AppError(
+          "VALIDATION",
+          `Schedule ${unscheduled.length} selected session${unscheduled.length === 1 ? "" : "s"} before publishing`,
+          { unscheduledSessionIds: unscheduled.map((row) => row.id) },
+        );
+      }
+    }
+    return { changed: 0, emailsQueued: 0 };
+  }
 
   const speakers = await dbOrTx.execute<{ session_id: string; contact_id: string }>(sql`
     SELECT session_id, contact_id FROM session_speakers

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -176,11 +177,13 @@ export function DecisionBar({
   eventId,
   selected,
   pendingNotify,
+  countLabel,
   onDone,
 }: {
   eventId: string;
   selected: SubmissionListRow[];
   pendingNotify: number;
+  countLabel?: ReactNode;
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -237,6 +240,7 @@ export function DecisionBar({
   return <>
     <BulkActionBar
       count={selected.length}
+      countLabel={countLabel}
       onClear={onDone}
       actions={<>
         <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
