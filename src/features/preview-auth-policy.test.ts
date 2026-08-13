@@ -10,6 +10,7 @@ describe("preview authentication policy", () => {
     const productionStart = config.indexOf('"production"', previewStart);
     const preview = config.slice(previewStart, productionStart);
 
+    expect(config).toContain('"keep_vars": false');
     expect(preview).toContain('"ADMIN_AUTH_PROVIDER": "better-auth"');
     expect(preview).toContain('"EMAIL_FALLBACK_UI": "1"');
     expect(preview).not.toContain('"TEST_AUTH"');
