@@ -27,6 +27,7 @@ import {
   type EventId,
   type ResolvedSpeakerSegment,
   type SpeakerWorkflowStatus,
+  composeBulkSpeakerEmailResultSchema,
   contactIdSchema,
   resolvedSpeakerSegmentSchema,
 } from "@/shared/contracts";
@@ -70,6 +71,17 @@ function humanize(value: string): string {
 
 function toggle<T>(set: readonly T[], value: T): T[] {
   return set.includes(value) ? set.filter((item) => item !== value) : [...set, value];
+}
+
+function confirmedSegmentResult(snapshot: BulkSendRecoverySnapshot): ComposeBulkSpeakerEmailResult | null {
+  if (!snapshot.confirmedResult) return null;
+  const result = snapshot.confirmedResult;
+  const parsed = composeBulkSpeakerEmailResultSchema.safeParse({
+    ...result,
+    errors: result.errors.map((entry) => ({ contactId: entry.recipientId, reason: entry.reason })),
+    preview: null,
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -147,6 +159,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       fingerprint: snapshot.fingerprint,
       attempt: { sendId: snapshot.sendId, storageKey: snapshot.attemptStorageKey },
     });
+    setResult(confirmedSegmentResult(snapshot));
     setRecovery(snapshot);
   }, [eventId]);
 
@@ -281,6 +294,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       attemptStorageKey: currentPreview.attempt.storageKey,
       fingerprint: currentPreview.fingerprint,
       completedResults: [],
+      confirmedResult: null,
     } : null);
     if (!candidate) return false;
     const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
@@ -315,10 +329,25 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         }
       }
       const sent = mergeBulkSendResults(results);
-      removeBulkSendRecovery(window.sessionStorage, approved);
-      completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-      setRecovery(null);
+      const confirmed: BulkSendRecoverySnapshot = {
+        ...approved,
+        confirmedResult: {
+          queued: sent.queued,
+          alreadyQueued: sent.alreadyQueued,
+          skipped: sent.skipped,
+          errors: sent.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
+        },
+      };
+      persistBulkSendRecovery(window.sessionStorage, confirmed);
+      setRecovery(confirmed);
       setResult(sent);
+      const removed = removeBulkSendRecovery(window.sessionStorage, confirmed);
+      if (removed.ok) {
+        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        setRecovery(null);
+      } else {
+        toast("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.", { kind: "error", durationMs: 8_000 });
+      }
       // Keep the completed message visible as a receipt, but it is no longer
       // an unsent draft that should block navigation.
       setSavedDraftFingerprint(bulkMessageDraftFingerprint({
@@ -339,10 +368,14 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       return true;
     } catch (caught) {
       if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completedThisRun], retryingRecovery) === "definite") {
-        removeBulkSendRecovery(window.sessionStorage, approved);
-        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-        setRecovery(null);
-        toast(caught instanceof Error ? caught.message : "Could not send this message", { kind: "error" });
+        const removed = removeBulkSendRecovery(window.sessionStorage, approved);
+        if (removed.ok) {
+          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+          setRecovery(null);
+          toast(caught instanceof Error ? caught.message : "Could not send this message", { kind: "error" });
+        } else {
+          toast("That request was rejected, but browser recovery could not be cleared. Use Abandon recovery to clear it before starting again.", { kind: "error", durationMs: 8_000 });
+        }
       } else {
         toast("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.", { kind: "error", durationMs: 8_000 });
       }
@@ -362,6 +395,18 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     setRecovery(null);
     setConfirmAbandon(false);
     discardDraft();
+  }
+
+  function clearCompletedRecovery() {
+    if (!recovery?.confirmedResult) return;
+    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    if (!removed.ok) {
+      toast("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.", { kind: "error" });
+      return;
+    }
+    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+    setRecovery(null);
+    toast("Completed recovery cleared");
   }
 
   function discardDraft() {
@@ -434,7 +479,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         <div className="bulk-send-body">
         <div className="template-editor-grid">
           <div className="form-stack">
-            {recoveryRequired && <div className="notify-bar" role="status"><div><p><b>Send outcome needs confirmation</b><small>Retry this unchanged message. The same send ID makes already-queued emails safe to recover.</small></p></div></div>}
+            {recoveryRequired && <div className="notify-bar" role="status"><div><p>
+              <b>{result ? "Send confirmed; cleanup needed" : "Send outcome needs confirmation"}</b>
+              <small>{result ? "The email is complete. Clear its browser recovery record before starting another send." : "Retry this unchanged message. The same send ID makes already-queued emails safe to recover."}</small>
+            </p></div></div>}
             <Field label="Subject">
               <input ref={subjectRef} disabled={recoveryRequired} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => { invalidateMessagePreview(); setSubject(event.target.value); }} />
             </Field>
@@ -456,11 +504,13 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             )}
             <div className="bulk-send-actions">
               {recoveryRequired
-                ? <Button variant="ghost" disabled={compose.isPending} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
+                ? !result && <Button variant="ghost" disabled={compose.isPending} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
                 : draftDirty && <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>Discard draft</Button>}
               <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || segment?.capped || !previewContactId || compose.isPending || recoveryRequired}>Preview message</Button>
               {recoveryRequired
-                ? <Button onClick={() => void onSend()} disabled={compose.isPending}>{compose.isPending ? "Retrying…" : "Retry this send"}</Button>
+                ? result
+                  ? <Button onClick={clearCompletedRecovery}>Clear completed recovery</Button>
+                  : <Button onClick={() => void onSend()} disabled={compose.isPending}>{compose.isPending ? "Retrying…" : "Retry this send"}</Button>
                 : <Button onClick={() => setConfirmSend(true)} disabled={!canSend || compose.isPending}>{segment?.capped ? "Refine segment to send" : `Send to ${segment?.contactIds.length ?? 0} recipient${segment?.contactIds.length === 1 ? "" : "s"}`}</Button>}
             </div>
           </div>

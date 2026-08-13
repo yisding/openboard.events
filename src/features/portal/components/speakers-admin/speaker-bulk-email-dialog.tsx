@@ -36,6 +36,17 @@ type ApprovedPreview = {
   attempt: BulkSendAttempt;
 };
 
+function confirmedSpeakerResult(snapshot: BulkSendRecoverySnapshot | null): ComposeBulkSpeakerEmailResult | null {
+  if (!snapshot?.confirmedResult) return null;
+  const result = snapshot.confirmedResult;
+  const parsed = composeBulkSpeakerEmailResultSchema.safeParse({
+    ...result,
+    errors: result.errors.map((entry) => ({ contactId: entry.recipientId, reason: entry.reason })),
+    preview: null,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 /**
  * M51 — selected/filtered bulk compose (work order step 6). The token picker
  * and unknown-variable check reuse the exact functions the comms admin's
@@ -81,7 +92,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
+  const [sendResult, setSendResult] = useState<ComposeBulkSpeakerEmailResult | null>(() => confirmedSpeakerResult(restored));
   const recoveryRequired = recovery !== null;
   const draftDirty = !sendResult && (subject.trim().length > 0 || bodyHtml.trim().length > 0 || preview !== null);
   useUnsavedWorkGuard(open && (draftDirty || busySend || recoveryRequired), { blocking: busySend });
@@ -188,6 +199,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       attemptStorageKey: currentPreview.attempt.storageKey,
       fingerprint: currentPreview.fingerprint,
       completedResults: [],
+      confirmedResult: null,
     } : null);
     if (!approved) return false;
     const stored = persistBulkSendRecovery(window.sessionStorage, approved);
@@ -204,11 +216,27 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
         method: "POST",
         body: { contactIds: approved.recipients.map((row) => row.id), subject: approved.subject, bodyHtml: approved.bodyHtml, mode: "send", sendId: approved.sendId },
       });
-      removeBulkSendRecovery(window.sessionStorage, approved);
-      completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-      setRecovery(null);
-      onRecoveryChange?.(null);
+      const confirmed: BulkSendRecoverySnapshot = {
+        ...approved,
+        confirmedResult: {
+          queued: result.queued,
+          alreadyQueued: result.alreadyQueued,
+          skipped: result.skipped,
+          errors: result.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
+        },
+      };
+      persistBulkSendRecovery(window.sessionStorage, confirmed);
+      setRecovery(confirmed);
+      onRecoveryChange?.(confirmed);
       setSendResult(result);
+      const removed = removeBulkSendRecovery(window.sessionStorage, confirmed);
+      if (removed.ok) {
+        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        setRecovery(null);
+        onRecoveryChange?.(null);
+      } else {
+        setError("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.");
+      }
       toast(
         `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
         bulkSendResultToastOptions(result),
@@ -217,11 +245,15 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       return true;
     } catch (sendError) {
       if (classifyBulkSendFailure(sendError, approved.completedResults, retryingRecovery) === "definite") {
-        removeBulkSendRecovery(window.sessionStorage, approved);
-        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-        setRecovery(null);
-        onRecoveryChange?.(null);
-        setError(isAppError(sendError) ? sendError.message : "That did not go through");
+        const removed = removeBulkSendRecovery(window.sessionStorage, approved);
+        if (removed.ok) {
+          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+          setRecovery(null);
+          onRecoveryChange?.(null);
+          setError(isAppError(sendError) ? sendError.message : "That did not go through");
+        } else {
+          setError("That request was rejected, but browser recovery could not be cleared. Use Abandon recovery to clear it before starting again.");
+        }
       } else {
         setError("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.");
       }
@@ -245,6 +277,19 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
     finishClose();
   }
 
+  function clearCompletedRecovery() {
+    if (!recovery?.confirmedResult) return;
+    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    if (!removed.ok) {
+      setError("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.");
+      return;
+    }
+    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+    setRecovery(null);
+    onRecoveryChange?.(null);
+    setError(null);
+  }
+
   return (
     <>
     <Modal
@@ -254,7 +299,10 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       description="Every recipient gets their own copy, personalized with the tokens below."
       wide
       footer={sendResult ? (
-        <Button onClick={finishClose}>Done</Button>
+        recoveryRequired ? <>
+          <Button variant="secondary" onClick={requestClose}>Close for now</Button>
+          <Button onClick={clearCompletedRecovery}>Clear completed recovery</Button>
+        </> : <Button onClick={finishClose}>Done</Button>
       ) : recoveryRequired ? (
         <>
           <Button variant="ghost" disabled={busySend} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
@@ -286,6 +334,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
               </li>;
             })}
           </ul>}
+          {error && <p className="field-error" role="alert">{error}</p>}
         </div>
       ) : (
         <div className="template-editor-grid">

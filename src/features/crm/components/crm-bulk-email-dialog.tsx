@@ -36,6 +36,17 @@ type ApprovedPreview = {
   attempt: BulkSendAttempt;
 };
 
+function confirmedCrmResult(snapshot: BulkSendRecoverySnapshot | null): ComposeCrmBulkEmailResult | null {
+  if (!snapshot?.confirmedResult) return null;
+  const result = snapshot.confirmedResult;
+  const parsed = composeCrmBulkEmailResultSchema.safeParse({
+    ...result,
+    errors: result.errors.map((entry) => ({ organizationContactId: entry.recipientId, reason: entry.reason })),
+    preview: null,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 /**
  * M55 — CRM bulk communication (selected rows or a resolved segment).
  * Delegates server-side to M51's `composeBulkSpeakerEmailIn` per the event an
@@ -92,7 +103,7 @@ export function CrmBulkEmailDialog({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<ComposeCrmBulkEmailResult | null>(null);
+  const [sendResult, setSendResult] = useState<ComposeCrmBulkEmailResult | null>(() => confirmedCrmResult(restored));
   const recoveryRequired = recovery !== null;
   const draftDirty = !sendResult && (subject.trim().length > 0 || bodyHtml.trim().length > 0 || preview !== null);
   useUnsavedWorkGuard(open && (draftDirty || busySend || recoveryRequired), { blocking: busySend });
@@ -181,6 +192,7 @@ export function CrmBulkEmailDialog({
       attemptStorageKey: currentPreview.attempt.storageKey,
       fingerprint: currentPreview.fingerprint,
       completedResults: [],
+      confirmedResult: null,
     } : null);
     if (!candidate) return false;
     const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
@@ -218,11 +230,27 @@ export function CrmBulkEmailDialog({
         }
       }
       const result = mergeCrmBulkEmailResults(results);
-      removeBulkSendRecovery(window.sessionStorage, approved);
-      completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-      setRecovery(null);
-      onRecoveryChange?.(null);
+      const confirmed: BulkSendRecoverySnapshot = {
+        ...approved,
+        confirmedResult: {
+          queued: result.queued,
+          alreadyQueued: result.alreadyQueued,
+          skipped: result.skipped,
+          errors: result.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
+        },
+      };
+      persistBulkSendRecovery(window.sessionStorage, confirmed);
+      setRecovery(confirmed);
+      onRecoveryChange?.(confirmed);
       setSendResult(result);
+      const removed = removeBulkSendRecovery(window.sessionStorage, confirmed);
+      if (removed.ok) {
+        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        setRecovery(null);
+        onRecoveryChange?.(null);
+      } else {
+        setError("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.");
+      }
       toast(
         `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
         bulkSendResultToastOptions(result),
@@ -237,11 +265,15 @@ export function CrmBulkEmailDialog({
         errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
       }));
       if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completed], retryingRecovery) === "definite") {
-        removeBulkSendRecovery(window.sessionStorage, approved);
-        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-        setRecovery(null);
-        onRecoveryChange?.(null);
-        setError(isAppError(caught) ? caught.message : "That did not go through");
+        const removed = removeBulkSendRecovery(window.sessionStorage, approved);
+        if (removed.ok) {
+          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+          setRecovery(null);
+          onRecoveryChange?.(null);
+          setError(isAppError(caught) ? caught.message : "That did not go through");
+        } else {
+          setError("That request was rejected, but browser recovery could not be cleared. Use Abandon recovery to clear it before starting again.");
+        }
       } else {
         setError("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.");
       }
@@ -265,6 +297,19 @@ export function CrmBulkEmailDialog({
     finishClose();
   }
 
+  function clearCompletedRecovery() {
+    if (!recovery?.confirmedResult) return;
+    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    if (!removed.ok) {
+      setError("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.");
+      return;
+    }
+    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+    setRecovery(null);
+    onRecoveryChange?.(null);
+    setError(null);
+  }
+
   return (
     <>
     <Modal
@@ -274,7 +319,10 @@ export function CrmBulkEmailDialog({
       description="Sent through each contact's most recently linked event — a contact never pushed into an event is skipped, not silently dropped."
       wide
       footer={sendResult ? (
-        <Button onClick={finishClose}>Done</Button>
+        recoveryRequired ? <>
+          <Button variant="secondary" onClick={requestClose}>Close for now</Button>
+          <Button onClick={clearCompletedRecovery}>Clear completed recovery</Button>
+        </> : <Button onClick={finishClose}>Done</Button>
       ) : recoveryRequired ? (
         <>
           <Button variant="ghost" disabled={busySend} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
@@ -308,6 +356,7 @@ export function CrmBulkEmailDialog({
               })}
             </ul>
           )}
+          {error && <p className="field-error" role="alert">{error}</p>}
         </div>
       ) : (
         <div className="template-editor-grid">

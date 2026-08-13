@@ -73,6 +73,7 @@ export const bulkSendRecoverySnapshotSchema = z.object({
   attemptStorageKey: z.string().min(1).max(MAX_ATTEMPT_STORAGE_KEY_LENGTH).startsWith("openboard:bulk-send:"),
   fingerprint: z.string().min(1).max(MAX_FINGERPRINT_LENGTH),
   completedResults: z.array(bulkSendRecoveryBatchResultSchema).max(MAX_BULK_SEND_RECOVERY_RECIPIENTS),
+  confirmedResult: bulkSendRecoveryBatchResultSchema.nullable(),
 }).strict().superRefine((snapshot, context) => {
   const recipientIds = new Set<string>();
   for (const recipient of snapshot.recipients) {

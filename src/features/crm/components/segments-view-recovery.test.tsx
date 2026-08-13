@@ -59,6 +59,7 @@ function recovery(): BulkSendRecoverySnapshot {
     attemptStorageKey: "openboard:bulk-send:crm:test-hash",
     fingerprint: bulkSendPreviewFingerprint({ contactIds: [contactId], previewContactId: contactId, subject, bodyHtml }),
     completedResults: [],
+    confirmedResult: null,
   };
 }
 

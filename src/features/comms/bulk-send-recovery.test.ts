@@ -53,6 +53,7 @@ function snapshot(overrides: Partial<BulkSendRecoverySnapshot> = {}): BulkSendRe
       bodyHtml,
     }),
     completedResults: [],
+    confirmedResult: null,
     ...overrides,
   };
 }

@@ -103,6 +103,7 @@ describe("targeted speaker email recovery", () => {
     });
 
     apiMock.mockResolvedValueOnce({ queued: 0, alreadyQueued: 1, skipped: 0, errors: [], preview: null });
+    const removeItem = vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => { throw new Error("blocked"); });
     await act(async () => buttonsNamed("Retry this send")[0]?.click());
 
     expect(apiMock).toHaveBeenLastCalledWith(
@@ -111,6 +112,15 @@ describe("targeted speaker email recovery", () => {
       expect.objectContaining({ body: expect.objectContaining({ sendId: originalSendId, subject: "Program update" }) }),
     );
     expect(container.textContent).toContain("1 accepted");
+    expect(container.textContent).toContain("send is confirmed, but browser recovery could not be cleared");
+    expect(buttonsNamed("Clear completed recovery")).toHaveLength(1);
+    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` })).toMatchObject({
+      ok: true,
+      snapshot: { confirmedResult: { alreadyQueued: 1 } },
+    });
+
+    removeItem.mockRestore();
+    await act(async () => buttonsNamed("Clear completed recovery")[0]?.click());
     expect(loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` }))
       .toEqual({ ok: false, reason: "missing" });
   });

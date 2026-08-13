@@ -298,8 +298,11 @@ export function SegmentsView({
       <CrmNav organizationId={organizationId} active="segments" />
 
       {emailRecovery && !emailRecoveryOpen && !emailSegment && <div className="notify-bar" role="status">
-        <div><p><b>Unconfirmed CRM email</b><small>Resume the unchanged send to learn what queued without emailing anyone twice.</small></p></div>
-        <Button size="sm" onClick={() => setEmailRecoveryOpen(true)}>Resume unconfirmed email</Button>
+        <div><p>
+          <b>{emailRecovery.confirmedResult ? "Completed CRM email needs cleanup" : "Unconfirmed CRM email"}</b>
+          <small>{emailRecovery.confirmedResult ? "The send is complete. Reopen it to clear the saved browser recovery record." : "Resume the unchanged send to learn what queued without emailing anyone twice."}</small>
+        </p></div>
+        <Button size="sm" onClick={() => setEmailRecoveryOpen(true)}>{emailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
       </div>}
 
       {segments.length === 0 ? (

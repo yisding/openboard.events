@@ -193,7 +193,27 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     const inserted = await dbOrTx.insert(speakerBulkMessages).values({
       eventId, contactId, idempotencyKey, subject: input.subject, bodyHtml,
     }).onConflictDoNothing({ target: speakerBulkMessages.idempotencyKey }).returning();
-    await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
+    let enqueueEventId = eventId;
+    let enqueueContactId = contactId;
+    if (inserted.length === 0) {
+      // Another overlapping retry won after our initial existing-message
+      // snapshot. Re-read that winner: for CRM it may belong to the contact's
+      // previous event link, and enqueueing this request's newer destination
+      // would leave the log unable to find the stored message at dispatch.
+      const [winner] = await dbOrTx.select({
+        eventId: speakerBulkMessages.eventId,
+        contactId: speakerBulkMessages.contactId,
+      }).from(speakerBulkMessages).where(eq(speakerBulkMessages.idempotencyKey, idempotencyKey)).limit(1);
+      if (!winner) throw new AppError("INTERNAL", "Could not recover this bulk email attempt");
+      enqueueEventId = eventIdSchema.parse(winner.eventId);
+      enqueueContactId = contactIdSchema.parse(winner.contactId);
+    }
+    await enqueueEmail(asOutboxWriter(dbOrTx), {
+      eventId: enqueueEventId,
+      templateKey: "speaker_bulk_message",
+      contactId: enqueueContactId,
+      idempotencyKey,
+    });
     // Retrying still calls enqueueEmail so a rare failure between the message
     // insert and outbox insert can heal itself. Only a newly-created message,
     // however, counts as newly queued in this response.

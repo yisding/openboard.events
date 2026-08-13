@@ -55,6 +55,7 @@ function recovery(): BulkSendRecoverySnapshot {
     attemptStorageKey: "openboard:bulk-send:crm:test-hash",
     fingerprint: bulkSendPreviewFingerprint({ contactIds: recipients.map((row) => row.id), previewContactId: previewRecipientId, subject, bodyHtml }),
     completedResults: [],
+    confirmedResult: null,
   };
 }
 
@@ -112,6 +113,29 @@ describe("CRM partial-batch recovery", () => {
     expect(apiMock.mock.calls.slice(2).every((call) => call[2].body.sendId === snapshot.sendId)).toBe(true);
     expect(container.textContent).toContain("501 accepted");
     expect(container.textContent).toContain("500 already queued by this attempt");
+    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId }))
+      .toEqual({ ok: false, reason: "missing" });
+  });
+
+  it("restores a confirmed receipt for cleanup without sending again", async () => {
+    const snapshot: BulkSendRecoverySnapshot = {
+      ...recovery(),
+      confirmedResult: { queued: 0, alreadyQueued: 501, skipped: 0, errors: [] },
+    };
+    expect(persistBulkSendRecovery(window.sessionStorage, snapshot).ok).toBe(true);
+    await act(async () => root.render(<CrmBulkEmailDialog
+      organizationId={organizationId}
+      open
+      recipients={[]}
+      initialRecovery={snapshot}
+      onClose={vi.fn()}
+    />));
+
+    expect(container.textContent).toContain("501 accepted");
+    expect(buttonNamed("Retry this send")).toBeUndefined();
+    await act(async () => buttonNamed("Clear completed recovery")?.click());
+
+    expect(apiMock).not.toHaveBeenCalled();
     expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId }))
       .toEqual({ ok: false, reason: "missing" });
   });

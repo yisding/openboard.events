@@ -254,4 +254,39 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     expect(logs.rows[0]?.n).toBe(1);
     expect(logs.rows[0]).toMatchObject({ event_id: eventId, contact_id: ada });
   });
+
+  it("keeps overlapping CRM retries on the one winning destination", async () => {
+    const sendId = "91000000-0000-4000-8000-000000000021";
+    const organizationId = organizationIdSchema.parse("e3000000-0000-4000-8000-000000000001");
+    const organizationContactId = organizationContactIdSchema.parse("e3000000-0000-4000-8000-000000000011");
+    const idempotencyKey = idem.crmBulk(organizationId, organizationContactId, sendId);
+    const message = { subject: "Concurrent CRM update", bodyHtml: "<p>Hello {{speaker.first_name}}</p>", mode: "send" as const, sendId };
+
+    const [oldLink, newLink] = await Promise.all([
+      composeBulkSpeakerEmailIn(tx, eventId, {
+        ...message,
+        contactIds: [ada],
+        idempotencyKeys: new Map([[ada, idempotencyKey]]),
+      }),
+      composeBulkSpeakerEmailIn(tx, movedEventId, {
+        ...message,
+        contactIds: [movedContact],
+        idempotencyKeys: new Map([[movedContact, idempotencyKey]]),
+      }),
+    ]);
+
+    expect(oldLink.queued + newLink.queued).toBe(1);
+    expect(oldLink.alreadyQueued + newLink.alreadyQueued).toBe(1);
+    const destinations = await pglite.query<{ message_event: string; message_contact: string; log_event: string; log_contact: string }>(
+      `SELECT m.event_id::text AS message_event, m.contact_id::text AS message_contact,
+              l.event_id::text AS log_event, l.contact_id::text AS log_contact
+       FROM speaker_bulk_messages m
+       JOIN communication_logs l USING (idempotency_key)
+       WHERE m.idempotency_key=$1`,
+      [idempotencyKey],
+    );
+    expect(destinations.rows).toHaveLength(1);
+    expect(destinations.rows[0]?.log_event).toBe(destinations.rows[0]?.message_event);
+    expect(destinations.rows[0]?.log_contact).toBe(destinations.rows[0]?.message_contact);
+  });
 });
