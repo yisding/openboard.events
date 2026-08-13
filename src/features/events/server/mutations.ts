@@ -10,6 +10,8 @@ import { isConstraintViolation } from "./db-errors";
 import { getEventIn } from "./queries";
 
 export {
+  createVocabItem,
+  createVocabItemIn,
   deleteVocabItem,
   deleteVocabItemIn,
   patchVocabItem,

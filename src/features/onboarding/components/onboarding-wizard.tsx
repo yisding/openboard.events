@@ -89,6 +89,41 @@ export type OnboardingResumeState = {
   formAvailability: OnboardingFormAvailability | null;
 };
 
+type OnboardingTrackCreate = { id: string; name: string; color: string };
+
+export async function createAndReconcileOnboardingTrack(input: {
+  request: OnboardingTrackCreate;
+  create: () => Promise<TrackDTO>;
+  list: () => Promise<TrackDTO[]>;
+}): Promise<
+  | { status: "added"; track: TrackDTO }
+  | { status: "refused"; error: unknown }
+  | { status: "unconfirmed"; error: unknown }
+> {
+  try {
+    return { status: "added", track: await input.create() };
+  } catch (error) {
+    if (isAppError(error) && error.code !== "INTERNAL") return { status: "refused", error };
+    try {
+      // The create endpoint treats this stable id as a correlation token, so
+      // a replay either creates the row or returns the exact committed row.
+      return { status: "added", track: await input.create() };
+    } catch (retryError) {
+      if (isAppError(retryError) && retryError.code !== "INTERNAL") {
+        return { status: "refused", error: retryError };
+      }
+      try {
+        const tracks = await input.list();
+        const committed = tracks.find((track) => track.id === input.request.id);
+        if (committed) return { status: "added", track: committed };
+      } catch {
+        // The caller keeps setup blocked behind another stable-id replay.
+      }
+      return { status: "unconfirmed", error };
+    }
+  }
+}
+
 export async function deleteAndReconcileOnboardingTrack(input: {
   trackId: string;
   remove: () => Promise<unknown>;
@@ -235,6 +270,7 @@ export function OnboardingWizard({
   const [tracks, setTracks] = useState<TrackDTO[]>(initialState?.tracks ?? []);
   const [trackName, setTrackName] = useState("");
   const [addingTrack, setAddingTrack] = useState(false);
+  const [trackCreateSyncError, setTrackCreateSyncError] = useState<OnboardingTrackCreate | null>(null);
   const [removingTrackId, setRemovingTrackId] = useState<string | null>(null);
   const [pendingTrackDelete, setPendingTrackDelete] = useState<TrackDTO | null>(null);
   const [trackSyncError, setTrackSyncError] = useState<TrackDTO | null>(null);
@@ -301,26 +337,37 @@ export function OnboardingWizard({
     }
   }
 
-  async function addTrack(candidateName: string, color: string) {
-    if (!event || !candidateName.trim() || addingTrack || removingTrackId || trackSyncError) return;
-    if (tracks.some((track) => track.name.toLowerCase() === candidateName.trim().toLowerCase())) return;
+  async function addTrack(candidateName: string, color: string, requestId = crypto.randomUUID()) {
+    const request = { id: requestId, name: candidateName.trim(), color };
+    if (!event || !request.name || addingTrack || removingTrackId || trackSyncError) return;
+    if (trackCreateSyncError && trackCreateSyncError.id !== request.id) return;
+    if (tracks.some((track) => track.name.toLowerCase() === request.name.toLowerCase())) return;
     setAddingTrack(true);
-    try {
-      const track = await api(`events/${event.id}/vocab/tracks`, trackDtoSchema, {
+    const result = await createAndReconcileOnboardingTrack({
+      request,
+      create: () => api(`events/${event.id}/vocab/tracks`, trackDtoSchema, {
         method: "POST",
-        body: { name: candidateName.trim(), color },
-      });
-      setTracks((current) => [...current, track]);
-      setTrackName("");
-    } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That track could not be added", { kind: "error" });
-    } finally {
-      setAddingTrack(false);
+        body: request,
+      }),
+      list: () => api(`events/${event.id}/vocab/tracks`, tracksListSchema),
+    });
+    if (result.status === "added") {
+      setTracks((current) => current.some((track) => track.id === result.track.id) ? current : [...current, result.track]);
+      setTrackName((current) => current.trim() === request.name ? "" : current);
+      setTrackCreateSyncError(null);
+      toast(`${result.track.name} added`);
+    } else if (result.status === "refused") {
+      setTrackCreateSyncError(null);
+      toast(isAppError(result.error) ? result.error.message : "That track could not be added", { kind: "error" });
+    } else {
+      setTrackCreateSyncError(request);
+      toast("We could not confirm whether that track was added", { kind: "error" });
     }
+    setAddingTrack(false);
   }
 
   async function removeTrack(track: TrackDTO) {
-    if (!event || addingTrack || removingTrackId) return;
+    if (!event || addingTrack || trackCreateSyncError || removingTrackId) return;
     if (!tracks.some((candidate) => candidate.id === track.id) && trackSyncError?.id !== track.id) return;
     setRemovingTrackId(track.id);
     setTracks((current) => current.filter((candidate) => candidate.id !== track.id));
@@ -348,7 +395,7 @@ export function OnboardingWizard({
   }
 
   async function continueToForm() {
-    if (!event || advancing || addingTrack || removingTrackId || trackSyncError) return;
+    if (!event || advancing || addingTrack || trackCreateSyncError || removingTrackId || trackSyncError) return;
     setAdvancing(true);
     try {
       await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
@@ -520,7 +567,7 @@ export function OnboardingWizard({
           {remainingSuggestions.length > 0 && (
             <div className="chip-picker">
               {remainingSuggestions.map((suggestion) => (
-                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
+                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
                   <Plus size={12} /> {suggestion.name}
                 </button>
               ))}
@@ -534,7 +581,7 @@ export function OnboardingWizard({
                   type="button"
                   className="icon-button"
                   aria-label={`Remove ${track.name}`}
-                  disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
+                  disabled={addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}
                   onClick={() => setPendingTrackDelete(track)}
                 >
                   <Trash2 size={15} />
@@ -550,9 +597,17 @@ export function OnboardingWizard({
               </Button>
             </div>
           )}
+          {trackCreateSyncError && (
+            <div className="onboarding-track-sync" role="alert">
+              <p>We could not confirm whether {trackCreateSyncError.name} was added. Retry before continuing.</p>
+              <Button size="sm" variant="secondary" disabled={addingTrack} onClick={() => void addTrack(trackCreateSyncError.name, trackCreateSyncError.color, trackCreateSyncError.id)}>
+                {addingTrack ? "Retrying…" : "Retry adding track"}
+              </Button>
+            </div>
+          )}
           <Field label="Add a custom track" hint="Optional — press Enter or click Add">
             <input
-              disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
+              disabled={addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}
               value={trackName}
               onChange={(event) => setTrackName(event.target.value)}
               placeholder="Custom track name"
@@ -560,8 +615,8 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
-            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
+            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
           <ConfirmDialog
             open={pendingTrackDelete !== null}

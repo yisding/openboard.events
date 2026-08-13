@@ -10,7 +10,7 @@ import { isAppError } from "@/shared/lib/errors";
 import { saveSessionIn } from "@/features/agenda/server/mutations";
 import { createEventIn, updateEventIn } from "./mutations";
 import { getEventIn, listVocabIn } from "./queries";
-import { deleteVocabItemIn, patchVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
+import { createVocabItemIn, deleteVocabItemIn, patchVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 // M50 added `reviewer_invited`/`review_reminder` to `template_key`, which
@@ -389,6 +389,23 @@ describe("database-backed event mutations", () => {
 
     // A second delete of the same id is a silent no-op, not an error.
     await expect(deleteVocabItemIn(database, event.id, "tracks", second.id)).resolves.toBeUndefined();
+  });
+
+  it("replays a correlated vocabulary create without duplicating or overwriting it", async () => {
+    const event = await createEventIn(database, actorUserId, baseInput({ name: "Stable Vocab Conf", slug: "stable-vocab-conf" }));
+    const id = crypto.randomUUID();
+    const input = { id, name: "AI", color: "#123456", description: "Agent systems" };
+
+    const created = await createVocabItemIn(database, event.id, "tracks", input);
+    const replayed = await createVocabItemIn(database, event.id, "tracks", input);
+    expect(replayed).toEqual(created);
+    expect(replayed.id).toBe(id);
+    expect((await listVocabIn(database, event.id, "tracks")).filter((row) => row.id === id)).toHaveLength(1);
+
+    await expect(createVocabItemIn(database, event.id, "tracks", { ...input, name: "Security" }))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await listVocabIn(database, event.id, "tracks")).find((row) => row.id === id))
+      .toMatchObject({ name: "AI", color: "#123456", description: "Agent systems" });
   });
 
   it("rejects manual reordering of tags — the schema carries no sort_order for them", async () => {

@@ -52,6 +52,8 @@ export {
 export {
   createEvent,
   createEventIn,
+  createVocabItem,
+  createVocabItemIn,
   deleteVocabItem,
   deleteVocabItemIn,
   reorderVocab,
