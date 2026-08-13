@@ -51,6 +51,14 @@ describe("unsaved organizer draft coverage", () => {
     expect(reminders).toContain("setDirty(false)");
   });
 
+  it("guards reviewer assignment selections before closing the drawer", () => {
+    const assignments = source("./submissions/evaluation/components/assignment-drawer.tsx");
+    expect(assignments).toContain("useUnsavedWorkGuard(dirty)");
+    expect(assignments).toContain("requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose })");
+    expect(assignments).toContain("<Drawer open onClose={requestClose}");
+    expect(assignments).toContain("onClick={requestClose}>Cancel</Button>");
+  });
+
   it("guards a composed bulk email until it is sent or explicitly discarded", () => {
     const bulk = source("./comms/components/bulk-send-tab.tsx");
     expect(bulk).toContain("useUnsavedWorkGuard(draftDirty)");
