@@ -1513,6 +1513,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-done p{color:var(--muted);font-size:11.5px;max-width:440px;margin:0 auto}
 .onboarding-done .cfp-actions{justify-content:center;margin-top:24px}
 .onboarding-link-row{display:flex;gap:8px;margin:16px auto 0;max-width:440px}
+.onboarding-team-prompt{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;max-width:540px;margin:18px auto 0;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-subtle);text-align:left}
+.onboarding-team-prompt>.metric-icon{width:32px;height:32px;margin:0}
+.onboarding-team-prompt>span:nth-child(2){min-width:0}
+.onboarding-team-prompt b,.onboarding-team-prompt small{display:block}
+.onboarding-team-prompt b{font-size:12px}
+.onboarding-team-prompt small{margin-top:2px;color:var(--muted);font-size:10.5px;line-height:1.4}
+.onboarding-team-prompt .button{white-space:nowrap}
 
 /* Organizer form preview — the public renderer without the speaker OTP,
    draft, or submission side effects. */
@@ -1549,6 +1556,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .onboarding-wizard .cfp-actions>*{flex:1 1 100%;justify-content:center}
   .onboarding-link-row{flex-direction:column}
   .onboarding-link-row .button{width:100%;justify-content:center}
+  .onboarding-team-prompt{grid-template-columns:32px minmax(0,1fr)}
+  .onboarding-team-prompt .button{grid-column:1/-1;width:100%;justify-content:center}
 }
 
 @media(max-width:768px){
@@ -1726,6 +1735,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-divider::before,.auth-divider::after{content:"";height:1px;flex:1;background:var(--line)}
 .auth-help{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12.5px;line-height:1.45}
 .auth-help span{color:var(--muted)}
+.auth-signup-path{background:var(--accent-faint);border-color:var(--accent-border)}
+.auth-password-input{position:relative}
+.auth-password-input input{width:100%;padding-right:46px}
+.auth-password-toggle{position:absolute;top:50%;right:5px;width:34px;height:34px;padding:0;display:grid;place-items:center;transform:translateY(-50%);border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+.auth-password-toggle:hover{background:var(--surface-subtle);color:var(--ink)}
+.auth-password-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
 .auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { z } from "zod";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -886,6 +886,11 @@ export function OnboardingWizard({
               <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy link</Button>
             </div>
           )}
+          {published && <aside className="onboarding-team-prompt">
+            <span className="metric-icon"><UserPlus size={16} /></span>
+            <span><b>Bring in your team</b><small>Invite organizers or reviewers without leaving setup behind.</small></span>
+            <Link href={`/organizations/${organizationId}/team`} className="button button-secondary">Invite teammates</Link>
+          </aside>}
           <footer className="cfp-actions">
             {createdForm && <Link href={`/events/${event.id}/forms/${createdForm.id}`} className={`button ${published ? "button-secondary" : "button-primary"}`}>
               {published

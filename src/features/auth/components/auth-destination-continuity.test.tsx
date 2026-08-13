@@ -1,17 +1,23 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ForgotPasswordForm } from "./forgot-password-form";
 import { SignupForm } from "./signup-form";
 
+const navigation = vi.hoisted(() => ({ searchParams: new URLSearchParams("next=%2Fjoin%3Ftoken%3Dinvite-123") }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("next=%2Fjoin%3Ftoken%3Dinvite-123"),
+  useSearchParams: () => navigation.searchParams,
 }));
 
 Object.assign(globalThis, { React });
 
 describe("authentication destination continuity", () => {
+  beforeEach(() => {
+    navigation.searchParams = new URLSearchParams("next=%2Fjoin%3Ftoken%3Dinvite-123");
+  });
+
   it("keeps an invitation when an existing user switches from signup to sign-in", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
@@ -48,5 +54,25 @@ describe("authentication destination continuity", () => {
     expect(html).toContain("or create with email");
     expect(html).toContain('href="/login?next=%2Fjoin%3Ftoken%3Dinvite-123"');
     expect(html).not.toContain("Organization name");
+  });
+
+  it("explains activation and lets email users verify the password they typed", () => {
+    const html = renderToStaticMarkup(<SignupForm />);
+
+    expect(html).toContain("What happens next");
+    expect(html).toContain("Confirm your email, then continue straight to the workspace that invited you.");
+    expect(html).toContain('id="signup-password"');
+    expect(html).toContain('aria-controls="signup-password"');
+    expect(html).toContain('aria-label="Show password"');
+    expect(html).toContain('aria-pressed="false"');
+  });
+
+  it("sets expectations for the ordinary self-service setup path", () => {
+    navigation.searchParams = new URLSearchParams();
+    const html = renderToStaticMarkup(<SignupForm />);
+
+    expect(html).toContain("Start your organization now, then publish your first call for speakers in guided setup.");
+    expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share CFP.");
+    expect(html).toContain("Organization name");
   });
 });
