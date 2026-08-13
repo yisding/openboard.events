@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONDITION_OPS, COMMITTED_FIELD_TYPES, FIELD_TYPES, FORM_CONTEXTS, reviewVisibilitySchema, type ReviewVisibility } from "./enums";
+import { CONDITION_OPS, FIELD_TYPES, FORM_CONTEXTS, reviewVisibilitySchema, type ReviewVisibility } from "./enums";
 import {
   fieldIdSchema,
   fileIdSchema,
@@ -87,7 +87,7 @@ export const formOptionSchema = z.object({
   tagId: tagIdSchema.optional(),
 });
 
-export const formFieldSchema = z.object({
+const formFieldSchema = z.object({
   id: fieldIdSchema,
   key: z.string().min(1),
   label: z.string().min(1),
@@ -107,7 +107,7 @@ export const formFieldSchema = z.object({
 });
 export type FormField = z.infer<typeof formFieldSchema>;
 
-export const formSectionSchema = z.object({
+const formSectionSchema = z.object({
   id: sectionIdSchema,
   key: z.string().min(1),
   title: z.string(),
@@ -172,7 +172,3 @@ export type FormAuthoringRows = {
     deletedAt: string | null;
   }>;
 };
-
-export function isCommittedFieldType(value: string): value is (typeof COMMITTED_FIELD_TYPES)[number] {
-  return (COMMITTED_FIELD_TYPES as readonly string[]).includes(value);
-}

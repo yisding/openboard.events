@@ -16,7 +16,7 @@ import { removeOrganizationMemberIn, setOrganizationMemberIn } from "./mutations
  * check.
  */
 
-async function requireOwnerForOwnershipChange(dbOrTx: DbOrTx, organizationId: OrganizationId, actorUserId: UserId, actorRole: MemberRole, involvesOwner: boolean): Promise<void> {
+function requireOwnerForOwnershipChange(actorRole: MemberRole, involvesOwner: boolean): void {
   if (!involvesOwner) return;
   if (actorRole === "owner") return;
   throw new AppError("FORBIDDEN", "Only an owner can grant or revoke ownership");
@@ -32,7 +32,7 @@ export async function changeOrganizationMemberRoleIn(
 ): Promise<MemberRole> {
   const currentRole = await getOrganizationMemberRoleIn(dbOrTx, organizationId, targetUserId);
   if (!currentRole) throw new AppError("NOT_FOUND", "That user is not a member of this organization");
-  await requireOwnerForOwnershipChange(dbOrTx, organizationId, actorUserId, actorRole, currentRole === "owner" || role === "owner");
+  requireOwnerForOwnershipChange(actorRole, currentRole === "owner" || role === "owner");
   const updated = await setOrganizationMemberIn(dbOrTx, organizationId, targetUserId, role);
   await recordOrganizationAuditEventIn(dbOrTx, organizationId, actorUserId, "member.role_changed", targetUserId, { from: currentRole, to: updated });
   return updated;
@@ -49,7 +49,7 @@ export async function removeOrganizationMemberAuditedIn(
 ): Promise<void> {
   const currentRole = await getOrganizationMemberRoleIn(dbOrTx, organizationId, targetUserId);
   if (!currentRole) throw new AppError("NOT_FOUND", "That user is not a member of this organization");
-  await requireOwnerForOwnershipChange(dbOrTx, organizationId, actorUserId, actorRole, currentRole === "owner");
+  requireOwnerForOwnershipChange(actorRole, currentRole === "owner");
   await removeOrganizationMemberIn(dbOrTx, organizationId, targetUserId);
   await recordOrganizationAuditEventIn(dbOrTx, organizationId, actorUserId, "member.removed", targetUserId, { role: currentRole });
 }

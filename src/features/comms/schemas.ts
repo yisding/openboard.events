@@ -35,7 +35,7 @@ export const retryFailedCommunicationsInputSchema = z.object({
   }
 });
 
-export const retryCommunicationOutcomeSchema = z.object({
+const retryCommunicationOutcomeSchema = z.object({
   logId: commLogIdSchema,
   outcome: z.enum(["requeued", "already_queued", "ineligible", "not_found"]),
 });

@@ -11,7 +11,7 @@ import { AppError } from "@/shared/lib/errors";
  * recipient asked for seconds earlier and that the dispatcher clears the moment
  * it has rendered it.
  */
-export const SECRET_PAYLOAD_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set<TemplateKey>([
+const SECRET_PAYLOAD_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set<TemplateKey>([
   "portal_login",
   // M42 — Better Auth's admin password-reset and email-verification links.
   "admin_password_reset",

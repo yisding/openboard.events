@@ -1,15 +1,14 @@
 "use client";
 
 import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from "react";
-import type { ConflictDTO, SessionId } from "@/shared/contracts";
+import type { ConflictDTO } from "@/shared/contracts";
 
 /**
  * The Day view's ephemeral, client-only state: the live conflict outline list
- * (recomputed on every optimistic patch, before the server round trip) and
- * which session is mid-drag. Exactly the "drag ghost / active view / day"
- * category of state app-architecture's litmus test allows in a client store —
- * never persisted, never server truth, and cleared automatically because the
- * store lives in a ref inside a provider that unmounts with the Day view.
+ * (recomputed on every optimistic patch, before the server round trip). It is
+ * never persisted or treated as server truth, and is cleared automatically
+ * because the store lives in a ref inside a provider that unmounts with the
+ * Day view.
  *
  * The project has no `zustand` dependency, so this is a small hand-rolled
  * store with the same shape (a plain object, `useSyncExternalStore` under the
@@ -18,7 +17,6 @@ import type { ConflictDTO, SessionId } from "@/shared/contracts";
 
 type DayGridSnapshot = {
   conflicts: ConflictDTO[];
-  draggingId: SessionId | null;
 };
 
 type Listener = () => void;
@@ -27,11 +25,10 @@ type DayGridStore = {
   getSnapshot: () => DayGridSnapshot;
   subscribe: (listener: Listener) => () => void;
   setConflicts: (conflicts: ConflictDTO[]) => void;
-  setDragging: (draggingId: SessionId | null) => void;
 };
 
 function createDayGridStore(): DayGridStore {
-  let snapshot: DayGridSnapshot = { conflicts: [], draggingId: null };
+  let snapshot: DayGridSnapshot = { conflicts: [] };
   const listeners = new Set<Listener>();
   const emit = () => { for (const listener of listeners) listener(); };
   return {
@@ -43,11 +40,6 @@ function createDayGridStore(): DayGridStore {
     setConflicts(conflicts) {
       if (snapshot.conflicts === conflicts) return;
       snapshot = { ...snapshot, conflicts };
-      emit();
-    },
-    setDragging(draggingId) {
-      if (snapshot.draggingId === draggingId) return;
-      snapshot = { ...snapshot, draggingId };
       emit();
     },
   };
@@ -74,13 +66,8 @@ export function useDayGridConflicts(): ConflictDTO[] {
   return useSyncExternalStore(store.subscribe, () => store.getSnapshot().conflicts, () => store.getSnapshot().conflicts);
 }
 
-export function useDayGridDraggingId(): SessionId | null {
-  const store = useDayGridStore();
-  return useSyncExternalStore(store.subscribe, () => store.getSnapshot().draggingId, () => store.getSnapshot().draggingId);
-}
-
-/** Stable setters for `day-view.tsx`'s effects and drag handlers. */
+/** Stable setter for `day-view.tsx`'s conflict effect. */
 export function useDayGridActions() {
   const store = useDayGridStore();
-  return useMemo(() => ({ setConflicts: store.setConflicts, setDragging: store.setDragging }), [store]);
+  return useMemo(() => ({ setConflicts: store.setConflicts }), [store]);
 }

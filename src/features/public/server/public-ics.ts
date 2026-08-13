@@ -31,7 +31,7 @@ function senderDomain(email: string): string {
 
 export type PublicScheduleIcs = { calendarName: string; ics: string };
 
-export function renderPublicScheduleIcs(
+function renderPublicScheduleIcs(
   schedule: PublishedScheduleDTO,
   eventSlug: string,
   sessionIds: string[] | null,

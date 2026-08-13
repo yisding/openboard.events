@@ -250,7 +250,7 @@ function r2Config(): R2Config {
   };
 }
 
-export function objectUrl(config: R2Config, key: string): URL {
+function objectUrl(config: R2Config, key: string): URL {
   const encoded = key.split("/").map(encodeURIComponent).join("/");
   return new URL(`https://${config.accountId}.r2.cloudflarestorage.com/${config.bucket}/${encoded}`);
 }

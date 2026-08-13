@@ -38,7 +38,7 @@ const wideWhiteList: NonNullable<IFilterXSSOptions["whiteList"]> = {
 
 export type SanitizeOptions = { profile?: "default" | "wide" };
 
-export function isAllowedEmbedUrl(value: string): boolean {
+function isAllowedEmbedUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && (WIDE_IFRAME_HOSTS as readonly string[]).includes(url.hostname);

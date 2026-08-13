@@ -16,7 +16,7 @@ export function loadingCommandPaletteSearch(term: string): CommandPaletteSearchS
   return { status: "loading", term, results: [] };
 }
 
-export function isAbortError(error: unknown): boolean {
+function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
 }
 

@@ -23,7 +23,7 @@ const MINUTES_PER_DAY = 24 * 60;
  * a resized session always spans at least one full row and never collapses to
  * zero height.
  */
-export const MIN_SESSION_DURATION_MINUTES = 15;
+const MIN_SESSION_DURATION_MINUTES = 15;
 
 /**
  * Pixels per 15-minute row. The single source both the grid's CSS grid track
@@ -38,7 +38,7 @@ const DEFAULT_GRID_END_MINUTES = 18 * 60;
 export type GridRange = { gridStartMinutes: number; gridEndMinutes: number };
 
 /** A session's start or end, as minutes-since-midnight in the event's zone. */
-export function minutesSinceMidnightInZone(instant: string, timeZone: string): number {
+function minutesSinceMidnightInZone(instant: string, timeZone: string): number {
   const { hour, minute } = hourMinuteInZone(instant, timeZone);
   return hour * 60 + minute;
 }
@@ -113,11 +113,6 @@ export function computeGridRange(
 /** A 1-based CSS grid row line, relative to the range's start. */
 export function minutesToGridRow(minutes: number, gridStartMinutes: number): number {
   return Math.round((minutes - gridStartMinutes) / SLOT_MINUTES) + 1;
-}
-
-/** The inverse of `minutesToGridRow` — a slot row's own start time. */
-export function gridRowToMinutes(row: number, gridStartMinutes: number): number {
-  return gridStartMinutes + (row - 1) * SLOT_MINUTES;
 }
 
 export function gridRowCount(range: GridRange): number {

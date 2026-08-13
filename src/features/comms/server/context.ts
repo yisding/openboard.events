@@ -30,7 +30,7 @@ export function isAdminAuthTemplate(key: TemplateKey): boolean {
  * product outbox; this branch remains so rows queued before that migration can
  * still render without a speaker-portal credential.
  */
-export function isOrganizationInviteTemplate(key: TemplateKey): boolean {
+function isOrganizationInviteTemplate(key: TemplateKey): boolean {
   return key === "organization_invited";
 }
 

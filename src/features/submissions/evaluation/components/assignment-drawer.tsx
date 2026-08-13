@@ -52,7 +52,7 @@ export function keepShownAssignmentSelection(selectedIds: readonly string[], sho
   return selectedIds.filter((id) => shown.has(id));
 }
 
-export function submissionsForTrack(submissions: readonly AssignableSubmission[], trackId: string) {
+function submissionsForTrack(submissions: readonly AssignableSubmission[], trackId: string) {
   return submissions.filter((submission) => trackId === "" || submission.trackId === trackId);
 }
 

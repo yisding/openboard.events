@@ -10,7 +10,6 @@ import {
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 export {
-  COMPOSE_BATCH_SIZE,
   bulkSendPreviewFingerprint,
   canSendBulkMessage,
   chunkContactIds,

@@ -10,7 +10,7 @@
 
 const KEY_PREFIX = "openboard:itinerary:";
 
-export function itineraryStorageKey(eventSlug: string): string {
+function itineraryStorageKey(eventSlug: string): string {
   return `${KEY_PREFIX}${eventSlug}`;
 }
 

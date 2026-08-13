@@ -12,8 +12,8 @@ import type { AuthSession } from "@/shared/server/handler";
 // never enter a shared cache. Both carry permissive CORS — `/api/v1/*` is the
 // one surface in this app meant to be called from another origin (embeds,
 // judge scripts); `/api/internal/*` never gets this treatment.
-export const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
-export const privateHeaders = { "access-control-allow-origin": "*", "cache-control": "private, no-store" };
+const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
+const privateHeaders = { "access-control-allow-origin": "*", "cache-control": "private, no-store" };
 
 export function corsPreflight() {
   return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "86400" } });

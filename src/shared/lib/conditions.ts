@@ -13,7 +13,7 @@ import type {
  * exactly the singleton selection. `in` is the multiselect "contains" form.
  * Full semantics are specified by src/shared/lib/conditions.test.ts.
  */
-export function isAnswered(value: AnswerValue | undefined): boolean {
+function isAnswered(value: AnswerValue | undefined): boolean {
   if (!value) return false;
   if (value.t === "s") return value.v.trim().length > 0;
   if (value.t === "opts") return value.v.length > 0;

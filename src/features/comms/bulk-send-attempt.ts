@@ -1,6 +1,6 @@
 import type { ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
 
-export const COMPOSE_BATCH_SIZE = 200;
+const COMPOSE_BATCH_SIZE = 200;
 
 export type BulkSendPreviewFingerprintInput = {
   contactIds: readonly string[];

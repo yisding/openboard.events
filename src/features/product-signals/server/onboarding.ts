@@ -4,15 +4,12 @@ import { events, organizationOnboardingMilestones } from "@/db/schema";
 import type { EventId, OrganizationId, UserId } from "@/shared/contracts";
 import { log } from "@/shared/lib/log";
 
-export const ONBOARDING_MILESTONES = [
-  "signup_completed",
-  "email_verified",
-  "event_created",
-  "form_published",
-  "public_form_visited",
-] as const;
-
-export type OnboardingMilestone = (typeof ONBOARDING_MILESTONES)[number];
+export type OnboardingMilestone =
+  | "signup_completed"
+  | "email_verified"
+  | "event_created"
+  | "form_published"
+  | "public_form_visited";
 
 export type OrganizationOnboardingMilestone = {
   milestone: OnboardingMilestone;

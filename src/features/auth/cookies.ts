@@ -19,8 +19,8 @@ export const PORTAL_COOKIE_PREFIX = "ob_portal_";
  * infinite `/events → /login → /events` redirect loop for a signed-in admin,
  * which is what happened while only `ADMIN_COOKIE` was checked.
  */
-export const BETTER_AUTH_COOKIE_PREFIX = "openboard_admin";
-export const BETTER_AUTH_SESSION_COOKIE = `${BETTER_AUTH_COOKIE_PREFIX}.session_token`;
+const BETTER_AUTH_COOKIE_PREFIX = "openboard_admin";
+const BETTER_AUTH_SESSION_COOKIE = `${BETTER_AUTH_COOKIE_PREFIX}.session_token`;
 export const ADMIN_SESSION_COOKIES: readonly string[] = [
   ADMIN_COOKIE,
   BETTER_AUTH_SESSION_COOKIE,
