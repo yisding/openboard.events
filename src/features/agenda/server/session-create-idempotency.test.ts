@@ -18,6 +18,7 @@ const creationId = sessionIdSchema.parse("a4200000-0000-4000-8000-000000000001")
 const distinctCreationId = sessionIdSchema.parse("a4200000-0000-4000-8000-000000000002");
 const deletedCreationId = sessionIdSchema.parse("a4200000-0000-4000-8000-000000000003");
 const failedCreationId = sessionIdSchema.parse("a4200000-0000-4000-8000-000000000004");
+const narrowedBoundsCreationId = sessionIdSchema.parse("a4200000-0000-4000-8000-000000000005");
 const firstSpeaker = contactIdSchema.parse("a4300000-0000-4000-8000-000000000001");
 const secondSpeaker = contactIdSchema.parse("a4300000-0000-4000-8000-000000000002");
 
@@ -160,5 +161,31 @@ describe("retry-safe manual session creation", () => {
       [failedCreationId],
     );
     expect(afterSuccess.rows[0]?.count).toBe(1);
+  });
+
+  it("recovers a committed create before mutable event bounds can reject its original placement", async () => {
+    const narrowedInput = { ...input, creationId: narrowedBoundsCreationId, title: "Recover Before New Bounds" };
+    const created = await saveSessionIn(database, eventId, narrowedInput);
+    const beforeReplay = await Promise.all([
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM session_content_revisions WHERE session_id=$1", [narrowedBoundsCreationId]),
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM session_speakers WHERE session_id=$1", [narrowedBoundsCreationId]),
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM communication_logs WHERE event_id=$1", [eventId]),
+    ]);
+
+    // Product event editing correctly refuses to strand a scheduled session;
+    // direct fixture SQL models external/admin repair changing mutable bounds
+    // after the create already committed and its HTTP response was lost.
+    await pg.query("UPDATE events SET starts_at='2026-09-16T20:00:00Z' WHERE id=$1", [eventId]);
+    const replayed = await saveSessionIn(database, eventId, narrowedInput);
+    expect(replayed).toEqual(created);
+
+    const afterReplay = await Promise.all([
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM session_content_revisions WHERE session_id=$1", [narrowedBoundsCreationId]),
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM session_speakers WHERE session_id=$1", [narrowedBoundsCreationId]),
+      pg.query<{ count: number }>("SELECT count(*)::int AS count FROM communication_logs WHERE event_id=$1", [eventId]),
+    ]);
+    expect(afterReplay.map((result) => result.rows[0]?.count)).toEqual(
+      beforeReplay.map((result) => result.rows[0]?.count),
+    );
   });
 });

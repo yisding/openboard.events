@@ -464,7 +464,6 @@ export async function saveSessionIn(
   actorUserId: UserId | null = null,
 ): Promise<ScheduledSessionDTO> {
   const input = saveSessionInputSchema.parse(rawInput);
-  await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
   // Never trust the editor's output: resolution #2 puts `sanitize()` on every
   // write path, create and update alike.
   const descriptionHtml = sanitize(input.descriptionHtml);
@@ -487,6 +486,10 @@ export async function saveSessionIn(
       );
       if (recovered) return recovered;
     }
+    // Mutable current bounds apply only to a genuinely fresh create. An exact
+    // replay is proof of an already committed operation and must be recovered
+    // above even if the event was narrowed after that commit.
+    await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
     const base = slugify(input.title) || "session";
     // Retry on the constraint rather than pre-checking: a pre-check races, the
     // unique index does not. This is why `saveSession` runs on the autocommitting
@@ -532,6 +535,7 @@ export async function saveSessionIn(
 
   const sessionId = input.id;
   const expectedVersion = input.expectedVersion ?? 0;
+  await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
 
   // The prior speaker set comes back with the guard read, not from a second
   // round trip after the write: step 3 is explicit that recipients are the
