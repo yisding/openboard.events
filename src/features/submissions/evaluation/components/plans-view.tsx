@@ -10,6 +10,7 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import type { OrganizationInvitationDTO } from "@/shared/contracts";
 import type { PlanDTO } from "../types";
 import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
@@ -60,12 +61,14 @@ export function PlansView({
   plans,
   tracks,
   members,
+  pendingReviewerInvitations,
   timezone,
 }: {
   eventId: string;
   plans: PlanDTO[];
   tracks: TrackOption[];
   members: EventMember[];
+  pendingReviewerInvitations: OrganizationInvitationDTO[];
   /** The event's zone — a round's open/close window is set in it. */
   timezone: string;
 }) {
@@ -243,7 +246,7 @@ export function PlansView({
         description="Scoring rounds, who reviews which tracks, and how far each round has got."
         actions={
           <>
-            <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer</Button>
+            <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer{pendingReviewerInvitations.length > 0 ? ` · ${pendingReviewerInvitations.length} pending` : ""}</Button>
             <Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>
           </>
         }
@@ -277,7 +280,7 @@ export function PlansView({
       )}
 
       {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigning(null)} />}
-      {inviting && <ReviewerInviteDialog eventId={eventId} onClose={() => setInviting(false)} />}
+      {inviting && <ReviewerInviteDialog eventId={eventId} initialPendingInvitations={pendingReviewerInvitations} timezone={timezone} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog
         open={pendingDelete !== null}

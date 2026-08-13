@@ -51,6 +51,14 @@ function render(row: OutboxRow, payload: AdminLinkPayload): { subject: string; h
     const organizationName = payload.organizationName;
     const inviterName = payload.inviterName;
     const role = payload.invitationRole;
+    if (payload.eventName) {
+      const eventName = payload.eventName;
+      const subject = `You're invited to review ${eventName}`.replace(/[\r\n]+/gu, " ");
+      const body = `<p>Hi,</p><p>${escapeHtml(inviterName)} invited you to review proposals for <strong>${escapeHtml(eventName)}</strong> in ${escapeHtml(organizationName)}.</p><p><a href="${escapeHtml(payload.url)}">Accept the reviewer invitation</a>. Sign in or create your own account with this email address. The link expires ${escapeHtml(payload.expiresIn)}.</p><p>If you were not expecting this, you can ignore this email.</p>`;
+      const html = emailLayout(body, "organization_invited", { eventName });
+      const text = `Hi,\n\n${inviterName} invited you to review proposals for ${eventName} in ${organizationName}.\n\nAccept the reviewer invitation: ${payload.url}\nSign in or create your own account with this email address.\nThe link expires ${payload.expiresIn}.\n\nIf you were not expecting this, you can ignore this email.\n\nOpenboard`;
+      return { subject, html, text };
+    }
     const roleWithArticle = role === "organizer" ? "an organizer" : "a reviewer";
     const subject = `You're invited to join ${organizationName}`.replace(/[\r\n]+/gu, " ");
     const body = `<p>Hi,</p><p>${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Openboard as ${roleWithArticle}.</p><p><a href="${escapeHtml(payload.url)}">Accept the invitation</a>. The link expires ${escapeHtml(payload.expiresIn)}.</p><p>If you were not expecting this, you can ignore this email.</p>`;
@@ -115,8 +123,9 @@ export const sendAdminAuthEmail = (args: Parameters<typeof sendAdminAuthEmailIn>
 
 /**
  * The automatic signup email is queued before Better Auth runs its user-create
- * `after` hook. Once that hook has provisioned the workspace, replace the
- * neutral callback in the still-encrypted link and release the row for claim.
+ * `after` hook. Once that hook has provisioned the workspace and any invited
+ * event access, replace the neutral callback in the still-encrypted link and
+ * release the row for claim.
  * A one-minute `notBefore` fallback on the original row prevents a cron race;
  * if this update ever fails, the generic `/organizations` route remains a
  * working (slightly delayed) recovery destination.
@@ -124,7 +133,7 @@ export const sendAdminAuthEmail = (args: Parameters<typeof sendAdminAuthEmailIn>
 export async function retargetSignupVerificationEmailIn(
   dbOrTx: DbOrTx,
   userId: UserId,
-  organizationId: string,
+  destination: string,
   env: RuntimeEnv = getEnv(),
 ): Promise<number> {
   const rows = await dbOrTx.select().from(adminAuthEmailOutbox).where(and(
@@ -144,7 +153,7 @@ export async function retargetSignupVerificationEmailIn(
     if (verificationUrl.searchParams.get("callbackURL") !== SIGNUP_VERIFICATION_CALLBACK) continue;
     verificationUrl.searchParams.set(
       "callbackURL",
-      `/signup/verified?confirmed=1&next=${encodeURIComponent(`/organizations/${organizationId}`)}`,
+      `/signup/verified?confirmed=1&next=${encodeURIComponent(destination)}`,
     );
     const secretPayloadCiphertext = await sealPlatformAdminLinkPayload(
       { ...payload, url: verificationUrl.toString() },

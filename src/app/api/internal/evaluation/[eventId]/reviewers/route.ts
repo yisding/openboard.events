@@ -1,29 +1,38 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { adminAuth, createEventReviewer, reviewerInviteSchema } from "@/features/auth";
+import { adminAuth, nudgeAdminAuthEmailOutbox } from "@/features/auth";
+import { inviteEventReviewer, inviteEventReviewerInputSchema } from "@/features/organizations";
 import { listEventMembers } from "@/features/submissions";
-import { eventIdSchema } from "@/shared/contracts";
-import { nudgeOutbox } from "@/features/comms";
+import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Reviewer provisioning. Organizer-only, because adding an account to an event
- * is a membership decision; the account it creates gets the *lowest* role, so an
- * invited reviewer can reach their queue and nothing else.
+ * Reviewer invitation. Organizer-only, because event membership is an access
+ * decision; the recipient still proves their own mailbox and chooses their own
+ * sign-in method before the membership is granted.
  */
 const invite = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: reviewerInviteSchema,
-  handler: async ({ eventId, input }) => {
-    const result = await createEventReviewer(eventIdSchema.parse(eventId), input);
+  input: inviteEventReviewerInputSchema,
+  rateLimit: {
+    limit: 20,
+    windowMs: 60 * 60 * 1000,
+    key: ({ eventId, session }) => `reviewer-invite:${eventId ?? "unknown"}:${session?.actorId ?? "unknown"}`,
+  },
+  handler: async ({ eventId, input, session }) => {
+    const result = await inviteEventReviewer(
+      eventIdSchema.parse(eventId),
+      userIdSchema.parse(session?.actorId),
+      input,
+    );
     try {
       const ctx = getCloudflareContext().ctx;
-      nudgeOutbox(ctx.waitUntil.bind(ctx));
+      nudgeAdminAuthEmailOutbox(ctx.waitUntil.bind(ctx));
     } catch {
-      // No Cloudflare context (tests, `next dev`): the %1 outbox cron is the
+      // No Cloudflare context (tests, `next dev`): the durable outbox cron is the
       // guarantee, and a nudge that cannot run is a non-event.
     }
     return result;

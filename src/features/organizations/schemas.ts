@@ -23,15 +23,18 @@ export type OrganizationMemberInput = z.infer<typeof organizationMemberInputSche
 /**
  * M44 — team invitations. `role` excludes `"owner"` on purpose: ownership is
  * transferred between existing members (`changeOrganizationMemberRole`), never
- * handed out through an emailed invite — the same refusal
- * `createEventReviewerIn` already makes one scope down ("Ownership is
- * transferred, not invited").
+ * handed out through an emailed invite. Event-targeted invitations are
+ * narrower still: they always grant reviewer access.
  */
 export const inviteOrganizationMemberInputSchema = z.object({
   email: z.email(),
   role: memberRoleSchema.exclude(["owner"]).default("organizer"),
 });
 export type InviteOrganizationMemberInput = z.infer<typeof inviteOrganizationMemberInputSchema>;
+
+/** Event reviewers accept their own email-bound invite; organizers never mint credentials for them. */
+export const inviteEventReviewerInputSchema = z.object({ email: z.email() });
+export type InviteEventReviewerInput = z.infer<typeof inviteEventReviewerInputSchema>;
 
 export const changeOrganizationMemberRoleInputSchema = z.object({ role: memberRoleSchema });
 export type ChangeOrganizationMemberRoleInput = z.infer<typeof changeOrganizationMemberRoleInputSchema>;

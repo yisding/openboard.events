@@ -1,10 +1,13 @@
-import { and, asc, eq, like, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
-import { adminAuthEmailOutbox, communicationLogs, organizationInvitations, organizations } from "@/db/schema";
+import { adminAuthEmailOutbox, communicationLogs, eventMembers, events, organizationInvitations, organizations, users } from "@/db/schema";
 import {
+  eventIdSchema,
   idem,
   organizationInvitationDtoSchema,
+  organizationIdSchema,
+  type EventId,
   type MemberRole,
   type OrganizationId,
   type OrganizationInvitationDTO,
@@ -17,23 +20,24 @@ import { log } from "@/shared/lib/log";
 import { addDuration } from "@/shared/lib/time";
 import { randomBytes, sha256, toBase64Url } from "@/features/auth/server/crypto";
 import { sealPlatformAdminLinkPayload } from "@/features/auth/server/secret-payload";
-import type { InviteOrganizationMemberInput } from "../schemas";
+import type { InviteEventReviewerInput, InviteOrganizationMemberInput } from "../schemas";
 import { recordOrganizationAuditEventIn } from "./audit";
 
 /**
- * M44 — team invitations, addressed to an email and routed through the
- * product-level durable outbox. Invitations deliberately do not borrow an
- * event/contact: a brand-new workspace must be able to invite teammates before
- * its first event exists. Enqueue is transactional because rotating the bearer
- * token, retiring prior messages, storing the new encrypted message, and
- * recording the audit event are one consistency boundary. Acceptance uses one
- * data-modifying CTE for the guarded invitation claim and membership upsert, so
- * the token is consumed at most once and can never be consumed without granting
- * the membership.
+ * M44/M61 — email-bound workspace and event-reviewer invitations routed through
+ * the product-level durable outbox. General invitations do not need an event;
+ * reviewer invitations optionally carry one event target and grant its explicit
+ * access in the same acceptance statement as organization membership.
  */
 
 const INVITATION_TTL = "P14D";
 
+type InvitationTarget = { eventId: EventId; eventName: string };
+type InvitationOptions = { env?: RuntimeEnv; target?: InvitationTarget };
+
+function invitationOptions(value: InvitationOptions | RuntimeEnv): InvitationOptions {
+  return "APP_BASE_URL" in value ? { env: value } : value;
+}
 function toInvitationDto(row: {
   id: string;
   organization_id: string;
@@ -62,18 +66,23 @@ function toInvitationDto(row: {
  * Invite (or re-invite) an email to an organization.
  *
  * Upserts on the same partial unique index the migration declares (one live
- * invitation per organization+email): a second "invite" click on a pending
- * invitation refreshes its role, inviter and expiry in place, and mints a new
- * outbox row rather than erroring or leaving a stale duplicate the first
- * click already queued.
+ * invitation per organization+email+optional event): a second "invite" click
+ * for the same target refreshes its role, inviter and expiry in place, and
+ * mints a new outbox row rather than leaving a stale duplicate queued.
  */
 export async function inviteOrganizationMemberIn(
   dbOrTx: TxDb,
   organizationId: OrganizationId,
   invitedByUserId: UserId,
   input: InviteOrganizationMemberInput,
-  env: RuntimeEnv = getEnv(),
+  rawOptions: InvitationOptions | RuntimeEnv = {},
 ): Promise<{ invitation: OrganizationInvitationDTO; emailQueued: boolean }> {
+  const options = invitationOptions(rawOptions);
+  const env = options.env ?? getEnv();
+  const target = options.target ?? null;
+  if (target && input.role !== "reviewer") {
+    throw new AppError("VALIDATION", "Event invitations can grant only reviewer access");
+  }
   const email = input.email.trim().toLowerCase();
   // Validate every deployment-dependent value before the transaction's first
   // mutation. Any later crypto/database failure then rolls the whole enqueue
@@ -86,9 +95,9 @@ export async function inviteOrganizationMemberIn(
   // it unique still protects the brief interval between those statements.
   const placeholderTokenHash = await sha256(`placeholder:${crypto.randomUUID()}`);
   const result = await dbOrTx.execute(sql`
-    INSERT INTO organization_invitations (organization_id, email, role, token_hash, invited_by_user_id, expires_at)
-    VALUES (${organizationId}::uuid, ${email}, ${input.role}::member_role, ${placeholderTokenHash}, ${invitedByUserId}::uuid, ${expiresAt.toISOString()}::timestamptz)
-    ON CONFLICT (organization_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL
+    INSERT INTO organization_invitations (organization_id, event_id, email, role, token_hash, invited_by_user_id, expires_at)
+    VALUES (${organizationId}::uuid, ${target?.eventId ?? null}::uuid, ${email}, ${input.role}::member_role, ${placeholderTokenHash}, ${invitedByUserId}::uuid, ${expiresAt.toISOString()}::timestamptz)
+    ON CONFLICT (organization_id, email, event_id) WHERE accepted_at IS NULL AND revoked_at IS NULL
     DO UPDATE SET role = EXCLUDED.role, invited_by_user_id = EXCLUDED.invited_by_user_id, expires_at = EXCLUDED.expires_at
     RETURNING id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_at, revoked_at
   `);
@@ -160,6 +169,7 @@ export async function inviteOrganizationMemberIn(
     organizationName: issued.organizationName,
     inviterName: issued.inviterEmail,
     invitationRole: issued.role,
+    ...(issued.eventName ? { eventName: issued.eventName } : {}),
   }, { userId: invitedByUserId, messageId }, env.SESSION_SECRET);
   await dbOrTx.insert(adminAuthEmailOutbox).values({
     id: messageId,
@@ -172,14 +182,127 @@ export async function inviteOrganizationMemberIn(
   });
   const emailQueued = true;
 
-  await recordOrganizationAuditEventIn(dbOrTx, organizationId, invitedByUserId, "member.invited", null, {
-    email, role: input.role, emailQueued,
+  await recordOrganizationAuditEventIn(dbOrTx, organizationId, invitedByUserId, target ? "reviewer.invited" : "member.invited", null, {
+    email, role: input.role, emailQueued, ...(target ? { eventId: target.eventId, eventName: target.eventName } : {}),
   });
 
   return { invitation, emailQueued };
 }
 export const inviteOrganizationMember = (organizationId: OrganizationId, invitedByUserId: UserId, input: InviteOrganizationMemberInput) =>
   withTx((tx) => inviteOrganizationMemberIn(tx, organizationId, invitedByUserId, input));
+
+/**
+ * Queue a reviewer invitation only when the actor still organizes the event.
+ * Existing event members keep their current access and do not receive a
+ * misleading invitation for access they already have.
+ */
+export async function inviteEventReviewerIn(
+  dbOrTx: TxDb,
+  eventId: EventId,
+  invitedByUserId: UserId,
+  input: InviteEventReviewerInput,
+  env: RuntimeEnv = getEnv(),
+): Promise<{ email: string; emailQueued: boolean; eventName: string }> {
+  const [target] = await dbOrTx.select({
+    organizationId: events.organizationId,
+    eventName: events.name,
+  }).from(events).innerJoin(eventMembers, and(
+    eq(eventMembers.eventId, events.id),
+    eq(eventMembers.userId, invitedByUserId),
+    inArray(eventMembers.role, ["owner", "organizer"]),
+  )).where(eq(events.id, eventId)).limit(1);
+  if (!target) throw new AppError("FORBIDDEN", "Only an event organizer can invite reviewers");
+
+  const email = input.email.trim().toLowerCase();
+  const [existing] = await dbOrTx.select({ userId: eventMembers.userId })
+    .from(users)
+    .innerJoin(eventMembers, and(eq(eventMembers.userId, users.id), eq(eventMembers.eventId, eventId)))
+    .where(eq(users.email, email))
+    .limit(1);
+  if (existing) throw new AppError("CONFLICT", "That person already has access to this event");
+
+  const organizationId = organizationIdSchema.parse(target.organizationId);
+  const result = await inviteOrganizationMemberIn(
+    dbOrTx,
+    organizationId,
+    invitedByUserId,
+    { email, role: "reviewer" },
+    { env, target: { eventId, eventName: target.eventName } },
+  );
+  return { email, emailQueued: result.emailQueued, eventName: target.eventName };
+}
+export const inviteEventReviewer = (eventId: EventId, invitedByUserId: UserId, input: InviteEventReviewerInput) =>
+  withTx((tx) => inviteEventReviewerIn(tx, eventId, invitedByUserId, input));
+
+export async function listPendingEventReviewerInvitationsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+): Promise<OrganizationInvitationDTO[]> {
+  const rows = await dbOrTx.select({
+    id: organizationInvitations.id,
+    organizationId: organizationInvitations.organizationId,
+    email: organizationInvitations.email,
+    role: organizationInvitations.role,
+    invitedByUserId: organizationInvitations.invitedByUserId,
+    createdAt: organizationInvitations.createdAt,
+    expiresAt: organizationInvitations.expiresAt,
+    acceptedAt: organizationInvitations.acceptedAt,
+    revokedAt: organizationInvitations.revokedAt,
+  }).from(organizationInvitations).where(and(
+    eq(organizationInvitations.eventId, eventId),
+    sql`${organizationInvitations.acceptedAt} IS NULL`,
+    sql`${organizationInvitations.revokedAt} IS NULL`,
+    sql`${organizationInvitations.expiresAt} > now()`,
+  )).orderBy(asc(organizationInvitations.createdAt));
+  return rows.map((row) => organizationInvitationDtoSchema.parse({
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+    acceptedAt: row.acceptedAt?.toISOString() ?? null,
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+  }));
+}
+export const listPendingEventReviewerInvitations = (eventId: EventId) =>
+  listPendingEventReviewerInvitationsIn(db, eventId);
+
+export async function revokeEventReviewerInvitationIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  invitationId: OrganizationInvitationId,
+  actorUserId: UserId,
+): Promise<void> {
+  const result = await dbOrTx.execute(sql`
+    UPDATE organization_invitations invitation
+    SET revoked_at = now()
+    FROM events event
+    JOIN event_members actor
+      ON actor.event_id = event.id
+     AND actor.user_id = ${actorUserId}::uuid
+     AND actor.role IN ('owner', 'organizer')
+    WHERE invitation.id = ${invitationId}::uuid
+      AND invitation.event_id = ${eventId}::uuid
+      AND invitation.event_id = event.id
+      AND invitation.organization_id = event.organization_id
+      AND invitation.accepted_at IS NULL
+      AND invitation.revoked_at IS NULL
+    RETURNING invitation.organization_id, invitation.email
+  `);
+  const [row] = rowsOf<{ organization_id: string; email: string }>(result);
+  if (!row) throw new AppError("NOT_FOUND", "That reviewer invitation is not pending");
+  await recordOrganizationAuditEventIn(
+    dbOrTx,
+    organizationIdSchema.parse(row.organization_id),
+    actorUserId,
+    "reviewer.invitation_revoked",
+    null,
+    { eventId, email: row.email },
+  );
+}
+export const revokeEventReviewerInvitation = (
+  eventId: EventId,
+  invitationId: OrganizationInvitationId,
+  actorUserId: UserId,
+) => withTx((tx) => revokeEventReviewerInvitationIn(tx, eventId, invitationId, actorUserId));
 
 export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
   const rows = await dbOrTx.select({
@@ -195,6 +318,7 @@ export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organ
   }).from(organizationInvitations)
     .where(and(
       eq(organizationInvitations.organizationId, organizationId),
+      isNull(organizationInvitations.eventId),
       sql`${organizationInvitations.acceptedAt} IS NULL`,
       sql`${organizationInvitations.revokedAt} IS NULL`,
     ))
@@ -218,6 +342,7 @@ export async function revokeOrganizationInvitationIn(
   const result = await dbOrTx.execute(sql`
     UPDATE organization_invitations SET revoked_at = now()
     WHERE id = ${invitationId}::uuid AND organization_id = ${organizationId}::uuid
+      AND event_id IS NULL
       AND accepted_at IS NULL AND revoked_at IS NULL
     RETURNING email
   `);
@@ -242,17 +367,20 @@ export const revokeOrganizationInvitation = (organizationId: OrganizationId, inv
 export async function issueOrganizationInvitationTokenIn(
   dbOrTx: DbOrTx,
   invitationId: OrganizationInvitationId,
-): Promise<{ raw: string; organizationName: string; inviterEmail: string; role: MemberRole; email: string; expiresAt: Date } | null> {
+): Promise<{ raw: string; organizationName: string; inviterEmail: string; role: MemberRole; email: string; expiresAt: Date; eventId: EventId | null; eventName: string | null } | null> {
   const raw = toBase64Url(randomBytes(32));
   const tokenHash = await sha256(raw);
   const result = await dbOrTx.execute(sql`
     UPDATE organization_invitations SET token_hash = ${tokenHash}
     WHERE id = ${invitationId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-    RETURNING organization_id, email, role, expires_at
+    RETURNING organization_id, event_id, email, role, expires_at
   `);
-  const [row] = rowsOf<{ organization_id: string; email: string; role: MemberRole; expires_at: Date | string }>(result);
+  const [row] = rowsOf<{ organization_id: string; event_id: string | null; email: string; role: MemberRole; expires_at: Date | string }>(result);
   if (!row) return null;
   const [org] = await dbOrTx.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, row.organization_id)).limit(1);
+  const [event] = row.event_id
+    ? await dbOrTx.select({ name: events.name }).from(events).where(eq(events.id, row.event_id)).limit(1)
+    : [];
   const inviterResult = await dbOrTx.execute(sql`
     SELECT u.email FROM organization_invitations oi JOIN users u ON u.id = oi.invited_by_user_id WHERE oi.id = ${invitationId}::uuid
   `);
@@ -264,12 +392,15 @@ export async function issueOrganizationInvitationTokenIn(
     role: row.role,
     email: row.email,
     expiresAt: new Date(row.expires_at),
+    eventId: row.event_id ? eventIdSchema.parse(row.event_id) : null,
+    eventName: event?.name ?? null,
   };
 }
 
 type PendingInvitationForToken = {
   id: OrganizationInvitationId;
   organizationId: OrganizationId;
+  eventId: EventId | null;
   role: MemberRole;
   email: string;
 };
@@ -282,6 +413,7 @@ async function pendingOrganizationInvitationByTokenIn(
   const [row] = await dbOrTx.select({
     id: organizationInvitations.id,
     organizationId: organizationInvitations.organizationId,
+    eventId: organizationInvitations.eventId,
     role: organizationInvitations.role,
     email: organizationInvitations.email,
   }).from(organizationInvitations)
@@ -295,10 +427,31 @@ async function pendingOrganizationInvitationByTokenIn(
   return row ? {
     id: row.id as OrganizationInvitationId,
     organizationId: row.organizationId as OrganizationId,
+    eventId: row.eventId ? eventIdSchema.parse(row.eventId) : null,
     role: row.role,
     email: row.email,
   } : null;
 }
+
+/**
+ * Resolve the one post-creation destination an OAuth provider must carry in
+ * its signed state. New Google identities consume the invitation inside the
+ * user-create hook, so sending them back to `/join` would replay a one-shot
+ * token. Existing identities still use `/join`; only the new-user callback
+ * asks for this already-scoped destination.
+ */
+export async function getOrganizationInvitationDestinationByTokenIn(
+  dbOrTx: DbOrTx,
+  rawToken: string,
+): Promise<string | null> {
+  const invitation = await pendingOrganizationInvitationByTokenIn(dbOrTx, rawToken);
+  if (!invitation) return null;
+  return invitation.eventId
+    ? `/events/${invitation.eventId}/review`
+    : `/organizations/${invitation.organizationId}`;
+}
+export const getOrganizationInvitationDestinationByToken = (rawToken: string) =>
+  getOrganizationInvitationDestinationByTokenIn(db, rawToken);
 
 /**
  * Validate an invitation before Better Auth inserts a new user. This prevents
@@ -319,22 +472,21 @@ export async function assertOrganizationInvitationTokenForEmailIn(
 
 /**
  * Consume a pending invitation and add `userId` to its organization at the
- * invited role. The `UPDATE … WHERE accepted_at IS NULL … RETURNING` is the
- * exclusivity guarantee — only one caller can ever transition a row from
- * pending to accepted — so this is safe to call twice concurrently for the
- * same invitation and have exactly one caller win.
+ * invited role. Event-targeted invitations also add review access to exactly
+ * that event. The claim and both memberships are one data-modifying CTE, so a
+ * token can never be consumed without granting all of its access.
  */
 async function finalizeAcceptanceIn(
   dbOrTx: DbOrTx,
   invitationId: OrganizationInvitationId,
   userId: UserId,
-): Promise<{ organizationId: OrganizationId; role: MemberRole }> {
+): Promise<{ organizationId: OrganizationId; role: MemberRole; eventId: EventId | null }> {
   // Claiming the token and adding the membership are one statement. Without
   // this CTE, a database failure after the guarded invitation UPDATE could
   // permanently consume the one-shot token without granting access.
   const result = await dbOrTx.execute(sql`
     WITH invitation AS MATERIALIZED (
-      SELECT organization_id, role FROM organization_invitations
+      SELECT organization_id, event_id, role FROM organization_invitations
       WHERE id = ${invitationId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
     ), owners AS MATERIALIZED (
       SELECT member.user_id FROM organization_members member
@@ -351,24 +503,64 @@ async function finalizeAcceptanceIn(
         AND pending.revoked_at IS NULL
         AND pending.expires_at > now()
         AND (
+          invitation.event_id IS NOT NULL
+          OR
           invitation.role = 'owner'
           OR NOT EXISTS (SELECT 1 FROM owners WHERE owners.user_id = ${userId}::uuid)
           OR EXISTS (SELECT 1 FROM owners WHERE owners.user_id <> ${userId}::uuid)
         )
-      RETURNING pending.organization_id, pending.role
+      RETURNING pending.organization_id, pending.event_id, pending.role
     ), membership AS (
       INSERT INTO organization_members (user_id, organization_id, role)
       SELECT ${userId}::uuid, organization_id, role FROM claimed
-      ON CONFLICT (user_id, organization_id) DO UPDATE SET role = EXCLUDED.role
+      ON CONFLICT (user_id, organization_id) DO UPDATE SET role = CASE
+        WHEN (SELECT event_id FROM claimed) IS NOT NULL
+          AND organization_members.role IN ('owner', 'organizer')
+          THEN organization_members.role
+        ELSE EXCLUDED.role
+      END
       RETURNING organization_id, role
+    ), event_membership AS (
+      INSERT INTO event_members (user_id, event_id, role)
+      SELECT ${userId}::uuid, event_id, 'reviewer'::member_role
+      FROM claimed
+      WHERE event_id IS NOT NULL
+      ON CONFLICT (user_id, event_id) DO UPDATE SET role = CASE
+        WHEN event_members.role IN ('owner', 'organizer') THEN event_members.role
+        ELSE EXCLUDED.role
+      END
+      RETURNING event_id
+    ), reviewer_contact AS (
+      INSERT INTO contacts (event_id, email, first_name, last_name)
+      SELECT
+        claimed.event_id,
+        lower(account.email),
+        split_part(btrim(account.name), ' ', 1),
+        CASE
+          WHEN strpos(btrim(account.name), ' ') > 0
+            THEN substr(btrim(account.name), strpos(btrim(account.name), ' ') + 1)
+          ELSE ''
+        END
+      FROM claimed
+      JOIN users account ON account.id = ${userId}::uuid
+      WHERE claimed.event_id IS NOT NULL
+      ON CONFLICT (event_id, email) DO NOTHING
+      RETURNING event_id
     )
-    SELECT organization_id, role FROM membership
+    SELECT membership.organization_id, membership.role, claimed.event_id
+    FROM membership
+    JOIN claimed ON claimed.organization_id = membership.organization_id
+    LEFT JOIN event_membership ON event_membership.event_id = claimed.event_id
+    LEFT JOIN reviewer_contact ON reviewer_contact.event_id = claimed.event_id
   `);
-  const [row] = rowsOf<{ organization_id: string; role: MemberRole }>(result);
+  const [row] = rowsOf<{ organization_id: string; role: MemberRole; event_id: string | null }>(result);
   if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid, or accepting it would leave the organization without an owner");
   const organizationId = row.organization_id as OrganizationId;
   try {
-    await recordOrganizationAuditEventIn(dbOrTx, organizationId, userId, "invitation.accepted", userId, { role: row.role });
+    await recordOrganizationAuditEventIn(dbOrTx, organizationId, userId, "invitation.accepted", userId, {
+      role: row.role,
+      ...(row.event_id ? { eventId: row.event_id } : {}),
+    });
   } catch (error) {
     // The membership is already committed. Preserve the user's successful,
     // retry-safe acceptance and report the secondary observability failure.
@@ -380,7 +572,7 @@ async function finalizeAcceptanceIn(
       code: error instanceof Error ? error.name : "unknown",
     });
   }
-  return { organizationId, role: row.role };
+  return { organizationId, role: row.role, eventId: row.event_id ? eventIdSchema.parse(row.event_id) : null };
 }
 
 /**
@@ -394,7 +586,7 @@ export async function acceptOrganizationInvitationByTokenIn(
   dbOrTx: DbOrTx,
   rawToken: string,
   identity: { userId: UserId; email: string },
-): Promise<{ organizationId: OrganizationId; role: MemberRole }> {
+): Promise<{ organizationId: OrganizationId; role: MemberRole; eventId: EventId | null }> {
   const invitation = await pendingOrganizationInvitationByTokenIn(dbOrTx, rawToken);
   if (!invitation) throw new AppError("VALIDATION", "This invitation is no longer valid — ask for a new one");
   if (invitation.email !== identity.email.trim().toLowerCase()) {

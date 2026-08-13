@@ -90,22 +90,37 @@ describe("Google signup handoff", () => {
     });
     const token = "invitation-bearer-token";
     const next = `/join?token=${encodeURIComponent(token)}`;
-    const response = await beginGoogleSignup(signupRequest({ invitationToken: token, next }), dormant, handler);
+    const invitationDestinationByToken = vi.fn(async () => "/events/00000000-0000-4000-8000-000000000009/review");
+    const response = await beginGoogleSignup(
+      signupRequest({ invitationToken: token, next }),
+      dormant,
+      handler,
+      { invitationDestinationByToken },
+    );
 
     expect(response.status).toBe(200);
     expect(forwardedBody).toMatchObject({
       callbackURL: next,
-      newUserCallbackURL: "/organizations",
+      newUserCallbackURL: "/events/00000000-0000-4000-8000-000000000009/review",
       requestSignUp: true,
     });
+    expect(invitationDestinationByToken).toHaveBeenCalledWith(token);
     const intent = await openOAuthSignupIntent(cookieValue(response, OAUTH_SIGNUP_INTENT_COOKIE) ?? "", secret);
     expect(intent).toMatchObject({ invitationToken: token, legalVersions: null });
     expect(intent).not.toHaveProperty("organizationName");
 
-    const mismatched = await beginGoogleSignup(signupRequest({ invitationToken: token, next: "/organizations" }), dormant, handler);
+    const mismatched = await beginGoogleSignup(signupRequest({ invitationToken: token, next: "/organizations" }), dormant, handler, { invitationDestinationByToken });
     expect(mismatched.status).toBe(400);
-    const omitted = await beginGoogleSignup(signupRequest({ organizationName: "Wrong workspace", next }), dormant, handler);
+    const omitted = await beginGoogleSignup(signupRequest({ organizationName: "Wrong workspace", next }), dormant, handler, { invitationDestinationByToken });
     expect(omitted.status).toBe(400);
+
+    const expired = await beginGoogleSignup(
+      signupRequest({ invitationToken: token, next }),
+      dormant,
+      handler,
+      { invitationDestinationByToken: async () => null },
+    );
+    expect(expired.status).toBe(400);
   });
 
   it("rejects cross-origin, incomplete, and stale-policy starts before contacting Google", async () => {

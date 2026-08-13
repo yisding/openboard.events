@@ -1,4 +1,4 @@
-import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK, signupDestination } from "./signup-context";
+import { SIGNUP_EVENT_HEADER, SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK, signupDestination } from "./signup-context";
 import type { SignupLegalConsent } from "./legal-consent";
 
 type SignupRequest = {
@@ -109,10 +109,11 @@ export async function signupAndAwaitVerification(
   // keep its invitation through the check-inbox/resend journey because the
   // existing-account hook validates it without consuming it before activation.
   const invitedOrganizationId = signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER);
+  const invitedEventId = signedUp.headers.get(SIGNUP_EVENT_HEADER);
   const requestedDestination = input.invitationToken && invitedOrganizationId
     ? "/organizations"
     : input.next;
-  const destination = signupDestination(requestedDestination, invitedOrganizationId);
+  const destination = signupDestination(requestedDestination, invitedOrganizationId, invitedEventId);
   const params = new URLSearchParams({ email: input.email.trim().toLowerCase(), next: destination });
   return { destination: `/signup/check-email?${params.toString()}`, refresh: false };
 }

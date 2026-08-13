@@ -1,5 +1,5 @@
 import { db, type DbOrTx } from "@/db/client";
-import type { OrganizationId, UserId } from "@/shared/contracts";
+import type { EventId, OrganizationId, UserId } from "@/shared/contracts";
 import { slugify } from "@/shared/lib/slug";
 import { acceptOrganizationInvitationByTokenIn } from "./invitations";
 import { createOrganizationIn } from "./mutations";
@@ -35,10 +35,10 @@ export async function provisionOrganizationForNewUserIn(
   email: string,
   name: string,
   options: { invitationToken?: string; organizationName?: string } = {},
-): Promise<{ organizationId: OrganizationId; viaInvitation: boolean }> {
+): Promise<{ organizationId: OrganizationId; viaInvitation: boolean; eventId: EventId | null }> {
   if (options.invitationToken) {
     const accepted = await acceptOrganizationInvitationByTokenIn(dbOrTx, options.invitationToken, { userId, email });
-    return { organizationId: accepted.organizationId, viaInvitation: true };
+    return { organizationId: accepted.organizationId, viaInvitation: true, eventId: accepted.eventId };
   }
   const organizationName = options.organizationName?.trim()
     || (name.trim() ? `${name.trim()}'s organization` : "My organization");
@@ -48,7 +48,7 @@ export async function provisionOrganizationForNewUserIn(
     name: organizationName,
     slug: `${base}-${suffix}`,
   });
-  return { organizationId: created.id, viaInvitation: false };
+  return { organizationId: created.id, viaInvitation: false, eventId: null };
 }
 export const provisionOrganizationForNewUser = (
   userId: UserId,

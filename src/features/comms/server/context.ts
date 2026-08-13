@@ -111,11 +111,9 @@ export function applyCalendarInvite(
  *
  * The two keys are not the same question, and conflating them silently ate the
  * invitation. A *reminder* is about a round somebody is on: no round, nothing to
- * chase, skip. An *invitation* is enqueued by `createEventReviewer`, which
- * creates the account and the membership and nothing else — being on a round is
- * the organizer's next action, not a precondition — so it renders whether or not
- * a round exists yet, preferring the reviewer's own round, then the event's
- * current one, and naming none when the event has none.
+ * chase, skip. Legacy `reviewer_invited` rows may predate round assignment, so
+ * they still render without one. New reviewer onboarding uses the product-level
+ * email-bound invitation path and never stores an organizer-created password.
  */
 async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) {
   const segments = row.idempotencyKey.split(":");

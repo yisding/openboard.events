@@ -30,9 +30,6 @@ export { adminAuth, apiKeyAuth, authenticatedAuth, cronAuth, organizationAuth, p
 // same UNAUTHORIZED/FORBIDDEN split over `organization_members`.
 export type { OrganizationSession } from "./server/admin";
 export { authorizeOrganization, requireOrganizationAdmin } from "./server/admin";
-// M50 — organizer-provisioned reviewers over the existing user/membership path.
-export type { ReviewerInviteInput, ReviewerInviteResult } from "./server/reviewers";
-export { createEventReviewer, createEventReviewerIn, reviewerInviteSchema } from "./server/reviewers";
 export { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, adminCookieOptions, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "./server/fallback-session";
 // M44 — self-service admin session views over M42's revocable session store.
 export type { AdminSessionSummary } from "./server/sessions";

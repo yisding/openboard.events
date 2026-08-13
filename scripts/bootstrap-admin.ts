@@ -26,10 +26,13 @@ async function upsertAdmin(
 ) {
   const passwordHash = await hashPassword(input.password);
   const [user] = await tx.insert(users)
-    .values({ email: input.email, name: input.name, passwordHash })
+    // This operator-only recovery path is the authority that establishes the
+    // fixed seeded accounts. Mark them verified explicitly so the secure
+    // fallback provider can distinguish them from an unverified web signup.
+    .values({ email: input.email, name: input.name, passwordHash, emailVerified: true })
     .onConflictDoUpdate({
       target: users.email,
-      set: { name: input.name, passwordHash, updatedAt: new Date() },
+      set: { name: input.name, passwordHash, emailVerified: true, updatedAt: new Date() },
     })
     .returning({ id: users.id });
   if (!user) throw new Error(`Could not create ${input.email}`);

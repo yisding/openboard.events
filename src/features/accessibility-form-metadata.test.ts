@@ -97,7 +97,7 @@ describe("audited form metadata", () => {
         ["input", "draft.name"], ["Select", "draft.formId"], ["Select", "draft.fileRequestId"],
       ] },
       { path: "./submissions/evaluation/components/plan-editor.tsx", controls: [["input", "draft.name"]] },
-      { path: "./submissions/evaluation/components/reviewer-invite-dialog.tsx", controls: [["input", "email"], ["input", "password"]] },
+      { path: "./submissions/evaluation/components/reviewer-invite-dialog.tsx", controls: [["input", "email"]] },
     ] satisfies Array<{ path: string; controls: Array<[tag: string, valueExpression: string, count?: number]> }>;
 
     for (const { path, controls } of expectations) {

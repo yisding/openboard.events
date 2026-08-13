@@ -1,4 +1,5 @@
 export const SIGNUP_ORGANIZATION_HEADER = "x-openboard-signup-organization-id";
+export const SIGNUP_EVENT_HEADER = "x-openboard-signup-event-id";
 export const SIGNUP_VERIFICATION_CALLBACK = "/signup/verified?confirmed=1&next=%2Forganizations";
 
 const INTERNAL_ORIGIN = "https://openboard.invalid";
@@ -20,8 +21,14 @@ export function invitationTokenFromNextPath(next: string): string | null {
   }
 }
 
-/** The new-account hook returns the invited organization without exposing it in the response body. */
-export function signupDestination(next: string, invitedOrganizationId: string | null): string {
+/** The new-account hook returns the accepted invitation scope without exposing it in the response body. */
+export function signupDestination(
+  next: string,
+  invitedOrganizationId: string | null,
+  invitedEventId: string | null = null,
+): string {
+  const eventId = invitedEventId?.trim() ?? "";
+  if (UUID.test(eventId)) return `/events/${encodeURIComponent(eventId)}/review`;
   const organizationId = invitedOrganizationId?.trim() ?? "";
   return UUID.test(organizationId)
     ? `/organizations/${encodeURIComponent(organizationId)}`

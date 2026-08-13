@@ -152,12 +152,9 @@ describe("communications outbox dispatcher", () => {
   });
 
   /**
-   * M50. `createEventReviewer` creates the account, the membership and this
-   * outbox row, in that order and nothing more — putting the new reviewer on a
-   * round is the organizer's *next* action. An invitation that renders only for
-   * a reviewer who is already on one is therefore an invitation that is skipped
-   * every time it matters, which is what the reminder's own precondition used to
-   * do to it.
+   * Legacy reviewer invitation rows can exist before a reviewer is assigned to
+   * a round. They must remain renderable during migration to the product-level,
+   * email-bound reviewer invitation path.
    */
   it("renders a reviewer invitation before the reviewer is on any round, and names the round once there is one", async () => {
     await seedDefaultTemplates(tx, eventId);
