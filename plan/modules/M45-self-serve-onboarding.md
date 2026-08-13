@@ -60,8 +60,8 @@ Deployed evidence — **automated, protected run outstanding**:
    arrive back in the organizer dashboard. The spec also removes and re-adds a
    suggested track in step 2, proving that accidental setup choices are
    recoverable without leaving onboarding. Removal confirms its effects on
-   existing submissions and routing rules and reconciles ambiguous mutation
-   responses before the wizard can continue.
+   existing submissions and routing rules and replays an ambiguous idempotent
+   delete before the wizard can continue.
 7. Confirm the resulting public CFP link is reachable, hides empty optional
    vocabulary controls, accepts a real submission, returns its SESS reference,
    and produces the organizer's first-submission dashboard handoff.

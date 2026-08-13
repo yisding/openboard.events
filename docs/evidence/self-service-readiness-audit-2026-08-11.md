@@ -105,8 +105,8 @@ the real database-backed surfaces.
 - Made track setup recoverable inside onboarding. Suggested and custom tracks
   now have accessible remove actions and a consequence-confirmation step. The
   wizard blocks conflicting progress while a delete is pending, reconciles a
-  lost or malformed response against the authoritative server list, and blocks
-  progress behind an explicit refresh if neither request can establish the
+  lost or malformed response by replaying the idempotent delete before reading
+  the authoritative server list, and blocks progress behind an explicit retry if neither request can establish the
   saved state. The protected first-user journey exercises add, confirm remove,
   re-add, and continue before publishing the first form.
 

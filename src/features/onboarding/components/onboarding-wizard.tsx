@@ -102,6 +102,29 @@ export async function deleteAndReconcileOnboardingTrack(input: {
     await input.remove();
     return { status: "removed" };
   } catch (error) {
+    // A structured non-INTERNAL response means the server completed the
+    // request and refused it before the mutation. In that case a list read is
+    // causally safe and can restore the authoritative row (or observe a
+    // concurrent deletion by someone else).
+    if (!isAppError(error) || error.code === "INTERNAL") {
+      try {
+        // DELETE is idempotent. Waiting for a successful replay establishes
+        // completion even when the first request is still running after its
+        // connection was interrupted; a GET alone could overtake that write.
+        await input.remove();
+        return { status: "removed" };
+      } catch {
+        // If both responses are ambiguous, absence is final but presence is
+        // not: the original write may still remove a row returned by this GET.
+        try {
+          const tracks = await input.list();
+          if (!tracks.some((track) => track.id === input.trackId)) return { status: "removed", tracks };
+        } catch {
+          // The caller blocks progress behind another idempotent retry.
+        }
+        return { status: "unconfirmed", error };
+      }
+    }
     try {
       const tracks = await input.list();
       return tracks.some((track) => track.id === input.trackId)
@@ -214,8 +237,7 @@ export function OnboardingWizard({
   const [addingTrack, setAddingTrack] = useState(false);
   const [removingTrackId, setRemovingTrackId] = useState<string | null>(null);
   const [pendingTrackDelete, setPendingTrackDelete] = useState<TrackDTO | null>(null);
-  const [trackSyncError, setTrackSyncError] = useState(false);
-  const [syncingTracks, setSyncingTracks] = useState(false);
+  const [trackSyncError, setTrackSyncError] = useState<TrackDTO | null>(null);
   const [advancing, setAdvancing] = useState(false);
 
   // Step 3 — first form
@@ -280,7 +302,7 @@ export function OnboardingWizard({
   }
 
   async function addTrack(candidateName: string, color: string) {
-    if (!event || !candidateName.trim() || addingTrack || removingTrackId || syncingTracks || trackSyncError) return;
+    if (!event || !candidateName.trim() || addingTrack || removingTrackId || trackSyncError) return;
     if (tracks.some((track) => track.name.toLowerCase() === candidateName.trim().toLowerCase())) return;
     setAddingTrack(true);
     try {
@@ -298,8 +320,8 @@ export function OnboardingWizard({
   }
 
   async function removeTrack(track: TrackDTO) {
-    if (!event || addingTrack || removingTrackId || syncingTracks) return;
-    if (!tracks.some((candidate) => candidate.id === track.id)) return;
+    if (!event || addingTrack || removingTrackId) return;
+    if (!tracks.some((candidate) => candidate.id === track.id) && trackSyncError?.id !== track.id) return;
     setRemovingTrackId(track.id);
     setTracks((current) => current.filter((candidate) => candidate.id !== track.id));
     const result = await deleteAndReconcileOnboardingTrack({
@@ -309,38 +331,24 @@ export function OnboardingWizard({
     });
     if (result.status === "removed") {
       if (result.tracks) setTracks(result.tracks);
-      setTrackSyncError(false);
+      setTrackSyncError(null);
       toast(`${track.name} removed`);
     } else if (result.status === "restored") {
       setTracks(result.tracks);
-      setTrackSyncError(false);
+      setTrackSyncError(null);
       toast(isAppError(result.error) ? result.error.message : "That track could not be removed", { kind: "error" });
     } else {
       // The delete and the reconciliation request both failed, so neither a
       // restored nor a removed row would be truthful. Keep progress blocked
-      // until a successful list request establishes the server state.
-      setTrackSyncError(true);
+      // until an idempotent delete retry establishes the server state.
+      setTrackSyncError(track);
       toast("We could not confirm whether that track was removed", { kind: "error" });
     }
     setRemovingTrackId(null);
   }
 
-  async function refreshTracks() {
-    if (!event || syncingTracks || addingTrack || removingTrackId) return;
-    setSyncingTracks(true);
-    try {
-      setTracks(await api(`events/${event.id}/vocab/tracks`, tracksListSchema));
-      setTrackSyncError(false);
-      toast("Tracks are back in sync");
-    } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Tracks still could not be refreshed", { kind: "error" });
-    } finally {
-      setSyncingTracks(false);
-    }
-  }
-
   async function continueToForm() {
-    if (!event || advancing || addingTrack || removingTrackId || syncingTracks || trackSyncError) return;
+    if (!event || advancing || addingTrack || removingTrackId || trackSyncError) return;
     setAdvancing(true);
     try {
       await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
@@ -512,7 +520,7 @@ export function OnboardingWizard({
           {remainingSuggestions.length > 0 && (
             <div className="chip-picker">
               {remainingSuggestions.map((suggestion) => (
-                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
+                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
                   <Plus size={12} /> {suggestion.name}
                 </button>
               ))}
@@ -526,7 +534,7 @@ export function OnboardingWizard({
                   type="button"
                   className="icon-button"
                   aria-label={`Remove ${track.name}`}
-                  disabled={addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}
+                  disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
                   onClick={() => setPendingTrackDelete(track)}
                 >
                   <Trash2 size={15} />
@@ -536,15 +544,15 @@ export function OnboardingWizard({
           )}
           {trackSyncError && (
             <div className="onboarding-track-sync" role="alert">
-              <p>We could not confirm the saved track list. Refresh it before continuing.</p>
-              <Button size="sm" variant="secondary" disabled={syncingTracks} onClick={() => void refreshTracks()}>
-                {syncingTracks ? "Refreshing…" : "Refresh tracks"}
+              <p>We could not confirm whether this track was removed. Retry the removal before continuing.</p>
+              <Button size="sm" variant="secondary" disabled={Boolean(removingTrackId)} onClick={() => void removeTrack(trackSyncError)}>
+                {removingTrackId ? "Retrying…" : "Retry removal"}
               </Button>
             </div>
           )}
           <Field label="Add a custom track" hint="Optional — press Enter or click Add">
             <input
-              disabled={addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}
+              disabled={addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}
               value={trackName}
               onChange={(event) => setTrackName(event.target.value)}
               placeholder="Custom track name"
@@ -552,8 +560,8 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
-            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
+            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
           <ConfirmDialog
             open={pendingTrackDelete !== null}

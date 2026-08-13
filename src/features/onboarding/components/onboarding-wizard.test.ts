@@ -3,6 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
 
@@ -45,7 +46,7 @@ describe("onboarding organization access", () => {
   });
 
   it("does not advance while a track mutation is still being saved", () => {
-    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}");
+    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}");
   });
 
   it("confirms destructive track removal and blocks progress while server state is ambiguous", () => {
@@ -54,8 +55,7 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('confirmLabel="Remove track"');
     expect(wizard).toContain("Submissions assigned to this track will become unassigned");
     expect(wizard).toContain("Routing rules that use it will be disabled");
-    expect(wizard).toContain("syncingTracks || trackSyncError");
-    expect(wizard).toContain("Refresh tracks");
+    expect(wizard).toContain("Retry removal");
   });
 
   it("makes the published handoff previewable and resilient to clipboard failure", () => {
@@ -301,16 +301,22 @@ describe("onboarding track deletion recovery", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("recognizes a delete that committed when its response was lost", async () => {
+  it("replays an interrupted delete before reading and recognizes completion", async () => {
+    const remove = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(undefined);
+    const list = vi.fn(async () => [track]);
     await expect(deleteAndReconcileOnboardingTrack({
       trackId: track.id,
-      remove: vi.fn(async () => { throw new Error("response lost"); }),
-      list: vi.fn(async () => []),
-    })).resolves.toEqual({ status: "removed", tracks: [] });
+      remove,
+      list,
+    })).resolves.toEqual({ status: "removed" });
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(list).not.toHaveBeenCalled();
   });
 
-  it("restores the authoritative list when the server refused deletion", async () => {
-    const error = new Error("delete refused");
+  it("restores the authoritative list only after a definitive server refusal", async () => {
+    const error = new AppError("CONFLICT", "delete refused");
     await expect(deleteAndReconcileOnboardingTrack({
       trackId: track.id,
       remove: vi.fn(async () => { throw error; }),
@@ -318,7 +324,25 @@ describe("onboarding track deletion recovery", () => {
     })).resolves.toEqual({ status: "restored", tracks: [track], error });
   });
 
-  it("reports ambiguity rather than inventing state when deletion and reconciliation both fail", async () => {
+  it("accepts final absence after both delete responses were lost", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => []),
+    })).resolves.toEqual({ status: "removed", tracks: [] });
+  });
+
+  it("does not restore a present row from a read that may have overtaken interrupted deletes", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => [track]),
+    })).resolves.toEqual({ status: "unconfirmed", error });
+  });
+
+  it("keeps progress blocked when both delete responses and reconciliation fail", async () => {
     const error = new Error("response lost");
     await expect(deleteAndReconcileOnboardingTrack({
       trackId: track.id,
