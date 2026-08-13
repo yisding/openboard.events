@@ -41,8 +41,11 @@ pnpm exec wrangler deployments list --config wrangler.jsonc --env production
 pnpm exec wrangler deployments list --config workers/jobs/wrangler.jsonc --env production
 ```
 
-Each lists the 10 most recent versions with their version ID, message, and timestamp. Pick the
-last version ID known to be good — usually the one immediately before the current one.
+Each lists the 10 most recent *deployments*, with the version id(s) behind each and their
+timestamps; use `pnpm exec wrangler versions list --config … --env …` for the full per-version
+history. Pick the last version ID known to be good — usually the one immediately before the
+current one. (`wrangler rollback` prompts for the message even when `-m` is supplied; add `-y`
+when running it non-interactively.)
 
 ### 2. Roll back
 
@@ -119,7 +122,8 @@ pnpm db:migrate
 
 export APP_BASE_URL='https://openboard.events'
 export R2_ACCOUNT_ID='<cloudflare account id>'
-export EMAIL_FROM='AI.Engineer Sandbox <hello@mail.openboard.events>'
+# EMAIL_FROM needs no export — it lives in wrangler.jsonc's production vars and
+# deploy-cloudflare.sh only verifies it is present in config.
 pnpm deploy:web:production
 pnpm deploy:jobs:production
 

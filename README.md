@@ -170,13 +170,12 @@ didn't think of.
 Openboard is MIT-licensed TypeScript: Next.js 15 on Cloudflare Workers, Postgres (Neon),
 Drizzle, Resend for email, R2 for files.
 
-- [`docs/development.md`](docs/development.md) — architecture, local setup, testing, deploying,
-  and an **honest status** section on what is and isn't yet proven against a deployed
-  environment (worth reading before you rely on anything).
+- [`docs/development.md`](docs/development.md) — current status, architecture, local setup,
+  testing, and deploying.
 - [`docs/provisioning.md`](docs/provisioning.md) — standing up Neon/R2/Resend/Cloudflare from
   scratch.
 - [`docs/api.md`](docs/api.md) — the public API reference.
-- [`plan/status.md`](plan/status.md) — the live evidence ledger behind every claim.
+- [`DECISIONS.md`](DECISIONS.md) — the standing decisions that govern the codebase.
 
 ## License
 

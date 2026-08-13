@@ -6,7 +6,7 @@
 # the deliberate 401s and the deliberate 404 the doc promises.
 #
 #   export APP_BASE_URL='https://sb-web-preview.yi-ding.workers.dev'
-#   export SLUG='ai-engineer'
+#   export SLUG='ai-engineer-sandbox-event'
 #   export KEY='ob_live_...'        # Settings → API keys; shown once, at creation
 #   bash docs/api-examples.sh
 #
@@ -16,7 +16,7 @@
 set -uo pipefail
 
 : "${APP_BASE_URL:?set APP_BASE_URL to the deployment origin, e.g. https://sb-web-preview.yi-ding.workers.dev}"
-: "${SLUG:?set SLUG to a seeded event slug, e.g. ai-engineer}"
+: "${SLUG:?set SLUG to an event slug, e.g. ai-engineer-sandbox-event}"
 SKIP_KEYED="${SKIP_KEYED:-0}"
 if [[ "$SKIP_KEYED" != "1" ]]; then
   : "${KEY:?set KEY to an API key for the SLUG event, or SKIP_KEYED=1 to run the unkeyed half only}"

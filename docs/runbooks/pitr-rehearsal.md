@@ -4,7 +4,7 @@
 This document is the drill that proves those commands still work — the same relationship
 `rollback.md`'s "rehearsed against production at least once" checklist item has to an actual
 rollback, applied to the database side instead of the Worker-code side (see
-`docs/submission-checklist.md`, "The deployment"). A restore procedure nobody has actually run
+a release checklist item). A restore procedure nobody has actually run
 since it was written is a procedure you're debugging for the first time during an incident,
 against production, under time pressure. This is how that first run happens somewhere safer.
 
@@ -25,8 +25,8 @@ Run both exercises below:
 - Before any release that ships a migration touching a high-value table (`submissions`,
   `contacts`, `communication_logs`) — a restore rehearsed against last quarter's schema is not the
   same drill as one against this week's.
-- At minimum quarterly regardless, so the gap between drills never exceeds what
-  `docs/provisioning.md`'s own secret-rotation cadence assumes.
+- At minimum quarterly regardless — long enough to be cheap, short enough that `neonctl`
+  flag churn and retention-window changes surface here rather than during an incident.
 - Once, before the *first* time this procedure is ever needed for real — if that hasn't happened
   yet, do it now rather than waiting for an incident to be the first rehearsal.
 
@@ -161,7 +161,7 @@ covers it — `--preserve-under-name` is untested by Exercise A entirely.
 
 ## Record the rehearsal
 
-Append an entry to `DECISIONS.md` (repo root, not under `plan/`) after each run, in the style of
+Append an entry to `DECISIONS.md` (repo root) after each run, in the style of
 its existing dated findings — date, who ran it, both exercises' pass/fail, wall-clock time for
 each step, and — the actually valuable part — anything that didn't match this file exactly (a
 `neonctl` flag renamed, a timing assumption that no longer held, retention window shorter than

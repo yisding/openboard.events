@@ -3,8 +3,9 @@
 `pnpm seed` fills a database with the demo world in one idempotent run, so every
 judged surface renders non-empty within ten minutes of a fresh deploy.
 
-**`agenda.ts` is the last typed no-op.** A run prints its skipped line and seeds
-everything else; sessions and the named conflict pairs arrive with M28.
+All per-feature seed bodies are real — `agenda.ts` seeds the sessions and the two
+named conflict pairs (**⚠ Demo conflict A** — same room; **⚠ Demo conflict B** —
+same speaker) plus the back-to-back pair that must *not* flag.
 
 ```bash
 APP_ENV=local pnpm seed            # upsert: organic judge-created data survives

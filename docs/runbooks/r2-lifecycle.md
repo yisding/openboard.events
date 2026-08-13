@@ -3,7 +3,7 @@
 M07's own status note carries an open item since PR #15/#17: "an R2 lifecycle rule expiring the
 `staging/` prefix" on `sb-files-preview`/`sb-files`, filed as a provisioning follow-up because
 "the durable fix is a lifecycle rule ... infrastructure, not app code, and not this lane's to
-run" (`plan/modules/M07-r2-storage.md`). This is that follow-up, plus the finding that changes
+run". This is that follow-up, plus the finding that changes
 what "expiring the `staging/` prefix" can actually mean today.
 
 ## What a presigned upload leaves behind
@@ -67,7 +67,7 @@ staging/evt_<eventId>/<kind>/<fileId>/<filename>   ← proposed, not implemented
 
 That is a change to `buildStagingKey`, `STAGING_SEGMENT`/the orphan-sweep predicate, and anything
 else in `src/shared/server/r2.ts` that parses or asserts the key layout — R2 storage's own owned
-path (M07/`plan/modules/M07-r2-storage.md`), not this module's. **Flagged here as a scoped
+path (M07, `src/shared/server/r2.ts`), not this module's. **Flagged here as a scoped
 follow-up for that module's owner, not made in this change**: it touches a path any in-flight
 presigned URL depends on, and a key-scheme migration for an object-storage module deserves that
 module's own review, not a drive-by edit from an unrelated ops task. Once it lands, the rule below

@@ -11,8 +11,8 @@ action and an observable result; a mismatch is a defect, not a judgement call. T
 the exception — they are deliberately judgement-heavy, and §0.7 gives the rubric that makes the
 judgement repeatable.
 
-Read [`../plan/status.md`](../plan/status.md) before filing anything listed under a plan's **Known
-gaps**, and §0.8 before filing a design defect — three closed regressions have permanent checks there.
+Check each plan's **Known gaps** and §0.8 before filing a design defect — three closed
+regressions have permanent checks there.
 
 ---
 
@@ -47,13 +47,15 @@ pnpm dev                           # http://localhost:3000
 
 > **Why the `source` line.** `.dev.vars` is a Wrangler file. `pnpm dev` reads it because
 > `next.config.ts` calls `initOpenNextCloudflareForDev()`, which puts Wrangler's platform proxy
-> behind `getEnv()` — but `pnpm db:migrate` (drizzle-kit) and `pnpm seed` / `pnpm admin:bootstrap`
-> (tsx) run outside Next, where `getCloudflareContext()` throws and `getEnv()` falls back to bare
-> `process.env`. In a clean shell they see nothing: `drizzle.config.ts` gets an empty
-> `DATABASE_URL_DIRECT` and the seed fails with `DATABASE_URL is required`. Export the file, or pass
-> the two URLs inline on each command. (The same gap is in `docs/development.md`'s quickstart.)
+> behind `getEnv()` — but `pnpm db:migrate` (a tsx wrapper that writes a scratch Drizzle config
+> and spawns `drizzle-kit migrate`) and `pnpm seed` / `pnpm admin:bootstrap` (tsx) run outside
+> Next, where `getCloudflareContext()` throws and `getEnv()` falls back to bare `process.env`.
+> In a clean shell they see nothing: `db:migrate` aborts with `DATABASE_URL_DIRECT is required
+> to migrate the database` and the seed fails with `DATABASE_URL is required`. Export the file,
+> or pass the two URLs inline on each command. (The same gap is in `docs/development.md`'s
+> quickstart.)
 
-Then the admin accounts (`docs/admin-bootstrap.md` has the full flow), in the same exported shell:
+Then the admin accounts (`docs/development.md` *Getting started* has the full flow), in the same exported shell:
 
 ```bash
 BOOTSTRAP_EVENT_ID=9677e5d3-ccfc-5270-9b22-e551f8b4c57d \
@@ -63,7 +65,7 @@ pnpm admin:bootstrap
 ```
 
 Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, `EMAIL_FALLBACK_UI=1`,
-`TEST_AUTH=1`, `ADMIN_AUTH_PROVIDER=fallback` — unless a plan says otherwise. Those four are what
+`TEST_AUTH=1`, `ADMIN_AUTH_PROVIDER=fallback` — unless a plan says otherwise. Those five are what
 make OTPs visible in the browser and email inspectable without Resend.
 
 **Two plans do say otherwise.** `ADMIN_AUTH_PROVIDER` selects between two admin auth
@@ -123,7 +125,7 @@ Resend — that log line is the artifact for local email assertions.
 | Event timezone | `America/Los_Angeles`; seeded times are local wall-clock in that zone |
 
 `pnpm seed` does **not** print the public CFP path — take it from this table, or from
-**Copy public link** on the admin Forms list. (`docs/demo-script.md` used to claim the seed printed
+**Copy live link** on the admin Forms list. (`docs/demo-script.md` used to claim the seed printed
 it; corrected 2026-08-12.)
 
 ### 0.5 The submission status model (used heavily in MTP-06)
@@ -270,7 +272,7 @@ the CFP.
 | 16 | Try a structural change on that same form (delete a field with answers) | Refused with a specific message, not a 500 |
 | 17 | Open the builder in two tabs; save in A, then save a stale edit in B | B is refused as stale. It does not silently overwrite A (D4) |
 | 18 | Set the close date, then reopen the picker | The date is shown in the **event's** timezone, and the zone is named (DD-2 regression, D9) |
-| 19 | Publish; use **Copy public link** | `/submit/<eventSlug>/<uuid>`; a toast confirms the copy |
+| 19 | Publish; use **Copy live link** | `/submit/<eventSlug>/<uuid>`; a toast confirms the copy |
 | 20 | Open the link in a private window | Your fields render in order with your headings and the event's branding |
 | 21 | Replace the uuid with the event slug | 404 — not a crash, not someone else's form |
 
@@ -328,8 +330,8 @@ having walked away for a day — and that what lands in the database is exactly 
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | Open the public CFP in a private window | Step 1 of 5, branded, with the deadline visible in a stated timezone |
-| 2 | Advance to step 2; enter `qa+01@openboard.events` | A code is requested. Env A shows the fallback box with the OTP and magic link; Env C sends a real email and shows no fallback box |
+| 1 | Open the public CFP in a private window | Step 1 of 4 (**Verify your email**), branded, with the deadline visible in a stated timezone |
+| 2 | On step 1, enter `qa+01@openboard.events` | A code is requested. Env A shows the fallback box with the OTP and magic link; Env C sends a real email and shows no fallback box |
 | 3 | Enter a wrong code | Rejected with a retry that does not clear the rest of the wizard |
 | 4 | Enter the correct code | Signed in for submission; the wizard advances |
 | 5 | Answer *Format* = **Workshop** | The conditional **Workshop duration** appears. Choosing **Talk** hides it again |
@@ -392,7 +394,7 @@ having walked away for a day — and that what lands in the database is exactly 
 
 ### §7 Design checks
 
-Walk §0.7 on all five wizard steps at 390 px, the success page, the limit page, the closed page, and
+Walk §0.7 on all four wizard steps (three when participant collection is off) at 390 px, the success page, the limit page, the closed page, and
 the portal submission view. Specifically: **D2** on the submit button in flight; **D3** on the OTP
 input (numeric keypad, autocomplete `one-time-code`, paste of a 6-digit code); **D7** at 390 px on
 every step; **D9** on the deadline copy.
@@ -417,9 +419,9 @@ the number the organizer decides on is the number the criteria define.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | Open **Evaluation** | Round 1 with criteria, weights, scale, and assignment counts |
-| 2 | Create a round with two weighted criteria on a 1–5 scale | Saves; both rounds are independently editable |
-| 3 | Set weights that do not sum to the required total | Rejected with the rule stated, before save |
+| 1 | Open **Evaluation** | Two seeded rounds — Round 1 (open, untyped, partially scored) and **Round 2 · Blind shortlist** (windowed, blind) — each with criteria, weights, scale, and assignment counts |
+| 2 | Create a round with two weighted criteria on a 1–5 scale | Saves as Round 3; all three rounds are independently editable — except Round 1's scale/criteria/weights, which are locked because it already has reviews |
+| 3 | Set a zero or negative weight | Rejected with the rule stated, before save. Weights are arbitrary positive numbers used in a weighted mean — there is no required total |
 | 4 | Set the round's open/close window | Shared picker names and applies the event timezone; verify from a workstation in another zone (DD-2 regression, D9) |
 | 5 | Close the round's window and open a reviewer's queue | Scoring is refused with an explanation, not a silent no-op |
 
@@ -503,7 +505,7 @@ otherwise. This is 49 attempts; a spreadsheet with a row per pair is the right a
 | 5 | Any transition into `draft` | Refused from every status |
 
 **The trigger needs its own test, and the API cannot give it one.** `transitionStatus`
-(`src/features/submissions/server/mutations.ts:557`) calls `assertTransition` for every source status
+(`src/features/submissions/server/mutations.ts:548`) calls `assertTransition` for every source status
 *before* it issues the `UPDATE`, so an illegal pair posted to the API is rejected in the application
 layer and never reaches Postgres. Steps 1–5 therefore prove the application guard only — they would
 pass unchanged if `guard_submission_transition()` were dropped tomorrow.
@@ -528,9 +530,9 @@ ROLLBACK;   -- the trigger should have raised before you get here
 
 | # | Action | Expected result |
 |---|---|---|
-| 8 | Select 5 pending submissions → **Accept queue** | All 5 staged. Nothing is emailed by staging (D4 — the UI must make clear that staging is not deciding) |
+| 8 | Select 5 pending submissions → **Move to accept queue** | All 5 staged. Nothing is emailed by staging (D4 — the UI must make clear that staging is not deciding) |
 | 9 | Move 2 of them from accept queue to decline queue | Allowed; counts on both tabs update |
-| 10 | Commit the accept queue | Those become `accepted` |
+| 10 | Press **Notify** and confirm **Queue decision emails** | The accept queue commits to `accepted` and the decline queue commits to `declined` in the same action |
 | 11 | Select 20 rows across two pages and bulk-decide | The action applies to your actual selection — confirm the count in the confirmation matches, and spot-check a row from each page |
 | 12 | Bulk-decide with one row already in the target status | Idempotent; no error, no double-write |
 | 13 | Undo a decision, then re-decide it | Both moves are legal and both are recorded |
@@ -540,7 +542,7 @@ ROLLBACK;   -- the trigger should have raised before you get here
 
 | # | Action | Expected result |
 |---|---|---|
-| 15 | **Notify accepted speakers** | A confirmation naming the exact recipient count before sending |
+| 15 | **Notify {n}** | The confirm dialog names the exact decision count before sending, and finalizes both queues |
 | 16 | Drain the outbox | **Exactly one** `submission_accepted` row per accepted submission. Recipients are the submitters only |
 | 17 | Read a rendered message | Correct speaker name, correct talk title, a working portal link, no template tokens, no raw ids (D6) |
 | 18 | Press **Notify** again with nothing changed | No new rows, and the UI says why |
@@ -565,7 +567,7 @@ ROLLBACK;   -- the trigger should have raised before you get here
 |---|---|---|
 | 28 | Compare each status tab's count to the counts endpoint and the dashboard | All agree. A doubled count means a per-plan ratings join leaked into a count |
 | 29 | Compare accepted count to `/api/v1/events/<slug>/stats` | Agrees |
-| 30 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all five public pages and both APIs |
+| 30 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all six public pages and both APIs |
 
 ### §6 Design checks
 
@@ -625,7 +627,7 @@ session public.
 | 18 | Same time, different rooms, **same track** | A track conflict |
 | 19 | Back-to-back (one ends exactly as the next starts) | **No** conflict — adjacency is not overlap |
 | 20 | One session fully containing another in the same room | A conflict — containment counts as overlap |
-| 21 | The seeded conflict pair and the seeded back-to-back pair | The first is flagged, the second is not |
+| 21 | The two seeded conflict pairs (**⚠ Demo conflict A** — same room; **⚠ Demo conflict B** — same speaker) and the seeded back-to-back pair | A and B flag (the event total is exactly two); the back-to-back pair does not |
 | 22 | Resolve a conflict by moving one session | The indicator clears immediately, without a reload |
 | 23 | Create three mutually overlapping sessions in one room | The count and presentation are sane — not a combinatorial wall of duplicates (D6/D7) |
 | 24 | Assign a speaker to two sessions in the same slot, then remove them from one | The speaker conflict clears |
@@ -705,7 +707,7 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 | Forms list | buttons, filters, search | | | | | |
 | Form builder (×6 steps) | selects, inputs, drag, toggles | | | | | |
 | Visibility / routing editors | selects, condition rows | | | | | |
-| Public CFP wizard (×5 steps) | all 8 field types, OTP | | | | | |
+| Public CFP wizard (×4 steps) | all 8 field types, OTP | | | | | |
 | Abstracts table | tabs, filters, bulk bar, pager | | | | | |
 | Abstract drawer | answers, decision controls | | | | | |
 | Add-abstract modal | select, inputs | | | | | |
@@ -718,13 +720,13 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 | Speaker roster panels | datetime, selects | | | | | |
 | Tasks admin + task editor | date input, selects | | | | | |
 | Files admin | selects, upload | | | | | |
-| Communications (3 tabs) | tabs, editor, selects | | | | | |
+| Communications (6 tabs) | tabs, editor, selects | | | | | |
 | Resources admin | table, editor | | | | | |
 | Embeds | config, color input | | | | | |
 | Event settings | tabs, selects, inputs | | | | | |
 | Dashboard | select, cards, queue | | | | | |
 | Portal (home/tasks/profile/submissions) | uploads, forms | | | | | |
-| Public pages (×5) + embeds | filters, search, star | | | | | |
+| Public pages (×6) + embeds | filters, search, star | | | | | |
 | Org: team, audit, billing, CRM (×4) | tables, dialogs, pipeline | | | | | |
 
 ### §2 Targeted probes
@@ -831,7 +833,7 @@ threshold outside the core flow is zero S1.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | `pnpm install` on a clean clone | Completes; `pnpm@11.8.0` resolved |
+| 1 | `pnpm install` on a clean clone | Completes; `pnpm@11.21.0` resolved |
 | 2 | `pnpm dev` with **no** `.dev.vars` | The dev server boots and `/` renders — the landing page needs no database. (Until 2026-08-12 this step continued into a credential-free browser demo; that mode is deleted) |
 | 3 | With still no `.dev.vars`, open `/events` | Redirected to sign-in, or a database error — **never** a fixture-rendered screen. Nothing in the app renders without Postgres |
 | 4 | Stop the server | — |
@@ -848,8 +850,8 @@ threshold outside the core flow is zero S1.
 | 15 | *(C)* `bash scripts/post-deploy-smoke.sh <baseUrl>` | All checks pass; any skip names its reason |
 | 16 | *(C)* `curl -s <baseUrl>/api/health` | Same shape as step 10, with the deployed sha |
 
-**Known gaps.** The `Deploy` workflow has never completed a non-`skipped` run; deploys are a laptop
-operation. Step 15 tests the artifact, not the pipeline.
+**Known gaps.** Step 15 tests the artifact, not the pipeline — the `Deploy` workflow covers the
+pipeline on every merge to `main`.
 
 ---
 
@@ -891,7 +893,7 @@ before step 12; the fallback cookie from §1 is not read by this provider.
 | 15 | Sign in with new, then old password | New works; old rejected |
 | 16 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time — these are real `admin_sessions` rows |
 | 17 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation, not just a cleared cookie |
-| 18 | **Revoke all** | Every session including the current one ends |
+| 18 | **Sign out everywhere** | Every session including the current one ends |
 | 19 | `POST /api/test/login` with `TEST_AUTH=1` still set | `409` naming the provider mismatch — it refuses rather than minting a cookie the next request ignores |
 | 20 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
 | 21 | Switch back to `fallback`, restart, and sign in with the password set in step 14 | Works — the reset was mirrored back |
@@ -942,7 +944,7 @@ if you are testing that boundary.
 surface a speaker sees, so S3s here cost more than elsewhere.
 
 **Known gaps.** Step 12 has a recorded defect (M52) in the portal upload's `attach()` POST: the file
-may land in R2 without the task flipping. Confirm against `plan/status.md` §3 rather than re-filing.
+may land in R2 without the task flipping. Confirm before re-filing.
 
 ---
 
@@ -977,7 +979,7 @@ may land in R2 without the task flipping. Confirm against `plan/status.md` §3 r
 | 23 | All six surfaces for **Empty Conf** | Deliberate empty states |
 | 24 | All six at 390 px | Usable; no horizontal scroll |
 
-**Design checks.** §0.7 on all five public surfaces and their embeds. These are the pages an attendee
+**Design checks.** §0.7 on all six public surfaces and their embeds. These are the pages an attendee
 sees; D7 and D8 failures here are public.
 
 ---
@@ -988,13 +990,13 @@ sees; D7 and D8 failures here are public.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | **Communications → Activity** | The seeded log: recipient, subject, template, status, time |
+| 1 | **Communications → Delivery log** | The seeded log: recipient, subject, template, status, time |
 | 2 | Search by recipient and subject | Narrows; clearing restores |
 | 3 | Open one entry | Full detail including rendered body and delivery state |
-| 4 | **Templates** — confirm all 8 | Each with a description of its trigger |
+| 4 | **Templates** — confirm all 12 event-editable templates (the two admin-auth templates are not event-editable) | Each with a description of its trigger |
 | 5 | Edit a body with `<script>` plus a legitimate `<a href>`; save | Script stripped, link kept; the UI confirms sanitization |
 | 6 | **Preview** | Renders with sample data — no raw `{{tokens}}` |
-| 7 | **Send a message** to a segment | One row per resolved recipient; the shown count matches |
+| 7 | **Bulk send** to a segment | One row per resolved recipient; the shown count matches |
 | 8 | Suppress one recipient; send again | Skipped, with the reason recorded — not counted as sent |
 | 9 | Inspect a delivered message | `List-Unsubscribe` present |
 | 10 | Follow unsubscribe and confirm | Suppressed; later sends skip it |
@@ -1004,7 +1006,7 @@ sees; D7 and D8 failures here are public.
 | 14 | Run it again immediately | No duplicates in the same window |
 | 15 | `POST /api/jobs/outbox` with a wrong secret | `401` |
 | 16 | Drain and read the log | Each message rendered once, with template and idempotency key |
-| 17 | Publish a session; drain | A **Calendar invitation** with ICS and Google/Outlook deeplinks |
+| 17 | Publish a session; drain | A **Schedule assigned** message ("You're scheduled: …") with ICS and Google/Outlook deeplinks |
 | 18 | Move it; drain | **Schedule changed** replaying the update — not a duplicate invite |
 | 19 | Signed bounce payload to `/api/webhooks/resend` | Accepted; recipient marked bounced and suppressed |
 | 20 | Same payload, bad signature | Rejected |
@@ -1074,7 +1076,7 @@ creation separately from the first-event path in MTP-13 step 2.
 | 1 | Signed out, open `/events/new` | Redirected to `/login?next=%2Fevents%2Fnew`; signing in returns to event creation |
 | 2 | Signed in with owner/organizer access to exactly one workspace, open `/events/new` | Redirected directly to that workspace's guided onboarding; the event is owned by that workspace |
 | 3 | Signed in with owner/organizer access to two workspaces, open `/events/new` | An explicit workspace chooser appears; reviewer-only memberships are absent; the selected workspace opens guided onboarding |
-| 4 | Signed in with reviewer-only memberships, open `/events/new` | No global event form appears; a permission recovery explains that organizer access is required and links to **Workspaces** |
+| 4 | Signed in with reviewer-only memberships, open `/events/new` | No global event form appears; a permission recovery explains that organizer access is required and offers **View your workspaces** |
 
 **Known gaps.** M55 (CRM) landed partial; billing is a local-only scaffold by design. Steps 17–18
 test that it does not lie about what it does.
@@ -1101,11 +1103,12 @@ test that it does not lie about what it does.
 
 ## Appendix B — Automated counterparts
 
-Nine Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
+Ten Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
 (MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
-`speaker-content-ops` (MTP-10/12/13). They run against a deployed target plus the `sb-test` Neon
-branch — set `E2E_BASE_URL` and `NEON_TEST_URL`, then `pnpm e2e`.
+`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a). They run against a
+deployed target plus the `sb-test` Neon branch — set `E2E_BASE_URL` and `NEON_TEST_URL`, then
+`pnpm e2e`.
 
 Run the specs first. These plans exist for what specs cannot do: real inboxes, real calendar clients,
 keyboard and screen-reader passes, cross-tenant probing by hand, timed usability with a human

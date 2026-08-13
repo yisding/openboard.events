@@ -38,7 +38,7 @@ population step; the files are restored even when either command fails.
 |---|---|---|---|
 | Cloudflare web Worker | `sb-web-preview` | `sb-web` | `sb-web-local` |
 | Cloudflare jobs Worker | `sb-jobs-preview` | `sb-jobs` | `sb-jobs-local` |
-| R2 bucket | `sb-files-preview` | `sb-files` | Wrangler-local storage; optional `sb-files-dev` |
+| R2 bucket | `sb-files-preview` | `sb-files` | `sb-files-dev` (bound in `wrangler.jsonc`; simulated locally by Wrangler) |
 | Neon database/branch | `sb-test` | `sb-prod` | `sb-dev` |
 
 Workers Free is the intended starting plan. `pnpm worker:size` fails at the 3 MiB compressed
@@ -227,10 +227,13 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
 
 - [x] Confirm `sb-jobs-preview` has only `APP_BASE_URL` and `CRON_SECRET`; do not copy database,
   session, R2, Resend, or Airtable credentials to it.
-- [x] Run the preview smoke check:
+- [x] Run the preview smoke check. Without the `SMOKE_*` fixture ids the dashboard,
+  submit-form, and headshot checks skip instead of running; `--strict` turns any skip into a
+  failure, which is how the deploy workflow runs it:
 
   ```bash
-  bash scripts/post-deploy-smoke.sh "$APP_BASE_URL"
+  while IFS= read -r line; do export "${line?}"; done < <(pnpm --silent smoke:fixture-ids)
+  bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" --strict
   ```
 
 - [x] Inspect Workers logs and record a successful scheduled jobs tick.
@@ -243,8 +246,10 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   unset JOBS_SECRETS_FILE JOBS_SECRETS_DIR
   ```
 
-- [x] Seed the non-production databases (`pnpm seed` against `sb-dev` and `sb-test`; both were
-  reset, re-migrated from `drizzle/`, and seeded at status rev. 7).
+- [x] Seed the non-production databases — `APP_ENV=local DATABASE_URL=<sb-dev pooled URL>
+  pnpm seed` and `APP_ENV=preview DATABASE_URL=<sb-test pooled URL> pnpm seed` (add `--wipe` to
+  reset first). The seed refuses an unclassified `APP_ENV` and refuses any database whose own
+  `app.environment` marker disagrees.
 - [x] Create the password-backed organizer and reviewer accounts
   (`pnpm admin:bootstrap`; first run in the project's history at rev. 7, on both branches —
   credentials held outside the repository).
@@ -266,8 +271,10 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
-  | `NEON_TEST_URL` | `sb-test` URL used only by protected preview E2E | unset |
   | `E2E_RESEND_API_KEY` | preview-only, read-capable Resend key for the sent-email delivery probe | unset |
+
+  The preview E2E job derives `NEON_TEST_URL` from the `DATABASE_URL_DIRECT` secret
+  (`.github/workflows/deploy.yml`); do not store a second copy.
 
 - [ ] Add these environment variables:
 
@@ -275,10 +282,16 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   |---|---|---|
   | `APP_BASE_URL` | exact preview origin | exact production origin |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
-  | `E2E_BASE_URL` | `https://sb-web-preview.yi-ding.workers.dev` | unset |
   | `E2E_SIGNUP_EMAIL` | dedicated address included in preview's exact email allowlist | unset |
-  | `EMAIL_FROM` | omit while email is logged | verified production sender |
-  | `EMAIL_ALLOWLIST` | only for deliberate real-send tests | unset |
+
+  `E2E_BASE_URL` is derived from `APP_BASE_URL` for the preview E2E job and defaults to the
+  preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` also needs no entry:
+  the sender lives in `wrangler.jsonc`'s vars for both environments (the address contains angle
+  brackets, which cannot survive `--var`, so `scripts/deploy-cloudflare.sh` only verifies it is
+  present in config before a production deploy). Leave `EMAIL_ALLOWLIST` unset too — the
+  one-address preview allowlist is committed in `wrangler.jsonc`, and a GitHub value silently
+  overrides it. Leave the `SMOKE_*` variables unset: the deploy workflow fills each unset one
+  from `pnpm smoke:fixture-ids`; set one only to deliberately override a fixture.
 
 - [x] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset. While it is unset, a
   successful `main` CI run deploys `preview` only.
@@ -341,8 +354,9 @@ Production web secrets are:
 | `GOOGLE_CLIENT_SECRET` | yes |
 | `AIRTABLE_API_KEY` | only if the deferred M39 integration is enabled |
 
-`pnpm deploy:preflight web|jobs preview|production` compares this inventory with Cloudflare's
-secret names without reading any secret value. Both the protected deploy workflow and the local
+`pnpm deploy:preflight web|jobs preview|production` compares the required names — the eleven in
+`WEB_DEPLOY_SECRET_NAMES` for web, `CRON_SECRET` for jobs — with Cloudflare's secret names
+without reading any secret value; the optional `AIRTABLE_API_KEY` is not part of that check. Both the protected deploy workflow and the local
 deploy wrapper run it before release. `ALLOW_MISSING_DEPLOY_SECRETS=1` exists only for the first
 bootstrap of a Worker that does not exist yet; after that first deploy, provision the complete
 inventory before deploying application code again.
