@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
+import { getSpeakerPublicSnapshot, restoreSpeakerConfirmation, type SpeakerPublicSnapshot } from "./helpers/cleanup";
 import { BASE_URL, NO_TARGET, targetConfigured } from "./helpers/env";
 import { seedId } from "./helpers/ids";
 import { EVENTS, SESSIONS } from "./helpers/seeded";
@@ -13,12 +14,10 @@ const GALLERY = `/e/${EVENTS.main.slug}/speakers`;
  * Two seeded speakers, both on published sessions, put into the two states the
  * leakage rule is about.
  *
- * The seed leaves every contact `unconfirmed` (only `notifyDecisions`'
- * auto-confirm or an organizer's override ever sets `confirmed`), so a spec
- * that asserted the gallery renders seeded people would be asserting an empty
- * page. Arranging both states explicitly, through M27's own route, is what
- * makes "confirmed appears / declined does not" a real comparison rather than
- * two absences.
+ * Complete seeded profiles start confirmed so the demo gallery is useful.
+ * This spec temporarily declines one through M27's own route, making
+ * "confirmed appears / declined does not" a real comparison, then restores
+ * both exact starting states in `afterAll`.
  */
 const CONFIRMED = { contactId: seedId("contact", "ada"), name: "Ada Lovelace" };
 const DECLINED = { contactId: seedId("contact", "grace"), name: "Grace Hopper" };
@@ -28,6 +27,7 @@ type PublicSession = { id: string; title: string; startsAt: string };
 test.describe("public-embeds", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 390, height: 844 } });
+  const originalConfirmations = new Map<string, SpeakerPublicSnapshot["confirmationStatus"]>();
 
   // A worker-scoped hook, so it reads the target from the environment rather
   // than from the test-scoped `baseURL` option, and it does nothing at all when
@@ -38,6 +38,8 @@ test.describe("public-embeds", () => {
     try {
       await loginAsAdmin(request);
       for (const [speaker, status] of [[CONFIRMED, "confirmed"], [DECLINED, "declined"]] as const) {
+        const snapshot = await getSpeakerPublicSnapshot(request, EVENTS.main.id, speaker.contactId);
+        originalConfirmations.set(speaker.contactId, snapshot.confirmationStatus);
         await apiData(request, `/api/internal/speakers/${EVENTS.main.id}/${speaker.contactId}`, {
           method: "PATCH",
           data: { confirmationStatus: status },
@@ -45,6 +47,20 @@ test.describe("public-embeds", () => {
       }
     } finally {
       await request.dispose();
+    }
+  });
+
+  test.afterAll(async ({ playwright }) => {
+    if (originalConfirmations.size === 0) return;
+    const request = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      await loginAsAdmin(request);
+      for (const [contactId, confirmationStatus] of originalConfirmations) {
+        await restoreSpeakerConfirmation(request, EVENTS.main.id, contactId, confirmationStatus);
+      }
+    } finally {
+      await request.dispose();
+      originalConfirmations.clear();
     }
   });
 
