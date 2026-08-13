@@ -43,6 +43,7 @@ export default async function Page({ params, searchParams }: {
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
   const query = await searchParams;
+  const nowIso = new Date().toISOString();
   const requestedEvent = query.event ? eventIdSchema.safeParse(query.event) : null;
   if (requestedEvent && !requestedEvent.success) notFound();
 
@@ -84,12 +85,19 @@ export default async function Page({ params, searchParams }: {
         tracks,
         step: progress.step === "complete" ? "complete" : form ? "form" : progress.step,
         formId: progress.formId,
-        form: form ? { id: form.id, status: form.status, updatedAt: form.updatedAt, internalName: form.internalName } : null,
+        form: form ? {
+          id: form.id,
+          status: form.status,
+          updatedAt: form.updatedAt,
+          internalName: form.internalName,
+          opensAt: form.opensAt,
+          closesAt: form.closesAt,
+        } : null,
         publicFormUrl: progress.step === "complete" && form
           ? `${getEnv().APP_BASE_URL}/submit/${event.slug}/${form.id}`
           : null,
         formAvailability: progress.step === "complete" && form
-          ? formOpenState({ status: form.status, opensAt: form.opensAt, closesAt: form.closesAt }, new Date().toISOString())
+          ? formOpenState({ status: form.status, opensAt: form.opensAt, closesAt: form.closesAt }, nowIso)
           : null,
       };
     }
@@ -109,6 +117,7 @@ export default async function Page({ params, searchParams }: {
       organizationName={organization.name}
       hasExistingEvents={eventRows.length > 0}
       initialState={initialState}
+      nowIso={nowIso}
     />
   </>;
 }
