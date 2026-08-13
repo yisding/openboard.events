@@ -9,7 +9,7 @@ describe("agenda organizer feedback", () => {
 
     expect(dialog.match(/toast\(message, \{ kind: "error" \}\)/g)).toHaveLength(2);
     expect(dialog).toContain('toast(messageFor(caught, "Could not restore that revision"), { kind: "error" })');
-    expect(tray).toContain('"Could not add that abstract", { kind: "error" })');
+    expect(tray).toContain('selected rows are safe to retry.`, { kind: "error" })');
     expect(move).toContain('"Could not move that session", { kind: "error" })');
   });
 
