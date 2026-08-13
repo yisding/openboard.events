@@ -1,22 +1,8 @@
 import { sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { type EventId } from "@/shared/contracts";
 import { domainDeliverabilityRowSchema, type DomainDeliverabilityRow } from "../schemas";
-
-/**
- * Mirrors `getLogDetailIn`'s tolerance for the two shapes a raw `execute()`
- * can return (PGlite's array vs. neon-http's `{ rows }`) — see that
- * function's own copy in `admin-mutations.ts` for why this stays a small,
- * duplicated helper rather than a shared export: neither module wants to
- * import the other just for six lines.
- */
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
 
 type DomainCountRow = {
   domain: string;

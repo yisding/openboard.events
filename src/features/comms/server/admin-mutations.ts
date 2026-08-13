@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { communicationLogs, contacts, emailTemplates, reminderRules } from "@/db/schema";
 import {
   commLogDetailSchema,
@@ -303,14 +304,6 @@ export async function retryFailedCommunicationsIn(
 
 export async function retryFailedCommunications(eventId: EventId, logIds: CommLogId[]): Promise<RetryFailedCommunicationsResult> {
   return retryFailedCommunicationsIn(db, eventId, logIds);
-}
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
 }
 
 type AssignmentRow = { task_id: string; task_name: string; due_at: Date | string | null; submission_id: string | null; submission_code: number | null };

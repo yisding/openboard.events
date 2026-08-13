@@ -1,5 +1,6 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { contacts, emailTemplates, events, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
@@ -649,14 +650,6 @@ function decisionQueueRevision(rows: QueueRevisionRow[]): string {
     .join("|") || "empty";
 }
 
-function resultRows<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
-
 /**
  * Read-only decision-email preflight. It uses the current queue rows, current
  * recipient records, and current templates, but deliberately does not mint a
@@ -677,7 +670,7 @@ export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): P
       AND s.notified_at IS NULL
     ORDER BY s.code, s.id
   `);
-  const rows = resultRows<PreviewQueueRow>(queueResult);
+  const rows = rowsOf<PreviewQueueRow>(queueResult);
   const accepted = rows.filter((row) => row.status === "accept_queue");
   const declined = rows.filter((row) => row.status === "decline_queue");
   const deliverable = rows.filter((row) => row.recipientId !== null);
