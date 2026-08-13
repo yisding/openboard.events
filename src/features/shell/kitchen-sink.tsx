@@ -10,7 +10,8 @@ import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { FirstRunHints, Hint, resetHints } from "@/shared/ui/app/first-run-hints";
 import { TzTime } from "@/shared/ui/app/tz-time";
-import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Avatar, Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { CommandPalette } from "./components/command-palette";
 
 const TIMEZONE = "America/Los_Angeles";
 
@@ -95,6 +96,20 @@ export function KitchenSink() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {SUBMISSION_STATUSES.map((status) => <StatusBadge key={status} value={status} />)}
         </div>
+        <div className="speaker-card" style={{ maxWidth: 420, marginTop: 16 }}>
+          <Avatar initials="TJ" size="lg" />
+          <div className="speaker-card-copy"><b>TJ Johnson</b><span>Speaker profile</span></div>
+          <StatusBadge value="Unconfirmed" />
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 className="section-title">Command palette</h2>
+        <CommandPalette
+          eventId="00000000-0000-4000-8000-000000000001"
+          base="/events/00000000-0000-4000-8000-000000000001"
+          role="organizer"
+        />
       </section>
 
       <section style={{ marginBottom: 32 }}>

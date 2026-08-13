@@ -82,7 +82,7 @@ export function SpeakerFlowDrawer({
               <h3>Profile</h3>
               <div className="speaker-card">
                 <SpeakerHeadshot name={row.name} initials={initialsFor(row.name, row.email)} headshotFileId={row.headshotFileId} />
-                <div><b>{row.email}</b><span>{row.jobTitle || row.company ? `${row.jobTitle ?? ""}${row.jobTitle && row.company ? " · " : ""}${row.company ?? ""}` : "—"}</span></div>
+                <div className="speaker-card-copy"><b>{row.email}</b><span>{row.jobTitle || row.company ? `${row.jobTitle ?? ""}${row.jobTitle && row.company ? " · " : ""}${row.company ?? ""}` : "—"}</span></div>
               </div>
               {(row.missingBio || row.missingHeadshot) && (
                 <p className="portal-note" role="status">

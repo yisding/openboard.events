@@ -112,7 +112,7 @@ function MergeSearchDialog({
         {!busy && results.map((row) => (
           <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => onPick(row)}>
             <Avatar initials={initialsFor(row)} size="sm" />
-            <span><b style={{ display: "block" }}>{nameOf(row)}</b><span>{row.email}</span></span>
+            <span className="speaker-card-copy"><b>{nameOf(row)}</b><span>{row.email}</span></span>
           </button>
         ))}
         {!busy && query && results.length === 0 && <p className="long-copy">No other contact matches that search.</p>}

@@ -28,6 +28,26 @@ describe("PaletteDialog", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-busy="false"');
+    expect(html).toContain('aria-label="Close search"');
+  });
+
+  it("dismisses explicitly with Escape and restores focus to the trigger", () => {
+    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('if (event.key === "Escape")');
+    expect(source).toContain("event.stopPropagation()");
+    expect(source).toContain("onClose();");
+    expect(source).toContain("requestAnimationFrame(() => triggerRef.current?.focus())");
+    expect(source).toContain('aria-label="Close search"');
+  });
+
+  it("leaves Enter on the close button to its native click activation", () => {
+    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("if (event.target !== inputRef.current) return;");
+    expect(source.indexOf("if (event.target !== inputRef.current) return;")).toBeLessThan(
+      source.indexOf('if (event.key === "ArrowDown")'),
+    );
   });
 
   it("routes imperative palette navigation through the unsaved-work guard", () => {
