@@ -222,7 +222,7 @@ export function PortalFormsPage({ event, initialForms }: { event: BuilderEvent; 
       footer={<><Button variant="secondary" disabled={busy} onClick={closeCreate}>Cancel</Button><Button disabled={!name.trim() || busy} onClick={() => void createForm()}>{busy ? "Creating…" : recoveryRequired ? "Retry form creation" : "Create form"}</Button></>}
     >
       <div className="form-stack">
-        <Field label="Internal form name" required><input autoFocus required disabled={busy || recoveryRequired} maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Update Your Information" /></Field>
+        <Field label="Internal form name" required><input required disabled={busy || recoveryRequired} maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Update Your Information" /></Field>
         <Field label="What does this form edit?" hint="Cannot be changed after creation." group>
           <div className="choice-cards">
             <button type="button" disabled={busy || recoveryRequired} aria-pressed={targetType === "contact"} className={targetType === "contact" ? "active" : ""} onClick={() => setTargetType("contact")}><Contact2 size={20} /><b>Contact</b><small>Bio, headshot, pronouns, company, job title</small></button>
