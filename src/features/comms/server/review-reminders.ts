@@ -1,6 +1,8 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
-import { idem, type EventId, type PlanId, type UserId } from "@/shared/contracts";
+import { contacts } from "@/db/schema";
+import { getOrCreateContact, updateContactFields } from "@/features/portal/server/contacts";
+import { idem, type ContactId, type EventId, type PlanId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 
@@ -43,6 +45,25 @@ type OutstandingRow = {
   outstanding: number;
   contact_id: string | null;
 };
+
+async function ensureReviewerContact(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  target: ReviewReminderTarget & { contactId: string | null },
+): Promise<ContactId> {
+  if (target.contactId) return target.contactId as ContactId;
+
+  const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), eventId, target.email);
+  const [contact] = await dbOrTx.select({ firstName: contacts.firstName, lastName: contacts.lastName })
+    .from(contacts)
+    .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
+    .limit(1);
+  if (contact && contact.firstName.trim() === "" && contact.lastName.trim() === "" && target.name.trim() !== "") {
+    const [first, ...rest] = target.name.trim().split(/\s+/u);
+    await updateContactFields(dbOrTx, eventId, contactId, { firstName: first ?? "", lastName: rest.join(" ") });
+  }
+  return contactId;
+}
 
 /**
  * Reviewers on a round with work still to finish, and the event contact each
@@ -115,21 +136,20 @@ export async function sendReviewRemindersIn(
 
   const cycle = Math.floor(now / 60_000);
   let enqueued = 0;
-  let skipped = 0;
+  const remindedUserIds: UserId[] = [];
   for (const target of targets) {
-    // No contact row means no address the outbox can render against. That is a
-    // provisioning gap to report, not a reason to invent a contact here — the
-    // two contacts helpers own every write to that table.
-    if (!target.contactId) {
-      skipped += 1;
-      continue;
-    }
+    // Existing event members are valid reviewers even when they have never
+    // appeared in the speaker CRM. The outbox still needs an event-scoped
+    // contact for suppression, rendering, and delivery history, so provision
+    // that identity just in time through the canonical contact writers.
+    const contactId = await ensureReviewerContact(dbOrTx, eventId, target);
     await enqueueEmail(asOutboxWriter(dbOrTx), {
       eventId,
       templateKey: "review_reminder",
-      contactId: target.contactId as Parameters<typeof enqueueEmail>[1]["contactId"],
+      contactId,
       idempotencyKey: idem.reviewReminder(eventId, planId, target.reviewerUserId, cycle),
     });
+    remindedUserIds.push(target.reviewerUserId);
     enqueued += 1;
   }
 
@@ -138,12 +158,12 @@ export async function sendReviewRemindersIn(
       UPDATE review_assignments SET last_reminded_at = now(), updated_at = now()
       WHERE event_id = ${eventId} AND plan_id = ${planId} AND status = 'assigned'
         AND reviewer_user_id = ANY(${sql`ARRAY[${sql.join(
-          targets.filter((target) => target.contactId).map((target) => sql`${target.reviewerUserId}::uuid`),
+          remindedUserIds.map((reviewerUserId) => sql`${reviewerUserId}::uuid`),
           sql`, `,
         )}]`})
     `);
   }
-  return { enqueued, skipped };
+  return { enqueued, skipped: 0 };
 }
 
 export const listOutstandingReviewers = (eventId: EventId, planId: PlanId) =>
