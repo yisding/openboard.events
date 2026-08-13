@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { eventAccessDtoSchema, type EventAccessDTO, type EventId, type MemberRole } from "@/shared/contracts";
 import { eventManagementHref } from "@/features/events/access";
+import { eventLifecycle, orderEventsByLifecycle } from "@/features/events/event-lifecycle";
 import { api } from "@/shared/lib/api-client";
 import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
@@ -34,20 +35,26 @@ export function EventSwitcher({
   initialEvent,
   demoEvents,
   canCreateEvent,
+  nowIso,
+  defaultOpen = false,
 }: {
   eventId: EventId;
   initialEvent?: { name: string; detail: string };
   demoEvents?: SwitcherEvent[];
   canCreateEvent: boolean;
+  nowIso: string;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [remoteEvents, setRemoteEvents] = useState<EventAccessDTO[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [lifecycleNowIso, setLifecycleNowIso] = useState(nowIso);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const events = demoEvents ?? remoteEvents;
+  const orderedEvents = events ? orderEventsByLifecycle(events, lifecycleNowIso) : events;
 
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
@@ -82,7 +89,7 @@ export function EventSwitcher({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  const current = events?.find((event) => event.id === eventId);
+  const current = orderedEvents?.find((event) => event.id === eventId);
   const currentName = current?.name ?? initialEvent?.name ?? "Choose an event";
   const currentDetail = current
     ? formatInZone(current.startsAt, current.timezone, "date")
@@ -91,7 +98,10 @@ export function EventSwitcher({
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <button ref={triggerRef} type="button" className="event-switcher" onClick={() => {
-        if (!open && loadError) setLoadError("");
+        if (!open) {
+          setLifecycleNowIso(new Date().toISOString());
+          if (loadError) setLoadError("");
+        }
         setOpen((value) => !value);
       }} aria-expanded={open} aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
@@ -109,8 +119,8 @@ export function EventSwitcher({
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {events === null && !loadError && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
-          {events === null && loadError && (
+          {orderedEvents === null && !loadError && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {orderedEvents === null && loadError && (
             <div role="alert" style={{ display: "grid", gap: 8, padding: 12, fontSize: 11.5, color: "var(--muted)" }}>
               <span>{loadError}</span>
               <button type="button" className="text-button" onClick={() => {
@@ -119,11 +129,13 @@ export function EventSwitcher({
               }}>Retry</button>
             </div>
           )}
-          {events?.length === 0 && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
-          {events?.map((event) => (
+          {orderedEvents?.length === 0 && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
+          {orderedEvents?.map((event) => (
             <Link
               key={event.id}
+              className={`event-switcher-option is-${eventLifecycle(event, lifecycleNowIso)}`}
               href={eventManagementHref(event.id as EventId, event.role ?? "organizer") ?? "/events"}
+              aria-current={event.id === eventId ? "page" : undefined}
               onClick={() => setOpen(false)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 7, textDecoration: "none",

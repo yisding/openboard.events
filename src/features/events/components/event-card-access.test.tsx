@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { eventDtoSchema } from "@/shared/contracts";
+import { eventAccessDtoSchema, eventDtoSchema, type EventAccessDTO } from "@/shared/contracts";
 import { eventManagementHref } from "@/features/events/access";
 import { EventCard } from "./event-card";
 import { EventsView } from "./events-view";
@@ -29,6 +29,10 @@ const event = eventDtoSchema.parse({
   submissionCapPerUser: 3,
   rowVersion: 1,
 });
+
+function accessEvent(id: string, name: string, startsAt: string, endsAt: string): EventAccessDTO {
+  return eventAccessDtoSchema.parse({ ...event, id, name, slug: name.toLowerCase().replaceAll(" ", "-"), startsAt, endsAt, role: "organizer" });
+}
 
 describe("event access destinations", () => {
   it("lands reviewers on the review queue and organizers on the dashboard", () => {
@@ -88,5 +92,29 @@ describe("event access destinations", () => {
     />);
     expect(html).toContain("Create your first event");
     expect(html.match(/href="\/events\/new"/g)).toHaveLength(2);
+  });
+
+  it("separates active work from a newest-first, collapsible event history", () => {
+    const html = renderToStaticMarkup(<EventsView
+      events={[
+        accessEvent("c4300000-0000-4000-8000-000000000010", "Old History", "2025-01-01T12:00:00.000Z", "2025-01-02T12:00:00.000Z"),
+        accessEvent("c4300000-0000-4000-8000-000000000011", "Later Event", "2026-10-01T12:00:00.000Z", "2026-10-02T12:00:00.000Z"),
+        accessEvent("c4300000-0000-4000-8000-000000000012", "Recent History", "2026-07-01T12:00:00.000Z", "2026-07-02T12:00:00.000Z"),
+        accessEvent("c4300000-0000-4000-8000-000000000013", "Current Event", "2026-08-12T12:00:00.000Z", "2026-08-14T12:00:00.000Z"),
+        accessEvent("c4300000-0000-4000-8000-000000000014", "Next Event", "2026-09-01T12:00:00.000Z", "2026-09-02T12:00:00.000Z"),
+      ]}
+      user={{ name: "Ona Organizer", email: "organizer@example.test" }}
+      createHref="/events/new"
+      hasOrganizations
+      nowIso="2026-08-13T12:00:00.000Z"
+    />);
+
+    expect(html).toContain("Happening now");
+    expect(html).toContain("Upcoming");
+    expect(html).toContain("Past events");
+    expect(html).toContain('<details class="past-events">');
+    expect(html.indexOf("Current Event")).toBeLessThan(html.indexOf("Next Event"));
+    expect(html.indexOf("Next Event")).toBeLessThan(html.indexOf("Later Event"));
+    expect(html.indexOf("Recent History")).toBeLessThan(html.indexOf("Old History"));
   });
 });

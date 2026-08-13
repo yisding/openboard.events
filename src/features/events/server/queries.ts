@@ -18,6 +18,7 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import type { VocabKind } from "../schemas";
+import { orderEventsByLifecycle } from "../event-lifecycle";
 
 /**
  * Events' reads. Every function here is a single `neon-http` statement —
@@ -77,8 +78,8 @@ export async function getEventBySlugIn(dbOrTx: DbOrTx, slug: string): Promise<Ev
 export const getEventBySlug = (slug: string): Promise<EventDTO | null> => getEventBySlugIn(db, slug);
 
 /**
- * The `/events` switcher and index — soonest event first, so upcoming work
- * stays on top, and **scoped to the caller**.
+ * The `/events` switcher and index — current work first, upcoming work
+ * soonest-first, history newest-first, and **scoped to the caller**.
  *
  * This was `select().from(events)` with no WHERE clause: M11 predates tenancy,
  * and `eventsHubAuth` admits any signed-in admin, so `GET
@@ -93,15 +94,17 @@ export const getEventBySlug = (slug: string): Promise<EventDTO | null> => getEve
  * membership alone belongs on the organization page, where inaccessible
  * events are rendered explicitly as locked instead of as links that fail.
  */
-export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId): Promise<EventAccessDTO[]> {
+export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId, now = new Date()): Promise<EventAccessDTO[]> {
   const rows = await dbOrTx.select({ event: events, role: eventMembers.role })
     .from(eventMembers)
     .innerJoin(events, eq(events.id, eventMembers.eventId))
-    .where(eq(eventMembers.userId, userId))
-    .orderBy(asc(events.startsAt), asc(events.id));
-  return rows.map((row) => ({ ...toEventDto(row.event), role: memberRoleSchema.parse(row.role) }));
+    .where(eq(eventMembers.userId, userId));
+  return orderEventsByLifecycle(
+    rows.map((row) => ({ ...toEventDto(row.event), role: memberRoleSchema.parse(row.role) })),
+    now.toISOString(),
+  );
 }
-export const listEvents = (userId: UserId): Promise<EventAccessDTO[]> => listEventsIn(db, userId);
+export const listEvents = (userId: UserId, now = new Date()): Promise<EventAccessDTO[]> => listEventsIn(db, userId, now);
 
 export async function listTracksIn(dbOrTx: DbOrTx, eventId: EventId): Promise<TrackDTO[]> {
   const rows = await dbOrTx.select().from(tracks).where(eq(tracks.eventId, eventId)).orderBy(asc(tracks.sortOrder), asc(tracks.id));

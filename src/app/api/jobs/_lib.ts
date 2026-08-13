@@ -42,8 +42,3 @@ export function defineJobRoute(job: JobName, run: () => Promise<JobStats>) {
   }
   return { POST };
 }
-
-export const stubOutbox = async (): Promise<JobStats> => ({ noop: 1 });
-export const stubReminders = async (): Promise<JobStats> => ({ noop: 1 });
-export const stubAirtable = async (): Promise<JobStats> => ({ noop: 1 });
-export const stubCleanup = async (): Promise<JobStats> => ({ noop: 1 });

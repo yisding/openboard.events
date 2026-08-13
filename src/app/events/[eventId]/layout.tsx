@@ -57,6 +57,7 @@ export default async function EventLayout({ children, params }: { children: Reac
     role={session?.role ?? "owner"}
     event={shellEvent}
     canCreateEvent={manageableOrganizations(organizationMemberships).length > 0}
+    nowIso={new Date().toISOString()}
     {...(counts ? { counts } : {})}
     {...(session ? { user: { name: session.name, email: session.email } } : {})}
   >{children}</AdminShell>;
