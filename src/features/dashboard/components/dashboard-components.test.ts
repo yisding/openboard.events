@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { formatInZone } from "@/shared/lib/time";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";
@@ -104,18 +105,71 @@ describe("dashboard components", () => {
     expect(globalCss).not.toContain(".dashboard-milestone span{font-size:11px;color:var(--green)}");
   });
 
-  it("uses the event slug for public form links and the id for admin links", () => {
+  const fixtureForm = FIXTURE_OVERVIEW.forms[0];
+  if (!fixtureForm) throw new Error("Dashboard fixture must contain a form");
+  const scheduledOpensAt = "2026-08-20T07:00:00.000Z";
+  const endedClosesAt = "2026-08-07T07:00:00.000Z";
+  const formVariants: Array<{
+    availability: typeof fixtureForm.availability;
+    form: typeof fixtureForm;
+    timing: string;
+  }> = [
+    {
+      availability: "draft",
+      form: { ...fixtureForm, status: "draft", availability: "draft", opensAt: null, closesAt: null },
+      timing: "Not published",
+    },
+    {
+      availability: "scheduled",
+      form: { ...fixtureForm, status: "open", availability: "scheduled", opensAt: scheduledOpensAt, closesAt: null },
+      timing: `Opens ${formatInZone(scheduledOpensAt, FIXTURE_OVERVIEW.event.timezone, "date")}`,
+    },
+    {
+      availability: "live",
+      form: { ...fixtureForm, status: "open", availability: "live", opensAt: null, closesAt: null },
+      timing: "No closing date",
+    },
+    {
+      availability: "ended",
+      form: { ...fixtureForm, status: "open", availability: "ended", opensAt: null, closesAt: endedClosesAt },
+      timing: `Ended ${formatInZone(endedClosesAt, FIXTURE_OVERVIEW.event.timezone, "date")}`,
+    },
+    {
+      availability: "closed",
+      form: { ...fixtureForm, status: "closed", availability: "closed", opensAt: null, closesAt: null },
+      timing: "Closed manually",
+    },
+  ];
+
+  it.each(formVariants)("renders $availability form availability with a truthful action", ({ availability, form, timing }) => {
     const html = renderToStaticMarkup(React.createElement(FormProgressCards, {
       eventId: FIXTURE_OVERVIEW.event.id,
       eventSlug: FIXTURE_OVERVIEW.event.slug,
       timezone: FIXTURE_OVERVIEW.event.timezone,
-      forms: FIXTURE_OVERVIEW.forms,
+      forms: [form],
     }));
-    const formId = FIXTURE_OVERVIEW.forms[0]?.formId;
+    const manageHref = `/events/${FIXTURE_OVERVIEW.event.id}/forms/${form.formId}`;
+    const previewHref = `${manageHref}/preview`;
+    const publicHref = `/submit/${FIXTURE_OVERVIEW.event.slug}/${form.formId}`;
 
-    expect(html).toContain(`/submit/${FIXTURE_OVERVIEW.event.slug}/${formId}`);
-    expect(html).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/forms/${formId}`);
-    expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.id}/`);
+    expect(html).toContain(`status-${availability}`);
+    expect(html).toContain(timing);
+    expect(html).toContain(`href="${manageHref}"`);
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noreferrer"');
+
+    if (availability === "live") {
+      expect(html).toContain(`href="${publicHref}"`);
+      expect(html).toContain("Open live form");
+      expect(html).toContain(`aria-label="Open live form: ${form.name} (opens in a new tab)"`);
+      expect(html).not.toContain(`href="${previewHref}"`);
+      expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.id}/`);
+    } else {
+      expect(html).toContain(`href="${previewHref}"`);
+      expect(html).toContain(">Preview</a>");
+      expect(html).toContain(`aria-label="Preview form: ${form.name} (opens in a new tab)"`);
+      expect(html).not.toContain(`/submit/${FIXTURE_OVERVIEW.event.slug}/`);
+    }
   });
 
   it("routes speaker task rows through the implemented list drawer", () => {
