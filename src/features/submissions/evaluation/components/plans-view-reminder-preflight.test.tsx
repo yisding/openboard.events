@@ -16,6 +16,8 @@ vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }))
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
 const EVENT_ID = "c4200000-0000-4000-8000-000000000001";
+const ATTEMPT_A = "c4200000-0000-4000-8003-000000000001" as `${string}-${string}-${string}-${string}-${string}`;
+const ATTEMPT_B = "c4200000-0000-4000-8003-000000000002" as `${string}-${string}-${string}-${string}-${string}`;
 
 function plan(suffix: string, name: string): PlanDTO {
   return {
@@ -95,6 +97,8 @@ beforeEach(() => {
   toastMock.mockReset();
   fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
+  const attemptIds = [ATTEMPT_A, ATTEMPT_B];
+  vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(() => attemptIds.shift() ?? ATTEMPT_B);
   window.localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
@@ -111,6 +115,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("evaluation reminder exact-recipient preflight", () => {
@@ -146,7 +151,7 @@ describe("evaluation reminder exact-recipient preflight", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/internal/evaluation/${EVENT_ID}/plans/${PLAN_A.id}/reminders`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reviewerUserIds: null }),
+      body: JSON.stringify({ reviewerUserIds: null, attemptId: ATTEMPT_A }),
     });
     expect(buttonNamed("Working…")?.disabled).toBe(true);
     await act(async () => confirm?.click());
@@ -205,6 +210,34 @@ describe("evaluation reminder exact-recipient preflight", () => {
     expect(routerMock.refresh).toHaveBeenCalledOnce();
   });
 
+  it("retries an unconfirmed POST with the same attempt without reloading the preview", async () => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ data: { reviewers: [ADA] } }))
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce(Response.json({ data: { enqueued: 1, skipped: 0 } }));
+    await renderPlans();
+    await act(async () => rowButton("Round A", "Remind")?.click());
+    await settle();
+
+    await act(async () => buttonNamed("Send reminders")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("These reminders were not confirmed; check Communications before retrying.");
+    expect(container.textContent).toContain("Ada Lovelace · ada@example.com");
+    expect(buttonNamed("Send reminders")?.disabled).toBe(false);
+
+    await act(async () => buttonNamed("Send reminders")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.filter(([, init]) => init === undefined)).toHaveLength(1);
+    const firstAttempt = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { attemptId: string };
+    const retriedAttempt = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as { attemptId: string };
+    expect(firstAttempt.attemptId).toBe(ATTEMPT_A);
+    expect(retriedAttempt.attemptId).toBe(firstAttempt.attemptId);
+    expect(toastMock).toHaveBeenCalledWith("Reminded 1 reviewer");
+  });
+
   it("ignores a late preview after switching the dialog to another round", async () => {
     let resolveRoundA!: (response: Response) => void;
     fetchMock
@@ -229,5 +262,7 @@ describe("evaluation reminder exact-recipient preflight", () => {
     await act(async () => buttonNamed("Send reminders")?.click());
     await settle();
     expect(fetchMock).toHaveBeenLastCalledWith(`/api/internal/evaluation/${EVENT_ID}/plans/${PLAN_B.id}/reminders`, expect.objectContaining({ method: "POST" }));
+    const body = JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body)) as { attemptId: string };
+    expect(body.attemptId).toBe(ATTEMPT_B);
   });
 });

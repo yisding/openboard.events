@@ -8,12 +8,11 @@ export const idem = {
   taskReminderManual: (eventId: EventId, taskId: TaskId, contactId: ContactId, submissionId: SubmissionId | null, minuteBucket: number) => `${eventId}:task_reminder:${taskId}:${contactId}:${submissionId ?? "-"}:manual:${minuteBucket}`,
   scheduled: (eventId: EventId, sessionId: SessionId, contactId: ContactId, scheduleRevision: number) => `${eventId}:sched:${sessionId}:${contactId}:${scheduleRevision}`,
   portalLogin: (eventId: EventId, contactId: ContactId, tokenId: TokenId) => `${eventId}:portal_login:${contactId}:${tokenId}`,
-  // M50. One key per reviewer per round per reminder cycle: a second click in
-  // the same cycle collapses onto the same row, while the next cycle is a new
-  // nudge. The cycle number is the caller's, so a scheduled ladder and a manual
-  // "remind everyone" button cannot collide by accident.
-  reviewReminder: (eventId: EventId, planId: PlanId, reviewerUserId: UserId, cycle: number) =>
-    `${eventId}:review_reminder:${planId}:${reviewerUserId}:${cycle}`,
+  // M50. One key per reviewer per round per organizer-confirmed attempt. The
+  // dialog keeps this caller-generated id across response-loss retries, while
+  // opening a new dialog deliberately creates another nudge.
+  reviewReminder: (eventId: EventId, planId: PlanId, reviewerUserId: UserId, attemptId: string) =>
+    `${eventId}:review_reminder:${planId}:${reviewerUserId}:${attemptId}`,
   reviewerInvited: (eventId: EventId, userId: UserId) => `${eventId}:reviewer_invited:${userId}`,
   // M51. `sendId` is one durable caller-generated value per exact approved
   // bulk compose, so the same organizer send fans out to one row per recipient

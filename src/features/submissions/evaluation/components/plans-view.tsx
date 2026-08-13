@@ -22,6 +22,7 @@ type Requester = (input: string, init?: RequestInit) => Promise<Response>;
 type ReminderRecipient = { reviewerUserId: string; name: string; email: string; outstanding: number };
 type ReminderDialogState = {
   plan: PlanDTO;
+  attemptId: string;
   preview: ReminderRecipient[] | null;
   previewing: boolean;
   previewError: string;
@@ -143,7 +144,7 @@ export function PlansView({
 
   function openReminderPreflight(plan: PlanDTO) {
     reminderTargetRef.current = String(plan.id);
-    setReminderDialog({ plan, preview: null, previewing: true, previewError: "", sendError: "" });
+    setReminderDialog({ plan, attemptId: crypto.randomUUID(), preview: null, previewing: true, previewError: "", sendError: "" });
     void loadReminderPreview(plan);
   }
 
@@ -171,7 +172,7 @@ export function PlansView({
       const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/reminders`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reviewerUserIds: null }),
+        body: JSON.stringify({ reviewerUserIds: null, attemptId: state.attemptId }),
       });
       const payload = await response.json().catch(() => null) as { data?: { enqueued: number; skipped: number }; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {

@@ -24,9 +24,11 @@ const remind = defineHandler({
     planId: planIdSchema,
     /** `null` (the default) means every reviewer with outstanding work. */
     reviewerUserIds: z.array(userIdSchema).max(50).nullable().default(null),
+    /** Stable across retries of one organizer-confirmed send. */
+    attemptId: z.uuid(),
   }),
   handler: async ({ eventId, input }) => {
-    const result = await sendReviewReminders(eventIdSchema.parse(eventId), input.planId, input.reviewerUserIds);
+    const result = await sendReviewReminders(eventIdSchema.parse(eventId), input.planId, input.reviewerUserIds, input.attemptId);
     if (result.enqueued > 0) {
       try {
         const ctx = getCloudflareContext().ctx;
