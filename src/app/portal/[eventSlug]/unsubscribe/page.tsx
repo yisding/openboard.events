@@ -1,8 +1,10 @@
 import { BellOff, CheckCircle2 } from "lucide-react";
+import type { Metadata } from "next";
 import { canUnsubscribeFromReminders } from "@/features/comms/server/unsubscribe";
 import { Brand } from "@/shared/ui/brand";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Email preferences" };
 
 export default async function UnsubscribePage({ params, searchParams }: {
   params: Promise<{ eventSlug: string }>;

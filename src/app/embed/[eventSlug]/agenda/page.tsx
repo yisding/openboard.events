@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PublicAgenda } from "@/features/public/public-agenda";
 import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSchedule } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
+
+export const metadata: Metadata = { title: "Agenda" };
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",
