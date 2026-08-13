@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
+import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { GoogleMark } from "./google-mark";
 
@@ -128,9 +129,9 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
     <h1>Welcome back</h1>
     <p>Sign in to your Openboard workspace.</p>
     {googleEnabled && <>
-      <button className="button button-secondary button-lg google-signin" disabled={pending !== null} onClick={signInWithGoogle} type="button">
+      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={signInWithGoogle} type="button">
         <GoogleMark /> {pending === "google" ? "Connecting…" : "Continue with Google"}
-      </button>
+      </Button>
       <div className="auth-divider"><span>or continue with email</span></div>
     </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
@@ -140,8 +141,8 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
     </p>}
     {unverifiedEmail && (verificationSent
       ? <p className="auth-inline-success" role="status">A fresh confirmation link is on its way.</p>
-      : <button className="button button-secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</button>)}
-    <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "password" ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></button>
+      : <Button variant="secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</Button>)}
+    <Button size="lg" disabled={pending !== null} type="submit">{pending === "password" ? "Signing in…" : "Sign in"} <ArrowRight size={16} /></Button>
     {/* The only route into M42's reset flow. `/login/reset` is where the
         emailed link lands; `/login/forgot` is what causes it to be sent. */}
     <p><Link href={forgotPasswordHref}>Forgot your password?</Link></p>

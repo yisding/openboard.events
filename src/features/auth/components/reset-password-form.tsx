@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole } from "lucide-react";
+import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 
 /**
@@ -73,8 +74,8 @@ export function ResetPasswordForm() {
     <label className="field"><span>Confirm new password</span><input name="confirm" autoComplete="new-password" required minLength={12} type="password" /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
     {error.includes("no longer valid") && <p><Link href={forgotPasswordHref}>Request a new reset link</Link></p>}
-    <button className="button button-primary button-lg" disabled={pending || done} type="submit">
+    <Button size="lg" disabled={pending || done} type="submit">
       {pending ? "Saving…" : "Save password"} <ArrowRight size={16} />
-    </button>
+    </Button>
   </form>;
 }

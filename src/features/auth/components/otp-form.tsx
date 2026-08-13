@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { Button } from "@/shared/ui/ui-kit";
 import { safeInternalPath } from "../safe-next";
 import { portalAuthRequest } from "./portal-auth-request";
 
@@ -33,6 +34,6 @@ export function OtpForm({ eventSlug, email, next }: { eventSlug: string; email: 
   return <form onSubmit={submit}>
     <label className="field"><span>6-digit code</span><input className="otp-input" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary" disabled={pending} type="submit">{pending ? "Verifying…" : "Verify code"}</button>
+    <Button disabled={pending} type="submit">{pending ? "Verifying…" : "Verify code"}</Button>
   </form>;
 }
