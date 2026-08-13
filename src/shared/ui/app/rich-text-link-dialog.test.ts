@@ -26,7 +26,8 @@ describe("rich-text link dialog", () => {
     expect(source).toContain("<Modal");
     expect(source).toContain('label="Link URL"');
     expect(source).toContain("initialFocusRef={linkInputRef}");
-    expect(source).toContain("noValidate onSubmit={applyLink}");
+    expect(source).not.toContain("<form");
+    expect(source).toContain('event.key !== "Enter"');
     expect(source).toContain("event.stopPropagation()");
     expect(source).toContain("requestAnimationFrame");
   });

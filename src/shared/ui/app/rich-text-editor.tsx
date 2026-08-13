@@ -6,7 +6,7 @@ import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { plainTextLength } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -54,7 +54,7 @@ export function RichTextEditor({
   const [linkError, setLinkError] = useState("");
   const [editingLink, setEditingLink] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
-  const linkFormId = useId();
+  const linkErrorId = useId();
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -119,9 +119,7 @@ export function RichTextEditor({
     setLinkError("");
   }, []);
 
-  const applyLink = useCallback((event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const applyLink = useCallback(() => {
     if (!editor) return;
     const error = richTextLinkError(linkHref);
     if (error) {
@@ -188,24 +186,30 @@ export function RichTextEditor({
         footer={<>
           {editingLink && <Button variant="ghost" onClick={removeLink}>Remove link</Button>}
           <Button variant="secondary" onClick={closeLinkDialog}>Cancel</Button>
-          <Button type="submit" form={linkFormId}>{editingLink ? "Update link" : "Add link"}</Button>
+          <Button onClick={applyLink}>{editingLink ? "Update link" : "Add link"}</Button>
         </>}
       >
-        <form id={linkFormId} className="form-stack" noValidate onSubmit={applyLink}>
-          <Field label="Link URL" required error={linkError} errorId={`${linkFormId}-error`}>
+        <div className="form-stack">
+          <Field label="Link URL" required error={linkError} errorId={linkErrorId}>
             <input
               ref={linkInputRef}
               type="text"
               inputMode="url"
               required
               aria-invalid={Boolean(linkError) || undefined}
-              aria-describedby={linkError ? `${linkFormId}-error` : undefined}
+              aria-describedby={linkError ? linkErrorId : undefined}
               value={linkHref}
               onChange={(event) => { setLinkHref(event.target.value); setLinkError(""); }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                applyLink();
+              }}
               placeholder="https://example.com"
             />
           </Field>
-        </form>
+        </div>
       </Modal>
     </div>
   );
