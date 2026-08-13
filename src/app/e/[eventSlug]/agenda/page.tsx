@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicAgenda } from "@/features/public/public-agenda";
+import { PublicBuildMarker } from "@/features/public/public-build-marker";
 import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getEnv } from "@/shared/lib/env";
 
 export const metadata: Metadata = { title: "Agenda" };
 
@@ -16,5 +18,11 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   const { eventSlug } = await params;
   const schedule = await getPublishedSchedule(eventSlug);
   if (!schedule) notFound();
-  return <PublicAgenda eventSlug={eventSlug} schedule={schedule} />;
+  const env = getEnv();
+  return (
+    <>
+      <PublicBuildMarker deploymentId={env.DEPLOYMENT_ID ?? "local"} />
+      <PublicAgenda eventSlug={eventSlug} schedule={schedule} />
+    </>
+  );
 }

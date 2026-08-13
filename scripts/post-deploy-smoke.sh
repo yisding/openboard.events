@@ -41,6 +41,8 @@ skips=0
 headers_file="$(mktemp)"
 body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$body_file"' EXIT
+deployed_build_sha=""
+deployed_id=""
 
 # Fetches once into $headers_file/$body_file and stores the status code, so no
 # assertion costs a second request. Calling this function directly preserves
@@ -79,6 +81,28 @@ header_value() {
   tr -d '\r' < "$headers_file" | grep -i "^$1:" | head -1 | cut -d: -f2- | sed 's/^ *//' | tr '[:upper:]' '[:lower:]'
 }
 
+# OpenNext exposes two conclusive forms of the same healthy edge-cache
+# contract. A fresh render carries s-maxage for the cache to store. Once that
+# entry is served by the incremental cache, OpenNext can omit Cache-Control
+# and report HIT in x-nextjs-cache instead. STALE is deliberately not enough:
+# it proves that an old entry exists, but not that this artifact can regenerate
+# it successfully.
+is_edge_cache_fresh() {
+  local cache_control next_cache
+  cache_control="$(header_value cache-control)"
+  next_cache="$(header_value x-nextjs-cache)"
+  [[ "$cache_control" == *"s-maxage="* || "$next_cache" == "hit" ]]
+}
+
+# The cache signal alone can describe an unexpired entry written by the
+# previous Worker — even one built from the same commit. This per-deployment
+# marker is part of the cached document itself, so a matching value proves this
+# exact Worker deployment completed the render.
+is_current_deployment() {
+  [[ -n "$deployed_id" ]] \
+    && grep -qF -- "data-openboard-deployment=\"$deployed_id\"" "$body_file"
+}
+
 expect_status() {
   local url="$1" expected="$2" what="$3"
   local status
@@ -95,6 +119,15 @@ expect_body() {
   local pattern="$1" what="$2"
   if ! grep -qEi -- "$pattern" "$body_file"; then
     fail "" "$what (body does not match '$pattern')"
+    return 1
+  fi
+  return 0
+}
+
+expect_body_literal() {
+  local value="$1" what="$2"
+  if ! grep -qF -- "$value" "$body_file"; then
+    fail "" "$what (body does not contain '$value')"
     return 1
   fi
   return 0
@@ -127,11 +160,26 @@ echo
 
 # 1. Health, including the database round-trip timing.
 if expect_status "$base_url/api/health" 200 "health responds"; then
-  expect_body '"ok":true' "health reports ok" \
+  if expect_body '"ok":true' "health reports ok" \
     && expect_body 'ms' "health reports a database timing" \
     && expect_body '"errors":\{"ok":true' "health reports operational error tracking" \
-    && expect_body '"jobs":\{"ok":true' "health reports scheduled-job heartbeat tracking" \
-    && pass "/api/health"
+    && expect_body '"jobs":\{"ok":true' "health reports scheduled-job heartbeat tracking"; then
+    deployed_build_sha="$(sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
+    deployed_id="$(sed -n 's/.*"deployment":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
+    if [[ -z "$deployed_build_sha" ]]; then
+      fail "$base_url/api/health" "health identifies the deployed build"
+    elif [[ -z "$deployed_id" ]]; then
+      fail "$base_url/api/health" "health identifies the unique deployment"
+    elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
+      && ! expect_body_literal "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "health matches the requested build"; then
+      :
+    elif [[ -n "${DEPLOYMENT_ID:-}" ]] \
+      && ! expect_body_literal "\"deployment\":\"$DEPLOYMENT_ID\"" "health matches the requested deployment"; then
+      :
+    else
+      pass "/api/health"
+    fi
+  fi
 fi
 
 # 1b. Both deployed environments advertise self-service signup, so Better
@@ -145,30 +193,29 @@ fi
 # 2. The public schedule is cached at the edge. Two things this deliberately does
 #    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
 #    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and
-#    the header's presence on the first request. A cold entry — right after a
-#    deploy, or after a revalidation — is served STALE with no Cache-Control at
-#    all until the cache settles, which is a legitimate transient rather than a
-#    broken contract. So it is retried, and only a page that never becomes
-#    cacheable fails.
+#    Cache-Control's presence on a cached response. OpenNext can serve an ISR
+#    entry as HIT with no Cache-Control at all; x-nextjs-cache is the
+#    authoritative signal in that case. STALE stays retryable because it can
+#    also mean regeneration is failing.
 #    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
 #    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in {1..15}; do
   # Retryable probes use fetch directly: expect_status records a permanent
   # failure, which would make a transient 503 fail the whole run even when a
   # later attempt succeeds.
   fetch "$base_url/e/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then schedule_ok=1; break; fi
+    if is_edge_cache_fresh && is_current_deployment; then schedule_ok=1; break; fi
   fi
-  if (( attempt < 5 )); then sleep 2; fi
+  if (( attempt < 15 )); then sleep 5; fi
 done
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 5 attempts, got $last_status)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 15 attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage after 5 attempts)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id after 15 attempts"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -183,23 +230,23 @@ fi
 #    /e/* pages have (status rev. 11's recorded regression). They now read
 #    style from the saved `embeds` row instead, same as filters and the kill
 #    switch already did — so this asserts s-maxage on the embed too, with the
-#    same cold-cache retry as check 2.
+#    same cache-state retry as check 2.
 embed_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in {1..15}; do
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then embed_ok=1; break; fi
+    if is_edge_cache_fresh && is_current_deployment; then embed_ok=1; break; fi
   fi
-  if (( attempt < 5 )); then sleep 2; fi
+  if (( attempt < 15 )); then sleep 5; fi
 done
 if (( embed_ok )); then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
     && pass "/embed/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 5 attempts, got $last_status)"
+  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 15 attempts, got $last_status)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage after 5 attempts)"
+  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id after 15 attempts"
 fi
 
 # 4. The public API answers with an envelope.

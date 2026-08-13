@@ -47,11 +47,14 @@ if [[ -z "$build_sha" ]]; then
   build_sha=$(git rev-parse --short HEAD)
 fi
 export NEXT_PUBLIC_BUILD_SHA="$build_sha"
+deployment_id="${DEPLOYMENT_ID:-manual-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+export DEPLOYMENT_ID="$deployment_id"
 
 vars=(
   --var "APP_BASE_URL:$APP_BASE_URL"
   --var "R2_ACCOUNT_ID:$R2_ACCOUNT_ID"
   --var "NEXT_PUBLIC_BUILD_SHA:$build_sha"
+  --var "DEPLOYMENT_ID:$deployment_id"
 )
 [[ -n "${EMAIL_ALLOWLIST:-}" ]] && vars+=(--var "EMAIL_ALLOWLIST:$EMAIL_ALLOWLIST")
 [[ -n "${AIRTABLE_BASE_ID:-}" ]] && vars+=(--var "AIRTABLE_BASE_ID:$AIRTABLE_BASE_ID")

@@ -141,6 +141,7 @@ const envSchema = z.object({
   BETTER_AUTH_URL: optionalString,
   TEST_AUTH: z.enum(["1"]).optional(),
   NEXT_PUBLIC_BUILD_SHA: optionalString,
+  DEPLOYMENT_ID: optionalLegalVersion,
 }).superRefine((env, context) => {
   const url = new URL(env.APP_BASE_URL);
   if (url.origin !== env.APP_BASE_URL) {
@@ -155,6 +156,7 @@ const envSchema = z.object({
       "R2_ACCOUNT_ID",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
+      "DEPLOYMENT_ID",
     ] as const;
     for (const key of required) {
       if (!env[key]) context.addIssue({ code: "custom", path: [key], message: `is required in ${env.APP_ENV}` });

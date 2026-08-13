@@ -464,7 +464,7 @@ test.describe("public-widgets-parity (M53)", () => {
   });
 
   test.describe("embeds", () => {
-    test("all five embeds render populated content in a cross-origin host, and both variants are edge-cacheable", async ({ page }) => {
+    test("all five embeds render populated content in a cross-origin host", async ({ page }) => {
       const targets: Array<{ route: string; needle: string }> = [
         { route: "sessions", needle: KEYNOTE.title },
         { route: "agenda", needle: KEYNOTE.title },
@@ -519,23 +519,30 @@ test.describe("public-widgets-parity (M53)", () => {
           });
         }
 
-        // Both the direct and embed variants must be served from the edge cache,
-        // not re-rendered on every visitor — the M53 caching-regression fix
-        // (status.md rev. 11) is what makes the second assertion here possible
-        // at all; the embed used to be `private, no-cache` on every request.
-        for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
-          await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
-            let cached = false;
-            for (let attempt = 0; attempt < 5 && !cached; attempt += 1) {
-              const response = await page.request.get(url);
-              cached = (response.headers()["cache-control"] ?? "").includes("s-maxage=");
-              if (!cached) await page.waitForTimeout(2_000);
-            }
-            expect(cached, `${url} never became edge-cached`).toBe(true);
-          });
-        }
       } finally {
         await closeHost();
+      }
+    });
+
+    test("direct and embedded agendas are cached by the current deployment", async ({ page }) => {
+      // This is separate from the five cross-origin iframe retries above so
+      // each contract gets its own test-wide timeout budget.
+      const healthResponse = await page.request.get("/api/health");
+      expect(healthResponse.ok(), `/api/health → ${healthResponse.status()}`).toBe(true);
+      const health = await healthResponse.json() as { sha?: string; deployment?: string };
+      expect(health.sha, "health must identify the deployed build").toBeTruthy();
+      expect(health.deployment, "health must identify the unique deployment").toBeTruthy();
+      for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
+        await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
+          await expect(async () => {
+            const response = await page.request.get(url);
+            const headers = response.headers();
+            const nextCache = (headers["x-nextjs-cache"] ?? "").toLowerCase();
+            const fresh = (headers["cache-control"] ?? "").includes("s-maxage=") || nextCache === "hit";
+            expect(fresh, `${url} never became freshly edge-cached (last state: ${nextCache || "none"})`).toBe(true);
+            expect(await response.text()).toContain(`data-openboard-deployment="${health.deployment}"`);
+          }).toPass({ timeout: 60_000, intervals: [5_000] });
+        });
       }
     });
 
