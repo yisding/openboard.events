@@ -242,6 +242,14 @@ test.describe("self-service signup to first value", () => {
       await expect(previewPage.getByLabel("Title")).toBeVisible();
       await expect(previewPage.getByRole("button", { name: "Send me a code" })).toHaveCount(0);
       await previewPage.close();
+
+      const liveFormPromise = page.waitForEvent("popup");
+      await page.getByRole("link", { name: "Open live form" }).click();
+      const liveFormPage = await liveFormPromise;
+      await expect(liveFormPage).toHaveURL(publicLink);
+      await expect(liveFormPage.getByRole("heading", { name: "Verify your email", level: 2 })).toBeVisible();
+      await expect(liveFormPage.getByRole("button", { name: "Send me a code" })).toBeVisible();
+      await liveFormPage.close();
     });
 
     const proposalTitle = `E2E First Proposal ${stamp}`;

@@ -63,7 +63,7 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain("Retry removal");
   });
 
-  it("makes the published handoff previewable and resilient to clipboard failure", () => {
+  it("keeps the safe organizer preview and clipboard fallback in the published handoff", () => {
     expect(wizard).toContain('htmlFor="onboarding-public-form-link"');
     expect(wizard).toContain('href={`/events/${event.id}/forms/${createdForm.id}/preview`}');
     expect(wizard).toContain('target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
@@ -265,6 +265,8 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("https://preview.example.com/submit/resumable-conf/form-1");
     expect(html).toContain('href="/events/10000000-0000-4000-8000-000000000001/forms/form-1"');
     expect(html).toContain("Manage form");
+    expect(html).toContain('href="https://preview.example.com/submit/resumable-conf/form-1"');
+    expect(html).toContain("Open live form");
     expect(html).toContain('href="/organizations/00000000-0000-4000-8000-000000000001/team"');
     expect(html).toContain("Invite teammates");
   });
@@ -323,6 +325,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("Edit availability");
     expect(html).not.toContain("onboarding-link-row");
     expect(html).not.toContain("Preview form");
+    expect(html).not.toContain("Open live form");
   });
 
   it("renders and focuses the new heading after a step replacement", () => {
