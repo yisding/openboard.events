@@ -1,12 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
-import { Avatar } from "@/shared/ui/ui-kit";
-
-const SIZE_PX = { sm: 27, md: 34, lg: 44, xl: 72 } as const;
-
-type Size = keyof typeof SIZE_PX;
+import { Avatar, type AvatarSize } from "@/shared/ui/ui-kit";
 
 /**
  * A speaker's headshot in the admin: `/f/{headshotFileId}` when there is one,
@@ -31,26 +26,17 @@ export function SpeakerHeadshot({
   name: string;
   initials: string;
   headshotFileId: string | null;
-  size?: Size;
+  size?: AvatarSize;
 }) {
   const [brokenId, setBrokenId] = useState<string | null>(null);
-
-  if (!headshotFileId || brokenId === headshotFileId) return <Avatar initials={initials} size={size} />;
-
-  const px = SIZE_PX[size];
+  const imageUrl = headshotFileId && brokenId !== headshotFileId ? `/f/${headshotFileId}` : null;
   return (
-    <Image
-      // Our own immutable-cached route, not a remote host — optimizing an
-      // already-cache-perfect asset buys nothing, same `unoptimized`
-      // convention as the portal profile photo and the public gallery.
-      src={`/f/${headshotFileId}`}
-      alt={name}
-      width={px}
-      height={px}
-      className={`person-avatar person-avatar-${size}`}
-      style={{ objectFit: "cover" }}
-      unoptimized
-      onError={() => setBrokenId(headshotFileId)}
+    <Avatar
+      initials={initials}
+      size={size}
+      {...(imageUrl
+        ? { imageUrl, imageAlt: name, onImageError: () => setBrokenId(headshotFileId) }
+        : {})}
     />
   );
 }

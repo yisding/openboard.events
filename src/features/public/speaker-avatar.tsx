@@ -1,5 +1,4 @@
-import Image from "next/image";
-import { Avatar } from "@/shared/ui/ui-kit";
+import { Avatar, type AvatarSize } from "@/shared/ui/ui-kit";
 
 // A confirmed speaker's headshot, or an initials placeholder when the seed
 // (deliberately) has none. Reused by both the schedule's speaker chips and the
@@ -10,17 +9,13 @@ function initialsOf(name: string): string {
   return initials.toUpperCase() || "?";
 }
 
-const SIZE_PX = { sm: 27, md: 34, lg: 44, xl: 72 } as const;
-
-export function SpeakerAvatar({ name, headshotUrl, size = "sm", color }: { name: string; headshotUrl: string | null; size?: "sm" | "md" | "lg" | "xl"; color?: string }) {
-  const className = `person-avatar person-avatar-${size}`;
-  if (headshotUrl) {
-    // `/f/[fileId]` is our own immutable-cached route, not a remote host — the
-    // Next image optimizer would only reprocess an already-cache-perfect
-    // asset, so this follows the same `unoptimized` convention as the portal
-    // profile photo.
-    const px = SIZE_PX[size];
-    return <Image src={headshotUrl} alt={name} width={px} height={px} className={className} style={{ objectFit: "cover" }} unoptimized />;
-  }
-  return <Avatar initials={initialsOf(name)} size={size} {...(color ? { color } : {})} />;
+export function SpeakerAvatar({ name, headshotUrl, size = "sm", color }: { name: string; headshotUrl: string | null; size?: AvatarSize; color?: string }) {
+  return (
+    <Avatar
+      initials={initialsOf(name)}
+      size={size}
+      {...(color ? { color } : {})}
+      {...(headshotUrl ? { imageUrl: headshotUrl, imageAlt: name } : {})}
+    />
+  );
 }

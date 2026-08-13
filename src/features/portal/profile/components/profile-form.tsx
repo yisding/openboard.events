@@ -1,7 +1,6 @@
 "use client";
 
 import { Camera, CheckCircle2, Linkedin, LinkIcon, Twitter } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
@@ -197,10 +196,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
         <main>
           <section className="portal-panel profile-photo-section">
             <div className="profile-photo">
-              {headshotUrl
-                ? <Image src={headshotUrl} alt="" width={72} height={72} className="person-avatar person-avatar-xl" style={{ objectFit: "cover" }} unoptimized />
-                : <Avatar initials={initials} size="xl" />}
-              <span aria-hidden="true"><Camera size={16} /></span>
+              <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
+              <span className="profile-photo-badge" aria-hidden="true"><Camera size={16} /></span>
             </div>
             <div>
               <h2>Profile photo</h2>
@@ -275,9 +272,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
           </section>
           <section className="portal-panel public-preview">
             <span>PUBLIC PREVIEW</span>
-            {headshotUrl
-              ? <Image src={headshotUrl} alt="" width={72} height={72} className="person-avatar person-avatar-xl" style={{ objectFit: "cover" }} unoptimized />
-              : <Avatar initials={initials} size="xl" />}
+            <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
             <h3>{firstName} {lastName}</h3>
             {pronouns && <p>{pronouns}</p>}
             <small>{bioLength > 0 ? `${plainTextPreview(bioHtml)}…` : "No biography yet."}</small>
