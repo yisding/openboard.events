@@ -94,7 +94,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     confirmationStatus,
     subject,
     bodyHtml,
-    previewSendId: preview?.attempt.sendId,
+    previewSendId: preview?.attempt.sendId ?? null,
   }), [bodyHtml, confirmationStatus, preview?.attempt.sendId, subject, workflowStatus]);
   const [savedDraftFingerprint, setSavedDraftFingerprint] = useState(() => bulkMessageDraftFingerprint({
     workflowStatus: [],

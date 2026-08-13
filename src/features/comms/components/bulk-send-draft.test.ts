@@ -21,12 +21,12 @@ describe("bulk email draft identity", () => {
   it("treats filter order as the same audience draft", () => {
     const first = bulkMessageDraftFingerprint({
       ...empty,
-      workflowStatus: ["accepted", "invited"],
+      workflowStatus: ["confirmed", "invited"],
       confirmationStatus: ["declined", "confirmed"],
     });
     const second = bulkMessageDraftFingerprint({
       ...empty,
-      workflowStatus: ["invited", "accepted"],
+      workflowStatus: ["invited", "confirmed"],
       confirmationStatus: ["confirmed", "declined"],
     });
     expect(second).toBe(first);
