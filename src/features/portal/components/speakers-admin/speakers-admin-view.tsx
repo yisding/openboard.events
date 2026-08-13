@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
+import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -88,6 +89,11 @@ export function SpeakersAdminView({
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkEmailRecovery, setBulkEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  useEffect(() => {
+    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
+  }, [eventId]);
   const [confirmReminders, setConfirmReminders] = useState(false);
   const [reminding, setReminding] = useState(false);
   // M57 — the row a click opens: a flow-through slide-over over this page's
@@ -219,6 +225,11 @@ export function SpeakersAdminView({
         </>}
       />
 
+      {bulkEmailRecovery && !bulkEmailOpen && <div className="notify-bar" role="status">
+        <div><p><b>Unconfirmed speaker email</b><small>Resume the unchanged send to learn what queued without emailing anyone twice.</small></p></div>
+        <Button size="sm" onClick={() => setBulkEmailOpen(true)}>Resume unconfirmed email</Button>
+      </div>}
+
       <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
         <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
         <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
@@ -303,6 +314,8 @@ export function SpeakersAdminView({
           eventId={eventId}
           open={bulkEmailOpen}
           selected={selected}
+          initialRecovery={bulkEmailRecovery}
+          onRecoveryChange={setBulkEmailRecovery}
           onClose={() => { setBulkEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}

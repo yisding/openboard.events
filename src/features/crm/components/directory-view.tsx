@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationEventRow } from "@/features/organizations";
+import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -85,6 +86,11 @@ export function DirectoryView({
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [emailRecovery, setEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  useEffect(() => {
+    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+    if (loaded.ok) setEmailRecovery(loaded.snapshot);
+  }, [organizationId]);
   const [mergeOpen, setMergeOpen] = useState(false);
 
   const setParams = (patch: Record<string, string | null>, resetPage = true) => {
@@ -160,6 +166,11 @@ export function DirectoryView({
         </>}
       />
       <CrmNav organizationId={organizationId} active="directory" />
+
+      {emailRecovery && !emailOpen && <div className="notify-bar" role="status">
+        <div><p><b>Unconfirmed CRM email</b><small>Resume the unchanged send to learn what queued without emailing anyone twice.</small></p></div>
+        <Button size="sm" onClick={() => setEmailOpen(true)}>Resume unconfirmed email</Button>
+      </div>}
 
       <section className="summary-row">
         <article><span className="summary-icon accent"><Contact size={19} /></span><div><strong>{metrics.totalContacts}</strong><small>Total contacts</small></div></article>
@@ -252,6 +263,8 @@ export function DirectoryView({
           organizationId={organizationId}
           open={emailOpen}
           recipients={selected.map((row) => ({ id: row.id, name: nameOf(row), email: row.email }))}
+          initialRecovery={emailRecovery}
+          onRecoveryChange={setEmailRecovery}
           onClose={() => { setEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}

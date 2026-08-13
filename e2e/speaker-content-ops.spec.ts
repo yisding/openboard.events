@@ -205,6 +205,7 @@ test.describe("speaker-content-ops", () => {
       const contactIds = [speakerA.contactId, speakerB.contactId];
       const subject = `e2e note {{speaker.first_name}} ${Date.now()}`;
       const bodyHtml = "<p>Hello {{speaker.first_name}}, this is an e2e message about {{event.name}}.</p>";
+      const sendId = crypto.randomUUID();
 
       const preview = await apiData<{ preview: { subject: string; bodyHtml: string } | null }>(request, `${SPEAKERS}/bulk-email`, {
         method: "POST",
@@ -217,12 +218,18 @@ test.describe("speaker-content-ops", () => {
         "SELECT count(*)::int AS n FROM communication_logs WHERE event_id = $1 AND template_key = 'speaker_bulk_message'",
         [EVENT],
       );
-      const send = await apiData<{ queued: number; skipped: number; errors: unknown[] }>(request, `${SPEAKERS}/bulk-email`, {
+      const send = await apiData<{ queued: number; alreadyQueued: number; skipped: number; errors: unknown[] }>(request, `${SPEAKERS}/bulk-email`, {
         method: "POST",
-        data: { contactIds, subject, bodyHtml, mode: "send" },
+        data: { contactIds, subject, bodyHtml, mode: "send", sendId },
       });
       expect(send.queued).toBe(2);
+      expect(send.alreadyQueued).toBe(0);
       expect(send.errors).toEqual([]);
+      const recovered = await apiData<{ queued: number; alreadyQueued: number; errors: unknown[] }>(request, `${SPEAKERS}/bulk-email`, {
+        method: "POST",
+        data: { contactIds, subject, bodyHtml, mode: "send", sendId },
+      });
+      expect(recovered).toMatchObject({ queued: 0, alreadyQueued: 2, errors: [] });
       const after = await queryRows<{ n: string }>(
         "SELECT count(*)::int AS n FROM communication_logs WHERE event_id = $1 AND template_key = 'speaker_bulk_message'",
         [EVENT],

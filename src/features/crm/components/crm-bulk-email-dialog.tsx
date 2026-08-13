@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { composeCrmBulkEmailResultSchema, type ComposeCrmBulkEmailResult, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
+import { composeCrmBulkEmailResultSchema, type ComposeCrmBulkEmailResult, type OrganizationId } from "@/shared/contracts";
 import {
   acceptedBulkSendCount,
   bulkSendPreviewFingerprint,
@@ -13,9 +13,18 @@ import {
   completeBulkSendAttempt,
   type BulkSendAttempt,
 } from "@/features/comms/bulk-send-attempt";
+import {
+  BULK_SEND_RECOVERY_VERSION,
+  classifyBulkSendFailure,
+  persistBulkSendRecovery,
+  removeBulkSendRecovery,
+  type BulkSendRecoveryBatchResult,
+  type BulkSendRecoverySnapshot,
+} from "@/features/comms/bulk-send-recovery";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -41,11 +50,13 @@ export function CrmBulkEmailDialog({
   onClose,
   recipients,
   previewRecipients,
+  initialRecovery = null,
+  onRecoveryChange,
 }: {
   organizationId: OrganizationId;
   open: boolean;
   onClose: () => void;
-  recipients: { id: OrganizationContactId; name: string; email: string }[];
+  recipients: { id: string; name: string; email: string }[];
   /**
    * Recipients with a real, resolved name/email to offer in the "Preview
    * recipient" picker below. Defaults to `recipients` — fine for a directory
@@ -54,28 +65,45 @@ export function CrmBulkEmailDialog({
    * server-side (`PREVIEW_SAMPLE`), so `SegmentsView` passes that smaller,
    * fully-named set explicitly rather than letting the id fallback leak in.
    */
-  previewRecipients?: { id: OrganizationContactId; name: string; email: string }[];
+  previewRecipients?: { id: string; name: string; email: string }[];
+  initialRecovery?: BulkSendRecoverySnapshot | null;
+  onRecoveryChange?: (snapshot: BulkSendRecoverySnapshot | null) => void;
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const previewCandidates = previewRecipients ?? recipients;
-  const [previewId, setPreviewId] = useState(previewCandidates[0]?.id ?? "");
-  const [preview, setPreview] = useState<ApprovedPreview | null>(null);
+  const recoveryScope = organizationId as string;
+  const restored = initialRecovery?.surface === "crm" && initialRecovery.scope === recoveryScope
+    ? initialRecovery
+    : null;
+  const audience = restored?.recipients ?? recipients;
+  const previewCandidates = restored?.previewRecipients ?? previewRecipients ?? recipients;
+  const [subject, setSubject] = useState(restored?.subject ?? "");
+  const [bodyHtml, setBodyHtml] = useState(restored?.bodyHtml ?? "");
+  const [previewId, setPreviewId] = useState(restored?.previewRecipientId ?? previewCandidates[0]?.id ?? "");
+  const [preview, setPreview] = useState<ApprovedPreview | null>(() => restored ? {
+    result: restored.approvedPreview,
+    fingerprint: restored.fingerprint,
+    attempt: { sendId: restored.sendId, storageKey: restored.attemptStorageKey },
+  } : null);
+  const [recovery, setRecovery] = useState<BulkSendRecoverySnapshot | null>(restored);
   const [busyPreview, setBusyPreview] = useState(false);
   const [busySend, setBusySend] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<ComposeCrmBulkEmailResult | null>(null);
+  const recoveryRequired = recovery !== null;
+  const draftDirty = !sendResult && (subject.trim().length > 0 || bodyHtml.trim().length > 0 || preview !== null);
+  useUnsavedWorkGuard(open && (draftDirty || busySend || recoveryRequired), { blocking: busySend });
 
   const ready = subject.trim().length > 0 && bodyHtml.trim().length > 0;
   const previewFingerprint = useMemo(() => bulkSendPreviewFingerprint({
-    contactIds: recipients.map((row) => row.id),
+    contactIds: audience.map((row) => row.id),
     previewContactId: previewId,
     subject,
     bodyHtml,
-  }), [bodyHtml, previewId, recipients, subject]);
+  }), [audience, bodyHtml, previewId, subject]);
   const currentPreview = preview?.fingerprint === previewFingerprint ? preview : null;
   const canSend = canSendBulkMessage({
     canCompose: ready,
@@ -85,13 +113,32 @@ export function CrmBulkEmailDialog({
   });
 
   function invalidatePreview() {
+    if (recoveryRequired) return;
     setPreview(null);
     setSendResult(null);
     setConfirmSend(false);
   }
 
   function reset() {
-    setSubject(""); setBodyHtml(""); setPreview(null); setSendResult(null); setError(null); setConfirmSend(false);
+    setSubject(""); setBodyHtml(""); setPreview(null); setSendResult(null); setError(null); setConfirmSend(false); setConfirmDiscard(false); setConfirmAbandon(false);
+  }
+
+  function finishClose() {
+    reset();
+    onClose();
+  }
+
+  function requestClose() {
+    if (busySend) return;
+    if (recoveryRequired) {
+      onClose();
+      return;
+    }
+    if (draftDirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    finishClose();
   }
 
   async function runPreview() {
@@ -115,23 +162,65 @@ export function CrmBulkEmailDialog({
   }
 
   async function runSend(): Promise<boolean> {
-    if (!currentPreview || !canSend) {
+    if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
       return false;
     }
+    const candidate = recovery ?? (currentPreview ? {
+      version: BULK_SEND_RECOVERY_VERSION,
+      surface: "crm" as const,
+      scope: recoveryScope,
+      recipients: audience.map((recipient) => ({ id: recipient.id, name: recipient.name, email: recipient.email })),
+      previewRecipients: previewCandidates.map((recipient) => ({ id: recipient.id, name: recipient.name, email: recipient.email })),
+      subject,
+      bodyHtml,
+      previewRecipientId: previewId,
+      approvedPreview: currentPreview.result,
+      sendId: currentPreview.attempt.sendId,
+      attemptStorageKey: currentPreview.attempt.storageKey,
+      fingerprint: currentPreview.fingerprint,
+      completedResults: [],
+    } : null);
+    if (!candidate) return false;
+    const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
+    if (!stored.ok) {
+      setError("Can’t send safely because recovery storage is unavailable. Check your browser storage settings and try again.");
+      return false;
+    }
+    let approved: BulkSendRecoverySnapshot = stored.snapshot;
+    setRecovery(approved);
+    onRecoveryChange?.(approved);
     setBusySend(true);
     setError(null);
+    const completedThisRun: ComposeCrmBulkEmailResult[] = [];
     try {
       const results = [];
-      const recipientIds = recipients.map((row) => row.id);
+      const recipientIds = approved.recipients.map((row) => row.id);
       for (const organizationContactIds of chunkBulkRecipientIds(recipientIds, CRM_BULK_BATCH_SIZE)) {
-        results.push(await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
+        const batch = await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
           method: "POST",
-          body: { organizationContactIds, subject, bodyHtml, mode: "send", sendId: currentPreview.attempt.sendId },
-        }));
+          body: { organizationContactIds, subject: approved.subject, bodyHtml: approved.bodyHtml, mode: "send", sendId: approved.sendId },
+        });
+        results.push(batch);
+        completedThisRun.push(batch);
+        const generic: BulkSendRecoveryBatchResult = {
+          queued: batch.queued,
+          alreadyQueued: batch.alreadyQueued,
+          skipped: batch.skipped,
+          errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
+        };
+        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: [...approved.completedResults, generic] };
+        if (persistBulkSendRecovery(window.sessionStorage, updated).ok) {
+          approved = updated;
+          setRecovery(updated);
+          onRecoveryChange?.(updated);
+        }
       }
       const result = mergeCrmBulkEmailResults(results);
-      completeBulkSendAttempt(window.sessionStorage, currentPreview.attempt);
+      removeBulkSendRecovery(window.sessionStorage, approved);
+      completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+      setRecovery(null);
+      onRecoveryChange?.(null);
       setSendResult(result);
       toast(
         `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
@@ -140,27 +229,61 @@ export function CrmBulkEmailDialog({
       router.refresh();
       return true;
     } catch (caught) {
-      setError(isAppError(caught) ? caught.message : "That did not go through");
+      const completed = completedThisRun.map((batch): BulkSendRecoveryBatchResult => ({
+        queued: batch.queued,
+        alreadyQueued: batch.alreadyQueued,
+        skipped: batch.skipped,
+        errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
+      }));
+      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completed]) === "definite") {
+        removeBulkSendRecovery(window.sessionStorage, approved);
+        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        setRecovery(null);
+        onRecoveryChange?.(null);
+        setError(isAppError(caught) ? caught.message : "That did not go through");
+      } else {
+        setError("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.");
+      }
       return false;
     } finally {
       setBusySend(false);
     }
   }
 
+  function abandonRecovery() {
+    if (!recovery) return;
+    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    if (!removed.ok) {
+      setConfirmAbandon(false);
+      setError("Recovery could not be cleared safely. Keep this draft and try again.");
+      return;
+    }
+    completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+    setRecovery(null);
+    onRecoveryChange?.(null);
+    finishClose();
+  }
+
   return (
     <>
     <Modal
       open={open}
-      onClose={() => { reset(); onClose(); }}
-      title={`Email ${recipients.length} contact${recipients.length === 1 ? "" : "s"}`}
+      onClose={requestClose}
+      title={`Email ${audience.length} contact${audience.length === 1 ? "" : "s"}`}
       description="Sent through each contact's most recently linked event — a contact never pushed into an event is skipped, not silently dropped."
       wide
       footer={sendResult ? (
-        <Button onClick={() => { reset(); onClose(); }}>Done</Button>
+        <Button onClick={finishClose}>Done</Button>
+      ) : recoveryRequired ? (
+        <>
+          <Button variant="ghost" disabled={busySend} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
+          <Button variant="secondary" disabled={busySend} onClick={requestClose}>Close for now</Button>
+          <Button disabled={busySend} onClick={() => void runSend()}>{busySend ? "Retrying…" : "Retry this send"}</Button>
+        </>
       ) : (
         <>
-          <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-          <Button disabled={!canSend || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${recipients.length}`}</Button>
+          <Button variant="secondary" disabled={busySend} onClick={requestClose}>Cancel</Button>
+          <Button disabled={!canSend || busySend} onClick={() => setConfirmSend(true)}>{busySend ? "Sending…" : `Send to ${audience.length}`}</Button>
         </>
       )}
     >
@@ -176,20 +299,24 @@ export function CrmBulkEmailDialog({
           </div>
           {sendResult.errors.length > 0 && (
             <ul className="crm-field-list">
-              {sendResult.errors.map((entry) => (
-                <li key={entry.organizationContactId} style={{ fontSize: 11, color: "var(--muted)" }}>{entry.organizationContactId}: {entry.reason}</li>
-              ))}
+              {sendResult.errors.map((entry) => {
+                const recipient = audience.find((row) => row.id === entry.organizationContactId);
+                return <li key={entry.organizationContactId} style={{ fontSize: 11, color: "var(--muted)" }}>
+                  <b>{recipient?.name || recipient?.email || "Unknown recipient"}</b>{recipient?.email ? ` (${recipient.email})` : ""}: {entry.reason}
+                </li>;
+              })}
             </ul>
           )}
         </div>
       ) : (
         <div className="template-editor-grid">
           <div className="form-stack">
+            {recoveryRequired && <div className="notify-bar" role="status"><div><p><b>Send outcome needs confirmation</b><small>Retry this unchanged message. The same send ID makes already-queued emails safe to recover.</small></p></div></div>}
             <Field label="Subject">
-              <input value={subject} onChange={(event) => { invalidatePreview(); setSubject(event.target.value); }} placeholder="A note for you" />
+              <input disabled={recoveryRequired} value={subject} onChange={(event) => { invalidatePreview(); setSubject(event.target.value); }} placeholder="A note for you" />
             </Field>
             <Field label="Message" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization.">
-              <textarea value={bodyHtml} onChange={(event) => { invalidatePreview(); setBodyHtml(event.target.value); }} rows={8} />
+              <textarea disabled={recoveryRequired} value={bodyHtml} onChange={(event) => { invalidatePreview(); setBodyHtml(event.target.value); }} rows={8} />
             </Field>
             {error && <p className="field-error" role="alert">{error}</p>}
           </div>
@@ -200,11 +327,11 @@ export function CrmBulkEmailDialog({
                 ? { hint: `Showing the first ${previewCandidates.length} of ${recipients.length} — every recipient still gets the send.` }
                 : {})}
             >
-              <Select value={previewId} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value as OrganizationContactId); }}>
+              <Select value={previewId} disabled={recoveryRequired} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value); }}>
                 {previewCandidates.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
               </Select>
             </Field>
-            <Button size="sm" variant="secondary" disabled={!ready || busyPreview} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
+            <Button size="sm" variant="secondary" disabled={!ready || busyPreview || recoveryRequired} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
             {currentPreview ? (
               <div style={{ marginTop: 12 }}>
                 <p><b>{currentPreview.result.subject}</b></p>
@@ -219,11 +346,29 @@ export function CrmBulkEmailDialog({
     </Modal>
     <ConfirmDialog
       open={confirmSend}
-      title={`Send this message to ${recipients.length} contact${recipients.length === 1 ? "" : "s"}?`}
+      title={`Send this message to ${audience.length} contact${audience.length === 1 ? "" : "s"}?`}
       body="This queues one email per contact through their most recently linked event. Contacts without an event link, plus suppressed or unsubscribed addresses, are skipped."
-      confirmLabel={`Send to ${recipients.length}`}
-      onConfirm={async () => { if (await runSend()) setConfirmSend(false); }}
+      confirmLabel={`Send to ${audience.length}`}
+      onConfirm={async () => { setConfirmSend(false); await runSend(); }}
       onCancel={() => setConfirmSend(false)}
+    />
+    <ConfirmDialog
+      open={confirmDiscard}
+      variant="destructive"
+      title="Discard this bulk email draft?"
+      body="The selected audience, subject, message, and approved preview will be cleared. This cannot be undone."
+      confirmLabel="Discard draft"
+      onConfirm={finishClose}
+      onCancel={() => setConfirmDiscard(false)}
+    />
+    <ConfirmDialog
+      open={confirmAbandon}
+      variant="destructive"
+      title="Abandon this send recovery?"
+      body="Only do this after checking the communications log. Starting a new send could otherwise email recipients twice."
+      confirmLabel="Abandon recovery"
+      onConfirm={abandonRecovery}
+      onCancel={() => setConfirmAbandon(false)}
     />
     </>
   );

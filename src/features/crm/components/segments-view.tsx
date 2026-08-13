@@ -1,8 +1,9 @@
 "use client";
 
 import { Layers, Mail, Plus, Sparkles, Users } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
+import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -215,6 +216,12 @@ export function SegmentsView({
   const [resolved, setResolved] = useState<Record<string, ResolvedCrmSegment | undefined>>({});
   const [resolvingIds, setResolvingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [emailSegment, setEmailSegment] = useState<CrmSegmentDTO | null>(null);
+  const [emailRecovery, setEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [emailRecoveryOpen, setEmailRecoveryOpen] = useState(false);
+  useEffect(() => {
+    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+    if (loaded.ok) setEmailRecovery(loaded.snapshot);
+  }, [organizationId]);
   const emailRequestSequence = useRef(0);
 
   function setResolving(segmentId: string, pending: boolean) {
@@ -281,6 +288,11 @@ export function SegmentsView({
       />
       <CrmNav organizationId={organizationId} active="segments" />
 
+      {emailRecovery && !emailRecoveryOpen && !emailSegment && <div className="notify-bar" role="status">
+        <div><p><b>Unconfirmed CRM email</b><small>Resume the unchanged send to learn what queued without emailing anyone twice.</small></p></div>
+        <Button size="sm" onClick={() => setEmailRecoveryOpen(true)}>Resume unconfirmed email</Button>
+      </div>}
+
       {segments.length === 0 ? (
         <EmptyState icon={<Layers size={20} />} title="No segments yet" description="Save a filter from the directory's criteria to build a reusable list." />
       ) : segments.map((segment) => {
@@ -322,13 +334,15 @@ export function SegmentsView({
         onCreated={(segment) => setSegments((current) => [segment, ...current])}
       />
 
-      {emailSegment && resolved[emailSegment.id] && (
+      {((emailSegment && resolved[emailSegment.id]) || emailRecoveryOpen) && (
         <CrmBulkEmailDialog
           organizationId={organizationId}
           open
-          recipients={emailRecipients}
-          previewRecipients={previewRecipients}
-          onClose={() => setEmailSegment(null)}
+          recipients={emailSegment ? emailRecipients : []}
+          previewRecipients={emailSegment ? previewRecipients : []}
+          initialRecovery={emailRecoveryOpen ? emailRecovery : null}
+          onRecoveryChange={setEmailRecovery}
+          onClose={() => { setEmailSegment(null); setEmailRecoveryOpen(false); }}
         />
       )}
     </main>
