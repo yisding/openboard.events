@@ -1,13 +1,16 @@
-import { aliasedTable, and, asc, eq, inArray, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { eventMembers, events, organizationMembers, users } from "@/db/schema";
 import {
   eventAccessMemberDtoSchema,
+  eventAccessOverviewDtoSchema,
   manageableEventAccessDtoSchema,
   memberRoleSchema,
+  organizationIdSchema,
   type EventId,
   type EventAccessMemberDTO,
+  type EventAccessOverviewDTO,
   type ManageableEventAccessDTO,
   type MemberRole,
   type OrganizationId,
@@ -80,6 +83,7 @@ export async function setExplicitEventAccessIn(
   targetUserId: UserId,
   role: AssignableEventRole,
 ): Promise<MemberRole> {
+  if (actorUserId === targetUserId) throw new AppError("VALIDATION", "You already have access to this event");
   const requestedRole = memberRoleSchema.exclude(["owner"]).parse(role);
   const result = await dbOrTx.execute(sql`
     WITH authorized_event AS (
@@ -214,6 +218,110 @@ export async function listEventAccessMembersIn(
 }
 export const listEventAccessMembers = (eventId: EventId, actorUserId: UserId): Promise<EventAccessMemberDTO[]> =>
   listEventAccessMembersIn(db, eventId, actorUserId);
+
+/**
+ * Lists the roster and grant picker from the event itself. Teammate identities
+ * are disclosed only when the actor has both organization and event authority;
+ * an event-only organizer instead gets a truthful, actionable explanation.
+ */
+export async function getEventAccessOverviewIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  actorUserId: UserId,
+): Promise<EventAccessOverviewDTO> {
+  const [scope] = await dbOrTx.select({
+    organizationId: events.organizationId,
+    eventRole: actorEventMemberships.role,
+    organizationRole: actorOrganizationMemberships.role,
+  })
+    .from(events)
+    .leftJoin(actorEventMemberships, and(
+      eq(actorEventMemberships.eventId, events.id),
+      eq(actorEventMemberships.userId, actorUserId),
+    ))
+    .leftJoin(actorOrganizationMemberships, and(
+      eq(actorOrganizationMemberships.organizationId, events.organizationId),
+      eq(actorOrganizationMemberships.userId, actorUserId),
+    ))
+    .where(eq(events.id, eventId));
+
+  if (!scope || !scope.eventRole || !["owner", "organizer"].includes(scope.eventRole)) {
+    throw new AppError("FORBIDDEN", "Only an event organizer can manage event access");
+  }
+
+  const members = await listEventAccessMembersIn(dbOrTx, eventId, actorUserId);
+  const canGrant = scope.organizationRole === "owner" || scope.organizationRole === "organizer";
+  if (!canGrant) {
+    return eventAccessOverviewDtoSchema.parse({
+      members,
+      candidates: [],
+      canGrant: false,
+      grantRestriction: "Granting requires organizer access to both this event and its organization. Ask an organization owner or organizer who also organizes this event.",
+    });
+  }
+
+  const candidates = await dbOrTx.select({
+    userId: organizationMembers.userId,
+    email: users.email,
+    name: users.name,
+    organizationRole: organizationMembers.role,
+  })
+    .from(organizationMembers)
+    .innerJoin(users, eq(users.id, organizationMembers.userId))
+    .leftJoin(targetEventMemberships, and(
+      eq(targetEventMemberships.eventId, eventId),
+      eq(targetEventMemberships.userId, organizationMembers.userId),
+    ))
+    .where(and(
+      eq(organizationMembers.organizationId, scope.organizationId),
+      ne(organizationMembers.userId, actorUserId),
+      isNull(targetEventMemberships.userId),
+    ))
+    .orderBy(asc(users.name), asc(users.email));
+
+  return eventAccessOverviewDtoSchema.parse({
+    members,
+    candidates,
+    canGrant: true,
+    grantRestriction: null,
+  });
+}
+export const getEventAccessOverview = (eventId: EventId, actorUserId: UserId): Promise<EventAccessOverviewDTO> =>
+  getEventAccessOverviewIn(db, eventId, actorUserId);
+
+/** Event-scoped grant used by Settings; organization scope is derived, never trusted from the client. */
+export async function setEventAccessMemberIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  actorUserId: UserId,
+  targetUserId: UserId,
+  role: AssignableEventRole,
+): Promise<EventAccessMemberDTO> {
+  if (actorUserId === targetUserId) throw new AppError("VALIDATION", "You already have access to this event");
+  const [event] = await dbOrTx.select({ organizationId: events.organizationId })
+    .from(events)
+    .where(eq(events.id, eventId));
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+
+  await setExplicitEventAccessIn(
+    dbOrTx,
+    organizationIdSchema.parse(event.organizationId),
+    eventId,
+    actorUserId,
+    targetUserId,
+    role,
+  );
+  const member = (await listEventAccessMembersIn(dbOrTx, eventId, actorUserId))
+    .find((candidate) => candidate.userId === targetUserId);
+  if (!member) throw new AppError("INTERNAL", "Event access was granted but could not be reloaded");
+  return member;
+}
+export const setEventAccessMember = (
+  eventId: EventId,
+  actorUserId: UserId,
+  targetUserId: UserId,
+  role: AssignableEventRole,
+): Promise<EventAccessMemberDTO> => setEventAccessMemberIn(db, eventId, actorUserId, targetUserId, role);
 
 /** Event authority is sufficient to revoke access; the target may have left the organization. */
 export async function removeEventAccessMemberIn(
