@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -27,6 +28,7 @@ describe("task row menu accessibility", () => {
       task,
       onView: () => undefined,
       onEdit: () => undefined,
+      onDuplicate: () => undefined,
       onDelete: () => undefined,
     }));
     expect(html).toContain('aria-label="Actions for Upload slides"');
@@ -36,11 +38,19 @@ describe("task row menu accessibility", () => {
   });
 
   it("cycles arrow keys and supports first/last menu shortcuts", () => {
-    expect(menuDestinationForKey("ArrowDown", 2, 3)).toBe(0);
-    expect(menuDestinationForKey("ArrowUp", 0, 3)).toBe(2);
-    expect(menuDestinationForKey("Home", 2, 3)).toBe(0);
-    expect(menuDestinationForKey("End", 0, 3)).toBe(2);
-    expect(menuDestinationForKey("Escape", 1, 3)).toBeNull();
+    expect(menuDestinationForKey("ArrowDown", 3, 4)).toBe(0);
+    expect(menuDestinationForKey("ArrowUp", 0, 4)).toBe(3);
+    expect(menuDestinationForKey("Home", 2, 4)).toBe(0);
+    expect(menuDestinationForKey("End", 0, 4)).toBe(3);
+    expect(menuDestinationForKey("Escape", 1, 4)).toBeNull();
+  });
+
+  it("offers duplication from each task row and opens the editor with that source", () => {
+    const source = readFileSync(new URL("./tasks-admin-view.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("onDuplicate={() => setDuplicatingTask(task)}");
+    expect(source).toContain(">Duplicate</button>");
+    expect(source).toContain("duplicateOf={duplicatingTask}");
   });
 
   it("merges an authoritative save immediately without losing response counts", () => {
