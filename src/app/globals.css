@@ -1195,6 +1195,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .stat-tile--warning{border-color:var(--amber-border);background:var(--amber-soft)}
 .stat-tile--danger{border-color:var(--red-border);background:var(--red-soft)}
 .stat-tile__label{font-size:10px;font-weight: var(--weight-control);text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.stat-tile--warning .stat-tile__label{color:var(--amber)}
+.stat-tile--danger .stat-tile__label{color:var(--red)}
 .stat-tile__value{font-size:24px;letter-spacing:-.8px;font-weight:var(--weight-emphasis)}
 .stat-tile__hint{color:var(--muted);font-size:10px}
 .stat-tile__skeleton{display:inline-block;width:48px;height:20px;border-radius:5px;background:var(--fill)}

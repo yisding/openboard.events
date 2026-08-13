@@ -1,6 +1,6 @@
 import { KitchenSink } from "@/features/shell/kitchen-sink";
 
-export const metadata = { title: "Kitchen sink · Openboard" };
+export const metadata = { title: "Kitchen sink" };
 
 /**
  * Every core primitive on one page, against a fixture. It exists so a behaviour

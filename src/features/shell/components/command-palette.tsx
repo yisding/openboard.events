@@ -285,7 +285,7 @@ export function CommandPalette({ eventId, base, role }: { eventId: string; base:
 
   return (
     <>
-      <button ref={triggerRef} type="button" className="search-trigger" onClick={() => setOpen(true)}>
+      <button ref={triggerRef} type="button" className="search-trigger" aria-label="Search anything" onClick={() => setOpen(true)}>
         <Search size={17} /><span>Search anything</span><kbd>⌘ K</kbd>
       </button>
       {open && <PaletteDialog eventId={eventId} base={base} role={role} onClose={close} />}

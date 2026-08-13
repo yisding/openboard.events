@@ -1,6 +1,6 @@
 import { RichPrimitives } from "@/features/shell/rich-primitives";
 
-export const metadata = { title: "Rich primitives · Openboard" };
+export const metadata = { title: "Rich primitives" };
 
 /**
  * The rich half of the kitchen sink. `<FileUpload>` here talks to the real
