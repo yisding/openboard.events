@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -88,6 +90,23 @@ export function SpeakersAdminView({
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkEmailRecovery, setBulkEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [bulkEmailRecoveryUnreadable, setBulkEmailRecoveryUnreadable] = useState(false);
+  useEffect(() => {
+    const identity = speakerBulkSendRecoveryIdentity(eventId);
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setBulkEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setBulkEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [eventId]);
   const [confirmReminders, setConfirmReminders] = useState(false);
   const [reminding, setReminding] = useState(false);
   // M57 — the row a click opens: a flow-through slide-over over this page's
@@ -99,6 +118,17 @@ export function SpeakersAdminView({
   useFlowKeyboardNav({ ids: rowIds, activeId: openContactId, onNavigate: setOpenContactId, onClose: () => setOpenContactId(null) });
   const openIndex = openContactId ? rowIds.indexOf(openContactId) : -1;
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
+
+  function openBulkEmail(selectedRows: ContactListRow[]) {
+    const loaded = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
+    if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
+      setBulkEmailRecoveryUnreadable(true);
+      return;
+    }
+    setBulkEmailRecovery(loaded.ok ? loaded.snapshot : null);
+    setSelected(selectedRows);
+    setBulkEmailOpen(true);
+  }
 
   async function bulkRemind(): Promise<boolean> {
     // Reuses M52's generic bulk-reminder mutation (`sendRemindersNow` behind
@@ -219,6 +249,18 @@ export function SpeakersAdminView({
         </>}
       />
 
+      {bulkEmailRecovery && !bulkEmailOpen && <div className="notify-bar" role="status">
+        <div><p>
+          <b>{bulkEmailRecovery.confirmedResult ? "Completed speaker email needs cleanup" : "Unconfirmed speaker email"}</b>
+          <small>{bulkEmailRecovery.confirmedResult ? "The send is complete. Reopen it to clear the saved browser recovery record." : "Resume the unchanged send to learn what queued without emailing anyone twice."}</small>
+        </p></div>
+        <Button size="sm" onClick={() => setBulkEmailOpen(true)}>{bulkEmailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
+      </div>}
+      {bulkEmailRecoveryUnreadable && <UnreadableBulkSendRecovery
+        identity={speakerBulkSendRecoveryIdentity(eventId)}
+        onCleared={() => setBulkEmailRecoveryUnreadable(false)}
+      />}
+
       <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
         <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
         <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
@@ -243,7 +285,12 @@ export function SpeakersAdminView({
             countLabel={countLabel}
             onClear={clearSelection}
             actions={<>
-              <Button size="sm" onClick={() => { setSelected(selectedRows); setBulkEmailOpen(true); }}><Mail size={14} /> Email selected</Button>
+              <Button
+                size="sm"
+                disabled={bulkEmailRecoveryUnreadable}
+                title={bulkEmailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
+                onClick={() => openBulkEmail(selectedRows)}
+              ><Mail size={14} /> Email selected</Button>
               <Button size="sm" variant="secondary" disabled={reminding || reminderCount === 0} onClick={() => { setSelected(selectedRows); setConfirmReminders(true); }}>
                 <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
               </Button>
@@ -303,6 +350,8 @@ export function SpeakersAdminView({
           eventId={eventId}
           open={bulkEmailOpen}
           selected={selected}
+          initialRecovery={bulkEmailRecovery}
+          onRecoveryChange={setBulkEmailRecovery}
           onClose={() => { setBulkEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}

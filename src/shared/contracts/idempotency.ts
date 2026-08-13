@@ -1,4 +1,4 @@
-import type { ContactId, EventId, OrganizationInvitationId, PlanId, SessionId, SubmissionId, TaskId, TokenId, UserId } from "./ids";
+import type { ContactId, EventId, OrganizationContactId, OrganizationId, OrganizationInvitationId, PlanId, SessionId, SubmissionId, TaskId, TokenId, UserId } from "./ids";
 
 export const idem = {
   received: (eventId: EventId, submissionId: SubmissionId) => `${eventId}:received:${submissionId}`,
@@ -23,6 +23,10 @@ export const idem = {
   // string, which is how `buildContext` finds the one recipient's rendered
   // content for a given outbox row.
   speakerBulk: (eventId: EventId, contactId: ContactId, sendId: string) => `${eventId}:speaker_bulk:${contactId}:${sendId}`,
+  // CRM recovery follows the durable organization contact, not whichever
+  // event contact happens to be its latest link when a retry arrives.
+  crmBulk: (organizationId: OrganizationId, organizationContactId: OrganizationContactId, sendId: string) =>
+    `${organizationId}:crm_bulk:${organizationContactId}:${sendId}`,
   // M42. `linkId` is one server-generated value per issued reset/verification
   // link, and it is also the last AAD component the sealed payload is bound to
   // — `buildContext` recovers it from this key, the same trick `portalLogin`

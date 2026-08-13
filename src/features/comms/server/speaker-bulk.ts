@@ -2,6 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, contactSuppressions, events, speakerBulkMessages } from "@/db/schema";
 import {
+  contactIdSchema,
+  eventIdSchema,
   idem,
   type ComposeBulkSpeakerEmailInput,
   type ComposeBulkSpeakerEmailResult,
@@ -35,6 +37,12 @@ type RecipientRow = {
   lastName: string;
   unsubscribedAt: Date | null;
   suppressedAt: Date | null;
+};
+
+type ComposeBulkSpeakerEmailServerInput = ComposeBulkSpeakerEmailInput & {
+  /** Server-only override used by CRM to keep retries stable if its latest
+   * event/contact link changes after an ambiguous first attempt. */
+  idempotencyKeys?: ReadonlyMap<string, string>;
 };
 
 async function loadRecipients(dbOrTx: DbOrTx, eventId: EventId, contactIds: readonly ContactId[]): Promise<Map<string, RecipientRow>> {
@@ -84,7 +92,7 @@ function varsFor(event: { name: string; slug: string; timezone: string; startsAt
  * so the returned totals are the same "queued/skipped" story a re-opened
  * comms log would tell.
  */
-export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId, input: ComposeBulkSpeakerEmailInput): Promise<ComposeBulkSpeakerEmailResult> {
+export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId, input: ComposeBulkSpeakerEmailServerInput): Promise<ComposeBulkSpeakerEmailResult> {
   // Sanitized once, up front — same write-boundary discipline as
   // `saveTemplateIn`/`updateSpeakerBioIn` (resolution #2): this is
   // organizer-authored HTML that lands directly in a speaker's inbox, and
@@ -129,12 +137,17 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   }
 
   const sendId = input.sendId;
-  const idempotencyKeys = input.contactIds.map((contactId) => idem.speakerBulk(eventId, contactId, sendId));
-  const existingKeys = new Set(
-    (await dbOrTx.select({ idempotencyKey: speakerBulkMessages.idempotencyKey })
+  const idempotencyKeyFor = (contactId: ContactId) => input.idempotencyKeys?.get(contactId) ?? idem.speakerBulk(eventId, contactId, sendId);
+  const idempotencyKeys = input.contactIds.map(idempotencyKeyFor);
+  const existingMessages = new Map(
+    (await dbOrTx.select({
+      idempotencyKey: speakerBulkMessages.idempotencyKey,
+      eventId: speakerBulkMessages.eventId,
+      contactId: speakerBulkMessages.contactId,
+    })
       .from(speakerBulkMessages)
       .where(inArray(speakerBulkMessages.idempotencyKey, idempotencyKeys)))
-      .map((message) => message.idempotencyKey),
+      .map((message) => [message.idempotencyKey, message] as const),
   );
   let queued = 0;
   let alreadyQueued = 0;
@@ -143,12 +156,21 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   for (const contactId of input.contactIds) {
     const row = recipients.get(contactId);
     if (!row) { errors.push({ contactId, reason: "Not found in this event" }); continue; }
-    const idempotencyKey = idem.speakerBulk(eventId, contactId, sendId);
-    if (existingKeys.has(idempotencyKey)) {
+    const idempotencyKey = idempotencyKeyFor(contactId);
+    const existing = existingMessages.get(idempotencyKey);
+    if (existing) {
       // The first response may have been lost after the message insert. Count
-      // that recipient as accepted by this attempt and retry enqueueing so a
-      // rarer failure between the message and outbox inserts still self-heals.
-      await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
+      // that recipient as accepted by this attempt and retry enqueueing its
+      // recorded destination so a rarer failure between the message and
+      // outbox inserts still self-heals. CRM's latest link may have changed
+      // since this message row committed; the stored event/contact is the
+      // approved attempt's authoritative destination.
+      await enqueueEmail(asOutboxWriter(dbOrTx), {
+        eventId: eventIdSchema.parse(existing.eventId),
+        templateKey: "speaker_bulk_message",
+        contactId: contactIdSchema.parse(existing.contactId),
+        idempotencyKey,
+      });
       alreadyQueued += 1;
       continue;
     }
@@ -171,7 +193,27 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     const inserted = await dbOrTx.insert(speakerBulkMessages).values({
       eventId, contactId, idempotencyKey, subject: input.subject, bodyHtml,
     }).onConflictDoNothing({ target: speakerBulkMessages.idempotencyKey }).returning();
-    await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
+    let enqueueEventId = eventId;
+    let enqueueContactId = contactId;
+    if (inserted.length === 0) {
+      // Another overlapping retry won after our initial existing-message
+      // snapshot. Re-read that winner: for CRM it may belong to the contact's
+      // previous event link, and enqueueing this request's newer destination
+      // would leave the log unable to find the stored message at dispatch.
+      const [winner] = await dbOrTx.select({
+        eventId: speakerBulkMessages.eventId,
+        contactId: speakerBulkMessages.contactId,
+      }).from(speakerBulkMessages).where(eq(speakerBulkMessages.idempotencyKey, idempotencyKey)).limit(1);
+      if (!winner) throw new AppError("INTERNAL", "Could not recover this bulk email attempt");
+      enqueueEventId = eventIdSchema.parse(winner.eventId);
+      enqueueContactId = contactIdSchema.parse(winner.contactId);
+    }
+    await enqueueEmail(asOutboxWriter(dbOrTx), {
+      eventId: enqueueEventId,
+      templateKey: "speaker_bulk_message",
+      contactId: enqueueContactId,
+      idempotencyKey,
+    });
     // Retrying still calls enqueueEmail so a rare failure between the message
     // insert and outbox insert can heal itself. Only a newly-created message,
     // however, counts as newly queued in this response.

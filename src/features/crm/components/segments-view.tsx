@@ -1,8 +1,10 @@
 "use client";
 
 import { Layers, Mail, Plus, Sparkles, Users } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -215,6 +217,24 @@ export function SegmentsView({
   const [resolved, setResolved] = useState<Record<string, ResolvedCrmSegment | undefined>>({});
   const [resolvingIds, setResolvingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [emailSegment, setEmailSegment] = useState<CrmSegmentDTO | null>(null);
+  const [emailRecovery, setEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [emailRecoveryUnreadable, setEmailRecoveryUnreadable] = useState(false);
+  const [emailRecoveryOpen, setEmailRecoveryOpen] = useState(false);
+  useEffect(() => {
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [organizationId]);
   const emailRequestSequence = useRef(0);
 
   function setResolving(segmentId: string, pending: boolean) {
@@ -234,6 +254,18 @@ export function SegmentsView({
   }
 
   async function email(segment: CrmSegmentDTO) {
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
+    if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
+      setEmailRecoveryUnreadable(true);
+      return;
+    }
+    const storedRecovery = loaded.ok ? loaded.snapshot : null;
+    setEmailRecovery(storedRecovery);
+    if (storedRecovery) {
+      setEmailRecovery(storedRecovery);
+      setEmailRecoveryOpen(true);
+      return;
+    }
     const isLatestRequest = beginLatestRequest(emailRequestSequence);
     setResolving(segment.id, true);
     setEmailSegment(null);
@@ -281,6 +313,19 @@ export function SegmentsView({
       />
       <CrmNav organizationId={organizationId} active="segments" />
 
+      {emailRecoveryUnreadable && <UnreadableBulkSendRecovery
+        identity={{ surface: "crm", scope: organizationId }}
+        onCleared={() => setEmailRecoveryUnreadable(false)}
+      />}
+
+      {emailRecovery && !emailRecoveryOpen && !emailSegment && <div className="notify-bar" role="status">
+        <div><p>
+          <b>{emailRecovery.confirmedResult ? "Completed CRM email needs cleanup" : "Unconfirmed CRM email"}</b>
+          <small>{emailRecovery.confirmedResult ? "The send is complete. Reopen it to clear the saved browser recovery record." : "Resume the unchanged send to learn what queued without emailing anyone twice."}</small>
+        </p></div>
+        <Button size="sm" onClick={() => setEmailRecoveryOpen(true)}>{emailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
+      </div>}
+
       {segments.length === 0 ? (
         <EmptyState icon={<Layers size={20} />} title="No segments yet" description="Save a filter from the directory's criteria to build a reusable list." />
       ) : segments.map((segment) => {
@@ -297,7 +342,14 @@ export function SegmentsView({
                 <Button size="sm" variant="secondary" onClick={() => void resolve(segment.id)} disabled={resolving}>
                   <Users size={14} /> {resolving ? "Resolving…" : result ? `${result.matchedCount} match` : "View members"}
                 </Button>
-                <Button size="sm" onClick={() => void email(segment)} disabled={resolving}>
+                <Button
+                  size="sm"
+                  onClick={() => void email(segment)}
+                  disabled={resolving || emailRecovery !== null || emailRecoveryUnreadable}
+                  title={emailRecoveryUnreadable
+                    ? "Clear the unreadable email recovery before starting another send"
+                    : emailRecovery ? "Resume or abandon the unconfirmed email before starting another send" : undefined}
+                >
                   <Mail size={14} /> {resolving ? "Resolving…" : "Email segment"}
                 </Button>
               </div>
@@ -322,13 +374,15 @@ export function SegmentsView({
         onCreated={(segment) => setSegments((current) => [segment, ...current])}
       />
 
-      {emailSegment && resolved[emailSegment.id] && (
+      {((emailSegment && resolved[emailSegment.id]) || emailRecoveryOpen) && (
         <CrmBulkEmailDialog
           organizationId={organizationId}
           open
-          recipients={emailRecipients}
-          previewRecipients={previewRecipients}
-          onClose={() => setEmailSegment(null)}
+          recipients={emailSegment ? emailRecipients : []}
+          previewRecipients={emailSegment ? previewRecipients : []}
+          initialRecovery={emailRecoveryOpen ? emailRecovery : null}
+          onRecoveryChange={setEmailRecovery}
+          onClose={() => { setEmailSegment(null); setEmailRecoveryOpen(false); }}
         />
       )}
     </main>

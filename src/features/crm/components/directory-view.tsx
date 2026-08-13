@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationEventRow } from "@/features/organizations";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -85,7 +87,35 @@ export function DirectoryView({
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [emailRecovery, setEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [emailRecoveryUnreadable, setEmailRecoveryUnreadable] = useState(false);
+  useEffect(() => {
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [organizationId]);
   const [mergeOpen, setMergeOpen] = useState(false);
+
+  function openBulkEmail(selectedRows: OrganizationContactSummaryDTO[]) {
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
+    if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
+      setEmailRecoveryUnreadable(true);
+      return;
+    }
+    setEmailRecovery(loaded.ok ? loaded.snapshot : null);
+    setSelected(selectedRows);
+    setEmailOpen(true);
+  }
 
   const setParams = (patch: Record<string, string | null>, resetPage = true) => {
     const query = new URLSearchParams(params.toString());
@@ -161,6 +191,18 @@ export function DirectoryView({
       />
       <CrmNav organizationId={organizationId} active="directory" />
 
+      {emailRecovery && !emailOpen && <div className="notify-bar" role="status">
+        <div><p>
+          <b>{emailRecovery.confirmedResult ? "Completed CRM email needs cleanup" : "Unconfirmed CRM email"}</b>
+          <small>{emailRecovery.confirmedResult ? "The send is complete. Reopen it to clear the saved browser recovery record." : "Resume the unchanged send to learn what queued without emailing anyone twice."}</small>
+        </p></div>
+        <Button size="sm" onClick={() => setEmailOpen(true)}>{emailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
+      </div>}
+      {emailRecoveryUnreadable && <UnreadableBulkSendRecovery
+        identity={{ surface: "crm", scope: organizationId }}
+        onCleared={() => setEmailRecoveryUnreadable(false)}
+      />}
+
       <section className="summary-row">
         <article><span className="summary-icon accent"><Contact size={19} /></span><div><strong>{metrics.totalContacts}</strong><small>Total contacts</small></div></article>
         <article><span className="summary-icon"><Users size={19} /></span><div><strong>{metrics.totalWithEventLink}</strong><small>Linked to an event</small></div></article>
@@ -207,7 +249,12 @@ export function DirectoryView({
             countLabel={countLabel}
             onClear={clearSelection}
             actions={<>
-              <Button size="sm" onClick={() => { setSelected(selectedRows); setEmailOpen(true); }}><Mail size={14} /> Email selected</Button>
+              <Button
+                size="sm"
+                disabled={emailRecoveryUnreadable}
+                title={emailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
+                onClick={() => openBulkEmail(selectedRows)}
+              ><Mail size={14} /> Email selected</Button>
               {selectedRows.length === 2 && <Button size="sm" variant="secondary" onClick={() => { setSelected(selectedRows); setMergeOpen(true); }}><GitMerge size={14} /> Merge selected</Button>}
             </>}
           />
@@ -252,6 +299,8 @@ export function DirectoryView({
           organizationId={organizationId}
           open={emailOpen}
           recipients={selected.map((row) => ({ id: row.id, name: nameOf(row), email: row.email }))}
+          initialRecovery={emailRecovery}
+          onRecoveryChange={setEmailRecovery}
           onClose={() => { setEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}

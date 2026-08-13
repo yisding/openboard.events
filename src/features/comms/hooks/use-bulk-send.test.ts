@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { composeBulkSpeakerEmailInputSchema, contactIdSchema } from "@/shared/contracts";
 import {
   acceptedBulkSendCount,
+  abandonBulkSendAttempt,
   bulkSendPreviewFingerprint,
   bulkSendResultToastOptions,
   canSendBulkMessage,
@@ -9,6 +10,7 @@ import {
   claimBulkSendAttempt,
   completeBulkSendAttempt,
   mergeBulkSendResults,
+  verifyBulkSendAttempt,
   type BulkSendAttemptStorage,
 } from "../bulk-send-attempt";
 
@@ -110,8 +112,7 @@ describe("mergeBulkSendResults", () => {
 });
 
 describe("durable bulk-send attempts", () => {
-  function memoryStorage(): BulkSendAttemptStorage {
-    const values = new Map<string, string>();
+  function memoryStorage(values = new Map<string, string>()): BulkSendAttemptStorage {
     return {
       getItem: (key) => values.get(key) ?? null,
       setItem: (key, value) => { values.set(key, value); },
@@ -119,13 +120,15 @@ describe("durable bulk-send attempts", () => {
     };
   }
 
-  it("reuses the same attempt after a reload-style re-claim of the exact preview", async () => {
-    const storage = memoryStorage();
+  it("reuses one shared attempt when two tabs approve the exact preview", async () => {
+    const values = new Map<string, string>();
+    const firstTab = memoryStorage(values);
+    const secondTab = memoryStorage(values);
     let next = 0;
     const createId = () => `99000000-0000-4000-8000-${String(++next).padStart(12, "0")}`;
-    const first = await claimBulkSendAttempt(storage, "speaker-segment:event", original, createId);
-    const retried = await claimBulkSendAttempt(storage, "speaker-segment:event", original, createId);
-    const changed = await claimBulkSendAttempt(storage, "speaker-segment:event", `${original}-changed`, createId);
+    const first = await claimBulkSendAttempt(firstTab, "speaker:event", original, createId);
+    const retried = await claimBulkSendAttempt(secondTab, "speaker:event", original, createId);
+    const changed = await claimBulkSendAttempt(secondTab, "speaker:event", `${original}-changed`, createId);
 
     expect(retried).toEqual(first);
     expect(changed.sendId).not.toBe(first.sendId);
@@ -135,11 +138,14 @@ describe("durable bulk-send attempts", () => {
     const storage = memoryStorage();
     let next = 0;
     const createId = () => `99000000-0000-4000-8000-${String(++next).padStart(12, "0")}`;
-    const first = await claimBulkSendAttempt(storage, "speaker-selected:event", original, createId);
-    completeBulkSendAttempt(storage, first);
-    const nextAttempt = await claimBulkSendAttempt(storage, "speaker-selected:event", original, createId);
+    const first = await claimBulkSendAttempt(storage, "speaker:event", original, createId);
+    expect(completeBulkSendAttempt(storage, first)).toEqual({ ok: true, status: "completed" });
+    expect(verifyBulkSendAttempt(storage, first)).toEqual({ ok: true, status: "completed" });
+    const nextAttempt = await claimBulkSendAttempt(storage, "speaker:event", original, createId);
 
     expect(nextAttempt.sendId).not.toBe(first.sendId);
+    expect(verifyBulkSendAttempt(storage, first)).toEqual({ ok: false, reason: "superseded" });
+    expect(abandonBulkSendAttempt(storage, nextAttempt)).toEqual({ ok: true, status: "abandoned" });
   });
 });
 
