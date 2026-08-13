@@ -122,6 +122,35 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/\.portal-account\s*>\s*span\b/gu);
   });
 
+  it("keeps metadata selectors off shared badges and progress tracks", () => {
+    const recent = read("./dashboard/components/RecentSubmissionsTable.tsx");
+    const tasks = read("./portal/tasks-admin/components/tasks-admin-view.tsx");
+    const review = read("./submissions/evaluation/components/review-queue-view.tsx");
+
+    expect(recent).toContain('className="dashboard-recent-source"');
+    expect(tasks).toContain('className="admin-task-progress-copy"');
+    expect(review).toContain('className="review-progress-copy"');
+    expect(css).toContain(".dashboard-recent-source,.dashboard-recent td>small{display:block}");
+    expect(css).toContain(".admin-task-progress-copy{display:flex");
+    expect(css).toContain(".review-progress-copy{display:flex");
+    expect(css).not.toMatch(/\.dashboard-recent\s+td\s*>\s*span\b/gu);
+    expect(css).not.toMatch(/\.admin-task-progress\s*>\s*div\b/gu);
+    expect(css).not.toMatch(/\.review-progress-card\s*>\s*div\b/gu);
+  });
+
+  it("keeps field prose and button variants owned by shared primitives", () => {
+    const tray = read("./agenda/components/unscheduled-tray.tsx");
+
+    expect(tray).toContain('<Button size="sm" disabled=');
+    expect(css).toContain(".field > small {");
+    expect(css).toContain('.form-render .field>strong[role="alert"]');
+    expect(css).toContain(".vocab-add>.button{flex:none}");
+    expect(css).not.toMatch(/\.field\s+(?:small|strong)\b/gu);
+    expect(css).not.toMatch(/\.accepted-tray(?:\s*>?\s*)(?:button|div|span)\b/gu);
+    expect(css).not.toContain(".accepted-tray .button");
+    expect(css).not.toContain(".vocab-add>button");
+  });
+
   it("keeps metadata selectors from overriding shared status badges", () => {
     const roster = read("./portal/components/speakers-admin/speaker-roster-panels.tsx");
     const flow = read("./portal/components/speakers-admin/speaker-flow-drawer.tsx");

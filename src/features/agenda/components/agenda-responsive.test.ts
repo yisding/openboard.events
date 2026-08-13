@@ -38,7 +38,9 @@ describe("agenda workspace responsive styles", () => {
     expect(restoredActions).toBeGreaterThan(hiddenActions);
     expect(hiddenAccepted).toBeGreaterThan(-1);
     expect(restoredAccepted).toBeGreaterThan(hiddenAccepted);
-    expect(css).toContain(".accepted-tray button{width:44px;height:44px}");
+    expect(css).not.toMatch(/\.accepted-tray(?:\s*>?\s*)(?:button|div|span)\b/gu);
+    expect(css).not.toContain(".accepted-tray .button");
+    expect(css).toContain(".button, .button-sm, .button-lg { min-height: 44px; }");
     // The toolbar's second row used to be expressed as a `(min-width:769px) and
     // (max-width:1200px)` band. T5 allows only max-width:480/768/1024/1280, so
     // the band is now a ≤1024 wrap plus a ≤768 mobile reflow that keeps every
