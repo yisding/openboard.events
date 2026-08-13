@@ -94,7 +94,8 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText(SIGNUP_EMAIL, { exact: true })).toBeVisible();
       await expect(page.getByLabel("Email address")).toHaveValue(SIGNUP_EMAIL);
       await expect(page.getByLabel("Email address")).toHaveAttribute("readonly", "");
-      await expect(page.getByRole("link", { name: "Start again with the correct address" })).toHaveAttribute("href", "/signup");
+      await expect(page.getByRole("link", { name: "Start again with the correct address" }))
+        .toHaveAttribute("href", "/signup?next=%2Forganizations");
 
       if (E2E_FALLBACK_ACTIVATION) {
         const fallback = page.getByRole("link", { name: "Confirm email and continue" });

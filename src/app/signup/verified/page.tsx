@@ -21,7 +21,7 @@ export default async function VerifiedEmailPage({ searchParams }: { searchParams
   return <main className="login-page">
     <AuthBrandPanel />
     <section className="login-form-panel"><div><div>
-      <span className={`metric-icon ${failed ? "warn" : "accent"}`}>{failed ? <CircleAlert size={20} /> : <BadgeCheck size={20} />}</span>
+      <span className={`metric-icon ${failed ? "amber" : "accent"}`}>{failed ? <CircleAlert size={20} /> : <BadgeCheck size={20} />}</span>
       <h1>{failed ? "That link did not work" : "Email confirmed"}</h1>
       {failed ? <>
         <p>The confirmation link may be expired or invalid. Enter your email and we will send a fresh one.</p>

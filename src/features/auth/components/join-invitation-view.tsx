@@ -1,15 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CheckCircle2, LogIn, Users } from "lucide-react";
+import { CheckCircle2, CircleAlert, LogIn, Users } from "lucide-react";
 import { z } from "zod";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { SignOutButton } from "./sign-out-button";
 
 const acceptedSchema = z.object({ organizationId: z.string(), role: z.string(), eventId: z.string().nullable() });
 
-type Status = "checking" | "signed-out" | "accepting" | "accepted" | "error";
+type Status = "checking" | "signed-out" | "wrong-account" | "accepting" | "accepted" | "error";
 
 /**
  * M44/M61 — the landing page for a workspace or reviewer invitation link. No
@@ -47,6 +49,10 @@ export function JoinInvitationView() {
           setStatus("signed-out");
           return;
         }
+        if (isAppError(caught) && caught.code === "FORBIDDEN") {
+          setStatus("wrong-account");
+          return;
+        }
         setStatus("error");
         setMessage(isAppError(caught) ? caught.message : "That invitation could not be accepted");
       }
@@ -57,7 +63,7 @@ export function JoinInvitationView() {
   const next = `/join?token=${encodeURIComponent(token)}`;
 
   if (status === "checking" || status === "accepting") {
-    return <div><span className="metric-icon accent"><Users size={20} /></span><h1>Checking your invitation…</h1></div>;
+    return <div role="status" aria-live="polite"><span className="metric-icon accent"><Users size={20} /></span><h1>Checking your invitation…</h1></div>;
   }
 
   if (status === "signed-out") {
@@ -67,6 +73,16 @@ export function JoinInvitationView() {
       <p>Sign in or create an account with the email this invitation was sent to.</p>
       <a className="button button-primary button-lg" href={`/login?next=${encodeURIComponent(next)}`}>Sign in <LogIn size={16} /></a>
       <p><a href={`/signup?next=${encodeURIComponent(next)}`}>New here? Create an account</a></p>
+    </div>;
+  }
+
+  if (status === "wrong-account") {
+    return <div>
+      <span className="metric-icon amber"><CircleAlert size={20} /></span>
+      <h1>Switch accounts to join</h1>
+      <p>This invitation was sent to a different email address. Sign out, then use the account that received it.</p>
+      <SignOutButton kind="admin" redirectTo={`/login?next=${encodeURIComponent(next)}`} label="Switch account" />
+      <p><Link href="/organizations">Stay signed in</Link></p>
     </div>;
   }
 
@@ -80,7 +96,9 @@ export function JoinInvitationView() {
   }
 
   return <div>
+    <span className="metric-icon amber"><CircleAlert size={20} /></span>
     <h1>This invitation isn&apos;t valid</h1>
     <p>{message || "It may have expired or already been used. Ask whoever invited you to send a new one."}</p>
+    <a className="button button-secondary button-lg" href="/login">Go to sign in <LogIn size={16} /></a>
   </div>;
 }
