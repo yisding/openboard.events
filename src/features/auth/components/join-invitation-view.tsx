@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CheckCircle2, LogIn, Users } from "lucide-react";
+import { CheckCircle2, CircleAlert, LogIn, Users } from "lucide-react";
 import { z } from "zod";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -57,7 +57,7 @@ export function JoinInvitationView() {
   const next = `/join?token=${encodeURIComponent(token)}`;
 
   if (status === "checking" || status === "accepting") {
-    return <div><span className="metric-icon accent"><Users size={20} /></span><h1>Checking your invitation…</h1></div>;
+    return <div role="status" aria-live="polite"><span className="metric-icon accent"><Users size={20} /></span><h1>Checking your invitation…</h1></div>;
   }
 
   if (status === "signed-out") {
@@ -80,7 +80,9 @@ export function JoinInvitationView() {
   }
 
   return <div>
+    <span className="metric-icon warn"><CircleAlert size={20} /></span>
     <h1>This invitation isn&apos;t valid</h1>
     <p>{message || "It may have expired or already been used. Ask whoever invited you to send a new one."}</p>
+    <a className="button button-secondary button-lg" href="/login">Go to sign in <LogIn size={16} /></a>
   </div>;
 }
