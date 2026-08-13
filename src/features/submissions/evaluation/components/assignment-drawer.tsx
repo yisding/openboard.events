@@ -12,6 +12,26 @@ import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
 type AssignmentMode = "add" | "replace";
+type AssignmentLoadFailure = { message: string; retryable: boolean };
+type AssignmentLoadPayload = {
+  data?: { submissions: AssignableSubmission[] };
+  error?: { code?: string; message?: string };
+};
+
+const TERMINAL_LOAD_CODES = new Set(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"]);
+
+function responseLoadFailure(response: Response, payload: AssignmentLoadPayload | null): AssignmentLoadFailure {
+  const code = payload?.error?.code;
+  const terminal = response.status === 401
+    || response.status === 403
+    || response.status === 404
+    || (code !== undefined && TERMINAL_LOAD_CODES.has(code));
+  const retryableStatus = response.ok || response.status >= 500 || response.status === 408 || response.status === 429;
+  return {
+    message: payload?.error?.message ?? "Could not load this round's submissions",
+    retryable: !terminal && retryableStatus,
+  };
+}
 
 export function canSubmitAssignments({
   loaded,
@@ -89,7 +109,9 @@ export function AssignmentDrawer({
   currentTargetRef.current = targetKey;
   const [submissions, setSubmissions] = useState<AssignableSubmission[] | null>(null);
   const [loadedTarget, setLoadedTarget] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState("");
+  const [loadFailure, setLoadFailure] = useState<AssignmentLoadFailure | null>(null);
+  const [loadEpoch, setLoadEpoch] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [reviewerIds, setReviewerIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [trackFilter, setTrackFilter] = useState("");
@@ -105,37 +127,56 @@ export function AssignmentDrawer({
   }
 
   useEffect(() => {
-    let cancelled = false;
     setSubmissions(null);
     setLoadedTarget(null);
-    setLoadError("");
+    setLoadFailure(null);
+    setRetrying(false);
     setReviewerIds([]);
     setSelected([]);
     setTrackFilter("");
     setMode("add");
     setBusy(false);
     setConfirmEmptyReplace(false);
+  }, [targetKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTarget = targetKey;
+    setLoadFailure(null);
     fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`)
       .then(async (response) => {
-        const payload = await response.json().catch(() => null) as { data?: { submissions: AssignableSubmission[] }; error?: { message?: string } } | null;
-        if (cancelled) return;
+        const payload = await response.json().catch(() => null) as AssignmentLoadPayload | null;
+        if (cancelled || currentTargetRef.current !== loadTarget) return;
         if (!response.ok || !payload?.data) {
           setSubmissions(null);
-          setLoadError(payload?.error?.message ?? "Could not load this round's submissions");
+          setLoadFailure(responseLoadFailure(response, payload));
         } else {
-          setLoadError("");
+          setLoadFailure(null);
           setSubmissions(payload.data.submissions);
-          setLoadedTarget(targetKey);
+          setLoadedTarget(loadTarget);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && currentTargetRef.current === loadTarget) {
           setSubmissions(null);
-          setLoadError("Could not load this round's submissions");
+          setLoadFailure({
+            message: "Could not load this round's submissions. Check your connection and try again.",
+            retryable: true,
+          });
         }
+      })
+      .finally(() => {
+        if (!cancelled && currentTargetRef.current === loadTarget) setRetrying(false);
       });
     return () => { cancelled = true; };
-  }, [eventId, plan.id, targetKey]);
+  }, [eventId, plan.id, targetKey, loadEpoch]);
+
+  function retryLoad() {
+    if (!loadFailure?.retryable || retrying) return;
+    setRetrying(true);
+    setLoadFailure(null);
+    setLoadEpoch((epoch) => epoch + 1);
+  }
 
   const tracks = useMemo(() => {
     const seen = new Map<string, string>();
@@ -157,10 +198,10 @@ export function AssignmentDrawer({
   const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
   const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
   const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
-  const controlsDisabled = !assignmentsLoaded || Boolean(loadError) || busy;
+  const controlsDisabled = !assignmentsLoaded || Boolean(loadFailure) || busy;
   const canAssign = canSubmitAssignments({
     loaded: assignmentsLoaded,
-    hasLoadError: Boolean(loadError),
+    hasLoadError: Boolean(loadFailure),
     busy,
     reviewerCount: reviewerIds.length,
     selectedCount: selected.length,
@@ -169,7 +210,7 @@ export function AssignmentDrawer({
   });
 
   async function saveAssignments() {
-    if (!submissions || loadError || loadedTarget !== targetKey) {
+    if (!submissions || loadFailure || loadedTarget !== targetKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return false;
     }
@@ -202,7 +243,7 @@ export function AssignmentDrawer({
   }
 
   async function assign() {
-    if (!submissions || loadError || loadedTarget !== targetKey) {
+    if (!submissions || loadFailure || loadedTarget !== targetKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return;
     }
@@ -266,8 +307,19 @@ export function AssignmentDrawer({
 
         <section>
           <h3>Submissions</h3>
-          {loadError && <p className="portal-note" role="alert">{loadError}</p>}
-          {!submissions && !loadError && <p className="portal-note">Loading this round&apos;s submissions…</p>}
+          {loadFailure && (
+            <div className="portal-note" role="alert">
+              <p>{loadFailure.message}</p>
+              {loadFailure.retryable && (
+                <Button size="sm" variant="secondary" onClick={retryLoad}>Retry loading submissions</Button>
+              )}
+            </div>
+          )}
+          {!submissions && !loadFailure && (
+            <p className="portal-note" role="status">
+              {retrying ? "Retrying this round’s submissions…" : "Loading this round’s submissions…"}
+            </p>
+          )}
           {submissions && visible.length === 0 && <p className="portal-note">No submissions match this filter.</p>}
           <span className="row-actions">
             <Button disabled={controlsDisabled} size="sm" variant="secondary" onClick={() => setSelected(visible.map((submission) => submission.submissionId))}>
