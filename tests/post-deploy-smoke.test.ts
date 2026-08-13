@@ -44,6 +44,7 @@ extra=''
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
+  echo "$1" >> "$SMOKE_FAKE_STATE/cache-order"
   [[ -f "$count_file" ]] && count="$(<"$count_file")"
   count=$((count+1))
   echo "$count" > "$count_file"
@@ -112,6 +113,9 @@ printf '%s' "$status"
     expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("2");
     expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("4");
     expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("4");
+    expect(readFileSync(join(state, "cache-order"), "utf8").trim().split("\n")).toEqual([
+      "agenda", "embed", "agenda", "embed", "agenda", "embed", "agenda", "embed",
+    ]);
   });
 
   it("shares one elapsed-time deadline across propagation checks", () => {

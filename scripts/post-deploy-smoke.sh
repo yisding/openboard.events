@@ -40,7 +40,9 @@ failures=0
 skips=0
 headers_file="$(mktemp)"
 body_file="$(mktemp)"
-trap 'rm -f "$headers_file" "$body_file"' EXIT
+schedule_headers_file="$(mktemp)"
+embed_headers_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file" "$schedule_headers_file" "$embed_headers_file"' EXIT
 deployed_build_sha=""
 deployed_id=""
 # Cloudflare can briefly route requests to the previous Worker after wrangler
@@ -241,67 +243,83 @@ if expect_status "$base_url/api/auth/get-session" 200 "self-service auth is moun
   pass "/api/auth/get-session"
 fi
 
-# 2. The public schedule is cached at the edge. Two things this deliberately does
+# 2. The public schedule and embed use separate ISR cache entries, so probe them
+#    together inside the shared propagation window. This both initiates their
+#    regeneration before waiting and prevents whichever is checked first from
+#    consuming the other's retry budget. Two things this deliberately does
 #    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
 #    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and
 #    Cache-Control's presence on a cached response. OpenNext can serve an ISR
 #    entry as HIT with no Cache-Control at all; x-nextjs-cache is the
 #    authoritative signal in that case. STALE stays retryable because it can
 #    also mean regeneration is failing.
-#    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
-#    keep answering with a redirect so old links and embeds never break.
+#    The embed variant must also be framable: CSP allows any ancestor and the
+#    legacy header is absent. Both together is the classic blank-iframe failure.
 schedule_ok=0
 schedule_attempts=0
-while :; do
-  schedule_attempts=$((schedule_attempts + 1))
-  # Retryable probes use fetch directly: expect_status records a permanent
-  # failure, which would make a transient 503 fail the whole run even when a
-  # later attempt succeeds.
-  fetch "$base_url/e/$event_slug/agenda"
-  if [[ "$last_status" == "200" ]]; then
-    if is_edge_cache_fresh && is_current_deployment; then schedule_ok=1; break; fi
+schedule_last_status=""
+embed_ok=0
+embed_contract_ok=0
+embed_attempts=0
+embed_last_status=""
+while (( ! schedule_ok || ! embed_ok )); do
+  if (( ! schedule_ok )); then
+    schedule_attempts=$((schedule_attempts + 1))
+    # Retryable probes use fetch directly: expect_status records a permanent
+    # failure, which would make a transient 503 fail the whole run even when a
+    # later attempt succeeds.
+    fetch "$base_url/e/$event_slug/agenda"
+    schedule_last_status="$last_status"
+    cp "$headers_file" "$schedule_headers_file"
+    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      schedule_ok=1
+    fi
   fi
+
+  if (( ! embed_ok )); then
+    embed_attempts=$((embed_attempts + 1))
+    fetch "$base_url/embed/$event_slug/agenda"
+    embed_last_status="$last_status"
+    cp "$headers_file" "$embed_headers_file"
+    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      embed_ok=1
+      if expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
+        && expect_no_header "x-frame-options" "embed does not send X-Frame-Options"; then
+        embed_contract_ok=1
+      fi
+    fi
+  fi
+
+  (( schedule_ok && embed_ok )) && break
   wait_for_propagation_retry || break
 done
+
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
-elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 before the propagation deadline; got $last_status after $schedule_attempts attempts)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id before the propagation deadline ($schedule_attempts attempts)"
+  cp "$schedule_headers_file" "$headers_file"
+  if [[ "$schedule_last_status" != "200" ]]; then
+    fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 before the propagation deadline; got $schedule_last_status after $schedule_attempts attempts)"
+  else
+    fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id before the propagation deadline ($schedule_attempts attempts)"
+  fi
 fi
 
-# 2b. The legacy public URL redirects rather than 404s.
+if (( embed_ok )); then
+  if (( embed_contract_ok )); then pass "/embed/$event_slug/agenda"; fi
+else
+  cp "$embed_headers_file" "$headers_file"
+  if [[ "$embed_last_status" != "200" ]]; then
+    fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 before the propagation deadline; got $embed_last_status after $embed_attempts attempts)"
+  else
+    fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id before the propagation deadline ($embed_attempts attempts)"
+  fi
+fi
+
+# 2b. M53 renamed the canonical surface to /agenda; the legacy /schedule URL
+# must keep answering with a redirect so old links and embeds never break.
 if expect_status "$base_url/e/$event_slug/schedule" 307 "legacy /schedule redirects to the M53 surface"; then
   pass "/e/$event_slug/schedule (307 legacy redirect)"
-fi
-
-# 3. The embed variant must be framable: CSP allows any ancestor and the legacy
-#    header is absent. Both together is the classic blank-iframe failure.
-#    The M53 embed pages used to read their appearance options from
-#    searchParams, which forced dynamic rendering and lost the edge cache the
-#    /e/* pages have (status rev. 11's recorded regression). They now read
-#    style from the saved `embeds` row instead, same as filters and the kill
-#    switch already did — so this asserts s-maxage on the embed too, with the
-#    same cache-state retry as check 2.
-embed_ok=0
-embed_attempts=0
-while :; do
-  embed_attempts=$((embed_attempts + 1))
-  fetch "$base_url/embed/$event_slug/agenda"
-  if [[ "$last_status" == "200" ]]; then
-    if is_edge_cache_fresh && is_current_deployment; then embed_ok=1; break; fi
-  fi
-  wait_for_propagation_retry || break
-done
-if (( embed_ok )); then
-  expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
-    && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
-    && pass "/embed/$event_slug/agenda"
-elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 before the propagation deadline; got $last_status after $embed_attempts attempts)"
-else
-  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id before the propagation deadline ($embed_attempts attempts)"
 fi
 
 # 4. The public API answers with an envelope.
