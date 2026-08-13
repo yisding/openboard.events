@@ -2,6 +2,8 @@ export type EventLifecycle = "current" | "upcoming" | "past";
 
 type EventInterval = { id: string; startsAt: string; endsAt: string };
 
+const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
+
 export function eventLifecycle(event: EventInterval, nowIso: string): EventLifecycle {
   const now = new Date(nowIso).getTime();
   const startsAt = new Date(event.startsAt).getTime();
@@ -33,4 +35,17 @@ export function groupEventsByLifecycle<T extends EventInterval>(rows: readonly T
   const groups: Record<EventLifecycle, T[]> = { current: [], upcoming: [], past: [] };
   for (const event of orderEventsByLifecycle(rows, nowIso)) groups[eventLifecycle(event, nowIso)].push(event);
   return groups;
+}
+
+export function nextEventLifecycleRefreshMs(rows: readonly EventInterval[], nowMs: number): number | null {
+  const nextBoundary = rows
+    .flatMap(({ startsAt, endsAt }) => [startsAt, endsAt])
+    .map((value) => new Date(value).getTime())
+    .filter((value) => value > nowMs)
+    .sort((left, right) => left - right)[0];
+  if (nextBoundary === undefined) return null;
+  // Recompute just after the boundary so [start, end) classification has
+  // definitely changed. Very distant events are revisited at the browser's
+  // maximum timeout until their boundary is close enough.
+  return Math.min(nextBoundary - nowMs + 25, MAX_BROWSER_TIMEOUT_MS);
 }
