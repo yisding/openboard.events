@@ -6,11 +6,11 @@ export { clearAdminLoginThrottle, revokeAdminSessions, throttleAdminLogin } from
 export { hashAdminPassword, needsRehash, verifyAdminPassword } from "./server/admin-password";
 export { upsertCredentialAccount } from "./server/credential-account";
 export type { PortalSession } from "./server/portal";
-export { ensurePortalSession, logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, startImpersonation, verifyPortalLogin } from "./server/portal";
+export { logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, verifyPortalLogin } from "./server/portal";
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";
 export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-payload";
 export type { AdminLinkPayload } from "./server/secret-payload";
-export { openAdminLinkPayload, sealAdminLinkPayload } from "./server/secret-payload";
+export { openAdminLinkPayload } from "./server/secret-payload";
 export { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./server/secret-payload";
 export type { AdminAuthTemplateKey } from "./server/admin-mail";
 export {

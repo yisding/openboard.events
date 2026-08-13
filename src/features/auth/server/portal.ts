@@ -1,5 +1,4 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { and, count, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
@@ -157,11 +156,6 @@ export async function requirePortal(eventSlug: string): Promise<PortalSession> {
   return requirePortalByEventId(event.id);
 }
 
-export async function ensurePortalSession(contactId: ContactId, eventId: EventId): Promise<void> {
-  const session = await createPortalSessionRowIn(db, contactId, eventId, null);
-  await setPortalCookie(eventId, session.raw);
-}
-
 export async function requestPortalLoginIn(tx: TxDb, args: {
   eventId: EventId;
   eventSlug: string;
@@ -277,10 +271,6 @@ export async function logoutPortal(eventSlug: string): Promise<void> {
   const raw = jar.get(portalCookieName(event.id))?.value;
   if (raw) await db.delete(portalSessions).where(and(eq(portalSessions.eventId, event.id), eq(portalSessions.tokenHash, await sha256(raw))));
   jar.set(portalCookieName(event.id), "", { ...portalCookieOptions(), maxAge: 0 });
-}
-
-export async function startImpersonation(eventId: EventId, contactId: ContactId): Promise<void> {
-  redirect(await createImpersonationLink(eventId, contactId));
 }
 
 export async function createImpersonationLink(eventId: EventId, contactId: ContactId): Promise<string> {
