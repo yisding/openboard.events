@@ -4,14 +4,17 @@ import { Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   acceptedBulkSendCount,
+  abandonBulkSendAttempt,
   bulkSendResultToastOptions,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
+  verifyBulkSendAttempt,
   type BulkSendAttempt,
 } from "../bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
   browserBulkSendRecoveryLockManager,
+  bulkSendAttemptScope,
   classifyBulkSendFailure,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
@@ -252,7 +255,30 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     const fingerprint = currentPreviewFingerprint;
     setPreview(null);
     try {
-      const attempt = await claimBulkSendAttempt(window.sessionStorage, `speaker-segment:${eventId}`, fingerprint);
+      const claimed = await withBulkSendRecoveryLock(
+        recoveryIdentity,
+        browserBulkSendRecoveryLockManager(),
+        () => {
+          const pending = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
+          return !pending.ok && pending.reason === "missing"
+            ? claimBulkSendAttempt(window.localStorage, bulkSendAttemptScope(recoveryIdentity), fingerprint)
+            : null;
+        },
+      );
+      if (!claimed.ok) {
+        toast(
+          claimed.reason === "lock_busy"
+            ? "Another tab is preparing or sending email for this event. Finish there before previewing again."
+            : "This browser can’t safely coordinate bulk email across tabs. Try a current browser or check its privacy settings.",
+          { kind: "error", durationMs: 8_000 },
+        );
+        return;
+      }
+      if (!claimed.value) {
+        toast("Another tab has an email recovery for this event. Resume or clear it before previewing a new send.", { kind: "error", durationMs: 8_000 });
+        return;
+      }
+      const attempt = claimed.value;
       // Only the previewed recipient is ever rendered — sending the full
       // segment here would trip composeBulkSpeakerEmailInputSchema's
       // 200-recipient cap for any segment resolveSpeakerSegmentIn allows
@@ -327,6 +353,21 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       confirmedResult: null,
     } : null);
     if (!candidate) return false;
+    const attempt = { sendId: candidate.sendId, storageKey: candidate.attemptStorageKey };
+    if (recovery) {
+      const current = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
+      if (!current.ok || current.snapshot.sendId !== recovery.sendId) {
+        toast("This recovery changed in another tab. Reload this page before taking another action.", { kind: "error", durationMs: 8_000 });
+        return false;
+      }
+    } else {
+      const current = verifyBulkSendAttempt(window.localStorage, attempt);
+      if (!current.ok || current.status !== "active") {
+        setPreview(null);
+        toast("This approved preview was completed or replaced in another tab. Preview the message again before sending.", { kind: "error", durationMs: 8_000 });
+        return false;
+      }
+    }
     const stored = persistBulkSendRecovery(window.localStorage, candidate);
     if (!stored.ok) {
       if (stored.reason === "corrupt" || stored.reason === "identity_mismatch") {
@@ -376,9 +417,9 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       persistBulkSendRecovery(window.localStorage, confirmed);
       setRecovery(confirmed);
       setResult(sent);
-      const removed = removeBulkSendRecovery(window.localStorage, confirmed);
-      if (removed.ok) {
-        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+      const completed = completeBulkSendAttempt(window.localStorage, attempt);
+      const removed = completed.ok ? removeBulkSendRecovery(window.localStorage, confirmed) : completed;
+      if (completed.ok && removed.ok) {
         setRecovery(null);
       } else {
         toast("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.", { kind: "error", durationMs: 8_000 });
@@ -403,9 +444,9 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       return true;
     } catch (caught) {
       if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completedThisRun], retryingRecovery) === "definite") {
-        const removed = removeBulkSendRecovery(window.localStorage, approved);
-        if (removed.ok) {
-          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        const abandoned = abandonBulkSendAttempt(window.localStorage, attempt);
+        const removed = abandoned.ok ? removeBulkSendRecovery(window.localStorage, approved) : abandoned;
+        if (abandoned.ok && removed.ok) {
           setRecovery(null);
           toast(caught instanceof Error ? caught.message : "Could not send this message", { kind: "error" });
         } else {
@@ -421,9 +462,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   async function abandonRecovery() {
     if (!recovery) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const abandoned = abandonBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      if (!abandoned.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
-      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       setRecovery(null);
       setConfirmAbandon(false);
       discardDraft();
@@ -441,9 +483,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const completed = completeBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      if (!completed.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
-      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       setRecovery(null);
       // A restored receipt is complete, not a draft waiting to be sent again.
       // Keep its audience and copy visible, but require a fresh preview/send ID

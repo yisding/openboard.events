@@ -4,7 +4,16 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBulkSendRecovery, speakerBulkSendRecoveryIdentity } from "@/features/comms/bulk-send-recovery";
+import {
+  bulkSendPreviewFingerprint,
+  claimBulkSendAttempt,
+  completeBulkSendAttempt,
+} from "@/features/comms/bulk-send-attempt";
+import {
+  bulkSendAttemptScope,
+  loadBulkSendRecovery,
+  speakerBulkSendRecoveryIdentity,
+} from "@/features/comms/bulk-send-recovery";
 import { AppError } from "@/shared/lib/errors";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 
@@ -59,6 +68,67 @@ afterEach(async () => {
 });
 
 describe("targeted speaker email recovery", () => {
+  it("rejects a stale approved preview after another tab completes and a new generation starts", async () => {
+    const recoveryIdentity = speakerBulkSendRecoveryIdentity(eventId);
+    const subjectText = "Program update";
+    const bodyHtml = "<p>Hello</p>";
+    const fingerprint = bulkSendPreviewFingerprint({
+      contactIds: [contactId],
+      previewContactId: contactId,
+      subject: subjectText,
+      bodyHtml,
+    });
+    const sharedAttempt = await claimBulkSendAttempt(
+      window.localStorage,
+      bulkSendAttemptScope(recoveryIdentity),
+      fingerprint,
+      () => "b3000000-0000-4000-8000-000000000099",
+    );
+    apiMock
+      .mockResolvedValueOnce({
+        queued: 0,
+        alreadyQueued: 0,
+        skipped: 0,
+        errors: [],
+        preview: {
+          recipientEmail: "alex@example.com",
+          recipientName: "Alex Speaker",
+          subject: subjectText,
+          bodyHtml: "<p>Hello Alex</p>",
+          bodyText: "Hello Alex",
+        },
+      });
+
+    await act(async () => root.render(<SpeakerBulkEmailDialog eventId={eventId} open selected={selected} onClose={vi.fn()} />));
+    const subject = container.querySelector<HTMLInputElement>('input[placeholder^="A note"]');
+    const body = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!subject || !body) throw new Error("Compose fields were not rendered");
+    await change(subject, subjectText);
+    await change(body, bodyHtml);
+    await act(async () => {
+      buttonsNamed("Refresh preview")[0]?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The other tab completes X and a later intentional preview advances the
+    // exact fingerprint to Y. This stale X preview must not resurrect itself.
+    completeBulkSendAttempt(window.localStorage, sharedAttempt);
+    const nextAttempt = await claimBulkSendAttempt(
+      window.localStorage,
+      bulkSendAttemptScope(recoveryIdentity),
+      fingerprint,
+      () => "b3000000-0000-4000-8000-000000000100",
+    );
+    expect(nextAttempt.sendId).not.toBe(sharedAttempt.sendId);
+    await act(async () => buttonsNamed("Send to 1")[0]?.click());
+    await act(async () => buttonsNamed("Send to 1").at(-1)?.click());
+
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("approved preview was completed or replaced in another tab");
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("does not send when another tab owns the event-wide email lock", async () => {
     const preview = {
       recipientEmail: "alex@example.com",

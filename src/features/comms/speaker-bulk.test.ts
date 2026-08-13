@@ -298,6 +298,65 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     expect(logs.rows[0]).toMatchObject({ n: 1, event_id: eventId, contact_id: ada });
   });
 
+  it("does not queue the surviving CRM identity after its merged alias already committed", async () => {
+    const organizationId = organizationIdSchema.parse("d3fa0000-0000-4000-8000-000000000001");
+    const mergedContactId = organizationContactIdSchema.parse("e3000000-0000-4000-8000-000000000030");
+    const primaryContactId = organizationContactIdSchema.parse("e3000000-0000-4000-8000-000000000031");
+    const sendId = "91000000-0000-4000-8000-000000000023";
+    const mergedKey = idem.crmBulk(organizationId, mergedContactId, sendId);
+    const primaryKey = idem.crmBulk(organizationId, primaryContactId, sendId);
+    await pglite.query(
+      "INSERT INTO organization_contacts(id,organization_id,email,first_name,last_name) VALUES ($1,$3,'merge-partial@example.com','Merge','Partial'),($2,$3,'merge-primary@example.com','Merge','Primary')",
+      [mergedContactId, primaryContactId, organizationId],
+    );
+    await pglite.query(
+      "INSERT INTO organization_contact_links(organization_id,organization_contact_id,event_id,contact_id) VALUES($1,$2,$3,$4),($1,$5,$6,$7)",
+      [organizationId, mergedContactId, eventId, grace, primaryContactId, movedEventId, movedContact],
+    );
+    const message = {
+      subject: "Partially committed CRM update",
+      bodyHtml: "<p>Hello {{speaker.first_name}}</p>",
+      mode: "send" as const,
+      sendId,
+    };
+
+    // Model a browser batch boundary: the losing identity committed, then a
+    // later request for the primary never reached the server.
+    const first = await composeCrmBulkEmailIn(tx, organizationId, {
+      ...message,
+      organizationContactIds: [mergedContactId],
+    });
+    await pglite.query("DELETE FROM communication_logs WHERE idempotency_key=$1", [mergedKey]);
+    await pglite.query("UPDATE organization_contact_links SET organization_contact_id=$1 WHERE organization_contact_id=$2", [primaryContactId, mergedContactId]);
+    await pglite.query("UPDATE organization_contacts SET merged_into_id=$1 WHERE id=$2", [primaryContactId, mergedContactId]);
+
+    const retry = await composeCrmBulkEmailIn(tx, organizationId, {
+      ...message,
+      organizationContactIds: [mergedContactId, primaryContactId],
+    });
+    // The browser splits a 501-recipient campaign into separate HTTP calls.
+    // A later chunk containing only the surviving identity must still find
+    // the losing alias's campaign message and avoid a second key/delivery.
+    const laterChunk = await composeCrmBulkEmailIn(tx, organizationId, {
+      ...message,
+      organizationContactIds: [primaryContactId],
+    });
+
+    expect(first).toMatchObject({ queued: 1, alreadyQueued: 0, skipped: 0, errors: [] });
+    expect(retry).toMatchObject({ queued: 0, alreadyQueued: 1, skipped: 1, errors: [] });
+    expect(laterChunk).toMatchObject({ queued: 0, alreadyQueued: 1, skipped: 0, errors: [] });
+    const messages = await pglite.query<{ idempotency_key: string }>(
+      "SELECT idempotency_key FROM speaker_bulk_messages WHERE idempotency_key IN ($1,$2) ORDER BY idempotency_key",
+      [mergedKey, primaryKey],
+    );
+    const logs = await pglite.query<{ idempotency_key: string }>(
+      "SELECT idempotency_key FROM communication_logs WHERE idempotency_key IN ($1,$2) ORDER BY idempotency_key",
+      [mergedKey, primaryKey],
+    );
+    expect(messages.rows).toEqual([{ idempotency_key: mergedKey }]);
+    expect(logs.rows).toEqual([{ idempotency_key: mergedKey }]);
+  });
+
   it("keeps overlapping CRM retries on the one winning destination", async () => {
     const sendId = "91000000-0000-4000-8000-000000000021";
     const organizationId = organizationIdSchema.parse("e3000000-0000-4000-8000-000000000001");

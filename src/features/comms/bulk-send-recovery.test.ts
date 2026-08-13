@@ -6,6 +6,7 @@ import {
   MAX_BULK_SEND_RECOVERY_BODY_LENGTH,
   MAX_BULK_SEND_RECOVERY_RECIPIENTS,
   MAX_BULK_SEND_RECOVERY_SUBJECT_LENGTH,
+  bulkSendAttemptScope,
   bulkSendRecoverySnapshotSchema,
   bulkSendRecoveryStorageKey,
   classifyBulkSendFailure,
@@ -73,6 +74,7 @@ function memoryStorage(): BulkSendRecoveryStorage {
 describe("bulk send recovery snapshot", () => {
   it("uses one event-wide identity for every speaker bulk-send surface", () => {
     expect(speakerBulkSendRecoveryIdentity("event-1")).toEqual({ surface: "speaker", scope: "event-1" });
+    expect(bulkSendAttemptScope(speakerBulkSendRecoveryIdentity("event-1"))).toBe("speaker:event-1");
   });
 
   it("round-trips a versioned speaker snapshot with its frozen rendered preview", () => {

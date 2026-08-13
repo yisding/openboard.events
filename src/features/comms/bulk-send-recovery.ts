@@ -162,6 +162,11 @@ export function speakerBulkSendRecoveryIdentity(eventId: string): BulkSendRecove
   return { surface: "speaker", scope: eventId };
 }
 
+/** Every dialog for a recovery identity shares this attempt namespace. */
+export function bulkSendAttemptScope(identity: BulkSendRecoveryIdentity): string {
+  return `${identity.surface}:${identity.scope}`;
+}
+
 /**
  * Holds one non-waiting, origin-wide Web Lock for the full send transaction.
  * Keeping the lock through the API response and verified cleanup closes the

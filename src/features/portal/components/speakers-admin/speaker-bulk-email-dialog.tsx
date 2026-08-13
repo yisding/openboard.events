@@ -6,17 +6,21 @@ import { templateVariablePaths } from "@/features/comms/components/sample-vars";
 import { unknownTokensClientSide } from "@/features/comms/components/validate-client";
 import {
   acceptedBulkSendCount,
+  abandonBulkSendAttempt,
   bulkSendPreviewFingerprint,
   bulkSendResultToastOptions,
   canSendBulkMessage,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
+  verifyBulkSendAttempt,
   type BulkSendAttempt,
 } from "@/features/comms/bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
   browserBulkSendRecoveryLockManager,
+  bulkSendAttemptScope,
   classifyBulkSendFailure,
+  loadBulkSendRecovery,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
   speakerBulkSendRecoveryIdentity,
@@ -169,7 +173,27 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
     const fingerprint = previewFingerprint;
     setPreview(null);
     try {
-      const attempt = await claimBulkSendAttempt(window.sessionStorage, `speaker-selected:${eventId}`, fingerprint);
+      const claimed = await withBulkSendRecoveryLock(
+        recoveryIdentity,
+        browserBulkSendRecoveryLockManager(),
+        () => {
+          const pending = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
+          return !pending.ok && pending.reason === "missing"
+            ? claimBulkSendAttempt(window.localStorage, bulkSendAttemptScope(recoveryIdentity), fingerprint)
+            : null;
+        },
+      );
+      if (!claimed.ok) {
+        setError(claimed.reason === "lock_busy"
+          ? "Another tab is preparing or sending email for this event. Finish there before previewing again."
+          : "This browser can’t safely coordinate bulk email across tabs. Try a current browser or check its privacy settings.");
+        return;
+      }
+      if (!claimed.value) {
+        setError("Another tab has an email recovery for this event. Resume or clear it before previewing a new send.");
+        return;
+      }
+      const attempt = claimed.value;
       const result = await api(`speakers/${eventId}/bulk-email`, composeBulkSpeakerEmailResultSchema, {
         method: "POST",
         body: { contactIds: audience.map((row) => row.contactId), subject, bodyHtml, mode: "preview", previewContactId },
@@ -216,6 +240,21 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       confirmedResult: null,
     } : null);
     if (!approved) return false;
+    const attempt = { sendId: approved.sendId, storageKey: approved.attemptStorageKey };
+    if (recovery) {
+      const current = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
+      if (!current.ok || current.snapshot.sendId !== recovery.sendId) {
+        setError("This recovery changed in another tab. Close and reopen it before taking another action.");
+        return false;
+      }
+    } else {
+      const current = verifyBulkSendAttempt(window.localStorage, attempt);
+      if (!current.ok || current.status !== "active") {
+        setPreview(null);
+        setError("This approved preview was completed or replaced in another tab. Refresh the preview before sending again.");
+        return false;
+      }
+    }
     const stored = persistBulkSendRecovery(window.localStorage, approved);
     if (!stored.ok) {
       setError("Can’t send safely because recovery storage is unavailable. Check your browser storage settings and try again.");
@@ -243,9 +282,9 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       setRecovery(confirmed);
       onRecoveryChange?.(confirmed);
       setSendResult(result);
-      const removed = removeBulkSendRecovery(window.localStorage, confirmed);
-      if (removed.ok) {
-        completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+      const completed = completeBulkSendAttempt(window.localStorage, attempt);
+      const removed = completed.ok ? removeBulkSendRecovery(window.localStorage, confirmed) : completed;
+      if (completed.ok && removed.ok) {
         setRecovery(null);
         onRecoveryChange?.(null);
       } else {
@@ -259,9 +298,9 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       return true;
     } catch (sendError) {
       if (classifyBulkSendFailure(sendError, approved.completedResults, retryingRecovery) === "definite") {
-        const removed = removeBulkSendRecovery(window.localStorage, approved);
-        if (removed.ok) {
-          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
+        const abandoned = abandonBulkSendAttempt(window.localStorage, attempt);
+        const removed = abandoned.ok ? removeBulkSendRecovery(window.localStorage, approved) : abandoned;
+        if (abandoned.ok && removed.ok) {
           setRecovery(null);
           onRecoveryChange?.(null);
           setError(isAppError(sendError) ? sendError.message : "That did not go through");
@@ -280,9 +319,10 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   async function abandonRecovery() {
     if (!recovery) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const abandoned = abandonBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      if (!abandoned.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
-      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       setRecovery(null);
       onRecoveryChange?.(null);
       finishClose();
@@ -300,9 +340,10 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const completed = completeBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
+      if (!completed.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
-      completeBulkSendAttempt(window.sessionStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       setRecovery(null);
       onRecoveryChange?.(null);
       setError(null);
