@@ -83,4 +83,16 @@ describe("shared UI spacing regressions", () => {
       ".landing-links > a:not(.button), .landing-links .button-secondary { display: none; }",
     );
   });
+
+  it("gives discrete public session and gallery actions full pointer targets", () => {
+    expect(css).toContain(
+      ".public-session-main h3 button{width:100%;min-height:32px;",
+    );
+    expect(css).toContain(
+      ".session-card-toggle,.speaker-gallery footer button,.speaker-gallery footer a{min-height:32px}",
+    );
+    expect(css).toContain(
+      ".public-session-main h3 button,.session-card-toggle,.speaker-gallery footer button,.speaker-gallery footer a{min-height:44px}",
+    );
+  });
 });
