@@ -199,6 +199,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   useEffect(() => {
     const storageKey = bulkSendRecoveryStorageKey(recoveryIdentity);
     const refreshRecovery = (restoreDisplacedWhenMissing = false) => {
+      resolveGeneration.current += 1;
       const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
       setRecovery(null);
       setRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));

@@ -241,4 +241,34 @@ describe("segment bulk email recovery", () => {
     expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
     expect(loadBulkSendRecovery(window.localStorage, snapshot)).toEqual({ ok: false, reason: "missing" });
   });
+
+  it("ignores an older audience response after shared recovery takes over", async () => {
+    let finishResolve: ((value: unknown) => void) | undefined;
+    resolveMock.mockImplementation(() => new Promise((resolve) => { finishResolve = resolve; }));
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+    await act(async () => buttonNamed("Preview audience")?.click());
+
+    const snapshot = completedRecovery();
+    const storageKey = bulkSendRecoveryStorageKey(snapshot);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      oldValue: null,
+      newValue: window.localStorage.getItem(storageKey),
+      storageArea: window.localStorage,
+    })));
+
+    await act(async () => finishResolve?.({
+      matchedCount: 2,
+      contactIds: [contactId, "b1000000-0000-4000-8000-000000000002"],
+      capped: false,
+      excludedSuppressedCount: 0,
+      excludedUnsubscribedCount: 0,
+      preview: [],
+    }));
+
+    expect(container.textContent).toContain("1 recipient will be emailed");
+    expect(container.textContent).not.toContain("2 recipients will be emailed");
+    expect(container.textContent).toContain("Send confirmed; cleanup needed");
+  });
 });
