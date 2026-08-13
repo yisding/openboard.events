@@ -218,7 +218,7 @@ export function TasksAdminView({
                     </div>
                   </div>
                   <div className="admin-task-progress">
-                    <div><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
+                    <div className="admin-task-progress-copy"><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
                     <ProgressBar label={`Completion for ${task.name}`} value={progress} tone={progress > 75 ? "green" : "accent"} />
                   </div>
                   <TaskRowMenu task={task} onView={() => setMatrixTaskId(task.id)} onEdit={() => setEditing(task)} onDuplicate={() => setDuplicatingTask(task)} onDelete={() => setPendingDelete(task)} />
