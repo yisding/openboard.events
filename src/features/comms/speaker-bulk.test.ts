@@ -344,7 +344,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
 
     expect(first).toMatchObject({ queued: 1, alreadyQueued: 0, skipped: 0, errors: [] });
     expect(retry).toMatchObject({ queued: 0, alreadyQueued: 1, skipped: 1, errors: [] });
-    expect(laterChunk).toMatchObject({ queued: 0, alreadyQueued: 1, skipped: 0, errors: [] });
+    expect(laterChunk).toMatchObject({ queued: 0, alreadyQueued: 0, skipped: 1, errors: [] });
     const messages = await pglite.query<{ idempotency_key: string }>(
       "SELECT idempotency_key FROM speaker_bulk_messages WHERE idempotency_key IN ($1,$2) ORDER BY idempotency_key",
       [mergedKey, primaryKey],

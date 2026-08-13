@@ -147,11 +147,7 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
 
   const idempotencyKeyByContact = new Map(input.organizationContactIds.map((organizationContactId) => [
     organizationContactId,
-    idem.crmBulk(
-      organizationId,
-      organizationContactIdSchema.parse(canonicalContactIds.get(organizationContactId) ?? organizationContactId),
-      input.sendId,
-    ),
+    idem.crmBulk(organizationId, organizationContactIdSchema.parse(organizationContactId), input.sendId),
   ] as const));
   // A merge can move every current link off the losing organization contact
   // after its first request committed. Its durable message is therefore the
@@ -209,13 +205,19 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
     // If any identity in a newly-merged group already committed, that durable
     // message covers the canonical person. Recover every distinct committed
     // key, but never create another message for a fresh alias in that group.
-    const committed = [...new Map(
+    const committedForCampaign = [...new Map(
       (committedByCanonicalContact.get(canonicalContactId) ?? [])
         .map((candidate) => [candidate.idempotencyKey, candidate] as const),
     ).values()];
-    if (committed.length > 0) {
-      canonicalTargets.push(...committed);
-      skipped += Math.max(0, candidates.length - committed.length);
+    if (committedForCampaign.length > 0) {
+      // A committed alias in another 500-recipient HTTP chunk covers this
+      // canonical person, but only the chunk that owns that durable key heals
+      // and counts it. Every later alias is skipped, keeping the aggregate
+      // receipt independent of browser chunk boundaries.
+      const requestedIds = new Set(candidates.map((candidate) => candidate.organizationContactId));
+      const committedInThisChunk = committedForCampaign.filter((candidate) => requestedIds.has(candidate.organizationContactId));
+      canonicalTargets.push(...committedInThisChunk);
+      skipped += Math.max(0, candidates.length - committedInThisChunk.length);
       continue;
     }
     const winner = candidates.find((candidate) => candidate.organizationContactId === canonicalContactId && candidate.eventId && candidate.contactId)
