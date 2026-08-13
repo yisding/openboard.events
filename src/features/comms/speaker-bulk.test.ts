@@ -231,6 +231,9 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       contactIds: [ada],
       idempotencyKeys: new Map([[ada, idempotencyKey]]),
     });
+    // Model the ambiguity between the durable message insert and its outbox
+    // insert, then move the CRM contact before retrying.
+    await pglite.query("DELETE FROM communication_logs WHERE idempotency_key=$1", [idempotencyKey]);
     const retry = await composeBulkSpeakerEmailIn(tx, movedEventId, {
       ...message,
       contactIds: [movedContact],
@@ -243,11 +246,12 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
       "SELECT count(*)::int AS n FROM speaker_bulk_messages WHERE idempotency_key=$1",
       [idempotencyKey],
     );
-    const logs = await pglite.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM communication_logs WHERE idempotency_key=$1",
+    const logs = await pglite.query<{ n: number; event_id: string; contact_id: string }>(
+      "SELECT count(*)::int AS n, min(event_id::text) AS event_id, min(contact_id::text) AS contact_id FROM communication_logs WHERE idempotency_key=$1",
       [idempotencyKey],
     );
     expect(messages.rows[0]?.n).toBe(1);
     expect(logs.rows[0]?.n).toBe(1);
+    expect(logs.rows[0]).toMatchObject({ event_id: eventId, contact_id: ada });
   });
 });

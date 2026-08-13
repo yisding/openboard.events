@@ -2,6 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, contactSuppressions, events, speakerBulkMessages } from "@/db/schema";
 import {
+  contactIdSchema,
+  eventIdSchema,
   idem,
   type ComposeBulkSpeakerEmailInput,
   type ComposeBulkSpeakerEmailResult,
@@ -137,11 +139,15 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   const sendId = input.sendId;
   const idempotencyKeyFor = (contactId: ContactId) => input.idempotencyKeys?.get(contactId) ?? idem.speakerBulk(eventId, contactId, sendId);
   const idempotencyKeys = input.contactIds.map(idempotencyKeyFor);
-  const existingKeys = new Set(
-    (await dbOrTx.select({ idempotencyKey: speakerBulkMessages.idempotencyKey })
+  const existingMessages = new Map(
+    (await dbOrTx.select({
+      idempotencyKey: speakerBulkMessages.idempotencyKey,
+      eventId: speakerBulkMessages.eventId,
+      contactId: speakerBulkMessages.contactId,
+    })
       .from(speakerBulkMessages)
       .where(inArray(speakerBulkMessages.idempotencyKey, idempotencyKeys)))
-      .map((message) => message.idempotencyKey),
+      .map((message) => [message.idempotencyKey, message] as const),
   );
   let queued = 0;
   let alreadyQueued = 0;
@@ -151,11 +157,20 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
     const row = recipients.get(contactId);
     if (!row) { errors.push({ contactId, reason: "Not found in this event" }); continue; }
     const idempotencyKey = idempotencyKeyFor(contactId);
-    if (existingKeys.has(idempotencyKey)) {
+    const existing = existingMessages.get(idempotencyKey);
+    if (existing) {
       // The first response may have been lost after the message insert. Count
-      // that recipient as accepted by this attempt and retry enqueueing so a
-      // rarer failure between the message and outbox inserts still self-heals.
-      await enqueueEmail(asOutboxWriter(dbOrTx), { eventId, templateKey: "speaker_bulk_message", contactId, idempotencyKey });
+      // that recipient as accepted by this attempt and retry enqueueing its
+      // recorded destination so a rarer failure between the message and
+      // outbox inserts still self-heals. CRM's latest link may have changed
+      // since this message row committed; the stored event/contact is the
+      // approved attempt's authoritative destination.
+      await enqueueEmail(asOutboxWriter(dbOrTx), {
+        eventId: eventIdSchema.parse(existing.eventId),
+        templateKey: "speaker_bulk_message",
+        contactId: contactIdSchema.parse(existing.contactId),
+        idempotencyKey,
+      });
       alreadyQueued += 1;
       continue;
     }
