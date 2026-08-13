@@ -20,11 +20,13 @@ export default async function Page({
 }) {
   const { eventId: rawEventId } = await params;
   const eventId = eventIdSchema.parse(rawEventId);
-  // Any member may read the submissions they are reviewing, so no role is
-  // required here — the layout's guard has already established membership.
-  // Changing one is an organizer's job, and the routes enforce that too: a
-  // reviewer who forges the request still gets 403.
-  const session = await requireAdmin(eventId);
+  // This payload carries submitter identity and the speaker option list, so it
+  // is organizer-only — the same bar `/api/internal/submissions` holds a
+  // reviewer to. The role is repeated here rather than left to the layout
+  // because a client-side navigation between sibling segments re-renders the
+  // page without re-running the layout's guard. Reviewers read submissions
+  // through `/review`, which redacts identity for a blind round.
+  const session = await requireAdmin(eventId, "organizer");
   const canEdit = session.role === "owner" || session.role === "organizer";
 
   // Read through the page reader, which keeps a hand-edited or stale query

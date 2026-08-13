@@ -20,7 +20,7 @@ export type Uploader =
 
 export function asRequester(uploader: Uploader): FileRequester {
   return uploader.kind === "admin"
-    ? { kind: "admin", role: uploader.role }
+    ? { kind: "admin", role: uploader.role, userId: uploader.userId }
     : { kind: "contact", contactId: uploader.contactId };
 }
 
@@ -31,9 +31,11 @@ export function asRequester(uploader: Uploader): FileRequester {
  * rather than being rejected outright: the same person may hold both sessions.
  *
  * The guard asks for the *lowest* admin rank on purpose: this establishes which
- * member is uploading, and `assertMayUpload` below is what decides what that
- * member's role may upload. Spelling the rank out keeps that policy where it is
- * readable instead of inheriting `adminAuth`'s organizer-only default.
+ * member is acting, and the role it carries is what decides what they may do —
+ * `assertMayUpload` below on the upload side, and on the download side the
+ * reviewer scope `getDownloadUrl` resolves from the role and user id `asRequester`
+ * hands it. Spelling the rank out keeps that policy where it is readable instead
+ * of inheriting `adminAuth`'s organizer-only default.
  */
 export async function requireUploader(request: NextRequest, eventId: EventId): Promise<Uploader> {
   if (await getAdminSession()) {

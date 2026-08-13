@@ -21,7 +21,9 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
   if (!parsedContactId.success) notFound();
   const contactId = parsedContactId.data;
 
-  await requireAdmin(eventId);
+  // Organizer-only in its own right, not just via the layout: a soft navigation
+  // renders this page without re-running the layout's guard.
+  await requireAdmin(eventId, "organizer");
 
   const [[event], detail, extras] = await Promise.all([
     db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1),

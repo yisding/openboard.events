@@ -35,7 +35,11 @@ export default async function Page({
   const missing = parseSpeakerMissing(requestedMissing);
 
   const eventId = eventIdSchema.parse(rawEventId);
-  await requireAdmin(eventId);
+  // The role is enforced here, not only in the layout: a client-side navigation
+  // between sibling segments re-renders the page without re-running the layout,
+  // so a reviewer already inside `/review` would otherwise soft-navigate into
+  // the roster and join names back to codes (M50's closed reviewer surface).
+  await requireAdmin(eventId, "organizer");
 
   // M38's dashboard links a specific speaker with `?contactId=` to open what
   // used to be a client-side drawer; that speaker now has its own route, and

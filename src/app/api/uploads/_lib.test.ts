@@ -60,7 +60,7 @@ describe("finalize authorization", () => {
 
 describe("requester mapping", () => {
   it("carries the role for an admin and the contact id for a speaker", () => {
-    expect(asRequester(admin("owner"))).toEqual({ kind: "admin", role: "owner" });
+    expect(asRequester(admin("owner"))).toEqual({ kind: "admin", role: "owner", userId: USER });
     expect(asRequester(speaker())).toEqual({ kind: "contact", contactId: CONTACT_A });
   });
 });

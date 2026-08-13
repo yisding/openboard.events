@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAppError } from "@/shared/lib/errors";
-import type { ContactId, EventId, FileKind } from "@/shared/contracts";
+import type { ContactId, EventId, FileKind, UserId } from "@/shared/contracts";
 import {
   KIND_POLICY,
   UPLOAD_MAX_SIZE_MB,
@@ -21,6 +21,7 @@ const MB = 1024 * 1024;
 const EVENT_ID = "11111111-1111-4111-8111-111111111111" as EventId;
 const CONTACT_A = "22222222-2222-4222-8222-222222222222" as ContactId;
 const CONTACT_B = "33333333-3333-4333-8333-333333333333" as ContactId;
+const USER_ID = "44444444-4444-4444-8444-444444444444" as UserId;
 
 function reason(run: () => unknown): string {
   try {
@@ -236,11 +237,36 @@ describe("public file headers", () => {
 });
 
 describe("authz", () => {
-  it("lets any admin of the event read, whatever their role", () => {
+  it("lets an organizer of the event read any of its files", () => {
     expect(decideFileAccess({
       uploadedByContactId: CONTACT_B,
       linkedContactIds: [],
-      requester: { kind: "admin", role: "reviewer" },
+      requester: { kind: "admin", role: "organizer", userId: USER_ID },
+    })).toBe(true);
+  });
+
+  it("refuses a reviewer a file no round of theirs routes to them", () => {
+    // The file id alone is not a credential: a reviewer keeps it after their
+    // assignment is revoked, and it says nothing about a submission they never had.
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [],
+      reviewerScopedFile: false,
+      requester: { kind: "admin", role: "reviewer", userId: USER_ID },
+    })).toBe(false);
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [],
+      requester: { kind: "admin", role: "reviewer", userId: USER_ID },
+    })).toBe(false);
+  });
+
+  it("lets a reviewer read a file their round scopes to them", () => {
+    expect(decideFileAccess({
+      uploadedByContactId: CONTACT_B,
+      linkedContactIds: [],
+      reviewerScopedFile: true,
+      requester: { kind: "admin", role: "reviewer", userId: USER_ID },
     })).toBe(true);
   });
 
