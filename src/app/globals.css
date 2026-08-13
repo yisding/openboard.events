@@ -291,6 +291,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    document — past a 390px viewport. Wrapping the row is the fix; wrapping the
    label is not. */
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+@media(max-width:480px){.admin-task-row>.row-actions{grid-column:2;justify-content:flex-start}}
 .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .event-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .18s, box-shadow .18s; }
 .event-card:not(.event-card-locked):hover { transform: translateY(-2px); box-shadow: var(--shadow); }

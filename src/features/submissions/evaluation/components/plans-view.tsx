@@ -241,10 +241,10 @@ export function PlansView({
         title="Evaluation"
         description="Scoring rounds, who reviews which tracks, and how far each round has got."
         actions={
-          <span className="row-actions">
+          <>
             <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer</Button>
             <Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>
-          </span>
+          </>
         }
       />
 
