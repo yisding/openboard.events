@@ -6,7 +6,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { emailConfirmationLandingUrl } from "@/app/api/auth/[...action]/_lib";
 import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, selfServiceSignups, userLegalAcceptances, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
@@ -64,6 +64,7 @@ const reviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000013");
 const resetLegacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000014");
 const newerUnverifiedUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000015");
 const provisionedReviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000016");
+const newerSignupOrganization = "b0000000-0000-4000-8000-000000000017";
 
 const LEGACY_PASSWORD = "legacy organizer passphrase";
 const MODERN_PASSWORD = "modern organizer passphrase";
@@ -127,9 +128,9 @@ describe("M42 admin auth on Better Auth", () => {
     );
 
     // A self-service signup and an operator-provisioned reviewer can both be
-    // newer unverified credentials. Only the signup has durable consent
-    // evidence; the operator account is established access and must survive a
-    // fallback rollback.
+    // newer unverified credentials. The signup's atomic organization outcome
+    // is durable even when legal-policy variables are omitted; the operator
+    // account has no self-service evidence and must survive a fallback rollback.
     const newerHash = await hashAdminPassword(MODERN_PASSWORD);
     await pglite.query(
       "INSERT INTO users(id,email,name,password_hash) VALUES($1,'newer-unverified@example.com','Newer Unverified',$3),($2,'provisioned-reviewer@example.com','Provisioned Reviewer',$3)",
@@ -140,8 +141,12 @@ describe("M42 admin auth on Better Auth", () => {
       [newerUnverifiedUser, provisionedReviewerUser, newerHash],
     );
     await pglite.query(
-      "INSERT INTO user_legal_acceptances(user_id,terms_version,privacy_version,source) VALUES($1,$2,$3,'signup')",
-      [newerUnverifiedUser, LEGAL_REQUEST.acceptedTermsVersion, LEGAL_REQUEST.acknowledgedPrivacyVersion],
+      "INSERT INTO organizations(id,name,slug) VALUES($1,'No-policy signup','no-policy-signup')",
+      [newerSignupOrganization],
+    );
+    await pglite.query(
+      "INSERT INTO organization_members(user_id,organization_id,role) VALUES($1,$2,'owner')",
+      [newerUnverifiedUser, newerSignupOrganization],
     );
     await apply(REVIEWER_INVITATION_MIGRATION);
 
@@ -203,6 +208,10 @@ describe("M42 admin auth on Better Auth", () => {
     expect(verification.find((user) => user.id === resetLegacyUser)?.emailVerified).toBe(true);
     expect(verification.find((user) => user.id === newerUnverifiedUser)?.emailVerified).toBe(false);
     expect(verification.find((user) => user.id === provisionedReviewerUser)?.emailVerified).toBe(true);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, newerUnverifiedUser))).toHaveLength(1);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, provisionedReviewerUser))).toHaveLength(0);
   });
 
   it("signs a legacy PBKDF2 credential in and rehashes it in place — no forced reset (AC 1)", async () => {
@@ -368,6 +377,8 @@ describe("M42 admin auth on Better Auth", () => {
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
     expect(stranger?.emailVerified).toBe(false);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, stranger?.id ?? ""))).toHaveLength(1);
     expect(await database.select({
       termsVersion: userLegalAcceptances.termsVersion,
       privacyVersion: userLegalAcceptances.privacyVersion,
