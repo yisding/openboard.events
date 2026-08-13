@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
+import { assignmentDraftChanged, canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
 
 const ready = {
   loaded: true,
@@ -76,5 +76,12 @@ describe("assignment drawer submission safety", () => {
       ["platform-a", "platform-b", "agents-a"],
     )).toEqual(["platform-b", "platform-a"]);
     expect(keepShownAssignmentSelection(["platform-a"], [])).toEqual([]);
+  });
+
+  it("guards meaningful assignment work but ignores the untouched baseline", () => {
+    expect(assignmentDraftChanged({ reviewerIds: [], submissionIds: [], mode: "add" })).toBe(false);
+    expect(assignmentDraftChanged({ reviewerIds: ["reviewer-a"], submissionIds: [], mode: "add" })).toBe(true);
+    expect(assignmentDraftChanged({ reviewerIds: [], submissionIds: ["submission-a"], mode: "add" })).toBe(true);
+    expect(assignmentDraftChanged({ reviewerIds: [], submissionIds: [], mode: "replace" })).toBe(true);
   });
 });
