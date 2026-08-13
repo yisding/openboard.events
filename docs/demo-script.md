@@ -11,7 +11,7 @@ Run the walkthrough in either environment; the steps are identical:
 - **Deployed preview** — <https://sb-web-preview.yi-ding.workers.dev>. OTPs are real emails
   (the preview sends from the verified domain behind a one-address allowlist).
 - **Local, database-backed** — `pnpm dev` against a Neon/Postgres branch you own, seeded with
-  `pnpm seed`. See the README's *Getting started* and `docs/manual-test-plans.md` §0.2 (Env A).
+  `pnpm seed`. See `docs/development.md` *Getting started* and `docs/manual-test-plans.md` §0.2 (Env A).
   With `EMAIL_MODE=log` and `EMAIL_FALLBACK_UI=1` (both local defaults) the OTP and magic link
   surface in the login UI itself, so no inbox is needed. Neither variable is permitted in
   production.
