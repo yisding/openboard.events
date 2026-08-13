@@ -2079,7 +2079,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    preview leave neither column enough reading room on ordinary laptops. Keep
    the template rail beside the editor, but let the preview use the full editor
    width until the page has desktop space again. */
-@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}}
+@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}.template-editor__preview{position:static;max-height:none}}
 
 .embeds-admin-page{max-width:1120px}
 .embed-overview{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:14px;align-items:center;margin-bottom:14px;padding:16px 20px;background:linear-gradient(100deg,var(--surface),var(--accent-faint))}

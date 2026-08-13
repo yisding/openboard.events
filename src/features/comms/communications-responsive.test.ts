@@ -58,7 +58,7 @@ describe("communications activity table responsive styles", () => {
 
   it("stacks message previews before the desktop sidebar crowds the compose form", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    const anchor = css.indexOf("@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}}");
+    const anchor = css.indexOf("@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}.template-editor__preview{position:static;max-height:none}}");
     expect(anchor).toBeGreaterThanOrEqual(0);
   });
 
