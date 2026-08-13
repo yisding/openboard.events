@@ -716,6 +716,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }.drawer-body { padding: 20px 16px; }
 }
 
+@media (max-width: 360px) {
+  /* Preserve both authentication actions on the narrowest supported phones.
+     The linked brand mark keeps its accessible name while its wordmark yields
+     the horizontal space the two 44px-tall actions need. */
+  .landing-nav > .brand > span:not(.brand-mark) { display: none; }
+  .hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }
+}
+
 @media (max-width: 480px) {
   /* .metric-grid stays 2-up here on purpose (T5 ≤480: "summary/KPI rows go
      2-up"); only its card height steps down. */
