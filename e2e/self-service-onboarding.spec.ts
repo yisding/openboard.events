@@ -422,7 +422,7 @@ test.describe("self-service signup to first value", () => {
 
       await page.goto(`/events/${eventId}/dashboard`);
       await expect(page.getByText("Your first submission arrived", { exact: true })).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByText(proposalTitle, { exact: false })).toBeVisible();
+      await expect(page.getByText(proposalTitle, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Get your first submission" })).toHaveCount(0);
     });
 
