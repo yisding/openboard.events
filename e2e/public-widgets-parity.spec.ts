@@ -525,17 +525,13 @@ test.describe("public-widgets-parity (M53)", () => {
         // at all; the embed used to be `private, no-cache` on every request.
         for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
           await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
-            let cached = false;
-            for (let attempt = 0; attempt < 5 && !cached; attempt += 1) {
+            await expect(async () => {
               const response = await page.request.get(url);
               const headers = response.headers();
               const nextCache = (headers["x-nextjs-cache"] ?? "").toLowerCase();
-              cached = (headers["cache-control"] ?? "").includes("s-maxage=")
-                || nextCache === "hit"
-                || nextCache === "stale";
-              if (!cached) await page.waitForTimeout(2_000);
-            }
-            expect(cached, `${url} never became edge-cached`).toBe(true);
+              const fresh = (headers["cache-control"] ?? "").includes("s-maxage=") || nextCache === "hit";
+              expect(fresh, `${url} never became freshly edge-cached (last state: ${nextCache || "none"})`).toBe(true);
+            }).toPass({ timeout: 60_000, intervals: [5_000] });
           });
         }
       } finally {

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("post-deploy smoke retries", () => {
-  it("does not retain an early schedule status failure after a later success", () => {
+  it("retries an early failure and STALE response until OpenNext reports HIT", () => {
     const scratch = join(homedir(), "Code");
     mkdirSync(scratch, { recursive: true });
     const root = mkdtempSync(join(scratch, "openboard-smoke-test-"));
@@ -38,8 +38,8 @@ extra=''
 # The surface map mirrors the deployed one after M53: /e/<slug>/agenda is the
 # canonical cached page, /e/<slug>/schedule is the legacy redirect, and the
 # embed reads its style from the saved row so it is edge-cached too. Both cached
-# surfaces open cold — a 503, then a cached STALE response with no Cache-Control.
-# OpenNext reports that valid cache state through x-nextjs-cache.
+# surfaces open cold — a 503, then a STALE response with no Cache-Control,
+# before regeneration succeeds and OpenNext reports HIT.
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
@@ -47,7 +47,8 @@ cold_then_cached() {
   count=$((count+1))
   echo "$count" > "$count_file"
   if (( count == 1 )); then status=503
-  else extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
+  elif (( count == 2 )); then extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
+  else extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
   fi
 }
 case "$url" in
@@ -87,5 +88,7 @@ printf '%s' "$status"
     expect(result.stdout).toContain("ok    /api/auth/get-session");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
+    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("3");
+    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("3");
   });
 });

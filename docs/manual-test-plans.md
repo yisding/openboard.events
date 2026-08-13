@@ -657,7 +657,7 @@ session public.
 | # | Action | Expected result |
 |---|---|---|
 | 38 | Repeat steps 9, 16–19, 25–28 on Env C | Same behavior. Drag-and-drop in particular has no deployed pass on record |
-| 39 | After publishing, `curl -I` the public schedule twice | A fresh response has `s-maxage`, or a cached response reports `x-nextjs-cache: HIT`/`STALE`; the newly published session is in the payload |
+| 39 | After publishing, `curl -I` the public schedule until regeneration settles | A fresh response has `s-maxage`, or a cached response reports `x-nextjs-cache: HIT`; `STALE` alone is not a pass, and the newly published session is in the payload |
 
 ### §7 Design checks
 
@@ -966,7 +966,7 @@ may land in R2 without the task flipping. Confirm before re-filing.
 | 13 | Change an embed style/filter; save; reload the embed | Takes effect on next load |
 | 14 | Toggle the embed kill switch | Stops serving content |
 | 15 | Frame an embed cross-origin | Renders; no `X-Frame-Options` |
-| 16 | *(C)* `curl -I` a public page and an embed twice | A fresh response has `s-maxage`, or a cached response reports `x-nextjs-cache: HIT`/`STALE` |
+| 16 | *(C)* `curl -I` a public page and an embed until regeneration settles | A fresh response has `s-maxage`, or a cached response reports `x-nextjs-cache: HIT`; `STALE` alone is not a pass |
 | 17 | Unauthenticated `/api/v1/events/<slug>`, `/schedule`, `/speakers` | `200`, published rows only |
 | 18 | `Authorization: Bearer nope` on `/stats` | `401` in the documented envelope — **before** any 404 for a bad slug |
 | 19 | Valid key on `/stats` | `200`; agrees with the dashboard |

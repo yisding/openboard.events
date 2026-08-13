@@ -79,17 +79,17 @@ header_value() {
   tr -d '\r' < "$headers_file" | grep -i "^$1:" | head -1 | cut -d: -f2- | sed 's/^ *//' | tr '[:upper:]' '[:lower:]'
 }
 
-# OpenNext exposes two valid forms of the same edge-cache contract. A fresh
-# render carries s-maxage for the cache to store. Once that entry is served by
-# the incremental cache, OpenNext can omit Cache-Control and report HIT or
-# STALE in x-nextjs-cache instead. Requiring s-maxage on that cached response
-# turns a healthy cache hit (or stale-while-revalidate response) into a failed
-# deployment.
-is_edge_cached() {
+# OpenNext exposes two conclusive forms of the same healthy edge-cache
+# contract. A fresh render carries s-maxage for the cache to store. Once that
+# entry is served by the incremental cache, OpenNext can omit Cache-Control
+# and report HIT in x-nextjs-cache instead. STALE is deliberately not enough:
+# it proves that an old entry exists, but not that this artifact can regenerate
+# it successfully.
+is_edge_cache_fresh() {
   local cache_control next_cache
   cache_control="$(header_value cache-control)"
   next_cache="$(header_value x-nextjs-cache)"
-  [[ "$cache_control" == *"s-maxage="* || "$next_cache" == "hit" || "$next_cache" == "stale" ]]
+  [[ "$cache_control" == *"s-maxage="* || "$next_cache" == "hit" ]]
 }
 
 expect_status() {
@@ -159,28 +159,28 @@ fi
 #    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
 #    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and
 #    Cache-Control's presence on a cached response. OpenNext can serve an ISR
-#    entry as HIT or STALE with no Cache-Control at all; x-nextjs-cache is the
-#    authoritative signal in that case. Cold responses are still retried, and
-#    only a page with neither signal fails.
+#    entry as HIT with no Cache-Control at all; x-nextjs-cache is the
+#    authoritative signal in that case. STALE stays retryable because it can
+#    also mean regeneration is failing.
 #    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
 #    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in {1..10}; do
   # Retryable probes use fetch directly: expect_status records a permanent
   # failure, which would make a transient 503 fail the whole run even when a
   # later attempt succeeds.
   fetch "$base_url/e/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if is_edge_cached; then schedule_ok=1; break; fi
+    if is_edge_cache_fresh; then schedule_ok=1; break; fi
   fi
-  if (( attempt < 5 )); then sleep 2; fi
+  if (( attempt < 10 )); then sleep 5; fi
 done
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 5 attempts, got $last_status)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 10 attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage or OpenNext cache state after 5 attempts)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage or OpenNext HIT after 10 attempts)"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -197,21 +197,21 @@ fi
 #    switch already did — so this asserts s-maxage on the embed too, with the
 #    same cache-state retry as check 2.
 embed_ok=0
-for attempt in 1 2 3 4 5; do
+for attempt in {1..10}; do
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if is_edge_cached; then embed_ok=1; break; fi
+    if is_edge_cache_fresh; then embed_ok=1; break; fi
   fi
-  if (( attempt < 5 )); then sleep 2; fi
+  if (( attempt < 10 )); then sleep 5; fi
 done
 if (( embed_ok )); then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
     && pass "/embed/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 5 attempts, got $last_status)"
+  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 10 attempts, got $last_status)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage or OpenNext cache state after 5 attempts)"
+  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage or OpenNext HIT after 10 attempts)"
 fi
 
 # 4. The public API answers with an envelope.
