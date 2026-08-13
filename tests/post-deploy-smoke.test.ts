@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("post-deploy smoke retries", () => {
-  it("rejects old cached HTML until the deployed build regenerates it", () => {
+  it("rejects the prior Worker and old cached HTML until this deployment reaches the edge", () => {
     const scratch = join(homedir(), "Code");
     mkdirSync(scratch, { recursive: true });
     const root = mkdtempSync(join(scratch, "openboard-smoke-test-"));
@@ -60,7 +60,18 @@ cold_then_cached() {
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"sha":"same-build","deployment":"new-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
+  */api/health)
+    count_file="$SMOKE_FAKE_STATE/health"
+    count=0
+    [[ -f "$count_file" ]] && count="$(<"$count_file")"
+    count=$((count+1))
+    echo "$count" > "$count_file"
+    if (( count == 1 )); then
+      payload='{"ok":true,"sha":"same-build","deployment":"old-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}'
+    else
+      payload='{"ok":true,"sha":"same-build","deployment":"new-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}'
+    fi
+    ;;
   */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
@@ -98,6 +109,7 @@ printf '%s' "$status"
     expect(result.stdout).toContain("ok    /api/auth/get-session");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
+    expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("2");
     expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("4");
     expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("4");
   });

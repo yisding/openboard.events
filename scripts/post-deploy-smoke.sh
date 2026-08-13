@@ -43,6 +43,14 @@ body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$body_file"' EXIT
 deployed_build_sha=""
 deployed_id=""
+# Cloudflare can briefly route requests to the previous Worker after wrangler
+# reports success, and OpenNext's shared R2 entries may need more than one ISR
+# window to converge. Four minutes covers the propagation observed in preview
+# while keeping every check bounded. The exact deployment marker remains the
+# acceptance condition, so waiting longer cannot turn an old cache entry into
+# a false positive.
+propagation_attempts=49
+propagation_interval_seconds=5
 
 # Fetches once into $headers_file/$body_file and stores the status code, so no
 # assertion costs a second request. Calling this function directly preserves
@@ -158,8 +166,30 @@ expect_no_header() {
 echo "post-deploy smoke against $base_url"
 echo
 
-# 1. Health, including the database round-trip timing.
-if expect_status "$base_url/api/health" 200 "health responds"; then
+# 1. Health, including the database round-trip timing. Retry the unique
+# deployment identity as well as the status: immediately after a Worker deploy,
+# Cloudflare can still serve the prior version for a short propagation window.
+health_ok=0
+for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
+  fetch "$base_url/api/health"
+  if [[ "$last_status" == "200" ]] \
+    && { [[ -z "${NEXT_PUBLIC_BUILD_SHA:-}" ]] || grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; } \
+    && { [[ -z "${DEPLOYMENT_ID:-}" ]] || grep -qF -- "\"deployment\":\"$DEPLOYMENT_ID\"" "$body_file"; }; then
+    health_ok=1
+    break
+  fi
+  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
+done
+if (( ! health_ok )); then
+  if [[ "$last_status" != "200" ]]; then
+    fail "$base_url/api/health" "health responds (expected 200 after $propagation_attempts attempts, got $last_status)"
+  elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
+    && ! grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; then
+    fail "$base_url/api/health" "health matches the requested build after $propagation_attempts attempts"
+  else
+    fail "$base_url/api/health" "health matches the requested deployment after $propagation_attempts attempts"
+  fi
+else
   if expect_body '"ok":true' "health reports ok" \
     && expect_body 'ms' "health reports a database timing" \
     && expect_body '"errors":\{"ok":true' "health reports operational error tracking" \
@@ -200,7 +230,7 @@ fi
 #    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
 #    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
-for attempt in {1..15}; do
+for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
   # Retryable probes use fetch directly: expect_status records a permanent
   # failure, which would make a transient 503 fail the whole run even when a
   # later attempt succeeds.
@@ -208,14 +238,14 @@ for attempt in {1..15}; do
   if [[ "$last_status" == "200" ]]; then
     if is_edge_cache_fresh && is_current_deployment; then schedule_ok=1; break; fi
   fi
-  if (( attempt < 15 )); then sleep 5; fi
+  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
 done
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 15 attempts, got $last_status)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after $propagation_attempts attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id after 15 attempts"
+  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id after $propagation_attempts attempts"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -232,21 +262,21 @@ fi
 #    switch already did — so this asserts s-maxage on the embed too, with the
 #    same cache-state retry as check 2.
 embed_ok=0
-for attempt in {1..15}; do
+for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
     if is_edge_cache_fresh && is_current_deployment; then embed_ok=1; break; fi
   fi
-  if (( attempt < 15 )); then sleep 5; fi
+  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
 done
 if (( embed_ok )); then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
     && pass "/embed/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 15 attempts, got $last_status)"
+  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after $propagation_attempts attempts, got $last_status)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id after 15 attempts"
+  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id after $propagation_attempts attempts"
 fi
 
 # 4. The public API answers with an envelope.
