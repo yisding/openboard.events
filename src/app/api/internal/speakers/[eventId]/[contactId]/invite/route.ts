@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { adminAuth, requestPortalLogin } from "@/features/auth";
+import { withTx } from "@/db/client";
+import { adminAuth } from "@/features/auth";
 import { getEvent } from "@/features/events";
-import { getSpeakerDetail, updateSpeakerProfile } from "@/features/portal";
+import { getSpeakerDetail } from "@/features/portal";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { getEnv } from "@/shared/lib/env";
 import { defineHandler } from "@/shared/server/handler";
+import { inviteSpeakerToPortalIn } from "./_lib";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +16,13 @@ const routeParams = z.object({ contactId: contactIdSchema });
 
 /**
  * M51 — explicit portal invitation (work order step 4). This is not a new
- * credential path: it calls M06b's exact `requestPortalLogin` — the same
- * audited `withTx` composition (getOrCreateContact → issue OTP/magic-link →
- * enqueue `portal_login`) a speaker's own "sign in" form triggers — with the
- * organizer supplying the address instead of the speaker typing it. That is
- * also why this route lives at the composition layer rather than inside the
- * `portal` feature: `portal` cannot import `auth` (the reverse import already
- * exists — `requestPortalLoginIn` calls `getOrCreateContact` — so a route,
- * not a feature-to-feature import, is where the two meet).
+ * credential path: it calls M06b's exact `requestPortalLoginIn` inside one
+ * route-owned transaction, so token rotation and the durable email outbox
+ * commit with the organizer's pipeline marker. That is also why this route
+ * lives at the composition layer rather than inside the `portal` feature:
+ * `portal` cannot import `auth` (the reverse import already exists —
+ * `requestPortalLoginIn` calls `getOrCreateContact` — so a route, not a
+ * feature-to-feature import, is where the two meet).
  */
 const invite = defineHandler({
   auth: adminAuth({ role: "organizer" }),
@@ -34,13 +36,19 @@ const invite = defineHandler({
     ]);
     if (!event) throw new AppError("NOT_FOUND", "Event not found");
     if (!speaker) throw new AppError("NOT_FOUND", "Speaker not found");
-    const result = await requestPortalLogin(event.slug, speaker.contact.email);
-    // A pure pipeline bookkeeping bump (drizzle/0008's header comment) — an
-    // organizer clicking Invite is the clearest possible "contacted" signal,
-    // and it never touches `confirmationStatus` or publication.
-    if (speaker.contact.confirmationStatus === "unconfirmed") {
-      await updateSpeakerProfile(scopedEventId, contactId, { workflowStatus: "invited" });
-    }
+    const env = getEnv();
+    const sessionSecret = env.SESSION_SECRET;
+    if (!sessionSecret) throw new AppError("INTERNAL", "SESSION_SECRET is required for portal authentication");
+    const result = await withTx((tx) => inviteSpeakerToPortalIn(tx, {
+      eventId: scopedEventId,
+      eventSlug: event.slug,
+      contactId,
+      email: speaker.contact.email,
+      confirmationStatus: speaker.contact.confirmationStatus,
+      appBaseUrl: env.APP_BASE_URL,
+      sessionSecret,
+      fallback: env.APP_ENV !== "production" && env.EMAIL_FALLBACK_UI === "1",
+    }));
     return { message: result.message };
   },
 });
