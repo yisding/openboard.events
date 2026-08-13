@@ -680,7 +680,6 @@ function DeliverableDrawer({
               <textarea
                 aria-label="Reply to the speaker"
                 rows={2}
-                aria-label="Reply to speaker"
                 value={draftBody}
                 disabled={sending}
                 onChange={(event) => {

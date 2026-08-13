@@ -121,7 +121,7 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain("if (sending) return;");
     expect(source).toContain("runGuarded(() => {");
     expect(source).toContain("onClose={requestClose}");
-    expect(source).toContain('aria-label="Reply to speaker"');
+    expect(source).toContain('aria-label="Reply to the speaker"');
     expect(source).toContain("persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)");
     expect(source).toContain("recovery storage is unavailable");
     expect(source).toContain("couldn't confirm whether that comment was sent — retry it unchanged");
