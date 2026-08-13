@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
+import { getAdminSession } from "@/features/auth";
 import { Brand } from "@/shared/ui/brand";
 import { getEnv } from "@/shared/lib/env";
 
@@ -19,15 +20,18 @@ const CFP_HREF = `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
 // The M53 canonical public agenda surface.
 const AGENDA_HREF = "/e/ai-engineer-sandbox-event/agenda";
 
-export default function HomePage() {
+export default async function HomePage() {
   // Evaluated per render rather than at module scope: `getEnv` reads the
   // current request's Cloudflare env binding, which only exists inside a
   // request's execution context.
   const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
-  const workspaceHref = signupEnabled ? "/signup" : "/login";
-  const workspaceNavLabel = signupEnabled ? "Create workspace" : "Open workspace";
-  const workspaceHeroLabel = signupEnabled ? "Create your workspace" : "Open your workspace";
-  const workspaceProof = signupEnabled
+  const signedIn = Boolean(await getAdminSession());
+  const workspaceHref = signedIn ? "/organizations" : signupEnabled ? "/signup" : "/login";
+  const workspaceNavLabel = signedIn || !signupEnabled ? "Open workspace" : "Create workspace";
+  const workspaceHeroLabel = signedIn || !signupEnabled ? "Open your workspace" : "Create your workspace";
+  const workspaceProof = signedIn
+    ? "Continue your event setup or pick up where your team left off"
+    : signupEnabled
     ? "Go from signup to a live CFP in one guided setup"
     : "Sign in to manage your event workspace";
   return (
@@ -38,7 +42,7 @@ export default function HomePage() {
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
           <Link href={CFP_HREF}>View sample CFP</Link>
-          <Link className="button button-secondary" href="/login">Sign in</Link>
+          {!signedIn && <Link className="button button-secondary" href="/login">Sign in</Link>}
           <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
         </div>
       </nav>

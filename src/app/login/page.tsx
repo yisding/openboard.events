@@ -1,11 +1,20 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { LoginForm } from "@/features/auth/components/login-form";
+import { getAdminSession } from "@/features/auth";
+import { authenticatedAuthDestination } from "@/features/auth/safe-next";
 import { getEnv } from "@/shared/lib/env";
 import { Brand } from "@/shared/ui/brand";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const query = await searchParams;
+  if (await getAdminSession()) redirect(authenticatedAuthDestination(query.next));
   const env = getEnv();
   const googleEnabled = env.ADMIN_AUTH_PROVIDER === "better-auth"
     && Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);

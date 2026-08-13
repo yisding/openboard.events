@@ -24,3 +24,20 @@ export function authPathWithNext(path: string, value: string | null | undefined)
   const next = safeInternalPath(value, "");
   return next ? `${path}?${new URLSearchParams({ next }).toString()}` : path;
 }
+
+/** Continue an existing session without reflecting unsafe or looping auth routes. */
+export function authenticatedAuthDestination(
+  value: string | null | undefined,
+  fallback = "/organizations",
+): string {
+  const next = safeInternalPath(value, "");
+  if (!next) return fallback;
+  const pathname = new URL(next, INTERNAL_ORIGIN).pathname;
+  if (
+    pathname === "/login"
+    || pathname.startsWith("/login/")
+    || pathname === "/signup"
+    || pathname.startsWith("/signup/")
+  ) return fallback;
+  return next;
+}
