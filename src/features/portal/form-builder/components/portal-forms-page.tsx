@@ -95,7 +95,7 @@ export function PortalFormsPage({ event, initialForms }: { event: BuilderEvent; 
       <div className="page-actions"><Button onClick={() => setCreating(true)}><Plus size={16} /> Create form</Button></div>
     </header>
     <section className="panel list-panel">
-      <div className="list-toolbar">
+      <div className="list-toolbar form-list-toolbar">
         <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
       </div>
       {visible.length === 0 ? (

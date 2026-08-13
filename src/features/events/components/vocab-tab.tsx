@@ -1,7 +1,7 @@
 "use client";
 
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -201,7 +201,10 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   const reorderGeneration = useRef(0);
   const saveQueue = useRef(new KeyedSerialQueue());
   const persistedItems = useRef(new Map<string, VocabItem>(initialItems.map((item) => [item.id, item])));
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   async function addItem() {
     if (!newName.trim()) return;

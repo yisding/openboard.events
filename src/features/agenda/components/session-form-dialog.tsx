@@ -193,7 +193,7 @@ export function SessionFormDialog({
     } catch (caught) {
       const message = messageFor(caught, "Could not save the session");
       setError(message);
-      toast(message);
+      toast(message, { kind: "error" });
     }
   };
 
@@ -213,7 +213,7 @@ export function SessionFormDialog({
       const message = messageFor(caught, "Could not delete the session");
       setConfirmingDelete(false);
       setError(message);
-      toast(message);
+      toast(message, { kind: "error" });
     }
   };
 
@@ -393,7 +393,7 @@ export function SessionFormDialog({
                   setDraft((current) => ({ ...current, title: restored.title, descriptionHtml: restored.descriptionHtml }));
                   toast("Restored as the current content");
                 } catch (caught) {
-                  toast(messageFor(caught, "Could not restore that revision"));
+                  toast(messageFor(caught, "Could not restore that revision"), { kind: "error" });
                 }
               }}
             />
@@ -444,7 +444,14 @@ function SessionHistoryPanel({
   return (
     <Field label="Content history" group {...(hint ? { hint } : {})}>
       {query.isLoading && <p className="portal-note">Loading history…</p>}
-      {!query.isLoading && revisions.length === 0 && <p className="portal-note">No edits recorded yet.</p>}
+      {query.isError && (
+        <p className="portal-note" role="alert">
+          Could not load content history. <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => { void query.refetch(); }}>
+            {query.isFetching ? "Retrying…" : "Retry"}
+          </Button>
+        </p>
+      )}
+      {!query.isLoading && !query.isError && revisions.length === 0 && <p className="portal-note">No edits recorded yet.</p>}
       {revisions.length > 0 && (
         <ul className="portal-uploads">
           {revisions.map((revision: SessionContentRevisionDTO, index: number) => (

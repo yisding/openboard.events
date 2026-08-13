@@ -152,7 +152,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       <article><span className="summary-icon"><CalendarClock size={19} /></span><div><strong>{totalDrafts}</strong><small>Speaker drafts</small></div></article>
     </section>
     <section className="panel list-panel">
-      <div className="list-toolbar">
+      <div className="list-toolbar form-list-toolbar">
         <div className="tabs" role="group" aria-label="Form filters">{formTabs.map(({ value, label }) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}<span>{value === "all" ? forms.length : forms.filter((form) => form.availability === value).length}</span></button>)}</div>
         <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
       </div>

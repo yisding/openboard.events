@@ -40,7 +40,7 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
       await promote.mutateAsync(submissionId);
       toast(`“${title}” added to the agenda`);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Could not add that abstract");
+      toast(isAppError(caught) ? caught.message : "Could not add that abstract", { kind: "error" });
     }
   };
 
