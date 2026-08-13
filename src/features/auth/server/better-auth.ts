@@ -11,7 +11,7 @@
 // owned by the journaled `drizzle/` migrations, never by Better Auth.
 import { betterAuth } from "better-auth/minimal";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAuthMiddleware } from "better-auth/api";
+import { createAuthMiddleware, createEmailVerificationToken } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { adminAccounts, adminSessions, adminVerifications, users } from "@/db/schema";
@@ -24,7 +24,7 @@ import { organizationIdSchema, userIdSchema, type UserId } from "@/shared/contra
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
-import { SIGNUP_ORGANIZATION_HEADER } from "../signup-context";
+import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
 import type { SignupLegalConsent } from "../legal-consent";
 import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
@@ -62,6 +62,7 @@ import { resolveSignupHookInput, type SignupProvisioningInput } from "./signup-h
 
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 const RESET_TOKEN_SECONDS = 60 * 60;
+const EMAIL_VERIFICATION_SECONDS = 60 * 60;
 
 function baseUrl(env: RuntimeEnv): string {
   return env.BETTER_AUTH_URL ?? env.APP_BASE_URL;
@@ -131,6 +132,31 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // sent below is used; existing unverified accounts get the same clear
       // recovery path on sign-in.
       requireEmailVerification: true,
+      // Better Auth deliberately returns the same successful response when
+      // this address already exists, but it does not resend the confirmation
+      // message unless the application owns this hook. Without it our next
+      // screen truthfully worked for a new account but stranded an existing
+      // unverified account behind a "Nothing yet?" recovery click.
+      onExistingUserSignUp: async ({ user }) => {
+        if (user.emailVerified) return;
+        const token = await createEmailVerificationToken(
+          secret,
+          user.email,
+          undefined,
+          EMAIL_VERIFICATION_SECONDS,
+        );
+        const callbackURL = SIGNUP_VERIFICATION_CALLBACK;
+        const url = new URL("/api/auth/verify-email", baseUrl(env));
+        url.search = new URLSearchParams({ token, callbackURL }).toString();
+        await sendAdminAuthEmailIn(database, {
+          templateKey: "admin_email_verification",
+          userId: userIdSchema.parse(user.id),
+          email: user.email,
+          name: user.name,
+          url: url.toString(),
+          expiresIn: "1 hour",
+        }, env);
+      },
       resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
       // Resetting a password ends every other session for that account. A
       // reset is what somebody does when they believe their credential leaked.
@@ -171,7 +197,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       },
     },
     emailVerification: {
-      expiresIn: 60 * 60,
+      expiresIn: EMAIL_VERIFICATION_SECONDS,
       sendOnSignUp: true,
       // Correct-password sign-in returns a structured "verify first" state;
       // the UI owns an explicit resend action. Avoid silently sending another

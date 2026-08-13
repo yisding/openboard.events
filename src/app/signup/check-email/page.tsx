@@ -19,7 +19,7 @@ export default async function CheckEmailPage({ searchParams }: { searchParams: P
     <section className="login-form-panel"><div><div>
       <span className="metric-icon accent"><MailCheck size={20} /></span>
       <h1>Check your inbox</h1>
-      <p>We sent a confirmation link{email ? <> to <b>{email}</b></> : null}. Confirm your email to continue into your workspace. The link expires in one hour.</p>
+      <p>Check{email ? <> <b>{email}</b></> : " your email"} for a confirmation link. If this address still needs confirmation, a fresh link is on its way. Use it within one hour to continue into your workspace.</p>
       <aside className="auth-help"><b>Nothing yet?</b><span>Check spam or request a fresh link to the same address.</span></aside>
       <ActivationResendForm initialEmail={email} next={next} emailLocked={Boolean(email)} />
       {fallbackLink && <aside className="demo-code"><b>Development / fallback mode</b><Link href={fallbackLink}>Open confirmation link</Link></aside>}
