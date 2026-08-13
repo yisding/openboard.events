@@ -1,5 +1,6 @@
-import { index, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { users } from "./core";
+import { sql } from "drizzle-orm";
+import { foreignKey, index, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { events, users } from "./core";
 import { memberRoleEnum } from "./enums";
 
 /**
@@ -50,6 +51,7 @@ export const organizationMembers = pgTable("organization_members", {
 export const organizationInvitations = pgTable("organization_invitations", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  eventId: uuid("event_id"),
   email: text("email").notNull(),
   role: memberRoleEnum("role").notNull().default("organizer"),
   tokenHash: text("token_hash").notNull().unique(),
@@ -59,7 +61,15 @@ export const organizationInvitations = pgTable("organization_invitations", {
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   acceptedUserId: uuid("accepted_user_id").references(() => users.id, { onDelete: "set null" }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
-}, (table) => [index("organization_invitations_org_idx").on(table.organizationId, table.createdAt)]);
+}, (table) => [
+  index("organization_invitations_org_idx").on(table.organizationId, table.createdAt),
+  index("organization_invitations_event_idx").on(table.eventId, table.createdAt).where(sql`${table.eventId} IS NOT NULL`),
+  foreignKey({
+    name: "organization_invitations_event_organization_fk",
+    columns: [table.eventId, table.organizationId],
+    foreignColumns: [events.id, events.organizationId],
+  }).onDelete("cascade"),
+]);
 
 /**
  * M44 — append-only audit trail over organization membership actions. Both

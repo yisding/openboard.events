@@ -4,6 +4,7 @@ import { db } from "@/db/client";
 import { events, tracks } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
 import { listEventMembers, listPlans } from "@/features/submissions";
+import { listPendingEventReviewerInvitations } from "@/features/organizations";
 import { PlansView } from "@/features/submissions/evaluation/components/plans-view";
 import { eventIdSchema } from "@/shared/contracts";
 
@@ -17,9 +18,10 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
   // /review and gets the layout's friendly refusal here.
   await requireAdmin(eventId, "organizer");
 
-  const [plans, members, trackRows, event] = await Promise.all([
+  const [plans, members, pendingReviewerInvitations, trackRows, event] = await Promise.all([
     listPlans(eventId),
     listEventMembers(eventId),
+    listPendingEventReviewerInvitations(eventId),
     db.select({ id: tracks.id, name: tracks.name, color: tracks.color })
       .from(tracks)
       .where(and(eq(tracks.eventId, eventId)))
@@ -32,6 +34,7 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
       eventId={eventId}
       plans={plans}
       members={members}
+      pendingReviewerInvitations={pendingReviewerInvitations}
       tracks={trackRows}
       timezone={event[0]?.timezone ?? "America/Los_Angeles"}
     />

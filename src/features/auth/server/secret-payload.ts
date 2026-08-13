@@ -126,6 +126,7 @@ const adminLinkPayloadSchema = z.object({
   organizationName: z.string().min(1).optional(),
   inviterName: z.string().min(1).optional(),
   invitationRole: z.enum(["organizer", "reviewer"]).optional(),
+  eventName: z.string().min(1).optional(),
 });
 export type AdminLinkPayload = z.infer<typeof adminLinkPayloadSchema>;
 export type AdminLinkPayloadContext = { eventId: EventId; contactId: ContactId; linkId: string };

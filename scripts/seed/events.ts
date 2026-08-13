@@ -153,18 +153,16 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     await tx.insert(organizationMembers)
       .values({ userId, organizationId: DEFAULT_ORGANIZATION_ID, role: admin.role === "reviewer" ? "reviewer" : "organizer" })
       .onConflictDoNothing({ target: [organizationMembers.userId, organizationMembers.organizationId] });
-    // A reviewer the outbox can address. `createEventReviewerIn` (M50, the
-    // product's own reviewer-provisioning path) creates or reuses a `contacts`
-    // row for exactly this reason — "the invitation is addressed to a contact,
-    // because the outbox is" — and the seed wrote `users` + `event_members`
-    // directly, so seeded reviewers had no contact row at all.
+    // A reviewer the event-scoped reminder outbox can address. The seed writes
+    // `users` + `event_members` directly, so seeded reviewers otherwise have no
+    // contact row at all.
     //
     // That is not cosmetic: `sendReviewRemindersIn` counts a reviewer with no
     // contact as `skipped` rather than inventing one, so on the seeded world
     // "Remind everyone" enqueued nothing, wrote no `communication_logs` row,
     // and `e2e/review-operations.spec.ts` could never see the reminder it
-    // asserts. Seeding the row the real path would have created makes the
-    // feature reachable instead of asserting around it.
+    // asserts. Seeding the contact makes the feature reachable instead of
+    // asserting around it.
     //
     // Every seeded admin, not only the two reviewers: the seeded Round 2 puts
     // the organizer on its reviewer panel, and one unaddressable member is
