@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Globe, Linkedin, Search, Twitter, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Dash } from "@/shared/ui/app/dash";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { formatInZone } from "@/shared/lib/time";
 import type { PublishedSpeakerDTO, PublishedSpeakersDTO } from "@/shared/contracts";
@@ -27,30 +26,34 @@ function SpeakerDetail({
         <SpeakerAvatar name={speaker.name} headshotUrl={speaker.headshotUrl} size="xl" />
         <div>
           <h2 ref={headingRef} tabIndex={-1}>{speaker.name}</h2>
-          <p>{speaker.jobTitle ?? <Dash />} {speaker.company ? `· ${speaker.company}` : ""}</p>
-          <div className="speaker-detail-links">
-            {speaker.linkedinUrl ? <a href={speaker.linkedinUrl} target="_blank" rel="noreferrer"><Linkedin size={15} /> LinkedIn</a> : <span><Dash /></span>}
-            {speaker.twitterUrl ? <a href={speaker.twitterUrl} target="_blank" rel="noreferrer"><Twitter size={15} /> Twitter</a> : <span><Dash /></span>}
-            {speaker.websiteUrl ? <a href={speaker.websiteUrl} target="_blank" rel="noreferrer"><Globe size={15} /> Website</a> : <span><Dash /></span>}
-          </div>
+          {(speaker.jobTitle || speaker.company) && <p>{[speaker.jobTitle, speaker.company].filter(Boolean).join(" · ")}</p>}
+          {(speaker.linkedinUrl || speaker.twitterUrl || speaker.websiteUrl) && (
+            <div className="speaker-detail-links">
+              {speaker.linkedinUrl && <a href={speaker.linkedinUrl} target="_blank" rel="noreferrer"><Linkedin size={15} /> LinkedIn</a>}
+              {speaker.twitterUrl && <a href={speaker.twitterUrl} target="_blank" rel="noreferrer"><Twitter size={15} /> Twitter</a>}
+              {speaker.websiteUrl && <a href={speaker.websiteUrl} target="_blank" rel="noreferrer"><Globe size={15} /> Website</a>}
+            </div>
+          )}
         </div>
       </div>
-      {showBio && (speaker.bioHtml ? <RichTextView html={speaker.bioHtml} /> : <p className="session-detail-empty"><Dash /> No bio yet.</p>)}
-      <h3>Their sessions</h3>
-      {speaker.sessions.length === 0 ? <p className="session-detail-empty"><Dash /></p> : (
-        <ul className="speaker-detail-sessions">
-          {speaker.sessions.map((session) => (
-            <li key={session.id}>
-              <Link href={`/e/${eventSlug}/agenda?session=${session.id}`}>
-                <span>
-                  {formatInZone(session.startsAt, event.timezone, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                  {session.room ? ` · ${session.room.name}` : ""}
-                </span>
-                <b>{session.title}</b>
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {showBio && speaker.bioHtml && <RichTextView html={speaker.bioHtml} />}
+      {speaker.sessions.length > 0 && (
+        <>
+          <h3>Their sessions</h3>
+          <ul className="speaker-detail-sessions">
+            {speaker.sessions.map((session) => (
+              <li key={session.id}>
+                <Link href={`/e/${eventSlug}/agenda?session=${session.id}`}>
+                  <span>
+                    {formatInZone(session.startsAt, event.timezone, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    {session.room ? ` · ${session.room.name}` : ""}
+                  </span>
+                  <b>{session.title}</b>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -165,8 +168,10 @@ export function PublicSpeakerGallery({
                           style={{ display: "block", width: "100%", padding: 0, border: 0, background: "transparent", color: "inherit", textAlign: "left", cursor: "pointer" }}
                         >
                           <h3>{speaker.name}</h3>
-                          <p>{speaker.jobTitle ?? <Dash />} {showCompany && speaker.company ? `· ${speaker.company}` : ""}</p>
-                          {showBio && <small>{speaker.bioHtml ? publicSpeakerPlainText(speaker.bioHtml) : <Dash />}</small>}
+                          {(speaker.jobTitle || (showCompany && speaker.company)) && (
+                            <p>{[speaker.jobTitle, showCompany ? speaker.company : null].filter(Boolean).join(" · ")}</p>
+                          )}
+                          {showBio && speaker.bioHtml && <small>{publicSpeakerPlainText(speaker.bioHtml)}</small>}
                         </button>
                         <footer>
                           <Link href={`/e/${eventSlug}/sessions?search=${encodeURIComponent(speaker.name)}`} onClick={(e) => e.stopPropagation()}>
