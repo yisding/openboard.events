@@ -227,6 +227,7 @@ export async function createOrPublishOnboardingForm(input: {
   create: () => Promise<BuilderFormLite>;
   reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
+  validatePublish?: (form: BuilderFormLite) => void;
   onReady: (form: BuilderFormLite) => void | Promise<void>;
 }): Promise<BuilderFormLite> {
   let form = input.existing ?? await input.create();
@@ -240,6 +241,7 @@ export async function createOrPublishOnboardingForm(input: {
   await input.onReady(form);
 
   if (!input.publishNow || form.status === "open") return form;
+  input.validatePublish?.(form);
   try {
     return await input.publish(form);
   } catch (publishError) {
@@ -340,7 +342,8 @@ export function OnboardingWizard({
   const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(initialState?.form ?? null);
   const [formCreateId] = useState(() => initialState?.formId ?? crypto.randomUUID());
   const [deadlineChoice, setDeadlineChoice] = useState<CfpDeadlineChoice>(() => {
-    if (initialState?.form?.status === "open") return initialState.form.closesAt ? "custom" : "none";
+    if (initialState?.form?.closesAt) return "custom";
+    if (initialState?.form?.status === "open") return "none";
     return initialState?.event
       ? defaultCfpDeadline(initialState.event.startsAt, initialState.event.timezone, nowIso).choice
       : "four_weeks";
@@ -487,21 +490,28 @@ export function OnboardingWizard({
         deadlineChoice === "custom" ? "onboarding-cfp-custom-deadline" : "onboarding-cfp-deadline",
       )?.focus());
     };
-    if (publishNow && createdForm?.status !== "open" && deadlineChoice !== "none") {
+    const validateDeadline = () => {
+      if (!publishNow || deadlineChoice === "none") return true;
       if (!closesAt) {
         failDeadline("Choose a closing date or select No deadline");
-        return;
+        return false;
       }
       if (Date.parse(closesAt) <= Date.now()) {
         failDeadline("Choose a closing date in the future");
-        return;
+        return false;
       }
       if (Date.parse(closesAt) >= Date.parse(event.startsAt)) {
         failDeadline("Choose a closing date before the event starts");
-        return;
+        return false;
       }
-    }
+      return true;
+    };
+    // A brand-new form can be rejected before creating anything. An existing
+    // draft must first be reconciled below: a prior publish may have committed
+    // even when both its response and the immediate read were lost.
+    if (!createdForm && !validateDeadline()) return;
     let hasCreatedForm = createdForm !== null;
+    let deadlineValidationFailed = false;
     setDeadlineError("");
     setCreatingForm(true);
     try {
@@ -522,6 +532,11 @@ export function OnboardingWizard({
           body: JSON.stringify({ id: formCreateId, internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
         }),
         reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
+        validatePublish: () => {
+          if (validateDeadline()) return;
+          deadlineValidationFailed = true;
+          throw new Error("CFP deadline needs attention");
+        },
         publish: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
@@ -558,6 +573,7 @@ export function OnboardingWizard({
       toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
+      if (deadlineValidationFailed) return;
       toast(hasCreatedForm
         ? `Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`
         : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });

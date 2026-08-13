@@ -200,6 +200,34 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("No deadline");
   });
 
+  it("preserves a resumed draft's existing deadline", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      nowIso: "2026-08-12T00:00:00.000Z",
+      initialState: {
+        step: "form",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "draft",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+          closesAt: "2026-08-28T06:59:59.999Z",
+        },
+        publicFormUrl: null,
+        formAvailability: null,
+      },
+    }));
+
+    expect(html).toContain('value="custom" selected=""');
+    expect(html).toContain('id="onboarding-cfp-custom-deadline"');
+    expect(html).toContain('value="2026-08-27"');
+  });
+
   it("restores the completed handoff with direct actions for the exact form", () => {
     const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
       organizationId,
@@ -567,5 +595,25 @@ describe("onboarding form publication recovery", () => {
     expect(create).toHaveBeenCalledOnce();
     expect(publish).toHaveBeenCalledOnce();
     expect(reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles an already-committed publish before validating an expired local deadline", async () => {
+    const draft = { id: "form-1", status: "draft", updatedAt: "v1" };
+    const open = { ...draft, status: "open", updatedAt: "v2", closesAt: "2026-08-13T00:00:00.000Z" };
+    const validatePublish = vi.fn();
+    const publish = vi.fn();
+
+    await expect(createOrPublishOnboardingForm({
+      existing: draft,
+      publishNow: true,
+      create: vi.fn(),
+      reconcile: vi.fn(async () => open),
+      validatePublish,
+      publish,
+      onReady: vi.fn(),
+    })).resolves.toEqual(open);
+
+    expect(validatePublish).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 });
