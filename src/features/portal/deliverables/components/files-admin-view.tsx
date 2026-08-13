@@ -44,6 +44,10 @@ type DeliverableDetail = {
 };
 
 type CommentDraft = { key: string | null; id: string; body: string };
+type CommentDraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type CommentDraftStorageProvider = () => CommentDraftStorage;
+
+const browserCommentDraftStorage: CommentDraftStorageProvider = () => localStorage;
 
 export function fileCommentDraftStorageKey(eventId: string, detailKey: string): string {
   return `openboard:files-comment:${eventId}:${detailKey}`;
@@ -58,6 +62,43 @@ export function parseStoredCommentDraft(value: string | null, expectedKey: strin
       : null;
   } catch {
     return null;
+  }
+}
+
+export function loadStoredCommentDraft(
+  storageKey: string,
+  expectedKey: string,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): CommentDraft | null {
+  try {
+    return parseStoredCommentDraft(getStorage().getItem(storageKey), expectedKey);
+  } catch {
+    return null;
+  }
+}
+
+export function persistStoredCommentDraft(
+  storageKey: string,
+  draft: CommentDraft,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): boolean {
+  try {
+    getStorage().setItem(storageKey, JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeStoredCommentDraft(
+  storageKey: string,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): boolean {
+  try {
+    getStorage().removeItem(storageKey);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -492,14 +533,14 @@ function DeliverableDrawer({
 
   useEffect(() => {
     if (!key) return;
-    const stored = parseStoredCommentDraft(localStorage.getItem(fileCommentDraftStorageKey(eventId, key)), key);
+    const stored = loadStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), key);
     setDraft(stored ?? { key, id: crypto.randomUUID(), body: "" });
   }, [eventId, key]);
 
   useEffect(() => {
     if (!key || currentDetail.status !== "ready" || draft.key !== key || !draft.body.trim()) return;
     if (!currentDetail.comments.some((comment) => comment.id === draft.id)) return;
-    localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
+    removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
     setDraft({ key, id: crypto.randomUUID(), body: "" });
     toast("Comment sent");
   }, [currentDetail, draft, eventId, key, toast]);
@@ -530,7 +571,7 @@ function DeliverableDrawer({
   function requestClose() {
     if (sending) return;
     runGuarded(() => {
-      if (key) localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
+      if (key) removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
       setDraft({ key: null, id: "", body: "" });
       onClose();
     });
@@ -539,7 +580,10 @@ function DeliverableDrawer({
   async function send() {
     if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
     const pendingDraft = { key, id: draft.id, body: draftBody };
-    localStorage.setItem(fileCommentDraftStorageKey(eventId, key), JSON.stringify(pendingDraft));
+    if (!persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)) {
+      toast("Can't send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
+      return;
+    }
     setSending(true);
     try {
       const response = await fetch(`/api/internal/deliverables/comments?eventId=${encodeURIComponent(eventId)}`, {

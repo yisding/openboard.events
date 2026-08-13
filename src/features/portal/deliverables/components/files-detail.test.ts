@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { FileCommentDTO, FileVersionDTO } from "@/shared/contracts";
-import { deliverableDetailPaths, fetchDeliverableDetail, fileCommentDraftStorageKey, parseStoredCommentDraft, visibleDeliverableDetail } from "./files-admin-view";
+import {
+  deliverableDetailPaths,
+  fetchDeliverableDetail,
+  fileCommentDraftStorageKey,
+  loadStoredCommentDraft,
+  parseStoredCommentDraft,
+  persistStoredCommentDraft,
+  removeStoredCommentDraft,
+  visibleDeliverableDetail,
+} from "./files-admin-view";
 
 describe("Files deliverable detail recovery", () => {
   it("never exposes one deliverable's loaded data under another deliverable key", () => {
@@ -70,6 +79,19 @@ describe("Files deliverable detail recovery", () => {
     expect(parseStoredCommentDraft("not json", key)).toBeNull();
   });
 
+  it("treats unavailable browser storage as a recoverable send failure", () => {
+    const unavailableStorage = () => {
+      throw new Error("storage disabled");
+    };
+    const key = "request-a:contact-a:-";
+    const storageKey = fileCommentDraftStorageKey("event-a", key);
+    const draft = { key, id: "e5000000-0000-4000-8000-000000000090", body: "Please check this" };
+
+    expect(loadStoredCommentDraft(storageKey, key, unavailableStorage)).toBeNull();
+    expect(persistStoredCommentDraft(storageKey, draft, unavailableStorage)).toBe(false);
+    expect(removeStoredCommentDraft(storageKey, unavailableStorage)).toBe(false);
+  });
+
   it("guards reply drafts and blocks every drawer close path while sending", () => {
     const source = readFileSync(new URL("./files-admin-view.tsx", import.meta.url), "utf8");
     expect(source).toContain("useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending })");
@@ -77,10 +99,11 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain("runGuarded(() => {");
     expect(source).toContain("onClose={requestClose}");
     expect(source).toContain('aria-label="Reply to speaker"');
-    expect(source).toContain("localStorage.setItem(fileCommentDraftStorageKey(eventId, key)");
+    expect(source).toContain("persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)");
+    expect(source).toContain("recovery storage is unavailable");
     expect(source).toContain("currentDetail.comments.some((comment) => comment.id === draft.id)");
     expect(source).toContain('toast("Comment sent")');
     const receipt = source.indexOf("currentDetail.comments.some((comment) => comment.id === draft.id)");
-    expect(source.indexOf("localStorage.removeItem(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
+    expect(source.indexOf("removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
   });
 });
