@@ -590,6 +590,7 @@ export type DecisionEmailPreviewSample = {
   submissionTitle: string;
   subject: string;
   bodyHtml: string;
+  bodyText: string;
   templateEnabled: boolean;
 };
 
@@ -710,6 +711,7 @@ export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): P
       submissionTitle: sample.title,
       subject: rendered.subject,
       bodyHtml: rendered.html,
+      bodyText: rendered.text,
       templateEnabled: template.enabled,
     });
   }

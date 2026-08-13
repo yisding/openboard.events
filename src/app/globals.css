@@ -2142,12 +2142,17 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .message-preview .template-preview-heading{min-height:48px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);background:var(--surface-subtle)}
 .message-preview .template-preview-heading small{line-height:1.35;text-align:right}
 .message-preview .template-preview-message{padding:0;border:0;border-radius:0;background:var(--surface);box-shadow:none}
-.message-preview .template-preview-subject{padding:16px 18px 17px;border-bottom:1px solid var(--fill)}
+.message-preview .template-preview-subject{padding:16px 18px 17px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid var(--fill)}
+.message-preview .template-preview-subject-copy{min-width:0}
 .message-preview .template-preview-subject small{display:block;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.65px;line-height:1;text-transform:uppercase}
 .message-preview .template-preview-subject b{display:block;margin-top:7px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.message-preview .template-preview-format{display:flex;flex:0 0 auto;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--surface-subtle)}
+.message-preview .template-preview-format button{min-height:26px;padding:0 8px;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-size:10.5px;font-weight:600;white-space:nowrap}
+.message-preview .template-preview-format button[aria-pressed="true"]{background:var(--surface);color:var(--accent-dark);box-shadow:var(--shadow-sm)}
 .message-preview .template-preview-body{padding:20px 18px}
 .message-preview .template-preview-body>.rich-text>:first-child{margin-top:0}
 .message-preview .template-preview-body>.rich-text>:last-child{margin-bottom:0}
+.message-preview .template-preview-plain-text pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);font:inherit;font-size:12px;line-height:1.6}
 .message-preview .template-preview-status{margin:18px;background:var(--surface-subtle)}
 .communication-template-card{min-height:258px;display:flex;flex-direction:column;overflow:hidden}
 .communication-template-card__header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0}

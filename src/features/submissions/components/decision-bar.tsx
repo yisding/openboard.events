@@ -333,7 +333,7 @@ export function DecisionEmailPreflight({
     {preview.samples.map((sample) => <section key={sample.decision}>
       <p><b>{sample.decision === "accepted" ? "Acceptance" : "Decline"} sample</b> · {sample.recipientName} ({sample.recipientEmail}) · {sample.submissionTitle}</p>
       {!sample.templateEnabled && <p className="portal-note" role="alert">This template is paused, so its messages will be skipped until it is enabled.</p>}
-      <MessagePreview label={sample.decision.toUpperCase()} hint="Current template · sample recipient" message={{ subject: sample.subject, bodyHtml: sample.bodyHtml }} />
+      <MessagePreview label={sample.decision.toUpperCase()} hint="Current template · sample recipient" message={{ subject: sample.subject, bodyHtml: sample.bodyHtml, bodyText: sample.bodyText }} />
     </section>)}
     <p className="portal-note">Links shown in samples are placeholders. Sending creates a fresh private link for each recipient.</p>
   </div>;
