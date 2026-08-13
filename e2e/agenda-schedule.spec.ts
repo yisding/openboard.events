@@ -270,13 +270,17 @@ test.describe("agenda-schedule", () => {
       const placeable = `E2E auto-place ${stamp}`;
       const blockedTitle = `E2E blacked out ${stamp}`;
       const sessionsUrl = `/api/internal/agenda/sessions?eventId=${EVENTS.main.id}`;
-      const draftSession = (title: string, speakerContactIds: string[] = []) => apiData(request, sessionsUrl, {
-        method: "POST",
-        data: {
-          title, descriptionHtml: "", formatId: null, trackId: null, roomId: null,
-          startsAt: null, endsAt: null, speakerContactIds, status: "draft",
-        },
-      });
+      const draftSession = (title: string, speakerContactIds: string[] = []) => {
+        const creationId = crypto.randomUUID();
+        return apiData(request, sessionsUrl, {
+          method: "POST",
+          data: {
+            creationId,
+            title, descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+            startsAt: null, endsAt: null, speakerContactIds, status: "draft",
+          },
+        });
+      };
 
       await test.step("seed a plain unscheduled session and one whose only speaker is blacked out for the whole event", async () => {
         const speaker = await apiData<{ contact: { contactId: string } }>(request, `/api/internal/speakers/${EVENTS.main.id}`, {
