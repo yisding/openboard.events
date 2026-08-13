@@ -56,6 +56,12 @@ describe("communications activity table responsive styles", () => {
     expect(css.startsWith("@media(max-width:768px)", actionsStart)).toBe(true);
   });
 
+  it("stacks message previews before the desktop sidebar crowds the compose form", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const anchor = css.indexOf("@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}}");
+    expect(anchor).toBeGreaterThanOrEqual(0);
+  });
+
   it("scopes the two-column reminder grid away from the three-child demo cards", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
     const source = readFileSync(new URL("./components/reminders-tab.tsx", import.meta.url), "utf8");

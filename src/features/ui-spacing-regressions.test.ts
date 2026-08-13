@@ -41,8 +41,9 @@ describe("shared UI spacing regressions", () => {
     expect(preview).toContain('className="template-preview-subject"');
     expect(preview).toContain('className="template-preview-body"');
     expect(preview).toContain('className="template-editor__preview message-preview"');
-    expect(css).toContain(".message-preview .template-preview-heading{min-height:44px;padding:0 16px;display:flex");
-    expect(css).toContain(".message-preview .template-preview-subject{padding:12px 16px");
+    expect(css).toContain(".message-preview .template-preview-heading{min-height:48px;padding:0 18px;display:flex");
+    expect(css).toContain(".message-preview .template-preview-subject{padding:16px 18px 17px");
+    expect(css).toContain(".message-preview .template-preview-body{padding:20px 18px}");
     expect(css).not.toContain("\n.template-editor__preview{display:block;padding:0");
   });
 
