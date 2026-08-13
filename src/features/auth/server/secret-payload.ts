@@ -131,14 +131,6 @@ const adminLinkPayloadSchema = z.object({
 export type AdminLinkPayload = z.infer<typeof adminLinkPayloadSchema>;
 export type AdminLinkPayloadContext = { eventId: EventId; contactId: ContactId; linkId: string };
 
-export async function sealAdminLinkPayload(payload: AdminLinkPayload, context: AdminLinkPayloadContext, secret = configuredSecret()): Promise<Uint8Array> {
-  return sealPayload(payload, secret, {
-    schema: adminLinkPayloadSchema,
-    info: ADMIN_LINK_INFO,
-    additionalData: aad(context.eventId, context.contactId, context.linkId),
-  });
-}
-
 export async function openAdminLinkPayload(envelope: Uint8Array, context: AdminLinkPayloadContext, secret = configuredSecret()): Promise<AdminLinkPayload> {
   return openPayload(envelope, secret, {
     schema: adminLinkPayloadSchema,
