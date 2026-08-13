@@ -1,7 +1,7 @@
 "use client";
 
 import { ClipboardCheck, Plus, UserPlus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ColorChip } from "@/shared/ui/app/color-chip";
@@ -19,6 +19,14 @@ import { ReviewerInviteDialog } from "./reviewer-invite-dialog";
 export type TrackOption = { id: string; name: string; color: string | null };
 export type EventMember = { userId: string; name: string; email: string; role: string };
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
+type ReminderRecipient = { reviewerUserId: string; name: string; email: string; outstanding: number };
+type ReminderDialogState = {
+  plan: PlanDTO;
+  preview: ReminderRecipient[] | null;
+  previewing: boolean;
+  previewError: string;
+  sendError: string;
+};
 
 export async function deleteEvaluationPlan(eventId: string, planId: string, request: Requester = fetch): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
@@ -80,6 +88,11 @@ export function PlansView({
   const [pendingDelete, setPendingDelete] = useState<PlanDTO | null>(null);
   const [assigning, setAssigning] = useState<PlanDTO | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [reminderDialog, setReminderDialog] = useState<ReminderDialogState | null>(null);
+  const reminderTargetRef = useRef<string | null>(null);
+  const previewRequestRef = useRef(0);
+  const sendRequestRef = useRef(0);
+  const sendingReminderRef = useRef(false);
 
   useEffect(() => {
     const refreshProgress = () => router.refresh();
@@ -90,13 +103,70 @@ export function PlansView({
   const trackName = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
   const nextRound = plans.reduce((highest, plan) => Math.max(highest, plan.round), 0) + 1;
 
+  async function loadReminderPreview(plan: PlanDTO) {
+    const target = String(plan.id);
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
+    setReminderDialog((current) => current?.plan.id === plan.id
+      ? { ...current, preview: null, previewing: true, previewError: "", sendError: "" }
+      : current);
+    try {
+      const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/reminders`);
+      const payload = await response.json().catch(() => null) as {
+        data?: { reviewers?: ReminderRecipient[] };
+        error?: { message?: string };
+      } | null;
+      if (previewRequestRef.current !== requestId || reminderTargetRef.current !== target) return;
+      if (!response.ok || !Array.isArray(payload?.data?.reviewers)) {
+        setReminderDialog((current) => current?.plan.id === plan.id
+          ? { ...current, previewError: payload?.error?.message ?? "Could not prepare the reminder preview" }
+          : current);
+        return;
+      }
+      setReminderDialog((current) => current?.plan.id === plan.id
+        ? { ...current, preview: payload.data?.reviewers ?? [], previewError: "" }
+        : current);
+    } catch {
+      if (previewRequestRef.current === requestId && reminderTargetRef.current === target) {
+        setReminderDialog((current) => current?.plan.id === plan.id
+          ? { ...current, previewError: "Could not reach the server to preview these reminders" }
+          : current);
+      }
+    } finally {
+      if (previewRequestRef.current === requestId && reminderTargetRef.current === target) {
+        setReminderDialog((current) => current?.plan.id === plan.id
+          ? { ...current, previewing: false }
+          : current);
+      }
+    }
+  }
+
+  function openReminderPreflight(plan: PlanDTO) {
+    reminderTargetRef.current = String(plan.id);
+    setReminderDialog({ plan, preview: null, previewing: true, previewError: "", sendError: "" });
+    void loadReminderPreview(plan);
+  }
+
+  function closeReminderPreflight() {
+    reminderTargetRef.current = null;
+    previewRequestRef.current += 1;
+    setReminderDialog(null);
+  }
+
   /**
-   * The bulk nudge. It reaches only reviewers who still have outstanding work
-   * in an open window — the server refuses the rest — and every row it writes
-   * lands in the communication log like any other message.
+   * The bulk nudge. The preview makes its exact audience visible first, while
+   * the POST still re-decides who has outstanding work in an open window.
    */
-  async function remind(plan: PlanDTO) {
+  async function sendReminders() {
+    const state = reminderDialog;
+    if (!state?.preview || state.preview.length === 0 || state.previewing || sendingReminderRef.current) return;
+    const plan = state.plan;
+    const target = String(plan.id);
+    const requestId = sendRequestRef.current + 1;
+    sendRequestRef.current = requestId;
+    sendingReminderRef.current = true;
     setBusy(true);
+    setReminderDialog((current) => current?.plan.id === plan.id ? { ...current, sendError: "" } : current);
     try {
       const response = await fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/reminders`, {
         method: "POST",
@@ -105,17 +175,30 @@ export function PlansView({
       });
       const payload = await response.json().catch(() => null) as { data?: { enqueued: number; skipped: number }; error?: { message?: string } } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Those reminders did not send", { kind: "error" });
+        if (sendRequestRef.current === requestId && reminderTargetRef.current === target) {
+          setReminderDialog((current) => current?.plan.id === plan.id
+            ? { ...current, sendError: payload?.error?.message ?? "Those reminders did not send" }
+            : current);
+        }
         return;
       }
-      toast(payload.data.enqueued === 0
+      const message = payload.data.enqueued === 0
         ? "Nobody on this round has outstanding work"
-        : `Reminded ${payload.data.enqueued} reviewer${payload.data.enqueued === 1 ? "" : "s"}${payload.data.skipped > 0 ? ` · ${payload.data.skipped} had no contact record` : ""}`);
+        : `Reminded ${payload.data.enqueued} reviewer${payload.data.enqueued === 1 ? "" : "s"}${payload.data.skipped > 0 ? ` · ${payload.data.skipped} had no contact record` : ""}`;
+      toast(message);
       router.refresh();
+      if (sendRequestRef.current === requestId && reminderTargetRef.current === target) closeReminderPreflight();
     } catch {
-      toast("Those reminders did not send", { kind: "error" });
+      if (sendRequestRef.current === requestId && reminderTargetRef.current === target) {
+        setReminderDialog((current) => current?.plan.id === plan.id
+          ? { ...current, sendError: "Could not reach the server. These reminders were not confirmed; check Communications before retrying." }
+          : current);
+      }
     } finally {
-      setBusy(false);
+      if (sendRequestRef.current === requestId) {
+        sendingReminderRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -227,13 +310,13 @@ export function PlansView({
       cell: ({ row }) => (
         <span className="row-actions">
           <Button size="sm" variant="secondary" onClick={() => setAssigning(row.original)}>Assign</Button>
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => remind(row.original)}>Remind</Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => openReminderPreflight(row.original)}>Remind</Button>
           <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
         </span>
       ),
     },
-  // `remind` is stable enough for the row actions; the columns only need to be
+  // The row callbacks read current component state; the columns only need to be
   // rebuilt when the vocabulary or the busy flag changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [trackName, busy, timezone]);
@@ -283,6 +366,24 @@ export function PlansView({
       {inviting && <ReviewerInviteDialog eventId={eventId} initialPendingInvitations={pendingReviewerInvitations} timezone={timezone} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog
+        open={reminderDialog !== null}
+        title={`Remind reviewers for ${reminderDialog?.plan.name ?? "this round"}?`}
+        body={<ReminderPreflight
+          preview={reminderDialog?.preview ?? null}
+          loading={reminderDialog?.previewing ?? false}
+          previewError={reminderDialog?.previewError ?? ""}
+          sendError={reminderDialog?.sendError ?? ""}
+          onRetry={() => { if (reminderDialog) void loadReminderPreview(reminderDialog.plan); }}
+        />}
+        confirmLabel="Send reminders"
+        variant="primary"
+        confirmDisabled={busy || reminderDialog?.previewing !== false || !reminderDialog?.preview || reminderDialog.preview.length === 0 || Boolean(reminderDialog.previewError)}
+        wide
+        onConfirm={sendReminders}
+        onCancel={closeReminderPreflight}
+      />
+
+      <ConfirmDialog
         open={pendingDelete !== null}
         title={`Delete ${pendingDelete?.name ?? "this evaluation plan"}?`}
         body="This permanently removes the round and its reviewer assignments. Rounds with completed reviews cannot be deleted."
@@ -295,4 +396,41 @@ export function PlansView({
       />
     </div>
   );
+}
+
+function ReminderPreflight({
+  preview,
+  loading,
+  previewError,
+  sendError,
+  onRetry,
+}: {
+  preview: ReminderRecipient[] | null;
+  loading: boolean;
+  previewError: string;
+  sendError: string;
+  onRetry: () => void;
+}) {
+  if (loading) return <p role="status">Checking who still has reviews to finish…</p>;
+  if (previewError) {
+    return <div className="form-stack" role="alert">
+      <p>{previewError}</p>
+      <Button variant="secondary" onClick={onRetry}>Retry preview</Button>
+    </div>;
+  }
+  if (!preview) return <p role="status">A fresh recipient preview is required before reminders can be sent.</p>;
+  if (preview.length === 0) return <p>Nobody on this round has outstanding work.</p>;
+  return <div className="form-stack">
+    <p><b>{preview.length} reviewer{preview.length === 1 ? "" : "s"} will be reminded</b></p>
+    <ul className="reviewer-progress">
+      {preview.map((recipient) => (
+        <li key={recipient.reviewerUserId}>
+          <b>{recipient.name || recipient.email}</b>{recipient.name ? ` · ${recipient.email}` : ""}
+          <small>{recipient.outstanding} outstanding proposal{recipient.outstanding === 1 ? "" : "s"}</small>
+        </li>
+      ))}
+    </ul>
+    <p className="portal-note">The server checks outstanding work again when you send, so reviewers who finish meanwhile will not be emailed.</p>
+    {sendError && <p className="form-error" role="alert">{sendError}</p>}
+  </div>;
 }
