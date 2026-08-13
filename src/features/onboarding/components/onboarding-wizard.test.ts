@@ -63,12 +63,11 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain("Retry removal");
   });
 
-  it("opens both the safe organizer preview and the real live form from the published handoff", () => {
+  it("keeps the safe organizer preview and clipboard fallback in the published handoff", () => {
     expect(wizard).toContain('htmlFor="onboarding-public-form-link"');
     expect(wizard).toContain('href={`/events/${event.id}/forms/${createdForm.id}/preview`}');
     expect(wizard).toContain('target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
     expect(wizard).not.toContain('<Link href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Preview form');
-    expect(wizard).toContain('<a href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Open live form');
     expect(wizard).toContain('document.execCommand("copy")');
     expect(wizard).toContain("Link selected — press Cmd/Ctrl+C to copy");
     expect(globalCss).toContain(".onboarding-done>.metric-icon{margin:0 auto}");
