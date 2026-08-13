@@ -79,4 +79,12 @@ describe("embeds admin layout", () => {
     expect(source).toContain("value={manualCopy.value}");
     expect(source).toContain('toast("Copy failed — use the manual copy field below", { kind: "error" })');
   });
+
+  it("recommends an accessible auto-resizing install while preserving the script-free fallback", () => {
+    expect(source).toContain("Recommended: the loader resizes automatically");
+    expect(source).toContain("Copy auto-resizing embed");
+    expect(source).toContain("Copy fixed-height iframe");
+    expect(source).toContain("autoResizeEmbedSnippet({ origin, eventSlug, route");
+    expect(source).toContain("fixedHeightEmbedSnippet({ origin, eventSlug, route");
+  });
 });

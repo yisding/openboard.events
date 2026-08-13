@@ -10,6 +10,7 @@ import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { embedFiltersEqual, embedStylesEqual, hasUnsavedEmbedSettings } from "./embed-config-dirty";
 import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
+import { autoResizeEmbedSnippet, fixedHeightEmbedSnippet } from "./embed-snippets";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
@@ -65,9 +66,9 @@ function FilterGroup({
 
 /** One card per canonical content type, each its own kill switch + staged style/filters + save, per M33/M53 work orders. */
 export function EmbedsAdminPage({
-  eventId, eventSlug, initialConfigs, tracks, formats, rooms,
+  eventId, eventSlug, eventName, initialConfigs, tracks, formats, rooms,
 }: {
-  eventId: string; eventSlug: string; initialConfigs: EmbedConfigDTO[];
+  eventId: string; eventSlug: string; eventName: string; initialConfigs: EmbedConfigDTO[];
   tracks: TrackDTO[]; formats: SessionFormatDTO[]; rooms: RoomDTO[];
 }) {
   const { toast } = useToast();
@@ -140,12 +141,12 @@ export function EmbedsAdminPage({
 
   function iframeSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<iframe src="${origin}/embed/${eventSlug}/${route}" width="100%" height="760" style="border:0" loading="lazy" title="${eventSlug} ${route}"></iframe>`;
+    return fixedHeightEmbedSnippet({ origin, eventSlug, route, title: `${eventName} — ${TYPE_META[contentType].label}` });
   }
 
   function scriptSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<script src="${origin}/embed.js" data-event="${eventSlug}" data-type="${route}" async></script>`;
+    return autoResizeEmbedSnippet({ origin, eventSlug, route, title: `${eventName} — ${TYPE_META[contentType].label}` });
   }
 
   function shareUrl(contentType: CanonicalEmbedContentType): string {
@@ -165,10 +166,10 @@ export function EmbedsAdminPage({
   }
 
   function copyIframe(contentType: CanonicalEmbedContentType) {
-    void copyText(contentType, iframeSnippet(contentType), `${TYPE_META[contentType].label} iframe snippet copied`, "iframe code");
+    void copyText(contentType, iframeSnippet(contentType), "Fixed-height iframe copied", "fixed-height iframe code");
   }
   function copyScript(contentType: CanonicalEmbedContentType) {
-    void copyText(contentType, scriptSnippet(contentType), "Auto-resize script copied", "auto-resize script");
+    void copyText(contentType, scriptSnippet(contentType), `${TYPE_META[contentType].label} auto-resizing embed copied`, "auto-resizing embed code");
   }
   function copyShareUrl(contentType: CanonicalEmbedContentType) {
     void copyText(contentType, shareUrl(contentType), "Direct share URL copied", "share URL");
@@ -315,14 +316,14 @@ export function EmbedsAdminPage({
               </div>
 
               <section className="embed-install-section">
-                <header><h3>Install</h3><p>Use the iframe anywhere, or the script when the host page should resize automatically.</p></header>
+                <header><h3>Install</h3><p>Recommended: the loader resizes automatically as the schedule or screen width changes.</p></header>
                 <div className="embed-code">
-                  <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}" …>`}</code>
-                  <button type="button" disabled={!origin} aria-label={`Copy ${meta.label} embed code`} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /></button>
+                  <code>{origin ? scriptSnippet(config.contentType) : `<script src="…/embed.js" …>`}</code>
+                  <button type="button" disabled={!origin} aria-label={`Copy ${meta.label} auto-resizing embed code`} onClick={() => copyScript(config.contentType)}><Clipboard size={15} /></button>
                 </div>
                 <footer>
-                  <Button variant="secondary" disabled={!origin} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /> Copy iframe</Button>
-                  <Button variant="ghost" disabled={!origin} onClick={() => copyScript(config.contentType)}>Copy auto-resize script</Button>
+                  <Button variant="secondary" disabled={!origin} onClick={() => copyScript(config.contentType)}><Clipboard size={15} /> Copy auto-resizing embed</Button>
+                  <Button variant="ghost" disabled={!origin} onClick={() => copyIframe(config.contentType)}>Copy fixed-height iframe</Button>
                   <Button variant="ghost" disabled={!origin} onClick={() => copyShareUrl(config.contentType)}><Link2 size={13} /> Copy share URL</Button>
                 </footer>
                 {manualCopy?.contentType === config.contentType && (
