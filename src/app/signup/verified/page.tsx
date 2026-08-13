@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { BadgeCheck, CircleAlert } from "lucide-react";
 import { ActivationResendForm } from "@/features/auth/components/activation-resend-form";
+import { AuthBrandPanel } from "@/features/auth/components/auth-brand-panel";
 import { getAdminSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
-import { Brand } from "@/shared/ui/brand";
 
 export const metadata: Metadata = { title: "Email confirmation" };
 
@@ -19,7 +19,7 @@ export default async function VerifiedEmailPage({ searchParams }: { searchParams
   // another browser retains the ordinary sign-in fallback below.
   if (!failed && await getAdminSession()) redirect(next);
   return <main className="login-page">
-    <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>
+    <AuthBrandPanel />
     <section className="login-form-panel"><div><div>
       <span className={`metric-icon ${failed ? "warn" : "accent"}`}>{failed ? <CircleAlert size={20} /> : <BadgeCheck size={20} />}</span>
       <h1>{failed ? "That link did not work" : "Email confirmed"}</h1>

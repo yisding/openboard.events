@@ -1,6 +1,7 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
+import { AuthBrandPanel } from "@/features/auth/components/auth-brand-panel";
 import { ResetPasswordForm } from "@/features/auth/components/reset-password-form";
-import { Brand } from "@/shared/ui/brand";
 
 /**
  * M42 — where a password-reset email lands. Same two-panel shell as `/login`,
@@ -8,9 +9,11 @@ import { Brand } from "@/shared/ui/brand";
  * the field/button classes and the accent ink tokens exactly as the sign-in
  * form does.
  */
+export const metadata: Metadata = { title: "Choose a new password" };
+
 export default function ResetPasswordPage() {
   return <main className="login-page">
-    <section className="login-brand-panel"><Brand /><div><span>THE EVENT OS FOR AMBITIOUS TEAMS</span><h1>Build programs people remember.</h1><p>Submissions, speakers, schedules, and every detail in between.</p></div><small>© 2026 Openboard</small></section>
+    <AuthBrandPanel />
     <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><ResetPasswordForm /></Suspense></div></section>
   </main>;
 }

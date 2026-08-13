@@ -181,6 +181,7 @@ export const bulkSpeakerEmailPreviewSchema = z.object({
   recipientName: z.string(),
   subject: z.string(),
   bodyHtml: z.string(),
+  bodyText: z.string(),
 });
 export type BulkSpeakerEmailPreview = z.infer<typeof bulkSpeakerEmailPreviewSchema>;
 

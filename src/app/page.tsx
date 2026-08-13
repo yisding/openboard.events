@@ -59,12 +59,12 @@ export default async function HomePage() {
           </div>
           <div className="hero-proof"><CheckCircle2 size={17} /> {workspaceProof}</div>
         </div>
-        <div className="hero-art" aria-label="Openboard dashboard preview">
+        <div className="hero-art" aria-hidden="true">
           <div className="hero-glow" />
           <div className="preview-window">
             <div className="preview-chrome"><i /><i /><i /><span>AI Engineer World&apos;s Fair</span></div>
             <div className="preview-body">
-              <aside><Brand compact /><div className="preview-nav-lines">{Array.from({ length: 7 }, (_, i) => <b key={i} />)}</div></aside>
+              <aside><Brand compact decorative /><div className="preview-nav-lines">{Array.from({ length: 7 }, (_, i) => <b key={i} />)}</div></aside>
               <div className="preview-main">
                 <div className="preview-heading"><span>Good morning, Maya</span><span className="preview-add">＋ Add</span></div>
                 <div className="preview-stats"><article><small>Submissions</small><strong>247</strong><em>↑ 18%</em></article><article><small>Accepted</small><strong>82</strong><em>33%</em></article><article><small>Tasks done</small><strong>91%</strong><em>On track</em></article></div>

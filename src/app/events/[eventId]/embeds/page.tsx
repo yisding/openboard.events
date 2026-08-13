@@ -25,5 +25,5 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
     listFormats(eventId),
     listRooms(eventId),
   ]);
-  return <EmbedsAdminPage eventId={eventId} eventSlug={event.slug} initialConfigs={configs} tracks={tracks} formats={formats} rooms={rooms} />;
+  return <EmbedsAdminPage eventId={eventId} eventSlug={event.slug} eventName={event.name} initialConfigs={configs} tracks={tracks} formats={formats} rooms={rooms} />;
 }

@@ -123,6 +123,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
         recipientName: `${row.firstName} ${row.lastName}`.trim() || row.email,
         subject: rendered.subject,
         bodyHtml: rendered.html,
+        bodyText: rendered.text,
       },
     };
   }

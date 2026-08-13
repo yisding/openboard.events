@@ -59,4 +59,13 @@ describe("public landing page", () => {
     expect(html).not.toContain("/submit/ai-engineer/technical-talks");
     expect(html).not.toContain("/e/ai-engineer/schedule");
   });
+
+  it("keeps the decorative dashboard mockup out of the keyboard and accessibility trees", async () => {
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain('<div class="hero-art" aria-hidden="true">');
+    expect(html).not.toContain('aria-label="Openboard dashboard preview"');
+    expect(html.match(/aria-label="Openboard home"/gu)).toHaveLength(1);
+    expect(html).toContain('<span class="brand" aria-hidden="true">');
+  });
 });

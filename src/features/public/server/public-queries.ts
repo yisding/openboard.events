@@ -33,11 +33,22 @@ type PublicEventRow = {
   startsAt: Date;
   endsAt: Date;
   theme: string | null;
+  logoFileId: string | null;
+  backgroundFileId: string | null;
 };
 
 async function resolveEventBySlug(dbOrTx: DbOrTx, eventSlug: string): Promise<PublicEventRow | null> {
   const [row] = await dbOrTx
-    .select({ id: events.id, name: events.name, timezone: events.timezone, startsAt: events.startsAt, endsAt: events.endsAt, theme: events.theme })
+    .select({
+      id: events.id,
+      name: events.name,
+      timezone: events.timezone,
+      startsAt: events.startsAt,
+      endsAt: events.endsAt,
+      theme: events.theme,
+      logoFileId: events.logoFileId,
+      backgroundFileId: events.backgroundFileId,
+    })
     .from(events)
     .where(eq(events.slug, eventSlug))
     .limit(1);
@@ -137,6 +148,8 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
       startsAt: event.startsAt.toISOString(),
       endsAt: event.endsAt.toISOString(),
       accentColor: event.theme ?? null,
+      logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
+      backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
     },
     days,
     sessions,
@@ -221,7 +234,13 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
   }));
 
   return publishedSpeakersDtoSchema.parse({
-    event: { name: event.name, timezone: event.timezone, accentColor: event.theme ?? null },
+    event: {
+      name: event.name,
+      timezone: event.timezone,
+      accentColor: event.theme ?? null,
+      logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
+      backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
+    },
     speakers,
   });
 }

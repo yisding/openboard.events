@@ -141,8 +141,8 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
             {!contactId && (
               <label className="table-search">
                 <Search size={16} />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search recipients" />
-                {search && <button type="button" onClick={() => setSearch("")}><X size={14} /></button>}
+                <input aria-label="Search recipients" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search recipients" />
+                {search && <button type="button" aria-label="Clear search" onClick={() => setSearch("")}><X size={14} /></button>}
               </label>
             )}
             <Select className="filter-button" value={status} onChange={(event) => setStatus(event.target.value as CommStatus | "")} aria-label="Filter by status">

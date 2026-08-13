@@ -260,7 +260,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
   return <div className="builder-wrap">
     <header className="builder-header">
       <div className="builder-title">
-        <Link className="icon-button" href={`/events/${event.id}/tasks/forms`}><ArrowLeft size={18} /></Link>
+        <Link className="icon-button" aria-label="Back to portal forms" href={`/events/${event.id}/tasks/forms`}><ArrowLeft size={18} /></Link>
         <div>
           <div><h1>{form.internalName}</h1><span className={`status-badge status-${targetType}`}><i />{targetType === "submission" ? "Submission" : "Contact"}</span></div>
           <span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span>

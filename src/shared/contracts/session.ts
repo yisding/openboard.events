@@ -110,6 +110,8 @@ export const publishedScheduleDtoSchema = z.object({
     startsAt: z.iso.datetime(),
     endsAt: z.iso.datetime(),
     accentColor: z.string().nullable(),
+    logoUrl: z.string().nullable(),
+    backgroundUrl: z.string().nullable(),
   }),
   days: z.array(z.string()),
   sessions: z.array(publishedSessionDtoSchema),
@@ -142,7 +144,13 @@ export const publishedSpeakerDtoSchema = z.object({
   })),
 });
 export const publishedSpeakersDtoSchema = z.object({
-  event: z.object({ name: z.string(), timezone: z.string(), accentColor: z.string().nullable() }),
+  event: z.object({
+    name: z.string(),
+    timezone: z.string(),
+    accentColor: z.string().nullable(),
+    logoUrl: z.string().nullable(),
+    backgroundUrl: z.string().nullable(),
+  }),
   speakers: z.array(publishedSpeakerDtoSchema),
 });
 export type PublishedSessionDTO = z.infer<typeof publishedSessionDtoSchema>;

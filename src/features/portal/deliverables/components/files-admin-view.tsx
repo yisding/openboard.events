@@ -408,8 +408,8 @@ export function FilesAdminView({
         <div className="data-toolbar">
           <label className="table-search">
             <Search size={16} />
-            <input value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
-            {draftSearch && <button type="button" onClick={clearSearch}><X size={14} /></button>}
+            <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
+            {draftSearch && <button type="button" aria-label="Clear search" onClick={clearSearch}><X size={14} /></button>}
           </label>
           <Select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
@@ -678,6 +678,7 @@ function DeliverableDrawer({
               ))}
             <div className="form-stack" style={{ marginTop: 12 }}>
               <textarea
+                aria-label="Reply to the speaker"
                 rows={2}
                 aria-label="Reply to speaker"
                 value={draftBody}

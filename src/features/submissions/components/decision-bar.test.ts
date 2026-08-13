@@ -258,6 +258,7 @@ describe("DecisionEmailPreflight", () => {
           submissionTitle: "Practical Engines",
           subject: "You are accepted",
           bodyHtml: "<p>Welcome, Ada.</p>",
+          bodyText: "Welcome, Ada.",
           templateEnabled: false,
         }],
       },

@@ -186,7 +186,7 @@ export function TasksAdminView({
             <div className="data-toolbar">
               <label className="table-search">
                 <Search size={16} />
-                <input placeholder="Search tasks" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <input aria-label="Search tasks" placeholder="Search tasks" value={search} onChange={(event) => setSearch(event.target.value)} />
               </label>
               <span className="row-count">{filtered.length} of {tasks.length}</span>
             </div>
