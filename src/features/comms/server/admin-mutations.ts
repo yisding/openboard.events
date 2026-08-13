@@ -137,29 +137,40 @@ export async function listReminderRules(eventId: EventId): Promise<ReminderRuleR
 }
 
 /**
- * Replaces the whole ladder: upsert every rung the organizer kept (enabled
- * flag only — offsets are the identity), then delete any rung that is no
- * longer in the set. Not one of the 8 audited `withTx` functions (resolution
- * #4), so this is two single-statement writes, not a transaction — an
- * organizer reloading mid-save sees an intermediate state for a heartbeat, not
- * a torn one that outlives the request.
+ * Replaces the whole ladder in one statement: upsert every rung the organizer
+ * kept (enabled flag only — offsets are the identity), then delete any rung
+ * that is no longer in the set. Like the speaker-unavailability full-set
+ * replacement, the data-modifying CTE is atomic without requiring a caller
+ * transaction: a failed delete cannot leave newly inserted rungs behind, and
+ * readers see either the complete previous ladder or the complete new one.
  */
 export async function saveReminderRulesIn(dbOrTx: DbOrTx, eventId: EventId, rules: { offsetDays: number; enabled: boolean }[]): Promise<void> {
   const deduped = new Map(rules.map((rule) => [rule.offsetDays, rule.enabled]));
-  const values = [...deduped.entries()].map(([offsetDays, enabled]) => ({ eventId, offsetDays, enabled }));
-  if (values.length > 0) {
-    await dbOrTx.insert(reminderRules).values(values)
-      .onConflictDoUpdate({
-        target: [reminderRules.eventId, reminderRules.offsetDays],
-        set: { enabled: sql`excluded.enabled`, updatedAt: new Date() },
-      });
-  }
-  const keep = [...deduped.keys()];
-  await dbOrTx.delete(reminderRules).where(
-    keep.length > 0
-      ? and(eq(reminderRules.eventId, eventId), notInArray(reminderRules.offsetDays, keep))
-      : eq(reminderRules.eventId, eventId),
-  );
+  const incoming = [...deduped.entries()].map(([offsetDays, enabled]) => ({ offset_days: offsetDays, enabled }));
+  const updatedAt = new Date();
+  await dbOrTx.execute(sql`
+    WITH incoming AS (
+      SELECT x.offset_days, x.enabled
+      FROM jsonb_to_recordset(${JSON.stringify(incoming)}::jsonb) AS x(offset_days integer, enabled boolean)
+    ), removed AS (
+      DELETE FROM reminder_rules existing
+      WHERE existing.event_id = ${eventId}
+        AND NOT EXISTS (
+          SELECT 1 FROM incoming WHERE incoming.offset_days = existing.offset_days
+        )
+      RETURNING existing.id
+    ), saved AS (
+      INSERT INTO reminder_rules (event_id, offset_days, enabled)
+      SELECT ${eventId}, incoming.offset_days, incoming.enabled FROM incoming
+      ON CONFLICT (event_id, offset_days) DO UPDATE SET
+        enabled = excluded.enabled,
+        updated_at = ${updatedAt}
+      RETURNING id
+    )
+    SELECT
+      (SELECT count(*) FROM removed) AS removed_count,
+      (SELECT count(*) FROM saved) AS saved_count
+  `);
 }
 
 export async function saveReminderRules(eventId: EventId, rules: { offsetDays: number; enabled: boolean }[]): Promise<void> {
