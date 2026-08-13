@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { sessionStatusSchema } from "./enums";
-import { contactIdSchema, formatIdSchema, roomIdSchema, sessionIdSchema, trackIdSchema } from "./ids";
+import { contactIdSchema, formatIdSchema, roomIdSchema, sessionIdSchema, submissionIdSchema, trackIdSchema } from "./ids";
 
 export const scheduledSessionDtoSchema = z.object({
   id: sessionIdSchema,
@@ -29,6 +29,44 @@ export const conflictDtoSchema = z.object({
   overlapEndMs: z.number(),
 });
 export type ConflictDTO = z.infer<typeof conflictDtoSchema>;
+
+export const agendaPromotionResultItemSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    submissionId: submissionIdSchema,
+    outcome: z.enum(["created", "already_existed"]),
+    sessionId: sessionIdSchema,
+  }),
+  z.object({
+    submissionId: submissionIdSchema,
+    outcome: z.literal("rejected"),
+    code: z.enum(["NOT_FOUND", "VALIDATION", "CONFLICT"]),
+    message: z.string().min(1),
+  }),
+]);
+export type AgendaPromotionResultItem = z.infer<typeof agendaPromotionResultItemSchema>;
+
+/** One request stays small enough to finish and report every row promptly. */
+export const MAX_BULK_AGENDA_PROMOTIONS = 50;
+
+/** Truthful per-row outcomes for one bounded bulk promotion request. */
+export const bulkAgendaPromotionResultSchema = z.object({
+  results: z.array(agendaPromotionResultItemSchema),
+  created: z.int().nonnegative(),
+  alreadyExisted: z.int().nonnegative(),
+  rejected: z.int().nonnegative(),
+}).superRefine((value, context) => {
+  const counts = {
+    created: value.results.filter((row) => row.outcome === "created").length,
+    alreadyExisted: value.results.filter((row) => row.outcome === "already_existed").length,
+    rejected: value.results.filter((row) => row.outcome === "rejected").length,
+  };
+  for (const key of ["created", "alreadyExisted", "rejected"] as const) {
+    if (value[key] !== counts[key]) {
+      context.addIssue({ code: "custom", path: [key], message: `${key} does not match the per-row results` });
+    }
+  }
+});
+export type BulkAgendaPromotionResult = z.infer<typeof bulkAgendaPromotionResultSchema>;
 
 export const mySessionDtoSchema = z.object({
   sessionId: sessionIdSchema,

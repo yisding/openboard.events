@@ -47,6 +47,8 @@ export {
 
 export type { MoveSessionInput, SaveSessionInput } from "./server/mutations";
 export {
+  bulkPromoteSubmissions,
+  bulkPromoteSubmissionsIn,
   bulkSetPublished,
   bulkSetPublishedIn,
   deleteSession,
