@@ -33,6 +33,10 @@ function eventTimezoneInput(page: Page) {
   return page.getByRole("combobox", { name: /^Timezone\s*\*?$/u });
 }
 
+function proposalTitleInput(page: Page) {
+  return page.getByRole("textbox", { name: "Title", exact: true });
+}
+
 async function chooseEventDateTime(page: Page, label: "Starts" | "Ends", daysFromNow: number, time: string): Promise<void> {
   const currentDay = eventDayKey(new Date(), ONBOARDING_TIMEZONE);
   const targetDay = addCalendarDays(currentDay, daysFromNow);
@@ -303,7 +307,7 @@ test.describe("self-service signup to first value", () => {
       await expect(previewPage).toHaveURL(/\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}\/preview$/);
       await expect(previewPage.getByText("ORGANIZER PREVIEW", { exact: true })).toBeVisible();
       await expect(previewPage.getByText(/answers stay in this tab and are never saved/i)).toBeVisible();
-      await expect(previewPage.getByLabel("Title")).toBeVisible();
+      await expect(proposalTitleInput(previewPage)).toBeVisible();
       await expect(previewPage.getByRole("button", { name: "Send me a code" })).toHaveCount(0);
       await previewPage.close();
 
@@ -341,13 +345,13 @@ test.describe("self-service signup to first value", () => {
         await codeInput.fill(otp);
         await publicPage.getByRole("button", { name: /^continue$/i }).click();
 
-        await expect(publicPage.getByLabel("Title")).toBeVisible({ timeout: 30_000 });
+        await expect(proposalTitleInput(publicPage)).toBeVisible({ timeout: 30_000 });
         // The generated form retains empty vocabulary questions in its
         // authoring model so an organizer can configure them later, but the
         // actual proposal step must not show Format/Tags with no choices.
         await expect(publicPage.getByRole("combobox", { name: "Format", exact: true })).toHaveCount(0);
         await expect(publicPage.getByText("Tags", { exact: true })).toHaveCount(0);
-        await publicPage.getByLabel("Title").fill(proposalTitle);
+        await proposalTitleInput(publicPage).fill(proposalTitle);
         await publicPage.getByLabel("Description").click();
         await publicPage.keyboard.type("A real proposal proving the first customer loop end to end.");
         await publicPage.getByRole("combobox", { name: "Track", exact: true }).selectOption({ label: "Main Stage" });
