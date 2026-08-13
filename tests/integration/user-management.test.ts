@@ -50,7 +50,10 @@ const MIGRATIONS = [
   // this test is not about, and 0014's template backfill would change the
   // `email_templates` rows the outbox assertions inspect.
   "0016_speaker_moments",
-  "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
+  // 0029 distinguishes self-service users by the durable signup provenance
+  // introduced in 0024, so its isolated migration fixture must include that
+  // dependency even though these tests do not otherwise inspect consent.
+  "0022_admin_auth_email_outbox", "0024_user_legal_acceptances", "0025_platform_invitation_email",
   "0029_event_reviewer_invitations",
 ];
 
