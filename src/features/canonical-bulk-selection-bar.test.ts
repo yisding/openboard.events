@@ -20,7 +20,11 @@ describe("canonical DataTable bulk bars", () => {
     const view = readFileSync(new URL("./submissions/components/abstracts-view.tsx", import.meta.url), "utf8");
     const table = readFileSync(new URL("./submissions/components/abstracts-table.tsx", import.meta.url), "utf8");
     expect(view.match(/<DecisionBar/g)).toHaveLength(1);
-    expect(view).toContain("renderSelectionBar: ({ selectedRows, countLabel");
+    expect(view).toContain(
+      "renderSelectionBar: ({ selectedRows, clearSelection: clearTableSelection }) => {",
+    );
+    expect(view).toContain("abstractSelectionScope({");
+    expect(view).toContain("countLabel={scope.countLabel}");
     expect(table).toContain('DataTableProps<SubmissionListRow>["renderSelectionBar"]');
     expect(table).toContain("renderSelectionBar ? { renderSelectionBar }");
   });

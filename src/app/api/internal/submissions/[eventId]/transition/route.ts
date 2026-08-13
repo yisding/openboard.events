@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
+import { BULK_DECISION_LIMIT } from "@/features/submissions/bulk-decision-limit";
 import { transitionStatus } from "@/features/submissions";
 import { eventIdSchema, submissionIdSchema, submissionStatusSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 const transition = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({
-    ids: z.array(submissionIdSchema).min(1).max(200),
+    ids: z.array(submissionIdSchema).min(1).max(BULK_DECISION_LIMIT),
     to: submissionStatusSchema,
     expectedFrom: z.union([submissionStatusSchema, z.array(submissionStatusSchema).min(1)]),
   }),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LIMITS, formatIdSchema, submissionStatusSchema, tagIdSchema, trackIdSchema } from "@/shared/contracts";
+import { BULK_DECISION_LIMIT } from "../bulk-decision-limit";
 
 /**
  * What the Abstracts table can be narrowed by. Parsed rather than trusted: these
@@ -21,7 +22,7 @@ export const submissionFiltersSchema = z.object({
   // VALIDATION while the server page, which hand-wrapped them in `Number(…)`,
   // worked. Numbers still parse unchanged, so the server page keeps working.
   page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().positive().max(200).default(25),
+  pageSize: z.coerce.number().int().positive().max(BULK_DECISION_LIMIT).default(25),
   sort: z.enum([
     "newest",
     "oldest",
