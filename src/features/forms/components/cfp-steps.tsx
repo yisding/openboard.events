@@ -686,13 +686,21 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     );
   }
 
+  const activeStepIndex = flowSteps.findIndex((name) => name === step);
+
   return (
     <FormUploadProvider eventId={event.id}>
     <section ref={stepRegion} className={`cfp-step${step === "account" ? " cfp-step--compact" : ""}`}>
-      <ol className="public-form-progress" aria-label="Submission progress">
-        {flowSteps.map((name) => (
-          <li key={name} className={step === name ? "active" : ""} aria-current={step === name ? "step" : undefined}>{name}</li>
-        ))}
+      <ol className={`public-form-progress public-form-progress-${flowSteps.length}`} aria-label="Submission progress">
+        {flowSteps.map((name, index) => {
+          const complete = activeStepIndex > index;
+          return (
+            <li key={name} className={step === name ? "active" : complete ? "complete" : ""} aria-current={step === name ? "step" : undefined}>
+              <span aria-hidden="true">{complete ? "✓" : index + 1}</span>
+              <b>{name}</b>
+            </li>
+          );
+        })}
       </ol>
 
       {step === "account" && (

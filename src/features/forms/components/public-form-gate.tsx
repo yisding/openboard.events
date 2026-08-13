@@ -1,6 +1,7 @@
 import React from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import type { PublicForm } from "@/features/forms";
 import { formatInZone } from "@/shared/lib/time";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
@@ -28,6 +29,21 @@ function EventBackground({ url, children }: { url: string | null; children: Reac
   );
 }
 
+function EventIdentity({ event }: { event: PublicForm["event"] }) {
+  const eventHref = `/e/${encodeURIComponent(event.slug)}/agenda`;
+  return (
+    <div className={styles.eventBar}>
+      <Link className={styles.eventIdentity} href={eventHref} aria-label={`${event.name} event site`}>
+        {event.logoUrl
+          ? <Image src={event.logoUrl} alt="" aria-hidden="true" className={styles.eventLogo} width={80} height={40} />
+          : <span className={styles.eventFallback} aria-hidden="true">{event.name.trim().charAt(0).toUpperCase()}</span>}
+        <span><small>Call for speakers</small><b>{event.name}</b></span>
+      </Link>
+      <Link className={styles.backLink} href={eventHref}><ArrowLeft size={15} /> Event site</Link>
+    </div>
+  );
+}
+
 /**
  * What a speaker sees before the form itself: the welcome, or the reason they
  * cannot submit.
@@ -42,7 +58,8 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
   if (!openState.open) {
     return (
       <EventBackground url={event.backgroundUrl}>
-        <main className="cfp-closed">
+        <EventIdentity event={event} />
+        <section className="cfp-closed">
           <h1>{form.externalTitle || `Call for speakers — ${event.name}`}</h1>
           {openState.reason === "not_open_yet" ? (
             <p>
@@ -61,20 +78,16 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
               . Thank you for your interest in {event.name}.
             </p>
           )}
-          <Link href={`/e/${event.slug}/schedule`}>See the programme</Link>
-        </main>
+          <Link href={`/e/${event.slug}/agenda`}>See the programme</Link>
+        </section>
       </EventBackground>
     );
   }
 
   return (
     <EventBackground url={event.backgroundUrl}>
+      <EventIdentity event={event} />
       <header className="public-form-welcome">
-        {/* Sized rather than fluid: the logo is a known-immutable /f/ object, and
-            an unsized image on the first public page a judge opens is a layout
-            shift they watch happen. Optimization is off globally on Workers. */}
-        {event.logoUrl && <Image src={event.logoUrl} alt="" aria-hidden="true" className="cfp-logo" width={160} height={48} />}
-        <p className={styles.eventName}>{event.name}</p>
         <h1>{form.pageHeading || "Welcome!"}</h1>
         {form.showWelcome && form.welcomeHtml && <RichTextView html={form.welcomeHtml} />}
         <dl className="welcome-facts">
