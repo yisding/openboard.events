@@ -832,21 +832,25 @@ describe("review operations", () => {
     expect(outstanding.find((target) => target.reviewerUserId === ada)?.outstanding).toBe(2);
 
     const sent = await sendReviewRemindersIn(db, eventId, planId, null, AT_OPEN.getTime());
-    // Grace has no contact row in this event, so she is reported as skipped
-    // rather than silently dropped — or invented as a contact here.
-    expect(sent).toEqual({ enqueued: 1, skipped: 1 });
+    // Grace is an existing event member with no contact row. Reminding the
+    // round provisions that outbox identity instead of silently skipping her.
+    expect(sent).toEqual({ enqueued: 2, skipped: 0 });
 
-    const logs = await pglite.query<{ template_key: string; contact_id: string; status: string }>(
-      "SELECT template_key, contact_id, status FROM communication_logs WHERE event_id=$1",
+    const logs = await pglite.query<{ template_key: string; email: string; first_name: string; last_name: string; status: string }>(
+      `SELECT l.template_key, c.email, c.first_name, c.last_name, l.status
+       FROM communication_logs l JOIN contacts c ON c.id = l.contact_id
+       WHERE l.event_id=$1 ORDER BY c.email`,
       [eventId],
     );
-    expect(logs.rows).toHaveLength(1);
-    expect(logs.rows[0]).toMatchObject({ template_key: "review_reminder", contact_id: adaContact, status: "queued" });
+    expect(logs.rows).toEqual([
+      { template_key: "review_reminder", email: "ada@example.com", first_name: "Ada", last_name: "Lovelace", status: "queued" },
+      { template_key: "review_reminder", email: "grace@example.com", first_name: "Grace", last_name: "Hopper", status: "queued" },
+    ]);
 
     // The same cycle is idempotent; the window governs the rest.
     await sendReviewRemindersIn(db, eventId, planId, null, AT_OPEN.getTime());
     const again = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs WHERE event_id=$1", [eventId]);
-    expect(again.rows[0]?.n).toBe(1);
+    expect(again.rows[0]?.n).toBe(2);
 
     const closed = await sendReviewRemindersIn(db, eventId, planId, null, AFTER_CLOSE.getTime())
       .catch((thrown: unknown) => thrown);

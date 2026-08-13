@@ -464,7 +464,7 @@ the number the organizer decides on is the number the criteria define.
 | # | Action | Expected result |
 |---|---|---|
 | 23 | Send reviewer reminders for incomplete assignments | The action reports how many were enqueued |
-| 24 | Drain the outbox | One reminder per incomplete reviewer — **see Known gaps** |
+| 24 | Drain the outbox | One reminder per incomplete reviewer, including existing event members who were not already speaker contacts |
 
 ### §6 Design checks
 
@@ -476,12 +476,6 @@ to do should be told that clearly; **D9** on the round window (DD-2 regression).
 ### Exit criteria
 
 Steps 12, 19, 22 are the load-bearing three: blindness, arithmetic, snapshot pinning.
-
-### Known gaps
-
-**Step 24 is a known failure (M50).** Seeded reviewers have no `contacts` row, so reminders enqueue
-0. Confirm the zero and move on. Reviewers you provision yourself in step 10 *should* receive one —
-test that instead, and file only if that path also enqueues nothing.
 
 ---
 
