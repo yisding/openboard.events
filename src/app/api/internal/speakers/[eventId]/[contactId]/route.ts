@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { adminAuth } from "@/features/auth";
+import { adminAuth, requireOrganizationAdmin } from "@/features/auth";
 import { eraseContactData } from "@/features/data-lifecycle";
+import { getEventOrganization } from "@/features/organizations";
 import { getSpeakerDetail, setConfirmationStatus, updateSpeakerBio, updateSpeakerEmail, updateSpeakerHeadshot } from "@/features/portal";
-import { CONFIRMATION_STATUSES, contactIdSchema, eventIdSchema, fileIdSchema } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
+import { CONFIRMATION_STATUSES, contactIdSchema, type EventId, eventIdSchema, fileIdSchema } from "@/shared/contracts";
+import { AppError, isAppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
 import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
 
@@ -76,10 +77,42 @@ const patch = defineHandler({
 });
 
 /**
+ * Does the caller hold organizer rights over the *organization* this event
+ * files under, and not merely over the event? A non-member gets FORBIDDEN from
+ * `requireOrganizationAdmin`, which is an answer here rather than a failure —
+ * it downgrades the erasure below to event scope instead of rejecting it, so an
+ * event-only organizer keeps a working erasure path for their own event.
+ */
+async function holdsOrganizationAuthority(eventId: EventId): Promise<boolean> {
+  const organizationId = await getEventOrganization(eventId);
+  if (!organizationId) return false;
+  try {
+    await requireOrganizationAdmin(organizationId, "organizer");
+    return true;
+  } catch (error) {
+    if (isAppError(error) && (error.code === "FORBIDDEN" || error.code === "UNAUTHORIZED")) return false;
+    throw error;
+  }
+}
+
+/**
  * M47 — right-to-erasure. `eraseContactData` is the audited, all-or-nothing
  * deletion (see its own doc comment); organizer-only, matching PATCH above
  * and for the same reason — this is the most destructive action available
  * on a speaker's record, not less sensitive than editing it.
+ *
+ * The guard above is `adminAuth`, which reads `event_members` and nothing
+ * else, so it establishes event authority only — and erasure's step 5 reaches
+ * *organization* scope: the CRM profile, its notes/pipeline/activity/tags/merge
+ * snapshots, and every other event's link to it. An event organizer who holds
+ * no `organization_members` row cannot so much as read the CRM
+ * (`organizationAuth` -> FORBIDDEN), so they must not be able to destroy it
+ * from here either. The organization half is therefore authorized separately,
+ * against the event's own organization: hold organization organizer and the
+ * erasure is the full one it always was; hold only the event role and it is
+ * event-scoped — this event's contact and its CRM link go, the organization's
+ * profile for that person stays. The receipt's `deletedCounts` says which
+ * happened (`organizationContacts` is 0 for the event-only erasure).
  */
 const del = defineHandler({
   auth: adminAuth({ role: "organizer" }),
@@ -87,7 +120,8 @@ const del = defineHandler({
   handler: async ({ eventId, params, requestId }) => {
     const { contactId } = routeParams.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
-    const receipt = await eraseContactData(scopedEventId, contactId);
+    const eraseOrganizationProfile = await holdsOrganizationAuthority(scopedEventId);
+    const receipt = await eraseContactData(scopedEventId, contactId, { eraseOrganizationProfile });
     // An erased contact may have been a confirmed/published speaker — ask
     // the public surfaces back rather than wait out the 60s ISR window, the
     // same pattern PATCH already uses above.

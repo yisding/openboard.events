@@ -17,6 +17,9 @@ import { isAppError } from "@/shared/lib/errors";
  */
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
+// The two abuse-counter tables the sweep prunes — standalone, no FKs.
+const migrationAdminAuth = readFileSync(new URL("../../drizzle/0002_admin_auth.sql", import.meta.url), "utf8");
+const migrationRateLimits = readFileSync(new URL("../../drizzle/0005_rate_limits.sql", import.meta.url), "utf8");
 const migrationContentDeliverables = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
@@ -51,6 +54,15 @@ const orgContactA = "47000000-0000-4000-8000-000000000c01";
 const orgContactDuplicate = "47000000-0000-4000-8000-000000000c02";
 const orgTagId = "47000000-0000-4000-8000-000000000c03";
 const orgPipelineId = "47000000-0000-4000-8000-000000000c04";
+// A CSV-imported CRM profile that was never pushed into an event, so it has no
+// `organization_contact_links` row at all — plus the event contact the same
+// person created by submitting.
+const orgContactImported = "47000000-0000-4000-8000-000000000c05";
+const importedContact = contactIdSchema.parse("47000000-0000-4000-8000-0000000000a3");
+// A second event in the same organization, sharing `orgContactA`'s CRM identity
+// — the event-only erasure below runs against it.
+const secondEventId = eventIdSchema.parse("47000000-0000-4000-8000-000000000002");
+const secondEventContact = contactIdSchema.parse("47000000-0000-4000-8000-0000000000a2");
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -58,7 +70,7 @@ let db: DbOrTx;
 beforeAll(async () => {
   pglite = new PGlite();
   for (const migration of [
-    migration0, migration1, migrationContentDeliverables, migrationEmailCompliance,
+    migration0, migration1, migrationAdminAuth, migrationRateLimits, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
     migrationBilling, migrationCrm, migrationOnboardingMilestones,
   ]) {
@@ -206,6 +218,24 @@ beforeAll(async () => {
      VALUES($1,$2,$3,'{"email":"dupe@example.com"}','{}')`,
     [DEFAULT_ORGANIZATION_ID, orgContactA, orgContactDuplicate],
   );
+
+  // A second event in the same organization, holding its own contact row for
+  // the same person and its own link to that one organization identity — the
+  // ordinary result of `pushOrganizationContactToEvent`. Erasing *that* event's
+  // contact must not take the organization identity (or this event's link to
+  // it) with it.
+  await pglite.query(
+    "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Second Event','second-event','2027-09-15T16:00:00Z','2027-09-17T01:00:00Z')",
+    [secondEventId],
+  );
+  await pglite.query(
+    "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'a@example.com','Ada','Erasable')",
+    [secondEventContact, secondEventId],
+  );
+  await pglite.query(
+    "INSERT INTO organization_contact_links(organization_id,organization_contact_id,event_id,contact_id) VALUES($1,$2,$3,$4)",
+    [DEFAULT_ORGANIZATION_ID, orgContactA, secondEventId, secondEventContact],
+  );
 }, 30_000);
 
 afterAll(async () => pglite.close());
@@ -243,9 +273,43 @@ describe("eraseContactDataIn", () => {
       .rejects.toSatisfy((error: unknown) => isAppError(error) && error.code === "NOT_FOUND");
   });
 
+  // The organization half of the erasure is opt-in, because it is
+  // organization-scoped destruction reached from an event-scoped route: an
+  // event organizer holding no `organization_members` row cannot read the CRM
+  // at all, so they must not be able to delete an organization contact — and
+  // with it another event's link — through their own event's speaker roster.
+  it("without eraseOrganizationProfile, drops only this event's CRM link and leaves the organization identity whole", async () => {
+    const tx = db as unknown as TxDb;
+    const { receipt } = await eraseContactDataIn(tx, secondEventId, secondEventContact);
+
+    expect(receipt.deletedCounts).toMatchObject({
+      contacts: 1,
+      organizationContactLinks: 1,
+      organizationContacts: 0,
+      organizationContactNotes: 0,
+      organizationContactPipeline: 0,
+      organizationContactActivity: 0,
+      organizationContactTagLinks: 0,
+      organizationContactMerges: 0,
+    });
+
+    // The organization identity and everything hanging off it survive, and so
+    // does the *other* event's link to it — the collateral this flag prevents.
+    const survivors = (await pglite.query<{ table_name: string; n: number }>(`
+      SELECT 'contacts' AS table_name, count(*)::int AS n FROM organization_contacts WHERE id = $1
+      UNION ALL SELECT 'notes', count(*)::int FROM organization_contact_notes WHERE organization_contact_id = $1
+      UNION ALL SELECT 'pipeline', count(*)::int FROM organization_contact_pipeline WHERE organization_contact_id = $1
+    `, [orgContactA])).rows;
+    expect(survivors.every((row) => row.n === 1)).toBe(true);
+    const links = (await pglite.query<{ event_id: string }>(
+      "SELECT event_id FROM organization_contact_links WHERE organization_contact_id = $1", [orgContactA],
+    )).rows;
+    expect(links.map((row) => row.event_id)).toEqual([eventId]);
+  });
+
   it("deletes every table the contact's data reaches, anonymizes what survives, and never touches the co-speaker", async () => {
     const tx = db as unknown as TxDb;
-    const { receipt, purgeCandidateFileIds } = await eraseContactDataIn(tx, eventId, contactA);
+    const { receipt, purgeCandidateFileIds } = await eraseContactDataIn(tx, eventId, contactA, { eraseOrganizationProfile: true });
 
     expect(receipt.contactId).toBe(contactA);
     expect(receipt.deletedCounts).toMatchObject({
@@ -279,7 +343,7 @@ describe("eraseContactDataIn", () => {
       organizationContactTagLinks: 1,
       organizationContactMerges: 1,
       organizationContactLinks: 1,
-      organizationContactsUnmerged: 1,
+      organizationContactsMergedDuplicates: 1,
       organizationContacts: 1,
     });
     // The headshot and the uploaded slide, both captured before deletion —
@@ -336,18 +400,53 @@ describe("eraseContactDataIn", () => {
     const tag = (await pglite.query("SELECT 1 FROM organization_contact_tags WHERE id = $1", [orgTagId])).rows;
     expect(tag).toHaveLength(1);
 
-    // The tombstoned duplicate is not deleted (it is a different person's row
-    // as far as this request knows); it only loses its pointer at the erased
-    // identity.
-    const duplicate = (await pglite.query<{ merged_into_id: string | null }>(
-      "SELECT merged_into_id FROM organization_contacts WHERE id = $1", [orgContactDuplicate],
-    )).rows[0];
-    expect(duplicate?.merged_into_id).toBeNull();
+    // The tombstoned duplicate goes with her. A merge is the organizer's
+    // explicit assertion that the two rows are the same person, and the losing
+    // row keeps every personal column it had — its only concealment is
+    // `merged_into_id`, which is `ON DELETE SET NULL`. Leaving it behind would
+    // have republished her name, company, bio and alternate address into the
+    // directory and segments as a *result* of the erasure.
+    const duplicate = (await pglite.query(
+      "SELECT 1 FROM organization_contacts WHERE id = $1", [orgContactDuplicate],
+    )).rows;
+    expect(duplicate).toHaveLength(0);
 
     // A second erasure of the same (now-gone) contact is a clean NOT_FOUND,
     // not a partial re-run of already-empty deletes.
     await expect(eraseContactDataIn(tx, eventId, contactA))
       .rejects.toSatisfy((error: unknown) => isAppError(error) && error.code === "NOT_FOUND");
+  });
+
+  // Only `pushOrganizationContactToEventIn` ever writes a link row, while CSV
+  // import and manual creation both produce link-less `organization_contacts`
+  // — so "no link" cannot be read as "no CRM profile", and an erasure scoped
+  // through the link alone would have reported nine CRM zeros while the whole
+  // imported profile survived.
+  it("reaches an imported CRM profile that was never pushed into the event, by email", async () => {
+    const tx = db as unknown as TxDb;
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'imported@example.com','Ines','Imported')",
+      [importedContact, eventId],
+    );
+    await pglite.query(
+      `INSERT INTO organization_contacts(id,organization_id,email,first_name,last_name,company,source)
+       VALUES($1,$2,'imported@example.com','Ines','Imported','Acme','import')`,
+      [orgContactImported, DEFAULT_ORGANIZATION_ID],
+    );
+    await pglite.query(
+      "INSERT INTO organization_contact_notes(organization_id,organization_contact_id,body_html) VALUES($1,$2,'<p>met at a meetup</p>')",
+      [DEFAULT_ORGANIZATION_ID, orgContactImported],
+    );
+
+    const { receipt } = await eraseContactDataIn(tx, eventId, importedContact, { eraseOrganizationProfile: true });
+    expect(receipt.deletedCounts).toMatchObject({
+      contacts: 1,
+      organizationContactLinks: 0,
+      organizationContactNotes: 1,
+      organizationContacts: 1,
+    });
+    const profile = (await pglite.query("SELECT 1 FROM organization_contacts WHERE id = $1", [orgContactImported])).rows;
+    expect(profile).toHaveLength(0);
   });
 
   it("exportContactDataIn now returns null for the erased contact", async () => {
@@ -362,6 +461,9 @@ describe("runDataRetentionSweepIn", () => {
   const notExpired = new Date("2099-01-01T00:00:00Z");
   const oldCreatedAt = new Date("2025-01-01T00:00:00Z"); // well past the 90-day body-retention window
   const recentCreatedAt = new Date("2026-09-19T00:00:00Z");
+  const idleCounter = new Date("2026-09-01T00:00:00Z"); // past the 7-day abuse-counter window
+  const activeCounter = new Date("2026-09-19T00:00:00Z"); // inside it
+  const liveBlock = new Date("2026-09-20T00:15:00Z"); // a sign-in block still in force at `now`
 
   beforeAll(async () => {
     // Fresh rows on the surviving contact — the erasure block above already
@@ -395,6 +497,18 @@ describe("runDataRetentionSweepIn", () => {
          ('47000000-0000-4000-8000-000000000932',$1,$2,'submission_received','idem-new','sent','New subject','<p>new</p>',$4)`,
       [eventId, contactB, oldCreatedAt, recentCreatedAt],
     );
+    await pglite.query(
+      "INSERT INTO rate_limit_buckets(key_hash,count,window_started_at,updated_at) VALUES('rl-idle',3,$1,$1),('rl-active',3,$2,$2)",
+      [idleCounter, activeCounter],
+    );
+    await pglite.query(
+      `INSERT INTO admin_login_attempts(key_hash,attempts,window_started_at,blocked_until,updated_at) VALUES
+         ('la-idle',3,$1,NULL,$1),
+         ('la-idle-block-lapsed',5,$1,$1,$1),
+         ('la-idle-block-live',5,$1,$3,$1),
+         ('la-active',3,$2,NULL,$2)`,
+      [idleCounter, activeCounter, liveBlock],
+    );
   });
 
   it("purges tokens/sessions expired past their grace window and leaves recently-expired and live ones alone", async () => {
@@ -404,6 +518,8 @@ describe("runDataRetentionSweepIn", () => {
     expect(stats.expiredAdminSessions).toBe(1);
     expect(stats.expiredAdminVerifications).toBe(1);
     expect(stats.redactedCommunicationLogs).toBe(1);
+    expect(stats.staleRateLimitBuckets).toBe(1);
+    expect(stats.staleAdminLoginAttempts).toBe(2);
 
     const tokens = (await pglite.query<{ token_hash: string }>("SELECT token_hash FROM portal_tokens WHERE contact_id = $1 ORDER BY token_hash", [contactB])).rows;
     expect(tokens.map((row) => row.token_hash)).toEqual(["ret-tok-grace", "ret-tok-live"]);
@@ -431,6 +547,17 @@ describe("runDataRetentionSweepIn", () => {
     expect(newLog?.subject_rendered).toBe("New subject");
   });
 
+  it("sweeps idle abuse counters but keeps recent ones and any block still in force", async () => {
+    // The sweep above already ran against these rows; assert what it left.
+    const buckets = (await pglite.query<{ key_hash: string }>("SELECT key_hash FROM rate_limit_buckets ORDER BY key_hash")).rows;
+    expect(buckets.map((row) => row.key_hash)).toEqual(["rl-active"]);
+
+    // `la-idle-block-live` is idle but still inside its 15-minute block, so
+    // deleting it would hand the blocked caller a free reset.
+    const attempts = (await pglite.query<{ key_hash: string }>("SELECT key_hash FROM admin_login_attempts ORDER BY key_hash")).rows;
+    expect(attempts.map((row) => row.key_hash)).toEqual(["la-active", "la-idle-block-live"]);
+  });
+
   it("is idempotent — a second run finds nothing left to sweep", async () => {
     const stats = await runDataRetentionSweepIn(db, now);
     expect(stats).toEqual({
@@ -439,6 +566,8 @@ describe("runDataRetentionSweepIn", () => {
       expiredPortalSessions: 0,
       expiredAdminSessions: 0,
       redactedCommunicationLogs: 0,
+      staleRateLimitBuckets: 0,
+      staleAdminLoginAttempts: 0,
     });
   });
 });

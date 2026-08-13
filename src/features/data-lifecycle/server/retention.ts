@@ -1,6 +1,6 @@
-import { and, isNotNull, lt, or } from "drizzle-orm";
+import { and, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { adminSessions, adminVerifications, communicationLogs, portalSessions, portalTokens } from "@/db/schema";
+import { adminLoginAttempts, adminSessions, adminVerifications, communicationLogs, portalSessions, portalTokens, rateLimitBuckets } from "@/db/schema";
 import type { JobStats } from "@/shared/contracts";
 
 /**
@@ -28,10 +28,23 @@ import type { JobStats } from "@/shared/contracts";
  * unlike the four tables below, it carries ongoing business value (an
  * organizer's own record of who they invited and when) even after its
  * token expires, and M44 already owns its lifecycle (`revokeOrganizationInvitation`).
+ *
+ * The two abuse-counter tables (`rate_limit_buckets`,
+ * `admin_login_attempts`) are swept here too. Neither had any deletion path:
+ * every distinct caller key ever seen left a permanent row, and those keys
+ * are hashes of guessable material (an IP address, an email address) — the
+ * exact unkeyed-digest-of-a-guessable-value shape `operational-errors.ts`
+ * refuses to retain. Dropping an idle row is behaviour-preserving: the
+ * longest window any caller passes is 10 minutes, so a row untouched for
+ * days would take the reset branch of its own CASE-upsert on the next touch
+ * anyway, and `checkRateLimit` already declares the counter best-effort.
+ * `admin_login_attempts` is additionally gated on `blocked_until` so an
+ * active 15-minute block is never cleared early.
  */
 const TOKEN_GRACE_DAYS = 30;
 const SESSION_GRACE_DAYS = 30;
 const RENDERED_BODY_RETENTION_DAYS = 90;
+const ABUSE_COUNTER_RETENTION_DAYS = 7;
 
 function daysAgo(days: number, now: Date): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -43,17 +56,27 @@ export type DataRetentionStats = JobStats & {
   expiredPortalSessions: number;
   expiredAdminSessions: number;
   redactedCommunicationLogs: number;
+  staleRateLimitBuckets: number;
+  staleAdminLoginAttempts: number;
 };
 
 export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Date()): Promise<DataRetentionStats> {
   const tokenCutoff = daysAgo(TOKEN_GRACE_DAYS, now);
   const sessionCutoff = daysAgo(SESSION_GRACE_DAYS, now);
   const bodyCutoff = daysAgo(RENDERED_BODY_RETENTION_DAYS, now);
+  const counterCutoff = daysAgo(ABUSE_COUNTER_RETENTION_DAYS, now);
 
   const expiredPortalTokens = await dbOrTx.delete(portalTokens).where(lt(portalTokens.expiresAt, tokenCutoff)).returning();
   const expiredAdminVerifications = await dbOrTx.delete(adminVerifications).where(lt(adminVerifications.expiresAt, tokenCutoff)).returning();
   const expiredPortalSessions = await dbOrTx.delete(portalSessions).where(lt(portalSessions.expiresAt, sessionCutoff)).returning();
   const expiredAdminSessions = await dbOrTx.delete(adminSessions).where(lt(adminSessions.expiresAt, sessionCutoff)).returning();
+  const staleRateLimitBuckets = await dbOrTx.delete(rateLimitBuckets).where(lt(rateLimitBuckets.updatedAt, counterCutoff)).returning();
+  const staleAdminLoginAttempts = await dbOrTx.delete(adminLoginAttempts)
+    .where(and(
+      lt(adminLoginAttempts.updatedAt, counterCutoff),
+      or(isNull(adminLoginAttempts.blockedUntil), lt(adminLoginAttempts.blockedUntil, now)),
+    ))
+    .returning();
 
   // Redact content, keep the row: `communication_logs` is the comms audit
   // trail (status, template, timestamps) that the deliverability dashboard
@@ -79,6 +102,8 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
     expiredPortalSessions: expiredPortalSessions.length,
     expiredAdminSessions: expiredAdminSessions.length,
     redactedCommunicationLogs: redacted.length,
+    staleRateLimitBuckets: staleRateLimitBuckets.length,
+    staleAdminLoginAttempts: staleAdminLoginAttempts.length,
   };
 }
 

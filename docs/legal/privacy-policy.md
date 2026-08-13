@@ -36,7 +36,7 @@ Data Processing Addendum reference — see `dpa.md`.]
 | Event/organization data | Event name, dates, branding, team roles | `events`, `organizations` |
 | Contact (speaker) data | Name, email, bio, headshot, social links, submitted talk content, logistics answers, uploaded files | `contacts` and its dependent tables — see §4 |
 | Communications | Emails sent through the product (subject/body/status), calendar invites | `communication_logs`, `calendar_invites` |
-| Usage/security data | Sign-in sessions, portal login tokens, rate-limit counters, and one timestamp for each completed self-service onboarding milestone | `admin_sessions`, `portal_sessions`, `portal_tokens`, `organization_onboarding_milestones` |
+| Usage/security data | Sign-in sessions, portal login tokens, rate-limit counters, and one timestamp for each completed self-service onboarding milestone | `admin_sessions`, `portal_sessions`, `portal_tokens`, `rate_limit_buckets`, `admin_login_attempts`, `organization_onboarding_milestones` |
 
 The onboarding milestone table is server-side and organization-scoped. It
 stores only the first occurrence of five fixed milestones, with no email, IP
@@ -61,6 +61,11 @@ account/event data, and controller-instructed processing for contact data.]
   automatically 30 days after expiry by the daily retention job
   (`src/features/data-lifecycle/server/retention.ts`, wired into
   `/api/jobs/cleanup`).
+- **Rate-limit and sign-in-throttle counters** (`rate_limit_buckets`,
+  `admin_login_attempts`): purged automatically by the same daily job 7 days
+  after the last request counted against them. These rows hold a one-way
+  hash of the caller key (an IP address, or an email address plus IP for the
+  sign-in throttle) and a request count — never the value itself.
 - **Rendered email content** (`communication_logs.subject_rendered` /
   `.body_rendered_html`): redacted automatically 90 days after send; the
   audit metadata (who, when, template, delivery status) is retained
@@ -93,8 +98,13 @@ about you.
   operation, every row that references that contact within the event
   (submitted answers, uploaded files, comms history, portal sessions) *and*
   the organization-level speaker-CRM profile that event contact is linked to
-  (its profile fields, notes, activity timeline, tags, pipeline entries and
-  merge snapshots). See
+  — or, if it was never linked, the profile held under the same email address
+  in that organization — including its profile fields, notes, activity
+  timeline, tags, pipeline entries, merge snapshots and any duplicate records
+  previously merged into it. That second, organization-wide part is deleted
+  when the organizer also holds rights over the organization the event belongs
+  to, since one such profile is shared across all of that organization's
+  events; an organizer of the event alone deletes the event's record only. See
   `src/features/data-lifecycle/server/contact-erasure.ts` for the exact
   scope of what is deleted versus anonymized (e.g. a submission a deleted
   speaker co-authored survives as an organizational record, with its
@@ -103,8 +113,8 @@ about you.
   One limit is worth stating plainly: erasure is performed per *event*
   contact. If the same person is separately a contact of another event, that
   event's record of them is a distinct identity and needs its own erasure
-  request — the CRM profile is removed once, by whichever request runs
-  first.
+  request — the CRM profile is removed once, by the first such request made by
+  an organizer who also holds organization-level rights.
 
 [TODO: add the self-service path for a *contact* (not an organizer) to
 request erasure of their own data directly, rather than only through the
