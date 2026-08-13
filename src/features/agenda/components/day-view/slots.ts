@@ -75,25 +75,38 @@ export function minutesFromDayStartInZone(instant: string, day: string, timeZone
  * 8:00am PT regardless of where this code runs. A day with nothing scheduled
  * falls back to 08:00-18:00 so the grid still has drop targets for the first
  * drag-in.
+ *
+ * Both edges are read against `day` rather than as bare minutes-since-midnight,
+ * for the reason `minutesFromDayStartInZone` documents: an evening session
+ * ending at 00:30 the next morning would otherwise report an end of 30 and
+ * never raise `latest`, collapsing the grid above its own start. The end is
+ * capped at midnight so the day view still draws exactly one day — a session
+ * running past it renders flush against the last row via day-grid's
+ * `Math.min(rowCount + 1, ...)` clamp.
  */
 export function computeGridRange(
   sessions: readonly Pick<ScheduledSessionDTO, "startsAt" | "endsAt">[],
+  day: string | null,
   timeZone: string,
 ): GridRange {
   let earliest = Infinity;
   let latest = -Infinity;
-  for (const session of sessions) {
-    if (session.startsAt === null || session.endsAt === null) continue;
-    const start = minutesSinceMidnightInZone(session.startsAt, timeZone);
-    const end = minutesSinceMidnightInZone(session.endsAt, timeZone);
-    if (start < earliest) earliest = start;
-    if (end > latest) latest = end;
+  // A null day means the event has no days to draw a grid against at all, so
+  // nothing is measured and the fallback range below is what renders.
+  if (day !== null) {
+    for (const session of sessions) {
+      if (session.startsAt === null || session.endsAt === null) continue;
+      const start = minutesFromDayStartInZone(session.startsAt, day, timeZone);
+      const end = minutesFromDayStartInZone(session.endsAt, day, timeZone);
+      if (start < earliest) earliest = start;
+      if (end > latest) latest = end;
+    }
   }
   if (!Number.isFinite(earliest) || !Number.isFinite(latest)) {
     return { gridStartMinutes: DEFAULT_GRID_START_MINUTES, gridEndMinutes: DEFAULT_GRID_END_MINUTES };
   }
   const gridStartMinutes = Math.floor(earliest / 60) * 60;
-  const gridEndMinutes = Math.max(Math.ceil(latest / 60) * 60, gridStartMinutes + 60);
+  const gridEndMinutes = Math.max(Math.min(Math.ceil(latest / 60) * 60, MINUTES_PER_DAY), gridStartMinutes + 60);
   return { gridStartMinutes, gridEndMinutes };
 }
 

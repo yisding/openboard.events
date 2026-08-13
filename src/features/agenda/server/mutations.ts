@@ -726,6 +726,13 @@ export async function promoteSubmissionIn(
   // requires anyway.
   const startsAt = row.starts_at === null || row.ends_at === null ? null : iso(row.starts_at);
   const endsAt = startsAt === null ? null : iso(row.ends_at);
+  // `sessions` has the ordering CHECK that `submissions` lacks, so a pair that
+  // was inverted on the abstract would reach the INSERT below as an unmapped
+  // 23514 and leave the organizer with a 500. Say what is wrong instead, and
+  // name the times so the fix is a drawer edit rather than a support ticket.
+  if (startsAt !== null && endsAt !== null && Date.parse(endsAt) <= Date.parse(startsAt)) {
+    throw new AppError("VALIDATION", `This abstract ends (${endsAt}) before it starts (${startsAt}) — fix its times before promoting it`);
+  }
 
   const base = slugify(row.title) || "session";
   for (let attempt = 0; attempt < 12; attempt += 1) {

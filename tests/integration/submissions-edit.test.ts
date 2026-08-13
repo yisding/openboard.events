@@ -519,6 +519,39 @@ describe("updateSubmissionFields", () => {
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("VALIDATION");
   });
+
+  it("checks a one-sided time edit against the stored other end", async () => {
+    await seedSubmission({ id: submissionId, status: "pending", code: 1 });
+    await pglite.query(
+      "UPDATE submissions SET starts_at='2026-09-16T09:00:00Z', ends_at='2026-09-16T10:00:00Z' WHERE id=$1",
+      [submissionId],
+    );
+    const before = await readSubmission(submissionId);
+
+    // The drawer only sends a key the organizer changed, so this is what
+    // dragging "Starts at" past an untouched "Ends at" actually posts. The
+    // patch schema cannot see the pair; `submissions` has no ordering CHECK;
+    // the inverted row would only fail at promotion, as a raw 23514.
+    const error = await updateSubmissionFields(
+      eventId,
+      submissionId,
+      { startsAt: new Date("2026-09-16T11:00:00Z") },
+      before?.row_version ?? 1,
+    ).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    const after = await pglite.query<{ starts_at: Date }>("SELECT starts_at FROM submissions WHERE id=$1", [submissionId]);
+    expect(after.rows.map((row) => new Date(row.starts_at).toISOString())).toEqual(["2026-09-16T09:00:00.000Z"]);
+
+    // A one-sided edit that keeps the pair in order still goes through.
+    const ok = await updateSubmissionFields(
+      eventId,
+      submissionId,
+      { startsAt: new Date("2026-09-16T09:30:00Z") },
+      before?.row_version ?? 1,
+    );
+    expect(ok.rowVersion).toBe((before?.row_version ?? 0) + 1);
+  });
 });
 
 describe("manual create", () => {

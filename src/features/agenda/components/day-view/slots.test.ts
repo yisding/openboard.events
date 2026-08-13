@@ -14,10 +14,13 @@ import {
 const tz = "America/Los_Angeles";
 
 describe("computeGridRange", () => {
+  const day = "2026-08-11";
+
   it("rounds an on-the-hour session down/up to its own hour", () => {
     // 2026-08-11T16:00:00Z is 9:00am PT, 2026-08-11T17:00:00Z is 10:00am PT.
     const range = computeGridRange(
       [{ startsAt: "2026-08-11T16:00:00.000Z", endsAt: "2026-08-11T17:00:00.000Z" }],
+      day,
       tz,
     );
     expect(range).toEqual({ gridStartMinutes: 9 * 60, gridEndMinutes: 10 * 60 });
@@ -27,13 +30,14 @@ describe("computeGridRange", () => {
     // 9:15am PT to 9:45am PT should widen to 9:00-10:00.
     const range = computeGridRange(
       [{ startsAt: "2026-08-11T16:15:00.000Z", endsAt: "2026-08-11T16:45:00.000Z" }],
+      day,
       tz,
     );
     expect(range).toEqual({ gridStartMinutes: 9 * 60, gridEndMinutes: 10 * 60 });
   });
 
   it("falls back to 08:00-18:00 for an empty day", () => {
-    expect(computeGridRange([], tz)).toEqual({ gridStartMinutes: 8 * 60, gridEndMinutes: 18 * 60 });
+    expect(computeGridRange([], day, tz)).toEqual({ gridStartMinutes: 8 * 60, gridEndMinutes: 18 * 60 });
   });
 
   it("ignores unscheduled (null-time) rows when computing the range", () => {
@@ -42,6 +46,7 @@ describe("computeGridRange", () => {
         { startsAt: null, endsAt: null },
         { startsAt: "2026-08-11T18:30:00.000Z", endsAt: "2026-08-11T19:00:00.000Z" }, // 11:30am-12:00pm PT
       ],
+      day,
       tz,
     );
     expect(range).toEqual({ gridStartMinutes: 11 * 60, gridEndMinutes: 12 * 60 });
@@ -53,10 +58,37 @@ describe("computeGridRange", () => {
         { startsAt: "2026-08-11T16:15:00.000Z", endsAt: "2026-08-11T16:45:00.000Z" }, // 9:15-9:45am
         { startsAt: "2026-08-12T01:00:00.000Z", endsAt: "2026-08-12T01:30:00.000Z" }, // 6:00-6:30pm PT
       ],
+      day,
       tz,
     );
     // The second session ends 6:30pm PT, which rounds up to a 7:00pm boundary.
     expect(range).toEqual({ gridStartMinutes: 9 * 60, gridEndMinutes: 19 * 60 });
+  });
+
+  it("keeps a past-midnight end above its own start instead of collapsing the grid", () => {
+    // 11:00pm PT on the 11th to 12:30am PT on the 12th. Read as bare
+    // minutes-since-midnight the end came back as 30, never raised `latest`,
+    // and the range inverted around the 11:00pm start.
+    const range = computeGridRange(
+      [{ startsAt: "2026-08-12T06:00:00.000Z", endsAt: "2026-08-12T07:30:00.000Z" }],
+      day,
+      tz,
+    );
+    expect(range).toEqual({ gridStartMinutes: 23 * 60, gridEndMinutes: 24 * 60 });
+    expect(range.gridEndMinutes).toBeGreaterThan(range.gridStartMinutes);
+  });
+
+  it("does not let a past-midnight end shrink the range around an earlier session", () => {
+    const range = computeGridRange(
+      [
+        { startsAt: "2026-08-11T16:00:00.000Z", endsAt: "2026-08-11T17:00:00.000Z" }, // 9:00-10:00am PT
+        { startsAt: "2026-08-12T06:00:00.000Z", endsAt: "2026-08-12T07:30:00.000Z" }, // 11:00pm-12:30am PT
+      ],
+      day,
+      tz,
+    );
+    // The grid still draws exactly one day: 9:00am through midnight.
+    expect(range).toEqual({ gridStartMinutes: 9 * 60, gridEndMinutes: 24 * 60 });
   });
 });
 

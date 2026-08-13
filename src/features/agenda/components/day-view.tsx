@@ -67,7 +67,10 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
   const dayScheduled = useMemo(() => scheduledOnDay(sessions, selectedDay, event.timezone), [sessions, selectedDay, event.timezone]);
   const dayUnscheduled = useMemo(() => unscheduled(sessions), [sessions]);
   const needsRoom = useMemo(() => scheduledNeedingRoom(dayScheduled, rooms), [dayScheduled, rooms]);
-  const range = useMemo(() => computeGridRange(dayScheduled, event.timezone), [dayScheduled, event.timezone]);
+  const range = useMemo(
+    () => computeGridRange(dayScheduled, selectedDay, event.timezone),
+    [dayScheduled, selectedDay, event.timezone],
+  );
 
   const { setConflicts, setDragging } = useDayGridActions();
 
@@ -194,6 +197,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
                       sessions={dayScheduled}
                       rooms={rooms}
                       range={range}
+                      day={selectedDay}
                       lookup={lookup}
                       timezone={event.timezone}
                       {...(onEdit ? { onEdit } : {})}
