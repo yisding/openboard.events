@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { emailConfirmationLandingUrl } from "@/app/api/auth/[...action]/_lib";
 import type { db as RepositoryDb, TxDb } from "@/db/client";
@@ -53,7 +53,8 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email", "0029_event_reviewer_invitations"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
+const REVIEWER_INVITATION_MIGRATION = "0029_event_reviewer_invitations";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -61,7 +62,8 @@ const legacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000011");
 const modernUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000012");
 const reviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000013");
 const resetLegacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000014");
-const selfServiceUnverifiedUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000015");
+const newerUnverifiedUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000015");
+const provisionedReviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000016");
 
 const LEGACY_PASSWORD = "legacy organizer passphrase";
 const MODERN_PASSWORD = "modern organizer passphrase";
@@ -103,8 +105,8 @@ describe("M42 admin auth on Better Auth", () => {
     // `users.password_hash` written by the fallback's own hasher, and nothing
     // in `admin_accounts` beyond what 0009's backfill puts there.
     await pglite.query(
-      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'legacy@example.com','Legacy Organizer',$4),($2,'modern@example.com','Modern Organizer',NULL),($3,'reviewer@example.com','Reviewer',NULL)",
-      [legacyUser, modernUser, reviewerUser, await hashPassword(LEGACY_PASSWORD)],
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'legacy@example.com','Legacy Organizer',$5),($2,'modern@example.com','Modern Organizer',NULL),($3,'reviewer@example.com','Reviewer',NULL),($4,'reset-legacy@example.com','Reset Legacy Organizer',$5)",
+      [legacyUser, modernUser, reviewerUser, resetLegacyUser, await hashPassword(LEGACY_PASSWORD)],
     );
     await pglite.query(
       "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$4,'organizer'),($2,$4,'owner'),($3,$4,'reviewer'),($3,$5,'owner')",
@@ -113,21 +115,35 @@ describe("M42 admin auth on Better Auth", () => {
 
     // Now upgrade the populated database, exactly as the deployed branches will.
     await apply(M42_MIGRATION);
-    for (const name of POST_M42_MIGRATIONS) {
-      if (name === "0029_event_reviewer_invitations") {
-        const resetHash = await hashAdminPassword("legacy account reset before reviewer migration");
-        const signupHash = await hashAdminPassword("new self-service account awaiting verification");
-        await pglite.query(
-          "INSERT INTO users(id,email,name,password_hash) VALUES($1,'reset-legacy@example.com','Reset Legacy',$3),($2,'self-service-unverified@example.com','Self Service Unverified',$4)",
-          [resetLegacyUser, selfServiceUnverifiedUser, resetHash, signupHash],
-        );
-        await pglite.query(
-          "INSERT INTO user_legal_acceptances(user_id,terms_version,privacy_version,source) VALUES($1,$2,$3,'signup')",
-          [selfServiceUnverifiedUser, LEGAL_REQUEST.acceptedTermsVersion, LEGAL_REQUEST.acknowledgedPrivacyVersion],
-        );
-      }
-      await apply(name);
-    }
+    for (const name of POST_M42_MIGRATIONS) await apply(name);
+
+    // A pre-self-service account may already have reset its password by the
+    // time 0029 deploys. Both credential copies then use the modern scheme.
+    const resetHash = await hashAdminPassword(RESET_PASSWORD);
+    await pglite.query("UPDATE users SET password_hash=$1 WHERE id=$2", [resetHash, resetLegacyUser]);
+    await pglite.query(
+      "UPDATE admin_accounts SET password=$1,updated_at=now() WHERE user_id=$2 AND provider_id='credential'",
+      [resetHash, resetLegacyUser],
+    );
+
+    // A self-service signup and an operator-provisioned reviewer can both be
+    // newer unverified credentials. Only the signup has durable consent
+    // evidence; the operator account is established access and must survive a
+    // fallback rollback.
+    const newerHash = await hashAdminPassword(MODERN_PASSWORD);
+    await pglite.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'newer-unverified@example.com','Newer Unverified',$3),($2,'provisioned-reviewer@example.com','Provisioned Reviewer',$3)",
+      [newerUnverifiedUser, provisionedReviewerUser, newerHash],
+    );
+    await pglite.query(
+      "INSERT INTO admin_accounts(user_id,account_id,provider_id,password) VALUES($1,$1::text,'credential',$3),($2,$2::text,'credential',$3)",
+      [newerUnverifiedUser, provisionedReviewerUser, newerHash],
+    );
+    await pglite.query(
+      "INSERT INTO user_legal_acceptances(user_id,terms_version,privacy_version,source) VALUES($1,$2,$3,'signup')",
+      [newerUnverifiedUser, LEGAL_REQUEST.acceptedTermsVersion, LEGAL_REQUEST.acknowledgedPrivacyVersion],
+    );
+    await apply(REVIEWER_INVITATION_MIGRATION);
 
     // These accounts have no passwords and exist only as authorization
     // fixtures, so activation is outside their test scope. The legacy password
@@ -171,32 +187,22 @@ describe("M42 admin auth on Better Auth", () => {
   it("backfills a credential account for every pre-existing password, and none for accounts without one", async () => {
     const accounts = await database.select({ userId: adminAccounts.userId, password: adminAccounts.password })
       .from(adminAccounts).where(eq(adminAccounts.providerId, "credential"));
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]?.userId).toBe(legacyUser);
+    expect(accounts.filter((account) => account.userId === legacyUser || account.userId === resetLegacyUser)).toHaveLength(2);
+    expect(accounts.some((account) => account.userId === modernUser || account.userId === reviewerUser)).toBe(false);
+    const legacyAccount = accounts.find((account) => account.userId === legacyUser);
     // Copied verbatim — the migration must not attempt to re-hash anything.
-    expect(needsRehash(accounts[0]?.password ?? "")).toBe(true);
-    await expect(verifyAdminPassword({ hash: accounts[0]?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
+    expect(needsRehash(legacyAccount?.password ?? "")).toBe(true);
+    await expect(verifyAdminPassword({ hash: legacyAccount?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
   });
 
   it("keeps the fallback provider usable for established legacy credentials", async () => {
-    const [legacy] = await database.select({ emailVerified: users.emailVerified })
+    const verification = await database.select({ id: users.id, emailVerified: users.emailVerified })
       .from(users)
-      .where(eq(users.id, legacyUser))
-      .limit(1);
-    expect(legacy?.emailVerified).toBe(true);
-  });
-
-  it("grandfathers a reset established account without verifying a self-service v2 account", async () => {
-    const rows = await database.select({ id: users.id, emailVerified: users.emailVerified })
-      .from(users)
-      .where(and(eq(users.emailVerified, false), eq(users.id, selfServiceUnverifiedUser)));
-    expect(rows).toEqual([{ id: selfServiceUnverifiedUser, emailVerified: false }]);
-
-    const [resetLegacy] = await database.select({ emailVerified: users.emailVerified })
-      .from(users)
-      .where(eq(users.id, resetLegacyUser))
-      .limit(1);
-    expect(resetLegacy?.emailVerified).toBe(true);
+      .where(inArray(users.id, [legacyUser, resetLegacyUser, newerUnverifiedUser, provisionedReviewerUser]));
+    expect(verification.find((user) => user.id === legacyUser)?.emailVerified).toBe(true);
+    expect(verification.find((user) => user.id === resetLegacyUser)?.emailVerified).toBe(true);
+    expect(verification.find((user) => user.id === newerUnverifiedUser)?.emailVerified).toBe(false);
+    expect(verification.find((user) => user.id === provisionedReviewerUser)?.emailVerified).toBe(true);
   });
 
   it("signs a legacy PBKDF2 credential in and rehashes it in place — no forced reset (AC 1)", async () => {

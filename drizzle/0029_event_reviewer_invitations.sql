@@ -4,18 +4,24 @@
 -- grants both the organization membership needed to see the workspace and the
 -- explicit event membership needed to enter the review queue.
 
--- Accounts established outside self-service predate both mandatory email
--- verification and signup-consent evidence. Their password may already be v2
--- after a Better Auth reset, so provenance—not hash version—is the safe
--- distinction. New self-service accounts always record a signup acceptance and
--- remain unverified until their email link is used.
+-- Established fallback accounts predate mandatory mailbox verification. Their
+-- hash and credential timestamps can both be modern after a reset or operator
+-- provisioning, so identify self-service provenance by its durable signup
+-- consent record instead. Every self-service account records that evidence in
+-- the user-create hook; established/bootstrap/reviewer accounts do not.
 UPDATE users AS established_user
 SET email_verified = true
 WHERE established_user.email_verified = false
-  AND established_user.password_hash IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM admin_accounts AS credential
+    WHERE credential.user_id = established_user.id
+      AND credential.provider_id = 'credential'
+      AND credential.password IS NOT NULL
+  )
   AND NOT EXISTS (
     SELECT 1
-    FROM user_legal_acceptances acceptance
+    FROM user_legal_acceptances AS acceptance
     WHERE acceptance.user_id = established_user.id
       AND acceptance.source = 'signup'
   );
