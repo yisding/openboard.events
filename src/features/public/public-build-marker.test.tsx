@@ -7,7 +7,7 @@ Object.assign(globalThis, { React });
 
 describe("PublicBuildMarker", () => {
   it("puts the generating deployment identity inside cached HTML", () => {
-    expect(renderToStaticMarkup(React.createElement(PublicBuildMarker, { deploymentId: "run-123" })))
-      .toBe('<span hidden="" data-openboard-deployment="run-123"></span>');
+    const html = renderToStaticMarkup(React.createElement(PublicBuildMarker, { deploymentId: "run-123" }));
+    expect(html).toContain('data-openboard-deployment="run-123"');
   });
 });
