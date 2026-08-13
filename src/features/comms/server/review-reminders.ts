@@ -103,16 +103,17 @@ export async function listOutstandingReviewersIn(
 /**
  * Enqueue one reminder per named reviewer who still has outstanding work.
  *
- * `cycle` is the reminder cycle — one idempotency key per assignment cycle, so
- * a double-clicked "Remind everyone" collapses onto the rows it already wrote
- * while tomorrow's nudge is a new one. The default bucket is the current
- * minute, which is what makes the button safe to press twice.
+ * `attemptId` is generated once when the organizer opens the exact-recipient
+ * confirmation and retained across every retry of that dialog. It makes a
+ * response lost after commit safe to retry even after the clock crosses a
+ * minute boundary, while opening a new confirmation remains a new nudge.
  */
 export async function sendReviewRemindersIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   planId: PlanId,
   reviewerUserIds: readonly UserId[] | null,
+  attemptId: string,
   now: number = Date.now(),
 ): Promise<{ enqueued: number; skipped: number }> {
   const planRows = await dbOrTx.execute<{ status: string; opens_at: string | null; closes_at: string | null }>(sql`
@@ -134,7 +135,6 @@ export async function sendReviewRemindersIn(
   const targets = (await listOutstandingReviewersIn(dbOrTx, eventId, planId))
     .filter((target) => wanted === null || wanted.has(target.reviewerUserId));
 
-  const cycle = Math.floor(now / 60_000);
   let enqueued = 0;
   const remindedUserIds: UserId[] = [];
   for (const target of targets) {
@@ -147,7 +147,7 @@ export async function sendReviewRemindersIn(
       eventId,
       templateKey: "review_reminder",
       contactId,
-      idempotencyKey: idem.reviewReminder(eventId, planId, target.reviewerUserId, cycle),
+      idempotencyKey: idem.reviewReminder(eventId, planId, target.reviewerUserId, attemptId),
     });
     remindedUserIds.push(target.reviewerUserId);
     enqueued += 1;
@@ -168,5 +168,5 @@ export async function sendReviewRemindersIn(
 
 export const listOutstandingReviewers = (eventId: EventId, planId: PlanId) =>
   listOutstandingReviewersIn(db, eventId, planId);
-export const sendReviewReminders = (eventId: EventId, planId: PlanId, reviewerUserIds: readonly UserId[] | null) =>
-  sendReviewRemindersIn(db, eventId, planId, reviewerUserIds);
+export const sendReviewReminders = (eventId: EventId, planId: PlanId, reviewerUserIds: readonly UserId[] | null, attemptId: string) =>
+  sendReviewRemindersIn(db, eventId, planId, reviewerUserIds, attemptId);

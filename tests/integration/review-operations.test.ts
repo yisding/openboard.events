@@ -157,8 +157,8 @@ const mailEnv = parseEnv({
   EMAIL_MODE: "log",
 });
 
-/** The reminder's idempotency cycle: one bucket per minute, as `sendReviewRemindersIn` computes it. */
-const cycleOf = (at: Date) => Math.floor(at.getTime() / 60_000);
+const REMINDER_ATTEMPT_A = "c4200000-0000-4000-8009-000000000001";
+const REMINDER_ATTEMPT_B = "c4200000-0000-4000-8009-000000000002";
 
 const AT_OPEN = new Date("2026-09-01T17:00:00.000Z");
 const BEFORE_OPEN = new Date("2026-08-31T17:00:00.000Z");
@@ -830,7 +830,7 @@ describe("review operations", () => {
     expect(outstanding.map((target) => target.reviewerUserId).sort()).toEqual([ada, grace].sort());
     expect(outstanding.find((target) => target.reviewerUserId === ada)?.outstanding).toBe(2);
 
-    const sent = await sendReviewRemindersIn(db, eventId, planId, null, AT_OPEN.getTime());
+    const sent = await sendReviewRemindersIn(db, eventId, planId, null, REMINDER_ATTEMPT_A, AT_OPEN.getTime());
     // Grace is an existing event member with no contact row. Reminding the
     // round provisions that outbox identity instead of silently skipping her.
     expect(sent).toEqual({ enqueued: 2, skipped: 0 });
@@ -846,15 +846,16 @@ describe("review operations", () => {
       { template_key: "review_reminder", email: "grace@example.com", first_name: "Grace", last_name: "Hopper", status: "queued" },
     ]);
 
-    // The same cycle is idempotent; the window governs the rest.
-    await sendReviewRemindersIn(db, eventId, planId, null, AT_OPEN.getTime());
+    // Replaying the same organizer-confirmed attempt is idempotent; the window
+    // still governs whether any attempt is allowed.
+    await sendReviewRemindersIn(db, eventId, planId, null, REMINDER_ATTEMPT_A, AT_OPEN.getTime());
     const again = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs WHERE event_id=$1", [eventId]);
     expect(again.rows[0]?.n).toBe(2);
 
-    const closed = await sendReviewRemindersIn(db, eventId, planId, null, AFTER_CLOSE.getTime())
+    const closed = await sendReviewRemindersIn(db, eventId, planId, null, REMINDER_ATTEMPT_A, AFTER_CLOSE.getTime())
       .catch((thrown: unknown) => thrown);
     expect(isAppError(closed) && closed.code).toBe("CONFLICT");
-    const early = await sendReviewRemindersIn(db, eventId, planId, null, BEFORE_OPEN.getTime())
+    const early = await sendReviewRemindersIn(db, eventId, planId, null, REMINDER_ATTEMPT_A, BEFORE_OPEN.getTime())
       .catch((thrown: unknown) => thrown);
     expect(isAppError(early) && early.code).toBe("CONFLICT");
 
@@ -866,7 +867,7 @@ describe("review operations", () => {
      * is exactly the kind of wiring that no enqueue assertion touches.
      */
     const [queued] = await db.select().from(communicationLogs)
-      .where(eq(communicationLogs.idempotencyKey, idem.reviewReminder(eventId, planId, ada, cycleOf(AT_OPEN))));
+      .where(eq(communicationLogs.idempotencyKey, idem.reviewReminder(eventId, planId, ada, REMINDER_ATTEMPT_A)));
     expect(queued, "the reminder enqueued above is what gets rendered").toBeDefined();
     const context = await buildContext(queued as OutboxRow, db, mailEnv);
     const template = DEFAULT_TEMPLATES.review_reminder;
@@ -887,6 +888,69 @@ describe("review operations", () => {
     await submitReviewIn(db, eventId, planId, two, ada, verdict({ overallScore: 4 }), AT_OPEN);
     await submitReviewIn(db, eventId, planId, three, ada, verdict({ overallScore: 4 }), AT_OPEN);
     await expect(buildContext(queued as OutboxRow, db, mailEnv)).rejects.toThrow(/nothing outstanding/u);
+  });
+
+  it("deduplicates a manual reminder attempt across minute boundaries while allowing a new attempt", async () => {
+    const planId = await seedPlan({
+      opensAt: AT_OPEN.toISOString(),
+      closesAt: AT_CLOSE.toISOString(),
+    });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+
+    await sendReviewRemindersIn(db, eventId, planId, [ada], REMINDER_ATTEMPT_A, AT_OPEN.getTime());
+    await sendReviewRemindersIn(db, eventId, planId, [ada], REMINDER_ATTEMPT_A, AT_OPEN.getTime() + 61_000);
+
+    const afterRetry = await pglite.query<{ idempotency_key: string }>(
+      "SELECT idempotency_key FROM communication_logs WHERE event_id=$1 ORDER BY idempotency_key",
+      [eventId],
+    );
+    expect(afterRetry.rows.map((row) => row.idempotency_key)).toEqual([
+      idem.reviewReminder(eventId, planId, ada, REMINDER_ATTEMPT_A),
+    ]);
+
+    await sendReviewRemindersIn(db, eventId, planId, [ada], REMINDER_ATTEMPT_B, AT_OPEN.getTime() + 62_000);
+    const afterNewAttempt = await pglite.query<{ idempotency_key: string }>(
+      "SELECT idempotency_key FROM communication_logs WHERE event_id=$1 ORDER BY idempotency_key",
+      [eventId],
+    );
+    expect(afterNewAttempt.rows.map((row) => row.idempotency_key)).toEqual([
+      idem.reviewReminder(eventId, planId, ada, REMINDER_ATTEMPT_A),
+      idem.reviewReminder(eventId, planId, ada, REMINDER_ATTEMPT_B),
+    ]);
+  });
+
+  it("sends only to the reviewer IDs approved by the preview when the round expands", async () => {
+    const planId = await seedPlan({
+      opensAt: AT_OPEN.toISOString(),
+      closesAt: AT_CLOSE.toISOString(),
+    });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    const preview = await listOutstandingReviewersIn(db, eventId, planId);
+    expect(preview.map((target) => target.reviewerUserId)).toEqual([ada]);
+
+    await assignReviewersIn(db, eventId, planId, [
+      { userId: ada, trackIds: null },
+      { userId: grace, trackIds: null },
+    ]);
+    expect((await listOutstandingReviewersIn(db, eventId, planId)).map((target) => target.reviewerUserId).sort())
+      .toEqual([ada, grace].sort());
+
+    await sendReviewRemindersIn(
+      db,
+      eventId,
+      planId,
+      preview.map((target) => target.reviewerUserId),
+      REMINDER_ATTEMPT_A,
+      AT_OPEN.getTime(),
+    );
+    const recipients = await pglite.query<{ email: string }>(
+      `SELECT c.email FROM communication_logs l
+       JOIN contacts c ON c.id = l.contact_id
+       WHERE l.event_id=$1 AND l.template_key='review_reminder'
+       ORDER BY c.email`,
+      [eventId],
+    );
+    expect(recipients.rows.map((row) => row.email)).toEqual(["ada@example.com"]);
   });
 
 });
