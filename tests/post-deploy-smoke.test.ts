@@ -196,9 +196,9 @@ printf '%s' "$status"
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
     expect(Date.now() - startedAt).toBeLessThan(5_000);
-    expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("1");
-    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("1");
-    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("2");
+    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("2");
+    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("2");
 
     const manualState = join(root, "manual-state");
     mkdirSync(manualState, { recursive: true });

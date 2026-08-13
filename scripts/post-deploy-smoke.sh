@@ -122,7 +122,10 @@ wait_for_propagation_retry() {
   delay="$propagation_interval_seconds"
   if (( remaining < delay )); then delay="$remaining"; fi
   sleep "$delay"
-  (( SECONDS < propagation_deadline ))
+  # Always allow the post-sleep cycle. If sleep reached the deadline,
+  # propagation_fetch caps each unresolved surface to its one-second final
+  # diagnostic request; the next call here then stops without another sleep.
+  return 0
 }
 
 # A header value, lowercased, with the name stripped. Empty when absent.
