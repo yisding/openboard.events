@@ -60,6 +60,8 @@ const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
 const legacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000011");
 const modernUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000012");
 const reviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000013");
+const resetLegacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000014");
+const selfServiceUnverifiedUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000015");
 
 const LEGACY_PASSWORD = "legacy organizer passphrase";
 const MODERN_PASSWORD = "modern organizer passphrase";
@@ -111,7 +113,21 @@ describe("M42 admin auth on Better Auth", () => {
 
     // Now upgrade the populated database, exactly as the deployed branches will.
     await apply(M42_MIGRATION);
-    for (const name of POST_M42_MIGRATIONS) await apply(name);
+    for (const name of POST_M42_MIGRATIONS) {
+      if (name === "0029_event_reviewer_invitations") {
+        const resetHash = await hashAdminPassword("legacy account reset before reviewer migration");
+        const signupHash = await hashAdminPassword("new self-service account awaiting verification");
+        await pglite.query(
+          "INSERT INTO users(id,email,name,password_hash) VALUES($1,'reset-legacy@example.com','Reset Legacy',$3),($2,'self-service-unverified@example.com','Self Service Unverified',$4)",
+          [resetLegacyUser, selfServiceUnverifiedUser, resetHash, signupHash],
+        );
+        await pglite.query(
+          "INSERT INTO user_legal_acceptances(user_id,terms_version,privacy_version,source) VALUES($1,$2,$3,'signup')",
+          [selfServiceUnverifiedUser, LEGAL_REQUEST.acceptedTermsVersion, LEGAL_REQUEST.acknowledgedPrivacyVersion],
+        );
+      }
+      await apply(name);
+    }
 
     // These accounts have no passwords and exist only as authorization
     // fixtures, so activation is outside their test scope. The legacy password
@@ -168,6 +184,19 @@ describe("M42 admin auth on Better Auth", () => {
       .where(eq(users.id, legacyUser))
       .limit(1);
     expect(legacy?.emailVerified).toBe(true);
+  });
+
+  it("grandfathers a reset established account without verifying a self-service v2 account", async () => {
+    const rows = await database.select({ id: users.id, emailVerified: users.emailVerified })
+      .from(users)
+      .where(and(eq(users.emailVerified, false), eq(users.id, selfServiceUnverifiedUser)));
+    expect(rows).toEqual([{ id: selfServiceUnverifiedUser, emailVerified: false }]);
+
+    const [resetLegacy] = await database.select({ emailVerified: users.emailVerified })
+      .from(users)
+      .where(eq(users.id, resetLegacyUser))
+      .limit(1);
+    expect(resetLegacy?.emailVerified).toBe(true);
   });
 
   it("signs a legacy PBKDF2 credential in and rehashes it in place — no forced reset (AC 1)", async () => {

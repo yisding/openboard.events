@@ -4,13 +4,21 @@
 -- grants both the organization membership needed to see the workspace and the
 -- explicit event membership needed to enter the review queue.
 
--- Fallback accounts created before self-service signup used the original
--- PBKDF2 encoding and predate email verification. Preserve rollback access for
--- those established credentials without verifying newer v2 signup passwords.
-UPDATE users
+-- Accounts established outside self-service predate both mandatory email
+-- verification and signup-consent evidence. Their password may already be v2
+-- after a Better Auth reset, so provenance—not hash version—is the safe
+-- distinction. New self-service accounts always record a signup acceptance and
+-- remain unverified until their email link is used.
+UPDATE users AS established_user
 SET email_verified = true
-WHERE email_verified = false
-  AND password_hash LIKE 'pbkdf2-sha256$%';
+WHERE established_user.email_verified = false
+  AND established_user.password_hash IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM user_legal_acceptances acceptance
+    WHERE acceptance.user_id = established_user.id
+      AND acceptance.source = 'signup'
+  );
 
 ALTER TABLE organization_invitations
   ADD COLUMN event_id uuid;
