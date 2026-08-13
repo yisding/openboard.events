@@ -102,4 +102,17 @@ describe("Avatar", () => {
     expect(html).toContain("person-avatar-icon");
     expect(html).not.toContain(">?</span>");
   });
+
+  it("keeps a named image inside the same sized avatar wrapper", () => {
+    const html = renderToStaticMarkup(React.createElement(Avatar, {
+      initials: "al",
+      size: "lg",
+      imageUrl: "/f/headshot-id",
+      imageAlt: "Ada Lovelace",
+    }));
+    expect(html).toContain('class="person-avatar person-avatar-lg person-avatar-image"');
+    expect(html).toContain('<img alt="Ada Lovelace"');
+    expect(html).not.toContain('aria-hidden="true"');
+    expect(html).not.toContain(">AL</span>");
+  });
 });
