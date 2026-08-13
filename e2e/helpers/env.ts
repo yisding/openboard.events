@@ -19,7 +19,7 @@ export const SIGNUP_EMAIL = process.env.E2E_SIGNUP_EMAIL?.trim().toLowerCase() ?
  */
 export const E2E_RESEND_API_KEY = process.env.E2E_RESEND_API_KEY ?? "";
 
-/** Explicit local-only escape hatch; deployed preview proof always uses Resend. */
+/** Explicit non-production escape hatch for local or preview demo journeys. */
 export const E2E_FALLBACK_ACTIVATION = process.env.E2E_FALLBACK_ACTIVATION === "1";
 
 /**
@@ -45,4 +45,4 @@ export function signupMailboxConfigured(): boolean {
   return SIGNUP_EMAIL.length > 0 && (E2E_RESEND_API_KEY.length > 0 || E2E_FALLBACK_ACTIVATION);
 }
 
-export const NO_SIGNUP_MAILBOX = "set E2E_SIGNUP_EMAIL and E2E_RESEND_API_KEY for preview, or explicitly enable local E2E_FALLBACK_ACTIVATION=1";
+export const NO_SIGNUP_MAILBOX = "set E2E_SIGNUP_EMAIL and either E2E_RESEND_API_KEY or explicit non-production E2E_FALLBACK_ACTIVATION=1";

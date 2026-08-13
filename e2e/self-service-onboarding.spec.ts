@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
 import { queryRows, withDatabase } from "./helpers/db";
 import {
-  BASE_URL,
   databaseConfigured,
   E2E_FALLBACK_ACTIVATION,
   NO_DATABASE,
@@ -69,9 +68,6 @@ test.describe("self-service signup to first value", () => {
 
   test("a new customer verifies, provisions, publishes, and receives their first proposal", async ({ page, browser }) => {
     test.setTimeout(180_000);
-    if (E2E_FALLBACK_ACTIVATION && !["localhost", "127.0.0.1"].includes(new URL(BASE_URL).hostname)) {
-      throw new Error("E2E_FALLBACK_ACTIVATION is local-only; deployed proof must retrieve the delivered Resend message");
-    }
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     const password = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
     const personName = `E2E Self-service ${stamp}`;
@@ -101,8 +97,8 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("link", { name: "Start again with the correct address" })).toHaveAttribute("href", "/signup");
 
       if (E2E_FALLBACK_ACTIVATION) {
-        const fallback = page.getByRole("link", { name: "Open confirmation link" });
-        await expect(fallback, "local fallback activation must never be enabled on preview or production").toBeVisible();
+        const fallback = page.getByRole("link", { name: "Confirm email and continue" });
+        await expect(fallback, "the explicit non-production fallback should surface the one-time activation link").toBeVisible();
         await fallback.click();
       } else {
         const delivery = await waitForVerificationDelivery(SIGNUP_EMAIL);

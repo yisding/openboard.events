@@ -23,4 +23,17 @@ describe("user-facing copy regressions", () => {
     expect(deliverables).toContain("The export could not be prepared. Use the export menu to try again.");
     expect(fileUpload).toContain("The upload could not be completed. Try again.");
   });
+
+  it("labels non-production credentials as demo access instead of development diagnostics", () => {
+    const cfp = read("./forms/components/cfp-steps.tsx");
+    const portal = read("./auth/components/portal-login-form.tsx");
+    const signup = read("../app/signup/check-email/page.tsx");
+    const surfaces = `${cfp}${portal}${signup}`;
+
+    expect(surfaces).not.toContain("Development code");
+    expect(surfaces).not.toContain("Development / fallback mode");
+    expect(surfaces).toContain("Demo access code");
+    expect(surfaces).toContain("Your one-time code");
+    expect(surfaces).toContain("Confirm email and continue");
+  });
 });

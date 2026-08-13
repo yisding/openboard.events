@@ -127,6 +127,52 @@ describe("platform admin auth mail outbox", () => {
     await expect(getAdminAuthFallbackLinkIn(tx, "organizer@example.com", hiddenEnv)).resolves.toBeNull();
   });
 
+  it("keeps preview activation links encrypted and available when delivery is limited", async () => {
+    const previewEnv = {
+      ...logEnv,
+      APP_ENV: "preview" as const,
+      APP_BASE_URL: "https://preview.openboard.test",
+      EMAIL_MODE: "send" as const,
+      EMAIL_FROM: "Openboard <hello@example.com>",
+      EMAIL_ALLOWLIST: "organizer@example.com",
+      RESEND_API_KEY: "re_test",
+    };
+    const allowed = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_email_verification",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: "https://preview.openboard.test/api/auth/verify-email?token=allowed-preview-token",
+      expiresIn: "1 hour",
+    }, previewEnv);
+    const limited = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_email_verification",
+      userId: orphanId,
+      email: "orphan@example.com",
+      name: "Eventless Owner",
+      url: "https://preview.openboard.test/api/auth/verify-email?token=limited-preview-token",
+      expiresIn: "1 hour",
+    }, previewEnv);
+    const sender = vi.fn().mockResolvedValue("preview-provider-message");
+
+    const stats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: previewEnv, sender });
+    expect(stats).toMatchObject({ claimed: 2, sent: 1, skipped: 1 });
+    expect(sender).toHaveBeenCalledOnce();
+    await expect(getAdminAuthFallbackLinkIn(tx, "organizer@example.com", previewEnv))
+      .resolves.toContain("token=allowed-preview-token");
+    await expect(getAdminAuthFallbackLinkIn(tx, "orphan@example.com", previewEnv))
+      .resolves.toContain("token=limited-preview-token");
+
+    const rows = await tx.select().from(adminAuthEmailOutbox);
+    for (const messageId of [allowed.messageId, limited.messageId]) {
+      const row = rows.find((candidate) => candidate.id === messageId);
+      expect(row?.secretPayloadCiphertext).not.toBeNull();
+      expect(row?.bodyRenderedHtml ?? "").not.toContain("preview-token");
+    }
+    const hiddenPreview = { ...previewEnv, EMAIL_FALLBACK_UI: "0" as const };
+    await expect(getAdminAuthFallbackLinkIn(tx, "organizer@example.com", hiddenPreview)).resolves.toBeNull();
+  });
+
   it("retries transient provider failures with the same idempotency key, then redacts the stored link", async () => {
     const result = await sendAdminAuthEmailIn(tx, {
       templateKey: "admin_email_verification",

@@ -3,8 +3,9 @@
 Every step below runs against a real Postgres database. Run the walkthrough in either
 environment; the steps are identical:
 
-- **Deployed preview** — <https://sb-web-preview.yi-ding.workers.dev>. OTPs are real emails
-  (the preview sends from the verified domain behind a one-address allowlist).
+- **Deployed preview** — <https://sb-web-preview.yi-ding.workers.dev>. Mail sends from the verified
+  domain to its one-address allowlist; for every other demo address, the page explicitly surfaces
+  the same one-time activation link or OTP under **Demo access**.
 - **Local, database-backed** — `pnpm dev` against a Neon/Postgres branch you own, seeded with
   `pnpm seed`. See `docs/development.md` *Getting started* and `docs/manual-test-plans.md` §0.2 (Env A).
   With `EMAIL_MODE=log` and `EMAIL_FALLBACK_UI=1` (both local defaults) the OTP and magic link
@@ -35,7 +36,7 @@ environment; the steps are identical:
    Title and Email cannot be restructured) and the immutable per-save snapshot.
 3. **Submit a proposal.** Open the public CFP link and walk the wizard (account → submission
    → speakers → review): email +
-   emailed OTP (or the fallback code in the login UI locally), a server-persisted draft, then
+   emailed OTP (or the explicit demo code in preview/local login UI), a server-persisted draft, then
    submit. Choose **Format → Workshop** to watch the conditional *Workshop duration* question
    appear and disappear.
 4. **Edit until close.** Sign into the speaker portal as that submitter

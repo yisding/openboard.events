@@ -719,8 +719,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 <span>Six-digit code</span>
                 <input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(change) => setCode(change.target.value.replace(/\D/g, "").slice(0, 6))} />
               </label>
-              {/* Development diagnostics only — production does not return this. */}
-              {fallbackOtp && <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>}
+              {/* Explicit demo fallback only — production does not return this. */}
+              {fallbackOtp && <p className="demo-code">Demo access code: <code>{fallbackOtp}</code></p>}
               <div className="cfp-code-actions">
                 <Button type="button" variant="ghost" onClick={() => { setCodeRequested(false); setCode(""); }}>Change email</Button>
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => void requestCode()}>Resend code</Button>

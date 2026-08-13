@@ -21,7 +21,7 @@ export function PortalCodeStep({ eventSlug, email, next, fallback, headingRef, o
     <h1 ref={headingRef} tabIndex={-1}>Check your inbox</h1>
     <p>Enter the six-digit code sent to <b>{email}</b>.</p>
     <OtpForm eventSlug={eventSlug} email={email} {...(next ? { next } : {})} />
-    {fallback && <aside className="demo-code"><b>Development / fallback mode</b><span>Code <code>{fallback.otp}</code></span><Link href={fallback.magicLink}>Open magic link</Link></aside>}
+    {fallback && <aside className="demo-code"><b>Demo access</b><span>Your one-time code: <code>{fallback.otp}</code></span><Link href={fallback.magicLink}>Continue with a sign-in link</Link></aside>}
     <button className="text-button" type="button" onClick={onUseDifferentEmail}>Use a different email</button>
   </>;
 }

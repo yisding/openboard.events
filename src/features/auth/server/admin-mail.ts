@@ -43,6 +43,14 @@ function requiredSecret(env: RuntimeEnv): string {
   return env.SESSION_SECRET;
 }
 
+function adminAuthFallbackEnabled(env: RuntimeEnv): boolean {
+  return env.APP_ENV !== "production" && env.EMAIL_FALLBACK_UI === "1";
+}
+
+function retainsVerificationFallback(row: OutboxRow, env: RuntimeEnv): boolean {
+  return row.templateKey === "admin_email_verification" && adminAuthFallbackEnabled(env);
+}
+
 function render(row: OutboxRow, payload: AdminLinkPayload): { subject: string; html: string; text: string } {
   if (row.templateKey === "organization_invited") {
     if (!payload.organizationName || !payload.inviterName || !payload.invitationRole) {
@@ -208,17 +216,23 @@ async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<
   return isTerminal ? "failed" : "retried";
 }
 
-async function skipRow(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Promise<"skipped"> {
+async function skipRow(
+  dbOrTx: DbOrTx,
+  row: OutboxRow,
+  reason: string,
+  retainCredential = false,
+): Promise<"skipped"> {
   await dbOrTx.update(adminAuthEmailOutbox).set({
     status: "skipped",
     error: reason,
     lockedUntil: null,
-    secretPayloadCiphertext: null,
+    ...(retainCredential ? {} : { secretPayloadCiphertext: null }),
   }).where(eq(adminAuthEmailOutbox.id, row.id));
   return "skipped";
 }
 
 async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: Sender): Promise<"sent" | "skipped"> {
+  const retainFallback = retainsVerificationFallback(row, env);
   const [suppressed] = await dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
     eq(adminAuthEmailOutbox.recipientEmail, row.recipientEmail),
     inArray(adminAuthEmailOutbox.status, ["bounced", "complained"]),
@@ -231,10 +245,10 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
     ),
   )).limit(1);
   if (suppressed) {
-    return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint");
+    return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint", retainFallback);
   }
   if (!isEmailAllowed(row.recipientEmail, env)) {
-    return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST");
+    return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST", retainFallback);
   }
   if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "Platform email link payload is missing");
   const payload = await openPlatformAdminLinkPayload(
@@ -292,7 +306,7 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
     sentAt: sql`now()`,
     error: null,
     lockedUntil: null,
-    secretPayloadCiphertext: null,
+    secretPayloadCiphertext: retainFallback ? row.secretPayloadCiphertext : null,
   }).where(eq(adminAuthEmailOutbox.id, row.id));
   return "sent";
 }
@@ -323,13 +337,13 @@ export function dispatchAdminAuthEmailOutbox(budget = 50): Promise<AdminAuthOutb
   return dispatchAdminAuthEmailOutboxIn(db, budget);
 }
 
-/** The same explicit local/preview escape hatch as speaker portal login. */
+/** The same explicit non-production escape hatch as speaker portal login. */
 export async function getAdminAuthFallbackLinkIn(
   dbOrTx: DbOrTx,
   email: string,
   env: RuntimeEnv = getEnv(),
 ): Promise<string | null> {
-  if (env.APP_ENV === "production" || env.EMAIL_MODE !== "log" || env.EMAIL_FALLBACK_UI !== "1") return null;
+  if (!adminAuthFallbackEnabled(env)) return null;
   const [row] = await dbOrTx.select().from(adminAuthEmailOutbox).where(and(
     eq(adminAuthEmailOutbox.recipientEmail, email.trim().toLowerCase()),
     eq(adminAuthEmailOutbox.templateKey, "admin_email_verification"),
