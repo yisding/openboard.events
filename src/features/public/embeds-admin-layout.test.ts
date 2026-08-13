@@ -10,12 +10,34 @@ describe("embeds admin layout", () => {
     expect(css).toMatch(/@media\(max-width:768px\)[\s\S]*\.embed-filter-group label\{min-height:44px\}/u);
   });
 
-  it("groups each embed into appearance, content, filters, save, and install regions", () => {
+  it("groups each embed into compact controls, preview, install, and save state regions", () => {
     expect(source).toContain('className="embed-settings-grid"');
     expect(source).toContain('className="embed-filters-section"');
-    expect(source).toContain('className="embed-save-row"');
+    expect(source).toContain('className="embed-editor-layout"');
+    expect(source).toContain('className="embed-preview-section"');
     expect(source).toContain('className="embed-install-section"');
     expect(css).toContain(".embed-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))");
+    expect(css).toContain(".embed-editor-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px");
+    expect(css).toContain(".embed-editor-sidebar{position:sticky");
+  });
+
+  it("clips card chrome without trapping sticky editor controls in a non-scrolling ancestor", () => {
+    expect(css).toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:clip}");
+    expect(css).not.toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:hidden}");
+  });
+
+  it("keeps sticky editor controls below the shared admin topbar", () => {
+    expect(css).toContain("--admin-topbar-height: 65px");
+    expect(css).toContain(".topbar { position: sticky; z-index: 20; top: 0; height: var(--admin-topbar-height)");
+    expect(css).toContain(".embed-editor-bar{position:sticky;z-index:3;top:var(--admin-topbar-height)");
+    expect(css).toContain(".embed-editor-sidebar{position:sticky;top:calc(var(--admin-topbar-height) + 62px)");
+  });
+
+  it("collapses optional filter groups and summarizes each selection", () => {
+    expect(source).toContain('<details className="embed-filter-group">');
+    expect(source).toContain('selectedCount > 0 ? `${selectedCount} selected` : "All included"');
+    expect(css).toContain(".embed-filter-group summary{");
+    expect(css).toContain(".embed-filter-options{max-height:210px;overflow:auto");
   });
 
   it("opens one editor at a time so five embed types do not become one enormous form", () => {
@@ -26,12 +48,21 @@ describe("embeds admin layout", () => {
     expect(source).toContain("aria-expanded={open}");
   });
 
-  it("shows a compact status overview and a quiet saved state", () => {
+  it("shows a compact status overview and quiet published and draft states", () => {
     expect(source).toContain('className="panel embed-overview"');
     expect(source).toContain("embeds live");
-    expect(source).toContain('className="embed-saved-status"');
-    expect(source).not.toContain("disabled={busy !== null || !settingsDirty}");
+    expect(source).toContain('embed-publish-state');
+    expect(source).toContain('embed-draft-state');
+    expect(source).not.toContain('className="embed-saved-status"');
     expect(css).toContain(".embed-overview{display:grid");
+  });
+
+  it("previews the saved embed in context and does not copy ignored style query parameters", () => {
+    expect(source).toContain('title={`${meta.label} saved preview`}');
+    expect(source).toContain('src={`/embed/${eventSlug}/${meta.route}`}');
+    expect(source).toContain("Save your changes to refresh this preview.");
+    expect(source).not.toContain("function toQuery");
+    expect(source).not.toContain('data-params=');
   });
 
   it("protects aggregate settings drafts without guarding harmless card collapse", () => {

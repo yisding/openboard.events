@@ -17,10 +17,9 @@ const ACCENT_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8
  * `embeds-admin-page.tsx` "not baked into the iframe URL like style"
  * comment is now stale; both travel the same way).
  *
- * The iframe/script snippets in `embeds-admin-page.tsx` still put
- * `theme`/`header`/`accent` on the query string for a human skimming the
- * copied `<iframe>` tag; this function's caller no longer reads it, so
- * those params are inert on the wire (harmless — the DB row wins).
+ * Admin-generated iframe/script snippets therefore use the canonical route
+ * without appearance query parameters. Saved config is the only source of
+ * truth for both newly installed and existing embeds.
  */
 export function resolveEmbedOptions(style: EmbedStyle): EmbedOptions {
   const accent = style.accent ?? DEFAULT_EMBED_OPTIONS.accent;

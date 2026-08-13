@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Check, ChevronDown, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, MonitorSmartphone, Users } from "lucide-react";
+import { Calendar, ChevronDown, Clipboard, ExternalLink, Grid3x3, Link2, ListChecks, MonitorSmartphone, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
@@ -31,14 +31,36 @@ function withDefaults(style: EmbedStyle): ResolvedEmbedStyle {
   return { accent: style.accent ?? DEFAULT_STYLE.accent, theme: style.theme ?? DEFAULT_STYLE.theme, showHeader: style.showHeader ?? DEFAULT_STYLE.showHeader };
 }
 
-function toQuery(style: EmbedStyle): string {
-  const merged = withDefaults(style);
-  return `theme=${merged.theme}&header=${merged.showHeader ? 1 : 0}&accent=${encodeURIComponent(merged.accent)}`;
-}
-
 function toggleId(list: string[] | undefined, id: string): string[] {
   const current = list ?? [];
   return current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+}
+
+function FilterGroup({
+  label, items, selected, onToggle,
+}: {
+  label: string;
+  items: Array<{ id: string; name: string }>;
+  selected: string[] | undefined;
+  onToggle: (id: string) => void;
+}) {
+  const selectedCount = selected?.length ?? 0;
+  return (
+    <details className="embed-filter-group">
+      <summary>
+        <span><b>{label}</b><small>{selectedCount > 0 ? `${selectedCount} selected` : "All included"}</small></span>
+        <ChevronDown size={15} />
+      </summary>
+      <div className="embed-filter-options" role="group" aria-label={`${label} included in embed`}>
+        {items.map((item) => (
+          <label key={item.id}>
+            <input type="checkbox" checked={!!selected?.includes(item.id)} onChange={() => onToggle(item.id)} />
+            <span>{item.name}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 /** One card per canonical content type, each its own kill switch + staged style/filters + save, per M33/M53 work orders. */
@@ -108,10 +130,8 @@ export function EmbedsAdminPage({
 
   async function saveSettings(config: EmbedConfigDTO) {
     // Style and content filters are both read live from this saved row by
-    // the embed routes (the query string on the copied iframe/script
-    // snippets is a display convenience for a human skimming the tag; the
-    // routes themselves never read it) — an already-placed iframe picks up
-    // a style or filter/field-visibility change right after this save.
+    // the embed routes. An already-placed iframe picks up appearance,
+    // filtering, and field-visibility changes after this save.
     const filters = sanitizeEmbedFilters(filtersFor(config.contentType), filterVocabulary);
     setFilterDrafts((current) => ({ ...current, [config.contentType]: filters }));
     const updated = await patch(config, { style: styleFor(config.contentType), filters });
@@ -120,12 +140,12 @@ export function EmbedsAdminPage({
 
   function iframeSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<iframe src="${origin}/embed/${eventSlug}/${route}?${toQuery(styleFor(contentType))}" width="100%" height="760" style="border:0" loading="lazy" title="${eventSlug} ${route}"></iframe>`;
+    return `<iframe src="${origin}/embed/${eventSlug}/${route}" width="100%" height="760" style="border:0" loading="lazy" title="${eventSlug} ${route}"></iframe>`;
   }
 
   function scriptSnippet(contentType: CanonicalEmbedContentType): string {
     const { route } = TYPE_META[contentType];
-    return `<script src="${origin}/embed.js" data-event="${eventSlug}" data-type="${route}" data-params="${toQuery(styleFor(contentType))}" async></script>`;
+    return `<script src="${origin}/embed.js" data-event="${eventSlug}" data-type="${route}" async></script>`;
   }
 
   function shareUrl(contentType: CanonicalEmbedContentType): string {
@@ -180,20 +200,13 @@ export function EmbedsAdminPage({
                 <div className="embed-card-heading">
                   <div>
                     <h2>{meta.label}</h2>
-                    <span className={`embed-status ${config.enabled ? "is-enabled" : ""}`}>{config.enabled ? "Live" : "Off"}</span>
                     {settingsDirty && <span className="embed-status is-unsaved">Unsaved</span>}
                   </div>
                   <p>{meta.description}</p>
                 </div>
                 <div className="embed-card-header-actions">
-                  <div className="embed-card-links">
-                    <Button size="sm" variant="secondary" aria-expanded={open} aria-controls={`embed-settings-${config.id}`} onClick={() => setOpenConfigId(open ? null : config.id)}>
-                      {open ? "Done" : "Edit settings"}<ChevronDown className={open ? "is-open" : ""} size={14} />
-                    </Button>
-                    <a className="button button-ghost button-sm" href={`/embed/${eventSlug}/${meta.route}?${toQuery(styleDraft)}`} target="_blank" rel="noreferrer">Preview <ExternalLink size={14} /></a>
-                  </div>
                   <div className="embed-enable-control">
-                    <span>{config.enabled ? "Enabled" : "Disabled"}</span>
+                    <span className={`embed-publish-state ${config.enabled ? "is-enabled" : ""}`}><i />{config.enabled ? "Live" : "Off"}</span>
                     <Switch
                       label={`${meta.label} embed`}
                       checked={config.enabled}
@@ -201,10 +214,26 @@ export function EmbedsAdminPage({
                       onClick={() => void toggleEnabled(config)}
                     />
                   </div>
+                  <div className="embed-card-links">
+                    <Button size="sm" variant="secondary" aria-expanded={open} aria-controls={`embed-settings-${config.id}`} onClick={() => setOpenConfigId(open ? null : config.id)}>
+                      {open ? "Done" : "Edit settings"}<ChevronDown className={open ? "is-open" : ""} size={14} />
+                    </Button>
+                    <a className="button button-ghost button-sm" href={`/embed/${eventSlug}/${meta.route}`} target="_blank" rel="noreferrer">Open <ExternalLink size={14} /></a>
+                  </div>
                 </div>
               </header>
 
-              {open && <div id={`embed-settings-${config.id}`}>
+              {open && <div className="embed-editor" id={`embed-settings-${config.id}`}>
+              <div className="embed-editor-bar">
+                <div className={`embed-draft-state ${settingsDirty ? "is-dirty" : ""}`} aria-live="polite">
+                  <i />
+                  <span><b>{settingsDirty ? "Unsaved changes" : "Everything is saved"}</b><small>{settingsDirty ? "Save to update the live embed." : "The preview shows your published settings."}</small></span>
+                </div>
+                {settingsDirty && <Button size="sm" disabled={busy !== null} onClick={() => void saveSettings(config)}>{busy === config.id ? "Saving…" : "Save changes"}</Button>}
+              </div>
+
+              <div className="embed-editor-layout">
+              <div className="embed-editor-controls">
               <div className="embed-settings-grid">
                 <section className="embed-settings-section">
                   <header><h3>Appearance</h3><p>Match the host site without rebuilding the embed.</p></header>
@@ -256,56 +285,39 @@ export function EmbedsAdminPage({
 
               {sessionShaped && (tracks.length > 0 || formats.length > 0 || rooms.length > 0) && (
                 <section className="embed-filters-section">
-                  <header><h3>Filters</h3><p>Leave a group empty to include every value.</p></header>
+                  <header><h3>Limit what appears</h3><p>Everything is included by default. Open a group to choose specific values.</p></header>
                   <div className="embed-filter-grid">
-                    {tracks.length > 0 && (
-                      <fieldset className="embed-filter-group">
-                        <legend>Tracks {filters.trackIds && filters.trackIds.length > 0 ? `· ${filters.trackIds.length} selected` : "· All"}</legend>
-                        {tracks.map((track) => (
-                          <label key={track.id}>
-                            <input type="checkbox" checked={!!filters.trackIds?.includes(track.id)} onChange={() => setFilterDraft(config.contentType, { trackIds: toggleId(filters.trackIds, track.id) })} />
-                            <span>{track.name}</span>
-                          </label>
-                        ))}
-                      </fieldset>
-                    )}
-                    {formats.length > 0 && (
-                      <fieldset className="embed-filter-group">
-                        <legend>Formats {filters.formatIds && filters.formatIds.length > 0 ? `· ${filters.formatIds.length} selected` : "· All"}</legend>
-                        {formats.map((format) => (
-                          <label key={format.id}>
-                            <input type="checkbox" checked={!!filters.formatIds?.includes(format.id)} onChange={() => setFilterDraft(config.contentType, { formatIds: toggleId(filters.formatIds, format.id) })} />
-                            <span>{format.name}</span>
-                          </label>
-                        ))}
-                      </fieldset>
-                    )}
-                    {rooms.length > 0 && (
-                      <fieldset className="embed-filter-group">
-                        <legend>Locations {filters.roomIds && filters.roomIds.length > 0 ? `· ${filters.roomIds.length} selected` : "· All"}</legend>
-                        {rooms.map((room) => (
-                          <label key={room.id}>
-                            <input type="checkbox" checked={!!filters.roomIds?.includes(room.id)} onChange={() => setFilterDraft(config.contentType, { roomIds: toggleId(filters.roomIds, room.id) })} />
-                            <span>{room.name}</span>
-                          </label>
-                        ))}
-                      </fieldset>
-                    )}
+                    {tracks.length > 0 && <FilterGroup label="Tracks" items={tracks} selected={filters.trackIds} onToggle={(id) => setFilterDraft(config.contentType, { trackIds: toggleId(filters.trackIds, id) })} />}
+                    {formats.length > 0 && <FilterGroup label="Formats" items={formats} selected={filters.formatIds} onToggle={(id) => setFilterDraft(config.contentType, { formatIds: toggleId(filters.formatIds, id) })} />}
+                    {rooms.length > 0 && <FilterGroup label="Locations" items={rooms} selected={filters.roomIds} onToggle={(id) => setFilterDraft(config.contentType, { roomIds: toggleId(filters.roomIds, id) })} />}
                   </div>
                 </section>
               )}
+              </div>
 
-              <div className="embed-save-row">
-                <span aria-live="polite">{settingsDirty ? "Your changes are not live yet." : "This embed is up to date."}</span>
-                {settingsDirty
-                  ? <Button disabled={busy !== null} onClick={() => void saveSettings(config)}>{busy === config.id ? "Saving…" : "Save changes"}</Button>
-                  : <span className="embed-saved-status"><Check size={14} /> Saved</span>}
+              <aside className="embed-editor-sidebar">
+              <section className="embed-preview-section">
+                <header>
+                  <div><h3>Saved preview</h3><p>{settingsDirty ? "Save your changes to refresh this preview." : config.enabled ? "This is what visitors see now." : "This embed is currently switched off."}</p></div>
+                  <a href={`/embed/${eventSlug}/${meta.route}`} target="_blank" rel="noreferrer" aria-label={`Open ${meta.label} preview in a new tab`}><ExternalLink size={14} /></a>
+                </header>
+                <div className="embed-preview-frame">
+                  <div className="embed-preview-chrome"><i /><i /><i /><span>{eventSlug}/{meta.route}</span></div>
+                  <iframe
+                    key={`${config.id}-${JSON.stringify(config.style)}-${JSON.stringify(config.filters)}-${config.enabled}`}
+                    src={`/embed/${eventSlug}/${meta.route}`}
+                    title={`${meta.label} saved preview`}
+                    loading="lazy"
+                  />
+                </div>
+              </section>
+              </aside>
               </div>
 
               <section className="embed-install-section">
                 <header><h3>Install</h3><p>Use the iframe anywhere, or the script when the host page should resize automatically.</p></header>
                 <div className="embed-code">
-                  <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}?…" …>`}</code>
+                  <code>{`<iframe src="${origin || "…"}/embed/${eventSlug}/${meta.route}" …>`}</code>
                   <button type="button" disabled={!origin} aria-label={`Copy ${meta.label} embed code`} onClick={() => copyIframe(config.contentType)}><Clipboard size={15} /></button>
                 </div>
                 <footer>
