@@ -39,6 +39,7 @@ describe("shared UI spacing regressions", () => {
     expect(plans).toContain('actions={\n          <>');
     expect(plans).not.toContain('actions={\n          <span className="row-actions">');
     expect(css).toContain(".row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }");
+    expect(css).toContain("@media(max-width:480px){.admin-task-row>.row-actions{grid-column:2;justify-content:flex-start}}");
     for (const source of [plans, assignment, queue, fileRequests, resources]) {
       expect(source).toContain('className="row-actions"');
     }
