@@ -77,6 +77,7 @@ test.describe("self-service signup to first value", () => {
     const personName = `E2E Self-service ${stamp}`;
     const organizationName = `E2E Organization ${stamp}`;
     const eventName = `E2E First Event ${stamp}`;
+    const correctedEventName = `${eventName} Updated`;
     const formName = `E2E Call for Speakers ${stamp}`;
 
     await removePriorTestAccount(SIGNUP_EMAIL);
@@ -128,6 +129,16 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: /^create event/i }).click();
 
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Edit event details" }).click();
+      await expect(page.getByRole("heading", { name: "Step 1: Event details" })).toBeVisible();
+      await expect(page.getByLabel("Event name")).toHaveValue(eventName);
+      await page.getByLabel("Event name").fill(correctedEventName);
+      const correctedResponse = page.waitForResponse((response) =>
+        /\/api\/internal\/events\/[0-9a-f-]{36}$/.test(new URL(response.url()).pathname)
+        && response.request().method() === "PATCH");
+      await page.getByRole("button", { name: "Save and continue" }).click();
+      expect((await correctedResponse).status(), "event correction should update the existing event").toBe(200);
+      await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible();
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       const createdTrack = await queryRows<{ id: string }>(`
@@ -150,6 +161,11 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: /^continue/i }).click();
+      await expect(page.getByRole("heading", { name: "Step 3: First form" })).toBeVisible();
+      await page.getByRole("button", { name: "Back to tracks" }).click();
+      await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible();
+      await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: /^continue/i }).click();
     });
 
     let eventId = "";
@@ -162,7 +178,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByLabel("CFP deadline")).toHaveValue("four_weeks");
       await page.getByRole("button", { name: /^create form/i }).click();
 
-      await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible({ timeout: 30_000 });
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
@@ -181,7 +197,7 @@ test.describe("self-service signup to first value", () => {
       expect(publishedForm).toHaveLength(1);
       expect(publishedForm[0]?.status).toBe("open");
       expect(publishedForm[0]?.closes_at, "onboarding must not publish an indefinitely open CFP by default").not.toBeNull();
-      await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible();
+      await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible();
       await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
       await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
 
