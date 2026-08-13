@@ -63,14 +63,13 @@ test.describe("agenda-schedule", () => {
       ];
       for (const action of actions) await expect(action).toBeVisible();
 
+      const actionEdges = await Promise.all(actions.map((action) => action.evaluate((control) => control.getBoundingClientRect().right)));
       const containment = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         document: document.documentElement.scrollWidth,
-        actionEdges: [...document.querySelectorAll(".agenda-toolbar-actions input, .agenda-toolbar-actions .button")]
-          .map((control) => control.getBoundingClientRect().right),
       }));
       expect(containment.document).toBeLessThanOrEqual(containment.viewport);
-      expect(Math.max(...containment.actionEdges)).toBeLessThanOrEqual(containment.viewport);
+      expect(Math.max(...actionEdges)).toBeLessThanOrEqual(containment.viewport);
       assertClean();
     });
   });
