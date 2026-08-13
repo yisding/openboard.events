@@ -136,7 +136,7 @@ describe("M42 admin auth on Better Auth", () => {
       [newerUnverifiedUser, provisionedReviewerUser, newerHash],
     );
     await pglite.query(
-      "INSERT INTO admin_accounts(user_id,account_id,provider_id,password) VALUES($1,$1::text,'credential',$3),($2,$2::text,'credential',$3)",
+      "INSERT INTO admin_accounts(user_id,account_id,provider_id,password) VALUES($1::uuid,$1::text,'credential',$3),($2::uuid,$2::text,'credential',$3)",
       [newerUnverifiedUser, provisionedReviewerUser, newerHash],
     );
     await pglite.query(
