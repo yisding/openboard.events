@@ -7,7 +7,7 @@ import type { NameLookup } from "../../store";
 import { SessionCard } from "./session-card";
 import {
   gridRowCount,
-  minutesSinceMidnightInZone,
+  minutesFromDayStartInZone,
   minutesToGridRow,
   SLOT_MINUTES,
   SLOT_ROW_HEIGHT_PX,
@@ -52,6 +52,7 @@ export function DayGrid({
   sessions,
   rooms,
   range,
+  day,
   lookup,
   timezone,
   onEdit,
@@ -59,6 +60,7 @@ export function DayGrid({
   sessions: ScheduledSessionDTO[];
   rooms: RoomDTO[];
   range: GridRange;
+  day: string;
   lookup: NameLookup;
   timezone: string;
   onEdit?: (id: string) => void;
@@ -120,8 +122,13 @@ export function DayGrid({
       {placed.map((session) => {
         const roomIndex = rooms.findIndex((room) => String(room.id) === String(session.roomId));
         if (roomIndex === -1) return null; // Defensive: Day view also exposes this row in Needs a room.
-        const startMinutes = minutesSinceMidnightInZone(session.startsAt as string, timezone);
-        const endMinutes = minutesSinceMidnightInZone(session.endsAt as string, timezone);
+        // Anchored to the rendered day, not to bare minutes-since-midnight: an
+        // evening session ending after local midnight reads its end as 00:30 ->
+        // 30 otherwise, which is *below* its start and resolves to a nonsense
+        // (often negative) CSS grid line. Past 1440 the clamp below pins the
+        // card to the grid's last row instead.
+        const startMinutes = minutesFromDayStartInZone(session.startsAt as string, day, timezone);
+        const endMinutes = minutesFromDayStartInZone(session.endsAt as string, day, timezone);
         const startRow = Math.max(1, minutesToGridRow(startMinutes, range.gridStartMinutes)) + 1;
         const endRow = Math.min(rowCount + 1, minutesToGridRow(endMinutes, range.gridStartMinutes)) + 1;
         return (

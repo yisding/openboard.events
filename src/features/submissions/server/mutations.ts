@@ -829,6 +829,11 @@ export async function getAcceptedForScheduling(eventId: EventId): Promise<Accept
   return (result.rows ?? []).map((row) => acceptedForSchedulingRowSchema.parse(row));
 }
 
+/** A `timestamptz` as the driver hands it back — a string over HTTP, a `Date` in tests. */
+function toDateOrNull(value: string | Date | null | undefined): Date | null {
+  return value === null || value === undefined ? null : new Date(value);
+}
+
 /**
  * The organizer's drawer save (M17). It lives here rather than beside the reads
  * because every write that touches `submissions` / `submission_tags` from a
@@ -869,6 +874,27 @@ export async function updateSubmissionFields(
   if (patch.clientSessionId !== undefined) set.push(sql`client_session_id = ${patch.clientSessionId}`);
   if (patch.startsAt !== undefined) set.push(sql`starts_at = ${patch.startsAt?.toISOString() ?? null}::timestamptz`);
   if (patch.endsAt !== undefined) set.push(sql`ends_at = ${patch.endsAt?.toISOString() ?? null}::timestamptz`);
+
+  // The patch schema's ordering refine only sees the keys the drawer sent, and
+  // the drawer sends a key only when the organizer changed it — so moving just
+  // "Starts at" past an untouched, earlier "Ends at" arrives here as a patch of
+  // one, unchecked. `submissions` carries no ordering CHECK the way `sessions`
+  // does, so that inverted pair persists silently and only surfaces later as a
+  // raw 23514 from the `sessions` INSERT in `promoteSubmissionIn`. Merge the
+  // patch over the stored pair and refuse it here instead, with the message the
+  // schema already uses. The `row_version` guard below keeps this read-then-
+  // write honest: a concurrent edit bumps the version and the save is STALE.
+  if (patch.startsAt !== undefined || patch.endsAt !== undefined) {
+    const stored = await db.execute<{ starts_at: string | Date | null; ends_at: string | Date | null }>(sql`
+      SELECT starts_at, ends_at FROM submissions WHERE event_id = ${eventId} AND id = ${submissionId}
+    `);
+    const current = (stored.rows ?? [])[0];
+    const startsAt = patch.startsAt === undefined ? toDateOrNull(current?.starts_at) : patch.startsAt;
+    const endsAt = patch.endsAt === undefined ? toDateOrNull(current?.ends_at) : patch.endsAt;
+    if (startsAt && endsAt && endsAt.getTime() < startsAt.getTime()) {
+      throw new AppError("VALIDATION", "A session cannot end before it starts");
+    }
+  }
 
   // Absent means "leave the tags alone"; an empty array means "remove them all".
   const tagIds = patch.tagIds === undefined ? null : JSON.stringify(patch.tagIds);
