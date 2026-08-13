@@ -55,3 +55,24 @@ export const reviews = pgTable("reviews", {
   overallScore: numeric("overall_score"), criterionScores: jsonb("criterion_scores").notNull().default({}), comment: text("comment"), isAi: boolean("is_ai").notNull().default(false),
   submittedAt: timestamp("submitted_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.planId, table.submissionId, table.reviewerUserId), unique().on(table.id, table.eventId)]);
+
+/** Immutable snapshots of every meaningful review save. */
+export const reviewRevisions = pgTable("review_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: uuid("event_id").notNull(),
+  reviewId: uuid("review_id").notNull(),
+  planId: uuid("plan_id").notNull(),
+  submissionId: uuid("submission_id").notNull(),
+  reviewerUserId: uuid("reviewer_user_id").notNull(),
+  revision: integer("revision").notNull(),
+  overallScore: numeric("overall_score"),
+  criterionScores: jsonb("criterion_scores").notNull().default({}),
+  criteriaSnapshot: jsonb("criteria_snapshot").notNull().default([]),
+  comment: text("comment"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique().on(table.reviewId, table.revision),
+  unique().on(table.id, table.eventId),
+  index("review_revisions_submission_idx").on(table.eventId, table.submissionId, table.recordedAt),
+]);

@@ -2369,3 +2369,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .lost-compass{border:0;padding:0;cursor:pointer;font:inherit}
 .lost-compass span{display:grid;place-items:center;transition:transform .7s cubic-bezier(.2,.8,.3,1.15)}
 .lost-compass-note{margin:14px 0 -6px;max-width:380px;color:var(--accent-dark);font-size:12.5px;font-weight:600;animation:toast-in .22s ease}
+
+/* Evaluation audit trail in the organizer's proposal drawer. */
+.review-history-list{display:grid;gap:10px;margin:12px 0 0;padding:0;list-style:none}
+.review-history-list>li{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:var(--surface)}
+.review-history-list header{display:flex;justify-content:space-between;gap:12px;align-items:start}
+.review-history-list header div{display:grid;gap:2px}
+.review-history-list header span{color:var(--muted);font-size:12px}
+.review-history-list header strong{color:var(--accent);font-size:16px}
+.review-history-list dl{display:grid;gap:5px;margin:10px 0 0}
+.review-history-list dl div{display:flex;justify-content:space-between;gap:12px}
+.review-history-list dt{color:var(--muted)}
+.review-history-list dd{margin:0;font-weight:650;text-align:right}
+.review-history-list>li>p{margin:10px 0 0;white-space:pre-wrap}

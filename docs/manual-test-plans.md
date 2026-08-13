@@ -450,7 +450,8 @@ the number the organizer decides on is the number the criteria define.
 | # | Action | Expected result |
 |---|---|---|
 | 16 | Score three submissions on both criteria; save each | Each save confirms; the queue marks them done and advances (D4) |
-| 17 | Re-open a scored submission and change one score | The prior score is replaced — no duplicate review row, no double-count |
+| 17 | Re-open a scored submission and change one score | The current score is replaced — no duplicate review row and no double-count — while the organizer's proposal drawer retains both attributed revisions with their event-local timestamps |
+| 17a | Save that unchanged score again | The review history does not add a duplicate revision; prior criterion labels and select-option names remain exactly as they were when each revision was saved |
 | 18 | Leave one criterion blank and save | Either a clear "incomplete" state or a specific error. Never a silent zero |
 | 19 | Hand-compute the weighted average for one submission and compare to the organizer's **Rating** | Exact match. A mismatch here is S1 — it means decisions are made on a wrong number |
 | 20 | Have a second reviewer score the same submission differently | The aggregate reflects both, per the round's documented rule, and the reviewer count is visible |

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SubmissionDetailDTO } from "@/shared/contracts";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
+import { SubmissionReviewHistory } from "../evaluation/components/submission-review-history";
 import { SubmissionAnswers } from "./submission-answers";
 import {
   AbstractFields,
@@ -267,6 +268,10 @@ export function SubmissionDrawer({
               <h3>Answers</h3>
               <SubmissionAnswers data={detail.answerPanel} />
             </section>
+
+            {canEdit && (
+              <SubmissionReviewHistory eventId={eventId} submissionId={submissionId} timezone={timezone} />
+            )}
           </div>
         </div>
       )}
