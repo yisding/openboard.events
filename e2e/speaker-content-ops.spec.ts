@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin, loginAsSpeaker } from "./helpers/auth";
+import { deleteAgendaSessionsWhere } from "./helpers/cleanup";
 import { queryRows } from "./helpers/db";
 import { NO_DATABASE, NO_TARGET, databaseConfigured, targetConfigured } from "./helpers/env";
 import { EVENTS, SESSIONS, TASKS, VOCAB, uniqueEmail } from "./helpers/seeded";
@@ -316,6 +317,13 @@ const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 
 test.describe("content-deliverables (M52)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
+
+  test.afterEach(async ({ request }) => {
+    if (!targetConfigured()) return;
+    await loginAsAdmin(request);
+    await deleteAgendaSessionsWhere(request, EVENT, ({ title }) =>
+      /^E2E content history (original|edit one|edit two) [0-9]+$/.test(title));
+  });
 
   // Same budget as M51's block above, for the same reason: two real uploads,
   // a comment exchange, a bulk reminder through the outbox, a restore/publish

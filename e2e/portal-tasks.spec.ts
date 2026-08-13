@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin, loginAsSpeaker } from "./helpers/auth";
+import { getSpeakerPublicSnapshot, restoreSpeakerBio } from "./helpers/cleanup";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 import { EVENTS, TASKS } from "./helpers/seeded";
 
@@ -46,9 +47,21 @@ test.describe("portal-tasks", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("the profile", () => {
+    let originalBio: { contactId: string; bioHtml: string } | null = null;
+
+    test.afterEach(async ({ request }) => {
+      if (!originalBio) return;
+      await loginAsAdmin(request);
+      await restoreSpeakerBio(request, EVENTS.main.id, originalBio.contactId, originalBio.bioHtml);
+      originalBio = null;
+    });
+
     test("a speaker signs in and saves a profile", async ({ page, request }) => {
       const assertClean = expectNoConsoleErrors(page);
       const speaker = await speakerWithOpenTasks(request, 1);
+      const snapshot = await getSpeakerPublicSnapshot(request, EVENTS.main.id, speaker.contactId);
+      if (snapshot.bioHtml === null) throw new Error("the seeded accepted speaker must have a biography to restore");
+      originalBio = { contactId: speaker.contactId, bioHtml: snapshot.bioHtml };
 
       await test.step("sign in through the normal OTP challenge", async () => {
         await loginAsSpeaker(page, EVENTS.main.slug, speaker.email);
