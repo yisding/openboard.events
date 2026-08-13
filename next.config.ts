@@ -16,10 +16,23 @@ const nextConfig: NextConfig = {
       // on the apex — a sign-in started on www sets its state cookie on www
       // and loses it at the apex callback. One canonical host removes the
       // whole class of split-origin bugs, not just that one.
+      // Two rules instead of one `/:path*`: OpenNext's redirect handler only
+      // substitutes destination placeholders when the source match produced
+      // params (`isUsingParams` in @opennextjs/aws routing/matcher.js). On the
+      // bare root, `:path*` matches zero segments, params come back empty, and
+      // the Location header ships the literal string `/:path*`. So the root
+      // gets a placeholder-free destination, and `:path+` (one or more
+      // segments) covers everything else with a param that always exists.
       {
-        source: "/:path*",
+        source: "/",
         has: [{ type: "host", value: "www.openboard.events" }],
-        destination: "https://openboard.events/:path*",
+        destination: "https://openboard.events/",
+        permanent: true,
+      },
+      {
+        source: "/:path+",
+        has: [{ type: "host", value: "www.openboard.events" }],
+        destination: "https://openboard.events/:path+",
         permanent: true,
       },
     ];
