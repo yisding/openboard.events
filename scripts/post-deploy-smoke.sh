@@ -45,12 +45,18 @@ deployed_build_sha=""
 deployed_id=""
 # Cloudflare can briefly route requests to the previous Worker after wrangler
 # reports success, and OpenNext's shared R2 entries may need more than one ISR
-# window to converge. Four minutes covers the propagation observed in preview
-# while keeping every check bounded. The exact deployment marker remains the
-# acceptance condition, so waiting longer cannot turn an old cache entry into
-# a false positive.
-propagation_attempts=49
+# window to converge. A shared four-minute deadline covers the propagation
+# observed in preview without multiplying the wait across health, agenda, and
+# embed. One request may still finish after the deadline (curl itself is capped
+# at 30 seconds). The exact deployment marker remains the acceptance condition,
+# so waiting longer cannot turn an old cache entry into a false positive.
+propagation_timeout_seconds="${SMOKE_PROPAGATION_TIMEOUT_SECONDS:-240}"
 propagation_interval_seconds=5
+if [[ ! "$propagation_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SMOKE_PROPAGATION_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+propagation_deadline=$((SECONDS + propagation_timeout_seconds))
 
 # Fetches once into $headers_file/$body_file and stores the status code, so no
 # assertion costs a second request. Calling this function directly preserves
@@ -82,6 +88,19 @@ skip() {
     echo "SKIP  $1 — $2"
     skips=$((skips + 1))
   fi
+}
+
+# Sleeps only inside the shared propagation budget. Returning false ends the
+# current retry loop; the next check still gets one diagnostic request so its
+# failure names the affected surface and prints its response headers.
+wait_for_propagation_retry() {
+  local remaining delay
+  remaining=$((propagation_deadline - SECONDS))
+  (( remaining > 0 )) || return 1
+  delay="$propagation_interval_seconds"
+  if (( remaining < delay )); then delay="$remaining"; fi
+  sleep "$delay"
+  (( SECONDS < propagation_deadline ))
 }
 
 # A header value, lowercased, with the name stripped. Empty when absent.
@@ -170,7 +189,9 @@ echo
 # deployment identity as well as the status: immediately after a Worker deploy,
 # Cloudflare can still serve the prior version for a short propagation window.
 health_ok=0
-for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
+health_attempts=0
+while :; do
+  health_attempts=$((health_attempts + 1))
   fetch "$base_url/api/health"
   if [[ "$last_status" == "200" ]] \
     && { [[ -z "${NEXT_PUBLIC_BUILD_SHA:-}" ]] || grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; } \
@@ -178,16 +199,16 @@ for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
     health_ok=1
     break
   fi
-  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
+  wait_for_propagation_retry || break
 done
 if (( ! health_ok )); then
   if [[ "$last_status" != "200" ]]; then
-    fail "$base_url/api/health" "health responds (expected 200 after $propagation_attempts attempts, got $last_status)"
+    fail "$base_url/api/health" "health responds (expected 200 before the propagation deadline; got $last_status after $health_attempts attempts)"
   elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
     && ! grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; then
-    fail "$base_url/api/health" "health matches the requested build after $propagation_attempts attempts"
+    fail "$base_url/api/health" "health matches the requested build before the propagation deadline ($health_attempts attempts)"
   else
-    fail "$base_url/api/health" "health matches the requested deployment after $propagation_attempts attempts"
+    fail "$base_url/api/health" "health matches the requested deployment before the propagation deadline ($health_attempts attempts)"
   fi
 else
   if expect_body '"ok":true' "health reports ok" \
@@ -230,7 +251,9 @@ fi
 #    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
 #    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
-for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
+schedule_attempts=0
+while :; do
+  schedule_attempts=$((schedule_attempts + 1))
   # Retryable probes use fetch directly: expect_status records a permanent
   # failure, which would make a transient 503 fail the whole run even when a
   # later attempt succeeds.
@@ -238,14 +261,14 @@ for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
   if [[ "$last_status" == "200" ]]; then
     if is_edge_cache_fresh && is_current_deployment; then schedule_ok=1; break; fi
   fi
-  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
+  wait_for_propagation_retry || break
 done
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after $propagation_attempts attempts, got $last_status)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 before the propagation deadline; got $last_status after $schedule_attempts attempts)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id after $propagation_attempts attempts"
+  fail "$base_url/e/$event_slug/agenda" "public agenda has a fresh cache entry from deployment $deployed_id before the propagation deadline ($schedule_attempts attempts)"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -262,21 +285,23 @@ fi
 #    switch already did — so this asserts s-maxage on the embed too, with the
 #    same cache-state retry as check 2.
 embed_ok=0
-for ((attempt = 1; attempt <= propagation_attempts; attempt++)); do
+embed_attempts=0
+while :; do
+  embed_attempts=$((embed_attempts + 1))
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
     if is_edge_cache_fresh && is_current_deployment; then embed_ok=1; break; fi
   fi
-  if (( attempt < propagation_attempts )); then sleep "$propagation_interval_seconds"; fi
+  wait_for_propagation_retry || break
 done
 if (( embed_ok )); then
   expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
     && expect_no_header "x-frame-options" "embed does not send X-Frame-Options" \
     && pass "/embed/$event_slug/agenda"
 elif [[ "$last_status" != "200" ]]; then
-  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after $propagation_attempts attempts, got $last_status)"
+  fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 before the propagation deadline; got $last_status after $embed_attempts attempts)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id after $propagation_attempts attempts"
+  fail "$base_url/embed/$event_slug/agenda" "embed has a fresh cache entry from deployment $deployed_id before the propagation deadline ($embed_attempts attempts)"
 fi
 
 # 4. The public API answers with an envelope.

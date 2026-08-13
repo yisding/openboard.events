@@ -113,4 +113,84 @@ printf '%s' "$status"
     expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("4");
     expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("4");
   });
+
+  it("shares one elapsed-time deadline across propagation checks", () => {
+    const scratch = join(homedir(), "Code");
+    mkdirSync(scratch, { recursive: true });
+    const root = mkdtempSync(join(scratch, "openboard-smoke-deadline-test-"));
+    created.push(root);
+    const bin = join(root, "bin");
+    const state = join(root, "state");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(state, { recursive: true });
+
+    const curl = join(bin, "curl");
+    writeFileSync(curl, `#!/usr/bin/env bash
+set -eu
+args=("$@")
+url="\${args[\${#args[@]}-1]}"
+body=""
+headers=""
+for ((i=0; i<\${#args[@]}; i++)); do
+  [[ "\${args[$i]}" == "-o" ]] && body="\${args[$((i+1))]}"
+  [[ "\${args[$i]}" == "-D" ]] && headers="\${args[$((i+1))]}"
+done
+status=200
+payload='{}'
+extra=''
+record() {
+  local count_file="$SMOKE_FAKE_STATE/$1"
+  local count=0
+  [[ -f "$count_file" ]] && count="$(<"$count_file")"
+  echo $((count+1)) > "$count_file"
+}
+case "$url" in
+  */api/health)
+    record health
+    payload='{"ok":true,"sha":"same-build","deployment":"old-deployment","errors":{"ok":true},"jobs":{"ok":true},"ms":1}'
+    ;;
+  */api/auth/get-session) payload='null' ;;
+  */api/v1/events/*/schedule) payload='{"data":[]}' ;;
+  */embed/*/agenda)
+    record embed
+    extra=$'Content-Security-Policy: frame-ancestors *\\r\\nX-Nextjs-Cache: HIT\\r\\n'
+    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
+    ;;
+  */e/*/agenda)
+    record agenda
+    extra=$'X-Nextjs-Cache: HIT\\r\\n'
+    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
+    ;;
+  */e/*/schedule) status=307 ;;
+esac
+printf 'HTTP/1.1 %s Test\\r\\n%s\\r\\n' "$status" "$extra" > "$headers"
+printf '%s' "$payload" > "$body"
+printf '%s' "$status"
+`);
+    chmodSync(curl, 0o755);
+    const sleep = join(bin, "sleep");
+    writeFileSync(sleep, "#!/usr/bin/env bash\nexec /usr/bin/sleep \"$@\"\n");
+    chmodSync(sleep, 0o755);
+
+    const startedAt = Date.now();
+    const result = spawnSync("bash", [resolve("scripts/post-deploy-smoke.sh"), "https://example.test"], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        SMOKE_FAKE_STATE: state,
+        SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
+        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        DEPLOYMENT_ID: "new-deployment",
+      },
+    });
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("1");
+  });
 });
