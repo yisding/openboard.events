@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCode } from "@/features/submissions/index.client";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { AssignableSubmission, PlanDTO } from "../types";
@@ -54,6 +56,14 @@ export function submissionsForTrack(submissions: readonly AssignableSubmission[]
   return submissions.filter((submission) => trackId === "" || submission.trackId === trackId);
 }
 
+export function assignmentDraftChanged(input: {
+  reviewerIds: readonly string[];
+  submissionIds: readonly string[];
+  mode: AssignmentMode;
+}): boolean {
+  return input.reviewerIds.length > 0 || input.submissionIds.length > 0 || input.mode !== "add";
+}
+
 /**
  * Handing work out.
  *
@@ -86,6 +96,13 @@ export function AssignmentDrawer({
   const [mode, setMode] = useState<AssignmentMode>("add");
   const [busy, setBusy] = useState(false);
   const [confirmEmptyReplace, setConfirmEmptyReplace] = useState(false);
+  const dirty = assignmentDraftChanged({ reviewerIds, submissionIds: selected, mode });
+  useUnsavedWorkGuard(dirty);
+  const { runGuarded } = useGuardedAction();
+
+  function requestClose() {
+    requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +235,7 @@ export function AssignmentDrawer({
 
   return (
     <>
-      <Drawer open onClose={onClose} title={`Assign work · ${plan.name}`}>
+      <Drawer open onClose={requestClose} title={`Assign work · ${plan.name}`}>
         <div className="form-stack drawer-body">
         {plan.reviewers.length === 0
           ? <p className="portal-note">Add reviewers to this round before assigning work to them.</p>
@@ -285,7 +302,7 @@ export function AssignmentDrawer({
           Recusals are never undone by either mode — a reviewer who declared a conflict stays off that submission.
         </p>
           <div className="drawer-actions">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="secondary" disabled={busy} onClick={requestClose}>Cancel</Button>
             <Button disabled={!canAssign} onClick={assign}>
               {assignLabel}
             </Button>

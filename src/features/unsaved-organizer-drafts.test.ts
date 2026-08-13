@@ -50,4 +50,12 @@ describe("unsaved organizer draft coverage", () => {
     expect(reminders).toContain("await save.mutateAsync(rows)");
     expect(reminders).toContain("setDirty(false)");
   });
+
+  it("guards reviewer assignment selections before closing the drawer", () => {
+    const assignments = source("./submissions/evaluation/components/assignment-drawer.tsx");
+    expect(assignments).toContain("useUnsavedWorkGuard(dirty)");
+    expect(assignments).toContain("requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose })");
+    expect(assignments).toContain("<Drawer open onClose={requestClose}");
+    expect(assignments).toContain("onClick={requestClose}>Cancel</Button>");
+  });
 });
