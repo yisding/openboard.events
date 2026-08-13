@@ -187,6 +187,14 @@ expect_no_header() {
 echo "post-deploy smoke against $base_url"
 echo
 
+# Trigger both independent ISR entries before waiting for the Worker identity to
+# propagate. Their responses are intentionally not accepted yet: health is the
+# source of the deployment id for manual runs, while protected deploys also
+# provide DEPLOYMENT_ID. These requests merely give both regenerations the full
+# shared window instead of starting them after health consumes it.
+fetch "$base_url/e/$event_slug/agenda"
+fetch "$base_url/embed/$event_slug/agenda"
+
 # 1. Health, including the database round-trip timing. Retry the unique
 # deployment identity as well as the status: immediately after a Worker deploy,
 # Cloudflare can still serve the prior version for a short propagation window.
