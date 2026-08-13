@@ -57,7 +57,10 @@ export type DbOrTx = typeof db | TxDb;
  * the same way an erasure does. CRM bulk send is also transactional so one
  * campaign-wide advisory lock can serialize an original handler with a retry
  * that outlives a lost browser response; its message/outbox fan-out commits
- * or rolls back as one campaign chunk.
+ * or rolls back as one campaign chunk. Bulk schedule publication
+ * (`bulkSetPublished` in `src/features/agenda/server/mutations.ts`) likewise
+ * commits every selected session and its speaker outbox rows together, so a
+ * later enqueue failure cannot leave a partially notified publication batch.
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).

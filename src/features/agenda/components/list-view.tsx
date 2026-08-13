@@ -4,7 +4,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarDays } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
-import { isAppError } from "@/shared/lib/errors";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
@@ -16,7 +15,7 @@ import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { conflictsForSession, nameLookup } from "../store";
-import { bulkPublishPreflight, type BulkPublishPreflight } from "./bulk-publish-preflight";
+import { bulkPublishFailureMessage, bulkPublishPreflight, type BulkPublishPreflight } from "./bulk-publish-preflight";
 
 /**
  * Every session for the event, scheduled or not.
@@ -126,7 +125,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         : `${result.changed} session${result.changed === 1 ? "" : "s"} ${published ? "published" : "unpublished"}${result.emailsQueued > 0 ? `, ${result.emailsQueued} speaker email${result.emailsQueued === 1 ? "" : "s"} queued` : ""}`);
       return true;
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Could not update those sessions", { kind: "error" });
+      toast(bulkPublishFailureMessage(published, caught), { kind: "error" });
       return false;
     }
   };

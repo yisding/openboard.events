@@ -7,7 +7,8 @@ import {
   type ConflictDTO,
   type ScheduledSessionDTO,
 } from "@/shared/contracts";
-import { bulkPublishPreflight } from "./bulk-publish-preflight";
+import { AppError } from "@/shared/lib/errors";
+import { bulkPublishFailureMessage, bulkPublishPreflight } from "./bulk-publish-preflight";
 
 function session(index: number, patch: Partial<ScheduledSessionDTO> = {}): ScheduledSessionDTO {
   return scheduledSessionDtoSchema.parse({
@@ -87,5 +88,24 @@ describe("bulkPublishPreflight", () => {
     expect(source).toContain("publishing does not resolve them");
     expect(source).toContain('onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>');
     expect(source).toContain("if (pendingPublish && await bulk(true, pendingPublish.candidates))");
+  });
+
+  it.each([
+    ["UNAUTHORIZED", "Sign in again to publish sessions"],
+    ["FORBIDDEN", "Only event admins can publish sessions"],
+    ["VALIDATION", "Schedule every selected session before publishing"],
+    ["RATE_LIMITED", "Wait a minute before publishing again"],
+  ] as const)("preserves definitive %s guidance", (code, message) => {
+    expect(bulkPublishFailureMessage(true, new AppError(code, message))).toBe(message);
+  });
+
+  it("gives truthful recovery guidance for network and internal ambiguity", () => {
+    const publishMessage =
+      "We couldn’t confirm whether those sessions were published or all speaker emails were queued. Refresh the agenda before retrying; if you’re offline, wait until your connection returns. Then retry only sessions still shown as drafts.";
+    expect(bulkPublishFailureMessage(true, new TypeError("connection dropped"))).toBe(publishMessage);
+    expect(bulkPublishFailureMessage(true, new AppError("INTERNAL", "Revalidation failed"))).toBe(publishMessage);
+    expect(bulkPublishFailureMessage(false, new TypeError("connection dropped"))).toBe(
+      "We couldn’t confirm whether those sessions were unpublished. Refresh the agenda before retrying; if you’re offline, wait until your connection returns. Then retry only sessions still shown as published.",
+    );
   });
 });

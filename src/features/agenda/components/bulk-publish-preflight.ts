@@ -1,4 +1,5 @@
 import type { ConflictDTO, ScheduledSessionDTO } from "@/shared/contracts";
+import { isAppError } from "@/shared/lib/errors";
 
 export type BulkPublishPreflight = {
   candidates: ScheduledSessionDTO[];
@@ -6,6 +7,22 @@ export type BulkPublishPreflight = {
   emailFanout: number;
   conflictCount: number;
 };
+
+export function bulkPublishFailureMessage(
+  published: boolean,
+  error: unknown,
+): string {
+  // Auth, validation, stale-write, rate-limit, and other structured failures
+  // are definitive and already carry the organizer's actionable guidance.
+  // INTERNAL can be raised after the transaction commits (for example during
+  // route revalidation), so it must be treated like a lost network response.
+  if (isAppError(error) && error.code !== "INTERNAL") return error.message;
+  const outcome = published
+    ? "those sessions were published or all speaker emails were queued"
+    : "those sessions were unpublished";
+  const retryState = published ? "drafts" : "published";
+  return `We couldn’t confirm whether ${outcome}. Refresh the agenda before retrying; if you’re offline, wait until your connection returns. Then retry only sessions still shown as ${retryState}.`;
+}
 
 /**
  * Summarize the exact side effects of publishing the current selection.
