@@ -110,8 +110,9 @@ describe("segment bulk email recovery", () => {
 
     expect(loadBulkSendRecovery(window.localStorage, snapshot)).toEqual({ ok: false, reason: "missing" });
     expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
-    expect(buttonNamed("Send to 1 recipient")?.disabled).toBe(true);
-    expect(buttonNamed("Preview message")?.disabled).toBe(false);
+    expect(container.textContent).not.toContain("1 recipient will be emailed");
+    expect(buttonNamed("Preview audience")?.disabled).toBe(false);
+    expect(buttonNamed("Preview message")?.disabled).toBe(true);
     expect(composeMock).not.toHaveBeenCalled();
   });
 

@@ -510,9 +510,12 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
       setRecovery(null);
-      // A restored receipt is complete, not a draft waiting to be sent again.
-      // Keep its audience and copy visible, but require a fresh preview/send ID
-      // before another intentional send and mark the visible state as saved.
+      // A restored audience is frozen send evidence, not the result of the
+      // currently visible filter controls. Clear it after cleanup so a new
+      // send must resolve those controls again instead of silently reusing a
+      // stale subset.
+      setSegment(null);
+      setPreviewContactId("");
       setPreview(null);
       setSavedDraftFingerprint(bulkMessageDraftFingerprint({
         workflowStatus,
