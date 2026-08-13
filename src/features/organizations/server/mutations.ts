@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { isConstraintViolation } from "@/db/errors";
 import { rowsOf } from "@/db/query-result";
 import {
   organizationDtoSchema,
@@ -27,22 +28,6 @@ import type { CreateOrganizationInput } from "../schemas";
 
 const SLUG_PATTERN = /^[a-z0-9](-?[a-z0-9])*$/;
 const ORGANIZATIONS_SLUG_UNIQUE = "organizations_slug_key";
-
-/**
- * Drizzle wraps the driver error and keeps the original as `cause`, so the
- * constraint name is a level or two down. Mirrors `features/events/server/
- * db-errors.ts` — kept local rather than imported so this feature does not
- * reach into another feature's private server module.
- */
-function isConstraintViolation(error: unknown, constraintName: string): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
-    const entry = current as { message?: unknown; constraint?: unknown; cause?: unknown };
-    if (entry.constraint === constraintName) return true;
-    if (typeof entry.message === "string" && entry.message.includes(constraintName)) return true;
-    current = entry.cause;
-  }
-  return false;
-}
 
 function assertValidSlug(slug: string): void {
   if (!SLUG_PATTERN.test(slug)) {

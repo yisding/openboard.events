@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { parseTag } from "xss";
 import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
+import { isConstraintViolation } from "@/db/errors";
 import type { EventId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -12,22 +13,6 @@ const SLUG_PATTERN = /^[a-z0-9](-?[a-z0-9])*$/;
 // `events.ts`'s `EVENTS_SLUG_UNIQUE` — see `drizzle/0000_init.sql`'s
 // `UNIQUE (event_id,slug)` on `resource_pages`.
 const RESOURCE_SLUG_UNIQUE = "resource_pages_event_id_slug_key";
-
-/**
- * Drizzle wraps the driver's error in one of its own and keeps the original as
- * `cause`, so the constraint name is a level or two down. Local copy of
- * `features/events/server/db-errors.ts`'s helper — that file belongs to
- * another feature, and this module owns no cross-feature import of it.
- */
-function isConstraintViolation(error: unknown, constraintName: string): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
-    const entry = current as { message?: unknown; constraint?: unknown; cause?: unknown };
-    if (entry.constraint === constraintName) return true;
-    if (typeof entry.message === "string" && entry.message.includes(constraintName)) return true;
-    current = entry.cause;
-  }
-  return false;
-}
 
 function assertValidSlug(slug: string): void {
   if (!SLUG_PATTERN.test(slug)) {
