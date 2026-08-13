@@ -57,7 +57,7 @@
 .eventIdentity small {
   color: var(--accent-dark);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -87,7 +87,7 @@
   background: var(--accent);
   color: var(--on-accent);
   font-size: 16px;
-  font-weight: 700;
+  font-weight: var(--weight-strong);
 }
 
 .backLink {
@@ -101,7 +101,7 @@
   background: var(--surface);
   color: var(--ink);
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: var(--weight-control);
   box-shadow: var(--shadow-sm);
 }
 
