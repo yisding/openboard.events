@@ -15,6 +15,7 @@ import {
   listSubmissionsIn,
   planCreateInputSchema,
   planInputSchema,
+  planUpdateSchema,
   savePlanIn,
   submissionFiltersSchema,
 } from "@/features/submissions";
@@ -35,6 +36,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; these suites exercise the columns
 // and the assignment table it adds.
 const migration4 = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migration26 = readFileSync(new URL("../../drizzle/0026_independent_review_scoring.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000002");
@@ -78,6 +80,7 @@ describe("evaluation plans and reviewer routing", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migration4);
+    await pglite.exec(migration26);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug] of [[eventId, "eval-event"], [otherEventId, "eval-other"]] as const) {
@@ -127,6 +130,7 @@ describe("evaluation plans and reviewer routing", () => {
     expect(active?.id).toBe(planId);
     expect(active?.criteria.map((criterion) => criterion.label)).toEqual(["Relevance", "Quality"]);
     expect(active?.criteria.map((criterion) => criterion.weight)).toEqual([1, 3]);
+    expect(active?.showPeerScores).toBe(false);
     // Three of the four seeded submissions are scorable; the draft is not.
     expect(active?.progress).toEqual({ scored: 0, total: 3 });
   });
@@ -141,6 +145,37 @@ describe("evaluation plans and reviewer routing", () => {
     });
 
     expect(parsed.planId).toBe(planId);
+  });
+
+  it("leaves score sharing absent when a legacy update does not send it", () => {
+    const parsed = planUpdateSchema.parse({
+      planId: "b2000000-0000-4000-8000-000000000099",
+      name: "Round 1",
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+
+    expect(Object.hasOwn(parsed, "showPeerScores")).toBe(false);
+  });
+
+  it("preserves score sharing when a legacy client updates another field", async () => {
+    const planId = await seedPlan({ showPeerScores: true });
+    const legacyUpdate = planUpdateSchema.parse({
+      planId,
+      name: "Renamed by an old tab",
+      round: 1,
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+
+    await savePlanIn(db, eventId, legacyUpdate);
+    expect(await getPlanIn(db, eventId, planId)).toMatchObject({
+      name: "Renamed by an old tab",
+      showPeerScores: true,
+    });
+
+    await savePlanIn(db, eventId, { ...legacyUpdate, showPeerScores: false });
+    expect((await getPlanIn(db, eventId, planId)).showPeerScores).toBe(false);
   });
 
   it("replays a committed create against the same stable id", async () => {

@@ -11,6 +11,10 @@ export const evaluationPlans = pgTable("evaluation_plans", {
   // bound means unbounded on that side, which is what every M19 round was.
   opensAt: timestamp("opens_at", { withTimezone: true }), closesAt: timestamp("closes_at", { withTimezone: true }),
   anonymizeAuthors: boolean("anonymize_authors").notNull().default(false),
+  // Independent scoring is the safe default: a reviewer should not be
+  // anchored by the committee's current mean unless the organizer explicitly
+  // chooses a collaborative calibration round.
+  showPeerScores: boolean("show_peer_scores").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.name), unique().on(table.id, table.eventId)]);
 export const evaluationCriteria = pgTable("evaluation_criteria", {

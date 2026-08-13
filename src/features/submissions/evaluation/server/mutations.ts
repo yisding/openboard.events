@@ -14,7 +14,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { stableUuid } from "@/shared/server/stable-uuid";
 import { isReviewComplete, isValidCriterionValue, normalizeCriterionValues, reviewWindow, weightedMean } from "../scoring";
-import type { AssignmentInput, PlanInput, ReviewInput, ReviewerAssignmentInput } from "../types";
+import type { AssignmentInput, PlanWrite, ReviewInput, ReviewerAssignmentInput } from "../types";
 
 /**
  * Evaluation's writes.
@@ -165,7 +165,7 @@ function sameScoringInputs(left: ScoringInputs, right: ScoringInputs): boolean {
  * criteria, a weight, a kind, a select option's score, a numeric bound — is a
  * new round's job, not an edit's.
  */
-async function assertScoringShapeEditable(dbOrTx: DbOrTx, eventId: EventId, input: PlanInput): Promise<void> {
+async function assertScoringShapeEditable(dbOrTx: DbOrTx, eventId: EventId, input: PlanWrite): Promise<void> {
   if (!input.planId) return;
   const result = await dbOrTx.execute<PersistedScoringShape>(sql`
     SELECT p.scale_min, p.scale_max,
@@ -210,7 +210,7 @@ async function assertScoringShapeEditable(dbOrTx: DbOrTx, eventId: EventId, inpu
  * worth 9 on a 1–5 scale would silently push a proposal's mean off the scale
  * every reviewer was told to use.
  */
-function assertCriteriaWithinScale(input: PlanInput): void {
+function assertCriteriaWithinScale(input: PlanWrite): void {
   for (const criterion of input.criteria) {
     const label = `“${criterion.label}”`;
     if (criterion.kind === "numeric") {
@@ -251,7 +251,7 @@ function assertCriteriaWithinScale(input: PlanInput): void {
 export async function savePlanIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
-  input: PlanInput,
+  input: PlanWrite,
   expectedUpdatedAt?: string,
 ): Promise<{ planId: PlanId }> {
   const trackIds = normalizeTracks(input.trackIds);
@@ -287,15 +287,18 @@ export async function savePlanIn(
   try {
     const result = await dbOrTx.execute<{ id: string }>(sql`
       WITH saved AS (
-        INSERT INTO evaluation_plans (id, event_id, name, round, scale_min, scale_max, status, track_ids, opens_at, closes_at, anonymize_authors)
+        INSERT INTO evaluation_plans (id, event_id, name, round, scale_min, scale_max, status, track_ids, opens_at, closes_at, anonymize_authors, show_peer_scores)
         VALUES (COALESCE(${input.planId}::uuid, gen_random_uuid()), ${eventId}, ${input.name}, ${input.round},
                 ${input.scaleMin}, ${input.scaleMax}, ${input.status}, ${uuidArraySql(trackIds)},
-                ${input.opensAt}::timestamptz, ${input.closesAt}::timestamptz, ${input.anonymizeAuthors})
+                ${input.opensAt}::timestamptz, ${input.closesAt}::timestamptz, ${input.anonymizeAuthors}, COALESCE(${input.showPeerScores ?? null}::boolean, false))
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, round = EXCLUDED.round, scale_min = EXCLUDED.scale_min,
           scale_max = EXCLUDED.scale_max, status = EXCLUDED.status, track_ids = EXCLUDED.track_ids,
           opens_at = EXCLUDED.opens_at, closes_at = EXCLUDED.closes_at,
           anonymize_authors = EXCLUDED.anonymize_authors,
+          -- Missing means an older browser, not "off". Preserve the stored
+          -- setting atomically; an explicit false still disables sharing.
+          show_peer_scores = COALESCE(${input.showPeerScores ?? null}::boolean, evaluation_plans.show_peer_scores),
           updated_at = now()
         WHERE evaluation_plans.event_id = ${eventId}
           AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR date_trunc('milliseconds', evaluation_plans.updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz))
@@ -783,7 +786,7 @@ async function scoringRefusal(
   return new AppError("INTERNAL", "The review could not be saved");
 }
 
-export const savePlan = (eventId: EventId, input: PlanInput, expectedUpdatedAt?: string) =>
+export const savePlan = (eventId: EventId, input: PlanWrite, expectedUpdatedAt?: string) =>
   savePlanIn(db, eventId, input, expectedUpdatedAt);
 export const deletePlan = (eventId: EventId, planId: PlanId) => deletePlanIn(db, eventId, planId);
 export const assignReviewers = (eventId: EventId, planId: PlanId, assignments: readonly ReviewerAssignmentInput[]) =>

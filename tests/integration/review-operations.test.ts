@@ -254,13 +254,14 @@ describe("review operations", () => {
     await pglite.exec("TRUNCATE reviews, review_assignments, reviewer_assignments, evaluation_criteria, evaluation_plans, communication_logs CASCADE");
   });
 
-  it("keeps two rounds' windows, pools, anonymization and typed criteria across a reload", async () => {
+  it("keeps two rounds' windows, pools, score visibility, anonymization and typed criteria across a reload", async () => {
     const roundOne = await seedPlan({
       name: "Round 1",
       round: 1,
       opensAt: "2026-09-01T17:00:00.000Z",
       closesAt: "2026-09-10T17:00:00.000Z",
       anonymizeAuthors: false,
+      showPeerScores: false,
       trackIds: [platforms],
       criteria: [{ label: "Relevance", weight: 2, kind: "numeric", required: true, minValue: 2, maxValue: 5 }],
     });
@@ -270,6 +271,7 @@ describe("review operations", () => {
       opensAt: "2026-09-11T17:00:00.000Z",
       closesAt: "2026-09-20T17:00:00.000Z",
       anonymizeAuthors: true,
+      showPeerScores: true,
       criteria: [
         { label: "Originality", weight: 3, kind: "numeric", required: true },
         {
@@ -286,11 +288,13 @@ describe("review operations", () => {
     expect(reloadedOne.opensAt).toBe("2026-09-01T17:00:00.000Z");
     expect(reloadedOne.closesAt).toBe("2026-09-10T17:00:00.000Z");
     expect(reloadedOne.anonymizeAuthors).toBe(false);
+    expect(reloadedOne.showPeerScores).toBe(false);
     expect(reloadedOne.criteria[0]).toMatchObject({ kind: "numeric", required: true, minValue: 2, maxValue: 5, weight: 2 });
     expect(reloadedOne.reviewers.map((reviewer) => reviewer.userId)).toEqual([ada]);
 
     const reloadedTwo = await getPlanIn(db, eventId, roundTwo);
     expect(reloadedTwo.anonymizeAuthors).toBe(true);
+    expect(reloadedTwo.showPeerScores).toBe(true);
     expect(reloadedTwo.criteria.map((criterion) => criterion.kind)).toEqual(["numeric", "select", "text"]);
     expect(reloadedTwo.criteria[1]?.options).toEqual([
       { id: "yes", label: "Accept", score: 5 },

@@ -54,7 +54,7 @@ const LIVE = sql`ra.status = 'assigned'`;
 type PlanRow = {
   id: string; name: string; round: number; scale_min: number; scale_max: number;
   status: PlanDTO["status"]; track_ids: string[] | null;
-  opens_at: string | null; closes_at: string | null; anonymize_authors: boolean;
+  opens_at: string | null; closes_at: string | null; anonymize_authors: boolean; show_peer_scores: boolean;
   criteria: Array<Record<string, unknown>> | null; reviewers: Array<Record<string, unknown>> | null;
   scored: number; total: number; updated_at: string;
 };
@@ -107,6 +107,7 @@ function toPlan(row: PlanRow): PlanDTO {
     opensAt: row.opens_at ? new Date(row.opens_at).toISOString() : null,
     closesAt: row.closes_at ? new Date(row.closes_at).toISOString() : null,
     anonymizeAuthors: row.anonymize_authors === true,
+    showPeerScores: row.show_peer_scores === true,
     criteria: (row.criteria ?? []).map(toCriterion),
     reviewers: (row.reviewers ?? []).map(toReviewer),
     progress: { scored: Number(row.scored), total: Number(row.total) },
@@ -117,7 +118,7 @@ function toPlan(row: PlanRow): PlanDTO {
 async function selectPlans(dbOrTx: DbOrTx, eventId: EventId, only?: SQL): Promise<PlanDTO[]> {
   const result = await dbOrTx.execute<PlanRow>(sql`
     SELECT p.id, p.name, p.round, p.scale_min, p.scale_max, p.status, p.track_ids, p.updated_at,
-      p.opens_at, p.closes_at, p.anonymize_authors,
+      p.opens_at, p.closes_at, p.anonymize_authors, p.show_peer_scores,
       COALESCE((
         SELECT json_agg(json_build_object(
                  'id', c.id, 'label', c.label, 'weight', c.weight::float8, 'sortOrder', c.sort_order,
@@ -236,7 +237,7 @@ async function getReviewerDefaultPlanIn(
 type QueueRow = {
   submission_id: string; code: number; title: string; track_id: string | null; track_name: string | null;
   my_score: string | null; my_criterion_scores: unknown; my_comment: string | null;
-  scored_at: string | null; avg_rating: number | null; n_scores: number;
+  scored_at: string | null; avg_rating: number | null; n_scores: number | null;
   assignment_status: ReviewQueueRow["assignmentStatus"]; recusal_reason: string | null;
 };
 
@@ -273,7 +274,8 @@ export async function listReviewQueueIn(
     SELECT s.id AS submission_id, s.code, s.title, s.track_id, t.name AS track_name,
            r.overall_score AS my_score, r.criterion_scores AS my_criterion_scores,
            r.comment AS my_comment, r.submitted_at AS scored_at,
-           v.rating AS avg_rating, COALESCE(v.n_scores, 0) AS n_scores,
+           CASE WHEN p.show_peer_scores THEN v.rating END AS avg_rating,
+           CASE WHEN p.show_peer_scores THEN COALESCE(v.n_scores, 0) END AS n_scores,
            ra.status AS assignment_status, ra.recusal_reason
     FROM review_assignments ra
     JOIN evaluation_plans p ON p.id = ra.plan_id AND p.event_id = ra.event_id
@@ -305,7 +307,7 @@ export async function listReviewQueueIn(
       myComment: row.my_comment,
       scoredAt: row.scored_at ? new Date(row.scored_at).toISOString() : null,
       avgRating: row.avg_rating === null ? null : Number(row.avg_rating),
-      nScores: Number(row.n_scores ?? 0),
+      nScores: row.n_scores === null ? null : Number(row.n_scores),
       assignmentStatus: row.assignment_status,
       recusalReason: row.recusal_reason,
     };
