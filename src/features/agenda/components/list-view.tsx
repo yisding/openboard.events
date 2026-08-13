@@ -16,7 +16,7 @@ import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { conflictsForSession, nameLookup } from "../store";
-import { bulkPublishPreflight, type BulkPublishPreflight } from "./bulk-publish-preflight";
+import { bulkPublishFailureMessage, bulkPublishPreflight, type BulkPublishPreflight } from "./bulk-publish-preflight";
 
 /**
  * Every session for the event, scheduled or not.
@@ -126,7 +126,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         : `${result.changed} session${result.changed === 1 ? "" : "s"} ${published ? "published" : "unpublished"}${result.emailsQueued > 0 ? `, ${result.emailsQueued} speaker email${result.emailsQueued === 1 ? "" : "s"} queued` : ""}`);
       return true;
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Could not update those sessions", { kind: "error" });
+      toast(bulkPublishFailureMessage(published, isAppError(caught) ? caught.message : undefined), { kind: "error" });
       return false;
     }
   };

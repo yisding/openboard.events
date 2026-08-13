@@ -68,7 +68,10 @@ export function useSessionMutations(eventId: EventId) {
   const setPublished = useMutation({
     mutationFn: ({ ids, published }: { ids: SessionId[]; published: boolean }) =>
       api(`agenda/sessions/bulk-publish?eventId=${eventId}`, bulkSchema, { method: "POST", body: { ids, published } }),
-    onSuccess: settle,
+    // A response can be lost after the transaction commits. Refresh on either
+    // outcome so the organizer sees the database truth before deciding whether
+    // any still-draft rows need a safe retry.
+    onSettled: settle,
   });
 
   const promote = useMutation({

@@ -7,6 +7,19 @@ export type BulkPublishPreflight = {
   conflictCount: number;
 };
 
+export function bulkPublishFailureMessage(
+  published: boolean,
+  serverMessage?: string,
+): string {
+  const outcome = published
+    ? "those sessions were published or all speaker emails were queued"
+    : "those sessions were unpublished";
+  const retryState = published ? "drafts" : "published";
+  const lead = serverMessage?.trim() || `We couldn’t confirm whether ${outcome}.`;
+  const punctuation = /[.!?]$/u.test(lead) ? "" : ".";
+  return `${lead}${punctuation} The agenda was refreshed; retry only sessions still shown as ${retryState}.`;
+}
+
 /**
  * Summarize the exact side effects of publishing the current selection.
  *

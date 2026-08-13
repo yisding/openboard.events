@@ -33,13 +33,14 @@ import { getSchedulableSessionsIn } from "./queries";
 /**
  * Every agenda write.
  *
- * Exactly one of them opens a transaction. `moveSession` is audited `withTx`
- * path #8 (PLAN resolution #4) because a drag has to settle the row version, the
- * schedule revision and the speakers' outbox rows together. Everything else here
- * is a single data-modifying statement — a CTE where more than one table
- * changes — so a crash can never leave a session updated with the previous
- * speaker set. Only the email enqueue on `saveSession` sits outside that
- * guarantee, and losing it costs a notification, never the schedule.
+ * `moveSession` opens a transaction because a drag has to settle the row
+ * version, schedule revision and speakers' outbox rows together.
+ * `bulkSetPublished` does the same for the whole confirmed publication batch:
+ * otherwise a later enqueue failure could publish every session while mailing
+ * only the speakers reached before the failure. Everything else here is a
+ * single data-modifying statement — a CTE where more than one table changes.
+ * Only the email enqueue on `saveSession` sits outside that guarantee, and
+ * losing it costs a notification, never an explicitly confirmed bulk action.
  */
 
 export const saveSessionInputSchema = z.object({
@@ -676,7 +677,7 @@ export async function bulkSetPublishedIn(
 }
 
 export const bulkSetPublished = (eventId: EventId, ids: readonly SessionId[], published: boolean) =>
-  bulkSetPublishedIn(db, eventId, ids, published);
+  withTx((tx) => bulkSetPublishedIn(tx, eventId, ids, published));
 
 /**
  * An accepted abstract becomes a draft session, once.
