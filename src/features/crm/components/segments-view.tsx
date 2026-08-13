@@ -3,7 +3,7 @@
 import { Layers, Mail, Plus, Sparkles, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
@@ -221,11 +221,19 @@ export function SegmentsView({
   const [emailRecoveryUnreadable, setEmailRecoveryUnreadable] = useState(false);
   const [emailRecoveryOpen, setEmailRecoveryOpen] = useState(false);
   useEffect(() => {
-    setEmailRecovery(null);
-    setEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
-    if (loaded.ok) setEmailRecovery(loaded.snapshot);
-    else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setEmailRecoveryUnreadable(true);
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [organizationId]);
   const emailRequestSequence = useRef(0);
 
@@ -246,14 +254,13 @@ export function SegmentsView({
   }
 
   async function email(segment: CrmSegmentDTO) {
-    const loaded = emailRecovery
-      ? null
-      : loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
-    if (loaded && !loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
+    if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
       setEmailRecoveryUnreadable(true);
       return;
     }
-    const storedRecovery = emailRecovery ?? (loaded?.ok ? loaded.snapshot : null);
+    const storedRecovery = loaded.ok ? loaded.snapshot : null;
+    setEmailRecovery(storedRecovery);
     if (storedRecovery) {
       setEmailRecovery(storedRecovery);
       setEmailRecoveryOpen(true);

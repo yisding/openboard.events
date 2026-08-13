@@ -33,28 +33,33 @@ const eventId = "b2000000-0000-4000-8000-000000000001";
 const contactId = "b1000000-0000-4000-8000-000000000001";
 const selected = [{ contactId, name: "Alex Speaker", email: "alex@example.com" }];
 
-function recoverySnapshot(confirmed = false): BulkSendRecoverySnapshot {
+function recoverySnapshot(
+  confirmed = false,
+  recipients: Array<{ contactId: string; name: string; email: string }> = selected,
+): BulkSendRecoverySnapshot {
   const subject = "Program update";
   const bodyHtml = "<p>Hello</p>";
+  const previewRecipient = recipients[0];
+  if (!previewRecipient) throw new Error("Recovery fixture needs a recipient");
   return {
     version: BULK_SEND_RECOVERY_VERSION,
     surface: "speaker",
     scope: eventId,
-    recipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
-    previewRecipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
+    recipients: recipients.map((recipient) => ({ id: recipient.contactId, name: recipient.name, email: recipient.email })),
+    previewRecipients: [{ id: previewRecipient.contactId, name: previewRecipient.name, email: previewRecipient.email }],
     subject,
     bodyHtml,
-    previewRecipientId: contactId,
+    previewRecipientId: previewRecipient.contactId,
     approvedPreview: {
-      recipientEmail: "alex@example.com",
-      recipientName: "Alex Speaker",
+      recipientEmail: previewRecipient.email,
+      recipientName: previewRecipient.name,
       subject,
       bodyHtml: "<p>Hello Alex</p>",
       bodyText: "Hello Alex",
     },
     sendId: "b3000000-0000-4000-8000-000000000001",
     attemptStorageKey: "openboard:bulk-send:speaker:test-hash",
-    fingerprint: bulkSendPreviewFingerprint({ contactIds: [contactId], previewContactId: contactId, subject, bodyHtml }),
+    fingerprint: bulkSendPreviewFingerprint({ contactIds: recipients.map((recipient) => recipient.contactId), previewContactId: previewRecipient.contactId, subject, bodyHtml }),
     completedResults: [],
     confirmedResult: confirmed ? { queued: 0, alreadyQueued: 1, skipped: 0, errors: [] } : null,
   };
@@ -329,5 +334,34 @@ describe("targeted speaker email recovery", () => {
       snapshot: { confirmedResult: null },
     });
     restoreSetItem();
+  });
+
+  it("resumes a large segment recovery in server-sized chunks", async () => {
+    const largeAudience = Array.from({ length: 201 }, (_, index) => ({
+      contactId: `b1000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      name: `Speaker ${index + 1}`,
+      email: `speaker-${index + 1}@example.com`,
+    }));
+    const snapshot = recoverySnapshot(false, largeAudience);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    apiMock
+      .mockResolvedValueOnce({ queued: 0, alreadyQueued: 200, skipped: 0, errors: [], preview: null })
+      .mockResolvedValueOnce({ queued: 1, alreadyQueued: 0, skipped: 0, errors: [], preview: null });
+    await act(async () => root.render(<SpeakerBulkEmailDialog
+      eventId={eventId}
+      open
+      selected={[]}
+      initialRecovery={snapshot}
+      onClose={vi.fn()}
+    />));
+
+    await act(async () => buttonsNamed("Retry this send")[0]?.click());
+
+    expect(apiMock).toHaveBeenCalledTimes(2);
+    expect(apiMock.mock.calls.map((call) => call[2].body.contactIds.length)).toEqual([200, 1]);
+    expect(apiMock.mock.calls.every((call) => call[2].body.sendId === snapshot.sendId)).toBe(true);
+    expect(container.textContent).toContain("201 accepted");
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId)))
+      .toEqual({ ok: false, reason: "missing" });
   });
 });

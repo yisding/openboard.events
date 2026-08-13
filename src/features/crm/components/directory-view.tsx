@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import {
   CRM_CONTACT_SOURCES,
@@ -90,11 +90,19 @@ export function DirectoryView({
   const [emailRecovery, setEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
   const [emailRecoveryUnreadable, setEmailRecoveryUnreadable] = useState(false);
   useEffect(() => {
-    setEmailRecovery(null);
-    setEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
-    if (loaded.ok) setEmailRecovery(loaded.snapshot);
-    else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setEmailRecoveryUnreadable(true);
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [organizationId]);
   const [mergeOpen, setMergeOpen] = useState(false);
 
@@ -104,7 +112,7 @@ export function DirectoryView({
       setEmailRecoveryUnreadable(true);
       return;
     }
-    if (loaded.ok) setEmailRecovery(loaded.snapshot);
+    setEmailRecovery(loaded.ok ? loaded.snapshot : null);
     setSelected(selectedRows);
     setEmailOpen(true);
   }

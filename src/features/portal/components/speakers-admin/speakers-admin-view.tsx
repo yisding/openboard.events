@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
-import { loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
 import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
@@ -93,11 +93,19 @@ export function SpeakersAdminView({
   const [bulkEmailRecovery, setBulkEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
   const [bulkEmailRecoveryUnreadable, setBulkEmailRecoveryUnreadable] = useState(false);
   useEffect(() => {
-    setBulkEmailRecovery(null);
-    setBulkEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
-    if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
-    else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setBulkEmailRecoveryUnreadable(true);
+    const identity = speakerBulkSendRecoveryIdentity(eventId);
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    const refreshRecovery = () => {
+      const loaded = loadBulkSendRecovery(window.localStorage, identity);
+      setBulkEmailRecovery(loaded.ok ? loaded.snapshot : null);
+      setBulkEmailRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
+    };
+    refreshRecovery();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshRecovery();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [eventId]);
   const [confirmReminders, setConfirmReminders] = useState(false);
   const [reminding, setReminding] = useState(false);
@@ -117,7 +125,7 @@ export function SpeakersAdminView({
       setBulkEmailRecoveryUnreadable(true);
       return;
     }
-    if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
+    setBulkEmailRecovery(loaded.ok ? loaded.snapshot : null);
     setSelected(selectedRows);
     setBulkEmailOpen(true);
   }

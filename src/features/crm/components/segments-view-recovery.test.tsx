@@ -143,4 +143,24 @@ describe("CRM segment send recovery", () => {
     expect(emailButton()?.disabled).toBe(false);
     expect(apiMock).not.toHaveBeenCalled();
   });
+
+  it("drops its cached recovery when another tab clears shared storage", async () => {
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    expect(persistBulkSendRecovery(window.localStorage, recovery()).ok).toBe(true);
+    await renderView();
+    expect(emailButton()?.disabled).toBe(true);
+
+    const oldValue = window.localStorage.getItem(storageKey);
+    window.localStorage.removeItem(storageKey);
+    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      oldValue,
+      newValue: null,
+      storageArea: window.localStorage,
+    })));
+
+    expect(container.textContent).not.toContain("Unconfirmed CRM email");
+    expect(emailButton()?.disabled).toBe(false);
+  });
 });

@@ -10,8 +10,10 @@ import {
   bulkSendPreviewFingerprint,
   bulkSendResultToastOptions,
   canSendBulkMessage,
+  chunkBulkRecipientIds,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
+  mergeBulkSendResults,
   verifyBulkSendAttempt,
   type BulkSendAttempt,
 } from "@/features/comms/bulk-send-attempt";
@@ -25,6 +27,7 @@ import {
   removeBulkSendRecovery,
   speakerBulkSendRecoveryIdentity,
   withBulkSendRecoveryLock,
+  type BulkSendRecoveryBatchResult,
   type BulkSendRecoverySnapshot,
 } from "@/features/comms/bulk-send-recovery";
 import { composeBulkSpeakerEmailResultSchema, type ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
@@ -223,7 +226,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       setError("Preview this exact audience and message before sending");
       return false;
     }
-    const approved = recovery ?? (currentPreview ? {
+    let approved = recovery ?? (currentPreview ? {
       version: BULK_SEND_RECOVERY_VERSION,
       surface: "speaker" as const,
       scope: recoveryIdentity.scope,
@@ -264,11 +267,29 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
     onRecoveryChange?.(stored.snapshot);
     setBusySend(true);
     setError(null);
+    const completedThisRun: BulkSendRecoveryBatchResult[] = [];
     try {
-      const result = await api(`speakers/${eventId}/bulk-email`, composeBulkSpeakerEmailResultSchema, {
-        method: "POST",
-        body: { contactIds: approved.recipients.map((row) => row.id), subject: approved.subject, bodyHtml: approved.bodyHtml, mode: "send", sendId: approved.sendId },
-      });
+      const results = [];
+      for (const contactIds of chunkBulkRecipientIds(approved.recipients.map((row) => row.id))) {
+        const batch = await api(`speakers/${eventId}/bulk-email`, composeBulkSpeakerEmailResultSchema, {
+          method: "POST",
+          body: { contactIds, subject: approved.subject, bodyHtml: approved.bodyHtml, mode: "send", sendId: approved.sendId },
+        });
+        results.push(batch);
+        completedThisRun.push({
+          queued: batch.queued,
+          alreadyQueued: batch.alreadyQueued,
+          skipped: batch.skipped,
+          errors: batch.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
+        });
+        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: completedThisRun };
+        if (persistBulkSendRecovery(window.localStorage, updated).ok) {
+          approved = updated;
+          setRecovery(updated);
+          onRecoveryChange?.(updated);
+        }
+      }
+      const result = mergeBulkSendResults(results);
       const confirmed: BulkSendRecoverySnapshot = {
         ...approved,
         confirmedResult: {
@@ -301,7 +322,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
       router.refresh();
       return true;
     } catch (sendError) {
-      if (classifyBulkSendFailure(sendError, approved.completedResults, retryingRecovery) === "definite") {
+      if (classifyBulkSendFailure(sendError, completedThisRun, retryingRecovery) === "definite") {
         const abandoned = abandonBulkSendAttempt(window.localStorage, attempt);
         const removed = abandoned.ok ? removeBulkSendRecovery(window.localStorage, approved) : abandoned;
         if (abandoned.ok && removed.ok) {
