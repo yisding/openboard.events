@@ -110,7 +110,7 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
     } catch (error) {
       if (isAppError(error) && error.code === "STALE_WRITE") { setStaleConflict(true); return; }
       if (isAppError(error) && error.code === "TEMPLATE_VAR_MISSING") return; // the inline warning already covers this
-      toast("Could not save that template");
+      toast("Could not save that template", { kind: "error" });
     }
   }
 

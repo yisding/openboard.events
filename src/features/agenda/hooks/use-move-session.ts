@@ -66,7 +66,7 @@ export function useMoveSession(eventId: EventId) {
     onError: (error, _variables, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous);
       const stale = isAppError(error) && error.code === "STALE_WRITE";
-      toast(stale ? "Schedule changed — reloading the latest version" : "Could not move that session");
+      toast(stale ? "Schedule changed — reloading the latest version" : "Could not move that session", { kind: "error" });
       // A stale write means truth moved on without us — refetch it rather than
       // leave the rolled-back (now also stale) snapshot on screen.
       if (stale) void queryClient.invalidateQueries({ queryKey: key });

@@ -1778,6 +1778,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .data-toolbar .table-search{flex:1 0 100%;width:100%}
   .data-toolbar select{flex:1 1 140px;min-width:0}
 
+  /* Form filters stay keyboard-reachable in a horizontal rail while the
+     search takes a predictable full-width row on narrow screens. */
+  .form-list-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:8px;overflow:visible}
+  .form-list-toolbar>.tabs{width:100%;overflow-x:auto;scrollbar-width:thin;scroll-padding-inline:8px}
+  .form-list-toolbar>.tabs button{min-height:44px;flex:0 0 auto}
+  .form-list-toolbar>input{width:100%;min-width:0;min-height:44px;flex:1 0 100%}
+
   .bulk-bar{height:auto;min-height:47px;flex-wrap:wrap;padding:8px 12px}
   .bulk-bar>span{margin-right:0}
   .bulk-bar select{height:36px;min-width:0;flex:1 1 180px}

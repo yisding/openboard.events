@@ -57,7 +57,7 @@ export function SuppressionsTab({ eventId, timezone, initialData }: { eventId: E
       await remove.mutateAsync(contactId);
       toast("Reinstated — future sends to this address will resume");
     } catch {
-      toast("Could not reinstate this address");
+      toast("Could not reinstate this address", { kind: "error" });
     }
   }
 

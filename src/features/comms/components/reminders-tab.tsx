@@ -48,7 +48,7 @@ export function RemindersTab({ eventId, initialData }: { eventId: EventId; initi
       setDirty(false);
       toast("Reminder ladder saved");
     } catch {
-      toast("Could not save the reminder ladder");
+      toast("Could not save the reminder ladder", { kind: "error" });
     }
   }
 

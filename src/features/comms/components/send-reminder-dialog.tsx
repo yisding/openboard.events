@@ -37,7 +37,7 @@ export function SendReminderDialog({
       setSentTaskId(taskId);
       toast(result.enqueued ? "Reminder queued — it will arrive in about a second" : "Already complete — nothing to remind");
     } catch {
-      toast("Could not queue that reminder");
+      toast("Could not queue that reminder", { kind: "error" });
     }
   }
 
