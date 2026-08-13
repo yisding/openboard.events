@@ -2,23 +2,31 @@
 -- gained guaranteed teardown. Match only the timestamp-shaped titles emitted
 -- by those specs; user-authored sessions that merely mention E2E are not test
 -- residue and must remain untouched.
-DELETE FROM sessions
-WHERE title ~ '^E2E (publish me|overlap [AB]|auto-place|blacked out) [0-9]+$'
-   OR title ~ '^E2E content history (original|edit one|edit two) [0-9]+$';
+DELETE FROM sessions AS session
+USING events AS event
+WHERE session.event_id = event.id
+  AND event.slug = 'ai-engineer-sandbox-event'
+  AND (
+    session.title ~ '^E2E (publish me|overlap [AB]|auto-place|blacked out) [0-9]+$'
+    OR session.title ~ '^E2E content history (original|edit one|edit two) [0-9]+$'
+  );
 
 -- The portal profile spec typed its marker at the start of an existing rich
 -- text bio, sometimes repeatedly across runs. Preserve the opening paragraph
 -- tag and every byte of the real biography after the timestamp prefixes.
 -- TipTap may wrap text typed at the active cursor in `<strong>`; accept that
 -- exact optional inline wrapper as part of each marker, not as biography.
-UPDATE contacts
+UPDATE contacts AS speaker
 SET bio_html = regexp_replace(
-  bio_html,
+  speaker.bio_html,
   '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+',
   '\1',
   'i'
 ), updated_at = now()
-WHERE bio_html ~* '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+';
+FROM events AS event
+WHERE speaker.event_id = event.id
+  AND event.slug = 'ai-engineer-sandbox-event'
+  AND speaker.bio_html ~* '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+';
 
 -- Both public-surface specs temporarily declined the deterministic Grace seed
 -- and, before teardown existed, left her out of the demo gallery. Repair only
