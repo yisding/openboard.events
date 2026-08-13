@@ -12,8 +12,6 @@ export const SUBMISSION_TRANSITIONS: Record<SubmissionStatus, readonly Submissio
   withdrawn: ["pending"],
 };
 
-export const FINAL_STATUSES = ["accepted", "declined"] as const;
-
 export const PORTAL_STATUS_LABEL: Record<SubmissionStatus, string> = {
   draft: "Draft",
   pending: "Pending",

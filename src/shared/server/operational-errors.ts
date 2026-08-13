@@ -25,7 +25,7 @@ function operationalErrorQuery(url: string): OperationalErrorQuery {
   };
 }
 
-export function normalizeOperationalError(error: unknown): Error {
+function normalizeOperationalError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 

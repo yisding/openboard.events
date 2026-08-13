@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { fixtureEvent } from "../fixtures";
+import { eventIdSchema, type EventDTO } from "@/shared/contracts";
 import {
   eventDetailsDraftFrom,
   eventDetailsValidationErrors,
@@ -11,6 +11,24 @@ import {
   isEventDetailsDraftDirty,
   STALE_NOTICE_A11Y,
 } from "./details-tab";
+
+const fixtureEvent = {
+  id: eventIdSchema.parse("00000000-0000-4000-8000-0000000000e1"),
+  name: "AI.Engineer Sandbox — NYC",
+  slug: "ai-engineer-sandbox-event",
+  eventType: "conference",
+  websiteUrl: null,
+  location: "New York, NY",
+  physicalAddress: null,
+  timezone: "America/Los_Angeles",
+  startsAt: "2026-11-12T17:00:00.000Z",
+  endsAt: "2026-11-14T01:00:00.000Z",
+  theme: null,
+  logoFileId: null,
+  backgroundFileId: null,
+  submissionCapPerUser: 3,
+  rowVersion: 1,
+} satisfies EventDTO;
 
 describe("event details slug validation", () => {
   it("rejects invalid and reserved slugs before save", () => {

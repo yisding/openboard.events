@@ -28,7 +28,7 @@ import { fromBase64Url, randomBytes, safeEqual, toBase64Url } from "./crypto";
  * CPU-bound in a Worker isolate, where PBKDF2 runs in native WebCrypto.
  */
 
-export const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = 100_000;
 const LEGACY_SCHEME = "pbkdf2-sha256";
 const CURRENT_SCHEME = "pbkdf2-sha256-v2";
 const CURRENT_SALT_BYTES = 32;

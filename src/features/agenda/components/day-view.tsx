@@ -7,7 +7,6 @@ import {
   useSensors,
   type DndContextProps,
   type DragEndEvent,
-  type DragStartEvent,
 } from "@dnd-kit/core";
 import { LayoutGrid, MapPin } from "lucide-react";
 import { useEffect, useMemo } from "react";
@@ -72,7 +71,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     [dayScheduled, selectedDay, event.timezone],
   );
 
-  const { setConflicts, setDragging } = useDayGridActions();
+  const { setConflicts } = useDayGridActions();
 
   // Recomputed on every session-list change — including the mutation's
   // optimistic patch, which lands in this same `sessions` prop before any
@@ -94,11 +93,6 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     if (formatId === null) return DEFAULT_FORMAT_DURATION_MINUTES;
     const format = formats.find((candidate) => String(candidate.id) === String(formatId));
     return format?.defaultDurationMins ?? DEFAULT_FORMAT_DURATION_MINUTES;
-  };
-
-  const handleDragStart = (dragStart: DragStartEvent) => {
-    const data = dragStart.active.data.current as DragData | undefined;
-    if (data && (data.type === "session" || data.type === "unscheduled")) setDragging(data.session.id);
   };
 
   const handleMove = (data: Extract<DragData, { type: "session" | "unscheduled" }>, overId: string) => {
@@ -149,7 +143,6 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
   };
 
   const handleDragEnd = (dragEnd: DragEndEvent) => {
-    setDragging(null);
     const data = dragEnd.active.data.current as DragData | undefined;
     if (!data) return;
 
@@ -174,7 +167,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
           />
         )
         : (
-          <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setDragging(null)}>
+          <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragEnd={handleDragEnd}>
             <div className="dv-layout">
               <div className="dv-side-panels">
                 <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />

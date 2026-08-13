@@ -22,13 +22,13 @@ export type { PortalShellData };
 // speaker keeps the same colour between renders without storing one.
 const AVATAR_COLORS = ["#007454", "#2672a8", "#2a8471", "#347d87", "#45816c", "#6475a2", "#8967af", "#ac5a90", "#b25c63", "#9a6d27"] as const;
 
-export function avatarColorFor(id: string): string {
+function avatarColorFor(id: string): string {
   let hash = 0;
   for (const character of id) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 100_000;
   return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0];
 }
 
-export function initialsFor(firstName: string, lastName: string, email: string): string {
+function initialsFor(firstName: string, lastName: string, email: string): string {
   const letters = `${firstName.trim()[0] ?? ""}${lastName.trim()[0] ?? ""}`.trim();
   return (letters || email.trim().slice(0, 2) || "SP").toUpperCase();
 }

@@ -20,7 +20,7 @@ import { updateContactFields } from "./contacts";
 // Trim/lowercase first, *then* check the email format — chained the other way
 // (`z.email().trim()`), the format check runs on the untrimmed, mixed-case
 // input and rejects a perfectly fixable "  Ada@Example.com  ".
-export const speakerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
+const speakerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 
 function isUniqueViolation(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;

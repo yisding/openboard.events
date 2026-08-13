@@ -28,7 +28,7 @@ export type EmbedStyle = z.infer<typeof embedStyleSchema>;
  * direct page shows, per the M53 guardrail that embeds and direct pages
  * share one component/data contract.
  */
-export const embedFieldVisibilitySchema = z.object({
+const embedFieldVisibilitySchema = z.object({
   description: z.boolean().optional(),
   speakerCompany: z.boolean().optional(),
   speakerBio: z.boolean().optional(),

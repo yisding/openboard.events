@@ -65,11 +65,9 @@ function securityHeaders(allowUnsafeEval = false) {
   ];
 }
 
-export const SECURITY_HEADERS = securityHeaders();
-
 // No X-Frame-Options here on purpose — see the module doc. nosniff and HSTS
 // are transport/content concerns, orthogonal to framing, so both still apply.
-export const EMBED_SECURITY_HEADERS = [
+const EMBED_SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: EMBED_CONTENT_SECURITY_POLICY },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
