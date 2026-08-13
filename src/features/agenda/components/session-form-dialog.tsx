@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId } from "@/shared/contracts";
-import { sessionContentRevisionDtoSchema } from "@/shared/contracts";
+import { sessionContentRevisionDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { z } from "zod";
 import { isAppError } from "@/shared/lib/errors";
 import { api } from "@/shared/lib/api-client";
@@ -19,7 +19,7 @@ import { useToast } from "@/shared/ui/toast";
 import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { agendaKeys } from "../hooks/keys";
-import { useSessionMutations } from "../hooks/use-session-mutations";
+import { useSessionMutations, type SaveSessionPayload } from "../hooks/use-session-mutations";
 import { defaultScheduledRange } from "../store";
 
 const revisionsSchema = z.array(sessionContentRevisionDtoSchema);
@@ -60,10 +60,15 @@ function toDraft(session: ScheduledSessionDTO): SessionDraft {
 }
 
 const STALE_MESSAGE = "Session changed since you loaded it — refresh";
+const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this session was created. Its details are locked so Retry creation can safely recover the same attempt. You can also close and check the agenda.";
 
 function messageFor(caught: unknown, fallback: string): string {
   if (!isAppError(caught)) return fallback;
   return caught.code === "STALE_WRITE" ? STALE_MESSAGE : caught.message;
+}
+
+function isAmbiguousCreateFailure(caught: unknown): boolean {
+  return !isAppError(caught) || caught.code === "INTERNAL";
 }
 
 /**
@@ -107,11 +112,15 @@ export function SessionFormDialog({
   const [original, setOriginal] = useState<SessionDraft>(() => session ? toDraft(session) : EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [creationId, setCreationId] = useState<SessionId | null>(null);
+  const [createRecovery, setCreateRecovery] = useState<{ payload: SaveSessionPayload & { creationId: SessionId } } | null>(null);
 
   const closeAfterMutation = () => {
     if (!session) {
       setDraft(EMPTY);
       setOriginal(EMPTY);
+      setCreateRecovery(null);
+      setCreationId(null);
     }
     onClose();
   };
@@ -121,12 +130,15 @@ export function SessionFormDialog({
   // one row to the next.
   const identity = session ? `${session.id}:${session.rowVersion}` : "new";
   useEffect(() => {
+    if (!open) return;
     const next = session ? toDraft(session) : EMPTY;
     setDraft(next);
     setOriginal(next);
     setError(null);
     setConfirmingDelete(false);
-  }, [identity, session]);
+    setCreateRecovery(null);
+    setCreationId(session ? null : sessionIdSchema.parse(crypto.randomUUID()));
+  }, [identity, open, session]);
 
   const defaultDurationMs = useMemo(() => {
     const format = formats.find((candidate) => String(candidate.id) === draft.formatId);
@@ -175,23 +187,44 @@ export function SessionFormDialog({
 
   const submit = async () => {
     setError(null);
+    const payload: SaveSessionPayload = session
+      ? {
+          id: session.id as SessionId,
+          expectedVersion: session.rowVersion,
+          title: draft.title.trim(),
+          descriptionHtml: draft.descriptionHtml,
+          formatId: draft.formatId || null,
+          trackId: draft.trackId || null,
+          roomId: draft.roomId || null,
+          startsAt: draft.startsAt,
+          endsAt: draft.endsAt,
+          speakerContactIds: draft.speakerContactIds,
+          status: draft.status,
+        }
+      : createRecovery?.payload ?? {
+          creationId: creationId as SessionId,
+          title: draft.title.trim(),
+          descriptionHtml: draft.descriptionHtml,
+          formatId: draft.formatId || null,
+          trackId: draft.trackId || null,
+          roomId: draft.roomId || null,
+          startsAt: draft.startsAt,
+          endsAt: draft.endsAt,
+          speakerContactIds: [...draft.speakerContactIds],
+          status: draft.status,
+        };
     try {
-      await save.mutateAsync({
-        ...(session ? { id: session.id as SessionId, expectedVersion: session.rowVersion } : {}),
-        title: draft.title.trim(),
-        descriptionHtml: draft.descriptionHtml,
-        formatId: draft.formatId || null,
-        trackId: draft.trackId || null,
-        roomId: draft.roomId || null,
-        startsAt: draft.startsAt,
-        endsAt: draft.endsAt,
-        speakerContactIds: draft.speakerContactIds,
-        status: draft.status,
-      });
+      await save.mutateAsync(payload);
       toast(session ? "Session updated" : "Session created");
       closeAfterMutation();
     } catch (caught) {
-      const message = messageFor(caught, "Could not save the session");
+      const ambiguousCreate = !session && isAmbiguousCreateFailure(caught);
+      if (ambiguousCreate && "creationId" in payload && payload.creationId !== undefined) {
+        setCreateRecovery((current) => current ?? { payload: payload as SaveSessionPayload & { creationId: SessionId } });
+      }
+      const message = ambiguousCreate
+        ? CREATE_RECOVERY_MESSAGE
+        : messageFor(caught, "Could not save the session");
       setError(message);
       toast(message, { kind: "error" });
     }
@@ -218,15 +251,31 @@ export function SessionFormDialog({
   };
 
   const busy = save.isPending || remove.isPending;
+  const createLocked = !session && createRecovery !== null;
   const dirty = isSessionDraftDirty(draft, original);
   useUnsavedWorkGuard(open && dirty);
 
   const requestClose = () => {
     if (busy) return;
+    // The recovery button already says exactly what this choice does. Asking a
+    // second generic "discard changes?" question would make the explicit safe
+    // escape feel like a trap; the agenda was refreshed when the outcome first
+    // became ambiguous, so closing now really does let the organizer check it.
+    if (createLocked) {
+      setDraft(original);
+      setError(null);
+      setConfirmingDelete(false);
+      setCreateRecovery(null);
+      setCreationId(null);
+      onClose();
+      return;
+    }
     runGuarded(() => {
       setDraft(original);
       setError(null);
       setConfirmingDelete(false);
+      setCreateRecovery(null);
+      setCreationId(null);
       onClose();
     });
   };
@@ -254,15 +303,21 @@ export function SessionFormDialog({
                 {remove.isPending ? "Deleting…" : "Delete"}
               </Button>
             )}
-            <Button variant="secondary" onClick={requestClose} disabled={busy}>Cancel</Button>
-            <Button disabled={draft.title.trim().length === 0 || busy} onClick={() => { void submit(); }}>
-              {save.isPending ? "Saving…" : "Save session"}
+            <Button variant="secondary" onClick={requestClose} disabled={busy}>{createLocked ? "Close and check agenda" : "Cancel"}</Button>
+            <Button disabled={draft.title.trim().length === 0 || busy || (!session && creationId === null)} onClick={() => { void submit(); }}>
+              {save.isPending ? createLocked ? "Retrying…" : "Saving…" : createLocked ? "Retry creation" : "Save session"}
             </Button>
           </>
         )}
       >
         <div className="form-stack">
           {error && <p className="conflict-check warning" role="alert"><span>{error}</span></p>}
+
+          <fieldset
+            className="form-stack"
+            disabled={createLocked}
+            style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}
+          >
 
           <Field label="Session title" required>
             <input
@@ -280,6 +335,7 @@ export function SessionFormDialog({
               onChange={(html) => setDraft((current) => ({ ...current, descriptionHtml: html }))}
               ariaLabel="Session description"
               placeholder="What is this session about?"
+              disabled={createLocked}
             />
           </Field>
 
@@ -361,6 +417,7 @@ export function SessionFormDialog({
             <div className="speaker-picker-add">
               <SpeakerQuickAdd
                 eventId={String(eventId)}
+                disabled={createLocked}
                 onAdded={(speaker) => {
                   setAddedSpeakers((current) => [...current, speaker]);
                   toggleSpeaker(speaker.contactId);
@@ -398,6 +455,7 @@ export function SessionFormDialog({
               }}
             />
           )}
+          </fieldset>
         </div>
       </Modal>
 

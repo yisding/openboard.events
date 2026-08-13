@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { agendaAuth, listSessions, saveSession, saveSessionInputSchema } from "@/features/agenda";
+import { agendaAuth, createSessionInputSchema, listSessions, saveSession } from "@/features/agenda";
 import { eventIdSchema, roomIdSchema, sessionStatusSchema, trackIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
@@ -36,7 +36,7 @@ const list = defineHandler({
 
 const create = defineHandler({
   auth: agendaAuth(),
-  input: saveSessionInputSchema,
+  input: createSessionInputSchema,
   handler: async ({ eventId, input, requestId, session: authSession }) => {
     const scopedEventId = eventIdSchema.parse(eventId);
     const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
