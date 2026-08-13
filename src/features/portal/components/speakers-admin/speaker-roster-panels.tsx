@@ -422,7 +422,7 @@ function UploadsPanel({ uploads, timezone }: { uploads: SpeakerRosterExtras["upl
         {uploads.length === 0 && <p className="long-copy">No files uploaded yet.</p>}
         {uploads.map((upload) => (
           <div className="mini-session" key={upload.fileId}>
-            <span><FileText size={14} /></span>
+            <span className="mini-session-meta"><FileText size={14} /></span>
             <b>{upload.filename}</b>
             <small>{upload.requestTitle} · {bytesLabel(upload.sizeBytes)} · <TzTime instant={upload.createdAt} tz={timezone} style="date" /> · {upload.uploaderLabel}</small>
             <PrivateFileLink fileId={upload.fileId}>Download</PrivateFileLink>

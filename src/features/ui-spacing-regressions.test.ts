@@ -112,6 +112,34 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/\.public-preview\s*>\s*span\b/gu);
   });
 
+  it("keeps metadata selectors from overriding shared status badges", () => {
+    const roster = read("./portal/components/speakers-admin/speaker-roster-panels.tsx");
+    const flow = read("./portal/components/speakers-admin/speaker-flow-drawer.tsx");
+    const detail = read("./portal/components/speakers-admin/speaker-detail-view.tsx");
+    const formProgress = read("./dashboard/components/FormProgressCards.tsx");
+    const reviewQueue = read("./submissions/evaluation/components/review-queue-view.tsx");
+    const formBuilder = read("./forms/form-builder.tsx");
+
+    for (const source of [roster, flow, detail]) {
+      expect(source).toContain('className="mini-session-meta"');
+    }
+    expect(formProgress).toContain('className="dashboard-form-progress-copy"');
+    expect(reviewQueue).toContain('className="review-detail-code"');
+    expect(formBuilder).toContain('className="inspector-kicker"');
+
+    for (const className of ["mini-session-meta", "dashboard-form-progress-copy", "review-detail-code", "inspector-kicker"]) {
+      expect(css).toContain(`.${className}`);
+    }
+    for (const broadSelector of [
+      /\.mini-session\s*>\s*span\b/gu,
+      /\.dashboard-form-progress\s+article\s*>\s*header\s+span\b/gu,
+      /\.review-detail\s*>\s*header\s*>\s*div:first-child\s*>\s*span\b/gu,
+      /\.inspector-content\s*>\s*header\s+span\b/gu,
+    ]) {
+      expect(css).not.toMatch(broadSelector);
+    }
+  });
+
   it("keeps every landing destination available in a compact navigation menu", () => {
     const home = read("../app/page.tsx");
     const mobileNav = read("../app/landing-mobile-nav.tsx");
