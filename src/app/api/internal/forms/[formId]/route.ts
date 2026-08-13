@@ -7,11 +7,11 @@ import {
   participantRoleSchema,
   submissionKindSchema,
 } from "@/shared/contracts";
-import { deleteFormIn, updateFormIn } from "@/features/forms/server/builder-mutations";
+import { deleteFormIn, updateFormWithPostCommitSignalsIn } from "@/features/forms/server/builder-mutations";
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
-import { db } from "@/db/client";
+import { db, withTx } from "@/db/client";
 import { defineHandler } from "@/shared/server/handler";
 
 const routeInput = z.object({ formId: formIdSchema });
@@ -55,7 +55,11 @@ const get = defineHandler({
 // id, which `updateFormIn`'s own event scoping still bounds.
 const update = defineHandler({
   auth: formBuilderAuth(),
-  input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
+  input: z.object({
+    expectedUpdatedAt: z.iso.datetime(),
+    patch: patchSchema,
+    availabilityReplay: z.boolean().optional(),
+  }),
   // M14: the Settings/Notifications steps' own validation (submission-limit
   // range, confirmation-template variables — R2 boundary #6, checked at save
   // time) runs here too, since every builder step's save reaches the
@@ -65,7 +69,15 @@ const update = defineHandler({
     const formId = routeInput.parse(params).formId;
     assertValidSubmissionLimit(input.patch.submissionLimit);
     await assertValidConfirmationTemplate(db, parsedEventId, formId, input.patch);
-    return updateFormIn(db, parsedEventId, formId, input.patch, input.expectedUpdatedAt);
+    return updateFormWithPostCommitSignalsIn(
+      db,
+      withTx,
+      parsedEventId,
+      formId,
+      input.patch,
+      input.expectedUpdatedAt,
+      input.availabilityReplay === true,
+    );
   },
 });
 
