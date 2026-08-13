@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { eventDayKey, formatDayKeyInZone } from "../src/shared/lib/time";
 import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
@@ -76,6 +77,15 @@ async function removePriorTestAccount(email: string): Promise<void> {
   await withDatabase(async (client) => {
     await client.query("BEGIN");
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const emailBucketHashes = ["sign-up/email", "send-verification-email"].map((path) =>
+        createHash("sha256").update(`auth-email:${path}:email:${normalizedEmail}`).digest("base64url"));
+      // The mailbox is dedicated to this repeatable preview proof. Account
+      // cleanup must reset its matching email counters too; otherwise repeated
+      // deploy verification exhausts the real one-hour signup policy even
+      // though every prior test account has been removed. IP counters remain
+      // untouched, so the deployed abuse guard is still exercised.
+      await client.query("DELETE FROM rate_limit_buckets WHERE key_hash = ANY($1::text[])", [emailBucketHashes]);
       const existing = await client.query<{ id: string; name: string }>(
         "SELECT id, name FROM users WHERE lower(email)=lower($1) LIMIT 1",
         [email],
@@ -148,7 +158,13 @@ test.describe("self-service signup to first value", () => {
       await page.getByLabel("Organization name").fill(organizationName);
       await page.getByLabel("Email address").fill(SIGNUP_EMAIL);
       await page.getByLabel("Password", { exact: true }).fill(password);
+      const signupResponsePromise = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === "/api/auth/sign-up/email"
+        && response.request().method() === "POST");
       await page.getByRole("button", { name: /create account/i }).click();
+      const signupResponse = await signupResponsePromise;
+      const signupBody = await signupResponse.json().catch(() => null) as unknown;
+      expect(signupResponse.ok(), `signup rejected (${signupResponse.status()}): ${JSON.stringify(signupBody)}`).toBe(true);
 
       await expect(page).toHaveURL(/\/signup\/check-email\?/, { timeout: 30_000 });
       await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
