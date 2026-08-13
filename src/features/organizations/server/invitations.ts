@@ -1,5 +1,6 @@
 import { and, asc, eq, like, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { adminAuthEmailOutbox, communicationLogs, organizationInvitations, organizations } from "@/db/schema";
 import {
   idem,
@@ -32,14 +33,6 @@ import { recordOrganizationAuditEventIn } from "./audit";
  */
 
 const INVITATION_TTL = "P14D";
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
 
 function toInvitationDto(row: {
   id: string;
