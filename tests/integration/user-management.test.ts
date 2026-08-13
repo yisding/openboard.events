@@ -14,14 +14,18 @@ import {
   changeOrganizationMemberRoleIn,
   createOrganizationIn,
   getOrganizationMemberRoleIn,
+  getOrganizationInvitationDestinationByTokenIn,
+  inviteEventReviewerIn,
   inviteOrganizationMemberInputSchema,
   inviteOrganizationMemberIn,
   issueOrganizationInvitationTokenIn,
+  listPendingEventReviewerInvitationsIn,
   listOrganizationAuditLogIn,
   listPendingOrganizationInvitationsIn,
   provisionOrganizationForNewUserIn,
   removeOrganizationMemberAuditedIn,
   revokeOrganizationInvitationIn,
+  revokeEventReviewerInvitationIn,
   setOrganizationMemberIn,
 } from "@/features/organizations";
 import { parseEnv } from "@/shared/lib/env";
@@ -47,6 +51,7 @@ const MIGRATIONS = [
   // `email_templates` rows the outbox assertions inspect.
   "0016_speaker_moments",
   "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
+  "0028_event_reviewer_invitations",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");
@@ -101,6 +106,175 @@ describe("M44 user management", () => {
   afterAll(async () => pglite.close());
 
   describe("invitations", () => {
+    it("lets a reviewer accept secure event access without an organizer-created password", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Reviewer Invite Co", slug: "reviewer-invite-co" });
+      const reviewEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000090");
+      const inviteeId = userIdSchema.parse("e4400000-0000-4000-8000-000000000091");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at) VALUES($1,$2,'Review Invitation Conf','review-invitation-conf','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z')",
+        [reviewEventId, org.id],
+      );
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, reviewEventId]);
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'reviewer')", [reviewerId, reviewEventId]);
+      try {
+        const queued = await testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          reviewEventId,
+          ownerId,
+          { email: "new.event.reviewer@example.com" },
+          env,
+        ));
+        expect(queued).toEqual({
+          email: "new.event.reviewer@example.com",
+          emailQueued: true,
+          eventName: "Review Invitation Conf",
+        });
+
+        // Inviting is not account provisioning: no user or membership exists
+        // until the address owner accepts the emailed bearer credential.
+        const beforeAccept = await pglite.query<{ users: number; access: number }>(`
+          SELECT
+            (SELECT count(*)::int FROM users WHERE email='new.event.reviewer@example.com') AS users,
+            (SELECT count(*)::int FROM event_members member JOIN users ON users.id=member.user_id WHERE member.event_id=$1 AND users.email='new.event.reviewer@example.com') AS access
+        `, [reviewEventId]);
+        expect(beforeAccept.rows[0]).toEqual({ users: 0, access: 0 });
+        expect(await listPendingOrganizationInvitationsIn(db, org.id)).toEqual([]);
+
+        const [mail] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "new.event.reviewer@example.com"));
+        if (!mail?.secretPayloadCiphertext) throw new Error("expected an encrypted reviewer invitation");
+        const payload = await openPlatformAdminLinkPayload(
+          mail.secretPayloadCiphertext,
+          { userId: ownerId, messageId: mail.id },
+          env.SESSION_SECRET,
+        );
+        expect(payload).toMatchObject({
+          organizationName: "Reviewer Invite Co",
+          eventName: "Review Invitation Conf",
+          invitationRole: "reviewer",
+        });
+        const rawToken = new URL(payload.url).searchParams.get("token");
+        if (!rawToken) throw new Error("expected a reviewer invitation token");
+        await expect(getOrganizationInvitationDestinationByTokenIn(db, rawToken))
+          .resolves.toBe(`/events/${reviewEventId}/review`);
+
+        await expect(dispatchAdminAuthEmailOutboxIn(db, 10, { env })).resolves.toMatchObject({ sent: 1 });
+        const [sent] = await db.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, mail.id));
+        expect(sent).toMatchObject({ status: "sent", subjectRendered: "You're invited to review Review Invitation Conf" });
+        expect(sent?.bodyRenderedHtml).toContain("create your own account");
+        expect(sent?.bodyRenderedHtml).not.toContain("password");
+
+        await pglite.query(
+          "INSERT INTO users(id,email,name) VALUES($1,'new.event.reviewer@example.com','New Reviewer')",
+          [inviteeId],
+        );
+        const accepted = await provisionOrganizationForNewUserIn(
+          db,
+          inviteeId,
+          "new.event.reviewer@example.com",
+          "New Reviewer",
+          { invitationToken: rawToken },
+        );
+        expect(accepted).toEqual({
+          organizationId: org.id,
+          viaInvitation: true,
+          eventId: reviewEventId,
+        });
+        await expect(getOrganizationMemberRoleIn(db, org.id, inviteeId)).resolves.toBe("reviewer");
+        const membership = await pglite.query<{ role: string }>(
+          "SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2",
+          [reviewEventId, inviteeId],
+        );
+        expect(membership.rows).toEqual([{ role: "reviewer" }]);
+        const contact = await pglite.query<{ email: string; first_name: string; last_name: string }>(
+          "SELECT email,first_name,last_name FROM contacts WHERE event_id=$1 AND email='new.event.reviewer@example.com'",
+          [reviewEventId],
+        );
+        expect(contact.rows).toEqual([{ email: "new.event.reviewer@example.com", first_name: "New", last_name: "Reviewer" }]);
+      } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [reviewEventId]);
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+        await pglite.query("DELETE FROM users WHERE id=$1", [inviteeId]);
+      }
+    });
+
+    it("preserves stronger workspace roles and refuses invitations for existing event access", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Role-safe Review Co", slug: "role-safe-review-co" });
+      const reviewEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000092");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at) VALUES($1,$2,'Role-safe Review Conf','role-safe-review-conf','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z')",
+        [reviewEventId, org.id],
+      );
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, reviewEventId]);
+      await setOrganizationMemberIn(db, org.id, organizerId, "organizer");
+      try {
+        await testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          reviewEventId,
+          ownerId,
+          { email: "organizer@example.com" },
+          env,
+        ));
+        const [mail] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "organizer@example.com"));
+        if (!mail?.secretPayloadCiphertext) throw new Error("expected an encrypted reviewer invitation");
+        const payload = await openPlatformAdminLinkPayload(
+          mail.secretPayloadCiphertext,
+          { userId: ownerId, messageId: mail.id },
+          env.SESSION_SECRET,
+        );
+        const rawToken = new URL(payload.url).searchParams.get("token");
+        if (!rawToken) throw new Error("expected a reviewer invitation token");
+        await acceptOrganizationInvitationByTokenIn(db, rawToken, { userId: organizerId, email: "organizer@example.com" });
+        await expect(getOrganizationMemberRoleIn(db, org.id, organizerId)).resolves.toBe("organizer");
+
+        await expect(testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          reviewEventId,
+          ownerId,
+          { email: "organizer@example.com" },
+          env,
+        ))).rejects.toMatchObject({ code: "CONFLICT" });
+      } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [reviewEventId]);
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
+    it("lets only an event organizer revoke a pending reviewer link", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Revocable Review Co", slug: "revocable-review-co" });
+      const reviewEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000093");
+      await pglite.query(
+        "INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at) VALUES($1,$2,'Revocable Review Conf','revocable-review-conf','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z')",
+        [reviewEventId, org.id],
+      );
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, reviewEventId]);
+      try {
+        await testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          reviewEventId,
+          ownerId,
+          { email: "mistyped@example.com" },
+          env,
+        ));
+        const [pending] = await listPendingEventReviewerInvitationsIn(db, reviewEventId);
+        if (!pending) throw new Error("expected a pending reviewer invitation");
+
+        await expect(revokeEventReviewerInvitationIn(db, reviewEventId, pending.id, reviewerId))
+          .rejects.toMatchObject({ code: "NOT_FOUND" });
+        await expect(revokeOrganizationInvitationIn(db, org.id, pending.id, ownerId))
+          .rejects.toMatchObject({ code: "NOT_FOUND" });
+        await expect(listPendingEventReviewerInvitationsIn(db, reviewEventId)).resolves.toHaveLength(1);
+
+        await revokeEventReviewerInvitationIn(db, reviewEventId, pending.id, ownerId);
+        await expect(listPendingEventReviewerInvitationsIn(db, reviewEventId)).resolves.toEqual([]);
+        await expect(dispatchAdminAuthEmailOutboxIn(db, 10, { env })).resolves.toMatchObject({ skipped: 1, sent: 0 });
+      } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [reviewEventId]);
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
     it("queues product-scoped mail and re-inviting refreshes the same invitation without a stale send", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Invite Co", slug: "invite-co" });
       await pglite.query("UPDATE events SET organization_id=$1 WHERE id=$2", [org.id, eventId]);

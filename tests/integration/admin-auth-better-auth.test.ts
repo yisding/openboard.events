@@ -18,6 +18,7 @@ import {
   acceptOrganizationInvitationByTokenIn,
   createOrganizationIn,
   getOrganizationMemberRoleIn,
+  inviteEventReviewerIn,
   inviteOrganizationMemberIn,
   issueOrganizationInvitationTokenIn,
 } from "@/features/organizations";
@@ -52,7 +53,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email", "0028_event_reviewer_invitations"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -255,8 +256,8 @@ describe("M42 admin auth on Better Auth", () => {
   });
 
   it("lets provisioning mint a credential account that Better Auth accepts", async () => {
-    // The path `createEventReviewer` and `bootstrap-admin.ts` now take: write
-    // `users.password_hash`, mirror it into `admin_accounts`. Without the
+    // The path `bootstrap-admin.ts` takes: write `users.password_hash`, mirror
+    // it into `admin_accounts`. Without the
     // mirror this account would be an orphan the moment the switch flipped.
     const passwordHash = await hashAdminPassword(MODERN_PASSWORD);
     await database.update(users).set({ passwordHash }).where(eq(users.id, modernUser));
@@ -617,6 +618,69 @@ describe("M42 admin auth on Better Auth", () => {
       await pglite.query("DELETE FROM organizations WHERE id=$1", [organization.id]);
       await pglite.query("DELETE FROM users WHERE email IN ('invited-through-signup@example.com','wrong-invite-address@example.com')");
     }
+  });
+
+  it("lands a new event reviewer on the review queue after self-service activation", async () => {
+    const email = "reviewer-through-signup@example.com";
+    const queued = await database.transaction((tx) => inviteEventReviewerIn(
+      tx as unknown as TxDb,
+      eventA,
+      legacyUser,
+      { email },
+      env,
+    ));
+    expect(queued).toMatchObject({ email, eventName: "A", emailQueued: true });
+    const [invitation] = await database.select({ id: schema.organizationInvitations.id })
+      .from(schema.organizationInvitations)
+      .where(and(
+        eq(schema.organizationInvitations.eventId, eventA),
+        eq(schema.organizationInvitations.email, email),
+      ));
+    if (!invitation) throw new Error("expected a pending event reviewer invitation");
+    const [inviteMail] = await database.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.recipientEmail, email));
+    if (!inviteMail?.secretPayloadCiphertext) throw new Error("expected a sealed event reviewer invitation");
+    const invitePayload = await openPlatformAdminLinkPayload(
+      inviteMail.secretPayloadCiphertext,
+      { userId: legacyUser, messageId: inviteMail.id },
+      env.SESSION_SECRET,
+    );
+    const invitationToken = new URL(invitePayload.url).searchParams.get("token");
+    if (!invitationToken) throw new Error("expected the emailed event reviewer token");
+
+    const signup = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email,
+        password: "a reviewer-selected password",
+        name: "Self-service Reviewer",
+        invitationToken,
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...LEGAL_REQUEST,
+      }),
+    }));
+    expect(signup.ok).toBe(true);
+    const [created] = await database.select({ id: users.id }).from(users).where(eq(users.email, email));
+    if (!created) throw new Error("expected the reviewer account");
+    const [access] = await database.select({ role: eventMembers.role }).from(eventMembers).where(and(
+      eq(eventMembers.eventId, eventA),
+      eq(eventMembers.userId, created.id),
+    ));
+    expect(access?.role).toBe("reviewer");
+    const reviewerContact = await pglite.query<{ email: string }>(
+      "SELECT email FROM contacts WHERE event_id=$1 AND email=$2",
+      [eventA, email],
+    );
+    expect(reviewerContact.rows).toEqual([{ email }]);
+
+    const verificationLink = await getAdminAuthFallbackLinkIn(database, email, env);
+    if (!verificationLink) throw new Error("expected a reviewer activation link");
+    const callback = new URL(verificationLink).searchParams.get("callbackURL");
+    if (!callback) throw new Error("expected a reviewer activation callback");
+    expect(new URL(callback, env.APP_BASE_URL).searchParams.get("next")).toBe(`/events/${eventA}/review`);
+
+    await pglite.query("DELETE FROM users WHERE id=$1", [created.id]);
+    await pglite.query("DELETE FROM organization_invitations WHERE id=$1", [invitation.id]);
   });
 
   it("issues a session cookie the /events middleware gate recognises", async () => {

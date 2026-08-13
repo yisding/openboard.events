@@ -15,4 +15,12 @@ describe("signup invitation context", () => {
     expect(signupDestination("/organizations", null)).toBe("/organizations");
     expect(signupDestination("/organizations", "not-an-organization-id")).toBe("/organizations");
   });
+
+  it("prefers an event-scoped reviewer destination over the parent organization", () => {
+    expect(signupDestination(
+      "/join?token=invite-123",
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000010",
+    )).toBe("/events/00000000-0000-4000-8000-000000000010/review");
+  });
 });

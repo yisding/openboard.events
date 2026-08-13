@@ -27,6 +27,7 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".drawer-body { padding: 24px; }");
     expect(css).toContain(".drawer-compact { width: min(480px, 95vw); }");
     expect(css).toContain(".evaluation-number-row{grid-template-columns:repeat(3,minmax(0,1fr))}");
+    expect(css).toContain(".reviewer-pending-invitations li{display:flex;align-items:center;justify-content:space-between;gap:12px");
   });
 
   it("keeps repeated action clusters visibly separated", () => {

@@ -128,12 +128,22 @@ export async function authenticateAdmin(
 ): Promise<AdminIdentity | null> {
   const normalized = email.trim().toLowerCase();
   const attemptKey = await registerLoginAttempt(dbOrTx, normalized, ipAddress);
-  const [user] = await dbOrTx.select({ id: users.id, email: users.email, name: users.name, passwordHash: users.passwordHash })
+  const [user] = await dbOrTx.select({
+    id: users.id,
+    email: users.email,
+    name: users.name,
+    passwordHash: users.passwordHash,
+    emailVerified: users.emailVerified,
+  })
     .from(users)
     .where(eq(users.email, normalized))
     .limit(1);
   const validPassword = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-  if (!user?.passwordHash || !validPassword) return null;
+  // Better Auth mirrors credential hashes into this fallback column so a
+  // provider rollback remains possible. That mirror must not turn a pending
+  // signup into a fallback-provider bypass: possession of an invitation and
+  // knowledge of its recipient address are not proof of mailbox control.
+  if (!user?.passwordHash || !validPassword || !user.emailVerified) return null;
   await dbOrTx.delete(adminLoginAttempts).where(eq(adminLoginAttempts.keyHash, attemptKey));
   return { userId: user.id as UserId, email: user.email, name: user.name };
 }

@@ -6,7 +6,6 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { communicationLogs } from "@/db/schema";
-import { createEventReviewerIn } from "@/features/auth";
 import { listOutstandingReviewersIn, sendReviewRemindersIn } from "@/features/comms";
 import { buildContext, type OutboxRow } from "@/features/comms/server/context";
 import { renderTemplateContent } from "@/features/comms/server/render";
@@ -886,45 +885,6 @@ describe("review operations", () => {
     await expect(buildContext(queued as OutboxRow, db, mailEnv)).rejects.toThrow(/nothing outstanding/u);
   });
 
-  it("provisions a reviewer on the existing membership path and invites them through the outbox", async () => {
-    const result = await createEventReviewerIn(db, eventId, {
-      email: "New.Reviewer@Example.com",
-      name: "Nina Reviewer",
-      password: "a-long-enough-password",
-      role: "reviewer",
-    });
-    expect(result).toMatchObject({ email: "new.reviewer@example.com", role: "reviewer", createdUser: true });
-
-    const membership = await pglite.query<{ role: string; password_hash: string | null }>(
-      "SELECT m.role, u.password_hash FROM event_members m JOIN users u ON u.id = m.user_id WHERE m.user_id=$1 AND m.event_id=$2",
-      [result.userId, eventId],
-    );
-    // The lowest role, and a real credential — an invited reviewer must be able
-    // to sign in, and must not be able to reach organizer settings.
-    expect(membership.rows[0]?.role).toBe("reviewer");
-    expect(membership.rows[0]?.password_hash).toMatch(/^pbkdf2-sha256\$/u);
-
-    const invite = await pglite.query<{ template_key: string }>(
-      "SELECT template_key FROM communication_logs WHERE event_id=$1",
-      [eventId],
-    );
-    expect(invite.rows.map((row) => row.template_key)).toEqual(["reviewer_invited"]);
-
-    // Re-inviting an existing account must not overwrite its password or demote
-    // an organizer who is already on the event.
-    const repeat = await createEventReviewerIn(db, eventId, {
-      email: "org@example.com",
-      name: "Olive Organizer",
-      password: "another-long-password",
-      role: "reviewer",
-    });
-    expect(repeat).toMatchObject({ createdUser: false, role: "organizer" });
-    const organizerRow = await pglite.query<{ password_hash: string | null }>(
-      "SELECT password_hash FROM users WHERE id=$1",
-      [organizer],
-    );
-    expect(organizerRow.rows[0]?.password_hash).toBeNull();
-  });
 });
 
 function verdict(

@@ -16,6 +16,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migration2 = readFileSync(new URL("../../drizzle/0002_admin_auth.sql", import.meta.url), "utf8");
+const migrationProductAuth = readFileSync(new URL("../../drizzle/0009_product_auth.sql", import.meta.url), "utf8");
 const eventA = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
 const organizerId = userIdSchema.parse("a0000000-0000-4000-8000-000000000003");
@@ -32,6 +33,7 @@ describe("admin authentication", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migration2);
+    await pglite.exec(migrationProductAuth);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'A','auth-a','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'B','auth-b','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventA, eventB]);
     await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'organizer@example.com','Organizer'),($2,'reviewer@example.com','Reviewer')", [organizerId, reviewerId]);
     await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$3,'organizer'),($2,$3,'reviewer'),($2,$4,'owner')", [organizerId, reviewerId, eventA, eventB]);
@@ -72,6 +74,23 @@ describe("admin authentication", () => {
     if (!parts[0] || !parts[1] || !signature) throw new Error("expected compact JWT");
     const tampered = `${parts[0]}.${parts[1]}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
     await expect(verifyAdminToken(tampered, secret)).resolves.toBeNull();
+  });
+
+  it("refuses fallback sign-in until the account has verified its email", async () => {
+    const password = "fallback-verification-test";
+    const passwordHash = await hashPassword(password, new Uint8Array(16).fill(9));
+    await pglite.query(
+      "UPDATE users SET password_hash=$1,email_verified=false WHERE id=$2",
+      [passwordHash, organizerId],
+    );
+
+    await expect(authenticateAdmin("organizer@example.com", password, "192.0.2.20", tx)).resolves.toBeNull();
+
+    await pglite.query("UPDATE users SET email_verified=true WHERE id=$1", [organizerId]);
+    await expect(authenticateAdmin("organizer@example.com", password, "192.0.2.20", tx)).resolves.toMatchObject({
+      userId: organizerId,
+      email: "organizer@example.com",
+    });
   });
 
   it("rate-limits unknown admin credentials without storing the email", async () => {

@@ -538,6 +538,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .drawer-form { display: grid; gap: 24px; }
 .drawer-body > .drawer-actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
 .reviewer-invite-note { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); line-height: 1.55; }
+.reviewer-pending-invitations{display:grid;gap:8px;padding-top:4px}.reviewer-pending-invitations h3{margin:0;font-size:12px}.reviewer-pending-invitations ul{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}.reviewer-pending-invitations li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 10px;background:var(--surface)}.reviewer-pending-invitations li+li{border-top:1px solid var(--line)}.reviewer-pending-invitations li>span{min-width:0}.reviewer-pending-invitations b,.reviewer-pending-invitations small{display:block;overflow-wrap:anywhere}.reviewer-pending-invitations b{font-size:11.5px}.reviewer-pending-invitations small{margin-top:3px;color:var(--muted);font-size:10px}
 .flow-nav-controls { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .flow-nav-controls .icon-button { width: 32px; height: 32px; }
 .flow-nav-controls span { margin-left: 4px; }
