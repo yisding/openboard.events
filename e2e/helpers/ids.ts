@@ -8,4 +8,4 @@
  * ids.ts` depends on nothing but `node:crypto`, which is why it can be imported
  * from outside the app graph.
  */
-export { OPENBOARD_NS, seedId, uuidv5 } from "../../scripts/seed/lib/ids";
+export { seedId } from "../../scripts/seed/lib/ids";

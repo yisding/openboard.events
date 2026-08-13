@@ -4,7 +4,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { BASE_URL, NO_TARGET, targetConfigured } from "./helpers/env";
 import { seedId } from "./helpers/ids";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, SESSIONS, VOCAB } from "./helpers/seeded";
 
 /**
@@ -91,7 +90,6 @@ async function waitForVisible(page: Page, url: string, text: string): Promise<vo
 
 test.describe("public-widgets-parity (M53)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M53"), waitingOn("M53"));
   test.use({ viewport: { width: 390, height: 844 } });
 
   // Every surface in this file is `revalidate = 60`, so each navigation is
@@ -112,7 +110,7 @@ test.describe("public-widgets-parity (M53)", () => {
   // alongside `public-embeds.spec.ts`, which arranges the same two states)
   // never conflicts.
   test.beforeAll(async ({ playwright }) => {
-    if (!targetConfigured() || !landed("M53")) return;
+    if (!targetConfigured()) return;
     const request = await playwright.request.newContext({ baseURL: BASE_URL });
     try {
       await loginAsAdmin(request);
@@ -452,8 +450,6 @@ test.describe("public-widgets-parity (M53)", () => {
   });
 
   test.describe("embeds", () => {
-    test.skip(!landed("M53"), waitingOn("M53"));
-
     test("all five embeds render populated content in a cross-origin host, and both variants are edge-cacheable", async ({ page }) => {
       const targets: Array<{ route: string; needle: string }> = [
         { route: "sessions", needle: KEYNOTE.title },

@@ -1,12 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, SESSIONS, uniqueEmail } from "./helpers/seeded";
 
 /**
- * Goes green when M28 (sessions CRUD), M29 (conflict engine) and M31 (views)
- * land — target CP3, owned by WS-E.
+ * Covers session CRUD, conflict detection, agenda views, publishing, and
+ * assisted placement against the deployed preview.
  *
  * No drag simulation anywhere in this file: quality-strategy §3 bans it and drag
  * is verified by hand. Sessions are placed through the edit dialog.
@@ -49,8 +48,6 @@ test.describe("agenda-schedule", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("conflict detection", () => {
-    test.skip(!landed("M28", "M29"), waitingOn("M28", "M29"));
-
     test("overlapping sessions in one room raise exactly one conflict", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       await loginAsAdmin(page);
@@ -117,8 +114,6 @@ test.describe("agenda-schedule", () => {
   });
 
   test.describe("the seeded conflict pair", () => {
-    test.skip(!landed("M09", "M29"), waitingOn("M09", "M29"));
-
     test("the seeded conflict pair is flagged and the back-to-back pair is not", async ({ page }) => {
       await loginAsAdmin(page);
       await page.goto(`${AGENDA}?view=conflicts`);
@@ -153,8 +148,6 @@ test.describe("agenda-schedule", () => {
   });
 
   test.describe("the views", () => {
-    test.skip(!landed("M28", "M31"), waitingOn("M28", "M31"));
-
     test("every agenda view renders the same session set", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       await loginAsAdmin(page);
@@ -189,8 +182,6 @@ test.describe("agenda-schedule", () => {
   });
 
   test.describe("publishing", () => {
-    test.skip(!landed("M28", "M32"), waitingOn("M28", "M32"));
-
     test("publishing a session puts it on the public schedule", async ({ page }) => {
       await loginAsAdmin(page);
       const sessions = await apiData<SessionDTO[]>(page.request, `/api/internal/agenda/sessions?eventId=${EVENTS.main.id}`);
@@ -236,8 +227,6 @@ test.describe("agenda-schedule", () => {
     // Needs M51's real blackout store as well as M28/M29: the "useful
     // reason" half of this spec is a speaker declared unavailable through
     // the exact endpoint M51 ships, not a fixture PGlite alone can prove.
-    test.skip(!landed("M28", "M29", "M51", "M54"), waitingOn("M28", "M29", "M51", "M54"));
-
     test("previews a deterministic placement, applies one accepted row, persists it, and shows a useful reason for a blacked-out speaker", async ({ page, request }) => {
       const assertClean = expectNoConsoleErrors(page);
       await loginAsAdmin(request);

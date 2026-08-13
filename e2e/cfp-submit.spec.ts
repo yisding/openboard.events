@@ -1,13 +1,11 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin, PORTAL_CODE_REFUSAL_CAUSES } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, FORMS, uniqueEmail } from "./helpers/seeded";
 
 /**
- * The spine. Goes green when M15 (wizard), M16 (pipeline) and M06b (portal auth)
- * land — target CP2, owned by WS-B2. This spec passing *is* the definition of
- * "the golden path is green": never soften an assertion here to pass a
+ * The public submission spine: this spec passing is the definition of "the
+ * golden path is green", so assertions here must not be softened to pass a
  * checkpoint.
  */
 
@@ -114,8 +112,6 @@ test.describe("cfp-submit", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("the wizard end to end", () => {
-    test.skip(!landed("M15", "M16"), waitingOn("M15", "M16"));
-
     test("a speaker submits through the public wizard", async ({ page, request }) => {
       const assertClean = expectNoConsoleErrors(page);
       const email = uniqueEmail("wizard");
@@ -257,8 +253,6 @@ test.describe("cfp-submit", () => {
   });
 
   test.describe("wizard state", () => {
-    test.skip(!landed("M15", "M16"), waitingOn("M15", "M16"));
-
     test("a reload mid-wizard keeps the answers", async ({ page }) => {
       const email = uniqueEmail("reload");
       const title = `E2E survives a reload ${Date.now()}`;
@@ -285,8 +279,6 @@ test.describe("cfp-submit", () => {
   });
 
   test.describe("the closed form", () => {
-    test.skip(!landed("M09", "M15"), waitingOn("M09", "M15"));
-
     test("the closed form renders the branded closed page", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       await test.step(`form ${FORMS.closed.key} renders closed, with branding intact`, async () => {
@@ -311,7 +303,6 @@ test.describe("cfp-submit", () => {
 test.describe("cfp-submit on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M15", "M16"), waitingOn("M15", "M16"));
 
   test("the wizard is usable at 390px", async ({ page }) => {
     const assertClean = expectNoConsoleErrors(page);
