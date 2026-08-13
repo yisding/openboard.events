@@ -49,11 +49,12 @@ export function EventSwitcher({
   const [remoteEvents, setRemoteEvents] = useState<EventAccessDTO[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [lifecycleNowIso, setLifecycleNowIso] = useState(nowIso);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const events = demoEvents ?? remoteEvents;
-  const orderedEvents = events ? orderEventsByLifecycle(events, nowIso) : events;
+  const orderedEvents = events ? orderEventsByLifecycle(events, lifecycleNowIso) : events;
 
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
@@ -97,7 +98,10 @@ export function EventSwitcher({
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <button ref={triggerRef} type="button" className="event-switcher" onClick={() => {
-        if (!open && loadError) setLoadError("");
+        if (!open) {
+          setLifecycleNowIso(new Date().toISOString());
+          if (loadError) setLoadError("");
+        }
         setOpen((value) => !value);
       }} aria-expanded={open} aria-controls={menuId}>
         <span className="event-switcher-mark">{initials(currentName)}</span>
@@ -129,7 +133,7 @@ export function EventSwitcher({
           {orderedEvents?.map((event) => (
             <Link
               key={event.id}
-              className={`event-switcher-option is-${eventLifecycle(event, nowIso)}`}
+              className={`event-switcher-option is-${eventLifecycle(event, lifecycleNowIso)}`}
               href={eventManagementHref(event.id as EventId, event.role ?? "organizer") ?? "/events"}
               aria-current={event.id === eventId ? "page" : undefined}
               onClick={() => setOpen(false)}

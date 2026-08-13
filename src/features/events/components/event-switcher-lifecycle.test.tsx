@@ -1,10 +1,16 @@
+/** @vitest-environment happy-dom */
+
 import * as React from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema } from "@/shared/contracts";
 import { EventSwitcher } from "./event-switcher";
 
-Object.assign(globalThis, { React });
+Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
+
+afterEach(() => vi.useRealTimers());
 
 const currentPastId = eventIdSchema.parse("c4300000-0000-4000-8000-000000000021");
 
@@ -28,5 +34,31 @@ describe("EventSwitcher lifecycle ordering", () => {
     expect(html.indexOf("Later")).toBeLessThan(html.lastIndexOf("Open History"));
     expect(html).toContain('class="event-switcher-option is-past"');
     expect(html).toContain('aria-current="page"');
+  });
+
+  it("refreshes lifecycle status when a long-lived switcher opens", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => root.render(<EventSwitcher
+        eventId={currentPastId}
+        canCreateEvent={false}
+        nowIso="2026-08-13T12:00:00.000Z"
+        demoEvents={[
+          { id: currentPastId, name: "Boundary event", startsAt: "2026-08-12T12:00:00.000Z", endsAt: "2026-08-14T12:00:00.000Z", timezone: "UTC" },
+        ]}
+      />));
+
+      await act(async () => container.querySelector<HTMLButtonElement>(".event-switcher")?.click());
+
+      expect(container.querySelector(".event-switcher-option")?.className).toContain("is-past");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });
