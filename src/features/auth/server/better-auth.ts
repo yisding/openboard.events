@@ -30,7 +30,7 @@ import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
 import { recordSignupLegalAcceptanceIn } from "./legal-consent";
-import { resolveSignupHookInput, type SignupProvisioningInput } from "./signup-hook-input";
+import { resolveSignupHookInput, signupProvisioningFromEmailBody, type SignupProvisioningInput } from "./signup-hook-input";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -66,6 +66,34 @@ const EMAIL_VERIFICATION_SECONDS = 60 * 60;
 
 function baseUrl(env: RuntimeEnv): string {
   return env.BETTER_AUTH_URL ?? env.APP_BASE_URL;
+}
+
+async function existingSignupVerificationCallback(
+  database: typeof db,
+  email: string,
+  request?: Request,
+): Promise<string> {
+  const body = request ? await request.clone().json().catch(() => null) : null;
+  const { invitationToken } = signupProvisioningFromEmailBody(body);
+  if (!invitationToken) return SIGNUP_VERIFICATION_CALLBACK;
+
+  try {
+    // Existing accounts skip Better Auth's user-create hooks, so validate the
+    // invitation here before carrying its bearer token into the new message.
+    // The invitation is consumed only after activation, by the ordinary
+    // signed-in /join flow.
+    await assertOrganizationInvitationTokenForEmailIn(database, invitationToken, email);
+  } catch (error) {
+    // A stale, revoked, or wrong-address invitation must not reveal that the
+    // account already exists. Keep the generic activation recovery working;
+    // unexpected database failures still abort instead of claiming mail was
+    // queued when its authorization could not be established.
+    if (error instanceof AppError) return SIGNUP_VERIFICATION_CALLBACK;
+    throw error;
+  }
+
+  const next = `/join?token=${encodeURIComponent(invitationToken)}`;
+  return `/signup/verified?confirmed=1&next=${encodeURIComponent(next)}`;
 }
 
 type AuthDeps = {
@@ -137,7 +165,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // message unless the application owns this hook. Without it our next
       // screen truthfully worked for a new account but stranded an existing
       // unverified account behind a "Nothing yet?" recovery click.
-      onExistingUserSignUp: async ({ user }) => {
+      onExistingUserSignUp: async ({ user }, request) => {
         if (user.emailVerified) return;
         const token = await createEmailVerificationToken(
           secret,
@@ -145,7 +173,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           undefined,
           EMAIL_VERIFICATION_SECONDS,
         );
-        const callbackURL = SIGNUP_VERIFICATION_CALLBACK;
+        const callbackURL = await existingSignupVerificationCallback(database, user.email, request);
         const url = new URL("/api/auth/verify-email", baseUrl(env));
         url.search = new URLSearchParams({ token, callbackURL }).toString();
         await sendAdminAuthEmailIn(database, {

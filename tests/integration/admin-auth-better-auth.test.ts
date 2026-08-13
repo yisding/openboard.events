@@ -3,6 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { emailConfirmationLandingUrl } from "@/app/api/auth/[...action]/_lib";
 import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
@@ -14,6 +15,7 @@ import { upsertCredentialAccount } from "@/features/auth/server/credential-accou
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
 import { getAdminAuthFallbackLinkIn } from "@/features/auth/server/admin-mail";
 import {
+  acceptOrganizationInvitationByTokenIn,
   createOrganizationIn,
   getOrganizationMemberRoleIn,
   inviteOrganizationMemberIn,
@@ -433,6 +435,88 @@ describe("M42 admin auth on Better Auth", () => {
     expect(resetUrl.pathname).toBe("/login/reset");
     expect(resetUrl.searchParams.get("token")).toBeTruthy();
     expect(resetUrl.searchParams.get("next")).toBe("/join?token=invite-through-reset");
+  });
+
+  it("returns an existing unverified account to the invitation after activation", async () => {
+    const email = "existing-unverified-invite@example.com";
+    const personalSignup = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email,
+        password: "a perfectly fine password",
+        name: "Existing Invitee",
+        organizationName: "Existing Invitee Events",
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...LEGAL_REQUEST,
+      }),
+    }));
+    expect(personalSignup.ok).toBe(true);
+    const [existingUser] = await database.select({ id: users.id }).from(users).where(eq(users.email, email));
+    const [personalMembership] = await database.select({ organizationId: organizationMembers.organizationId })
+      .from(organizationMembers).where(eq(organizationMembers.userId, existingUser?.id ?? ""));
+    if (!existingUser || !personalMembership) throw new Error("expected an unverified personal account");
+
+    const invitingOrganization = await createOrganizationIn(database, legacyUser, {
+      name: "Existing Invite Destination",
+      slug: "existing-invite-destination",
+    });
+    try {
+      const { invitation } = await database.transaction((tx) => inviteOrganizationMemberIn(
+        tx as unknown as TxDb,
+        invitingOrganization.id,
+        legacyUser,
+        { email, role: "organizer" },
+        env,
+      ));
+      const issued = await issueOrganizationInvitationTokenIn(database, invitation.id);
+      if (!issued) throw new Error("expected a live invitation token");
+
+      const duplicateSignup = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+        body: JSON.stringify({
+          email,
+          password: "a perfectly fine password",
+          name: "Existing Invitee",
+          invitationToken: issued.raw,
+          callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+          ...LEGAL_REQUEST,
+        }),
+      }));
+      expect(duplicateSignup.ok).toBe(true);
+      expect(duplicateSignup.headers.get(SIGNUP_ORGANIZATION_HEADER)).toBeNull();
+      await expect(getOrganizationMemberRoleIn(database, invitingOrganization.id, userIdSchema.parse(existingUser.id)))
+        .resolves.toBeNull();
+
+      const link = await getAdminAuthFallbackLinkIn(database, email, env);
+      if (!link) throw new Error("expected an invitation-aware verification link");
+      const callback = new URL(link).searchParams.get("callbackURL");
+      if (!callback) throw new Error("expected a verification callback");
+      const callbackUrl = new URL(callback, env.APP_BASE_URL);
+      expect(callbackUrl.pathname).toBe("/signup/verified");
+      expect(callbackUrl.searchParams.get("confirmed")).toBe("1");
+      expect(callbackUrl.searchParams.get("next")).toBe(`/join?token=${issued.raw}`);
+      expect(emailConfirmationLandingUrl(link).searchParams.get("next")).toBe(`/join?token=${issued.raw}`);
+
+      const verified = await auth.handler(new Request(link));
+      expect(verified.status).toBe(302);
+      expect(verified.headers.get("location")).toBe(callback);
+      expect(hasAdminSessionCookie(verified.headers.getSetCookie().map((cookie) => cookie.split("=")[0] ?? ""))).toBe(true);
+      const accepted = await acceptOrganizationInvitationByTokenIn(database, issued.raw, {
+        userId: userIdSchema.parse(existingUser.id),
+        email,
+      });
+      expect(accepted.organizationId).toBe(invitingOrganization.id);
+      await expect(getOrganizationMemberRoleIn(database, invitingOrganization.id, userIdSchema.parse(existingUser.id)))
+        .resolves.toBe("organizer");
+    } finally {
+      await pglite.query("DELETE FROM users WHERE id=$1", [existingUser.id]);
+      await pglite.query("DELETE FROM organizations WHERE id IN ($1,$2)", [
+        invitingOrganization.id,
+        personalMembership.organizationId,
+      ]);
+    }
   });
 
   it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {

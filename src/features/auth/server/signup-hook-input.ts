@@ -26,9 +26,10 @@ type SignupHookContext = {
 export const LEGAL_CONSENT_ERROR = "Agree to the current Terms of Service and acknowledge the Privacy Policy to create an account.";
 const OAUTH_INTENT_ERROR = "Your Google signup expired or could not be verified. Start again from the signup page.";
 
-function provisioningFromEmailBody(body: Record<string, unknown>): SignupProvisioningInput {
-  const invitationToken = typeof body.invitationToken === "string" ? body.invitationToken.trim() : "";
-  const organizationName = typeof body.organizationName === "string" ? body.organizationName.trim() : "";
+export function signupProvisioningFromEmailBody(body: unknown): SignupProvisioningInput {
+  const fields = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const invitationToken = typeof fields.invitationToken === "string" ? fields.invitationToken.trim() : "";
+  const organizationName = typeof fields.organizationName === "string" ? fields.organizationName.trim() : "";
   return {
     ...(invitationToken.length > 0 && invitationToken.length <= 512 ? { invitationToken } : {}),
     ...(organizationName.length > 0 && organizationName.length <= 160 ? { organizationName } : {}),
@@ -66,7 +67,7 @@ export async function resolveSignupHookInput(
       || body.acceptedTermsVersion !== required.termsVersion
       || body.acknowledgedPrivacyVersion !== required.privacyVersion
     )) rejectConsent();
-    return { provisioning: provisioningFromEmailBody(body), consent: required };
+    return { provisioning: signupProvisioningFromEmailBody(body), consent: required };
   }
 
   if (context && isGoogleCallback(context)) {
