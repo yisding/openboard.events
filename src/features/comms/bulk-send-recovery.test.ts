@@ -12,6 +12,7 @@ import {
   loadBulkSendRecovery,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
+  removeUnreadableBulkSendRecovery,
   type BulkSendRecoverySnapshot,
   type BulkSendRecoveryStorage,
 } from "./bulk-send-recovery";
@@ -189,6 +190,20 @@ describe("bulk send recovery storage", () => {
     expect(persistBulkSendRecovery(storage, value).ok).toBe(true);
     const differentAttempt = snapshot({ sendId: "b3000000-0000-4000-8000-000000000002" });
     expect(persistBulkSendRecovery(storage, differentAttempt)).toEqual({ ok: false, reason: "send_id_mismatch" });
+    expect(loadBulkSendRecovery(storage, value)).toMatchObject({ ok: true, snapshot: value });
+  });
+
+  it("clears unreadable state only after confirming that no valid recovery can be restored", () => {
+    const storage = memoryStorage();
+    const value = snapshot();
+    const key = bulkSendRecoveryStorageKey(value);
+    storage.setItem(key, JSON.stringify({ ...value, version: 0 }));
+
+    expect(removeUnreadableBulkSendRecovery(storage, value)).toMatchObject({ ok: true, removed: true });
+    expect(storage.getItem(key)).toBeNull();
+
+    expect(persistBulkSendRecovery(storage, value).ok).toBe(true);
+    expect(removeUnreadableBulkSendRecovery(storage, value)).toEqual({ ok: false, reason: "recovery_readable" });
     expect(loadBulkSendRecovery(storage, value)).toMatchObject({ ok: true, snapshot: value });
   });
 });

@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  bulkSendRecoveryStorageKey,
   persistBulkSendRecovery,
   type BulkSendRecoverySnapshot,
 } from "@/features/comms/bulk-send-recovery";
@@ -71,6 +72,11 @@ function emailButton(): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.includes("Email segment"));
 }
 
+function buttonNamed(name: string): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent?.trim() === name);
+}
+
 async function renderView() {
   await act(async () => {
     root.render(<SegmentsView organizationId={organizationId} initialSegments={[segment]} tags={[]} events={[]} />);
@@ -84,6 +90,8 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+  HTMLDialogElement.prototype.close = function close() { this.open = false; };
 });
 
 afterEach(async () => {
@@ -111,5 +119,23 @@ describe("CRM segment send recovery", () => {
 
     expect(apiMock).not.toHaveBeenCalled();
     expect(emailButton()?.disabled).toBe(true);
+  });
+
+  it("blocks on old unreadable recovery and unlocks only after confirmed cleanup", async () => {
+    const identity = { surface: "crm" as const, scope: organizationId };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    window.sessionStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
+    await renderView();
+
+    expect(container.textContent).toContain("Saved email recovery can’t be read");
+    expect(emailButton()?.disabled).toBe(true);
+    await act(async () => buttonNamed("Clear unreadable recovery")?.click());
+    expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
+    await act(async () => buttonNamed("Clear recovery")?.click());
+
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(container.textContent).not.toContain("Saved email recovery can’t be read");
+    expect(emailButton()?.disabled).toBe(false);
+    expect(apiMock).not.toHaveBeenCalled();
   });
 });

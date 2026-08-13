@@ -8,6 +8,7 @@ import { eventIdSchema } from "@/shared/contracts";
 import { bulkSendPreviewFingerprint } from "../bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  bulkSendRecoveryStorageKey,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
   type BulkSendRecoverySnapshot,
@@ -81,6 +82,8 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+  HTMLDialogElement.prototype.close = function close() { this.open = false; };
 });
 
 afterEach(async () => {
@@ -103,6 +106,27 @@ describe("segment bulk email recovery", () => {
     expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
     expect(buttonNamed("Send to 1 recipient")?.disabled).toBe(true);
     expect(buttonNamed("Preview message")?.disabled).toBe(false);
+    expect(composeMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces and explicitly clears an unreadable recovery before allowing another send", async () => {
+    const identity = { surface: "speaker" as const, scope: `segment:${eventId}` };
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    window.sessionStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
+
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+
+    expect(container.textContent).toContain("Saved email recovery can’t be read");
+    expect(buttonNamed("Preview audience")?.disabled).toBe(true);
+    await act(async () => buttonNamed("Clear unreadable recovery")?.click());
+    expect(container.textContent).toContain("Clear unreadable email recovery?");
+    expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
+
+    await act(async () => buttonNamed("Clear recovery")?.click());
+
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(container.textContent).not.toContain("Saved email recovery can’t be read");
+    expect(buttonNamed("Preview audience")?.disabled).toBe(false);
     expect(composeMock).not.toHaveBeenCalled();
   });
 });

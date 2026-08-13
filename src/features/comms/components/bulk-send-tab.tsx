@@ -44,6 +44,7 @@ import {
   useResolveSpeakerSegment,
 } from "../hooks/use-bulk-send";
 import { MessagePreview } from "./message-preview";
+import { UnreadableBulkSendRecovery } from "./unreadable-bulk-send-recovery";
 import { templateVariablePaths } from "./sample-vars";
 import { unknownTokensClientSide } from "./validate-client";
 
@@ -109,6 +110,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
   const [recovery, setRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [recoveryUnreadable, setRecoveryUnreadable] = useState(false);
   const [focusTarget, setFocusTarget] = useState<"subject" | "body">("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -128,12 +130,18 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     bodyHtml: "",
   }));
   const recoveryRequired = recovery !== null;
+  const sendBlocked = recoveryRequired || recoveryUnreadable;
   const draftDirty = currentDraftFingerprint !== savedDraftFingerprint;
   useUnsavedWorkGuard(draftDirty || recoveryRequired || compose.isPending, { blocking: compose.isPending });
 
   useEffect(() => {
+    setRecovery(null);
+    setRecoveryUnreadable(false);
     const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `segment:${eventId}` });
-    if (!loaded.ok) return;
+    if (!loaded.ok) {
+      if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setRecoveryUnreadable(true);
+      return;
+    }
     const snapshot = loaded.snapshot;
     const restoredSegment = resolvedSpeakerSegmentSchema.safeParse({
       matchedCount: snapshot.recipients.length,
@@ -181,7 +189,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   });
 
   function invalidateAudience() {
-    if (recoveryRequired) return;
+    if (sendBlocked) return;
     resolveGeneration.current += 1;
     setSegment(null);
     setPreviewContactId("");
@@ -191,7 +199,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   }
 
   function invalidateMessagePreview() {
-    if (recoveryRequired) return;
+    if (sendBlocked) return;
     setPreview(null);
     setResult(null);
     setConfirmSend(false);
@@ -265,6 +273,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   }
 
   async function onSend(): Promise<boolean> {
+    if (recoveryUnreadable) {
+      toast("Clear the unreadable browser recovery before starting another send", { kind: "error" });
+      return false;
+    }
     const retryingRecovery = recovery !== null;
     if (!recovery && (!segment || !currentPreview || !canSend)) {
       toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending");
@@ -299,7 +311,12 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     if (!candidate) return false;
     const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
     if (!stored.ok) {
-      toast("Can’t send safely because recovery storage is unavailable. Check your browser storage settings and try again.", { kind: "error" });
+      if (stored.reason === "corrupt" || stored.reason === "identity_mismatch") {
+        setRecoveryUnreadable(true);
+        toast("An unreadable browser recovery is blocking this send. Clear it explicitly before trying again.", { kind: "error" });
+      } else {
+        toast("Can’t send safely because recovery storage is unavailable. Check your browser storage settings and try again.", { kind: "error" });
+      }
       return false;
     }
     let approved: BulkSendRecoverySnapshot = stored.snapshot;
@@ -442,6 +459,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
 
   return (
     <div className="bulk-send-tab">
+      {recoveryUnreadable && <UnreadableBulkSendRecovery
+        identity={{ surface: "speaker", scope: `segment:${eventId}` }}
+        onCleared={() => setRecoveryUnreadable(false)}
+      />}
       <section className="panel bulk-send-filters">
         <header className="panel-header"><div><h2>1. Choose a segment</h2><p>Leave a group empty to match every value for it.</p></div></header>
         <div className="form-stack bulk-send-body">
@@ -449,7 +470,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             <div className="bulk-send-checkboxes">
               {SPEAKER_WORKFLOW_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
-                  <input type="checkbox" disabled={recoveryRequired} checked={workflowStatus.includes(status)} onChange={() => { invalidateAudience(); setWorkflowStatus((current) => toggle(current, status)); }} />
+                  <input type="checkbox" disabled={sendBlocked} checked={workflowStatus.includes(status)} onChange={() => { invalidateAudience(); setWorkflowStatus((current) => toggle(current, status)); }} />
                   {humanize(status)}
                 </label>
               ))}
@@ -459,13 +480,13 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             <div className="bulk-send-checkboxes">
               {CONFIRMATION_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
-                  <input type="checkbox" disabled={recoveryRequired} checked={confirmationStatus.includes(status)} onChange={() => { invalidateAudience(); setConfirmationStatus((current) => toggle(current, status)); }} />
+                  <input type="checkbox" disabled={sendBlocked} checked={confirmationStatus.includes(status)} onChange={() => { invalidateAudience(); setConfirmationStatus((current) => toggle(current, status)); }} />
                   {humanize(status)}
                 </label>
               ))}
             </div>
           </Field>
-          <Button onClick={() => void onResolve()} disabled={resolveSegment.isPending || recoveryRequired}>{resolveSegment.isPending ? "Resolving…" : "Preview audience"}</Button>
+          <Button onClick={() => void onResolve()} disabled={resolveSegment.isPending || sendBlocked}>{resolveSegment.isPending ? "Resolving…" : "Preview audience"}</Button>
           {segment && (
             <div className="notify-bar">
               <div>
@@ -495,20 +516,20 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               <small>{result ? "The email is complete. Clear its browser recovery record before starting another send." : "Retry this unchanged message. The same send ID makes already-queued emails safe to recover."}</small>
             </p></div></div>}
             <Field label="Subject">
-              <input ref={subjectRef} disabled={recoveryRequired} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => { invalidateMessagePreview(); setSubject(event.target.value); }} />
+              <input ref={subjectRef} disabled={sendBlocked} value={subject} onFocus={() => setFocusTarget("subject")} onChange={(event) => { invalidateMessagePreview(); setSubject(event.target.value); }} />
             </Field>
             <Field label="Email body" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization on save.">
-              <textarea ref={bodyRef} disabled={recoveryRequired} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => { invalidateMessagePreview(); setBodyHtml(event.target.value); }} />
+              <textarea ref={bodyRef} disabled={sendBlocked} value={bodyHtml} onFocus={() => setFocusTarget("body")} onChange={(event) => { invalidateMessagePreview(); setBodyHtml(event.target.value); }} />
             </Field>
             <div className="template-vars">
-              {variablePaths.map((path) => <button key={path} type="button" disabled={recoveryRequired} onClick={() => insertToken(path)}>{`{{${path}}}`}</button>)}
+              {variablePaths.map((path) => <button key={path} type="button" disabled={sendBlocked} onClick={() => insertToken(path)}>{`{{${path}}}`}</button>)}
             </div>
             {unknownTokens.length > 0 && (
               <p className="unknown-token-warning">Unknown variable {unknownTokens.map((token) => `{{${token}}}`).join(", ")} — remove it or pick from the list above.</p>
             )}
             {segment && segment.preview.length > 0 && (
               <Field label="Preview as">
-                <Select value={previewContactId} disabled={recoveryRequired} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
+                <Select value={previewContactId} disabled={sendBlocked} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
                   {segment.preview.map((recipient) => <option key={recipient.contactId} value={recipient.contactId}>{recipient.name} ({recipient.email})</option>)}
                 </Select>
               </Field>
@@ -517,7 +538,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               {recoveryRequired
                 ? !result && <Button variant="ghost" disabled={compose.isPending} onClick={() => setConfirmAbandon(true)}>Abandon recovery</Button>
                 : draftDirty && <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>Discard draft</Button>}
-              <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || segment?.capped || !previewContactId || compose.isPending || recoveryRequired}>Preview message</Button>
+              <Button variant="secondary" onClick={() => void onPreview()} disabled={!canCompose || segment?.capped || !previewContactId || compose.isPending || sendBlocked}>Preview message</Button>
               {recoveryRequired
                 ? result
                   ? <Button onClick={clearCompletedRecovery}>Clear completed recovery</Button>

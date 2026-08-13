@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow } from "@/features/portal";
 import { loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
 import type { ConfirmationStatus } from "@/shared/contracts";
 import { CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -90,9 +91,13 @@ export function SpeakersAdminView({
   const [importOpen, setImportOpen] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [bulkEmailRecovery, setBulkEmailRecovery] = useState<BulkSendRecoverySnapshot | null>(null);
+  const [bulkEmailRecoveryUnreadable, setBulkEmailRecoveryUnreadable] = useState(false);
   useEffect(() => {
+    setBulkEmailRecovery(null);
+    setBulkEmailRecoveryUnreadable(false);
     const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` });
     if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
+    else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setBulkEmailRecoveryUnreadable(true);
   }, [eventId]);
   const [confirmReminders, setConfirmReminders] = useState(false);
   const [reminding, setReminding] = useState(false);
@@ -105,6 +110,17 @@ export function SpeakersAdminView({
   useFlowKeyboardNav({ ids: rowIds, activeId: openContactId, onNavigate: setOpenContactId, onClose: () => setOpenContactId(null) });
   const openIndex = openContactId ? rowIds.indexOf(openContactId) : -1;
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
+
+  function openBulkEmail(selectedRows: ContactListRow[]) {
+    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
+      setBulkEmailRecoveryUnreadable(true);
+      return;
+    }
+    if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
+    setSelected(selectedRows);
+    setBulkEmailOpen(true);
+  }
 
   async function bulkRemind(): Promise<boolean> {
     // Reuses M52's generic bulk-reminder mutation (`sendRemindersNow` behind
@@ -232,6 +248,10 @@ export function SpeakersAdminView({
         </p></div>
         <Button size="sm" onClick={() => setBulkEmailOpen(true)}>{bulkEmailRecovery.confirmedResult ? "Finish cleanup" : "Resume unconfirmed email"}</Button>
       </div>}
+      {bulkEmailRecoveryUnreadable && <UnreadableBulkSendRecovery
+        identity={{ surface: "speaker", scope: `selected:${eventId}` }}
+        onCleared={() => setBulkEmailRecoveryUnreadable(false)}
+      />}
 
       <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
         <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
@@ -257,7 +277,12 @@ export function SpeakersAdminView({
             countLabel={countLabel}
             onClear={clearSelection}
             actions={<>
-              <Button size="sm" onClick={() => { setSelected(selectedRows); setBulkEmailOpen(true); }}><Mail size={14} /> Email selected</Button>
+              <Button
+                size="sm"
+                disabled={bulkEmailRecoveryUnreadable}
+                title={bulkEmailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
+                onClick={() => openBulkEmail(selectedRows)}
+              ><Mail size={14} /> Email selected</Button>
               <Button size="sm" variant="secondary" disabled={reminding || reminderCount === 0} onClick={() => { setSelected(selectedRows); setConfirmReminders(true); }}>
                 <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
               </Button>

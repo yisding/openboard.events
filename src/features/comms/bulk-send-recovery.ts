@@ -121,6 +121,7 @@ export type BulkSendRecoveryFailureReason =
   | "corrupt"
   | "identity_mismatch"
   | "send_id_mismatch"
+  | "recovery_readable"
   | "storage_unavailable"
   | "write_unverified"
   | "remove_unverified";
@@ -216,6 +217,33 @@ export function removeBulkSendRecovery(
       return { ok: false, reason: "identity_mismatch" };
     }
     if (snapshot.sendId !== expectedValue.sendId) return { ok: false, reason: "send_id_mismatch" };
+    storage.removeItem(storageKey);
+    if (storage.getItem(storageKey) !== null) return { ok: false, reason: "remove_unverified" };
+    return { ok: true, removed: true, storageKey };
+  } catch {
+    return { ok: false, reason: "storage_unavailable" };
+  }
+}
+
+/**
+ * Deletes only a recovery record that cannot be loaded for this identity.
+ * This powers an explicit organizer-confirmed escape hatch for malformed or
+ * old-version browser state without risking a valid recoverable send.
+ */
+export function removeUnreadableBulkSendRecovery(
+  storage: BulkSendRecoveryStorage,
+  identity: BulkSendRecoveryIdentity,
+): RemoveBulkSendRecoveryResult {
+  const expected = parsedIdentity(identity);
+  if (!expected) return { ok: false, reason: "invalid_identity" };
+  const storageKey = bulkSendRecoveryStorageKey(expected);
+  try {
+    const raw = storage.getItem(storageKey);
+    if (raw === null) return { ok: true, removed: false, storageKey };
+    const snapshot = parsedSnapshot(raw);
+    if (snapshot && snapshot.surface === expected.surface && snapshot.scope === expected.scope) {
+      return { ok: false, reason: "recovery_readable" };
+    }
     storage.removeItem(storageKey);
     if (storage.getItem(storageKey) !== null) return { ok: false, reason: "remove_unverified" };
     return { ok: true, removed: true, storageKey };
