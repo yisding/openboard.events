@@ -7,7 +7,47 @@
  * every name below, so the server barrel's surface is unchanged.
  */
 import { z } from "zod";
-import { commLogDetailSchema, contactIdSchema, submissionIdSchema, suppressionReasonSchema, taskIdSchema, templateKeySchema, type TemplateKey } from "@/shared/contracts";
+import { commLogDetailSchema, commLogIdSchema, contactIdSchema, submissionIdSchema, suppressionReasonSchema, taskIdSchema, templateKeySchema, type CommLogRow, type TemplateKey } from "@/shared/contracts";
+
+/**
+ * Terminal delivery failures clear one-shot payloads in the dispatcher. Those
+ * rows cannot be reconstructed safely from the audit log, so the organizer's
+ * recovery action is deliberately limited to ordinary event mail.
+ */
+export const NON_RETRYABLE_COMM_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set([
+  "portal_login",
+  "admin_password_reset",
+  "admin_email_verification",
+  "organization_invited",
+]);
+
+export function canRetryCommunication(row: Pick<CommLogRow, "status" | "templateKey">): boolean {
+  return row.status === "failed" && !NON_RETRYABLE_COMM_TEMPLATE_KEYS.has(row.templateKey);
+}
+
+export const MAX_COMMUNICATION_RETRY_BATCH = 50;
+
+export const retryFailedCommunicationsInputSchema = z.object({
+  logIds: z.array(commLogIdSchema).min(1).max(MAX_COMMUNICATION_RETRY_BATCH),
+}).superRefine(({ logIds }, context) => {
+  if (new Set(logIds).size !== logIds.length) {
+    context.addIssue({ code: "custom", path: ["logIds"], message: "Select each message only once" });
+  }
+});
+
+export const retryCommunicationOutcomeSchema = z.object({
+  logId: commLogIdSchema,
+  outcome: z.enum(["requeued", "already_queued", "ineligible", "not_found"]),
+});
+
+export const retryFailedCommunicationsResultSchema = z.object({
+  outcomes: z.array(retryCommunicationOutcomeSchema),
+  requeued: z.number().int().nonnegative(),
+  alreadyQueued: z.number().int().nonnegative(),
+  ineligible: z.number().int().nonnegative(),
+  notFound: z.number().int().nonnegative(),
+});
+export type RetryFailedCommunicationsResult = z.infer<typeof retryFailedCommunicationsResultSchema>;
 
 /**
  * The organizer-facing mirror of one `email_templates` row. This UI **updates**

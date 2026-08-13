@@ -72,6 +72,8 @@ export type DataTableProps<Row> = {
   isLoading?: boolean;
   toolbar?: ReactNode;
   enableSelection?: boolean;
+  /** Limits selection without hiding rows; ineligible rows render disabled controls. */
+  isRowSelectable?: (row: Row) => boolean;
   /** Human-readable identity used by that row's selection checkbox. */
   getRowLabel?: (row: Row) => string;
   onSelectionChange?: (rows: Row[]) => void;
@@ -169,6 +171,7 @@ export function DataTable<Row>({
   isLoading = false,
   toolbar,
   enableSelection = false,
+  isRowSelectable,
   getRowLabel,
   onSelectionChange,
   renderSelectionBar,
@@ -249,7 +252,9 @@ export function DataTable<Row>({
     onRowSelectionChange: setRowSelection,
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: updatePagination,
-    enableRowSelection: enableSelection,
+    enableRowSelection: enableSelection
+      ? (row) => isRowSelectable?.(row.original) ?? true
+      : false,
     manualSorting: Boolean(serverSorting),
     manualPagination: Boolean(serverPagination),
     ...(serverPagination
@@ -277,10 +282,11 @@ export function DataTable<Row>({
   }, [pageCount, pagination.pageIndex, requestServerPage]);
 
   const rows = table.getRowModel().rows;
-  // Page-local means hidden selections do not merely disappear from the count:
-  // changing page/filter discards their keys so returning cannot resurrect them.
+  // Page-local means hidden or newly ineligible selections do not merely
+  // disappear from the count: changing page/filter/data discards their keys so
+  // returning (or an action refresh) cannot resurrect them.
   useEffect(() => {
-    const visibleIds = new Set(rows.map((row) => row.id));
+    const visibleIds = new Set(rows.filter((row) => row.getCanSelect()).map((row) => row.id));
     setRowSelection((current) => {
       const visible = Object.fromEntries(Object.entries(current).filter(([id]) => visibleIds.has(id)));
       return Object.keys(visible).length === Object.keys(current).length ? current : visible;
@@ -303,7 +309,9 @@ export function DataTable<Row>({
     previousSelectAllEpochRef.current = selectAllEpoch;
     if (selectAllEpoch === undefined) return;
     const next: Record<string, boolean> = {};
-    for (const row of rowsRef.current) next[row.id] = true;
+    for (const row of rowsRef.current) {
+      if (row.getCanSelect()) next[row.id] = true;
+    }
     setRowSelection(next);
   }, [selectAllEpoch]);
 
@@ -433,6 +441,7 @@ export function DataTable<Row>({
                         type="checkbox"
                         aria-label="Select every row on this page"
                         checked={table.getIsAllPageRowsSelected()}
+                        disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
                         ref={(node) => { if (node) node.indeterminate = table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected(); }}
                         onChange={table.getToggleAllPageRowsSelectedHandler()}
                       />
@@ -499,6 +508,7 @@ export function DataTable<Row>({
                           type="checkbox"
                           aria-label={selectionLabel(row.original, row.id, getRowLabel)}
                           checked={row.getIsSelected()}
+                          disabled={!row.getCanSelect()}
                           onChange={row.getToggleSelectedHandler()}
                         />
                       </label>

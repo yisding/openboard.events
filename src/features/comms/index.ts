@@ -36,7 +36,7 @@ export { resolveSpeakerSegment, resolveSpeakerSegmentIn } from "./server/segment
 export { buildFeed, buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl } from "./ics";
 export type { IcsEvent } from "./ics";
 // M37 — comms admin UI: template editor, reminder-rule toggles, comms log/detail.
-export type { EmailTemplateRow, OpenAssignmentRow, ReminderRuleRow, TemplateSaveInput, CommLogDetailWithFlag } from "./server/admin-mutations";
+export type { EmailTemplateRow, OpenAssignmentRow, ReminderRuleRow, RetryFailedCommunicationsResult, TemplateSaveInput, CommLogDetailWithFlag } from "./server/admin-mutations";
 export {
   emailTemplateRowSchema,
   templateSaveInputSchema,
@@ -44,12 +44,16 @@ export {
   reminderRulesInputSchema,
   openAssignmentRowSchema,
   commLogDetailWithFlagSchema,
+  retryFailedCommunicationsInputSchema,
+  retryFailedCommunicationsResultSchema,
   listTemplates,
   saveTemplate,
   listReminderRules,
   saveReminderRules,
   getLogDetail,
+  retryFailedCommunications,
   listOpenAssignmentsForContact,
 } from "./server/admin-mutations";
+export { canRetryCommunication, MAX_COMMUNICATION_RETRY_BATCH } from "./schemas";
 // M51 — personalized bulk speaker email, through the ordinary outbox.
 export { composeBulkSpeakerEmail, composeBulkSpeakerEmailIn } from "./server/speaker-bulk";
