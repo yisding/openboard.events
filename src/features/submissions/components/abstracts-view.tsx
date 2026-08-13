@@ -2,7 +2,7 @@
 
 import { Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import type { SubmissionFilters, SubmissionVocabulary } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
@@ -10,6 +10,7 @@ import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
 import { AddAbstractDrawer } from "./add-abstract-drawer";
+import { abstractAllMatchingHref, abstractSelectionScope } from "./abstract-matching-selection";
 import { DecisionBar } from "./decision-bar";
 import { SubmissionDrawer } from "./submission-drawer";
 
@@ -71,6 +72,7 @@ export function AbstractsView({
   // bar is already showing "N selected" with its actions, nothing to click
   // first.
   const [selectAllEpoch, setSelectAllEpoch] = useState(0);
+  const [selectingAllMatching, startSelectingAllMatching] = useTransition();
 
   // `arm` and `submission` are one-shot: consumed on arrival, then stripped
   // from the URL (replace, not push) so neither a re-render nor the back
@@ -170,15 +172,31 @@ export function AbstractsView({
         enableSelection={canEdit}
         selectAllEpoch={selectAllEpoch}
         {...(canEdit ? {
-          renderSelectionBar: ({ selectedRows, countLabel, clearSelection: clearTableSelection }) => (
-            <DecisionBar
+          renderSelectionBar: ({ selectedRows, clearSelection: clearTableSelection }) => {
+            const scope = abstractSelectionScope({
+              selectedCount: selectedRows.length,
+              pageRowCount: rows.length,
+              filteredTotal,
+            });
+            const matchingHref = scope.selectAllMatchingCount === null
+              ? null
+              : abstractAllMatchingHref(params, scope.selectAllMatchingCount);
+            return <DecisionBar
               eventId={eventId}
               selected={selectedRows}
               pendingNotify={queued}
-              countLabel={countLabel}
+              countLabel={scope.countLabel}
+              allMatching={scope.allMatching}
+              {...(matchingHref && scope.selectAllMatchingCount !== null ? {
+                selectAllMatching: {
+                  count: scope.selectAllMatchingCount,
+                  busy: selectingAllMatching,
+                  request: () => startSelectingAllMatching(() => router.push(matchingHref, { scroll: false })),
+                },
+              } : {})}
               onDone={clearTableSelection}
-            />
-          ),
+            />;
+          },
         } : {})}
         onRowClick={(row) => requestDrawerTarget(row.submissionId)}
       />

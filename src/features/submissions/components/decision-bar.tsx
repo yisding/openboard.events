@@ -180,12 +180,16 @@ export function DecisionBar({
   selected,
   pendingNotify,
   countLabel,
+  allMatching = false,
+  selectAllMatching,
   onDone,
 }: {
   eventId: string;
   selected: SubmissionListRow[];
   pendingNotify: number;
   countLabel?: ReactNode;
+  allMatching?: boolean;
+  selectAllMatching?: { count: number; busy: boolean; request: () => void };
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -273,9 +277,14 @@ export function DecisionBar({
   return <>
     <BulkActionBar
       count={selected.length}
-      countLabel={countLabel}
+      countLabel={<span {...(allMatching ? { role: "status", "aria-live": "polite" as const, "aria-atomic": true } : {})}>{countLabel}</span>}
       onClear={onDone}
       actions={<>
+        {selectAllMatching && (
+          <Button variant="secondary" disabled={busy || selectAllMatching.busy} onClick={selectAllMatching.request}>
+            {selectAllMatching.busy ? `Selecting all ${selectAllMatching.count}…` : `Select all ${selectAllMatching.count} matching abstracts`}
+          </Button>
+        )}
         <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
         <Button variant="secondary" disabled={busy} onClick={() => move("decline_queue")}>Move to decline queue</Button>
       </>}

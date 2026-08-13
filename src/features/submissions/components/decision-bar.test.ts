@@ -1,8 +1,19 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { submissionIdSchema, type SubmissionStatus } from "@/shared/contracts";
-import { completeBulkDecision, DecisionEmailPreflight } from "./decision-bar";
+import { submissionIdSchema, type SubmissionListRow, type SubmissionStatus } from "@/shared/contracts";
+import { BULK_DECISION_LIMIT } from "../bulk-decision-limit";
+import { completeBulkDecision, DecisionBar, DecisionEmailPreflight } from "./decision-bar";
+
+const mocks = vi.hoisted(() => ({ refresh: vi.fn(), toast: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: mocks.refresh }),
+}));
+
+vi.mock("@/shared/ui/toast", () => ({
+  useToast: () => ({ toast: mocks.toast }),
+}));
 
 Object.assign(globalThis, { React });
 
@@ -135,6 +146,30 @@ describe("completeBulkDecision", () => {
     expect(sideEffects.refresh).not.toHaveBeenCalled();
   });
 
+  it("keeps an expanded 200-row scope after an unconfirmed request and sends its observed status", async () => {
+    const selected = Array.from({ length: BULK_DECISION_LIMIT }, (_, index) => ({
+      submissionId: submissionIdSchema.parse(`e5000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`),
+      status: "pending" as const,
+    }));
+    const request = vi.fn().mockResolvedValue(serverError("Transition service unavailable"));
+    const sideEffects = effects();
+
+    const outcome = await completeBulkDecision({
+      eventId: "event-1",
+      selected,
+      to: "accept_queue",
+      effects: sideEffects,
+      request,
+    });
+
+    const sent = JSON.parse(String(request.mock.calls[0]?.[1]?.body)) as { ids: string[]; expectedFrom: string };
+    expect(sent.ids).toHaveLength(BULK_DECISION_LIMIT);
+    expect(sent.expectedFrom).toBe("pending");
+    expect(outcome).toMatchObject({ moved: 0, unconfirmed: BULK_DECISION_LIMIT, confirmedGroups: 0 });
+    expect(sideEffects.onDone).not.toHaveBeenCalled();
+    expect(sideEffects.refresh).not.toHaveBeenCalled();
+  });
+
   it("preserves the full-success toast and refresh behavior", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(response({ changed: [ids.pending], stale: [] }))
@@ -153,6 +188,57 @@ describe("completeBulkDecision", () => {
     expect(sideEffects.toast).toHaveBeenCalledWith("1 moved · 1 unchanged, someone else had already moved them");
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
+  });
+});
+
+describe("DecisionBar selection scope", () => {
+  it("renders a keyboard-operable escalation for the bounded matching set", () => {
+    const selected = [{ submissionId: ids.pending }] as SubmissionListRow[];
+    const html = renderToStaticMarkup(React.createElement(DecisionBar, {
+      eventId: "event-1",
+      selected,
+      pendingNotify: 0,
+      countLabel: "1 abstract selected on this page",
+      selectAllMatching: { count: 87, busy: false, request: () => undefined },
+      onDone: () => undefined,
+    }));
+
+    expect(html).toContain("Select all 87 matching abstracts");
+    expect(html).toContain('type="button"');
+    expect(html).not.toContain('role="status"');
+  });
+
+  it("disables repeated expansion requests while the authoritative page is loading", () => {
+    const selected = [{ submissionId: ids.pending }] as SubmissionListRow[];
+    const html = renderToStaticMarkup(React.createElement(DecisionBar, {
+      eventId: "event-1",
+      selected,
+      pendingNotify: 0,
+      countLabel: "1 abstract selected on this page",
+      selectAllMatching: { count: 87, busy: true, request: () => undefined },
+      onDone: () => undefined,
+    }));
+
+    expect(html).toContain("Selecting all 87…");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Selecting all 87…<\/button>/u);
+  });
+
+  it("announces the final matching scope without leaving an obsolete escalation", () => {
+    const selected = [{ submissionId: ids.pending }] as SubmissionListRow[];
+    const html = renderToStaticMarkup(React.createElement(DecisionBar, {
+      eventId: "event-1",
+      selected,
+      pendingNotify: 0,
+      countLabel: "1 matching abstract selected",
+      allMatching: true,
+      onDone: () => undefined,
+    }));
+
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).toContain("1 matching abstract selected");
+    expect(html).not.toContain("Select all");
   });
 });
 
