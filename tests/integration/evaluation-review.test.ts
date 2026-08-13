@@ -30,6 +30,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; these suites exercise the columns
 // and the assignment table it adds.
 const migration4 = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migration26 = readFileSync(new URL("../../drizzle/0026_independent_review_scoring.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b3000000-0000-4000-8000-000000000001");
 const platforms = trackIdSchema.parse("b3000000-0000-4000-8000-000000000010");
@@ -61,6 +62,7 @@ describe("reviewer queue and scoring", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migration4);
+    await pglite.exec(migration26);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -284,7 +286,7 @@ describe("reviewer queue and scoring", () => {
     expect((await getRatingsIn(db, eventId, planId)).get(platformsTalk)?.rating).toBe(4);
   });
 
-  it("shows each reviewer the round's average beside their own score", async () => {
+  it("keeps the committee average out of reviewer payloads by default", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
     await submitReviewIn(db, eventId, planId, platformsTalk, ada, verdict({ overallScore: 3 }));
@@ -293,6 +295,19 @@ describe("reviewer queue and scoring", () => {
     const queue = await listReviewQueueIn(db, eventId, ada, planId);
     const row = queue.rows.find((entry) => entry.submissionId === platformsTalk);
     expect(row?.myScore).toBe(3);
+    expect(row?.avgRating).toBeNull();
+    expect(row?.nScores).toBeNull();
+  });
+
+  it("shares the committee average only when the organizer opts in", async () => {
+    const planId = await seedPlan({ showPeerScores: true });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await submitReviewIn(db, eventId, planId, platformsTalk, ada, verdict({ overallScore: 3 }));
+    await submitReviewIn(db, eventId, planId, platformsTalk, grace, verdict({ overallScore: 5 }));
+
+    const queue = await listReviewQueueIn(db, eventId, ada, planId);
+    const row = queue.rows.find((entry) => entry.submissionId === platformsTalk);
+    expect(queue.plan?.showPeerScores).toBe(true);
     expect(row?.avgRating).toBe(4);
     expect(row?.nScores).toBe(2);
   });

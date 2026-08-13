@@ -287,15 +287,16 @@ export async function savePlanIn(
   try {
     const result = await dbOrTx.execute<{ id: string }>(sql`
       WITH saved AS (
-        INSERT INTO evaluation_plans (id, event_id, name, round, scale_min, scale_max, status, track_ids, opens_at, closes_at, anonymize_authors)
+        INSERT INTO evaluation_plans (id, event_id, name, round, scale_min, scale_max, status, track_ids, opens_at, closes_at, anonymize_authors, show_peer_scores)
         VALUES (COALESCE(${input.planId}::uuid, gen_random_uuid()), ${eventId}, ${input.name}, ${input.round},
                 ${input.scaleMin}, ${input.scaleMax}, ${input.status}, ${uuidArraySql(trackIds)},
-                ${input.opensAt}::timestamptz, ${input.closesAt}::timestamptz, ${input.anonymizeAuthors})
+                ${input.opensAt}::timestamptz, ${input.closesAt}::timestamptz, ${input.anonymizeAuthors}, ${input.showPeerScores})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, round = EXCLUDED.round, scale_min = EXCLUDED.scale_min,
           scale_max = EXCLUDED.scale_max, status = EXCLUDED.status, track_ids = EXCLUDED.track_ids,
           opens_at = EXCLUDED.opens_at, closes_at = EXCLUDED.closes_at,
           anonymize_authors = EXCLUDED.anonymize_authors,
+          show_peer_scores = EXCLUDED.show_peer_scores,
           updated_at = now()
         WHERE evaluation_plans.event_id = ${eventId}
           AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR date_trunc('milliseconds', evaluation_plans.updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz))

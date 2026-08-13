@@ -84,8 +84,10 @@ they saw:
 For a lightweight event, decide straight from the Abstracts queues. For a program committee,
 **Evaluation** runs scoring rounds: pick the scale and criteria, choose which tracks are in
 scope, assign reviewers (with recusal for conflicts of interest), and optionally make a round
-**blind** — reviewers see the proposal content but not who wrote it. Progress bars show who is
-falling behind, and reviewer invitations and reminders are sent for you.
+**blind** — reviewers see the proposal content but not who wrote it. Committee averages stay
+organizer-only by default so reviewers score independently; turn on score sharing for a deliberate
+calibration round. Progress bars show who is falling behind, and reviewer invitations and reminders
+are sent for you.
 
 ![Two evaluation rounds with reviewer progress, one marked blind review](docs/screenshots/evaluation-rounds.png)
 

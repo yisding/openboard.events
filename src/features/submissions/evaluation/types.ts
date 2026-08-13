@@ -52,6 +52,7 @@ const planFields = z.object({
   opensAt: z.iso.datetime().nullable().default(null),
   closesAt: z.iso.datetime().nullable().default(null),
   anonymizeAuthors: z.boolean().default(false),
+  showPeerScores: z.boolean().default(false),
   criteria: z.array(criterionInputSchema).max(12).default([]),
 });
 
@@ -184,6 +185,8 @@ export type PlanDTO = {
   opensAt: string | null;
   closesAt: string | null;
   anonymizeAuthors: boolean;
+  /** Whether reviewers may see the live committee mean while scoring. */
+  showPeerScores: boolean;
   criteria: CriterionDTO[];
   reviewers: ReviewerProgress[];
   /** Plan-level progress: submissions with a finished review, over the round's own scope. */
@@ -204,7 +207,8 @@ export type ReviewQueueRow = {
   myComment: string | null;
   scoredAt: string | null;
   avgRating: number | null;
-  nScores: number;
+  /** Null means the round keeps committee aggregates organizer-only. */
+  nScores: number | null;
   assignmentStatus: ReviewAssignmentStatus;
   recusalReason: string | null;
 };

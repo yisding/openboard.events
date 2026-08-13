@@ -47,4 +47,11 @@ describe("review queue request feedback", () => {
       values: { ...saved.values, quality: { kind: "numeric", value: 5 } } as unknown as CriterionValues,
     }, saved)).toBe(true);
   });
+
+  it("renders committee aggregates only for rounds that explicitly share them", () => {
+    const source = readFileSync(new URL("./review-queue-view.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("plan.showPeerScores && active.avgRating !== null && active.nScores !== null");
+    expect(source).toContain("Scores stay independent while reviewers work.");
+  });
 });

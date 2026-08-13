@@ -35,6 +35,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; these suites exercise the columns
 // and the assignment table it adds.
 const migration4 = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migration26 = readFileSync(new URL("../../drizzle/0026_independent_review_scoring.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b2000000-0000-4000-8000-000000000002");
@@ -78,6 +79,7 @@ describe("evaluation plans and reviewer routing", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migration4);
+    await pglite.exec(migration26);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug] of [[eventId, "eval-event"], [otherEventId, "eval-other"]] as const) {
@@ -127,6 +129,7 @@ describe("evaluation plans and reviewer routing", () => {
     expect(active?.id).toBe(planId);
     expect(active?.criteria.map((criterion) => criterion.label)).toEqual(["Relevance", "Quality"]);
     expect(active?.criteria.map((criterion) => criterion.weight)).toEqual([1, 3]);
+    expect(active?.showPeerScores).toBe(false);
     // Three of the four seeded submissions are scorable; the draft is not.
     expect(active?.progress).toEqual({ scored: 0, total: 3 });
   });
