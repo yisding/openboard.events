@@ -87,6 +87,7 @@ async function renderView() {
 beforeEach(() => {
   apiMock.mockReset();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -101,7 +102,7 @@ afterEach(async () => {
 
 describe("CRM segment send recovery", () => {
   it("blocks a new segment send while an unconfirmed organization send exists", async () => {
-    expect(persistBulkSendRecovery(window.sessionStorage, recovery()).ok).toBe(true);
+    expect(persistBulkSendRecovery(window.localStorage, recovery()).ok).toBe(true);
     await renderView();
 
     expect(container.textContent).toContain("Unconfirmed CRM email");
@@ -113,7 +114,7 @@ describe("CRM segment send recovery", () => {
   it("rechecks storage before resolving a segment so another tab cannot be overwritten", async () => {
     await renderView();
     expect(emailButton()?.disabled).toBe(false);
-    expect(persistBulkSendRecovery(window.sessionStorage, recovery()).ok).toBe(true);
+    expect(persistBulkSendRecovery(window.localStorage, recovery()).ok).toBe(true);
 
     await act(async () => emailButton()?.click());
 
@@ -124,16 +125,16 @@ describe("CRM segment send recovery", () => {
   it("blocks on old unreadable recovery and unlocks only after confirmed cleanup", async () => {
     const identity = { surface: "crm" as const, scope: organizationId };
     const storageKey = bulkSendRecoveryStorageKey(identity);
-    window.sessionStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
+    window.localStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
     await renderView();
 
     expect(container.textContent).toContain("Saved email recovery can’t be read");
     expect(emailButton()?.disabled).toBe(true);
     await act(async () => buttonNamed("Clear unreadable recovery")?.click());
-    expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
+    expect(window.localStorage.getItem(storageKey)).not.toBeNull();
     await act(async () => buttonNamed("Clear recovery")?.click());
 
-    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
     expect(container.textContent).not.toContain("Saved email recovery can’t be read");
     expect(emailButton()?.disabled).toBe(false);
     expect(apiMock).not.toHaveBeenCalled();

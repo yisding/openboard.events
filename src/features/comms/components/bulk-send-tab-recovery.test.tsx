@@ -79,6 +79,7 @@ beforeEach(() => {
   resolveMock.mockReset();
   toastMock.mockReset();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -94,7 +95,7 @@ afterEach(async () => {
 describe("segment bulk email recovery", () => {
   it("finalizes a restored completed send when its recovery record is cleared", async () => {
     const snapshot = completedRecovery();
-    expect(persistBulkSendRecovery(window.sessionStorage, snapshot).ok).toBe(true);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
 
     await act(async () => root.render(<BulkSendTab eventId={eventId} />));
     expect(container.textContent).toContain("Send confirmed; cleanup needed");
@@ -102,7 +103,7 @@ describe("segment bulk email recovery", () => {
 
     await act(async () => buttonNamed("Clear completed recovery")?.click());
 
-    expect(loadBulkSendRecovery(window.sessionStorage, snapshot)).toEqual({ ok: false, reason: "missing" });
+    expect(loadBulkSendRecovery(window.localStorage, snapshot)).toEqual({ ok: false, reason: "missing" });
     expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
     expect(buttonNamed("Send to 1 recipient")?.disabled).toBe(true);
     expect(buttonNamed("Preview message")?.disabled).toBe(false);
@@ -112,7 +113,7 @@ describe("segment bulk email recovery", () => {
   it("surfaces and explicitly clears an unreadable recovery before allowing another send", async () => {
     const identity = { surface: "speaker" as const, scope: `segment:${eventId}` };
     const storageKey = bulkSendRecoveryStorageKey(identity);
-    window.sessionStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
+    window.localStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
 
     await act(async () => root.render(<BulkSendTab eventId={eventId} />));
 
@@ -120,11 +121,11 @@ describe("segment bulk email recovery", () => {
     expect(buttonNamed("Preview audience")?.disabled).toBe(true);
     await act(async () => buttonNamed("Clear unreadable recovery")?.click());
     expect(container.textContent).toContain("Clear unreadable email recovery?");
-    expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
+    expect(window.localStorage.getItem(storageKey)).not.toBeNull();
 
     await act(async () => buttonNamed("Clear recovery")?.click());
 
-    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
     expect(container.textContent).not.toContain("Saved email recovery can’t be read");
     expect(buttonNamed("Preview audience")?.disabled).toBe(false);
     expect(composeMock).not.toHaveBeenCalled();

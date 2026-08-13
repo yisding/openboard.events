@@ -92,14 +92,14 @@ export function DirectoryView({
   useEffect(() => {
     setEmailRecovery(null);
     setEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
     if (loaded.ok) setEmailRecovery(loaded.snapshot);
     else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setEmailRecoveryUnreadable(true);
   }, [organizationId]);
   const [mergeOpen, setMergeOpen] = useState(false);
 
   function openBulkEmail(selectedRows: OrganizationContactSummaryDTO[]) {
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
     if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
       setEmailRecoveryUnreadable(true);
       return;

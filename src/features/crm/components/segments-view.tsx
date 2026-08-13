@@ -223,7 +223,7 @@ export function SegmentsView({
   useEffect(() => {
     setEmailRecovery(null);
     setEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
     if (loaded.ok) setEmailRecovery(loaded.snapshot);
     else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setEmailRecoveryUnreadable(true);
   }, [organizationId]);
@@ -248,7 +248,7 @@ export function SegmentsView({
   async function email(segment: CrmSegmentDTO) {
     const loaded = emailRecovery
       ? null
-      : loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId });
+      : loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
     if (loaded && !loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
       setEmailRecoveryUnreadable(true);
       return;

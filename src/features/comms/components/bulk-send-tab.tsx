@@ -137,7 +137,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   useEffect(() => {
     setRecovery(null);
     setRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `segment:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `segment:${eventId}` });
     if (!loaded.ok) {
       if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setRecoveryUnreadable(true);
       return;
@@ -309,7 +309,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       confirmedResult: null,
     } : null);
     if (!candidate) return false;
-    const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
+    const stored = persistBulkSendRecovery(window.localStorage, candidate);
     if (!stored.ok) {
       if (stored.reason === "corrupt" || stored.reason === "identity_mismatch") {
         setRecoveryUnreadable(true);
@@ -340,7 +340,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         };
         completedThisRun.push(generic);
         const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: [...approved.completedResults, generic] };
-        if (persistBulkSendRecovery(window.sessionStorage, updated).ok) {
+        if (persistBulkSendRecovery(window.localStorage, updated).ok) {
           approved = updated;
           setRecovery(updated);
         }
@@ -355,10 +355,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
           errors: sent.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
         },
       };
-      persistBulkSendRecovery(window.sessionStorage, confirmed);
+      persistBulkSendRecovery(window.localStorage, confirmed);
       setRecovery(confirmed);
       setResult(sent);
-      const removed = removeBulkSendRecovery(window.sessionStorage, confirmed);
+      const removed = removeBulkSendRecovery(window.localStorage, confirmed);
       if (removed.ok) {
         completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
         setRecovery(null);
@@ -385,7 +385,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       return true;
     } catch (caught) {
       if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completedThisRun], retryingRecovery) === "definite") {
-        const removed = removeBulkSendRecovery(window.sessionStorage, approved);
+        const removed = removeBulkSendRecovery(window.localStorage, approved);
         if (removed.ok) {
           completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
           setRecovery(null);
@@ -402,7 +402,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
 
   function abandonRecovery() {
     if (!recovery) return;
-    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    const removed = removeBulkSendRecovery(window.localStorage, recovery);
     if (!removed.ok) {
       setConfirmAbandon(false);
       toast("Recovery could not be cleared safely. Keep this draft and try again.", { kind: "error" });
@@ -416,7 +416,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
 
   function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
-    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    const removed = removeBulkSendRecovery(window.localStorage, recovery);
     if (!removed.ok) {
       toast("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.", { kind: "error" });
       return;

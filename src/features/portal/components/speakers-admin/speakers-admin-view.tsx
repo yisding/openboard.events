@@ -95,7 +95,7 @@ export function SpeakersAdminView({
   useEffect(() => {
     setBulkEmailRecovery(null);
     setBulkEmailRecoveryUnreadable(false);
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` });
     if (loaded.ok) setBulkEmailRecovery(loaded.snapshot);
     else if (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch") setBulkEmailRecoveryUnreadable(true);
   }, [eventId]);
@@ -112,7 +112,7 @@ export function SpeakersAdminView({
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
 
   function openBulkEmail(selectedRows: ContactListRow[]) {
-    const loaded = loadBulkSendRecovery(window.sessionStorage, { surface: "speaker", scope: `selected:${eventId}` });
+    const loaded = loadBulkSendRecovery(window.localStorage, { surface: "speaker", scope: `selected:${eventId}` });
     if (!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch")) {
       setBulkEmailRecoveryUnreadable(true);
       return;

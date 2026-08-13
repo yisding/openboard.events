@@ -20,7 +20,7 @@ export function UnreadableBulkSendRecovery({
   const [confirmClear, setConfirmClear] = useState(false);
 
   function clearUnreadableRecovery() {
-    const removed = removeUnreadableBulkSendRecovery(window.sessionStorage, identity);
+    const removed = removeUnreadableBulkSendRecovery(window.localStorage, identity);
     setConfirmClear(false);
     if (removed.ok) {
       onCleared();

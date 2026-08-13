@@ -193,7 +193,7 @@ export function CrmBulkEmailDialog({
       confirmedResult: null,
     } : null);
     if (!candidate) return false;
-    const stored = persistBulkSendRecovery(window.sessionStorage, candidate);
+    const stored = persistBulkSendRecovery(window.localStorage, candidate);
     if (!stored.ok) {
       setError("Can’t send safely because recovery storage is unavailable. Check your browser storage settings and try again.");
       return false;
@@ -219,7 +219,7 @@ export function CrmBulkEmailDialog({
           errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
         };
         const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: [...approved.completedResults, generic] };
-        if (persistBulkSendRecovery(window.sessionStorage, updated).ok) {
+        if (persistBulkSendRecovery(window.localStorage, updated).ok) {
           approved = updated;
           setRecovery(updated);
           onRecoveryChange?.(updated);
@@ -235,11 +235,11 @@ export function CrmBulkEmailDialog({
           errors: result.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
         },
       };
-      persistBulkSendRecovery(window.sessionStorage, confirmed);
+      persistBulkSendRecovery(window.localStorage, confirmed);
       setRecovery(confirmed);
       onRecoveryChange?.(confirmed);
       setSendResult(result);
-      const removed = removeBulkSendRecovery(window.sessionStorage, confirmed);
+      const removed = removeBulkSendRecovery(window.localStorage, confirmed);
       if (removed.ok) {
         completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
         setRecovery(null);
@@ -267,7 +267,7 @@ export function CrmBulkEmailDialog({
 
   function abandonRecovery() {
     if (!recovery) return;
-    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    const removed = removeBulkSendRecovery(window.localStorage, recovery);
     if (!removed.ok) {
       setConfirmAbandon(false);
       setError("Recovery could not be cleared safely. Keep this draft and try again.");
@@ -281,7 +281,7 @@ export function CrmBulkEmailDialog({
 
   function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
-    const removed = removeBulkSendRecovery(window.sessionStorage, recovery);
+    const removed = removeBulkSendRecovery(window.localStorage, recovery);
     if (!removed.ok) {
       setError("The send is confirmed, but browser recovery still could not be cleared. Check your browser storage settings and try again.");
       return;

@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BULK_SEND_RECOVERY_VERSION,
+  bulkSendRecoveryStorageKey,
   loadBulkSendRecovery,
   persistBulkSendRecovery,
   type BulkSendRecoverySnapshot,
@@ -85,6 +86,7 @@ beforeEach(() => {
   apiMock.mockReset();
   toastMock.mockReset();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -135,15 +137,16 @@ describe("CRM partial-batch recovery", () => {
 
     expect(container.textContent).toContain("couldn’t confirm whether every email was queued");
     expect(buttonNamed("Retry this send")).toBeDefined();
-    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId })).toMatchObject({
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId })).toMatchObject({
       ok: true,
       snapshot: { subject: "CRM update" },
     });
+    expect(window.sessionStorage.getItem(bulkSendRecoveryStorageKey({ surface: "crm", scope: organizationId }))).toBeNull();
   });
 
   it("retries every batch with one send id and reports prior recipients as recovered", async () => {
     const snapshot = recovery();
-    expect(persistBulkSendRecovery(window.sessionStorage, snapshot).ok).toBe(true);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
     apiMock
       .mockResolvedValueOnce({ queued: 500, alreadyQueued: 0, skipped: 0, errors: [], preview: null })
       .mockRejectedValueOnce(new TypeError("connection dropped"));
@@ -170,7 +173,7 @@ describe("CRM partial-batch recovery", () => {
     expect(apiMock.mock.calls.slice(2).every((call) => call[2].body.sendId === snapshot.sendId)).toBe(true);
     expect(container.textContent).toContain("501 accepted");
     expect(container.textContent).toContain("500 already queued by this attempt");
-    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId }))
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId }))
       .toEqual({ ok: false, reason: "missing" });
   });
 
@@ -179,7 +182,7 @@ describe("CRM partial-batch recovery", () => {
       ...recovery(),
       confirmedResult: { queued: 0, alreadyQueued: 501, skipped: 0, errors: [] },
     };
-    expect(persistBulkSendRecovery(window.sessionStorage, snapshot).ok).toBe(true);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
     await act(async () => root.render(<CrmBulkEmailDialog
       organizationId={organizationId}
       open
@@ -193,7 +196,7 @@ describe("CRM partial-batch recovery", () => {
     await act(async () => buttonNamed("Clear completed recovery")?.click());
 
     expect(apiMock).not.toHaveBeenCalled();
-    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId }))
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId }))
       .toEqual({ ok: false, reason: "missing" });
   });
 });
