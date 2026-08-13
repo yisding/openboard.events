@@ -4,7 +4,7 @@ import { Copy, FlaskConical } from "lucide-react";
 import { useMemo } from "react";
 import type { CommLogId, EventId } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
-import { Drawer, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
@@ -67,13 +67,13 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
             <span>SUBJECT</span>
             <h2>{detail.subjectRendered ?? <Dash />}</h2>
             {copyableLink && (
-              <button
-                type="button"
-                className="button button-secondary button-sm"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => { void navigator.clipboard.writeText(copyableLink); toast("Link copied"); }}
               >
                 <Copy size={14} /> Copy link (preview only)
-              </button>
+              </Button>
             )}
             <div className="rendered-email">
               {detail.bodyRenderedHtml ? <RichTextView html={detail.bodyRenderedHtml} /> : <p className="long-copy">Body not captured.</p>}

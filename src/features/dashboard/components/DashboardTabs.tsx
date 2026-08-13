@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import type { EventId } from "@/shared/contracts";
+import { Button } from "@/shared/ui/ui-kit";
 import type { DashboardOverview } from "../index";
 import { useDashboardOverview } from "../hooks/use-dashboard-overview";
 import { computeEventPhase } from "../lib/phase";
@@ -51,5 +52,5 @@ function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live 
 }
 
 export function DashboardLoadError() {
-  return <div className="dashboard-page dashboard-load-error"><div><RefreshCw size={22} /><b>Dashboard data couldn’t be loaded.</b><span>Check the connection and try again.</span></div><button className="button button-primary" type="button" onClick={() => window.location.reload()}>Retry</button></div>;
+  return <div className="dashboard-page dashboard-load-error"><div><RefreshCw size={22} /><b>Dashboard data couldn’t be loaded.</b><span>Check the connection and try again.</span></div><Button onClick={() => window.location.reload()}>Retry</Button></div>;
 }

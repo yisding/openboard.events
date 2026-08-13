@@ -78,7 +78,7 @@ describe("form builder accessibility", () => {
     expect(source).toContain("setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt })");
     expect(source).toContain("formAvailability(persistedAvailabilityInput, availabilityNow)");
     expect(source).toContain("setAvailabilityNow(clickedAt)");
-    expect(source).toContain('availability === "live" && <button type="button"');
+    expect(source).toContain('availability === "live" && <Button variant="secondary"');
     expect(source).toContain("Copy live link");
     expect(source).toContain('formAvailability(persistedAvailabilityInput, clickedAt) !== "live"');
     expect(source).toContain('href={`/events/${event.id}/forms/${form.id}/preview`}');

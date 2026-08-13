@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Avatar, Button, Field, ProgressBar, Segmented, Switch } from "./ui-kit";
+import { Avatar, Button, EmptyState, Field, PageHeader, ProgressBar, Segmented, Switch } from "./ui-kit";
 
 Object.assign(globalThis, { React });
 
@@ -101,6 +101,36 @@ describe("Button", () => {
     expect(html).toContain('type="submit"');
     expect(html).toContain('class="button button-secondary button-lg google-signin"');
     expect(html).toContain('disabled=""');
+  });
+});
+
+describe("composed presentation primitives", () => {
+  it("keeps page heading copy and actions in the shared header structure", () => {
+    const html = renderToStaticMarkup(React.createElement(PageHeader, {
+      eyebrow: "PORTAL",
+      title: "Portal Forms",
+      description: "Collect speaker updates.",
+      actions: React.createElement(Button, null, "Create form"),
+    }));
+
+    expect(html).toContain('<header class="page-header">');
+    expect(html).toContain('<div class="page-eyebrow">PORTAL</div>');
+    expect(html).toContain("<h1>Portal Forms</h1>");
+    expect(html).toContain('<div class="page-actions"><button type="button" class="button button-primary">Create form</button></div>');
+  });
+
+  it("keeps empty-state icons, copy, and optional actions in one structure", () => {
+    const html = renderToStaticMarkup(React.createElement(EmptyState, {
+      icon: React.createElement("i", null, "!"),
+      title: "Nothing here right now",
+      description: "Try another filter.",
+      action: React.createElement(Button, { variant: "secondary" }, "Clear filter"),
+    }));
+
+    expect(html).toContain('<div class="empty-state"><div class="empty-icon"><i>!</i></div>');
+    expect(html).toContain("<h3>Nothing here right now</h3>");
+    expect(html).toContain("<p>Try another filter.</p>");
+    expect(html).toContain('class="button button-secondary"');
   });
 });
 

@@ -4,6 +4,7 @@ import { Upload, X } from "lucide-react";
 import React, { useRef, useState } from "react";
 import type { FileKind } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
+import { Button } from "@/shared/ui/ui-kit";
 import { PrivateFileLink } from "./private-file-link";
 
 /**
@@ -238,9 +239,9 @@ export function FileUpload({
           <PrivateFileLink fileId={shownFileId}>{uploaded?.meta.filename ?? "Current file"}</PrivateFileLink>
           {/* A cancelled native picker emits no change event. Keep the current
               file visible until the user actually chooses a replacement. */}
-          <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={busy || phase === "error"}>
+          <Button variant="secondary" size="sm" onClick={() => inputRef.current?.click()} disabled={busy || phase === "error"}>
             {busy ? PHASE_LABEL[phase] : "Replace"}
-          </button>
+          </Button>
         </div>
       ) : (
         <button type="button" className="file-upload__drop" onClick={() => inputRef.current?.click()} disabled={busy || phase === "error"}>

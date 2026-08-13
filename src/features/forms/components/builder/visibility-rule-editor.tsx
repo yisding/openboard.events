@@ -1,7 +1,7 @@
 "use client";
 
 import type { Condition, VisibilityRule } from "@/shared/contracts";
-import { Segmented, Select } from "@/shared/ui/ui-kit";
+import { Button, Segmented, Select } from "@/shared/ui/ui-kit";
 import type { BuilderField } from "../../builder-types";
 import { ConditionRow } from "./condition-row";
 import { ruleSummary } from "./rule-summary";
@@ -103,9 +103,9 @@ export function VisibilityRuleEditor({
               />
             ))}
           </div>
-          <button type="button" className="button button-ghost add-question" disabled={value.conditions.length >= MAX_CONDITIONS} onClick={addCondition}>
+          <Button variant="ghost" className="add-question" disabled={value.conditions.length >= MAX_CONDITIONS} onClick={addCondition}>
             Add condition
-          </button>
+          </Button>
           {value.conditions.length >= MAX_CONDITIONS && <small>Up to 5 conditions</small>}
           <p className="rule-summary-line">{ruleSummary(value, earlierFields, { tracks: [], tags: [] })}</p>
         </div>

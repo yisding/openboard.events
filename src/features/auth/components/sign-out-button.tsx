@@ -3,6 +3,7 @@
 import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
+import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { safeInternalPath } from "../safe-next";
 
@@ -41,17 +42,28 @@ export function SignOutButton({ kind, eventSlug, compact = false, redirectTo, la
     }
   }
 
-  return (
+  if (compact) return (
     <button
       type="button"
-      className={compact ? "icon-button" : "button button-ghost button-sm"}
-      aria-label={compact ? label : undefined}
-      title={compact ? label : undefined}
+      className="icon-button"
+      aria-label={label}
+      title={label}
       disabled={busy}
       onClick={() => runGuarded(() => { void signOut(); })}
     >
-      <LogOut size={compact ? 15 : 14} aria-hidden />
-      {!compact && (busy ? "Signing out…" : label)}
+      <LogOut size={15} aria-hidden />
     </button>
+  );
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={busy}
+      onClick={() => runGuarded(() => { void signOut(); })}
+    >
+      <LogOut size={14} aria-hidden />
+      {busy ? "Signing out…" : label}
+    </Button>
   );
 }
