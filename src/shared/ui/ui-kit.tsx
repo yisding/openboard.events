@@ -1,6 +1,7 @@
 "use client";
 
 import { UserRound, X } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
@@ -40,18 +41,35 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
 }
 
-export function Avatar({ initials, color = "var(--accent-dark)", size = "md", imageUrl }: { initials: string; color?: string | undefined; size?: "sm" | "md" | "lg" | "xl"; imageUrl?: string | undefined }) {
-  const style = imageUrl
-    ? { backgroundImage: `url(${imageUrl})`, backgroundPosition: "center", backgroundSize: "cover" }
-    : { "--avatar-accent": color } as CSSProperties;
+export type AvatarSize = "sm" | "md" | "lg" | "xl";
+
+const AVATAR_SIZE_PX: Record<AvatarSize, number> = { sm: 27, md: 34, lg: 44, xl: 72 };
+
+export function Avatar({
+  initials,
+  color = "var(--accent-dark)",
+  size = "md",
+  imageUrl,
+  imageAlt = "",
+  onImageError,
+}: {
+  initials: string;
+  color?: string | undefined;
+  size?: AvatarSize;
+  imageUrl?: string | undefined;
+  imageAlt?: string;
+  onImageError?: () => void;
+}) {
   const label = initials.trim().slice(0, 2).toUpperCase();
   return (
     <span
-      aria-hidden="true"
+      aria-hidden={imageUrl && imageAlt ? undefined : "true"}
       className={`person-avatar person-avatar-${size} ${imageUrl ? "person-avatar-image" : "person-avatar-placeholder"}`}
-      style={style}
+      style={imageUrl ? undefined : { "--avatar-accent": color } as CSSProperties}
     >
-      {imageUrl ? null : label || <UserRound className="person-avatar-icon" />}
+      {imageUrl
+        ? <Image src={imageUrl} alt={imageAlt} width={AVATAR_SIZE_PX[size]} height={AVATAR_SIZE_PX[size]} unoptimized onError={onImageError} />
+        : label || <UserRound className="person-avatar-icon" />}
     </span>
   );
 }
