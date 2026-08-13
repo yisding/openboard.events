@@ -1,6 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type { CriterionSpec, CriterionValue, EventId, PlanId, SubmissionId, UserId } from "@/shared/contracts";
+import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { normalizeCriterionValues, reviewWindow } from "../scoring";
 import type {
@@ -528,7 +528,9 @@ export async function listReviewHistoryIn(
       revision: Number(row.revision),
       overallScore: row.overall_score === null ? null : Number(row.overall_score),
       answers: criteria.flatMap((criterion) => {
-        const value = values[criterion.id];
+        const criterionId = criterionIdSchema.safeParse(criterion.id);
+        if (!criterionId.success) return [];
+        const value = values[criterionId.data];
         return value ? [{ criterionId: criterion.id, label: criterion.label, value: reviewAnswerText(value, criterion) }] : [];
       }),
       comment: row.comment,
