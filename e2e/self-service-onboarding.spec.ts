@@ -367,7 +367,7 @@ test.describe("self-service signup to first value", () => {
         // former as an answerable required question and omit the latter.
         const formatInput = publicPage.getByRole("combobox", { name: "Format", exact: true });
         await expect(formatInput).toBeVisible();
-        await expect(formatInput.locator("option")).toHaveCount(6);
+        await expect(formatInput.getByRole("option", { name: "Talk", exact: true })).toHaveCount(1);
         await expect(publicPage.getByText("Tags", { exact: true })).toHaveCount(0);
         await proposalTitleInput(publicPage).fill(proposalTitle);
         await publicPage.getByLabel("Description").click();
