@@ -2,15 +2,8 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
 import { billingSurfaceUnavailableResponse, getOrganizationBillingSummary, isBillingSurfaceEnabled } from "@/features/billing";
-import { organizationIdSchema } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-
-function requireOrganizationId(params: Record<string, string | string[] | undefined>) {
-  const raw = params.organizationId;
-  if (typeof raw !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
-  return organizationIdSchema.parse(raw);
-}
+import { requireOrganizationId } from "../_lib";
 
 /**
  * M49 — the billing settings surface's one read: current plan, subscription

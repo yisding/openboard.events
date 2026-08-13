@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { communicationLogs } from "@/db/schema";
 import { idem, type ContactId, type EventId, type JobStats, type SubmissionId, type TaskId } from "@/shared/contracts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
@@ -38,14 +39,6 @@ type RungRow = AssignmentRow & {
   offset_days: number;
   is_fire: boolean;
 };
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
 
 /**
  * `enqueueEmail` is typed against `TxDb` because its other callers are the

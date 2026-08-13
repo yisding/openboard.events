@@ -2,17 +2,15 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
 import { revokeOrganizationInvitation } from "@/features/organizations";
-import { organizationIdSchema, organizationInvitationIdSchema, userIdSchema } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
+import { organizationInvitationIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { requireOrganizationId } from "../../_lib";
 
 const revoke = defineHandler({
   auth: organizationAuth(),
   input: z.object({}),
   handler: async ({ params, session }) => {
-    const rawOrganizationId = params.organizationId;
-    if (typeof rawOrganizationId !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
-    const organizationId = organizationIdSchema.parse(rawOrganizationId);
+    const organizationId = requireOrganizationId(params);
     const invitationId = organizationInvitationIdSchema.parse(params.invitationId);
     const actorUserId = userIdSchema.parse(session?.actorId);
     await revokeOrganizationInvitation(organizationId, invitationId, actorUserId);

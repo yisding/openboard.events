@@ -1,5 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { SeedCtx } from "./lib/helpers";
+import { rowsOf } from "@/db/query-result";
 import { communicationLogs, contacts, portalTokens, sessions, submissions } from "@/db/schema";
 import { sealPortalLoginPayload } from "@/features/auth";
 import { sha256 } from "@/features/auth/server/crypto";
@@ -14,12 +15,6 @@ import {
   tokenIdSchema,
 } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) return (result as { rows: Row[] }).rows;
-  return [];
-}
 
 export async function seedComms(ctx: SeedCtx): Promise<void> {
   const { tx } = ctx;

@@ -1,5 +1,6 @@
 import { aliasedTable, and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { eventMembers, events, organizationMembers, users } from "@/db/schema";
 import {
   eventAccessMemberDtoSchema,
@@ -20,14 +21,6 @@ const actorEventMemberships = aliasedTable(eventMembers, "event_access_actor_mem
 const targetEventMemberships = aliasedTable(eventMembers, "event_access_target_memberships");
 const actorOrganizationMemberships = aliasedTable(organizationMembers, "event_access_actor_organization_memberships");
 const targetOrganizationMemberships = aliasedTable(organizationMembers, "event_access_target_organization_memberships");
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
 
 /**
  * Only events on which the actor is already organizer+ are returned. Being an

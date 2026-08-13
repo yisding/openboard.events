@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { adminAuthEmailOutbox, communicationLogs, eventMembers, events, organizationInvitations, organizations, users } from "@/db/schema";
 import {
   eventIdSchema,
@@ -37,15 +38,6 @@ type InvitationOptions = { env?: RuntimeEnv; target?: InvitationTarget };
 function invitationOptions(value: InvitationOptions | RuntimeEnv): InvitationOptions {
   return "APP_BASE_URL" in value ? { env: value } : value;
 }
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
-
 function toInvitationDto(row: {
   id: string;
   organization_id: string;

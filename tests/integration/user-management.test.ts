@@ -51,7 +51,7 @@ const MIGRATIONS = [
   // `email_templates` rows the outbox assertions inspect.
   "0016_speaker_moments",
   "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
-  "0028_event_reviewer_invitations",
+  "0029_event_reviewer_invitations",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");

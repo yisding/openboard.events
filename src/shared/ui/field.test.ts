@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Avatar, Field, ProgressBar, Segmented, Switch } from "./ui-kit";
+import { Avatar, Button, Field, ProgressBar, Segmented, Switch } from "./ui-kit";
 
 Object.assign(globalThis, { React });
 
@@ -85,6 +85,22 @@ describe("stateful button controls", () => {
     expect(html).toContain('aria-label="Task content type"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-pressed="false"');
+  });
+});
+
+describe("Button", () => {
+  it("composes variant, size, and caller classes without changing native props", () => {
+    const html = renderToStaticMarkup(React.createElement(Button, {
+      className: "google-signin",
+      disabled: true,
+      size: "lg",
+      type: "submit",
+      variant: "secondary",
+    }, "Continue with Google"));
+
+    expect(html).toContain('type="submit"');
+    expect(html).toContain('class="button button-secondary button-lg google-signin"');
+    expect(html).toContain('disabled=""');
   });
 });
 

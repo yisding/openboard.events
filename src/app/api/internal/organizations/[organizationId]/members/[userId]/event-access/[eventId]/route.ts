@@ -2,15 +2,13 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
 import { eventAccessRoleInputSchema, removeExplicitEventAccess, setExplicitEventAccess } from "@/features/organizations";
-import { eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
+import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
+import { requireOrganizationId } from "../../../../_lib";
 
 function ids(params: Record<string, string | string[] | undefined>) {
-  const rawOrganizationId = params.organizationId;
-  if (typeof rawOrganizationId !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
   return {
-    organizationId: organizationIdSchema.parse(rawOrganizationId),
+    organizationId: requireOrganizationId(params),
     targetUserId: userIdSchema.parse(params.userId),
     eventId: eventIdSchema.parse(params.eventId),
   };

@@ -4,6 +4,14 @@
 -- grants both the organization membership needed to see the workspace and the
 -- explicit event membership needed to enter the review queue.
 
+-- Fallback accounts created before self-service signup used the original
+-- PBKDF2 encoding and predate email verification. Preserve rollback access for
+-- those established credentials without verifying newer v2 signup passwords.
+UPDATE users
+SET email_verified = true
+WHERE email_verified = false
+  AND password_hash LIKE 'pbkdf2-sha256$%';
+
 ALTER TABLE organization_invitations
   ADD COLUMN event_id uuid;
 

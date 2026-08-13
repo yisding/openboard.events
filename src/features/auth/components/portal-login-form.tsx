@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { Button } from "@/shared/ui/ui-kit";
 import { OtpForm } from "./otp-form";
 import { portalAuthRequest } from "./portal-auth-request";
 
@@ -68,6 +69,6 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     <p>Enter your email to receive a one-time code and secure sign-in link.</p>
     <label className="field"><span>Email address</span><input autoFocus name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary" disabled={pending} type="submit">{pending ? "Sending…" : "Send sign-in code"}</button>
+    <Button disabled={pending} type="submit">{pending ? "Sending…" : "Send sign-in code"}</Button>
   </form>;
 }

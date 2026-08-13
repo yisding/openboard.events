@@ -30,6 +30,15 @@
   position: relative;
 }
 
+.eventName {
+  margin: 0 0 8px;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 /* T5 canonical breakpoint: the mapping table sends 650 -> 768. This file is the
    app's only CSS outside globals.css, which is why the T8 greps (scoped to
    globals.css) never saw the old 650px query. */

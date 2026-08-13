@@ -2,9 +2,9 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
 import { exportOrganizationData } from "@/features/data-lifecycle";
-import { organizationIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
+import { requireOrganizationId } from "../_lib";
 
 /**
  * M47 — the organization half of "contact/org data export". `organizationAuth()`
@@ -18,9 +18,7 @@ const get = defineHandler({
   auth: organizationAuth(),
   input: z.object({}),
   handler: async ({ params }) => {
-    const raw = params.organizationId;
-    if (typeof raw !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
-    const bundle = await exportOrganizationData(organizationIdSchema.parse(raw));
+    const bundle = await exportOrganizationData(requireOrganizationId(params));
     if (!bundle) throw new AppError("NOT_FOUND", "Organization not found");
     return bundle;
   },

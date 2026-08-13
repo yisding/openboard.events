@@ -166,7 +166,9 @@ export function CrmImportDialog({ organizationId, open, onClose }: { organizatio
     >
       {step === "upload" && (
         <div className="form-stack">
-          <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          <Field label="CSV file" required>
+            <input ref={fileInput} type="file" accept=".csv,text/csv" required onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          </Field>
           {error && <p className="field-error" role="alert">{error}</p>}
         </div>
       )}

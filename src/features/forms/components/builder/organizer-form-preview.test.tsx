@@ -3,6 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { fieldIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
+import { ToastProvider } from "@/shared/ui/toast";
 import type { BuilderEvent, BuilderForm } from "../../builder-types";
 import { OrganizerFormPreview } from "./organizer-form-preview";
 
@@ -16,7 +17,9 @@ const event: BuilderEvent = {
   submissionCapPerUser: 3,
 };
 
-function form(collectParticipants = true): BuilderForm {
+const NOW = "2026-08-13T12:00:00.000Z";
+
+function form(collectParticipants = true, overrides: Partial<BuilderForm> = {}): BuilderForm {
   const abstractSectionId = sectionIdSchema.parse("20000000-0000-4000-8000-000000000001");
   const participantSectionId = sectionIdSchema.parse("20000000-0000-4000-8000-000000000002");
   return {
@@ -128,12 +131,19 @@ function form(collectParticipants = true): BuilderForm {
         ],
       },
     ],
+    ...overrides,
   };
+}
+
+function renderPreview(value: BuilderForm) {
+  return renderToStaticMarkup(
+    <ToastProvider><OrganizerFormPreview event={event} form={value} nowIso={NOW} /></ToastProvider>,
+  );
 }
 
 describe("organizer form preview", () => {
   it("renders the saved form through an interactive, non-persisting organizer surface", () => {
-    const html = renderToStaticMarkup(<OrganizerFormPreview event={event} form={form()} />);
+    const html = renderPreview(form());
 
     expect(html).toContain("ORGANIZER PREVIEW");
     expect(html).toContain("Answers stay in this tab and are never saved");
@@ -148,7 +158,7 @@ describe("organizer form preview", () => {
   });
 
   it("does not preview participant questions when collection is disabled", () => {
-    const html = renderToStaticMarkup(<OrganizerFormPreview event={event} form={form(false)} />);
+    const html = renderPreview(form(false));
 
     expect(html).toContain("Your session");
     expect(html).not.toContain("About you");
@@ -160,5 +170,26 @@ describe("organizer form preview", () => {
 
     expect(page).toContain('requireAdmin(parsedEventId, "organizer")');
     expect(page).toContain('getFormForBuilder(parsedEventId, parsedFormId, "cfp")');
+    expect(page).toContain("nowIso={new Date().toISOString()}");
+  });
+
+  it.each([
+    { state: "draft", changes: { status: "draft" as const }, guidance: "Draft — this form is not public yet." },
+    { state: "scheduled", changes: { opensAt: "2026-08-14T12:00:00.000Z" }, guidance: "Scheduled — the public form is not open yet." },
+    { state: "ended", changes: { closesAt: NOW }, guidance: "The submission window has ended." },
+    { state: "closed", changes: { status: "closed" as const }, guidance: "This form was closed manually." },
+  ])("does not call a $state saved form live", ({ changes, guidance }) => {
+    const html = renderPreview(form(true, changes));
+
+    expect(html).toContain(guidance);
+    expect(html).not.toContain("Open live form");
+    expect(html).not.toContain("/submit/preview-conference/");
+  });
+
+  it("offers open and copy actions only while the saved form is live", () => {
+    const html = renderPreview(form());
+
+    expect(html).toContain("Open live form");
+    expect(html).toContain("Copy link");
   });
 });

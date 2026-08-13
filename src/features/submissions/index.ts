@@ -19,7 +19,7 @@ export { assertTransition, toPortalStatus } from "./server/guards";
 export type { SubmissionFieldPatch, SubmissionFilters } from "./server/filters";
 export { parseSubmissionFiltersForPage, submissionFieldPatchSchema, submissionFiltersSchema } from "./server/filters";
 export * from "./evaluation/index";
-export type { SubmissionVocabulary } from "./server/queries";
+export type { SubmissionStatusHistoryEntry, SubmissionVocabulary } from "./server/queries";
 export {
   getStatusCounts,
   getStatusCountsIn,
@@ -29,5 +29,7 @@ export {
   getSubmissionVocabularyIn,
   listSubmissions,
   listSubmissionsIn,
+  listSubmissionStatusHistory,
+  listSubmissionStatusHistoryIn,
 } from "./server/queries";
 export * from "./export/index";

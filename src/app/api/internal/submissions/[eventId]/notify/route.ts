@@ -4,7 +4,7 @@ import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { dispatchOutbox } from "@/features/comms";
 import { notifyQueues } from "@/features/submissions";
-import { eventIdSchema } from "@/shared/contracts";
+import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +16,8 @@ export const dynamic = "force-dynamic";
 const notify = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({ queueRevision: z.string().min(1).optional() }),
-  handler: async ({ eventId, input }) => {
-    const result = await notifyQueues(eventIdSchema.parse(eventId), input.queueRevision);
+  handler: async ({ eventId, input, session }) => {
+    const result = await notifyQueues(eventIdSchema.parse(eventId), input.queueRevision, userIdSchema.parse(session?.actorId));
     // Latency polish on top of the cron, never a substitute for it: the decision
     // is already committed, so the drain runs after the response through
     // waitUntil rather than making an organizer wait on an outbox backlog that

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import {
   organizationDtoSchema,
   type EventId,
@@ -41,14 +42,6 @@ function isConstraintViolation(error: unknown, constraintName: string): boolean 
     current = entry.cause;
   }
   return false;
-}
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
 }
 
 function assertValidSlug(slug: string): void {

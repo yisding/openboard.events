@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
+import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
@@ -125,12 +126,12 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-secondary button-lg google-signin" disabled={pending !== null} type="submit">
+    <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} type="submit">
       <GoogleMark /> {pending === "google" ? "Connecting…" : invitationToken ? "Join with Google" : "Create with Google"}
-    </button>
-    <button className="button button-ghost button-lg auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setError(""); }} type="button">
+    </Button>
+    <Button variant="ghost" size="lg" className="auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setError(""); }} type="button">
       Use email instead
-    </button>
+    </Button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
   </form>;
 
@@ -141,9 +142,9 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       ? "Create an Openboard account to securely join the workspace that invited you."
       : "Start a new Openboard organization — invite your team once you’re in."}</p>
     {googleEnabled && <>
-      <button className="button button-secondary button-lg google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
+      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
         <GoogleMark /> Continue with Google
-      </button>
+      </Button>
       <div className="auth-divider"><span>or create with email</span></div>
     </>}
     <label className="field"><span>Your name</span><input name="name" autoComplete="name" required maxLength={160} type="text" /></label>
@@ -153,7 +154,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <small id="signup-password-help">Use at least 12 characters.</small>
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary button-lg" disabled={pending !== null} type="submit">{pending === "email" ? "Creating…" : "Create account"} <ArrowRight size={16} /></button>
+    <Button size="lg" disabled={pending !== null} type="submit">{pending === "email" ? "Creating…" : "Create account"} <ArrowRight size={16} /></Button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
   </form>;
 }

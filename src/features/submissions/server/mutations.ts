@@ -1,5 +1,6 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { contacts, emailTemplates, events, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
@@ -17,6 +18,7 @@ import {
   type SubmissionKind,
   type SubmissionId,
   type SubmissionStatus,
+  type UserId,
 } from "@/shared/contracts";
 import { secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "@/features/forms/participant-roles";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
@@ -580,6 +582,7 @@ export async function transitionStatus(
   ids: SubmissionId[],
   to: SubmissionStatus,
   expectedFrom: SubmissionStatus | SubmissionStatus[],
+  actorUserId: UserId | null = null,
 ): Promise<TransitionResult> {
   if (ids.length === 0) return { changed: [], stale: [] };
   const from = Array.isArray(expectedFrom) ? expectedFrom : [expectedFrom];
@@ -587,16 +590,25 @@ export async function transitionStatus(
   for (const source of from) assertTransition(source, to);
 
   const updated = await db.execute<{ id: string }>(sql`
-    UPDATE submissions SET
-      status = ${to},
-      row_version = row_version + 1,
-      updated_at = now(),
-      notified_at = CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN NULL ELSE notified_at END,
-      notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN 1 ELSE 0 END
-    WHERE event_id = ${eventId}
-      AND id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
-      AND status IN (${sql.join(from.map((status) => sql`${status}`), sql`, `)})
-    RETURNING id
+    WITH audit_context AS (
+      SELECT
+        set_config('openboard.submission_status_source', ${actorUserId ? "organizer" : "system"}, true),
+        set_config('openboard.actor_user_id', ${actorUserId ?? ""}, true),
+        set_config('openboard.actor_contact_id', '', true)
+    ), changed AS (
+      UPDATE submissions SET
+        status = ${to},
+        row_version = row_version + 1,
+        updated_at = now(),
+        notified_at = CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN NULL ELSE notified_at END,
+        notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN 1 ELSE 0 END
+      FROM audit_context
+      WHERE event_id = ${eventId}
+        AND id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+        AND status IN (${sql.join(from.map((status) => sql`${status}`), sql`, `)})
+      RETURNING submissions.id
+    )
+    SELECT id FROM changed
   `);
 
   const changed = (updated.rows ?? []).map((row: { id: string }) => row.id as SubmissionId);
@@ -649,14 +661,6 @@ function decisionQueueRevision(rows: QueueRevisionRow[]): string {
     .join("|") || "empty";
 }
 
-function resultRows<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
-
 /**
  * Read-only decision-email preflight. It uses the current queue rows, current
  * recipient records, and current templates, but deliberately does not mint a
@@ -677,7 +681,7 @@ export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): P
       AND s.notified_at IS NULL
     ORDER BY s.code, s.id
   `);
-  const rows = resultRows<PreviewQueueRow>(queueResult);
+  const rows = rowsOf<PreviewQueueRow>(queueResult);
   const accepted = rows.filter((row) => row.status === "accept_queue");
   const declined = rows.filter((row) => row.status === "decline_queue");
   const deliverable = rows.filter((row) => row.recipientId !== null);
@@ -772,7 +776,11 @@ type QueueRow = { id: string; notify_revision: number; recipient: string | null;
  * Co-speakers learn through the portal; mailing all of them turns one decision
  * into four emails, three of which nobody asked for.
  */
-export async function notifyQueues(eventId: EventId, expectedQueueRevision?: string): Promise<NotifyResult> {
+export async function notifyQueues(
+  eventId: EventId,
+  expectedQueueRevision?: string,
+  actorUserId: UserId | null = null,
+): Promise<NotifyResult> {
   return withTx(async (tx) => {
     // Freeze the exact set reviewed in the preflight. Locking the current rows
     // and updating only those ids also keeps a newly queued decision from
@@ -794,7 +802,14 @@ export async function notifyQueues(eventId: EventId, expectedQueueRevision?: str
       const ids = queueRows.filter((row) => row.status === queue).map((row) => row.id);
       if (ids.length === 0) return [];
       const result = await tx.execute<QueueRow>(sql`
+        WITH audit_context AS (
+          SELECT
+            set_config('openboard.submission_status_source', ${actorUserId ? "notification" : "system"}, true),
+            set_config('openboard.actor_user_id', ${actorUserId ?? ""}, true),
+            set_config('openboard.actor_contact_id', '', true)
+        )
         UPDATE submissions s SET status = ${decided}, notified_at = now(), row_version = row_version + 1, updated_at = now()
+        FROM audit_context
         WHERE s.event_id = ${eventId} AND s.status = ${queue} AND s.notified_at IS NULL
           AND s.id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
         RETURNING s.id, s.notify_revision,
@@ -976,15 +991,24 @@ export async function updateSubmissionFromCfp(
  */
 export async function withdraw(eventId: EventId, contactId: ContactId, submissionId: SubmissionId): Promise<void> {
   const updated = await db.execute<{ id: string }>(sql`
-    UPDATE submissions SET
-      status = 'withdrawn',
-      row_version = row_version + 1,
-      updated_at = now(),
-      notified_at = CASE WHEN status IN ('accepted','declined') THEN NULL ELSE notified_at END,
-      notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') THEN 1 ELSE 0 END
-    WHERE event_id = ${eventId} AND id = ${submissionId} AND submitter_contact_id = ${contactId}
-      AND status IN ('draft','pending','accept_queue','decline_queue','accepted')
-    RETURNING id
+    WITH audit_context AS (
+      SELECT
+        set_config('openboard.submission_status_source', 'speaker', true),
+        set_config('openboard.actor_user_id', '', true),
+        set_config('openboard.actor_contact_id', ${contactId}, true)
+    ), changed AS (
+      UPDATE submissions SET
+        status = 'withdrawn',
+        row_version = row_version + 1,
+        updated_at = now(),
+        notified_at = CASE WHEN status IN ('accepted','declined') THEN NULL ELSE notified_at END,
+        notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') THEN 1 ELSE 0 END
+      FROM audit_context
+      WHERE event_id = ${eventId} AND id = ${submissionId} AND submitter_contact_id = ${contactId}
+        AND status IN ('draft','pending','accept_queue','decline_queue','accepted')
+      RETURNING submissions.id
+    )
+    SELECT id FROM changed
   `);
   if ((updated.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Submission not found");
 }

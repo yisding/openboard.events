@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, submissionIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, submissionIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -24,9 +24,11 @@ const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_
 // `.returning()`, or a `select()` of the whole table — fails against a
 // database built without it. Applied last, as it is in the journal.
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
+const migrationStatusHistory = readFileSync(new URL("../../drizzle/0028_submission_status_history.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("d1000000-0000-4000-8000-000000000001");
 const speaker = contactIdSchema.parse("d1000000-0000-4000-8000-000000000002");
+const organizer = userIdSchema.parse("d1000000-0000-4000-8000-000000000003");
 const orphanSubmission = submissionIdSchema.parse("d1000000-0000-4000-8000-000000000010");
 const toAccept = submissionIdSchema.parse("d1000000-0000-4000-8000-000000000011");
 const toDecline = submissionIdSchema.parse("d1000000-0000-4000-8000-000000000012");
@@ -44,7 +46,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { notifyQueues, previewNotifyQueuesIn, transitionStatus } = await import("@/features/submissions");
+const { listSubmissionStatusHistoryIn, notifyQueues, previewNotifyQueuesIn, transitionStatus, withdraw } = await import("@/features/submissions");
 
 async function insert(id: string, status: string, withSubmitter = true) {
   await pglite.query(
@@ -71,6 +73,7 @@ describe("decide and notify", () => {
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationRoster);
     await pglite.exec(migrationSpeakerMoments);
+    await pglite.exec(migrationStatusHistory);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Event','event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -80,6 +83,7 @@ describe("decide and notify", () => {
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'ada@example.com','Ada','Lovelace')",
       [speaker, eventId],
     );
+    await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'organizer@example.com','Olive Organizer')", [organizer]);
     await pglite.query(
       `INSERT INTO email_templates(event_id,key,subject,body_html) VALUES
        ($1,'submission_accepted','Accepted for {{event.name}}','<p>Welcome {{speaker.first_name}}: {{submission.title}}</p>'),
@@ -136,6 +140,33 @@ describe("decide and notify", () => {
     expect(result.emailsQueued).toBe(2);
     expect(await commsFor("submission_accepted")).toHaveLength(1);
     expect(await commsFor("submission_declined")).toHaveLength(1);
+  });
+
+  it("retains attributed organizer, notification, and speaker status changes", async () => {
+    await insert(pending, "pending");
+    await transitionStatus(eventId, [pending], "accept_queue", "pending", organizer);
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+    await notifyQueues(eventId, preview.queueRevision, organizer);
+
+    const decided = await listSubmissionStatusHistoryIn(tx, eventId, pending);
+    expect(decided.map((entry) => [entry.fromStatus, entry.toStatus, entry.source])).toEqual([
+      ["accept_queue", "accepted", "notification"],
+      ["pending", "accept_queue", "organizer"],
+      [null, "pending", "system"],
+    ]);
+    expect(decided[0]).toMatchObject({ actorName: "Olive Organizer", actorEmail: "organizer@example.com" });
+    expect(decided[1]).toMatchObject({ actorName: "Olive Organizer", actorEmail: "organizer@example.com" });
+
+    await insert(toDecline, "pending");
+    await withdraw(eventId, speaker, toDecline);
+    const withdrawn = await listSubmissionStatusHistoryIn(tx, eventId, toDecline);
+    expect(withdrawn[0]).toMatchObject({
+      fromStatus: "pending",
+      toStatus: "withdrawn",
+      source: "speaker",
+      actorName: "Ada Lovelace",
+      actorEmail: "ada@example.com",
+    });
   });
 
   it("previews exact queue counts and samples without changing decisions", async () => {

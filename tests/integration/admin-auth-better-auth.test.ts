@@ -53,7 +53,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email", "0028_event_reviewer_invitations"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email", "0029_event_reviewer_invitations"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -113,11 +113,10 @@ describe("M42 admin auth on Better Auth", () => {
     await apply(M42_MIGRATION);
     for (const name of POST_M42_MIGRATIONS) await apply(name);
 
-    // These are accounts that predate this activation slice. The tests below
-    // exercise session/rehash behavior rather than activation, so treat their
-    // already-established addresses as verified; the new self-serve account
-    // created later remains false and proves the new gate end to end.
-    await pglite.query("UPDATE users SET email_verified=true WHERE id IN ($1,$2,$3)", [legacyUser, modernUser, reviewerUser]);
+    // These accounts have no passwords and exist only as authorization
+    // fixtures, so activation is outside their test scope. The legacy password
+    // account is intentionally omitted: 0029 must identify and grandfather it.
+    await pglite.query("UPDATE users SET email_verified=true WHERE id IN ($1,$2)", [modernUser, reviewerUser]);
 
     database = drizzle(pglite, { schema }) as unknown as typeof RepositoryDb;
     auth = buildAdminAuth(env, { database });
@@ -161,6 +160,14 @@ describe("M42 admin auth on Better Auth", () => {
     // Copied verbatim — the migration must not attempt to re-hash anything.
     expect(needsRehash(accounts[0]?.password ?? "")).toBe(true);
     await expect(verifyAdminPassword({ hash: accounts[0]?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
+  });
+
+  it("keeps the fallback provider usable for established legacy credentials", async () => {
+    const [legacy] = await database.select({ emailVerified: users.emailVerified })
+      .from(users)
+      .where(eq(users.id, legacyUser))
+      .limit(1);
+    expect(legacy?.emailVerified).toBe(true);
   });
 
   it("signs a legacy PBKDF2 credential in and rehashes it in place — no forced reset (AC 1)", async () => {

@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { rowsOf } from "@/db/query-result";
 import { getEnv } from "@/shared/lib/env";
 
 export type OperationalErrorContext = {
@@ -86,12 +87,7 @@ export async function pruneOperationalErrorsIn(
     "delete from operational_error_buckets where last_seen_at < $1 returning fingerprint",
     [cutoff],
   );
-  const deleted = Array.isArray(result)
-    ? result
-    : typeof result === "object" && result !== null && "rows" in result && Array.isArray((result as { rows: unknown }).rows)
-      ? (result as { rows: unknown[] }).rows
-      : [];
-  return { deletedOperationalErrorBuckets: deleted.length };
+  return { deletedOperationalErrorBuckets: rowsOf(result).length };
 }
 
 export function pruneOperationalErrors(now?: Date): Promise<{ deletedOperationalErrorBuckets: number }> {

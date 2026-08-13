@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Eye } from "lucide-react";
+import { ArrowLeft, Eye } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { AnswerValue, FieldId, FormSnapshot } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import type { BuilderEvent, BuilderForm } from "../../builder-types";
 import { tryCompileBuilderSnapshot } from "../../form-builder-state";
+import { formAvailability } from "../../lib/form-open";
 import { FormFieldRenderer, isRenderableFormField } from "../form-field-renderer";
+import { SavedFormActions } from "../saved-form-actions";
 
 function runtimeSnapshot(form: BuilderForm): FormSnapshot | null {
   const snapshot = tryCompileBuilderSnapshot(form);
@@ -27,11 +29,11 @@ function runtimeSnapshot(form: BuilderForm): FormSnapshot | null {
  * or onboarding milestone; the separately labelled live-form link is the only
  * route into the real speaker journey.
  */
-export function OrganizerFormPreview({ event, form }: { event: BuilderEvent; form: BuilderForm }) {
+export function OrganizerFormPreview({ event, form, nowIso }: { event: BuilderEvent; form: BuilderForm; nowIso: string }) {
   const snapshot = useMemo(() => runtimeSnapshot(form), [form]);
   const [answers, setAnswers] = useState<Record<FieldId, AnswerValue | undefined>>({});
   const builderHref = `/events/${event.id}/forms/${form.id}`;
-  const liveHref = `/submit/${event.slug}/${form.id}`;
+  const availability = formAvailability(form, nowIso);
   const sections = snapshot?.sections.filter((section) => section.fields.some(isRenderableFormField)) ?? [];
 
   function handleChange(fieldId: FieldId, value: AnswerValue | undefined) {
@@ -48,7 +50,15 @@ export function OrganizerFormPreview({ event, form }: { event: BuilderEvent; for
         </div>
         <div className="organizer-form-preview__actions">
           <Link className="button button-secondary" href={builderHref}><ArrowLeft size={16} /> Back to builder</Link>
-          <Link className="button button-secondary" href={liveHref} target="_blank" rel="noreferrer">Open live form <ExternalLink size={16} /></Link>
+          <SavedFormActions
+            availability={availability}
+            eventSlug={event.slug}
+            formId={form.id}
+            formName={form.internalName}
+            status={form.status}
+            opensAt={form.opensAt}
+            closesAt={form.closesAt}
+          />
         </div>
       </header>
 

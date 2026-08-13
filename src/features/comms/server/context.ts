@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
+import { rowsOf } from "@/db/query-result";
 import { calendarInvites, communicationLogs, contacts, contactSuppressions, events, forms, portalTasks, rooms, sessions, sessionSpeakers, speakerBulkMessages, submissions, tracks } from "@/db/schema";
 import { issuePortalToken, openAdminLinkPayload, openPortalLoginPayload, type AdminLinkPayload } from "@/features/auth";
 import { issueOrganizationInvitationTokenIn } from "@/features/organizations";
@@ -51,14 +52,6 @@ export type BuiltContext = {
   calendarDownloadUrl?: string;
   templateOverride?: { subject?: string; bodyHtml?: string };
 };
-
-function rowsOf<Row>(result: unknown): Row[] {
-  if (Array.isArray(result)) return result as Row[];
-  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
-    return (result as { rows: Row[] }).rows;
-  }
-  return [];
-}
 
 function formatDue(value: Date | string | null, timezone: string): string {
   return value ? formatInZone(value, timezone, "date") : "No due date";

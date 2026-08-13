@@ -99,7 +99,9 @@ the committee's verdict.
 
 Decisions queue rather than send instantly — accept and decline in any order, then hit
 **Notify** once (the banner at the top of Abstracts counts what's queued). Each speaker gets one
-clear email, and the notification is recorded in the delivery log.
+clear email, and the notification is recorded in the delivery log. The proposal drawer also keeps
+an attributed decision timeline, so queue moves, reversals, notification finalization, and speaker
+withdrawals remain explainable later.
 
 ## 3. Keep speakers on track
 
