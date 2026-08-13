@@ -5,7 +5,9 @@ import { organizationInvitationIdSchema, type JobStats, type TemplateKey, type U
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
+import { isEmailAllowed } from "@/shared/server/email-allowlist";
 import { emailLayout } from "@/features/comms/server/layout";
+import { escapeHtml } from "@/features/comms/server/render";
 import { sendViaResend, type EmailMessage } from "@/features/comms/server/resend";
 import { assertOrganizationInvitationTokenForEmailIn } from "@/features/organizations/server/invitations";
 import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
@@ -39,17 +41,6 @@ const TEMPLATES: Record<AdminAuthTemplateKey, {
 function requiredSecret(env: RuntimeEnv): string {
   if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth mail");
   return env.SESSION_SECRET;
-}
-
-function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-}
-
-function allowlisted(email: string, env: RuntimeEnv): boolean {
-  if (env.EMAIL_MODE !== "send" || !env.EMAIL_ALLOWLIST) return true;
-  const normalized = email.toLowerCase();
-  return env.EMAIL_ALLOWLIST.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean)
-    .some((entry) => entry.startsWith("@") ? normalized.endsWith(entry) : normalized === entry);
 }
 
 function render(row: OutboxRow, payload: AdminLinkPayload): { subject: string; html: string; text: string } {
@@ -242,7 +233,7 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
   if (suppressed) {
     return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint");
   }
-  if (!allowlisted(row.recipientEmail, env)) {
+  if (!isEmailAllowed(row.recipientEmail, env)) {
     return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST");
   }
   if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "Platform email link payload is missing");

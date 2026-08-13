@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { sendRemindersNow } from "@/features/comms";
 import {
   contactIdSchema,
+  fileCommentIdSchema,
   fileRequestIdSchema,
   submissionIdSchema,
   taskIdSchema,
@@ -21,6 +22,10 @@ import { DELIVERABLE_BULK_LIMIT } from "../bulk-limit";
  * — both paths land on the same `addFileCommentIn` writer.
  */
 export const organizerCommentInputSchema = z.object({
+  // Optional during the rollout so an organizer with the previous client
+  // bundle already open can still send. New clients always provide this key
+  // and get replay-safe recovery; the writer generates one for legacy calls.
+  id: fileCommentIdSchema.optional(),
   fileRequestId: fileRequestIdSchema,
   contactId: contactIdSchema,
   submissionId: submissionIdSchema.nullable().default(null),
@@ -31,7 +36,7 @@ export type OrganizerCommentInput = z.infer<typeof organizerCommentInputSchema>;
 export function addOrganizerComment(eventId: EventId, actorUserId: UserId, input: OrganizerCommentInput): Promise<FileCommentDTO> {
   return addFileCommentIn(
     db, eventId, input.fileRequestId, input.contactId, input.submissionId,
-    { role: "organizer", userId: actorUserId }, input.body,
+    { role: "organizer", userId: actorUserId }, input.body, input.id,
   );
 }
 

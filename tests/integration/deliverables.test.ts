@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, fileRequestIdSchema, submissionIdSchema, taskIdSchema, userIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, fileCommentIdSchema, fileRequestIdSchema, submissionIdSchema, taskIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { buildExportZipKey } from "@/shared/server/r2";
 
@@ -213,6 +213,36 @@ describe("M52: the central Files view's deliverable list", () => {
 
   it("never crosses the event boundary", async () => {
     expect(await listDeliverablesIn(db, otherEventId)).toEqual([]);
+  });
+
+  it("replays an outcome-unknown organizer comment without creating a duplicate", async () => {
+    const { addFileCommentIn, listFileCommentsIn } = await import("@/features/portal/server/deliverable-slot");
+    const commentId = fileCommentIdSchema.parse("e5000000-0000-4000-8000-000000000090");
+    const organizerId = userIdSchema.parse("e5000000-0000-4000-8000-0000000000aa");
+    const author = { role: "organizer" as const, userId: organizerId };
+
+    const first = await addFileCommentIn(
+      db, eventId, slidesRequest, ada, submissionIdSchema.parse(talkOne), author, "Looks good", commentId,
+    );
+    const replay = await addFileCommentIn(
+      db, eventId, slidesRequest, ada, submissionIdSchema.parse(talkOne), author, "Looks good", commentId,
+    );
+
+    expect(replay).toEqual(first);
+    const comments = await listFileCommentsIn(db, eventId, slidesRequest, ada, submissionIdSchema.parse(talkOne));
+    expect(comments.filter((comment) => comment.id === commentId)).toHaveLength(1);
+  });
+
+  it("does not let a stable comment id be replayed for different content", async () => {
+    const { addFileCommentIn } = await import("@/features/portal/server/deliverable-slot");
+    const commentId = fileCommentIdSchema.parse("e5000000-0000-4000-8000-000000000091");
+    const author = { role: "organizer" as const, userId: userIdSchema.parse("e5000000-0000-4000-8000-0000000000aa") };
+    await addFileCommentIn(db, eventId, slidesRequest, ada, submissionIdSchema.parse(talkOne), author, "Original", commentId);
+
+    const refusal = await addFileCommentIn(
+      db, eventId, slidesRequest, ada, submissionIdSchema.parse(talkOne), author, "Different", commentId,
+    ).catch((error: unknown) => error);
+    expect(isAppError(refusal) && refusal.code).toBe("CONFLICT");
   });
 
   it("computes the central Files view's tab-badge counts from a filtered aggregate, not from a fetched row set", async () => {

@@ -2,13 +2,9 @@ import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { countRows, queryRows } from "./helpers/db";
 import { NO_DATABASE, NO_TARGET, databaseConfigured, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS } from "./helpers/seeded";
 
-/**
- * Goes green when M17 (abstracts), M18 (mutations + notify) and M34 (dispatcher)
- * land — target CP2, owned by WS-C / WS-F.
- */
+/** Abstract review, bulk decisions, and notification journeys. */
 
 const ABSTRACTS = `/events/${EVENTS.main.id}/abstracts`;
 const API = `/api/internal/submissions/${EVENTS.main.id}`;
@@ -22,7 +18,6 @@ test.describe("abstracts-decide", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("the table", () => {
-    test.skip(!landed("M17"), waitingOn("M17"));
     test.skip(!databaseConfigured(), NO_DATABASE);
 
     test("the table agrees with the status counts view", async ({ page }) => {
@@ -82,7 +77,6 @@ test.describe("abstracts-decide", () => {
   });
 
   test.describe("decide and notify", () => {
-    test.skip(!landed("M17", "M18", "M34"), waitingOn("M17", "M18", "M34"));
     test.skip(!databaseConfigured(), NO_DATABASE);
 
     test("bulk accept and notify sends exactly one email per submission", async ({ page }) => {
@@ -185,8 +179,6 @@ test.describe("abstracts-decide", () => {
   });
 
   test.describe("the empty event", () => {
-    test.skip(!landed("M09", "M17"), waitingOn("M09", "M17"));
-
     test("the empty event's abstracts surface renders its empty state", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       await loginAsAdmin(page);

@@ -5,6 +5,7 @@ import {
   fileVersionDtoSchema,
   type ContactId,
   type EventId,
+  type FileCommentId,
   type FileCommentDTO,
   type FileVersionDTO,
   type SubmissionId,
@@ -146,6 +147,7 @@ export async function addFileCommentIn(
   submissionId: SubmissionId | null,
   author: CommentAuthor,
   body: string,
+  requestedId?: FileCommentId,
 ): Promise<FileCommentDTO> {
   const trimmed = body.trim();
   if (trimmed.length === 0) throw new AppError("VALIDATION", "Write something before sending");
@@ -153,16 +155,36 @@ export async function addFileCommentIn(
   await requireSlot(dbOrTx, eventId, fileRequestId, contactId, submissionId);
 
   const inserted = await dbOrTx.execute<{ id: string }>(sql`
-    INSERT INTO file_comments (event_id, file_request_id, contact_id, submission_id, author_role, author_user_id, author_contact_id, body)
+    INSERT INTO file_comments (id, event_id, file_request_id, contact_id, submission_id, author_role, author_user_id, author_contact_id, body)
     VALUES (
-      ${eventId}, ${fileRequestId}, ${contactId}, ${submissionId}, ${author.role},
+      ${requestedId ?? crypto.randomUUID()}, ${eventId}, ${fileRequestId}, ${contactId}, ${submissionId}, ${author.role},
       ${author.role === "organizer" ? author.userId : null}, ${author.role === "speaker" ? author.contactId : null},
       ${trimmed}
     )
+    ON CONFLICT (id) DO NOTHING
     RETURNING id
   `);
-  const id = (inserted.rows ?? [])[0]?.id;
+  const id = (inserted.rows ?? [])[0]?.id ?? requestedId;
   if (!id) throw new AppError("INTERNAL", "The comment could not be saved");
+
+  // A client-supplied id is the stable identity for an outcome-unknown retry.
+  // It is replayable only for the exact same slot, author, and body; reusing
+  // another comment's id can never disclose or overwrite that comment.
+  const matches = await dbOrTx.execute<{ matches: boolean }>(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM file_comments
+      WHERE id = ${id} AND event_id = ${eventId}
+        AND file_request_id = ${fileRequestId} AND contact_id = ${contactId}
+        AND submission_id IS NOT DISTINCT FROM ${submissionId}
+        AND author_role = ${author.role}
+        AND author_user_id IS NOT DISTINCT FROM ${author.role === "organizer" ? author.userId : null}
+        AND author_contact_id IS NOT DISTINCT FROM ${author.role === "speaker" ? author.contactId : null}
+        AND body = ${trimmed}
+    ) AS matches
+  `);
+  if (!(matches.rows ?? [])[0]?.matches) {
+    throw new AppError("CONFLICT", "That comment request was already used");
+  }
 
   const result = await dbOrTx.execute<CommentRow>(sql`${COMMENT_SELECT} WHERE fc.id = ${id} AND fc.event_id = ${eventId}`);
   const row = (result.rows ?? [])[0];

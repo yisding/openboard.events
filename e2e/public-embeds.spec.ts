@@ -2,14 +2,9 @@ import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { BASE_URL, NO_TARGET, targetConfigured } from "./helpers/env";
 import { seedId } from "./helpers/ids";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, SESSIONS } from "./helpers/seeded";
 
-/**
- * Goes green when M32 (public pages) and M33 (embeds) land, with the API
- * assertion following M40 — target Sunday for the pages, Tuesday for the API,
- * owned by WS-E / WS-F.
- */
+/** Public pages, embeddable variants, and public API parity. */
 
 const SCHEDULE = `/e/${EVENTS.main.slug}/schedule`;
 const GALLERY = `/e/${EVENTS.main.slug}/speakers`;
@@ -38,7 +33,7 @@ test.describe("public-embeds", () => {
   // than from the test-scoped `baseURL` option, and it does nothing at all when
   // the suite is not pointed at a deployment.
   test.beforeAll(async ({ playwright }) => {
-    if (!targetConfigured() || !landed("M09", "M32")) return;
+    if (!targetConfigured()) return;
     const request = await playwright.request.newContext({ baseURL: BASE_URL });
     try {
       await loginAsAdmin(request);
@@ -54,8 +49,6 @@ test.describe("public-embeds", () => {
   });
 
   test.describe("the public pages", () => {
-    test.skip(!landed("M09", "M32"), waitingOn("M09", "M32"));
-
     test("the public pages render seeded data on a phone", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
 
@@ -121,8 +114,6 @@ test.describe("public-embeds", () => {
   });
 
   test.describe("the embed variant", () => {
-    test.skip(!landed("M33"), waitingOn("M33"));
-
     test("the embed variant is framable and carries no X-Frame-Options", async ({ page, request }) => {
       const response = await request.get(`/embed/${EVENTS.main.slug}/schedule`);
       expect(response.status()).toBe(200);
@@ -151,8 +142,6 @@ test.describe("public-embeds", () => {
   });
 
   test.describe("the public API", () => {
-    test.skip(!landed("M40"), waitingOn("M40"));
-
     test("the public API returns published rows only", async ({ page, request }) => {
       let titles: string[] = [];
 
@@ -190,8 +179,6 @@ test.describe("public-embeds", () => {
   });
 
   test.describe("the empty event", () => {
-    test.skip(!landed("M09", "M32"), waitingOn("M09", "M32"));
-
     test("the empty event's public surfaces render their empty states", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       // The standing empty-state probe: an empty public page that crashes is a

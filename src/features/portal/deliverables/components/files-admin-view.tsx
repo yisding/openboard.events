@@ -12,6 +12,7 @@ import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { deliverableBulkTargets, filesSelectionBarState } from "./files-selection";
 
@@ -32,6 +33,157 @@ function statusOf(row: DeliverableRowDTO): "Completed" | "Overdue" | "Open" {
   if (row.completed) return "Completed";
   if (row.overdue) return "Overdue";
   return "Open";
+}
+
+type DeliverableDetail = {
+  key: string;
+  status: "loading" | "ready" | "error";
+  versions: FileVersionDTO[];
+  comments: FileCommentDTO[];
+  error: string;
+};
+
+type CommentDraft = {
+  key: string | null;
+  id: string;
+  body: string;
+  attemptedId: string | null;
+  attemptedBody: string | null;
+};
+type CommentDraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type CommentDraftStorageProvider = () => CommentDraftStorage;
+
+const browserCommentDraftStorage: CommentDraftStorageProvider = () => localStorage;
+
+export function fileCommentDraftStorageKey(eventId: string, detailKey: string): string {
+  return `openboard:files-comment:${eventId}:${detailKey}`;
+}
+
+export function parseStoredCommentDraft(value: string | null, expectedKey: string): CommentDraft | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<CommentDraft>;
+    if (parsed.key !== expectedKey || typeof parsed.id !== "string" || !/^[0-9a-f-]{36}$/i.test(parsed.id) || typeof parsed.body !== "string") return null;
+    const body = parsed.body.slice(0, 5_000);
+    return {
+      key: expectedKey,
+      id: parsed.id,
+      body,
+      // Markers written before attemptedBody was introduced represented an
+      // in-flight request, so treating their canonical body as attempted is
+      // the safe backwards-compatible interpretation.
+      attemptedId: typeof parsed.attemptedId === "string" && /^[0-9a-f-]{36}$/i.test(parsed.attemptedId)
+        ? parsed.attemptedId
+        : parsed.id,
+      attemptedBody: typeof parsed.attemptedBody === "string" ? parsed.attemptedBody.slice(0, 5_000) : body.trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function commentDraftAfterEdit(
+  current: CommentDraft,
+  key: string,
+  body: string,
+  createId: () => string = () => crypto.randomUUID(),
+): CommentDraft {
+  const sameDraft = current.key === key && current.id;
+  if (!sameDraft) return { key, id: createId(), body, attemptedId: null, attemptedBody: null };
+  const matchesAttempt = current.attemptedId !== null
+    && current.attemptedBody !== null
+    && body.trim() === current.attemptedBody;
+  const firstEditAfterAttempt = current.attemptedId !== null
+    && current.attemptedBody !== null
+    && current.id === current.attemptedId
+    && !matchesAttempt;
+  return {
+    key,
+    id: matchesAttempt ? (current.attemptedId ?? current.id) : firstEditAfterAttempt ? createId() : current.id,
+    body,
+    attemptedId: current.attemptedId,
+    attemptedBody: current.attemptedBody,
+  };
+}
+
+export function loadStoredCommentDraft(
+  storageKey: string,
+  expectedKey: string,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): CommentDraft | null {
+  try {
+    return parseStoredCommentDraft(getStorage().getItem(storageKey), expectedKey);
+  } catch {
+    return null;
+  }
+}
+
+export function persistStoredCommentDraft(
+  storageKey: string,
+  draft: CommentDraft,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): boolean {
+  try {
+    getStorage().setItem(storageKey, JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeStoredCommentDraft(
+  storageKey: string,
+  getStorage: CommentDraftStorageProvider = browserCommentDraftStorage,
+): boolean {
+  try {
+    getStorage().removeItem(storageKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function visibleDeliverableDetail(detail: DeliverableDetail, key: string): DeliverableDetail {
+  return detail.key === key
+    ? detail
+    : { key, status: "loading", versions: [], comments: [], error: "" };
+}
+
+export function deliverableDetailPaths(eventId: string, target: {
+  fileRequestId: string;
+  contactId: string;
+  submissionId: string | null;
+}) {
+  const query = `eventId=${encodeURIComponent(eventId)}&fileRequestId=${encodeURIComponent(target.fileRequestId)}&contactId=${encodeURIComponent(target.contactId)}${target.submissionId ? `&submissionId=${encodeURIComponent(target.submissionId)}` : ""}`;
+  return {
+    versions: `/api/internal/deliverables/versions?${query}`,
+    comments: `/api/internal/deliverables/comments?${query}`,
+  };
+}
+
+async function detailPayload<T>(response: Response, fallback: string): Promise<T[]> {
+  const payload = await response.json().catch(() => null) as { data?: T[]; error?: { message?: string } } | null;
+  if (!response.ok || !Array.isArray(payload?.data)) {
+    throw new Error(payload?.error?.message ?? fallback);
+  }
+  return payload.data;
+}
+
+export async function fetchDeliverableDetail(
+  paths: ReturnType<typeof deliverableDetailPaths>,
+  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
+): Promise<{ versions: FileVersionDTO[]; comments: FileCommentDTO[] }> {
+  const fetcher = options.fetcher ?? fetch;
+  const init = options.signal ? { signal: options.signal } : undefined;
+  const [versionsResponse, commentsResponse] = await Promise.all([
+    fetcher(paths.versions, init),
+    fetcher(paths.comments, init),
+  ]);
+  const [versions, comments] = await Promise.all([
+    detailPayload<FileVersionDTO>(versionsResponse, "Could not load file versions"),
+    detailPayload<FileCommentDTO>(commentsResponse, "Could not load comments"),
+  ]);
+  return { versions, comments };
 }
 
 /**
@@ -405,66 +557,126 @@ function DeliverableDrawer({
   onCommentAdded: (fileRequestId: string, contactId: string, submissionId: string | null, commentCount: number) => void;
 }) {
   const { toast } = useToast();
-  const [versions, setVersions] = useState<FileVersionDTO[]>([]);
-  const [comments, setComments] = useState<FileCommentDTO[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [draft, setDraft] = useState("");
+  const { runGuarded } = useGuardedAction();
+  const [detail, setDetail] = useState<DeliverableDetail>({ key: "", status: "loading", versions: [], comments: [], error: "" });
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "", attemptedId: null, attemptedBody: null });
   const [sending, setSending] = useState(false);
 
   const key = row ? `${row.fileRequestId}:${row.contactId}:${row.submissionId ?? "-"}` : null;
+  const paths = row ? deliverableDetailPaths(eventId, row) : null;
+  const versionsPath = paths?.versions ?? "";
+  const commentsPath = paths?.comments ?? "";
+  const currentDetail = key ? visibleDeliverableDetail(detail, key) : detail;
+  const draftBody = key && draft.key === key ? draft.body : "";
+  const draftDirty = draftBody.trim().length > 0;
+  useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending });
 
   useEffect(() => {
-    if (!row || !key) return;
-    let cancelled = false;
-    setLoading(true);
-    const query = `eventId=${encodeURIComponent(eventId)}&fileRequestId=${encodeURIComponent(row.fileRequestId)}&contactId=${encodeURIComponent(row.contactId)}${row.submissionId ? `&submissionId=${encodeURIComponent(row.submissionId)}` : ""}`;
-    Promise.all([
-      fetch(`/api/internal/deliverables/versions?${query}`).then((response) => response.json()).catch(() => null),
-      fetch(`/api/internal/deliverables/comments?${query}`).then((response) => response.json()).catch(() => null),
-    ]).then(([versionsPayload, commentsPayload]) => {
-      if (cancelled) return;
-      setVersions((versionsPayload as { data?: FileVersionDTO[] } | null)?.data ?? []);
-      setComments((commentsPayload as { data?: FileCommentDTO[] } | null)?.data ?? []);
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+    if (!key) return;
+    const stored = loadStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), key);
+    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "", attemptedId: null, attemptedBody: null });
+  }, [eventId, key]);
+
+  useEffect(() => {
+    if (!key || currentDetail.status !== "ready" || draft.key !== key || draft.attemptedId === null || draft.attemptedBody === null) return;
+    if (!currentDetail.comments.some((comment) => comment.id === draft.attemptedId && comment.body === draft.attemptedBody)) return;
+    removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
+    if (draft.id === draft.attemptedId && draft.body.trim() === draft.attemptedBody) {
+      setDraft({ key, id: crypto.randomUUID(), body: "", attemptedId: null, attemptedBody: null });
+      toast("Comment sent");
+    } else {
+      setDraft((current) => current.key === key
+        ? { ...current, attemptedId: null, attemptedBody: null }
+        : current);
+      toast("The original comment was sent — your edited reply is still unsent");
+    }
+  }, [currentDetail, draft, eventId, key, toast]);
+
+  useEffect(() => {
+    if (!key || !versionsPath || !commentsPath) return;
+    const controller = new AbortController();
+    const activeKey = key;
+    setDetail({ key: activeKey, status: "loading", versions: [], comments: [], error: "" });
+    void fetchDeliverableDetail({ versions: versionsPath, comments: commentsPath }, { signal: controller.signal })
+      .then((loaded) => {
+        if (controller.signal.aborted) return;
+        setDetail({ key: activeKey, status: "ready", ...loaded, error: "" });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setDetail({
+          key: activeKey,
+          status: "error",
+          versions: [],
+          comments: [],
+          error: error instanceof Error ? error.message : "Could not load versions and comments",
+        });
+      });
+    return () => controller.abort();
+  }, [commentsPath, key, loadAttempt, versionsPath]);
+
+  function requestClose() {
+    if (sending) return;
+    runGuarded(() => {
+      if (key) removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
+      setDraft({ key: null, id: "", body: "", attemptedId: null, attemptedBody: null });
+      onClose();
+    });
+  }
 
   async function send() {
-    if (!row || !draft.trim()) return;
+    if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
+    const pendingDraft = { key, id: draft.id, body: draftBody, attemptedId: draft.id, attemptedBody: draftBody.trim() };
+    if (!persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)) {
+      toast("Can't send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
+      return;
+    }
+    setDraft(pendingDraft);
     setSending(true);
     try {
       const response = await fetch(`/api/internal/deliverables/comments?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileRequestId: row.fileRequestId, contactId: row.contactId, submissionId: row.submissionId, body: draft.trim() }),
+        body: JSON.stringify({ id: draft.id, fileRequestId: row.fileRequestId, contactId: row.contactId, submissionId: row.submissionId, body: draftBody.trim() }),
       }).catch(() => null);
       const payload = await response?.json().catch(() => null) as { data?: FileCommentDTO } | null;
       const created = payload?.data;
       if (!response?.ok || !created) {
-        toast("That comment did not go through — try again", { kind: "error" });
+        if (!response || response.status >= 500 || response.ok) {
+          setLoadAttempt((attempt) => attempt + 1);
+          toast("We couldn't confirm whether that comment was sent — retry it unchanged to recover the result", { kind: "error" });
+        } else {
+          toast("That comment could not be sent — review it and try again", { kind: "error" });
+        }
         return;
       }
-      setComments((current) => {
-        const next = [...current, created];
-        onCommentAdded(row.fileRequestId, row.contactId, row.submissionId, next.length);
-        return next;
+      const commentCount = currentDetail.comments.length + 1;
+      setDetail((current) => {
+        if (current.key !== key || current.status !== "ready") return current;
+        const comments = [...current.comments, created];
+        return { ...current, comments };
       });
-      setDraft("");
+      onCommentAdded(row.fileRequestId, row.contactId, row.submissionId, commentCount);
     } finally {
       setSending(false);
     }
   }
 
   return (
-    <Drawer open={row !== null} onClose={onClose} title={row ? `${row.contactName} — ${row.fileRequestTitle}` : "Deliverable"}>
+    <Drawer open={row !== null} onClose={requestClose} title={row ? `${row.contactName} — ${row.fileRequestTitle}` : "Deliverable"}>
       {row && (
         <div className="drawer-content">
-          <section>
+          {currentDetail.status === "loading" && <p className="portal-note" role="status">Loading versions and comments…</p>}
+          {currentDetail.status === "error" && <div className="portal-note" role="alert">
+            <p>{currentDetail.error}</p>
+            <Button size="sm" variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</Button>
+          </div>}
+          {currentDetail.status === "ready" && <><section>
             <h3>Versions</h3>
-            {versions.length === 0 && !loading && <p className="portal-note">No file has been uploaded for this deliverable yet.</p>}
+            {currentDetail.versions.length === 0 && <p className="portal-note">No file has been uploaded for this deliverable yet.</p>}
             <ul className="portal-uploads">
-              {versions.map((version) => (
+              {currentDetail.versions.map((version) => (
                 <li key={version.fileUploadId}>
                   <Paperclip size={15} />
                   <PrivateFileLink fileId={version.fileAssetId}>{version.filename}</PrivateFileLink>
@@ -476,9 +688,9 @@ function DeliverableDrawer({
           </section>
           <section>
             <h3>Comments</h3>
-            {comments.length === 0 && !loading
+            {currentDetail.comments.length === 0
               ? <p className="portal-note">No comments yet.</p>
-              : comments.map((comment) => (
+              : currentDetail.comments.map((comment) => (
                 <div className="review-comment" key={comment.id}>
                   <header>
                     <span>{comment.authorName.slice(0, 2).toUpperCase()}</span>
@@ -492,16 +704,21 @@ function DeliverableDrawer({
               <textarea
                 aria-label="Reply to the speaker"
                 rows={2}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                value={draftBody}
+                disabled={sending}
+                onChange={(event) => {
+                  if (!key) return;
+                  setDraft(commentDraftAfterEdit(draft, key, event.target.value));
+                }}
                 placeholder="Reply to the speaker…"
                 maxLength={5000}
               />
-              <Button size="sm" disabled={sending || draft.trim().length === 0} onClick={() => void send()}>
+              <Button size="sm" disabled={sending || !draftDirty} onClick={() => void send()}>
                 {sending ? "Sending…" : "Send"}
               </Button>
             </div>
           </section>
+          </>}
         </div>
       )}
     </Drawer>

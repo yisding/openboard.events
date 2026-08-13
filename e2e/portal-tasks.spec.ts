@@ -1,13 +1,9 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin, loginAsSpeaker } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, TASKS } from "./helpers/seeded";
 
-/**
- * Goes green when M21 (portal shell), M22 (profile) and M25 (task runtime) land
- * — target CP3, owned by WS-D.
- */
+/** Speaker profile and task completion journeys against the deployed preview. */
 
 const PORTAL = `/portal/${EVENTS.main.slug}`;
 const BIO_LIMIT = 5000;
@@ -50,8 +46,6 @@ test.describe("portal-tasks", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("the profile", () => {
-    test.skip(!landed("M21", "M22"), waitingOn("M21", "M22"));
-
     test("a speaker signs in and saves a profile", async ({ page, request }) => {
       const assertClean = expectNoConsoleErrors(page);
       const speaker = await speakerWithOpenTasks(request, 1);
@@ -95,8 +89,6 @@ test.describe("portal-tasks", () => {
   });
 
   test.describe("task completion", () => {
-    test.skip(!landed("M21", "M25"), waitingOn("M21", "M25"));
-
     test("a speaker completes a manual task and a file-request task", async ({ page, request }) => {
       const assertClean = expectNoConsoleErrors(page);
       // Two open tasks at least: the manual one and the file request. The seed
@@ -151,7 +143,6 @@ test.describe("portal-tasks", () => {
 test.describe("portal-tasks on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M21", "M25"), waitingOn("M21", "M25"));
 
   test("login and file completion work at 390px", async ({ page, request }) => {
     const assertClean = expectNoConsoleErrors(page);

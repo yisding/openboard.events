@@ -1,16 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, EVENT_EDITABLE_TEMPLATE_KEYS_PER_EVENT, TEMPLATE_KEYS_PER_EVENT } from "./helpers/seeded";
 
 /**
- * Goes green when M11 (events + vocab) and M12 (form builder core) land — target
- * CP2, owned by WS-B1.
- *
- * Every gate is a describe-level modifier, never a skip inside a test body: a
- * body-level skip still builds the `page` fixture, so an unlanded step would
- * launch a browser just to skip.
+ * Covers seeded sign-in, event setup, empty states, and the form builder
+ * against the deployed preview.
  */
 
 /** Unique per run: the suite wipes and reseeds, but a retry inside one run must not collide. */
@@ -31,8 +26,6 @@ test.describe("admin-setup", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
   test.describe("against the seeded world", () => {
-    test.skip(!landed("M09"), waitingOn("M09"));
-
     test("an organizer signs in and reaches the seeded event", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
       await test.step("sign in as the seeded organizer", async () => {
@@ -51,8 +44,6 @@ test.describe("admin-setup", () => {
   });
 
   test.describe("event creation", () => {
-    test.skip(!landed("M11"), waitingOn("M11"));
-
     test("guided event creation validates, provisions defaults, and finishes setup", async ({ page }) => {
       await loginAsAdmin(page);
       await page.goto("/events/new");
@@ -150,7 +141,6 @@ test.describe("admin-setup", () => {
     });
 
     test("the empty event renders empty states, not a crash", async ({ page }) => {
-      test.skip(!landed("M09"), waitingOn("M09"));
       const assertClean = expectNoConsoleErrors(page);
       await loginAsAdmin(page);
       await test.step(`${EVENTS.empty.name} renders its designed empty state`, async () => {
@@ -173,8 +163,6 @@ test.describe("admin-setup", () => {
   });
 
   test.describe("the form builder", () => {
-    test.skip(!landed("M11", "M12"), waitingOn("M11", "M12"));
-
     test("the builder produces a public form link that returns 200", async ({ page, context, request }) => {
       await loginAsAdmin(page);
       await loginAsAdmin(request);
