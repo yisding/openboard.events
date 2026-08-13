@@ -84,11 +84,14 @@ async function removePriorTestAccount(email: string): Promise<void> {
       if (!user.name.startsWith("E2E Self-service ")) {
         throw new Error(`${email} already belongs to a non-E2E account; configure a dedicated signup mailbox`);
       }
-      const owned = await client.query<{ organization_id: string }>(
-        "SELECT organization_id FROM organization_members WHERE user_id=$1 AND role='owner'",
+      const owned = await client.query<{ organization_id: string; organization_name: string }>(
+        `SELECT member.organization_id, organization.name AS organization_name
+         FROM organization_members member
+         JOIN organizations organization ON organization.id = member.organization_id
+         WHERE member.user_id=$1 AND member.role='owner'`,
         [user.id],
       );
-      for (const { organization_id: organizationId } of owned.rows) {
+      for (const { organization_id: organizationId, organization_name: organizationName } of owned.rows) {
         const others = await client.query<{ n: string }>(
           "SELECT count(*)::text AS n FROM organization_members WHERE organization_id=$1 AND user_id<>$2",
           [organizationId, user.id],
@@ -96,6 +99,14 @@ async function removePriorTestAccount(email: string): Promise<void> {
         if (Number(others.rows[0]?.n ?? 0) > 0) {
           throw new Error(`refusing to remove E2E organization ${organizationId}: it has another member`);
         }
+        if (!organizationName.startsWith("E2E Organization ")) {
+          throw new Error(`refusing to remove non-E2E organization ${organizationId}`);
+        }
+        // Organization deletion deliberately RESTRICTs while events exist.
+        // Remove this dedicated test workspace's event roots explicitly; all
+        // event-scoped rows cascade from them, while organization-scoped rows
+        // cascade from the organization in the next statement.
+        await client.query("DELETE FROM events WHERE organization_id=$1", [organizationId]);
         await client.query("DELETE FROM organizations WHERE id=$1", [organizationId]);
       }
       await client.query("DELETE FROM users WHERE id=$1", [user.id]);
