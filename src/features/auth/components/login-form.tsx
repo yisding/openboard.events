@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { AuthPasswordField } from "./auth-password-field";
 import { GoogleMark } from "./google-mark";
 
 type LoginFormProps = {
@@ -135,7 +136,7 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
       <div className="auth-divider"><span>or continue with email</span></div>
     </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
-    <label className="field"><span>Password</span><input name="password" autoComplete="current-password" required minLength={8} type="password" /></label>
+    <AuthPasswordField id="login-password" name="password" label="Password" autoComplete="current-password" minLength={8} />
     {error && <p className="field-error" role="alert">
       {error}{googleSignupRequired && <> <Link href={signupHref}>Create your workspace</Link> to continue.</>}
     </p>}

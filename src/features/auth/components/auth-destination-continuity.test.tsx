@@ -6,6 +6,8 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ForgotPasswordForm } from "./forgot-password-form";
+import { LoginForm } from "./login-form";
+import { ResetPasswordForm } from "./reset-password-form";
 import { SignupForm } from "./signup-form";
 
 const navigation = vi.hoisted(() => ({ searchParams: new URLSearchParams("next=%2Fjoin%3Ftoken%3Dinvite-123") }));
@@ -116,5 +118,22 @@ describe("authentication destination continuity", () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+
+  it("uses the same accessible password controls for activation sign-in and recovery", () => {
+    navigation.searchParams = new URLSearchParams("next=%2Forganizations");
+    const login = renderToStaticMarkup(<LoginForm />);
+    expect(login).toContain('id="login-password"');
+    expect(login).toContain('aria-controls="login-password"');
+    expect(login).toContain('aria-label="Show password"');
+
+    navigation.searchParams = new URLSearchParams("token=reset-token&next=%2Forganizations");
+    const reset = renderToStaticMarkup(<ResetPasswordForm />);
+    expect(reset).toContain('id="reset-password"');
+    expect(reset).toContain('aria-controls="reset-password"');
+    expect(reset).toContain('aria-label="Show new password"');
+    expect(reset).toContain('id="reset-password-confirm"');
+    expect(reset).toContain('aria-controls="reset-password-confirm"');
+    expect(reset).toContain('aria-label="Show confirm new password"');
   });
 });

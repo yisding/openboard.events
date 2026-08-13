@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Building2, Eye, EyeOff, Mail, User } from "lucide-react";
+import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
 import type { SignupLegalConsent } from "../legal-consent";
+import { AuthPasswordField } from "./auth-password-field";
 import { GoogleMark } from "./google-mark";
 
 /**
@@ -54,7 +55,6 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
   const invitationToken = invitationTokenFromNextPath(next);
   const oauthReturnedWithError = googleEnabled && Boolean(searchParams.get("error"));
   const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError);
-  const [passwordVisible, setPasswordVisible] = useState(false);
   const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState(oauthReturnedWithError
     ? "Google could not create that account. Check the workspace details or use email instead."
@@ -130,7 +130,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} type="submit">
       <GoogleMark /> {pending === "google" ? "Connecting…" : invitationToken ? "Join with Google" : "Create with Google"}
     </Button>
-    <Button variant="ghost" size="lg" className="auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setPasswordVisible(false); setError(""); }} type="button">
+    <Button variant="ghost" size="lg" className="auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setError(""); }} type="button">
       Use email instead
     </Button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
@@ -149,7 +149,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
         : "Confirm your email, add your event details, and leave with a ready-to-share CFP."}</span>
     </aside>
     {googleEnabled && <>
-      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setPasswordVisible(false); setError(""); }} type="button">
+      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
         <GoogleMark /> Continue with Google
       </Button>
       <div className="auth-divider"><span>or create with email</span></div>
@@ -157,21 +157,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <label className="field"><span>Your name</span><input name="name" autoComplete="name" required maxLength={160} type="text" /></label>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
-    <div className="field">
-      <label htmlFor="signup-password">Password</label>
-      <div className="auth-password-input">
-        <input id="signup-password" name="password" autoComplete="new-password" required minLength={12} type={passwordVisible ? "text" : "password"} aria-describedby="signup-password-help" />
-        <button
-          type="button"
-          className="auth-password-toggle"
-          aria-controls="signup-password"
-          aria-label={passwordVisible ? "Hide password" : "Show password"}
-          aria-pressed={passwordVisible}
-          onClick={() => setPasswordVisible((visible) => !visible)}
-        >{passwordVisible ? <EyeOff aria-hidden="true" size={17} /> : <Eye aria-hidden="true" size={17} />}</button>
-      </div>
-      <small id="signup-password-help">Use at least 12 characters.</small>
-    </div>
+    <AuthPasswordField id="signup-password" name="password" label="Password" autoComplete="new-password" minLength={12} hint="Use at least 12 characters." />
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
     <Button size="lg" disabled={pending !== null} type="submit">{pending === "email" ? "Creating…" : "Create account"} <ArrowRight size={16} /></Button>
