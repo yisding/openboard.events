@@ -123,15 +123,19 @@ describe("sweepOrphanStagingObjectsIn", () => {
     expect(result).toEqual({ deleted: 1, scanned: 4, skipped: false });
   });
 
-  it("logs but does not throw when a delete is stranded", async () => {
+  it("logs but does not throw when deletes resolve false or reject", async () => {
     const result = await sweepOrphanStagingObjectsIn(testDb as unknown as DbOrTx, 24, {
       hasCredentials: () => true,
       listPage: async () => page([
-        { key: "evt_1/staging/upload/stranded/a.pdf", lastModified: new Date(0) },
+        { key: "evt_1/staging/upload/stranded/false.pdf", lastModified: new Date(0) },
+        { key: "evt_1/staging/upload/stranded/rejected.pdf", lastModified: new Date(0) },
       ]),
-      deleteKey: async () => false,
+      deleteKey: async (key) => {
+        if (key.endsWith("rejected.pdf")) throw new Error("R2 unavailable");
+        return false;
+      },
     });
-    expect(result).toEqual({ deleted: 0, scanned: 1, skipped: false });
+    expect(result).toEqual({ deleted: 0, scanned: 2, skipped: false });
   });
 
   it("paginates until the listing stops returning a continuation token", async () => {
