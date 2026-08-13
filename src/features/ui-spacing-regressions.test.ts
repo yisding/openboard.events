@@ -67,4 +67,20 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".speaker-portrait>.person-avatar{position:static;");
     expect(css).toContain(".person-avatar-placeholder {");
   });
+
+  it("keeps the landing-page sign-in action visible on compact layouts", () => {
+    expect(css).toContain("@media (max-width: 385px) {");
+    expect(css).toContain(".landing-links > a:not(.button) { display: none; }");
+    expect(css).toContain(".landing-links { gap: 8px; }");
+    expect(css).toContain(".landing-links .button-primary svg { display: none; }");
+    expect(css).toContain(
+      ".landing-nav > .brand > span:not(.brand-mark) { display: none; }",
+    );
+    expect(css).toContain(
+      ".hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }",
+    );
+    expect(css).not.toContain(
+      ".landing-links > a:not(.button), .landing-links .button-secondary { display: none; }",
+    );
+  });
 });
