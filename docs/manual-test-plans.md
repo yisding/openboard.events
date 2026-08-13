@@ -537,7 +537,8 @@ ROLLBACK;   -- the trigger should have raised before you get here
 | 10 | Press **Notify** and confirm **Queue decision emails** | The accept queue commits to `accepted` and the decline queue commits to `declined` in the same action |
 | 11 | Select 20 rows across two pages and bulk-decide | The action applies to your actual selection — confirm the count in the confirmation matches, and spot-check a row from each page |
 | 12 | Bulk-decide with one row already in the target status | Idempotent; no error, no double-write |
-| 13 | Undo a decision, then re-decide it | Both moves are legal and both are recorded |
+| 13 | Undo a decision, then re-decide it; open the proposal drawer | Both moves are legal, and **Decision history** retains every prior state with the organizer and event-local timestamp |
+| 13a | Withdraw a pending proposal as its speaker, then inspect it as organizer | The timeline attributes the withdrawal to that speaker; deleting the speaker later removes their personal reference without deleting the status history |
 | 14 | Attempt a bulk action on a withdrawn row | Skipped with a reason, not a hard failure that abandons the whole batch |
 
 ### §3 Notification

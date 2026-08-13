@@ -6,6 +6,7 @@ import type { SubmissionDetailDTO } from "@/shared/contracts";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionReviewHistory } from "../evaluation/components/submission-review-history";
+import { SubmissionDecisionHistory } from "./submission-decision-history";
 import { SubmissionAnswers } from "./submission-answers";
 import {
   AbstractFields,
@@ -270,7 +271,10 @@ export function SubmissionDrawer({
             </section>
 
             {canEdit && (
-              <SubmissionReviewHistory eventId={eventId} submissionId={submissionId} timezone={timezone} />
+              <>
+                <SubmissionReviewHistory eventId={eventId} submissionId={submissionId} timezone={timezone} />
+                <SubmissionDecisionHistory eventId={eventId} submissionId={submissionId} timezone={timezone} />
+              </>
             )}
           </div>
         </div>

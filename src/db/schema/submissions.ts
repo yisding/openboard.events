@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { boolean, foreignKey, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
-import { events, sessionFormats, tags, tracks } from "./core";
+import { events, sessionFormats, tags, tracks, users } from "./core";
 import { participantRoleEnum, submissionKindEnum, submissionSourceEnum, submissionStatusEnum } from "./enums";
 import { formFields, forms } from "./forms";
 
@@ -21,6 +21,23 @@ export const submissions = pgTable("submissions", {
   index("submissions_event_status_idx").on(table.eventId, table.status), index("submissions_event_form_idx").on(table.eventId, table.formId),
   index("submissions_event_track_idx").on(table.eventId, table.trackId), index("submissions_event_submitter_idx").on(table.eventId, table.submitterContactId),
   uniqueIndex("submissions_one_draft_per_contact_form_uq").on(table.eventId, table.formId, table.submitterContactId).where(sql`status='draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL`),
+]);
+
+/** Immutable proposal-state transitions, including attributed decision reversals. */
+export const submissionStatusRevisions = pgTable("submission_status_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: uuid("event_id").notNull(),
+  submissionId: uuid("submission_id").notNull(),
+  fromStatus: submissionStatusEnum("from_status"),
+  toStatus: submissionStatusEnum("to_status").notNull(),
+  source: text("source").notNull().default("system"),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorContactId: uuid("actor_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique().on(table.id, table.eventId),
+  index("submission_status_revisions_submission_idx").on(table.eventId, table.submissionId, table.changedAt),
+  foreignKey({ columns: [table.submissionId, table.eventId], foreignColumns: [submissions.id, submissions.eventId] }).onDelete("cascade"),
 ]);
 
 export const submissionParticipants = pgTable("submission_participants", {

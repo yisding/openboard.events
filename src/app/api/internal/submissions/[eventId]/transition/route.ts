@@ -3,7 +3,7 @@ import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { BULK_DECISION_LIMIT } from "@/features/submissions/bulk-decision-limit";
 import { transitionStatus } from "@/features/submissions";
-import { eventIdSchema, submissionIdSchema, submissionStatusSchema } from "@/shared/contracts";
+import { eventIdSchema, submissionIdSchema, submissionStatusSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,13 @@ const transition = defineHandler({
     to: submissionStatusSchema,
     expectedFrom: z.union([submissionStatusSchema, z.array(submissionStatusSchema).min(1)]),
   }),
-  handler: async ({ eventId, input }) => transitionStatus(eventIdSchema.parse(eventId), input.ids, input.to, input.expectedFrom),
+  handler: async ({ eventId, input, session }) => transitionStatus(
+    eventIdSchema.parse(eventId),
+    input.ids,
+    input.to,
+    input.expectedFrom,
+    userIdSchema.parse(session?.actorId),
+  ),
 });
 
 export async function POST(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {
