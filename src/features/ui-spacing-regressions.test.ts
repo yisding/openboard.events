@@ -29,6 +29,21 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".evaluation-number-row{grid-template-columns:repeat(3,minmax(0,1fr))}");
   });
 
+  it("keeps repeated action clusters visibly separated", () => {
+    const plans = read("./submissions/evaluation/components/plans-view.tsx");
+    const assignment = read("./submissions/evaluation/components/assignment-drawer.tsx");
+    const queue = read("./submissions/evaluation/components/review-queue-view.tsx");
+    const fileRequests = read("./portal/tasks-admin/components/file-requests-view.tsx");
+    const resources = read("./portal/resources/components/resource-pages-admin-view.tsx");
+
+    expect(plans).toContain('actions={\n          <>');
+    expect(plans).not.toContain('actions={\n          <span className="row-actions">');
+    expect(css).toContain(".row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }");
+    for (const source of [plans, assignment, queue, fileRequests, resources]) {
+      expect(source).toContain('className="row-actions"');
+    }
+  });
+
   it("separates communications preview metadata from the rendered message", () => {
     const templates = read("./comms/components/templates-tab.tsx");
     const bulk = read("./comms/components/bulk-send-tab.tsx");
