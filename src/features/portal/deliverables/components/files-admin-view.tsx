@@ -501,7 +501,7 @@ function DeliverableDrawer({
     if (!currentDetail.comments.some((comment) => comment.id === draft.id)) return;
     localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
     setDraft({ key, id: crypto.randomUUID(), body: "" });
-    toast("Your comment was sent before you left");
+    toast("Comment sent");
   }, [currentDetail, draft, eventId, key, toast]);
 
   useEffect(() => {
@@ -560,8 +560,6 @@ function DeliverableDrawer({
         return { ...current, comments };
       });
       onCommentAdded(row.fileRequestId, row.contactId, row.submissionId, commentCount);
-      localStorage.removeItem(fileCommentDraftStorageKey(eventId, key));
-      setDraft({ key, id: crypto.randomUUID(), body: "" });
     } finally {
       setSending(false);
     }

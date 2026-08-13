@@ -79,6 +79,8 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain('aria-label="Reply to speaker"');
     expect(source).toContain("localStorage.setItem(fileCommentDraftStorageKey(eventId, key)");
     expect(source).toContain("currentDetail.comments.some((comment) => comment.id === draft.id)");
-    expect(source).toContain("Your comment was sent before you left");
+    expect(source).toContain('toast("Comment sent")');
+    const receipt = source.indexOf("currentDetail.comments.some((comment) => comment.id === draft.id)");
+    expect(source.indexOf("localStorage.removeItem(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
   });
 });
