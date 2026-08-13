@@ -42,7 +42,12 @@ describe("onboarding organization access", () => {
 
   it("reveals the optional URL field before focusing a server-side slug error", () => {
     expect(wizard).toContain('if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true');
-    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
+    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event)}>');
+  });
+
+  it("marks the existing slug as required when correcting an event", () => {
+    expect(wizard).toContain('required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working"');
+    expect(wizard).toContain('name="slug" required={Boolean(event)}');
   });
 
   it("does not advance while a track mutation is still being saved", () => {

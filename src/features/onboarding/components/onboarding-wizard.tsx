@@ -676,10 +676,10 @@ export function OnboardingWizard({
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
             <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
           </Field>
-          <details ref={slugDetailsRef} className="onboarding-advanced">
-            <summary>Customize public URL</summary>
-            <Field label="Event slug" hint="Optional — leave blank to generate it from the event name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
-              <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
+          <details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event)}>
+            <summary>{event ? "Public URL" : "Customize public URL"}</summary>
+            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+              <input id="onboarding-event-slug" name="slug" required={Boolean(event)} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
             </Field>
           </details>
           <div className="form-grid">
