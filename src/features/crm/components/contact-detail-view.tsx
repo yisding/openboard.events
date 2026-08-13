@@ -371,7 +371,7 @@ export function ContactDetailView({
                     <p className="long-copy">Already linked to every event in this organization.</p>
                   ) : (
                     <>
-                      <Select value={pushEventId} onChange={(event) => setPushEventId(event.target.value)}>
+                      <Select aria-label="Destination event" value={pushEventId} onChange={(event) => setPushEventId(event.target.value)}>
                         {pushableEvents.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
                       </Select>
                       <Button size="sm" disabled={pushBusy} onClick={() => void pushToEvent()}><Send size={14} /> {pushBusy ? "Pushing…" : "Push"}</Button>
