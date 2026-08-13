@@ -65,6 +65,8 @@ describe("PublicFormGate event identity", () => {
     const markup = renderToStaticMarkup(createElement(PublicFormGate, { data: publicForm(null) }));
 
     expect(markup).toContain("OpenBoard Conf");
+    expect(markup).toContain('href="/e/openboard-conf/agenda"');
+    expect(markup).toContain("Event site");
     expect(markup).toContain("<h1>Share your idea</h1>");
     expect(markup.match(/<h1>/g)).toHaveLength(1);
   });
@@ -78,6 +80,17 @@ describe("PublicFormGate event identity", () => {
     expect(markup).toContain("%2Ff%2Fevent-logo");
     expect(markup).toContain('alt=""');
     expect(markup).toContain('aria-hidden="true"');
-    expect(markup).toContain(">OpenBoard Conf</p>");
+    expect(markup).toContain(">OpenBoard Conf</b>");
+  });
+
+  it("renders submission metadata as real label-value pairs", () => {
+    const data = publicForm(null);
+    data.form.closesAt = "2026-10-15T20:00:00.000Z";
+    const markup = renderToStaticMarkup(createElement(PublicFormGate, { data }));
+
+    expect(markup).toContain("<dl");
+    expect(markup).toContain("<dt>Submissions close</dt>");
+    expect(markup).toContain("<dt>Submission limit</dt>");
+    expect(markup).toContain("<dd>2 per speaker</dd>");
   });
 });

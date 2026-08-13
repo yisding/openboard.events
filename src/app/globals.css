@@ -1612,10 +1612,22 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    credential-free demo hero, which intentionally uses similarly named pieces. */
 .public-form-welcome{margin-bottom:32px}
 .public-form-welcome h1{font-size:32px;letter-spacing:-1px;margin:0 0 12px}
-.public-form-progress{list-style:none;display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 16px;padding:0;font-size:12.5px;text-transform:capitalize;color:var(--muted)}
-.public-form-progress li{display:flex;align-items:center;gap:6px}
-.public-form-progress li:not(:last-child)::after{content:"";width:18px;height:1px;background:var(--line-strong);margin-left:8px}
-.public-form-progress li.active{color:var(--accent-dark);font-weight:600}
+.public-form-welcome .welcome-facts{display:grid;grid-template-columns:repeat(2,minmax(0,max-content));gap:16px;margin:24px 0}
+.public-form-welcome .welcome-facts>div{display:grid;gap:4px;padding-left:12px;border-left:2px solid var(--accent-border)}
+.public-form-welcome .welcome-facts dt{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.public-form-welcome .welcome-facts dd{margin:0;color:var(--ink);font-size:11.5px;font-weight:600}
+.public-form-progress{list-style:none;display:grid;gap:0;margin:0 0 24px;padding:0;color:var(--muted)}
+.public-form-progress-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.public-form-progress-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.public-form-progress li{position:relative;display:grid;justify-items:center;gap:7px;text-align:center}
+.public-form-progress li:not(:last-child)::after{content:"";position:absolute;top:12px;left:calc(50% + 17px);width:calc(100% - 34px);height:1px;background:var(--line-strong)}
+.public-form-progress li>span{position:relative;z-index:1;width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--line-strong);border-radius:50%;background:var(--surface);font-size:10px;font-weight:700}
+.public-form-progress li>b{font-size:10px;font-weight:600;text-transform:capitalize}
+.public-form-progress li.active{color:var(--accent-dark)}
+.public-form-progress li.active>span{border-color:var(--accent);background:var(--accent);color:var(--on-accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.public-form-progress li.complete{color:var(--green)}
+.public-form-progress li.complete>span{border-color:var(--green);background:var(--green);color:var(--on-fill)}
+.public-form-progress li.complete::after{background:var(--green)}
 .cfp-account-form{align-items:end}
 .cfp-account-form>.button{height:40px}
 .cfp-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;grid-column:1/-1}
@@ -1765,11 +1777,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}
   .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
 
-  /* Four progress labels otherwise land as an unstable 2 / 2 at 390px but
-     3 / 1 around 440px. Keep the same two-column rhythm across phone widths. */
-  .public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .public-form-progress:has(>li:nth-child(4)) li:not(:last-child)::after{margin-left:auto}
-  .public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}
+  .public-form-welcome .welcome-facts{grid-template-columns:1fr}
 }
 
 .communications-tabs button{display:inline-flex;align-items:center;gap:7px}
