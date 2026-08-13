@@ -38,8 +38,8 @@ extra=''
 # The surface map mirrors the deployed one after M53: /e/<slug>/agenda is the
 # canonical cached page, /e/<slug>/schedule is the legacy redirect, and the
 # embed reads its style from the saved row so it is edge-cached too. Both cached
-# surfaces open cold — a 503, then a 200 with no Cache-Control — before settling,
-# which is exactly the transient the retry loops exist to absorb.
+# surfaces open cold — a 503, then a cached STALE response with no Cache-Control.
+# OpenNext reports that valid cache state through x-nextjs-cache.
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
@@ -47,7 +47,7 @@ cold_then_cached() {
   count=$((count+1))
   echo "$count" > "$count_file"
   if (( count == 1 )); then status=503
-  elif (( count >= 3 )); then extra="$extra"$'Cache-Control: public, s-maxage=60\\r\\n'
+  else extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
   fi
 }
 case "$url" in

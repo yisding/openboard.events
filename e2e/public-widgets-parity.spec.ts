@@ -528,7 +528,11 @@ test.describe("public-widgets-parity (M53)", () => {
             let cached = false;
             for (let attempt = 0; attempt < 5 && !cached; attempt += 1) {
               const response = await page.request.get(url);
-              cached = (response.headers()["cache-control"] ?? "").includes("s-maxage=");
+              const headers = response.headers();
+              const nextCache = (headers["x-nextjs-cache"] ?? "").toLowerCase();
+              cached = (headers["cache-control"] ?? "").includes("s-maxage=")
+                || nextCache === "hit"
+                || nextCache === "stale";
               if (!cached) await page.waitForTimeout(2_000);
             }
             expect(cached, `${url} never became edge-cached`).toBe(true);

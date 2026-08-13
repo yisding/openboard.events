@@ -79,6 +79,19 @@ header_value() {
   tr -d '\r' < "$headers_file" | grep -i "^$1:" | head -1 | cut -d: -f2- | sed 's/^ *//' | tr '[:upper:]' '[:lower:]'
 }
 
+# OpenNext exposes two valid forms of the same edge-cache contract. A fresh
+# render carries s-maxage for the cache to store. Once that entry is served by
+# the incremental cache, OpenNext can omit Cache-Control and report HIT or
+# STALE in x-nextjs-cache instead. Requiring s-maxage on that cached response
+# turns a healthy cache hit (or stale-while-revalidate response) into a failed
+# deployment.
+is_edge_cached() {
+  local cache_control next_cache
+  cache_control="$(header_value cache-control)"
+  next_cache="$(header_value x-nextjs-cache)"
+  [[ "$cache_control" == *"s-maxage="* || "$next_cache" == "hit" || "$next_cache" == "stale" ]]
+}
+
 expect_status() {
   local url="$1" expected="$2" what="$3"
   local status
@@ -145,11 +158,10 @@ fi
 # 2. The public schedule is cached at the edge. Two things this deliberately does
 #    not assert: the literal s-maxage=60 (OpenNext counts it down as the entry
 #    ages, so a page rendered 58 seconds ago honestly answers s-maxage=2), and
-#    the header's presence on the first request. A cold entry — right after a
-#    deploy, or after a revalidation — is served STALE with no Cache-Control at
-#    all until the cache settles, which is a legitimate transient rather than a
-#    broken contract. So it is retried, and only a page that never becomes
-#    cacheable fails.
+#    Cache-Control's presence on a cached response. OpenNext can serve an ISR
+#    entry as HIT or STALE with no Cache-Control at all; x-nextjs-cache is the
+#    authoritative signal in that case. Cold responses are still retried, and
+#    only a page with neither signal fails.
 #    M53 renamed the canonical surface to /agenda; the legacy /schedule URL must
 #    keep answering with a redirect so old links and embeds never break.
 schedule_ok=0
@@ -159,7 +171,7 @@ for attempt in 1 2 3 4 5; do
   # later attempt succeeds.
   fetch "$base_url/e/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then schedule_ok=1; break; fi
+    if is_edge_cached; then schedule_ok=1; break; fi
   fi
   if (( attempt < 5 )); then sleep 2; fi
 done
@@ -168,7 +180,7 @@ if (( schedule_ok )); then
 elif [[ "$last_status" != "200" ]]; then
   fail "$base_url/e/$event_slug/agenda" "public agenda renders (expected 200 after 5 attempts, got $last_status)"
 else
-  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage after 5 attempts)"
+  fail "$base_url/e/$event_slug/agenda" "public agenda is edge-cached (no s-maxage or OpenNext cache state after 5 attempts)"
 fi
 
 # 2b. The legacy public URL redirects rather than 404s.
@@ -183,12 +195,12 @@ fi
 #    /e/* pages have (status rev. 11's recorded regression). They now read
 #    style from the saved `embeds` row instead, same as filters and the kill
 #    switch already did — so this asserts s-maxage on the embed too, with the
-#    same cold-cache retry as check 2.
+#    same cache-state retry as check 2.
 embed_ok=0
 for attempt in 1 2 3 4 5; do
   fetch "$base_url/embed/$event_slug/agenda"
   if [[ "$last_status" == "200" ]]; then
-    if [[ "$(header_value cache-control)" == *"s-maxage="* ]]; then embed_ok=1; break; fi
+    if is_edge_cached; then embed_ok=1; break; fi
   fi
   if (( attempt < 5 )); then sleep 2; fi
 done
@@ -199,7 +211,7 @@ if (( embed_ok )); then
 elif [[ "$last_status" != "200" ]]; then
   fail "$base_url/embed/$event_slug/agenda" "embed renders (expected 200 after 5 attempts, got $last_status)"
 else
-  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage after 5 attempts)"
+  fail "$base_url/embed/$event_slug/agenda" "embed is edge-cached (no s-maxage or OpenNext cache state after 5 attempts)"
 fi
 
 # 4. The public API answers with an envelope.
