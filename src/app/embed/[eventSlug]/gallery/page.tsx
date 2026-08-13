@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PublicSpeakerGallery } from "@/features/public/public-speaker-gallery";
 import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSpeakers } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
+
+export const metadata: Metadata = { title: "Speaker gallery" };
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",

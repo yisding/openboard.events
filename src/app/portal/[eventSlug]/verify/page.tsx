@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { MagicLinkForm } from "@/features/auth/components/magic-link-form";
 import { OtpForm } from "@/features/auth/components/otp-form";
 import { Brand } from "@/shared/ui/brand";
+
+export const metadata: Metadata = { title: "Confirm portal sign in" };
 
 export default async function PortalVerifyPage({ params, searchParams }: { params: Promise<{ eventSlug: string }>; searchParams: Promise<{ token?: string; email?: string; impersonate?: string; next?: string }> }) {
   const { eventSlug } = await params;
