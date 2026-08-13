@@ -43,7 +43,13 @@ type DeliverableDetail = {
   error: string;
 };
 
-type CommentDraft = { key: string | null; id: string; body: string; attemptedBody: string | null };
+type CommentDraft = {
+  key: string | null;
+  id: string;
+  body: string;
+  attemptedId: string | null;
+  attemptedBody: string | null;
+};
 type CommentDraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type CommentDraftStorageProvider = () => CommentDraftStorage;
 
@@ -66,6 +72,9 @@ export function parseStoredCommentDraft(value: string | null, expectedKey: strin
       // Markers written before attemptedBody was introduced represented an
       // in-flight request, so treating their canonical body as attempted is
       // the safe backwards-compatible interpretation.
+      attemptedId: typeof parsed.attemptedId === "string" && /^[0-9a-f-]{36}$/i.test(parsed.attemptedId)
+        ? parsed.attemptedId
+        : parsed.id,
       attemptedBody: typeof parsed.attemptedBody === "string" ? parsed.attemptedBody.slice(0, 5_000) : body.trim(),
     };
   } catch {
@@ -80,12 +89,20 @@ export function commentDraftAfterEdit(
   createId: () => string = () => crypto.randomUUID(),
 ): CommentDraft {
   const sameDraft = current.key === key && current.id;
-  const changedAttempt = sameDraft && current.attemptedBody !== null && body.trim() !== current.attemptedBody;
+  if (!sameDraft) return { key, id: createId(), body, attemptedId: null, attemptedBody: null };
+  const matchesAttempt = current.attemptedId !== null
+    && current.attemptedBody !== null
+    && body.trim() === current.attemptedBody;
+  const firstEditAfterAttempt = current.attemptedId !== null
+    && current.attemptedBody !== null
+    && current.id === current.attemptedId
+    && !matchesAttempt;
   return {
     key,
-    id: changedAttempt || !sameDraft ? createId() : current.id,
+    id: matchesAttempt ? (current.attemptedId ?? current.id) : firstEditAfterAttempt ? createId() : current.id,
     body,
-    attemptedBody: changedAttempt || !sameDraft ? null : current.attemptedBody,
+    attemptedId: current.attemptedId,
+    attemptedBody: current.attemptedBody,
   };
 }
 
@@ -543,7 +560,7 @@ function DeliverableDrawer({
   const { runGuarded } = useGuardedAction();
   const [detail, setDetail] = useState<DeliverableDetail>({ key: "", status: "loading", versions: [], comments: [], error: "" });
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "", attemptedBody: null });
+  const [draft, setDraft] = useState<CommentDraft>({ key: null, id: "", body: "", attemptedId: null, attemptedBody: null });
   const [sending, setSending] = useState(false);
 
   const key = row ? `${row.fileRequestId}:${row.contactId}:${row.submissionId ?? "-"}` : null;
@@ -558,15 +575,22 @@ function DeliverableDrawer({
   useEffect(() => {
     if (!key) return;
     const stored = loadStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), key);
-    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "", attemptedBody: null });
+    setDraft(stored ?? { key, id: crypto.randomUUID(), body: "", attemptedId: null, attemptedBody: null });
   }, [eventId, key]);
 
   useEffect(() => {
-    if (!key || currentDetail.status !== "ready" || draft.key !== key || draft.attemptedBody === null) return;
-    if (!currentDetail.comments.some((comment) => comment.id === draft.id && comment.body === draft.attemptedBody)) return;
+    if (!key || currentDetail.status !== "ready" || draft.key !== key || draft.attemptedId === null || draft.attemptedBody === null) return;
+    if (!currentDetail.comments.some((comment) => comment.id === draft.attemptedId && comment.body === draft.attemptedBody)) return;
     removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
-    setDraft({ key, id: crypto.randomUUID(), body: "", attemptedBody: null });
-    toast("Comment sent");
+    if (draft.id === draft.attemptedId && draft.body.trim() === draft.attemptedBody) {
+      setDraft({ key, id: crypto.randomUUID(), body: "", attemptedId: null, attemptedBody: null });
+      toast("Comment sent");
+    } else {
+      setDraft((current) => current.key === key
+        ? { ...current, attemptedId: null, attemptedBody: null }
+        : current);
+      toast("The original comment was sent — your edited reply is still unsent");
+    }
   }, [currentDetail, draft, eventId, key, toast]);
 
   useEffect(() => {
@@ -596,14 +620,14 @@ function DeliverableDrawer({
     if (sending) return;
     runGuarded(() => {
       if (key) removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key));
-      setDraft({ key: null, id: "", body: "", attemptedBody: null });
+      setDraft({ key: null, id: "", body: "", attemptedId: null, attemptedBody: null });
       onClose();
     });
   }
 
   async function send() {
     if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
-    const pendingDraft = { key, id: draft.id, body: draftBody, attemptedBody: draftBody.trim() };
+    const pendingDraft = { key, id: draft.id, body: draftBody, attemptedId: draft.id, attemptedBody: draftBody.trim() };
     if (!persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)) {
       toast("Can't send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
       return;

@@ -75,7 +75,7 @@ describe("Files deliverable detail recovery", () => {
     const id = "e5000000-0000-4000-8000-000000000090";
     expect(fileCommentDraftStorageKey("event-a", key)).toBe(`openboard:files-comment:event-a:${key}`);
     expect(parseStoredCommentDraft(JSON.stringify({ key, id, body: "Still sending" }), key))
-      .toEqual({ key, id, body: "Still sending", attemptedBody: "Still sending" });
+      .toEqual({ key, id, body: "Still sending", attemptedId: id, attemptedBody: "Still sending" });
     expect(parseStoredCommentDraft(JSON.stringify({ key: "other", id, body: "Wrong slot" }), key)).toBeNull();
     expect(parseStoredCommentDraft("not json", key)).toBeNull();
   });
@@ -86,7 +86,13 @@ describe("Files deliverable detail recovery", () => {
     };
     const key = "request-a:contact-a:-";
     const storageKey = fileCommentDraftStorageKey("event-a", key);
-    const draft = { key, id: "e5000000-0000-4000-8000-000000000090", body: "Please check this", attemptedBody: "Please check this" };
+    const draft = {
+      key,
+      id: "e5000000-0000-4000-8000-000000000090",
+      body: "Please check this",
+      attemptedId: "e5000000-0000-4000-8000-000000000090",
+      attemptedBody: "Please check this",
+    };
 
     expect(loadStoredCommentDraft(storageKey, key, unavailableStorage)).toBeNull();
     expect(persistStoredCommentDraft(storageKey, draft, unavailableStorage)).toBe(false);
@@ -99,6 +105,7 @@ describe("Files deliverable detail recovery", () => {
       key,
       id: "e5000000-0000-4000-8000-000000000090",
       body: "Original message",
+      attemptedId: "e5000000-0000-4000-8000-000000000090",
       attemptedBody: "Original message",
     };
     const nextId = "e5000000-0000-4000-8000-000000000091";
@@ -111,7 +118,17 @@ describe("Files deliverable detail recovery", () => {
       key,
       id: nextId,
       body: "Corrected message",
-      attemptedBody: null,
+      attemptedId: attempted.id,
+      attemptedBody: "Original message",
+    });
+    expect(commentDraftAfterEdit(
+      commentDraftAfterEdit(attempted, key, "Corrected message", () => nextId),
+      key,
+      " Original message ",
+      () => "must-not-be-used",
+    )).toEqual({
+      ...attempted,
+      body: " Original message ",
     });
   });
 
@@ -126,10 +143,11 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain("recovery storage is unavailable");
     expect(source).toContain("couldn't confirm whether that comment was sent — retry it unchanged");
     expect(source).toContain("setLoadAttempt((attempt) => attempt + 1)");
-    expect(source).toContain("comment.id === draft.id && comment.body === draft.attemptedBody");
+    expect(source).toContain("comment.id === draft.attemptedId && comment.body === draft.attemptedBody");
     expect(source).toContain("commentDraftAfterEdit(draft, key, event.target.value)");
     expect(source).toContain('toast("Comment sent")');
-    const receipt = source.indexOf("comment.id === draft.id && comment.body === draft.attemptedBody");
+    expect(source).toContain("your edited reply is still unsent");
+    const receipt = source.indexOf("comment.id === draft.attemptedId && comment.body === draft.attemptedBody");
     expect(source.indexOf("removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
   });
 });
