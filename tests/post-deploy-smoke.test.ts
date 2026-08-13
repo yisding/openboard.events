@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("post-deploy smoke retries", () => {
-  it("rejects old cached HTML until the deployed build regenerates it", () => {
+  it("rejects the prior Worker and old cached HTML until this deployment reaches the edge", () => {
     const scratch = join(homedir(), "Code");
     mkdirSync(scratch, { recursive: true });
     const root = mkdtempSync(join(scratch, "openboard-smoke-test-"));
@@ -44,6 +44,7 @@ extra=''
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
+  echo "$1" >> "$SMOKE_FAKE_STATE/cache-order"
   [[ -f "$count_file" ]] && count="$(<"$count_file")"
   count=$((count+1))
   echo "$count" > "$count_file"
@@ -60,7 +61,18 @@ cold_then_cached() {
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"sha":"same-build","deployment":"new-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
+  */api/health)
+    count_file="$SMOKE_FAKE_STATE/health"
+    count=0
+    [[ -f "$count_file" ]] && count="$(<"$count_file")"
+    count=$((count+1))
+    echo "$count" > "$count_file"
+    if (( count == 1 )); then
+      payload='{"ok":true,"sha":"same-build","deployment":"old-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}'
+    else
+      payload='{"ok":true,"sha":"same-build","deployment":"new-deployment","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}'
+    fi
+    ;;
   */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
@@ -98,7 +110,117 @@ printf '%s' "$status"
     expect(result.stdout).toContain("ok    /api/auth/get-session");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
+    expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("2");
     expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("4");
     expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("4");
+    expect(readFileSync(join(state, "cache-order"), "utf8").trim().split("\n")).toEqual([
+      "agenda", "embed", "agenda", "embed", "agenda", "embed", "agenda", "embed",
+    ]);
+  });
+
+  it("shares one elapsed-time deadline across propagation checks", () => {
+    const scratch = join(homedir(), "Code");
+    mkdirSync(scratch, { recursive: true });
+    const root = mkdtempSync(join(scratch, "openboard-smoke-deadline-test-"));
+    created.push(root);
+    const bin = join(root, "bin");
+    const state = join(root, "state");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(state, { recursive: true });
+
+    const curl = join(bin, "curl");
+    writeFileSync(curl, `#!/usr/bin/env bash
+set -eu
+args=("$@")
+url="\${args[\${#args[@]}-1]}"
+body=""
+headers=""
+for ((i=0; i<\${#args[@]}; i++)); do
+  [[ "\${args[$i]}" == "-o" ]] && body="\${args[$((i+1))]}"
+  [[ "\${args[$i]}" == "-D" ]] && headers="\${args[$((i+1))]}"
+done
+status=200
+payload='{}'
+extra=''
+record() {
+  local count_file="$SMOKE_FAKE_STATE/$1"
+  local count=0
+  [[ -f "$count_file" ]] && count="$(<"$count_file")"
+  echo $((count+1)) > "$count_file"
+}
+case "$url" in
+  */api/health)
+    record health
+    health_deployment="\${SMOKE_FAKE_HEALTH_DEPLOYMENT:-old-deployment}"
+    printf -v payload '{"ok":true,"sha":"same-build","deployment":"%s","errors":{"ok":true},"jobs":{"ok":true},"ms":1}' "$health_deployment"
+    ;;
+  */api/auth/get-session) payload='null' ;;
+  */api/v1/events/*/schedule) payload='{"data":[]}' ;;
+  */embed/*/agenda)
+    record embed
+    extra=$'Content-Security-Policy: frame-ancestors *\\r\\nX-Nextjs-Cache: HIT\\r\\n'
+    cache_deployment="\${SMOKE_FAKE_CACHE_DEPLOYMENT:-old-deployment}"
+    printf -v payload '<span hidden data-openboard-deployment="%s"></span>' "$cache_deployment"
+    ;;
+  */e/*/agenda)
+    record agenda
+    extra=$'X-Nextjs-Cache: HIT\\r\\n'
+    cache_deployment="\${SMOKE_FAKE_CACHE_DEPLOYMENT:-old-deployment}"
+    printf -v payload '<span hidden data-openboard-deployment="%s"></span>' "$cache_deployment"
+    ;;
+  */e/*/schedule) status=307 ;;
+esac
+printf 'HTTP/1.1 %s Test\\r\\n%s\\r\\n' "$status" "$extra" > "$headers"
+printf '%s' "$payload" > "$body"
+printf '%s' "$status"
+`);
+    chmodSync(curl, 0o755);
+    const sleep = join(bin, "sleep");
+    writeFileSync(sleep, "#!/usr/bin/env bash\nexec /usr/bin/sleep \"$@\"\n");
+    chmodSync(sleep, 0o755);
+
+    const startedAt = Date.now();
+    const result = spawnSync("bash", [resolve("scripts/post-deploy-smoke.sh"), "https://example.test"], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        SMOKE_FAKE_STATE: state,
+        SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
+        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        DEPLOYMENT_ID: "new-deployment",
+      },
+    });
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    for (const surface of ["health", "agenda", "embed"]) {
+      expect(Number(readFileSync(join(state, surface), "utf8").trim())).toBeGreaterThanOrEqual(1);
+    }
+
+    const manualState = join(root, "manual-state");
+    mkdirSync(manualState, { recursive: true });
+    const manualResult = spawnSync("bash", [resolve("scripts/post-deploy-smoke.sh"), "https://example.test"], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        SMOKE_FAKE_STATE: manualState,
+        SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
+        SMOKE_FAKE_HEALTH_DEPLOYMENT: "new-deployment",
+        SMOKE_FAKE_CACHE_DEPLOYMENT: "new-deployment",
+        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        DEPLOYMENT_ID: "",
+      },
+    });
+
+    expect(manualResult.status, `${manualResult.stdout}\n${manualResult.stderr}`).toBe(0);
+    expect(readFileSync(join(manualState, "health"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(manualState, "agenda"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(manualState, "embed"), "utf8").trim()).toBe("1");
   });
 });
