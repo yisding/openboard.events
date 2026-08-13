@@ -48,6 +48,32 @@ async function fillPlacement(dialog: Locator, room: string, startsLocal: string,
 test.describe("agenda-schedule", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
+  test.describe("responsive toolbar", () => {
+    test.use({ viewport: { width: 769, height: 900 } });
+
+    test("keeps search and both creation paths inside the viewport", async ({ page }) => {
+      const assertClean = expectNoConsoleErrors(page);
+      await loginAsAdmin(page);
+      await page.goto(AGENDA);
+
+      const actions = [
+        page.getByRole("textbox", { name: "Find session" }),
+        page.getByRole("link", { name: "Add invited talk" }),
+        page.getByRole("button", { name: "Add session" }),
+      ];
+      for (const action of actions) await expect(action).toBeVisible();
+
+      const actionEdges = await Promise.all(actions.map((action) => action.evaluate((control) => control.getBoundingClientRect().right)));
+      const containment = await page.evaluate(() => ({
+        viewport: document.documentElement.clientWidth,
+        document: document.documentElement.scrollWidth,
+      }));
+      expect(containment.document).toBeLessThanOrEqual(containment.viewport);
+      expect(Math.max(...actionEdges)).toBeLessThanOrEqual(containment.viewport);
+      assertClean();
+    });
+  });
+
   test.afterEach(async ({ request }) => {
     if (!targetConfigured()) return;
     await loginAsAdmin(request);
