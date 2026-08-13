@@ -194,9 +194,7 @@ printf '%s' "$status"
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("1");
-    // One request primes each ISR entry before health waits; after the shared
-    // deadline, each receives only the single diagnostic probe.
-    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("2");
-    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("2");
+    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("1");
   });
 });

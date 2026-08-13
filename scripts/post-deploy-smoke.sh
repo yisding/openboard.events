@@ -40,18 +40,21 @@ failures=0
 skips=0
 headers_file="$(mktemp)"
 body_file="$(mktemp)"
+health_headers_file="$(mktemp)"
+health_body_file="$(mktemp)"
 schedule_headers_file="$(mktemp)"
 embed_headers_file="$(mktemp)"
-trap 'rm -f "$headers_file" "$body_file" "$schedule_headers_file" "$embed_headers_file"' EXIT
+trap 'rm -f "$headers_file" "$body_file" "$health_headers_file" "$health_body_file" "$schedule_headers_file" "$embed_headers_file"' EXIT
 deployed_build_sha=""
-deployed_id=""
+deployed_id="${DEPLOYMENT_ID:-}"
 # Cloudflare can briefly route requests to the previous Worker after wrangler
 # reports success, and OpenNext's shared R2 entries may need more than one ISR
 # window to converge. A shared four-minute deadline covers the propagation
 # observed in preview without multiplying the wait across health, agenda, and
-# embed. One request may still finish after the deadline (curl itself is capped
-# at 30 seconds). The exact deployment marker remains the acceptance condition,
-# so waiting longer cannot turn an old cache entry into a false positive.
+# embed. Each propagation request is capped by the time left; after expiry,
+# each unresolved surface gets at most a one-second diagnostic request. The
+# exact deployment marker remains the acceptance condition, so waiting longer
+# cannot turn an old cache entry into a false positive.
 propagation_timeout_seconds="${SMOKE_PROPAGATION_TIMEOUT_SECONDS:-240}"
 propagation_interval_seconds=5
 if [[ ! "$propagation_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
@@ -68,8 +71,23 @@ last_url=""
 last_status=""
 fetch() {
   last_url="$1"
-  last_status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 "$1" 2>/dev/null)" \
+  local timeout_seconds="${2:-30}"
+  last_status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time "$timeout_seconds" "$1" 2>/dev/null)" \
     || last_status="000"
+}
+
+# Uses no more than the shared time remaining. A one-second request after the
+# deadline preserves a concrete status/header diagnostic for every unresolved
+# surface without starting another retry window.
+propagation_fetch() {
+  local remaining
+  remaining=$((propagation_deadline - SECONDS))
+  if (( remaining <= 0 )); then
+    remaining=1
+  elif (( remaining > 30 )); then
+    remaining=30
+  fi
+  fetch "$1" "$remaining"
 }
 
 fail() {
@@ -93,8 +111,8 @@ skip() {
 }
 
 # Sleeps only inside the shared propagation budget. Returning false ends the
-# current retry loop; the next check still gets one diagnostic request so its
-# failure names the affected surface and prints its response headers.
+# interleaved retry loop after every unresolved surface has captured its latest
+# status, headers, and body for a concrete failure diagnostic.
 wait_for_propagation_retry() {
   local remaining delay
   remaining=$((propagation_deadline - SECONDS))
@@ -187,33 +205,77 @@ expect_no_header() {
 echo "post-deploy smoke against $base_url"
 echo
 
-# Trigger both independent ISR entries before waiting for the Worker identity to
-# propagate. Their responses are intentionally not accepted yet: health is the
-# source of the deployment id for manual runs, while protected deploys also
-# provide DEPLOYMENT_ID. These requests merely give both regenerations the full
-# shared window instead of starting them after health consumes it.
-fetch "$base_url/e/$event_slug/agenda"
-fetch "$base_url/embed/$event_slug/agenda"
-
-# 1. Health, including the database round-trip timing. Retry the unique
-# deployment identity as well as the status: immediately after a Worker deploy,
-# Cloudflare can still serve the prior version for a short propagation window.
+# 1–3. Cloudflare can briefly route each URL to the previous Worker
+# independently, while the direct and embedded agendas also have separate ISR
+# entries. Probe all three in every cycle so no surface consumes another's
+# propagation budget. Health supplies the deployment id for manual runs;
+# protected deploys provide it up front so cached HTML can be accepted as soon
+# as its exact marker arrives.
 health_ok=0
 health_attempts=0
-while :; do
-  health_attempts=$((health_attempts + 1))
-  fetch "$base_url/api/health"
-  if [[ "$last_status" == "200" ]] \
-    && { [[ -z "${NEXT_PUBLIC_BUILD_SHA:-}" ]] || grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; } \
-    && { [[ -z "${DEPLOYMENT_ID:-}" ]] || grep -qF -- "\"deployment\":\"$DEPLOYMENT_ID\"" "$body_file"; }; then
-    health_ok=1
-    break
+health_last_status=""
+schedule_ok=0
+schedule_attempts=0
+schedule_last_status=""
+embed_ok=0
+embed_contract_ok=0
+embed_attempts=0
+embed_last_status=""
+while (( ! health_ok || ! schedule_ok || ! embed_ok )); do
+  if (( ! schedule_ok )); then
+    schedule_attempts=$((schedule_attempts + 1))
+    propagation_fetch "$base_url/e/$event_slug/agenda"
+    schedule_last_status="$last_status"
+    cp "$headers_file" "$schedule_headers_file"
+    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      schedule_ok=1
+    fi
   fi
+
+  if (( ! embed_ok )); then
+    embed_attempts=$((embed_attempts + 1))
+    propagation_fetch "$base_url/embed/$event_slug/agenda"
+    embed_last_status="$last_status"
+    cp "$headers_file" "$embed_headers_file"
+    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      embed_ok=1
+      if expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
+        && expect_no_header "x-frame-options" "embed does not send X-Frame-Options"; then
+        embed_contract_ok=1
+      fi
+    fi
+  fi
+
+  if (( ! health_ok )); then
+    health_attempts=$((health_attempts + 1))
+    propagation_fetch "$base_url/api/health"
+    health_last_status="$last_status"
+    cp "$headers_file" "$health_headers_file"
+    cp "$body_file" "$health_body_file"
+    candidate_build_sha="$(sed -n 's/.*\"sha\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)"
+    candidate_deployment_id="$(sed -n 's/.*\"deployment\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)"
+    if [[ "$last_status" == "200" && -n "$candidate_build_sha" && -n "$candidate_deployment_id" ]] \
+      && { [[ -z "${NEXT_PUBLIC_BUILD_SHA:-}" ]] || [[ "$candidate_build_sha" == "$NEXT_PUBLIC_BUILD_SHA" ]]; } \
+      && { [[ -z "${DEPLOYMENT_ID:-}" ]] || [[ "$candidate_deployment_id" == "$DEPLOYMENT_ID" ]]; }; then
+      health_ok=1
+      deployed_build_sha="$candidate_build_sha"
+      deployed_id="$candidate_deployment_id"
+    fi
+  fi
+
+  (( health_ok && schedule_ok && embed_ok )) && break
   wait_for_propagation_retry || break
 done
+
+cp "$health_headers_file" "$headers_file"
+cp "$health_body_file" "$body_file"
 if (( ! health_ok )); then
-  if [[ "$last_status" != "200" ]]; then
-    fail "$base_url/api/health" "health responds (expected 200 before the propagation deadline; got $last_status after $health_attempts attempts)"
+  if [[ "$health_last_status" != "200" ]]; then
+    fail "$base_url/api/health" "health responds (expected 200 before the propagation deadline; got $health_last_status after $health_attempts attempts)"
+  elif [[ -z "$(sed -n 's/.*\"sha\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)" ]]; then
+    fail "$base_url/api/health" "health identifies the deployed build before the propagation deadline ($health_attempts attempts)"
+  elif [[ -z "$(sed -n 's/.*\"deployment\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)" ]]; then
+    fail "$base_url/api/health" "health identifies the unique deployment before the propagation deadline ($health_attempts attempts)"
   elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
     && ! grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; then
     fail "$base_url/api/health" "health matches the requested build before the propagation deadline ($health_attempts attempts)"
@@ -225,8 +287,6 @@ else
     && expect_body 'ms' "health reports a database timing" \
     && expect_body '"errors":\{"ok":true' "health reports operational error tracking" \
     && expect_body '"jobs":\{"ok":true' "health reports scheduled-job heartbeat tracking"; then
-    deployed_build_sha="$(sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
-    deployed_id="$(sed -n 's/.*"deployment":"\([^"]*\)".*/\1/p' "$body_file" | head -1)"
     if [[ -z "$deployed_build_sha" ]]; then
       fail "$base_url/api/health" "health identifies the deployed build"
     elif [[ -z "$deployed_id" ]]; then
@@ -263,44 +323,7 @@ fi
 #    also mean regeneration is failing.
 #    The embed variant must also be framable: CSP allows any ancestor and the
 #    legacy header is absent. Both together is the classic blank-iframe failure.
-schedule_ok=0
-schedule_attempts=0
-schedule_last_status=""
-embed_ok=0
-embed_contract_ok=0
-embed_attempts=0
-embed_last_status=""
-while (( ! schedule_ok || ! embed_ok )); do
-  if (( ! schedule_ok )); then
-    schedule_attempts=$((schedule_attempts + 1))
-    # Retryable probes use fetch directly: expect_status records a permanent
-    # failure, which would make a transient 503 fail the whole run even when a
-    # later attempt succeeds.
-    fetch "$base_url/e/$event_slug/agenda"
-    schedule_last_status="$last_status"
-    cp "$headers_file" "$schedule_headers_file"
-    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
-      schedule_ok=1
-    fi
-  fi
-
-  if (( ! embed_ok )); then
-    embed_attempts=$((embed_attempts + 1))
-    fetch "$base_url/embed/$event_slug/agenda"
-    embed_last_status="$last_status"
-    cp "$headers_file" "$embed_headers_file"
-    if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
-      embed_ok=1
-      if expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
-        && expect_no_header "x-frame-options" "embed does not send X-Frame-Options"; then
-        embed_contract_ok=1
-      fi
-    fi
-  fi
-
-  (( schedule_ok && embed_ok )) && break
-  wait_for_propagation_retry || break
-done
+#    All retry state was collected by the interleaved loop above.
 
 if (( schedule_ok )); then
   pass "/e/$event_slug/agenda"
