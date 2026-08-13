@@ -3,7 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatInZone } from "@/shared/lib/time";
-import { copyPublicFormLink } from "@/features/forms/components/saved-form-actions";
+import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/components/saved-form-actions";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";
@@ -199,6 +199,17 @@ describe("dashboard components", () => {
     const fallback = (value: string) => value === "https://events.test/submit/conf/form-1";
 
     await expect(copyPublicFormLink("/submit/conf/form-1", "https://events.test", clipboard, fallback)).resolves.toBe(true);
+  });
+
+  it("refreshes actions at the next saved availability boundary", () => {
+    const now = new Date("2026-08-13T12:00:00.000Z").getTime();
+    expect(nextFormAvailabilityRefreshMs({
+      status: "open",
+      opensAt: "2026-08-13T12:05:00.000Z",
+      closesAt: "2026-08-13T13:00:00.000Z",
+    }, now)).toBe(300_025);
+    expect(nextFormAvailabilityRefreshMs({ status: "draft", opensAt: null, closesAt: null }, now)).toBeNull();
+    expect(nextFormAvailabilityRefreshMs({ status: "open", opensAt: null, closesAt: new Date(now).toISOString() }, now)).toBeNull();
   });
 
   it("routes speaker task rows through the implemented list drawer", () => {

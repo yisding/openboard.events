@@ -43,6 +43,9 @@ export function FormProgressCards({ eventId, eventSlug, timezone, forms }: { eve
           eventSlug={eventSlug}
           formId={form.formId}
           formName={form.name}
+          status={form.status}
+          opensAt={form.opensAt}
+          closesAt={form.closesAt}
           previewHref={`/events/${eventId}/forms/${form.formId}/preview`}
           compact
         />

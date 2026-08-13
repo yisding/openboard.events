@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Copy, ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { FormAvailability } from "@/features/forms/lib/form-open";
+import { formAvailability, type FormAvailability, type FormOpenStatus } from "@/features/forms/lib/form-open";
 import { copyText, type ClipboardWriter, type CopyFallback } from "@/shared/ui/app/copy-text";
 import { useToast } from "@/shared/ui/toast";
 
@@ -23,11 +23,30 @@ export async function copyPublicFormLink(
   return copyText(new URL(path, origin).toString(), clipboard, fallback);
 }
 
+export function nextFormAvailabilityRefreshMs(
+  form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
+  nowMs: number,
+): number | null {
+  if (form.status !== "open") return null;
+  const futureBoundaries = [form.opensAt, form.closesAt]
+    .filter((value): value is string => value !== null)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => value > nowMs);
+  if (futureBoundaries.length === 0) return null;
+  // Recheck just after the SQL boundary: opens_at equality is open, while
+  // closes_at equality is closed. Long schedules are revisited at the maximum
+  // browser timeout until their actual boundary is close enough.
+  return Math.min(Math.min(...futureBoundaries) - nowMs + 25, 2_147_483_647);
+}
+
 export function SavedFormActions({
   availability,
   eventSlug,
   formId,
   formName,
+  status,
+  opensAt,
+  closesAt,
   previewHref,
   compact = false,
 }: {
@@ -35,15 +54,31 @@ export function SavedFormActions({
   eventSlug: string;
   formId: string;
   formName: string;
+  status: FormOpenStatus;
+  opensAt: string | null;
+  closesAt: string | null;
   /** Omit on the preview page, where unavailable states need guidance instead. */
   previewHref?: string;
   compact?: boolean;
 }) {
   const { toast } = useToast();
+  const [currentAvailability, setCurrentAvailability] = useState(availability);
   const [manualUrl, setManualUrl] = useState("");
   const manualInputRef = useRef<HTMLInputElement>(null);
   const publicPath = `/submit/${eventSlug}/${formId}`;
   const sizeClass = compact ? " button-sm" : "";
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const refresh = () => {
+      const nowMs = Date.now();
+      setCurrentAvailability(formAvailability({ status, opensAt, closesAt }, new Date(nowMs).toISOString()));
+      const delay = nextFormAvailabilityRefreshMs({ status, opensAt, closesAt }, nowMs);
+      if (delay !== null) timer = window.setTimeout(refresh, delay);
+    };
+    refresh();
+    return () => { if (timer !== null) window.clearTimeout(timer); };
+  }, [closesAt, opensAt, status]);
 
   useEffect(() => {
     if (!manualUrl) return;
@@ -52,6 +87,12 @@ export function SavedFormActions({
   }, [manualUrl]);
 
   async function copyLink() {
+    const clickedAvailability = formAvailability({ status, opensAt, closesAt }, new Date().toISOString());
+    if (clickedAvailability !== "live") {
+      setCurrentAvailability(clickedAvailability);
+      toast("This form is no longer live. Review its availability before sharing it.", { kind: "error" });
+      return;
+    }
     const origin = window.location.origin;
     const value = new URL(publicPath, origin).toString();
     const copied = await copyPublicFormLink(publicPath, origin);
@@ -64,7 +105,7 @@ export function SavedFormActions({
     toast("Link selected — press Cmd/Ctrl+C to copy", { kind: "error" });
   }
 
-  if (availability !== "live") {
+  if (currentAvailability !== "live") {
     return previewHref ? (
       <Link
         className={`button button-secondary${sizeClass}`}
@@ -75,7 +116,7 @@ export function SavedFormActions({
       >
         Preview
       </Link>
-    ) : <span className="saved-form-availability" role="status">{AVAILABILITY_GUIDANCE[availability]}</span>;
+    ) : <span className="saved-form-availability" role="status">{AVAILABILITY_GUIDANCE[currentAvailability]}</span>;
   }
 
   return (
@@ -86,6 +127,13 @@ export function SavedFormActions({
         target="_blank"
         rel="noreferrer"
         aria-label={`Open live form: ${formName} (opens in a new tab)`}
+        onClick={(event) => {
+          const clickedAvailability = formAvailability({ status, opensAt, closesAt }, new Date().toISOString());
+          if (clickedAvailability === "live") return;
+          event.preventDefault();
+          setCurrentAvailability(clickedAvailability);
+          toast("This form is no longer live. Review its availability before opening it.", { kind: "error" });
+        }}
       >
         Open live form <ExternalLink size={compact ? 14 : 16} />
       </Link>

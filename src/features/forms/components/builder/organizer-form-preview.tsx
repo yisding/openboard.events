@@ -50,7 +50,15 @@ export function OrganizerFormPreview({ event, form, nowIso }: { event: BuilderEv
         </div>
         <div className="organizer-form-preview__actions">
           <Link className="button button-secondary" href={builderHref}><ArrowLeft size={16} /> Back to builder</Link>
-          <SavedFormActions availability={availability} eventSlug={event.slug} formId={form.id} formName={form.internalName} />
+          <SavedFormActions
+            availability={availability}
+            eventSlug={event.slug}
+            formId={form.id}
+            formName={form.internalName}
+            status={form.status}
+            opensAt={form.opensAt}
+            closesAt={form.closesAt}
+          />
         </div>
       </header>
 
