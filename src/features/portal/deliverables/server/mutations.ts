@@ -22,7 +22,10 @@ import { DELIVERABLE_BULK_LIMIT } from "../bulk-limit";
  * — both paths land on the same `addFileCommentIn` writer.
  */
 export const organizerCommentInputSchema = z.object({
-  id: fileCommentIdSchema,
+  // Optional during the rollout so an organizer with the previous client
+  // bundle already open can still send. New clients always provide this key
+  // and get replay-safe recovery; the writer generates one for legacy calls.
+  id: fileCommentIdSchema.optional(),
   fileRequestId: fileRequestIdSchema,
   contactId: contactIdSchema,
   submissionId: submissionIdSchema.nullable().default(null),
