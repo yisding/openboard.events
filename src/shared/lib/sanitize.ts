@@ -1,4 +1,7 @@
 import xss, { type IFilterXSSOptions } from "xss";
+import { WIDE_IFRAME_HOSTS } from "./embed-hosts";
+
+export { WIDE_IFRAME_HOSTS } from "./embed-hosts";
 
 const defaultWhiteList: NonNullable<IFilterXSSOptions["whiteList"]> = {
   p: [],
@@ -32,14 +35,6 @@ const wideWhiteList: NonNullable<IFilterXSSOptions["whiteList"]> = {
   th: [],
   td: [],
 };
-
-export const WIDE_IFRAME_HOSTS = [
-  "www.youtube.com",
-  "www.youtube-nocookie.com",
-  "player.vimeo.com",
-  "www.loom.com",
-  "docs.google.com",
-] as const;
 
 export type SanitizeOptions = { profile?: "default" | "wide" };
 

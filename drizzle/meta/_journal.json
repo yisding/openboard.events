@@ -176,6 +176,13 @@
       "when": 1786555200000,
       "tag": "0024_user_legal_acceptances",
       "breakpoints": false
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786558800000,
+      "tag": "0025_platform_invitation_email",
+      "breakpoints": false
     }
   ]
 }

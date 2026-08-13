@@ -81,12 +81,12 @@ const adminAuthCommonVars = {
   unsubscribe: commonVars.unsubscribe,
 };
 /**
- * M44 team invitations. `action_url` is the one-shot join link (minted fresh
- * at render time, the same "no secret payload, just a bearer link" pattern
- * `review.queue_url`/`portal.magic_link` already use — see `buildContext`'s
- * `organization_invited` branch), `expires_at` is an already-formatted human
- * string because the renderer never does arithmetic, the same rule
- * `adminAuthVars.expires_in` follows.
+ * M44 team invitations. `action_url` is the one-shot join link. New messages
+ * carry it in the product outbox's encrypted payload so provider retries reuse
+ * one token; `buildContext` retains the render-time mint only for legacy
+ * event-scoped rows. `expires_at` is an already-formatted human string because
+ * the renderer never does arithmetic, the same rule `adminAuthVars.expires_in`
+ * follows.
  */
 const organizationInviteVars = z.object({
   organization_name: z.string(),
@@ -128,10 +128,9 @@ export const TEMPLATE_VAR_SCHEMAS = {
   // (`buildContext` skips the mint for these two keys for the same reason).
   admin_password_reset: z.object({ ...adminAuthCommonVars, admin: adminAuthVars }),
   admin_email_verification: z.object({ ...adminAuthCommonVars, admin: adminAuthVars }),
-  // M44 — team invitations, routed through the inviting organization's home
-  // event exactly the way admin auth mail borrows one (see `adminAuthCommonVars`
-  // above). `portal` is absent for the same reason it is absent there: the
-  // recipient is joining the *admin* app, not the speaker portal.
+  // M44 — team invitations. Product delivery no longer borrows an event, but
+  // legacy event-scoped rows still use this variable contract. `portal` is
+  // absent: the recipient is joining the admin app, not the speaker portal.
   organization_invited: z.object({ ...adminAuthCommonVars, invite: organizationInviteVars }),
 } as const satisfies Record<TemplateKey, z.ZodType>;
 

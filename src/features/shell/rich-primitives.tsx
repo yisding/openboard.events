@@ -24,7 +24,7 @@ export function RichPrimitives() {
   const [bio, setBio] = useState("<p>Paste a <script>alert(1)</script> here and watch it not survive.</p>");
 
   return (
-    <main className="page">
+    <main className="page showcase-page">
       <PageHeader
         eyebrow="PLATFORM"
         title="Rich primitives"

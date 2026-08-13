@@ -1,14 +1,15 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminAuthEmailOutbox } from "@/db/schema";
-import type { JobStats, TemplateKey, UserId } from "@/shared/contracts";
+import { organizationInvitationIdSchema, type JobStats, type TemplateKey, type UserId } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { emailLayout } from "@/features/comms/server/layout";
 import { sendViaResend, type EmailMessage } from "@/features/comms/server/resend";
+import { assertOrganizationInvitationTokenForEmailIn } from "@/features/organizations/server/invitations";
 import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
-import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./secret-payload";
+import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload, type AdminLinkPayload } from "./secret-payload";
 
 export type AdminAuthTemplateKey = Extract<TemplateKey, "admin_password_reset" | "admin_email_verification">;
 type OutboxRow = typeof adminAuthEmailOutbox.$inferSelect;
@@ -51,14 +52,28 @@ function allowlisted(email: string, env: RuntimeEnv): boolean {
     .some((entry) => entry.startsWith("@") ? normalized.endsWith(entry) : normalized === entry);
 }
 
-function render(row: OutboxRow, url: string, expiresIn: string): { subject: string; html: string; text: string } {
+function render(row: OutboxRow, payload: AdminLinkPayload): { subject: string; html: string; text: string } {
+  if (row.templateKey === "organization_invited") {
+    if (!payload.organizationName || !payload.inviterName || !payload.invitationRole) {
+      throw new AppError("VALIDATION", "Organization invitation payload is incomplete");
+    }
+    const organizationName = payload.organizationName;
+    const inviterName = payload.inviterName;
+    const role = payload.invitationRole;
+    const roleWithArticle = role === "organizer" ? "an organizer" : "a reviewer";
+    const subject = `You're invited to join ${organizationName}`.replace(/[\r\n]+/gu, " ");
+    const body = `<p>Hi,</p><p>${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Openboard as ${roleWithArticle}.</p><p><a href="${escapeHtml(payload.url)}">Accept the invitation</a>. The link expires ${escapeHtml(payload.expiresIn)}.</p><p>If you were not expecting this, you can ignore this email.</p>`;
+    const html = emailLayout(body, "organization_invited", { eventName: organizationName });
+    const text = `Hi,\n\n${inviterName} invited you to join ${organizationName} on Openboard as ${roleWithArticle}.\n\nAccept the invitation: ${payload.url}\nThe link expires ${payload.expiresIn}.\n\nIf you were not expecting this, you can ignore this email.\n\nOpenboard`;
+    return { subject, html, text };
+  }
   const template = TEMPLATES[row.templateKey as AdminAuthTemplateKey];
   if (!template) throw new AppError("VALIDATION", "Unsupported admin auth email template");
   const name = row.recipientName.trim();
   const greeting = name ? `<p>Hi ${escapeHtml(name)},</p>` : "<p>Hi,</p>";
-  const body = `${greeting}<p>${template.intro}</p><p><a href="${escapeHtml(url)}">${template.action}</a>. The link expires in ${escapeHtml(expiresIn)}.</p><p>${template.outro}</p>`;
+  const body = `${greeting}<p>${template.intro}</p><p><a href="${escapeHtml(payload.url)}">${template.action}</a>. The link expires in ${escapeHtml(payload.expiresIn)}.</p><p>${template.outro}</p>`;
   const html = emailLayout(body, row.templateKey as AdminAuthTemplateKey, { eventName: "Openboard" });
-  const text = `${name ? `Hi ${name},\n\n` : "Hi,\n\n"}${template.intro}\n\n${template.action}: ${url}\nThis link expires in ${expiresIn}.\n\n${template.outro}\n\nOpenboard`;
+  const text = `${name ? `Hi ${name},\n\n` : "Hi,\n\n"}${template.intro}\n\n${template.action}: ${payload.url}\nThis link expires in ${payload.expiresIn}.\n\n${template.outro}\n\nOpenboard`;
   return { subject: template.subject, html, text };
 }
 
@@ -202,6 +217,16 @@ async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<
   return isTerminal ? "failed" : "retried";
 }
 
+async function skipRow(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Promise<"skipped"> {
+  await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: "skipped",
+    error: reason,
+    lockedUntil: null,
+    secretPayloadCiphertext: null,
+  }).where(eq(adminAuthEmailOutbox.id, row.id));
+  return "skipped";
+}
+
 async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: Sender): Promise<"sent" | "skipped"> {
   const [suppressed] = await dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
     eq(adminAuthEmailOutbox.recipientEmail, row.recipientEmail),
@@ -215,30 +240,40 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
     ),
   )).limit(1);
   if (suppressed) {
-    await dbOrTx.update(adminAuthEmailOutbox).set({
-      status: "skipped",
-      error: "recipient suppressed after bounce or complaint",
-      lockedUntil: null,
-      secretPayloadCiphertext: null,
-    }).where(eq(adminAuthEmailOutbox.id, row.id));
-    return "skipped";
+    return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint");
   }
   if (!allowlisted(row.recipientEmail, env)) {
-    await dbOrTx.update(adminAuthEmailOutbox).set({
-      status: "skipped",
-      error: "not in EMAIL_ALLOWLIST",
-      lockedUntil: null,
-      secretPayloadCiphertext: null,
-    }).where(eq(adminAuthEmailOutbox.id, row.id));
-    return "skipped";
+    return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST");
   }
-  if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "Admin auth link payload is missing");
+  if (!row.secretPayloadCiphertext) throw new AppError("VALIDATION", "Platform email link payload is missing");
   const payload = await openPlatformAdminLinkPayload(
     row.secretPayloadCiphertext,
     { userId: row.userId as UserId, messageId: row.id },
     requiredSecret(env),
   );
-  const rendered = render(row, payload.url, payload.expiresIn);
+  if (row.templateKey === "organization_invited") {
+    const invitationId = organizationInvitationIdSchema.safeParse(row.idempotencyKey.split(":")[2]);
+    let token = "";
+    try {
+      const actionUrl = new URL(payload.url);
+      if (actionUrl.origin !== new URL(env.APP_BASE_URL).origin || actionUrl.pathname !== "/join") {
+        throw new Error("unexpected invitation destination");
+      }
+      token = actionUrl.searchParams.get("token")?.trim() ?? "";
+    } catch {
+      throw new AppError("VALIDATION", "Organization invitation link is invalid");
+    }
+    if (!invitationId.success || !token) throw new AppError("VALIDATION", "Organization invitation outbox key is malformed");
+    try {
+      await assertOrganizationInvitationTokenForEmailIn(dbOrTx, token, row.recipientEmail);
+    } catch (error) {
+      if (isAppError(error) && (error.code === "VALIDATION" || error.code === "FORBIDDEN")) {
+        return skipRow(dbOrTx, row, "organization invitation is no longer pending");
+      }
+      throw error;
+    }
+  }
+  const rendered = render(row, payload);
   const keepCredential = env.APP_ENV !== "production" && env.EMAIL_MODE === "log" && env.EMAIL_FALLBACK_UI === "1";
   await dbOrTx.update(adminAuthEmailOutbox).set({
     subjectRendered: rendered.subject,

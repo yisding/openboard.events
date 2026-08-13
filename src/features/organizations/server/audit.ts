@@ -5,11 +5,10 @@ import { organizationAuditLogEntryDtoSchema, type OrganizationAuditLogEntryDTO, 
 
 /**
  * M44 — a light, append-only audit trail over organization membership
- * actions. One `INSERT` per event, called after the mutation it records
- * (never wrapped together — resolution #4 confines `withTx` to eight audited
- * functions and this feature is not one of them, so a crash between "add the
- * member" and "log it" is possible and accepted, the same trade every
- * `enqueueEmail` caller in this codebase already makes for its own write).
+ * actions. One `INSERT` per event. Most callers accept the small gap between a
+ * domain mutation and this evidence row; invitation enqueue passes a real
+ * transaction because its token rotation, outbox row, and audit event form one
+ * consistency boundary.
  */
 export async function recordOrganizationAuditEventIn(
   dbOrTx: DbOrTx,
