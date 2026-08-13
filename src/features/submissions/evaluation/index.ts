@@ -21,6 +21,7 @@ export type {
   PlanWrite,
   RecusalInput,
   ReviewInput,
+  ReviewHistoryEntry,
   ReviewQueueDTO,
   ReviewQueueRow,
   ReviewerAssignmentInput,
@@ -67,6 +68,8 @@ export {
   listPlansIn,
   listReviewerPlans,
   listReviewerPlansIn,
+  listReviewHistory,
+  listReviewHistoryIn,
   listReviewQueue,
   listReviewQueueIn,
 } from "./server/queries";

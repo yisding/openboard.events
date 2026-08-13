@@ -1,12 +1,13 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import type { CriterionSpec, EventId, PlanId, SubmissionId, UserId } from "@/shared/contracts";
+import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { normalizeCriterionValues, reviewWindow } from "../scoring";
 import type {
   AssignableSubmission,
   CriterionDTO,
   PlanDTO,
+  ReviewHistoryEntry,
   ReviewQueueDTO,
   ReviewQueueRow,
   ReviewerProgress,
@@ -443,6 +444,104 @@ export async function getRatingsIn(
   ]));
 }
 
+type ReviewRevisionRow = {
+  id: string;
+  review_id: string;
+  plan_id: string;
+  plan_name: string;
+  reviewer_user_id: string;
+  reviewer_name: string;
+  reviewer_email: string;
+  revision: number;
+  overall_score: string | null;
+  is_ai: boolean;
+  criterion_scores: unknown;
+  criteria_snapshot: unknown;
+  comment: string | null;
+  submitted_at: string | null;
+  recorded_at: string;
+};
+
+type RevisionCriterion = {
+  id: string;
+  label: string;
+  options: Array<{ id: string; label: string }>;
+};
+
+function revisionCriteria(raw: unknown): RevisionCriterion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value): RevisionCriterion[] => {
+    if (value === null || typeof value !== "object") return [];
+    const candidate = value as { id?: unknown; label?: unknown; options?: unknown };
+    if (typeof candidate.id !== "string" || typeof candidate.label !== "string") return [];
+    const options = Array.isArray(candidate.options)
+      ? candidate.options.flatMap((option): RevisionCriterion["options"] => {
+        if (option === null || typeof option !== "object") return [];
+        const item = option as { id?: unknown; label?: unknown };
+        return typeof item.id === "string" && typeof item.label === "string"
+          ? [{ id: item.id, label: item.label }]
+          : [];
+      })
+      : [];
+    return [{ id: candidate.id, label: candidate.label, options }];
+  });
+}
+
+function reviewAnswerText(value: CriterionValue, criterion: RevisionCriterion): string {
+  if (value.kind === "numeric") return String(value.value);
+  if (value.kind === "text") return value.value;
+  return criterion.options.find((option) => option.id === value.optionId)?.label ?? value.optionId;
+}
+
+/**
+ * Organizer-only callers use this attributed history to explain how a proposal's
+ * verdict changed. Labels and select choices come from the revision snapshot,
+ * not today's mutable plan.
+ */
+export async function listReviewHistoryIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  submissionId: SubmissionId,
+): Promise<ReviewHistoryEntry[]> {
+  const result = await dbOrTx.execute<ReviewRevisionRow>(sql`
+    SELECT rr.id, rr.review_id, rr.plan_id, p.name AS plan_name,
+      rr.reviewer_user_id, u.name AS reviewer_name, u.email AS reviewer_email,
+      rr.revision, rr.overall_score, rr.is_ai, rr.criterion_scores, rr.criteria_snapshot,
+      rr.comment, rr.submitted_at, rr.recorded_at
+    FROM review_revisions rr
+    JOIN evaluation_plans p ON p.id = rr.plan_id AND p.event_id = rr.event_id
+    JOIN users u ON u.id = rr.reviewer_user_id
+    WHERE rr.event_id = ${eventId} AND rr.submission_id = ${submissionId}
+    ORDER BY rr.recorded_at DESC, rr.revision DESC, rr.id
+  `);
+
+  return (result.rows ?? []).map((row) => {
+    const values = normalizeCriterionValues(row.criterion_scores);
+    const criteria = revisionCriteria(row.criteria_snapshot);
+    return {
+      id: row.id,
+      reviewId: row.review_id,
+      planId: row.plan_id as PlanId,
+      planName: row.plan_name,
+      reviewerUserId: row.reviewer_user_id as UserId,
+      reviewerName: row.reviewer_name,
+      reviewerEmail: row.reviewer_email,
+      revision: Number(row.revision),
+      overallScore: row.overall_score === null ? null : Number(row.overall_score),
+      isAi: row.is_ai,
+      answers: criteria.flatMap((criterion) => {
+        const criterionId = criterionIdSchema.safeParse(criterion.id);
+        if (!criterionId.success) return [];
+        const value = values[criterionId.data];
+        return value ? [{ criterionId: criterion.id, label: criterion.label, value: reviewAnswerText(value, criterion) }] : [];
+      }),
+      comment: row.comment,
+      complete: row.submitted_at !== null,
+      recordedAt: new Date(row.recorded_at).toISOString(),
+    };
+  });
+}
+
 export const listPlans = (eventId: EventId) => listPlansIn(db, eventId);
 export const listReviewerPlans = (eventId: EventId, reviewerUserId: UserId) =>
   listReviewerPlansIn(db, eventId, reviewerUserId);
@@ -457,6 +556,8 @@ export const assertReviewerCanReadSubmission = (
   reviewerUserId: UserId,
 ) => assertReviewerCanReadSubmissionIn(db, eventId, planId, submissionId, reviewerUserId);
 export const getRatings = (eventId: EventId, planId: PlanId) => getRatingsIn(db, eventId, planId);
+export const listReviewHistory = (eventId: EventId, submissionId: SubmissionId) =>
+  listReviewHistoryIn(db, eventId, submissionId);
 export const listEventMembers = (eventId: EventId) => listEventMembersIn(db, eventId);
 export const listAssignableSubmissions = (eventId: EventId, planId: PlanId) =>
   listAssignableSubmissionsIn(db, eventId, planId);

@@ -743,7 +743,20 @@ export async function submitReviewIn(
       AND s.status NOT IN ('draft', 'withdrawn')
     ON CONFLICT (plan_id, submission_id, reviewer_user_id) DO UPDATE SET
       overall_score = EXCLUDED.overall_score, criterion_scores = EXCLUDED.criterion_scores,
-      comment = EXCLUDED.comment, submitted_at = EXCLUDED.submitted_at, updated_at = now()
+      comment = EXCLUDED.comment,
+      -- A retried save is not a second verdict. Keep its original completion
+      -- time so the database audit trigger can recognize an exact no-op;
+      -- changing any answer, score, comment, or completion state gets a fresh
+      -- time and therefore a new revision.
+      submitted_at = CASE
+        WHEN reviews.overall_score IS NOT DISTINCT FROM EXCLUDED.overall_score
+          AND reviews.criterion_scores IS NOT DISTINCT FROM EXCLUDED.criterion_scores
+          AND reviews.comment IS NOT DISTINCT FROM EXCLUDED.comment
+          AND (reviews.submitted_at IS NULL) = (EXCLUDED.submitted_at IS NULL)
+        THEN reviews.submitted_at
+        ELSE EXCLUDED.submitted_at
+      END,
+      updated_at = now()
     RETURNING id
   `);
 
