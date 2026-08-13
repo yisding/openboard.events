@@ -44,7 +44,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { notifyQueues, transitionStatus } = await import("@/features/submissions");
+const { notifyQueues, previewNotifyQueuesIn, transitionStatus } = await import("@/features/submissions");
 
 async function insert(id: string, status: string, withSubmitter = true) {
   await pglite.query(
@@ -79,6 +79,12 @@ describe("decide and notify", () => {
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'ada@example.com','Ada','Lovelace')",
       [speaker, eventId],
+    );
+    await pglite.query(
+      `INSERT INTO email_templates(event_id,key,subject,body_html) VALUES
+       ($1,'submission_accepted','Accepted for {{event.name}}','<p>Welcome {{speaker.first_name}}: {{submission.title}}</p>'),
+       ($1,'submission_declined','Update from {{event.name}}','<p>Thank you for {{submission.title}}</p>')`,
+      [eventId],
     );
   }, 60_000);
 
@@ -123,12 +129,57 @@ describe("decide and notify", () => {
     await insert(toAccept, "accept_queue");
     await insert(toDecline, "decline_queue");
 
-    const result = await notifyQueues(eventId);
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+    const result = await notifyQueues(eventId, preview.queueRevision);
     expect(result.accepted).toEqual([toAccept]);
     expect(result.declined).toEqual([toDecline]);
     expect(result.emailsQueued).toBe(2);
     expect(await commsFor("submission_accepted")).toHaveLength(1);
     expect(await commsFor("submission_declined")).toHaveLength(1);
+  });
+
+  it("previews exact queue counts and samples without changing decisions", async () => {
+    await insert(orphanSubmission, "accept_queue", false);
+    await insert(toAccept, "accept_queue");
+    await insert(toDecline, "decline_queue");
+
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+
+    expect(preview).toMatchObject({
+      accepted: 2,
+      declined: 1,
+      emailsQueued: 2,
+      skippedNoRecipient: 1,
+    });
+    expect(preview.queueRevision).not.toBe("empty");
+    expect(preview.samples.map((sample) => sample.decision)).toEqual(["accepted", "declined"]);
+    expect(preview.samples[0]).toMatchObject({
+      recipientName: "Ada Lovelace",
+      recipientEmail: "ada@example.com",
+      submissionTitle: "Proposal 11",
+      subject: "Accepted for Event",
+    });
+    expect(preview.samples[0]?.bodyHtml).toContain("Welcome Ada: Proposal 11");
+
+    const statuses = await pglite.query<{ status: string }>("SELECT status FROM submissions ORDER BY code");
+    expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "accept_queue", "decline_queue"]);
+    expect(await commsFor("submission_accepted")).toHaveLength(0);
+    const contact = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(contact.rows[0]?.confirmation_status).toBe("unconfirmed");
+  });
+
+  it("refuses to send an unreviewed decision added after the preview", async () => {
+    await insert(toAccept, "accept_queue");
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+    await insert(toDecline, "decline_queue");
+
+    const error = await notifyQueues(eventId, preview.queueRevision).catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("STALE_WRITE");
+    const statuses = await pglite.query<{ status: string }>("SELECT status FROM submissions ORDER BY code");
+    expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "decline_queue"]);
+    expect(await commsFor("submission_accepted")).toHaveLength(0);
+    expect(await commsFor("submission_declined")).toHaveLength(0);
   });
 
   it("does nothing at all the second time Notify is pressed", async () => {

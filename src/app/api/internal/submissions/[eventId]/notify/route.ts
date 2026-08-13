@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
  */
 const notify = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: z.object({}),
-  handler: async ({ eventId }) => {
-    const result = await notifyQueues(eventIdSchema.parse(eventId));
+  input: z.object({ queueRevision: z.string().min(1).optional() }),
+  handler: async ({ eventId, input }) => {
+    const result = await notifyQueues(eventIdSchema.parse(eventId), input.queueRevision);
     // Latency polish on top of the cron, never a substitute for it: the decision
     // is already committed, so the drain runs after the response through
     // waitUntil rather than making an organizer wait on an outbox backlog that

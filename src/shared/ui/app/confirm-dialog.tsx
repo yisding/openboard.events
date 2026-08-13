@@ -30,6 +30,8 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = "Cancel",
   variant = "destructive",
+  confirmDisabled = false,
+  wide = false,
   onConfirm,
   onCancel,
 }: {
@@ -39,6 +41,8 @@ export function ConfirmDialog({
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "destructive" | "stale" | "primary";
+  confirmDisabled?: boolean;
+  wide?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -59,16 +63,17 @@ export function ConfirmDialog({
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title={title}
+      wide={wide}
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
-          <Button variant={variant === "destructive" ? "danger" : "primary"} onClick={confirm} disabled={busy}>
+          <Button variant={variant === "destructive" ? "danger" : "primary"} onClick={confirm} disabled={busy || confirmDisabled}>
             {busy ? "Working…" : confirmLabel ?? (variant === "stale" ? "Reload" : "Confirm")}
           </Button>
         </>
       }
     >
-      <p className="long-copy">{body}</p>
+      <div className="long-copy">{body}</div>
     </Modal>
   );
 }

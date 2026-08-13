@@ -4,10 +4,12 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
+import type { NotifyPreview } from "@/features/submissions";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { MessagePreview } from "@/features/comms/components/message-preview";
 
 type DecisionSelection = Pick<SubmissionListRow, "submissionId" | "status">;
 type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Response>;
@@ -190,6 +192,30 @@ export function DecisionBar({
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [confirmingNotify, setConfirmingNotify] = useState(false);
+  const [preview, setPreview] = useState<NotifyPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [previewing, setPreviewing] = useState(false);
+
+  async function openNotifyPreflight() {
+    if (busy || previewing) return;
+    setConfirmingNotify(true);
+    setPreview(null);
+    setPreviewError("");
+    setPreviewing(true);
+    try {
+      const response = await fetch(`/api/internal/submissions/${eventId}/notify/preview`);
+      const payload = await response.json().catch(() => null) as { data?: NotifyPreview; error?: { message?: string } } | null;
+      if (!response.ok || !payload?.data) {
+        setPreviewError(payload?.error?.message ?? "Could not prepare this notification preview");
+        return;
+      }
+      setPreview(payload.data);
+    } catch {
+      setPreviewError("Could not reach the server to prepare this preview");
+    } finally {
+      setPreviewing(false);
+    }
+  }
 
   async function move(to: SubmissionStatus) {
     setBusy(true);
@@ -206,12 +232,16 @@ export function DecisionBar({
   }
 
   async function notify() {
+    if (!preview) {
+      setPreviewError("Review a fresh preview before queuing these emails.");
+      return;
+    }
     setBusy(true);
     try {
       const response = await fetch(`/api/internal/submissions/${eventId}/notify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ queueRevision: preview.queueRevision }),
       });
       const payload = await response.json().catch(() => null) as {
         data?: { accepted: string[]; declined: string[]; emailsQueued: number; skippedNoRecipient: string[] };
@@ -219,6 +249,8 @@ export function DecisionBar({
       } | null;
       if (!response.ok || !payload?.data) {
         toast(payload?.error?.message ?? "Notify did not go through", { kind: "error" });
+        setPreview(null);
+        setPreviewError("The queue may have changed. Review a fresh preview before retrying.");
         return;
       }
       const { accepted, declined, emailsQueued, skippedNoRecipient } = payload.data;
@@ -230,6 +262,7 @@ export function DecisionBar({
       onDone();
       router.refresh();
       setConfirmingNotify(false);
+      setPreview(null);
     } catch {
       toast("Could not reach the server. Check Communications before retrying this notification batch.", { kind: "error" });
     } finally {
@@ -248,17 +281,51 @@ export function DecisionBar({
       </>}
       {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision{pendingNotify === 1 ? "" : "s"} queued and not yet sent</span> } : {})}
       {...(pendingNotify > 0 ? {
-        trailing: <Button disabled={busy} onClick={() => setConfirmingNotify(true)}>{busy ? "Queuing…" : `Notify ${pendingNotify}`}</Button>,
+        trailing: <Button disabled={busy || previewing} onClick={() => void openNotifyPreflight()}>{busy ? "Queuing…" : previewing ? "Preparing…" : `Notify ${pendingNotify}`}</Button>,
       } : {})}
     />
     <ConfirmDialog
       open={confirmingNotify}
-      title={`Notify ${pendingNotify} decision${pendingNotify === 1 ? "" : "s"}?`}
-      body="This finalizes every queued accept and decline decision for the event and queues the corresponding speaker emails. Review both queues before continuing."
+      title="Review decision emails"
+      body={<DecisionEmailPreflight
+        preview={preview}
+        error={previewError}
+        loading={previewing}
+        onRetry={() => void openNotifyPreflight()}
+      />}
       confirmLabel="Queue decision emails"
       variant="destructive"
+      confirmDisabled={!preview || previewing || Boolean(previewError)}
+      wide
       onConfirm={notify}
-      onCancel={() => setConfirmingNotify(false)}
+      onCancel={() => { setConfirmingNotify(false); setPreview(null); setPreviewError(""); }}
     />
   </>;
+}
+
+export function DecisionEmailPreflight({
+  preview,
+  error,
+  loading,
+  onRetry,
+}: {
+  preview: NotifyPreview | null;
+  error: string;
+  loading: boolean;
+  onRetry: () => void;
+}) {
+  if (loading) return <p role="status">Preparing the exact queue counts and sample messages…</p>;
+  if (error) return <div className="form-stack" role="alert"><p>{error}</p><Button variant="secondary" onClick={onRetry}>Retry preview</Button></div>;
+  if (!preview) return <p role="status">A fresh preview is required before these emails can be queued.</p>;
+  const total = preview.accepted + preview.declined;
+  return <div className="form-stack decision-email-preflight">
+    <p><b>{total} queued decision{total === 1 ? "" : "s"}</b> · {preview.accepted} accepted · {preview.declined} declined · {preview.emailsQueued} email{preview.emailsQueued === 1 ? "" : "s"}</p>
+    {preview.skippedNoRecipient > 0 && <p className="portal-note" role="alert">{preview.skippedNoRecipient} submission{preview.skippedNoRecipient === 1 ? " has" : "s have"} no recipient and will be finalized without email.</p>}
+    {preview.samples.map((sample) => <section key={sample.decision}>
+      <p><b>{sample.decision === "accepted" ? "Acceptance" : "Decline"} sample</b> · {sample.recipientName} ({sample.recipientEmail}) · {sample.submissionTitle}</p>
+      {!sample.templateEnabled && <p className="portal-note" role="alert">This template is paused, so its messages will be skipped until it is enabled.</p>}
+      <MessagePreview label={sample.decision.toUpperCase()} hint="Current template · sample recipient" message={{ subject: sample.subject, bodyHtml: sample.bodyHtml }} />
+    </section>)}
+    <p className="portal-note">Links shown in samples are placeholders. Sending creates a fresh private link for each recipient.</p>
+  </div>;
 }
