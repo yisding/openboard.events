@@ -177,7 +177,7 @@ button { color: inherit; }
 .field { display: grid; align-content: start; gap: 8px; color: var(--ink); font-weight: var(--weight-control); font-size: 12.5px; }
 /* Controls must not inherit the label's weight. This was especially visible in
    selects and entered text, where user content looked like another heading. */
-.field :is(input, textarea, select, .rich-text-editor__surface) { font-weight: 400; }
+.field :where(input, textarea, select, .rich-text-editor__surface) { font-weight: 400; }
 /* DateTimePicker draws the border on its own wrapper and zeroes the inner
    input's, so a child combinator alone leaves "Ends At must be after Starts At"
    with an unmarked control. `.field-invalid .datetime-picker` (0-2-0) beats

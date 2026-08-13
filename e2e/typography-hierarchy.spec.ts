@@ -27,5 +27,8 @@ test.describe("typography hierarchy", () => {
     expect(await weight(trackField.locator(":scope > span"))).toBe(550);
     expect(await weight(trackField.locator("select"))).toBe(400);
     expect(await weight(page.locator(".stat-tile__value").first())).toBe(700);
+
+    await page.goto("/portal/demo/verify?email=person%40example.com");
+    expect(await weight(page.getByLabel("6-digit code"))).toBe(600);
   });
 });
