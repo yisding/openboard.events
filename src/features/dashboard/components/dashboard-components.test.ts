@@ -86,10 +86,10 @@ describe("dashboard components", () => {
     expect(scheduledHtml).toContain("Your call for speakers is scheduled");
     expect(scheduledHtml).not.toContain("Copy link");
 
-    const expiredOverview = { ...liveOverview, forms: [{ ...form, availability: "expired" as const, closesAt: "2026-08-07T07:00:00.000Z" }] };
-    const expiredHtml = renderActivation(expiredOverview);
-    expect(expiredHtml).toContain("Extend your submission window");
-    expect(expiredHtml).not.toContain("Copy link");
+    const endedOverview = { ...liveOverview, forms: [{ ...form, availability: "ended" as const, closesAt: "2026-08-07T07:00:00.000Z" }] };
+    const endedHtml = renderActivation(endedOverview);
+    expect(endedHtml).toContain("Extend your submission window");
+    expect(endedHtml).not.toContain("Copy link");
 
     const closedOverview = { ...liveOverview, forms: [{ ...form, status: "closed" as const, availability: "closed" as const }] };
     expect(renderActivation(closedOverview)).toContain("Reopen your call for speakers");

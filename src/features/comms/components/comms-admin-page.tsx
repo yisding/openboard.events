@@ -7,6 +7,7 @@ import { Activity, BellRing, FileText, History, Send, ShieldOff } from "lucide-r
 import type { DomainDeliverabilityRow, EmailTemplateRow, ReminderRuleRow, SuppressionRow } from "@/features/comms";
 import type { CommLogRow, EventId } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { BulkSendTab } from "./bulk-send-tab";
 import { CommsLogTable } from "./comms-log-table";
 import { DeliverabilityTab } from "./deliverability-tab";
@@ -58,10 +59,16 @@ export function CommsAdminPage({
   const [client] = useState(() => new QueryClient());
   const router = useRouter();
   const [tab, setTab] = useState<CommsTab>(initialTab);
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
 
-  function selectTab(next: CommsTab) {
-    setTab(next);
-    router.replace(`/events/${eventId}/communications?tab=${next}`, { scroll: false });
+  function selectTab(next: CommsTab, focusAfter = false) {
+    if (next === tab) return;
+    const destination = `/events/${eventId}/communications?tab=${next}`;
+    runGuarded(() => allowNextNavigation(() => {
+      setTab(next);
+      router.replace(destination, { scroll: false });
+      if (focusAfter) requestAnimationFrame(() => document.getElementById(`communications-tab-${next}`)?.focus());
+    }, { destination }));
   }
 
   function moveTab(event: KeyboardEvent<HTMLButtonElement>, current: CommsTab) {
@@ -79,8 +86,7 @@ export function CommsAdminPage({
     event.preventDefault();
     const next = TABS[nextIndex]?.id;
     if (!next) return;
-    selectTab(next);
-    requestAnimationFrame(() => document.getElementById(`communications-tab-${next}`)?.focus());
+    selectTab(next, true);
   }
 
   return (

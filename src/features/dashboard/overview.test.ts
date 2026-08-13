@@ -96,7 +96,7 @@ pg.exec(migrationReviewOps);
     expect(Object.fromEntries(overview.forms.map((form) => [form.name, form.availability]))).toEqual({
       "Main CFP": "live",
       "Scheduled CFP": "scheduled",
-      "Expired CFP": "expired",
+      "Expired CFP": "ended",
     });
     expect(new Date(overview.forms.find((form) => form.name === "Scheduled CFP")?.opensAt ?? "").toISOString()).toBe("2026-08-20T07:00:00.000Z");
   });

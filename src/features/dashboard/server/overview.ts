@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db/client";
-import { formOpenState } from "@/features/forms/lib/form-open";
+import { formAvailability } from "@/features/forms/lib/form-open";
 import {
   SUBMISSION_STATUSES,
   eventIdSchema,
@@ -93,18 +93,9 @@ export const dashboardOverviewSchema: z.ZodType<DashboardOverview> = rawOverview
   event: rawOverviewSchema.shape.event.extend({ daysToEvent: z.number().int() }),
   statusCounts: z.record(submissionStatusSchema, countSchema),
   forms: z.array(rawFormSchema.extend({
-    availability: z.enum(["draft", "live", "scheduled", "expired", "closed"]),
+    availability: z.enum(["draft", "live", "scheduled", "ended", "closed"]),
   })),
 });
-
-function formAvailability(form: z.infer<typeof rawFormSchema>, nowIso: string): DashboardOverview["forms"][number]["availability"] {
-  if (form.status === "draft") return "draft";
-  const openState = formOpenState(form, nowIso);
-  if (openState.open) return "live";
-  if (openState.reason === "not_open_yet") return "scheduled";
-  if (openState.reason === "closed_by_date") return "expired";
-  return "closed";
-}
 
 export async function getOverviewIn(
   dbOrTx: DashboardQueryDb,

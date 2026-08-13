@@ -459,9 +459,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .status-badge { width: max-content; height: 23px; padding: 0 8px; border-radius: 99px; display: inline-flex; align-items: center; vertical-align: middle; gap: 6px; background: var(--fill); color: var(--muted); text-transform: capitalize; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .status-badge i { width: 5px; height: 5px; border-radius: 50%; background: currentcolor; }
 .status-live, .status-open, .status-accepted, .status-confirmed, .status-sent, .status-published, .status-complete, .status-ready { background: var(--green-soft); color: var(--green); }
-.status-pending, .status-unconfirmed, .status-skipped, .status-1-task, .status-2-tasks, .status-3-tasks, .status-4-tasks { background: var(--amber-soft); color: var(--amber); }
+.status-pending, .status-scheduled, .status-unconfirmed, .status-skipped, .status-1-task, .status-2-tasks, .status-3-tasks, .status-4-tasks { background: var(--amber-soft); color: var(--amber); }
 .status-declined, .status-failed, .status-overdue, .status-closed, .status-bounced, .status-complained { background: var(--red-soft); color: var(--red); }
-.status-draft, .status-withdrawn, .status-queued { background: var(--fill); color: var(--muted); }
+.status-draft, .status-ended, .status-withdrawn, .status-queued { background: var(--fill); color: var(--muted); }
 .status-accept-queue { background: var(--accent-soft); color:var(--accent-dark); }
 
 /* Dialogs and overlays */
@@ -1156,6 +1156,9 @@ ol.cfp-progress{list-style:none;display:flex;gap:16px;margin:0 0 16px;padding:0;
 .builder-field-row{display:grid;grid-template-columns:1fr 30px 30px;gap:6px;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px}
 .builder-field-row.selected,.builder-field-row:hover{border-color:var(--accent-border);box-shadow:0 0 0 2px rgba(0,168,120,.10)}
 .field-row-main{min-height:46px;display:grid;grid-template-columns:34px 1fr 16px;gap:12px;align-items:center;border:0;background:transparent;text-align:left;cursor:pointer}
+.compact-field-inspector .inspector-content{position:static}
+.compact-field-inspector .inspector-content>header{display:none}
+.compact-field-inspector .inspector-content>.form-stack{max-height:none;overflow:visible;padding:0}
 .builder-footer{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
 
 /* Abstracts drawer: the tag toggles and the save row (M17 manual create + edit). */

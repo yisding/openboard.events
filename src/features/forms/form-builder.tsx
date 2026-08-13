@@ -22,16 +22,20 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FieldType, MapsToTarget, ReviewVisibility } from "@/shared/contracts";
 import { COMMITTED_FIELD_TYPES, eventIdSchema, MAPS_TO_TARGETS } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { copyText } from "@/shared/ui/app/copy-text";
+import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, Select, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
+import { formAvailability, formAvailabilityActionCopy, type FormAvailabilityAction } from "./lib/form-open";
 // M13b: the visibility editor, live preview, and routing panel are that
 // module's — this file only mounts them at the right point in the wizard.
 import { BuilderPreview as LiveBuilderPreview } from "./components/builder/builder-preview";
@@ -86,20 +90,48 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const requestedStep = searchParams.get("step");
   const step: BuilderStep = BUILDER_STEPS.includes(requestedStep as BuilderStep) ? requestedStep as BuilderStep : "abstract";
   const [form, setForm] = useState(initialForm);
+  const [persistedAvailabilityInput, setPersistedAvailabilityInput] = useState(() => ({
+    status: initialForm.status,
+    opensAt: initialForm.opensAt,
+    closesAt: initialForm.closesAt,
+  }));
+  const [availabilityNow, setAvailabilityNow] = useState(() => new Date().toISOString());
   const [selected, setSelected] = useState<{ sectionId: string; fieldId: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
   const [newLabel, setNewLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [availabilityAlert, setAvailabilityAlert] = useState<string | null>(null);
+  const [pendingAvailabilityAction, setPendingAvailabilityAction] = useState<FormAvailabilityAction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
+  const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
+  const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== "text");
+  const [routingDraftDirty, setRoutingDraftDirty] = useState(false);
+  const hasUnsavedWork = dirty || newQuestionDraftDirty;
+  const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty;
+  useUnsavedWorkGuard(hasUnsavedWork);
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
+  const availability = formAvailability(persistedAvailabilityInput, availabilityNow);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
   // unsaved) draft, so a conditional field visibly appears/disappears as the
   // organizer edits it — no save round trip. Falls back to the mock preview
   // if the draft is momentarily uncompilable mid-edit.
   const liveSnapshot = useMemo(() => tryCompileBuilderSnapshot(form), [form]);
+
+  // The desktop field editor lives in the right-hand inspector, which the
+  // responsive layout deliberately hides once the canvas needs the full
+  // width. Keep the same editor reachable there through a native-dialog
+  // modal instead of maintaining a second, reduced mobile field form.
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1024px)");
+    const sync = () => setCompactInspector(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   function markDirty(target: BuilderDirtyTarget) {
     dirtyRevisions.current.set(target, (dirtyRevisions.current.get(target) ?? 0) + 1);
@@ -107,10 +139,38 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   function setStep(next: BuilderStep) {
+    if (next === step) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set("step", next);
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
-    setSelected(null);
+    const destination = `${pathname}?${params.toString()}`;
+    // This search-only navigation keeps the same FormBuilder mounted, so the
+    // in-memory multi-step draft is preserved. Allow it through the global
+    // route guard; leaving the builder still prompts while any target is dirty.
+    const performStep = () => allowNextNavigation(() => {
+      setSelected(null);
+      router.push(destination, { scroll: false });
+    }, { destination });
+    if (routingDraftDirty) runGuarded(performStep);
+    else performStep();
+  }
+
+  function closeAddQuestion() {
+    requestGuardedEditorClose({
+      busy,
+      dirty: newQuestionDraftDirty,
+      runGuarded,
+      close: () => {
+        setAdding(false);
+        setNewLabel("");
+        setNewType("text");
+        if (!dirty && !routingDraftDirty) setAvailabilityAlert(null);
+      },
+    });
+  }
+
+  function handleRoutingDraftStateChange(next: boolean) {
+    setRoutingDraftDirty(next);
+    if (!next && !hasUnsavedWork) setAvailabilityAlert(null);
   }
 
   function applyLocal(patch: FormPatch) {
@@ -137,12 +197,15 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     setBusy(true);
     try {
       const next = await action();
+      setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt });
+      setAvailabilityNow(new Date().toISOString());
       for (const [target, revision] of savedRevisions) {
         if (dirtyRevisions.current.get(target) === revision) dirtyRevisions.current.delete(target);
       }
       const remaining = new Set(dirtyRevisions.current.keys());
       setForm((current) => mergeUnsavedBuilderEdits(next, current, remaining));
       setDirty(remaining.size > 0);
+      if (remaining.size === 0 && !newQuestionDraftDirty && !routingDraftDirty) setAvailabilityAlert(null);
       toast(success);
       router.refresh();
       return true;
@@ -200,7 +263,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     await run(() => patchForm(patch), `${stepMeta.find((item) => item.id === step)?.label} step saved`, [`step:${step}`]);
   }
 
-  async function saveField(field: BuilderField) {
+  async function saveField(field: BuilderField): Promise<boolean> {
     const structural = form.hasNonDraftSubmissions || field.locked ? {} : {
       key: field.key,
       fieldType: field.fieldType,
@@ -209,7 +272,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       visibility: field.visibility,
       mapsTo: field.mapsTo,
     };
-    await run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
+    return run(() => requestData(`/api/internal/forms/${form.id}/fields/${field.id}?eventId=${event.id}`, json("PATCH", {
       expectedUpdatedAt: form.updatedAt,
       // `reviewVisibility` is not structural: it changes what a *future* blind
       // reviewer sees, never the answers already pinned to a snapshot, so it
@@ -218,17 +281,25 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     })), "Question saved", [`field:${field.id}`]);
   }
 
+  async function saveCompactField() {
+    if (!selectedField) return;
+    if (await saveField(selectedField)) setSelected(null);
+  }
+
   async function addField() {
     const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
     if (!section || !newLabel.trim()) return;
-    await run(() => requestData(`/api/internal/forms/${form.id}/fields?eventId=${event.id}`, json("POST", {
+    const added = await run(() => requestData(`/api/internal/forms/${form.id}/fields?eventId=${event.id}`, json("POST", {
       expectedUpdatedAt: form.updatedAt,
       sectionId: section.id,
       label: newLabel,
       fieldType: newType,
     })), "Question added");
+    if (!added) return;
     setAdding(false);
     setNewLabel("");
+    setNewType("text");
+    setAvailabilityAlert(null);
   }
 
   async function deleteField(field: BuilderField) {
@@ -257,31 +328,91 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(`${window.location.origin}/submit/${event.slug}/${form.id}`);
-    toast("Public form link copied");
+    const clickedAt = new Date().toISOString();
+    if (formAvailability(persistedAvailabilityInput, clickedAt) !== "live") {
+      setAvailabilityNow(clickedAt);
+      toast("This form is not live, so its public link was not copied", { kind: "error" });
+      return;
+    }
+
+    const copied = await copyText(`${window.location.origin}/submit/${event.slug}/${form.id}`);
+    toast(copied ? "Live form link copied" : "Couldn’t copy the live link. Open it and copy the address from your browser.", copied ? undefined : { kind: "error" });
+  }
+
+  function requestAvailabilityChange() {
+    const action: FormAvailabilityAction = persistedAvailabilityInput.status === "open" ? "close" : "open";
+    if (action === "open" && hasUnsavedBuilderTargets) {
+      const message = "Save every unsaved form change before opening. Only saved content can be published.";
+      setAvailabilityAlert(message);
+      toast(message, { kind: "error" });
+      return;
+    }
+    setAvailabilityAlert(null);
+    setPendingAvailabilityAction(action);
+  }
+
+  async function confirmAvailabilityChange() {
+    if (!pendingAvailabilityAction) return;
+    const action = pendingAvailabilityAction;
+    const saved = await run(
+      () => patchForm({ status: action === "open" ? "open" : "closed" }),
+      action === "open" ? "Form availability updated" : "Form closed",
+    );
+    if (saved) setPendingAvailabilityAction(null);
   }
 
   const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
+  const availabilityActionCopy = pendingAvailabilityAction
+    ? formAvailabilityActionCopy(pendingAvailabilityAction, persistedAvailabilityInput, availabilityNow)
+    : null;
   return <div className="builder-wrap">
-    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={form.status} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
-      <button className="button button-secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy link</button>
+    <header className="builder-header"><div className="builder-title"><Link className="icon-button" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
+      {availability === "live" && <button type="button" className="button button-secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</button>}
       <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
       <Button disabled={busy} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
-      <Button variant={form.status === "open" ? "secondary" : "primary"} disabled={busy} onClick={() => void run(() => patchForm({ status: form.status === "open" ? "closed" : "open" }), form.status === "open" ? "Form closed" : "Form is open")}><Rocket size={16} /> {form.status === "open" ? "Close" : "Open form"}</Button>
+      <Button variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"} disabled={busy} onClick={requestAvailabilityChange}><Rocket size={16} /> {persistedAvailabilityInput.status === "open" ? "Close" : "Open form"}</Button>
     </div></header>
     <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
       <div className="builder-canvas">
+        {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
         {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. Duplicate the form to change its structure.</span></div></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
-        {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} />}
+        {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
         <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
-    <Modal open={adding} onClose={() => setAdding(false)} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={() => setAdding(false)}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    {compactInspector && selectedField && <Modal
+      open
+      onClose={busy ? () => undefined : () => setSelected(null)}
+      title={`Edit “${selectedField.label}”`}
+      description="Update this question, then save to return to the form."
+      wide
+    >
+      <div className="compact-field-inspector">
+        <FieldInspector
+          field={selectedField}
+          form={form}
+          onChange={(patch) => applyField(selectedField.id, patch)}
+          onSave={() => void saveCompactField()}
+          onDelete={() => setPendingDelete(selectedField)}
+          busy={busy}
+        />
+      </div>
+    </Modal>}
+    <Modal open={adding} onClose={closeAddQuestion} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={closeAddQuestion}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    <ConfirmDialog
+      open={pendingAvailabilityAction !== null}
+      title={availabilityActionCopy?.title ?? "Change form availability?"}
+      body={availabilityActionCopy?.body ?? "Review this availability change before continuing."}
+      confirmLabel={availabilityActionCopy?.confirmLabel ?? "Confirm"}
+      variant={pendingAvailabilityAction === "open" ? "primary" : "destructive"}
+      onConfirm={confirmAvailabilityChange}
+      onCancel={() => setPendingAvailabilityAction(null)}
+    />
     <ConfirmDialog
       open={pendingDelete !== null}
       title={pendingDelete ? `Delete “${pendingDelete.label}”?` : "Delete question?"}
@@ -301,12 +432,12 @@ function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: 
   return <section className="builder-step"><header><div className="step-number">2</div><div><h2>Welcome screen</h2><p>Set the public title, heading, and opening message.</p></div></header><div className="builder-card form-stack"><Field label="Internal form name" required hint={`${form.internalName.length}/255`}><input required maxLength={255} value={form.internalName} onChange={(current) => onChange({ internalName: current.target.value })} /></Field><Field label="External form title" required hint={`${form.externalTitle.length}/255`}><input required maxLength={255} value={form.externalTitle} onChange={(current) => onChange({ externalTitle: current.target.value })} /></Field><Field label="Page heading" required hint={`${form.pageHeading.length}/15`}><input required maxLength={15} value={form.pageHeading} onChange={(current) => onChange({ pageHeading: current.target.value })} /></Field><div className="inline-setting"><div><b>Show welcome message</b><small>Speakers see this before starting.</small></div><Switch label="Show welcome message" checked={form.showWelcome} onClick={() => onChange({ showWelcome: !form.showWelcome })} /></div>{form.showWelcome && <Field label="Welcome message"><RichTextEditor ariaLabel="Welcome message" value={form.welcomeHtml} onChange={(welcomeHtml) => onChange({ welcomeHtml })} maxChars={5000} /></Field>}</div></section>;
 }
 
-function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void }) {
+function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove, onRoutingDraftStateChange }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void; onRoutingDraftStateChange: (dirty: boolean) => void }) {
   return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Abstract information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the proposal your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input required maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input required maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor ariaLabel={`${participant ? "Participant" : "Abstract"} description and instructions`} value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button type="button" className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button type="button" className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button type="button" className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>
   {/* M13b/M24: routing rules stamp a Track/Tags on submit, which only means
       something for a CFP submission — portal forms (context='portal') never
       show this panel (plan/modules/M13b-rules-ui.md "Portal forms" guardrail). */}
-  {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
+  {!participant && form.context === "cfp" && <RoutingRulesPanel eventId={eventIdSchema.parse(form.eventId)} formId={form.id} onDraftStateChange={onRoutingDraftStateChange} />}</div>{participant && <ParticipantRoles form={form} onChange={onFormChange} />}</section>;
 }
 
 export function ParticipantRoles({ form, onChange }: { form: BuilderForm; onChange: (patch: FormPatch) => void }) {

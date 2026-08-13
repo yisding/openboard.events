@@ -38,7 +38,7 @@ export function ConfirmDialog({
   body: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  variant?: "destructive" | "stale";
+  variant?: "destructive" | "stale" | "primary";
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -62,7 +62,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
-          <Button variant={variant === "stale" ? "primary" : "danger"} onClick={confirm} disabled={busy}>
+          <Button variant={variant === "destructive" ? "danger" : "primary"} onClick={confirm} disabled={busy}>
             {busy ? "Working…" : confirmLabel ?? (variant === "stale" ? "Reload" : "Confirm")}
           </Button>
         </>

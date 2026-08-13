@@ -178,11 +178,36 @@ describe("database-backed form builder", () => {
     expect(versions.rows.map((row) => row.version)).toEqual([1, 2, 3]);
   });
 
-  it("reports date-gated open forms as effectively closed", async () => {
+  it("returns raw publishing status plus draft, scheduled, live, ended, and closed availability", async () => {
     const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
-    await pglite.query("UPDATE forms SET status='open', closes_at=now() - interval '1 minute' WHERE id=$1", [formId]);
-    expect(await listFormsIn(database, eventId)).toMatchObject([{ id: formId, status: "closed" }]);
-    await pglite.query("UPDATE forms SET status='draft', closes_at=NULL WHERE id=$1", [formId]);
+    const now = new Date("2026-08-12T18:00:00.000Z");
+
+    await pglite.query("UPDATE forms SET status='draft', opens_at=NULL, closes_at=NULL WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId, "cfp", now)).toMatchObject([{ id: formId, status: "draft", availability: "draft" }]);
+
+    await pglite.query("UPDATE forms SET status='open', opens_at='2026-08-13T18:00:00Z', closes_at=NULL WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId, "cfp", now)).toMatchObject([{
+      id: formId,
+      status: "open",
+      availability: "scheduled",
+      opensAt: "2026-08-13T18:00:00.000Z",
+    }]);
+
+    await pglite.query("UPDATE forms SET opens_at='2026-08-12T18:00:00Z', closes_at='2026-08-12T18:00:00.001Z' WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId, "cfp", now)).toMatchObject([{ id: formId, status: "open", availability: "live" }]);
+
+    await pglite.query("UPDATE forms SET closes_at='2026-08-12T18:00:00Z' WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId, "cfp", now)).toMatchObject([{
+      id: formId,
+      status: "open",
+      availability: "ended",
+      closesAt: "2026-08-12T18:00:00.000Z",
+    }]);
+
+    await pglite.query("UPDATE forms SET status='closed', opens_at=NULL, closes_at=NULL WHERE id=$1", [formId]);
+    expect(await listFormsIn(database, eventId, "cfp", now)).toMatchObject([{ id: formId, status: "closed", availability: "closed" }]);
+
+    await pglite.query("UPDATE forms SET status='draft' WHERE id=$1", [formId]);
   });
 
   it("supports all eight committed types and preserves option ids while labels change", async () => {

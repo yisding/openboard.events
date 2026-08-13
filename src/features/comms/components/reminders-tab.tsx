@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { EventId } from "@/shared/contracts";
 import type { ReminderRuleRow } from "@/features/comms";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { useReminderRules, useSaveReminderRules } from "../hooks/use-reminder-rules";
 
@@ -27,6 +28,7 @@ export function RemindersTab({ eventId, initialData }: { eventId: EventId; initi
   const serverRows = query.data ?? initialData;
   const [rows, setRows] = useState<{ offsetDays: number; enabled: boolean }[]>(serverRows.map((row) => ({ offsetDays: row.offsetDays, enabled: row.enabled })));
   const [dirty, setDirty] = useState(false);
+  useUnsavedWorkGuard(dirty);
 
   // A save (or another organizer's poll refresh) replaces the working set —
   // but never while this organizer has an unsaved edit in progress.

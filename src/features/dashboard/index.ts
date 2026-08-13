@@ -1,3 +1,4 @@
+import type { FormAvailability } from "@/features/forms/lib/form-open";
 import type { EventId, SubmissionStatus } from "@/shared/contracts";
 
 export type DashboardOverview = {
@@ -18,7 +19,7 @@ export type DashboardOverview = {
     formId: string;
     name: string;
     status: "draft" | "open" | "closed";
-    availability: "draft" | "live" | "scheduled" | "expired" | "closed";
+    availability: FormAvailability;
     opensAt: string | null;
     closesAt: string | null;
     submitted: number;
