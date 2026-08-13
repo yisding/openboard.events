@@ -12,6 +12,20 @@ describe("shared UI spacing regressions", () => {
     expect(css).toMatch(/\.datetime-picker\{[^}]*height:40px/gu);
   });
 
+  it("uses the application theme for the complete calendar surface", () => {
+    const picker = read("../shared/ui/app/datetime-picker.tsx");
+    const formRenderer = read("./forms/components/form-field-renderer.tsx");
+
+    expect(picker).toContain('role="dialog"');
+    expect(picker).toContain('className="datetime-calendar-grid"');
+    expect(picker).toContain("CalendarDatePicker");
+    expect(formRenderer).toContain("<CalendarDatePicker");
+    expect(css).toContain(".datetime-popover{position:fixed;z-index:300;");
+    expect(css).toContain("background:var(--surface);box-shadow:var(--shadow);");
+    expect(css).toContain(".datetime-calendar-day.is-selected{border-color:var(--accent);background:var(--accent);color:var(--on-accent);");
+    expect(css).toContain(".datetime-picker-warning{");
+  });
+
   it("gives evaluation drawers the shared body inset and a compact invite variant", () => {
     const invite = read("./submissions/evaluation/components/reviewer-invite-dialog.tsx");
     const plan = read("./submissions/evaluation/components/plan-editor.tsx");

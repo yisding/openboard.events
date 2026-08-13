@@ -7,10 +7,11 @@ import { SUBMISSION_STATUSES } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
+import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { Dash } from "@/shared/ui/app/dash";
 import { FirstRunHints, Hint, resetHints } from "@/shared/ui/app/first-run-hints";
 import { TzTime } from "@/shared/ui/app/tz-time";
-import { Avatar, Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Avatar, Button, EmptyState, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 import { CommandPalette } from "./components/command-palette";
 
 const TIMEZONE = "America/Los_Angeles";
@@ -49,6 +50,8 @@ const ROWS: DemoRow[] = Array.from({ length: 25 }, (_, index) => ({
 export function KitchenSink() {
   const [search, setSearch] = useState("");
   const [confirming, setConfirming] = useState<"destructive" | "stale" | null>(null);
+  const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [sampleDate, setSampleDate] = useState<string | null>("2026-09-15T16:00:00.000Z");
 
   const data = useMemo(
     () => ROWS.filter((row) => `${row.code} ${row.title}`.toLowerCase().includes(search.toLowerCase())),
@@ -176,6 +179,18 @@ export function KitchenSink() {
         <h2 className="section-title">ConfirmDialog</h2>
         <Button variant="danger" onClick={() => setConfirming("destructive")}>Delete something</Button>
       </section>
+
+      <section style={{ marginTop: 32 }}>
+        <h2 className="section-title">Date/time inside a modal</h2>
+        <Button variant="secondary" onClick={() => setDateModalOpen(true)}>Open modal picker</Button>
+      </section>
+
+      <Modal open={dateModalOpen} onClose={() => setDateModalOpen(false)} title="Modal date/time fixture">
+        <label className="field">
+          <span>Starts at</span>
+          <DateTimePicker value={sampleDate} onChange={setSampleDate} tz={TIMEZONE} />
+        </label>
+      </Modal>
 
       <ConfirmDialog
         open={confirming !== null}

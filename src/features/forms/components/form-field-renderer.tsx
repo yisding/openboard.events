@@ -6,6 +6,7 @@ import { evaluateVisibility } from "@/shared/lib/conditions";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Dash } from "@/shared/ui/app/dash";
+import { CalendarDatePicker } from "@/shared/ui/app/datetime-picker";
 import { cn } from "@/shared/lib/cn";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { useFormUploadEventId } from "@/shared/ui/app/form-upload-context";
@@ -209,7 +210,14 @@ function Input({
     case "number":
       return <input id={id} {...controlProps} type="number" value={value?.t === "n" ? value.v : ""} onChange={(event) => onChange(event.target.value === "" ? undefined : { t: "n", v: Number(event.target.value) })} />;
     case "date":
-      return <input id={id} {...controlProps} type="date" value={value?.t === "d" ? value.v : ""} onChange={(event) => onChange(event.target.value ? { t: "d", v: event.target.value } : undefined)} />;
+      return <CalendarDatePicker
+        id={id}
+        required={field.required}
+        invalid={invalid}
+        {...(describedBy ? { ariaDescribedBy: describedBy } : {})}
+        value={value?.t === "d" ? value.v : null}
+        onChange={(next) => onChange(next ? { t: "d", v: next } : undefined)}
+      />;
     case "file":
       return uploadEventId ? (
         <fieldset className="field-control-group" aria-describedby={describedBy} aria-invalid={invalid || undefined} tabIndex={invalid ? -1 : undefined}>
