@@ -78,8 +78,9 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toContain("\n.template-editor__preview{display:block;padding:0");
   });
 
-  it("overrides the gallery badge selector for centered speaker placeholders", () => {
-    expect(css).toContain(".speaker-portrait>.person-avatar{position:static;");
+  it("does not treat shared speaker avatars as gallery badges", () => {
+    expect(css).not.toMatch(/\.speaker-portrait\s*>\s*span\b/gu);
+    expect(css).not.toMatch(/\.speaker-portrait\s*>\s*\.person-avatar\s*\{/gu);
     expect(css).toContain(".person-avatar-placeholder {");
   });
 
@@ -110,6 +111,15 @@ describe("shared UI spacing regressions", () => {
     expect(profile).toContain('className="public-preview-label"');
     expect(css).toMatch(/\.public-preview-label\b/gu);
     expect(css).not.toMatch(/\.public-preview\s*>\s*span\b/gu);
+  });
+
+  it("keeps the portal avatar visible when responsive account copy collapses", () => {
+    const portalShell = read("./portal/portal-shell.tsx");
+
+    expect(portalShell).toContain("<Avatar initials={speaker.avatar}");
+    expect(portalShell).toContain('className="portal-account-copy"');
+    expect(css).toMatch(/\.portal-account\s*>\s*\.portal-account-copy\s*\{\s*display:\s*none/gu);
+    expect(css).not.toMatch(/\.portal-account\s*>\s*span\b/gu);
   });
 
   it("keeps metadata selectors from overriding shared status badges", () => {
