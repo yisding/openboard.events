@@ -46,4 +46,12 @@ describe("login entry route", () => {
       .rejects.toThrow("redirect:/organizations");
     expect(redirect).toHaveBeenCalledWith("/organizations");
   });
+
+  it("rejects repeated next parameters for an existing session", async () => {
+    getAdminSession.mockResolvedValueOnce({ userId: "00000000-0000-4000-8000-000000000001" });
+
+    await expect(LoginPage({ searchParams: Promise.resolve({ next: ["/events", "/join?token=invite-123"] }) }))
+      .rejects.toThrow("redirect:/organizations");
+    expect(redirect).toHaveBeenCalledWith("/organizations");
+  });
 });

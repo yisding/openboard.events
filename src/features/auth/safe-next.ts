@@ -1,7 +1,10 @@
 const INTERNAL_ORIGIN = "https://openboard.invalid";
+type RedirectValue = string | readonly string[] | null | undefined;
 
-export function safeInternalPath(value: string | null | undefined, fallback = "/events"): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return fallback;
+export function safeInternalPath(value: RedirectValue, fallback = "/events"): string {
+  // Repeated query parameters are ambiguous and arrive from Next.js as an
+  // array. Reject them instead of choosing an attacker-controlled element.
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return fallback;
   // A literal backslash or a control character is unsafe wherever it appears.
   if (value.includes("\\") || /[\u0000-\u001f\u007f]/u.test(value)) return fallback;
   try {
@@ -13,21 +16,25 @@ export function safeInternalPath(value: string | null | undefined, fallback = "/
     // login redirect generates, which turned every portal deep link into an
     // infinite redirect.
     if (/%(?:2f|5c)/iu.test(parsed.pathname)) return fallback;
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    const normalized = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    // WHATWG dot-segment normalization can turn `/.//host` into `//host`
+    // even though the original string passed the protocol-relative check.
+    if (normalized.startsWith("//")) return fallback;
+    return normalized;
   } catch {
     return fallback;
   }
 }
 
 /** Build an auth-route handoff without ever reflecting an external `next` URL. */
-export function authPathWithNext(path: string, value: string | null | undefined): string {
+export function authPathWithNext(path: string, value: RedirectValue): string {
   const next = safeInternalPath(value, "");
   return next ? `${path}?${new URLSearchParams({ next }).toString()}` : path;
 }
 
 /** Continue an existing session without reflecting unsafe or looping auth routes. */
 export function authenticatedAuthDestination(
-  value: string | null | undefined,
+  value: RedirectValue,
   fallback = "/organizations",
 ): string {
   const next = safeInternalPath(value, "");

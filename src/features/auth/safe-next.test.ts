@@ -17,8 +17,13 @@ describe("safeInternalPath", () => {
     "\\evil.example/path",
     "/%5cevil.example/path",
     "/%2f%2fevil.example/path",
+    "/.//evil.example/path",
   ])("rejects unsafe redirect target %s", (value) => {
     expect(safeInternalPath(value)).toBe("/events");
+  });
+
+  it("rejects repeated redirect parameters instead of choosing one", () => {
+    expect(safeInternalPath(["/events", "/join?token=invite-123"])).toBe("/events");
   });
 });
 
@@ -43,8 +48,10 @@ describe("authenticatedAuthDestination", () => {
   it.each([
     [undefined, "/organizations"],
     ["https://attacker.example/steal", "/organizations"],
+    ["/.//attacker.example/steal", "/organizations"],
     ["/login?next=%2Fsignup", "/organizations"],
     ["/signup/check-email?email=owner%40example.com", "/organizations"],
+    [["/events", "/join?token=invite-123"], "/organizations"],
   ])("falls back instead of redirecting an existing session to %s", (value, expected) => {
     expect(authenticatedAuthDestination(value)).toBe(expected);
   });
