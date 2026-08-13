@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, saveOnboardingEvent } from "./onboarding-wizard";
+import { cfpDeadlineForWeeksBefore, createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, defaultCfpDeadline, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, resolveCfpDeadline, saveOnboardingEvent } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -174,6 +174,62 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("Back to tracks");
   });
 
+  it("adds a deadline before publishing a draft form", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      nowIso: "2026-08-12T00:00:00.000Z",
+      initialState: {
+        step: "form",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "draft",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+        },
+        publicFormUrl: null,
+        formAvailability: null,
+      },
+    }));
+
+    expect(html).toContain('id="onboarding-cfp-deadline"');
+    expect(html).toContain('value="four_weeks" selected=""');
+    expect(html).toContain("4 weeks before the event");
+    expect(html).toContain("No deadline");
+  });
+
+  it("preserves a resumed draft's existing deadline", () => {
+    const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
+      organizationId,
+      organizationName: "Test organization",
+      hasExistingEvents: true,
+      nowIso: "2026-08-12T00:00:00.000Z",
+      initialState: {
+        step: "form",
+        event,
+        tracks: [],
+        formId: "form-1",
+        form: {
+          id: "form-1",
+          internalName: "Speaker applications",
+          status: "draft",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+          closesAt: "2026-08-28T06:59:59.999Z",
+        },
+        publicFormUrl: null,
+        formAvailability: null,
+      },
+    }));
+
+    expect(html).toContain('value="custom" selected=""');
+    expect(html).toContain('id="onboarding-cfp-custom-deadline"');
+    expect(html).toContain('value="2026-08-27"');
+  });
+
   it("restores the completed handoff with direct actions for the exact form", () => {
     const html = renderToStaticMarkup(React.createElement(OnboardingWizard, {
       organizationId,
@@ -323,6 +379,51 @@ describe("OnboardingWizard first-use defaults", () => {
     expect(preferredTimeZone("UTC", supported)).toBe("UTC");
     expect(preferredTimeZone("Not/A_Zone", supported)).toBe("America/Los_Angeles");
     expect(preferredTimeZone(undefined, supported)).toBe("America/Los_Angeles");
+  });
+});
+
+describe("onboarding CFP deadline defaults", () => {
+  it("keeps preset deadlines at the end of the event-local day across daylight saving", () => {
+    expect(cfpDeadlineForWeeksBefore(
+      "2026-11-20T17:00:00.000Z",
+      "America/Los_Angeles",
+      4,
+    )).toBe("2026-10-24T06:59:59.999Z");
+  });
+
+  it("prefers four weeks, then the nearest future preset for short-notice events", () => {
+    expect(defaultCfpDeadline(
+      "2026-10-30T16:00:00.000Z",
+      "America/Los_Angeles",
+      "2026-09-01T00:00:00.000Z",
+    ).choice).toBe("four_weeks");
+    expect(defaultCfpDeadline(
+      "2026-09-20T16:00:00.000Z",
+      "America/Los_Angeles",
+      "2026-09-01T00:00:00.000Z",
+    ).choice).toBe("two_weeks");
+  });
+
+  it("uses the previous local day for near-term events and no deadline only when necessary", () => {
+    expect(defaultCfpDeadline(
+      "2026-09-05T16:00:00.000Z",
+      "America/Los_Angeles",
+      "2026-09-01T00:00:00.000Z",
+    )).toEqual({ choice: "custom", customClosesAt: "2026-09-05T06:59:59.999Z" });
+    expect(defaultCfpDeadline(
+      "2026-09-01T01:00:00.000Z",
+      "America/Los_Angeles",
+      "2026-09-01T00:00:00.000Z",
+    )).toEqual({ choice: "none", customClosesAt: null });
+  });
+
+  it("resolves presets, custom dates, and an explicit no-deadline choice", () => {
+    const startsAt = "2026-10-30T16:00:00.000Z";
+    expect(resolveCfpDeadline("two_weeks", null, startsAt, "America/Los_Angeles"))
+      .toBe("2026-10-17T06:59:59.999Z");
+    expect(resolveCfpDeadline("custom", "2026-10-01T06:59:59.999Z", startsAt, "America/Los_Angeles"))
+      .toBe("2026-10-01T06:59:59.999Z");
+    expect(resolveCfpDeadline("none", null, startsAt, "America/Los_Angeles")).toBeNull();
   });
 });
 
@@ -535,5 +636,25 @@ describe("onboarding form publication recovery", () => {
     expect(create).toHaveBeenCalledOnce();
     expect(publish).toHaveBeenCalledOnce();
     expect(reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles an already-committed publish before validating an expired local deadline", async () => {
+    const draft = { id: "form-1", status: "draft", updatedAt: "v1" };
+    const open = { ...draft, status: "open", updatedAt: "v2", closesAt: "2026-08-13T00:00:00.000Z" };
+    const validatePublish = vi.fn();
+    const publish = vi.fn();
+
+    await expect(createOrPublishOnboardingForm({
+      existing: draft,
+      publishNow: true,
+      create: vi.fn(),
+      reconcile: vi.fn(async () => open),
+      validatePublish,
+      publish,
+      onReady: vi.fn(),
+    })).resolves.toEqual(open);
+
+    expect(validatePublish).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 });
