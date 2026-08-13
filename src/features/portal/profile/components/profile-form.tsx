@@ -271,7 +271,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
             <p>This is roughly how your profile appears on the public speaker gallery.</p>
           </section>
           <section className="portal-panel public-preview">
-            <span>PUBLIC PREVIEW</span>
+            <span className="public-preview-label">PUBLIC PREVIEW</span>
             <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
             <h3>{firstName} {lastName}</h3>
             {pronouns && <p>{pronouns}</p>}

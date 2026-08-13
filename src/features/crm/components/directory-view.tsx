@@ -110,7 +110,7 @@ export function DirectoryView({
       cell: ({ row }) => (
         <div className="speaker-table-person">
           <Avatar initials={initialsFor(row.original)} size="sm" />
-          <div>
+          <div className="speaker-table-person-copy">
             <b>{nameOf(row.original)}</b>
             <span>{row.original.jobTitle ?? ""}{row.original.jobTitle && row.original.company ? " · " : ""}{row.original.company ?? ""}</span>
             <small>{row.original.email}</small>
