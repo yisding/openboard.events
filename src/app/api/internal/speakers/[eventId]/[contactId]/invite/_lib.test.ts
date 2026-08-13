@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { issuePortalToken, openPortalLoginPayload } from "@/features/auth";
@@ -21,6 +21,7 @@ describe("atomic speaker portal invitation", () => {
   let pg: PGlite;
 
   beforeAll(async () => {
+    vi.stubEnv("SESSION_SECRET", sessionSecret);
     pg = new PGlite();
     await pg.exec(migration0);
     await pg.exec(migrationRoster);
@@ -37,10 +38,17 @@ describe("atomic speaker portal invitation", () => {
     );
   }, 60_000);
 
-  afterAll(async () => pg.close());
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await pg.close();
+  });
 
   it("rolls back token rotation, queued mail, and status together, then commits one usable invite on retry", async () => {
-    const database = drizzle(pg, { schema });
+    const queries: string[] = [];
+    const database = drizzle(pg, {
+      schema,
+      logger: { logQuery: (query) => queries.push(query) },
+    });
     const dbOrTx = database as unknown as DbOrTx;
     const prior = await issuePortalToken(dbOrTx, {
       eventId,
@@ -66,16 +74,15 @@ describe("atomic speaker portal invitation", () => {
 
     const invite = (tx: TxDb) => inviteSpeakerToPortalIn(tx, {
       eventId,
-      eventSlug: "invite-conf",
       contactId,
-      email: "speaker@example.com",
-      confirmationStatus: "unconfirmed",
-      appBaseUrl: "http://localhost:3000",
-      sessionSecret,
-      fallback: true,
     });
 
+    // Simulate a caller whose earlier page snapshot still says `invite-conf`.
+    // The helper accepts no slug and must seal the current database value.
+    await pg.query("UPDATE events SET slug='renamed-conf' WHERE id=$1", [eventId]);
+
     await expect(database.transaction((tx) => invite(tx as unknown as TxDb))).rejects.toThrow();
+    expect(queries.some((query) => query.includes('from "events"') && query.includes("for update"))).toBe(true);
 
     const tokensAfterFailure = await pg.query<{ total: number; active: number }>(
       `SELECT count(*)::int AS total,
@@ -134,6 +141,7 @@ describe("atomic speaker portal invitation", () => {
       { eventId, contactId, tokenId: tokenIdSchema.parse(activeToken.id) },
       sessionSecret,
     );
+    expect(new URL(payload.magicLink).pathname).toBe("/portal/renamed-conf/verify");
     const deliveredRaw = new URL(payload.magicLink).searchParams.get("token");
     expect(deliveredRaw).not.toBeNull();
     expect(await verifyPortalTokenIn(dbOrTx, deliveredRaw ?? "", { purpose: "magic_link" })).toEqual({ contactId, eventId });

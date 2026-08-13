@@ -2,11 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withTx } from "@/db/client";
 import { adminAuth } from "@/features/auth";
-import { getEvent } from "@/features/events";
-import { getSpeakerDetail } from "@/features/portal";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
-import { getEnv } from "@/shared/lib/env";
 import { defineHandler } from "@/shared/server/handler";
 import { inviteSpeakerToPortalIn } from "./_lib";
 
@@ -30,24 +26,9 @@ const invite = defineHandler({
   handler: async ({ eventId, params }) => {
     const { contactId } = routeParams.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
-    const [event, speaker] = await Promise.all([
-      getEvent(scopedEventId),
-      getSpeakerDetail(scopedEventId, contactId),
-    ]);
-    if (!event) throw new AppError("NOT_FOUND", "Event not found");
-    if (!speaker) throw new AppError("NOT_FOUND", "Speaker not found");
-    const env = getEnv();
-    const sessionSecret = env.SESSION_SECRET;
-    if (!sessionSecret) throw new AppError("INTERNAL", "SESSION_SECRET is required for portal authentication");
     const result = await withTx((tx) => inviteSpeakerToPortalIn(tx, {
       eventId: scopedEventId,
-      eventSlug: event.slug,
       contactId,
-      email: speaker.contact.email,
-      confirmationStatus: speaker.contact.confirmationStatus,
-      appBaseUrl: env.APP_BASE_URL,
-      sessionSecret,
-      fallback: env.APP_ENV !== "production" && env.EMAIL_FALLBACK_UI === "1",
     }));
     return { message: result.message };
   },
