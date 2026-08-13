@@ -213,6 +213,44 @@ describe("comms admin mutations", () => {
       const rules = await listReminderRulesIn(tx, eventId);
       expect(rules.map((rule) => rule.offsetDays).sort((a, b) => a - b)).toEqual([-7, 2]);
     });
+
+    it("keeps the complete previous ladder when replacement fails, then retries cleanly", async () => {
+      const values = async () => (await listReminderRulesIn(tx, eventId))
+        .map((rule) => [rule.offsetDays, rule.enabled]);
+      expect(await values()).toEqual([[-7, true], [-1, true], [1, true]]);
+
+      await pglite.exec(`
+        CREATE FUNCTION fail_reminder_rule_delete() RETURNS trigger AS $$
+        BEGIN
+          RAISE EXCEPTION 'forced reminder rule delete failure';
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_reminder_rule_delete
+        BEFORE DELETE ON reminder_rules
+        FOR EACH ROW EXECUTE FUNCTION fail_reminder_rule_delete();
+      `);
+
+      try {
+        await expect(saveReminderRulesIn(tx, eventId, [
+          { offsetDays: -7, enabled: true },
+          { offsetDays: -2, enabled: true },
+          { offsetDays: 1, enabled: true },
+        ])).rejects.toThrow("Failed query");
+        expect(await values()).toEqual([[-7, true], [-1, true], [1, true]]);
+      } finally {
+        await pglite.exec("DROP TRIGGER fail_reminder_rule_delete ON reminder_rules; DROP FUNCTION fail_reminder_rule_delete();");
+      }
+
+      await saveReminderRulesIn(tx, eventId, [
+        { offsetDays: -7, enabled: true },
+        { offsetDays: -2, enabled: true },
+        { offsetDays: 1, enabled: true },
+      ]);
+      expect(await values()).toEqual([[-7, true], [-2, true], [1, true]]);
+
+      await saveReminderRulesIn(tx, eventId, []);
+      expect(await values()).toEqual([]);
+    });
   });
 
   describe("getLogDetail", () => {
