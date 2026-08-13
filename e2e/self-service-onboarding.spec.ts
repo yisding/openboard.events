@@ -408,14 +408,15 @@ test.describe("self-service signup to first value", () => {
     });
 
     await test.step("the organizer sees the first proposal arrive", async () => {
-      const submissions = await queryRows<{ id: string; code: number; status: string; format_name: string | null }>(`
-        SELECT submission.id, submission.code, submission.status, format.name AS format_name
+      const submissions = await queryRows<{ id: string; code: number; status: string; submitted_at: Date | null; format_name: string | null }>(`
+        SELECT submission.id, submission.code, submission.status, submission.submitted_at, format.name AS format_name
         FROM submissions submission
         LEFT JOIN session_formats format ON format.id = submission.format_id
         WHERE submission.event_id = $1 AND submission.form_id = $2 AND submission.title = $3
       `, [eventId, formId, proposalTitle]);
       expect(submissions).toHaveLength(1);
-      expect(submissions[0]?.status).toBe("submitted");
+      expect(submissions[0]?.status).toBe("pending");
+      expect(submissions[0]?.submitted_at).not.toBeNull();
       expect(submissions[0]?.format_name).toBe("Talk");
       expect(`SESS-${submissions[0]?.code}`).toBe(submissionCode);
 
