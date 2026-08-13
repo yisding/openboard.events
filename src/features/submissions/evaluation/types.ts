@@ -94,8 +94,15 @@ export type CriterionInput = z.infer<typeof criterionInputSchema>;
  * timestamp: sending it turns a concurrent edit into a conflict the organizer
  * can see instead of an overwrite they cannot.
  */
-export const planUpdateSchema = refinePlan(planFields.extend({ expectedUpdatedAt: z.iso.datetime().optional() }));
+export const planUpdateSchema = refinePlan(planFields.extend({
+  // A tab loaded before `showPeerScores` existed does not send it. Keeping the
+  // field absent lets the write preserve the stored setting instead of
+  // interpreting an old client as an explicit request to disable sharing.
+  showPeerScores: z.boolean().optional(),
+  expectedUpdatedAt: z.iso.datetime().optional(),
+}));
 export type PlanUpdate = z.infer<typeof planUpdateSchema>;
+export type PlanWrite = Omit<PlanInput, "showPeerScores"> & { showPeerScores?: boolean | undefined };
 
 export const reviewerAssignmentSchema = z.object({
   userId: userIdSchema,

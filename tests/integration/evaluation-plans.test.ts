@@ -15,6 +15,7 @@ import {
   listSubmissionsIn,
   planCreateInputSchema,
   planInputSchema,
+  planUpdateSchema,
   savePlanIn,
   submissionFiltersSchema,
 } from "@/features/submissions";
@@ -144,6 +145,37 @@ describe("evaluation plans and reviewer routing", () => {
     });
 
     expect(parsed.planId).toBe(planId);
+  });
+
+  it("leaves score sharing absent when a legacy update does not send it", () => {
+    const parsed = planUpdateSchema.parse({
+      planId: "b2000000-0000-4000-8000-000000000099",
+      name: "Round 1",
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+
+    expect(Object.hasOwn(parsed, "showPeerScores")).toBe(false);
+  });
+
+  it("preserves score sharing when a legacy client updates another field", async () => {
+    const planId = await seedPlan({ showPeerScores: true });
+    const legacyUpdate = planUpdateSchema.parse({
+      planId,
+      name: "Renamed by an old tab",
+      round: 1,
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+
+    await savePlanIn(db, eventId, legacyUpdate);
+    expect(await getPlanIn(db, eventId, planId)).toMatchObject({
+      name: "Renamed by an old tab",
+      showPeerScores: true,
+    });
+
+    await savePlanIn(db, eventId, { ...legacyUpdate, showPeerScores: false });
+    expect((await getPlanIn(db, eventId, planId)).showPeerScores).toBe(false);
   });
 
   it("replays a committed create against the same stable id", async () => {
