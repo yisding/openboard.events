@@ -1,6 +1,7 @@
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmbedConfigDTO } from "@/features/public/embed-config-types";
+import { embedIdSchema, eventIdSchema } from "@/shared/contracts";
 import { renderEmbedSurface } from "./embed-page";
 
 Object.assign(globalThis, { React });
@@ -15,9 +16,12 @@ const { getEventBySlugMock, notFoundMock } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ notFound: notFoundMock }));
 vi.mock("@/features/events", () => ({ getEventBySlug: getEventBySlugMock }));
 
+const eventId = eventIdSchema.parse("00000000-0000-4000-8000-000000000001");
+const embedId = embedIdSchema.parse("00000000-0000-4000-8000-000000000002");
+
 const config = (enabled: boolean): EmbedConfigDTO => ({
-  id: "00000000-0000-4000-8000-000000000002",
-  eventId: "00000000-0000-4000-8000-000000000001",
+  id: embedId,
+  eventId,
   contentType: "agenda",
   enabled,
   style: { accent: "#123abc", theme: "dark", showHeader: false },
@@ -27,7 +31,7 @@ const config = (enabled: boolean): EmbedConfigDTO => ({
 describe("renderEmbedSurface", () => {
   beforeEach(() => {
     getEventBySlugMock.mockReset().mockResolvedValue({
-      id: "00000000-0000-4000-8000-000000000001",
+      id: eventId,
       name: "Demo event",
       timezone: "America/Los_Angeles",
       theme: "#456789",
@@ -49,7 +53,7 @@ describe("renderEmbedSurface", () => {
       renderContent,
     });
 
-    expect(getConfig).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001");
+    expect(getConfig).toHaveBeenCalledWith(eventId);
     expect(getContent).not.toHaveBeenCalled();
     expect(renderContent).not.toHaveBeenCalled();
     expect(React.isValidElement(result)).toBe(true);
