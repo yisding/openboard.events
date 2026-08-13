@@ -46,6 +46,7 @@ import { VisibilityRuleEditor } from "./components/builder/visibility-rule-edito
 // hardened deadline/capacity/confirmation-template implementations.
 import { NotificationsStep } from "./components/builder/notifications-step";
 import { SettingsStep } from "./components/builder/settings-step";
+import { duplicateFormAsDraft, formDuplicateOutcomeUnknown } from "./duplicate-form";
 
 const stepMeta = [
   { id: "setup", label: "Setup", icon: Settings2 },
@@ -101,6 +102,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [newType, setNewType] = useState<(typeof COMMITTED_FIELD_TYPES)[number]>("text");
   const [newLabel, setNewLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [availabilityAlert, setAvailabilityAlert] = useState<string | null>(null);
   const [pendingAvailabilityAction, setPendingAvailabilityAction] = useState<FormAvailabilityAction | null>(null);
@@ -339,6 +341,24 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     toast(copied ? "Live form link copied" : "Couldn’t copy the live link. Open it and copy the address from your browser.", copied ? undefined : { kind: "error" });
   }
 
+  async function duplicateAsDraft() {
+    if (busy || duplicating) return;
+    setDuplicating(true);
+    try {
+      const copy = await duplicateFormAsDraft(event.id, form.id);
+      toast(`${form.internalName} duplicated as a new draft`);
+      allowNextNavigation(() => router.push(`/events/${event.id}/forms/${copy.id}`), {
+        destination: `/events/${event.id}/forms/${copy.id}`,
+      });
+    } catch (error) {
+      toast(formDuplicateOutcomeUnknown(error)
+        ? "Couldn’t confirm whether the draft copy was created. Return to Submission Forms and refresh before trying again."
+        : error instanceof Error ? error.message : "The form could not be duplicated", { kind: "error" });
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
   function requestAvailabilityChange() {
     const action: FormAvailabilityAction = persistedAvailabilityInput.status === "open" ? "close" : "open";
     if (action === "open" && hasUnsavedBuilderTargets) {
@@ -375,7 +395,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
       <div className="builder-canvas">
         {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
-        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. Duplicate the form to change its structure.</span></div></div>}
+        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
