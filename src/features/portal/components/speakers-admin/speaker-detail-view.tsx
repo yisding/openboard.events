@@ -258,7 +258,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
               headshotFileId={contact.headshotFileId}
               size="lg"
             />
-            <div>
+            <div className="speaker-card-copy">
               <b>{contact.name}</b>
               <span>{[contact.salutation, contact.pronouns, contact.gender].filter(Boolean).join(" · ") || "—"}</span>
             </div>

@@ -68,6 +68,16 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".person-avatar-placeholder {");
   });
 
+  it("does not let speaker-card copy styles override avatars or status pills", () => {
+    const detail = read("./portal/components/speakers-admin/speaker-detail-view.tsx");
+    const flow = read("./portal/components/speakers-admin/speaker-flow-drawer.tsx");
+
+    expect(css).toContain(".speaker-card-copy b,.speaker-card-copy span,.speaker-card-copy a{display:block}");
+    expect(css).not.toContain(".speaker-card b,.speaker-card span,.speaker-card a{display:block}");
+    expect(detail).toContain('className="speaker-card-copy"');
+    expect(flow).toContain('className="speaker-card-copy"');
+  });
+
   it("keeps the landing-page sign-in action visible on compact layouts", () => {
     expect(css).toContain("@media (max-width: 385px) {");
     expect(css).toContain(".landing-links > a:not(.button) { display: none; }");

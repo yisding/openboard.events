@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ClipboardCheck, Search, Sparkles, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
@@ -166,6 +166,18 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      // Keep dismissal explicit instead of relying solely on the native
+      // dialog cancel event. Browser/React combinations do not all dispatch
+      // that event consistently from a focused combobox.
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    // Arrow/result navigation belongs to the combobox. Let buttons keep their
+    // native keyboard activation when focus has moved into the palette UI.
+    if (event.target !== inputRef.current) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((index) => Math.min(index + 1, items.length - 1));
@@ -203,7 +215,9 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
             aria-activedescendant={activeOptionId}
             aria-autocomplete="list"
           />
-          <kbd>Esc</kbd>
+          <button type="button" className="command-palette-close" aria-label="Close search" onClick={onClose}>
+            <kbd>Esc</kbd>
+          </button>
         </div>
         <div
           id={searchStatusId}
@@ -242,6 +256,14 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
 
 export function CommandPalette({ eventId, base, role }: { eventId: string; base: string; role: MemberRole }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    // The dialog unmounts with the state update. Queue focus restoration after
+    // that commit so keyboard users land back on the control that opened it.
+    globalThis.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
 
   // The global ⌘K/Ctrl+K listener lives at the top level (not inside the
   // dialog) so it fires from anywhere in the shell, matching the topbar
@@ -259,10 +281,10 @@ export function CommandPalette({ eventId, base, role }: { eventId: string; base:
 
   return (
     <>
-      <button type="button" className="search-trigger" onClick={() => setOpen(true)}>
+      <button ref={triggerRef} type="button" className="search-trigger" onClick={() => setOpen(true)}>
         <Search size={17} /><span>Search anything</span><kbd>⌘ K</kbd>
       </button>
-      {open && <PaletteDialog eventId={eventId} base={base} role={role} onClose={() => setOpen(false)} />}
+      {open && <PaletteDialog eventId={eventId} base={base} role={role} onClose={close} />}
     </>
   );
 }
