@@ -1,12 +1,15 @@
 /* Openboard embed loader: replaces its own <script> tag with an auto-resizing
    iframe. Usage:
-   <script src="https://<host>/embed.js" data-event="<slug>" data-type="sessions|agenda|itinerary|speakers|gallery" data-params="theme=light" async></script> */
+   <script src="https://<host>/embed.js" data-event="<slug>" data-type="sessions|agenda|itinerary|speakers|gallery" async></script> */
 (function () {
   var script = document.currentScript;
   if (!script) return;
   var origin = new URL(script.src).origin;
   var eventSlug = script.getAttribute("data-event");
   var type = script.getAttribute("data-type") || "sessions";
+  // Retain optional params for backwards compatibility with hand-authored
+  // snippets. Canonical admin-generated snippets do not need them because
+  // appearance and content settings come from the saved embed config.
   var params = script.getAttribute("data-params") || "";
   if (!eventSlug) return;
   var iframe = document.createElement("iframe");
