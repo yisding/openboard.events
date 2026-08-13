@@ -1,4 +1,8 @@
+/** @vitest-environment happy-dom */
+
 import * as React from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ForgotPasswordForm } from "./forgot-password-form";
@@ -11,7 +15,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => navigation.searchParams,
 }));
 
-Object.assign(globalThis, { React });
+Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("authentication destination continuity", () => {
   beforeEach(() => {
@@ -74,5 +78,43 @@ describe("authentication destination continuity", () => {
     expect(html).toContain("Start your organization now, then publish your first call for speakers in guided setup.");
     expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share CFP.");
     expect(html).toContain("Organization name");
+  });
+
+  it("reveals the password on request and hides it again after changing signup methods", async () => {
+    navigation.searchParams = new URLSearchParams();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => root.render(<SignupForm googleEnabled />));
+
+      const password = container.querySelector<HTMLInputElement>("#signup-password");
+      const toggle = container.querySelector<HTMLButtonElement>('[aria-controls="signup-password"]');
+      expect(password?.type).toBe("password");
+      expect(toggle?.getAttribute("aria-label")).toBe("Show password");
+      expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+
+      await act(async () => toggle?.click());
+      expect(password?.type).toBe("text");
+      expect(toggle?.getAttribute("aria-label")).toBe("Hide password");
+      expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+
+      const continueWithGoogle = [...container.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("Continue with Google"));
+      await act(async () => continueWithGoogle?.click());
+      const useEmail = [...container.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("Use email instead"));
+      await act(async () => useEmail?.click());
+
+      const remountedPassword = container.querySelector<HTMLInputElement>("#signup-password");
+      const remountedToggle = container.querySelector<HTMLButtonElement>('[aria-controls="signup-password"]');
+      expect(remountedPassword?.type).toBe("password");
+      expect(remountedToggle?.getAttribute("aria-label")).toBe("Show password");
+      expect(remountedToggle?.getAttribute("aria-pressed")).toBe("false");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });

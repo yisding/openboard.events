@@ -78,6 +78,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "^9.33.0",
     "eslint-config-next": "15.5.23",
+    "happy-dom": "^20.11.2",
     "pg": "8.16.3",
     "tsx": "4.20.5",
     "typescript": "^5.9.2",

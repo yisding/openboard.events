@@ -130,7 +130,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} type="submit">
       <GoogleMark /> {pending === "google" ? "Connecting…" : invitationToken ? "Join with Google" : "Create with Google"}
     </Button>
-    <Button variant="ghost" size="lg" className="auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setError(""); }} type="button">
+    <Button variant="ghost" size="lg" className="auth-provider-back" disabled={pending !== null} onClick={() => { setGoogleSetup(false); setPasswordVisible(false); setError(""); }} type="button">
       Use email instead
     </Button>
     <p>Already have an account? <Link href={loginHref}>Sign in</Link></p>
@@ -149,7 +149,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
         : "Confirm your email, add your event details, and leave with a ready-to-share CFP."}</span>
     </aside>
     {googleEnabled && <>
-      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
+      <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setPasswordVisible(false); setError(""); }} type="button">
         <GoogleMark /> Continue with Google
       </Button>
       <div className="auth-divider"><span>or create with email</span></div>
