@@ -63,6 +63,24 @@ export const eventAccessMemberDtoSchema = z.object({
 });
 export type EventAccessMemberDTO = z.infer<typeof eventAccessMemberDtoSchema>;
 
+/** One current organization teammate who does not yet have event access. */
+export const eventAccessGrantCandidateDtoSchema = z.object({
+  userId: userIdSchema,
+  email: z.string(),
+  name: z.string(),
+  organizationRole: memberRoleSchema,
+});
+export type EventAccessGrantCandidateDTO = z.infer<typeof eventAccessGrantCandidateDtoSchema>;
+
+/** Everything Event Settings needs to explain and manage event access. */
+export const eventAccessOverviewDtoSchema = z.object({
+  members: z.array(eventAccessMemberDtoSchema),
+  candidates: z.array(eventAccessGrantCandidateDtoSchema),
+  canGrant: z.boolean(),
+  grantRestriction: z.string().nullable(),
+});
+export type EventAccessOverviewDTO = z.infer<typeof eventAccessOverviewDtoSchema>;
+
 /**
  * M44 — a pending or resolved team invitation. Never carries the raw token
  * (only its hash lives at rest, and even that is not read back through this

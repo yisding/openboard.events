@@ -52,6 +52,8 @@ export {
 } from "./server/queries";
 
 export {
+  getEventAccessOverview,
+  getEventAccessOverviewIn,
   listEventAccessMembers,
   listEventAccessMembersIn,
   listManageableEventAccessForMember,
@@ -62,6 +64,8 @@ export {
   removeEventAccessMemberIn,
   setExplicitEventAccess,
   setExplicitEventAccessIn,
+  setEventAccessMember,
+  setEventAccessMemberIn,
   type AssignableEventRole,
 } from "./server/event-access";
 

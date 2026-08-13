@@ -1,14 +1,14 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
-import { listEventAccessMembers } from "@/features/organizations";
+import { getEventAccessOverview } from "@/features/organizations";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
 const list = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({}),
-  handler: ({ eventId, session }) => listEventAccessMembers(
+  handler: ({ eventId, session }) => getEventAccessOverview(
     eventIdSchema.parse(eventId),
     userIdSchema.parse(session?.actorId),
   ),
