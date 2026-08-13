@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray, like } from "drizzle-orm";
-import { db, type DbOrTx } from "@/db/client";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { db, withTx, type DbOrTx } from "@/db/client";
 import { organizationContactLinks, organizationContacts, speakerBulkMessages } from "@/db/schema";
 import { composeBulkSpeakerEmailIn } from "@/features/comms";
 import {
@@ -305,5 +305,15 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
   return composeCrmBulkEmailResultSchema.parse({ queued, alreadyQueued, skipped, errors, preview: null });
 }
 
-export const composeCrmBulkEmail = (organizationId: OrganizationId, input: ComposeCrmBulkEmailInput): Promise<ComposeCrmBulkEmailResult> =>
-  composeCrmBulkEmailIn(db, organizationId, input);
+export function composeCrmBulkEmail(organizationId: OrganizationId, input: ComposeCrmBulkEmailInput): Promise<ComposeCrmBulkEmailResult> {
+  if (input.mode === "preview") return composeCrmBulkEmailIn(db, organizationId, input);
+  return withTx(async (tx) => {
+    // A lost browser response can overlap its retry while the original
+    // handler is still running. Serialize the entire logical campaign—not
+    // merely one 500-recipient HTTP chunk—so a merge between those requests
+    // cannot let them choose different canonical idempotency keys. The lock
+    // is transaction-scoped and released on either commit or rollback.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${organizationId}:crm_bulk:${input.sendId}`}, 0))`);
+    return composeCrmBulkEmailIn(tx, organizationId, input);
+  });
+}

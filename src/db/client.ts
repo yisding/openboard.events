@@ -54,7 +54,10 @@ export type DbOrTx = typeof db | TxDb;
  * mergeOrganizationContactsIn (`src/features/crm/server/merge.ts`): a
  * duplicate-contact merge reassigns references across five tables and then
  * tombstones the losing identity, which must commit or roll back together
- * the same way an erasure does.
+ * the same way an erasure does. CRM bulk send is also transactional so one
+ * campaign-wide advisory lock can serialize an original handler with a retry
+ * that outlives a lost browser response; its message/outbox fan-out commits
+ * or rolls back as one campaign chunk.
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).
