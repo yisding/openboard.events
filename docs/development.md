@@ -1,46 +1,28 @@
 # Developing and deploying Openboard
 
-This page holds the engineering-facing material that used to live in the README: honest
-project status, the feature-to-module map, architecture, local setup, testing, and
-deployment. If you are an event organizer looking for what Openboard does and how to use
-it, start with the [README](../README.md).
+This page holds the engineering-facing material: current status, the capability map,
+architecture, local setup, testing, and deployment. If you are an event organizer looking for
+what Openboard does and how to use it, start with the [README](../README.md).
 
-## Honest status
+## Status
 
-This project was built against an aggressive hackathon deadline and then continued past it toward
-a sellable product. The codebase is broad and largely server-backed, but **not every acceptance
-criterion has been demonstrated against a deployed environment**, and the ledger in
-[`plan/status.md`](../plan/status.md) is the source of truth — read it before trusting a claim below.
-
-**What is proven against the deployed preview:** a real Neon-backed health check; admin sign-in
-through Better Auth with server-side session revocation (Google OAuth is wired and its
-callback is accepted by Google — verified to the sign-in redirect, per the evidence file §11.1;
-the interactive login itself is a demo-time step); portal OTP login; a CFP submission stored with routing applied; email delivered to a
-real Gmail inbox from a verified sending domain (SPF/DKIM/DMARC aligned); accept → notify → a real
-Resend send; reviewer scoring with a rating that matches a hand-computed average; a browser-driven
-R2 file upload (presign → PUT → finalize); all five public/embed surfaces (sessions, agenda,
-itinerary with ICS export, speakers list, speaker gallery); an assisted agenda-placement apply;
-a deployed application-layer sign-in throttle (paced attempts return `429` after five tries); and
-a Worker bundle inside the Cloudflare Workers Free budget.
-
-**What is not yet proven anywhere:** a green run of the `Deploy` GitHub Actions workflow (every
-deploy so far is a laptop operation via `scripts/deploy-cloudflare.sh`); production (`sb-prod`) is
-provisioned — database migrated through the full journal, both workers deployed with secrets —
-and `/api/health` is green, but its first strict post-deploy smoke through the protected workflow
-is still pending (the recorded provisioning proof is
-[`docs/evidence/rev13-deployed-run.md`](evidence/rev13-deployed-run.md) §11.2); an Outlook delivery probe; and full end-to-end passes of the review
-reminders, speaker-roster, and content-operations e2e specs (each has failed on a real but narrow
-gap — see `plan/status.md` §3 for the specifics rather than treating the surface as untested).
-`TEST_AUTH` remains enabled on the preview and must be disabled before any non-demo deployment.
-The billing provider remains a scaffold and is explicitly outside the current launch scope:
-`BILLING_MODE=disabled` hides its link and returns 404 from the page, internal endpoints, and
-webhook in preview and production. `BILLING_MODE=scaffold` is accepted only for local seam tests.
-
-**Numbers, pulled from the tree, not memory:** 17 migrations in [`drizzle/`](../drizzle), 9
-Playwright specs in [`e2e/`](../e2e), and (last recorded, `plan/status.md` §2h) 1299 passing Vitest
-cases across 153 files with a merged-tree Worker size of ~2.3 MiB gzip against the 3 MiB Free
-ceiling. Nothing here is a target — it's a snapshot; re-run the commands in **Testing** below for
-the current count.
+- **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
+  typecheck, lint, invariant greps, the full Vitest suite (1,921 cases across two shards as of
+  2026-08-13), the Next.js build, and the Worker artifact gates.
+- **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
+  deploys the preview environment automatically once CI passes — migration → web → jobs → strict
+  post-deploy smoke — and production deploys run through the same workflow behind a protected
+  GitHub environment. `scripts/deploy-cloudflare.sh` remains available for a manual deploy from a
+  workstation; it validates the exact origin and the remote secret inventory before it builds.
+- Both deployed environments run `ADMIN_AUTH_PROVIDER=better-auth` (revocable sessions, Google
+  sign-in). `TEST_AUTH` is enabled on the preview only; the environment validation refuses it in
+  production, along with `EMAIL_MODE=log` and `EMAIL_FALLBACK_UI`.
+- The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
+  returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
+  only for local seam tests.
+- Snapshot counts (re-run the commands in **Testing** for current numbers): 26 migrations in
+  [`drizzle/`](../drizzle), 10 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
+  the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
 
 ## What's inside
 
@@ -55,8 +37,6 @@ the current count.
 | Dashboards | Aggregated server endpoint over SQL reporting views, an attention-first queue, phase-aware ordering |
 | Commercial layer | Organizations/tenancy, user management + invitations + audit log, Better Auth (email/password + Google), self-serve onboarding, GDPR export/erasure/retention, a billing scaffold, org-level speaker CRM (directory, segments, pipeline, merge) |
 | Experience layer | Slide-over detail panels with keyboard next/prev, a shared bulk-action bar, a command palette, speaker "I'm speaking!" share moments, public schedule liveness |
-
-The full feature-to-module mapping lives in [`PLAN.md`](../PLAN.md) §1's product table.
 
 ## Architecture
 
@@ -89,7 +69,7 @@ Inside `src`:
 ## Getting started
 
 Prerequisites: Node.js 22 (pinned in `.node-version`), pnpm (`packageManager` pins
-`pnpm@11.8.0`), and — for the database-backed path — a Postgres URL (Neon or otherwise).
+`pnpm@11.21.0`), and — for the database-backed path — a Neon Postgres URL.
 
 ```bash
 pnpm install
@@ -99,29 +79,33 @@ pnpm seed                          # loads the sample event; pass --wipe to rese
 pnpm dev                           # http://localhost:3000
 ```
 
-Then create the first admin/reviewer accounts:
+Then create the first admin/reviewer accounts with the one-shot bootstrap. It creates or updates
+the organizer and reviewer accounts, hashes both passwords with the runtime PBKDF2
+implementation, mirrors each hash into `admin_accounts` so the account works under either
+`ADMIN_AUTH_PROVIDER` (`fallback` or `better-auth`), and assigns real event memberships:
 
 ```bash
-BOOTSTRAP_EVENT_ID=<event uuid> \
-BOOTSTRAP_ADMIN_PASSWORD=<12+ chars> \
-BOOTSTRAP_REVIEWER_PASSWORD=<12+ chars> \
+export DATABASE_URL='postgresql://...'      # Neon-protocol URL; the script opens a Pool transaction
+# The seeded demo event's id is deterministic; print it with: pnpm smoke:fixture-ids
+export BOOTSTRAP_EVENT_ID='9677e5d3-ccfc-5270-9b22-e551f8b4c57d'
+export BOOTSTRAP_ADMIN_PASSWORD='<12+ chars>'
+export BOOTSTRAP_REVIEWER_PASSWORD='<12+ chars>'
 pnpm admin:bootstrap
 ```
 
-See [`docs/admin-bootstrap.md`](admin-bootstrap.md) and
-[`docs/provisioning.md`](provisioning.md) (Neon/R2/Resend/Cloudflare setup) for the full
-flow.
+Both passwords are required and must be at least 12 characters. The command is idempotent for
+`organizer@openboard.dev` and `reviewer@openboard.dev`: re-running it rotates their password
+hashes and restores the owner/reviewer roles for the selected event. Passwords are read only from
+the environment and are never printed or committed.
+
+See [`docs/provisioning.md`](provisioning.md) (Neon/R2/Resend/Cloudflare setup) for the full
+infrastructure flow.
 
 **A database is required.** Openboard has one runtime path — every screen reads and writes
-Postgres. The credential-free browser demo (`Open demo` on `/`, a localStorage fixture store,
-**Reset demo**) was removed on 2026-08-12; without `DATABASE_URL` the app starts but its pages
-error rather than falling back to fixtures. Point `.dev.vars` at a Neon branch (or any Postgres)
-and run `pnpm seed` — that is the local walkthrough environment, and
-[`docs/demo-script.md`](demo-script.md) walks it.
-
-Note that the runtime connects through the Neon serverless driver (`@neondatabase/serverless`
-over HTTP), so `DATABASE_URL` must point at a Neon-protocol endpoint; a plain local Postgres
-socket does not work out of the box.
+Postgres. Point `.dev.vars` at a Neon branch and run `pnpm seed` — that is the local walkthrough
+environment, and [`docs/demo-script.md`](demo-script.md) walks it. The runtime connects through
+the Neon serverless driver (`@neondatabase/serverless` over HTTP), so `DATABASE_URL` must point
+at a Neon-protocol endpoint; a plain local Postgres socket does not work out of the box.
 
 ## Testing
 
@@ -140,17 +124,19 @@ pnpm release:check       # full credential-free CI and artifact gate
 bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
 ```
 
-The nine specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
+The ten specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
 `agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
-`review-operations`, `speaker-content-ops`) are written to run against a deployed target plus the
-`sb-test` Neon branch, not against `localhost` fixtures — set `E2E_BASE_URL` and `NEON_TEST_URL`
-first. `plan/status.md` §3 and [`docs/evidence/rev13-deployed-run.md`](evidence/rev13-deployed-run.md)
-record the current pass/fail state and the specific, narrow gaps behind the remaining failures.
+`review-operations`, `self-service-onboarding`, `speaker-content-ops`) are written to run against
+a deployed target plus the `sb-test` Neon branch, not against `localhost` fixtures — set
+`E2E_BASE_URL` and `NEON_TEST_URL` first. The deploy workflow runs them against the freshly
+deployed preview on every merge to `main`.
 
 ## Deploying
 
-Deploys are currently a laptop operation via `scripts/deploy-cloudflare.sh`, not a green
-`Deploy` GitHub Actions run (see Honest status):
+The paved road is the `Deploy` GitHub Actions workflow: a merge to `main` deploys the preview
+environment automatically once CI passes (migration → web → jobs → strict smoke → the
+self-service e2e journey). A manual deploy from a workstation goes through
+`scripts/deploy-cloudflare.sh`:
 
 ```bash
 export APP_BASE_URL=https://sb-web-preview.yi-ding.workers.dev   # exact deployed origin; the script refuses anything else
@@ -172,10 +158,10 @@ Worker; treat production invocations accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub
-environments, but has not yet completed a non-`skipped` run end to end. A merge to `main`
-deploys `preview` automatically once its CI run succeeds; `production` is a manual
-`workflow_dispatch` until the repository variable `PRODUCTION_DEPLOY_ENABLED=1` adds it as a
-second, sequential leg behind a preview that passed its own smoke test. Full provisioning steps
+environments. A merge to `main` deploys `preview` automatically once its CI run succeeds;
+`production` is a manual `workflow_dispatch` until the repository variable
+`PRODUCTION_DEPLOY_ENABLED=1` adds it as a second, sequential leg behind a preview that passed
+its own smoke test. Full provisioning steps
 (Neon, R2, Resend, Cloudflare, GitHub environments) are in
 [`docs/provisioning.md`](provisioning.md); operational runbooks (backup/restore, rollback,
 Neon PITR rehearsal, R2 lifecycle, alerting) are in [`docs/runbooks/`](runbooks).

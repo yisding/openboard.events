@@ -20,7 +20,7 @@ inside the window; the CLI fails closed with a clear error if you ask for someth
 
 All commands need `NEON_API_KEY` (or a prior `neonctl auth`) and the project's `--project-id`
 (`neonctl projects list` if you don't have it memorized). Environment → branch names, from
-`docs/provisioning.md` §3:
+`docs/provisioning.md` §1's environment map:
 
 | Environment | Neon branch |
 |---|---|

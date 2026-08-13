@@ -1,298 +1,97 @@
 # Openboard decisions
 
+Standing decisions that govern this codebase, each with its reason. Dated build-history
+narratives were consolidated out; git history holds them.
+
 ## Pinned versions
 
-- Next.js `15.5.23` and `@opennextjs/cloudflare` `1.20.2`. OpenNext supports the latest Next.js 15 minor and the pair is frozen for the build.
+- Next.js `15.5.23` and `@opennextjs/cloudflare` `1.20.2`. OpenNext supports the latest Next.js
+  15 minor and the pair is frozen for the build.
 - React `19.1.9`; zod v4; `date-fns` + `date-fns-tz` for the centralized time API.
 
-## Spike results (S1–S4, C1–C2)
+## One runtime path: Postgres
 
-- Local Next.js production build: passed on 2026-08-08 with 42 routes.
-- OpenNext Cloudflare build: passed on 2026-08-08; `.open-next/worker.js` was generated successfully.
-- Unit checks cover condition evaluation, half-open interval overlap, agenda conflicts,
-  sanitization, environment validation, and RFC 5545 calendar generation (35 passing tests).
-- The deployed preview URL and Neon health query are proven below. Deployed interactive
-  transactions, Auth.js, browser R2 presigning/CORS, and Resend delivery/idempotency remain
-  pending their feature-specific probes.
-- S4 has no credential-backed deployed verdict in this environment, so M06a adopts the pre-decided Web Crypto PBKDF2 + jose HS256 cookie fallback. The public `requireAdmin(eventId, role?)` contract remains implementation-neutral.
-- The auth-enabled OpenNext artifact measured 1,317.99 KiB compressed in Wrangler's production dry run on 2026-08-08, within the configured Workers Free bundle budget.
+Every screen reads and writes Postgres through the server layer. The early credential-free
+browser demo (a localStorage store) was deleted on 2026-08-12; production adapters remain
+isolated behind server interfaces, and there is no fixture fallback at runtime.
 
-## Deferred spikes (Sat AM)
+## Admin auth: Better Auth, with the fallback provider kept warm
 
-- [ ] Revalidate-60 behavior on a deployed public page
-- [ ] Browser presigned R2 upload with CORS
-- [x] Apply all three PostgreSQL migrations to PGlite (integration suite on 2026-08-08; 30+ tables, 8 views, and all M03 invariants pass)
-- [ ] Apply all three PostgreSQL migrations to a disposable Neon branch (`DATABASE_URL_DIRECT` is not configured in this environment)
-- [ ] Embed `frame-ancestors *` survives the adapter
-
-## Adopted fallbacks
-
-- The local demo uses a typed, persisted browser store when external services are absent. Production adapters remain isolated behind server interfaces.
-- Admin authentication uses the Workers-safe jose/Web Crypto fallback until a deployed better-auth round-trip can be proven; downstream features remain isolated behind the frozen auth barrel.
-- M06b used its documented contingency grant to add only `features/portal/server/contacts.ts` and its barrel because M21's canonical contact helpers had not landed; ownership returns to the portal module after this stack merges.
-
-## Discord clarifications
-
-- No clarifications recorded yet.
-
-## Walkthrough-video diffs
-
-- No video artifact is present in this checkout; the written plan is authoritative.
-
-## Infra facts (Neon/R2/Resend/Airtable/WAF ids)
-
-- Credentials are not present in the repository. The `sb` Neon project is recorded with isolated
-  `sb-dev`, `sb-test`, and `sb-prod` branches, but direct migration verification remains blocked
-  here until `DATABASE_URL_DIRECT` is configured and the disposable-branch check succeeds.
-- Cloudflare has `sb-files-preview` and `sb-files` R2 buckets in WNAM with exact-origin CORS.
-  The preview and production web origins are respectively
-  `https://sb-web-preview.yi-ding.workers.dev` and
-  `https://sb-web.yi-ding.workers.dev`; production is not deployed yet.
-
-## PR #1 review checkpoint (2026-08-08)
-
-- All 23 review threads (Codex + CodeRabbit) were fixed in `5ed137c`, replied to, and resolved.
-- `conditionSchema` tightened before the CP1 freeze: `eq`/`neq`/`in`/`not_in` require `value`; `answered`/`empty` are presence-only.
-- Jobs worker `APP_BASE_URL`: default (local) is `http://localhost:3000`; preview and production deploys require the exact matching web origin through `scripts/deploy-cloudflare.sh`. No guessed `workers.dev` hostname is committed. Re-assert the Wrangler-emitted URL here after provisioning or any URL change (M08 guardrail).
-- Preview uses one generated `CRON_SECRET` on both `sb-web-preview` and `sb-jobs-preview`.
-  Production remains unset and its job routes therefore continue to fail closed until the
-  guarded production bootstrap.
-- The demo store hydrates a validated whole-state snapshot (`HYDRATE`); seeded review records are the source of truth for submission score/reviewCount aggregates.
-
-## Infrastructure configuration reconciliation (2026-08-08)
-
-- Canonical Worker/R2 names and isolated preview/production bindings are encoded in Wrangler. Runtime variables are validated fail-closed; production cannot enable test auth, fallback delivery UI, or an email allowlist.
-- GitHub Actions owns ordered deployment (direct Neon migration → web → jobs → smoke). Cloudflare Git integration stays disabled.
-- The unsafe environment-wide API key was removed. Private API routes remain unavailable until M40 provides hashed, event-scoped database keys.
-- Neon, preview Workers, and R2 are now provisioned as recorded below. Resend and production
-  deployment evidence remain pending.
-
-## Preview infrastructure proof (2026-08-08)
-
-- `sb-web-preview` deployed at `https://sb-web-preview.yi-ding.workers.dev`; the repository
-  smoke script passed its health, public schedule, and public API probes.
-- `/api/health` returned `ok: true`, build SHA `0977873`, environment `preview`, and a
-  successful Neon PostgreSQL `18.4` query in 155 ms.
-- The deployed OpenNext Worker was 1206.45 KiB gzip with 24 ms startup time, within the
-  Workers Free 3 MiB compressed-size budget. No CPU or resource-limit error occurred.
-- OpenNext successfully populated five entries in the preview R2 incremental cache. The
-  revalidate-60 and browser presigned upload/CORS probes remain pending.
-- The first jobs tick exposed Cloudflare error 1042 because `sb-jobs-preview` fetched a
-  sibling Worker on the same `workers.dev` zone. Adding the
-  `global_fetch_strictly_public` compatibility flag preserved the intentional public
-  `APP_BASE_URL` design. The next scheduled tick completed with Worker outcome `ok`; its
-  authenticated `outbox` request returned HTTP 200 and `{ ok: true, stats: { noop: 1 } }`
-  with 1 ms CPU time.
-- GitHub environments `preview` and `production` are restricted to `main`; production
-  requires `yisding` approval. `PRODUCTION_DEPLOY_ENABLED` remains unset. The Cloudflare
-  deployment token is temporarily repository-scoped and must move to both protected
-  environments before production.
-
-## CP1 freeze record
-
-- Contracts, migration schema, feature barrels, version pair, and invariant rules freeze after the foundation PR is accepted.
-- **Declared in effect (rev. 8 reconciliation):** the trigger condition above was met when PR #10
-  merged. The freeze is in force — contract or schema changes now require an architect-labeled
-  PR per the frozen protocol. (Four `plan/status.md` references treated the declaration as
-  outstanding while this record's trigger had already fired; this line closes that gap.)
-
-## Product auth direction (2026-08-09)
-
-- The build's goal is reframed from the judged demo alone to a sellable product
-  (`plan/product-roadmap.md`, `docs/product-readiness.md`).
-- **Admin/organizer auth will move to Better Auth with Google enabled as a social provider**
-  (module M42). Google-only sign-in was rejected as insufficient for a product (locks out
-  non-Google organizers; still needs reset/verification/revocation), and Better Auth's Drizzle
-  adapter, organization/admin plugins, and maintained Cloudflare Workers/OpenNext integration
-  path line up with the tenancy and user-management roadmap.
-- Guardrails: the jose/PBKDF2 fallback remains the shipping auth until a deployed Better Auth
-  round-trip is proven on the preview (S4 redone) within the Worker bundle budget; existing
-  PBKDF2 hashes migrate via custom password-hashing hooks, no forced resets; do not combine
-  `cookieCache` with `secondaryStorage` (known open bug treats expired cache as logout);
-  `requireAdmin(eventId, role?)` stays the frozen implementation-neutral contract; portal
-  speaker OTP/magic-link auth does not move.
-- M42's acceptance criteria — legacy-hash detection with rehash-on-login, unchanged
-  `requireAdmin` authorization semantics, an isolated revocable admin session store, and a
-  deployed revocation proof — are recorded in `plan/product-roadmap.md` ("The product auth
-  decision").
-- **Provisioned (2026-08-09, work not started):** local Google OAuth credentials exist —
-  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `BETTER_AUTH_URL` are set in the untracked
-  `.dev.vars` (values held outside the repository, local-dev only so far). When M42 starts,
-  the preview/production halves go in as worker secrets per `plan/environments.md`, never as
-  committed vars.
+- `ADMIN_AUTH_PROVIDER=better-auth` is the shipping admin/organizer auth on both deployed
+  environments (`wrangler.jsonc`), with revocable sessions in `admin_sessions` and Google
+  enabled as a social provider. Google-only sign-in was rejected as insufficient for a product:
+  it locks out non-Google organizers and still needs reset/verification/revocation.
+- The jose/PBKDF2 implementation survives as the `fallback` provider and as the local default.
+  Passwords are mirrored both ways (`upsertCredentialAccount` on provisioning,
+  `mirrorCredentialToFallback` on reset/signup), and legacy `pbkdf2-sha256$…` hashes rehash on
+  first login, so the current password works on either provider with no forced resets.
+- One caveat before relying on a provider revert: the fallback cookie is a stateless 7-day JWT
+  with no server record, so a password reset performed under `better-auth` cannot invalidate a
+  fallback cookie issued before a switch. Rotate `SESSION_SECRET` if that matters.
+- Do not combine Better Auth's `cookieCache` with `secondaryStorage` (a known bug treats an
+  expired cache as logout). `requireAdmin(eventId, role?)` stays the frozen,
+  implementation-neutral contract. Portal speaker OTP/magic-link auth is a separate system and
+  does not move.
 
 ## Migration authorship
 
-- The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign keys, partial and NULL-aware unique indexes, views, and triggers that the current Drizzle table declarations do not fully model.
-- Migration generation is deliberately disabled until a complete Drizzle metadata baseline can reproduce those constraints without weakening them. The TypeScript schema remains available for query typing; schema changes are authored and reviewed directly in SQL meanwhile.
+- The reviewed SQL files in `drizzle/` are authoritative. They contain composite tenant foreign
+  keys, partial and NULL-aware unique indexes, views, and triggers that the Drizzle table
+  declarations do not fully model.
+- Migration generation is deliberately disabled until a complete Drizzle metadata baseline can
+  reproduce those constraints without weakening them. The TypeScript schema remains available
+  for query typing; schema changes are authored and reviewed directly in SQL, additive-only
+  after the initial baseline.
 
-## Email deliverability header gate — dmarc=pass (2026-08-09)
+## API access
 
-Delta #17's header gate is satisfied on Gmail. A probe sent through Resend from the deployed
-openboard preview was delivered to a real Gmail inbox on Sun Aug 9, 2026, 14:13 PT, and its
-`Authentication-Results` (mx.google.com) read:
+- There is no environment-wide API key: it could not enforce event scope, so a leak would read
+  every event. Programmatic access uses hashed (`sha256`-at-rest), event-scoped keys issued from
+  **Settings → API keys** and enforced on every keyed `/api/v1` route (401-before-404).
 
-- `dkim=pass header.i=@mail.openboard.events header.s=resend` — DKIM signed on the `EMAIL_FROM`
-  domain itself: aligned.
-- `spf=pass` for `smtp.mailfrom=…@send.mail.openboard.events` — relaxed alignment with the From
-  domain: aligned.
-- `dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=openboard.events`.
+## Contracts freeze (CP1)
 
-A second DKIM signature from `@amazonses.com` (Resend's underlying relay) is present and does not
-affect alignment. Caveat recorded: the published DMARC policy is `p=NONE` (monitor-only). The gate
-asked for `dmarc=pass` with aligned identities, which this is; tightening the policy to
-`quarantine`/`reject` is optional hardening, not a release gate.
+Contracts, migration schema, feature barrels, the pinned version pair, and the invariant rules
+are frozen. Contract or schema changes require an architect-labeled PR under the frozen
+protocol.
 
-Consequence: CP0's DMARC bullet and R1 item 5 in `plan/status.md` are green. The remaining
-Resend-track items are the Outlook probe, calendar-invite delivery evidence, a production sending
-key, and bounce handling.
+## Deployment
 
-## Submit load test, 50 concurrent (2026-08-09)
+- GitHub Actions owns ordered deployment: direct Neon migration → web Worker → jobs Worker →
+  strict post-deploy smoke, through protected `preview` and `production` environments.
+  Cloudflare's Git integration stays disabled.
+- A successful `main` CI run deploys `preview` automatically. Production is gated behind
+  `PRODUCTION_DEPLOY_ENABLED=1` and runs as a second sequential leg after a preview that passed
+  its own migration, deploy, and smoke — a manual `workflow_dispatch` deploys exactly the
+  environment chosen and never adds a leg. The `preview` GitHub environment must have no
+  required reviewer, or every merge queues an approval instead of deploying.
+- The jobs Worker holds only `APP_BASE_URL` and `CRON_SECRET`. Deploys require the exact
+  matching web origin through `scripts/deploy-cloudflare.sh` — no guessed `workers.dev`
+  hostname is committed — and the `global_fetch_strictly_public` compatibility flag stays set so
+  the jobs Worker can fetch its sibling on the same zone (Cloudflare error 1042 otherwise).
+- Runtime variables are validated fail-closed; production cannot enable `TEST_AUTH`, the
+  fallback delivery UI, `EMAIL_MODE=log`, or an email allowlist.
 
-Run against the deployed preview (`sb-web-preview`, build `2794dd4`, `sb-test` branch) with 50
-distinct emails, each holding a real OTP portal session and its own draft, all firing at the
-seeded open CFP form.
+## R2 key scheme and lifecycle
 
-**Result: 50/50 `200 ok`. No 500s, no typed rejections. p50 14346 ms · p95 27703 ms · p99 29044 ms.**
+Objects are keyed `evt_<eventId>/staging/...`, so `staging` is the second path segment and no
+static R2 lifecycle prefix rule can isolate staging objects (`Prefix: "staging/"` matches
+nothing; `Prefix: "evt_"` would expire published files too). Orphan cleanup is therefore an
+application-level sweep — `cleanupOrphans`, on the daily cron — until the `staging/` segment is
+hoisted to the bucket root in `buildStagingKey` and its parsers. `docs/runbooks/r2-lifecycle.md`
+has the full analysis.
 
-The invariant the event-row lock exists for held: **zero duplicate codes across 81 submissions,
-codes 1–81 contiguous with max = count.** The script created all drafts sequentially before the
-concurrent promotion burst, so their codes were already allocated; this run exercised the
-unconditional final-submit event-row lock, not concurrent `nextSubmissionCode` allocation. The
-script asserts only HTTP status, so the code result was checked in the database directly.
+## Known operational limits
 
-### What the numbers mean
-
-Wall clock is a flat multiple of the burst size, so submits against one event are effectively
-fully serialized:
-
-| concurrency | wall clock | per submit |
-|---|---|---|
-| 1 | 593 ms | 593 ms |
-| 10 | 5753 ms | 575 ms |
-| 50 | 29060 ms | 581 ms |
-
-Per-submit cost is unchanged by contention (~580 ms), which is the signature of a queue, not of
-saturation. One event sustains **~1.7 submits/sec**, and p95 grows linearly with burst size. That
-is a correctness-preserving design: `createSubmissionIn` takes the event row `FOR UPDATE` before
-the final-submit checks and writes. It is fine for a CFP deadline at human scale, but it is a
-per-event ceiling worth knowing before anyone markets a launch-day rush.
-
-Answer batching (PR #73) landed **before** the recorded run, as the roadmap required. It cut
-p95 from 32713 ms to 27703 ms (−15%) and per-submit cost from ~660 ms to ~580 ms. It did not
-change the shape of the curve, because the remaining cost is per-transaction, not per-answer.
-
-### Consequence for the Hyperdrive question
-
-This run does **not** isolate the WebSocket `Pool` handshake: ~580 ms is the entire transaction,
-including its sequential checks and writes while the event lock is held. It therefore proves the
-per-event serialization ceiling, but not that Hyperdrive is the remedy. Reducing lock-held work
-raises per-event throughput; adopting Hyperdrive first requires handshake timing instrumentation
-or an otherwise-equivalent A/B run with pooling enabled.
-
-## M48 observability & ops (2026-08-10)
-
-Implemented per `plan/product-roadmap.md`'s M48 line: `/api/health` deepened with outbox
-observability, alerting thresholds documented, a non-deploying curl-based uptime-check workflow,
-R2 lifecycle-rule documentation, and a Neon PITR rehearsal runbook. Details and cross-links live
-in `docs/runbooks/alerting.md`, `docs/runbooks/r2-lifecycle.md`, and
-`docs/runbooks/pitr-rehearsal.md`; recorded here is the one finding worth pinning independently of
-those docs, since it corrects an assumption an earlier module's own status note made.
-
-**Finding: no single static R2 lifecycle rule can target only staging objects today.**
-`plan/modules/M07-r2-storage.md` names "an R2 lifecycle rule expiring the `staging/` prefix" as
-its outstanding follow-up. Verified against the actual key scheme
-(`src/shared/server/r2.ts::buildStagingKey`) and against R2's lifecycle API (mirrors S3's
-`PutBucketLifecycleConfiguration` — a rule's `Prefix` filter matches only keys that *begin with*
-that literal string): every object in `sb-files-preview`/`sb-files`, staging and published alike,
-is keyed `evt_<eventId>/...` — `staging` is the bucket's *second* path segment, appearing after a
-per-event id that doesn't exist until the event is created. `Prefix: "staging/"` therefore matches
-zero objects in either bucket today; `Prefix: "evt_"` matches every object, staging and published
-alike, and would silently expire published headshots and attachments. No prefix rule authored
-once, before all events exist, can isolate "any event's staging objects" under this key scheme.
-
-This is not fixed in this change — the fix is hoisting the `staging/` segment to the bucket root
-in `buildStagingKey` (and the orphan-sweep predicate that parses it), which is `src/shared/server/r2.ts`,
-squarely M07's owned path, and deserves that module's own review rather than a drive-by edit from
-an ops task. `docs/runbooks/r2-lifecycle.md` documents the finding in full, the app-level
-`cleanupOrphans` sweep that already covers this gap today (daily cron, already deployed), and the
-exact wrangler/dashboard steps for the rule that becomes correct once the key-scheme follow-up
-lands. Filed as a scoped follow-up for M07's owner, not a blocker for M48.
-
-## S4 redo attempt — blocked on preview configuration, not on code (2026-08-10)
-
-The rev. 13 deployed-demonstration run attempted the M42 S4 redo against the live preview
-(version `3f42f894`, code = merge `7b9cf3a`, `/api/health` `sha: 8b566c0`). Full transcript:
-[`docs/evidence/rev13-deployed-run.md`](docs/evidence/rev13-deployed-run.md) §2.
-
-**Verdict: not executable on this deployment. `ADMIN_AUTH_PROVIDER` is unset on
-`sb-web-preview`, so it holds its default `fallback` and the entire Better Auth surface is
-unreachable** — `GET /api/auth/get-session`, `GET|POST /api/auth/sign-in/email`,
-`/api/auth/sign-in/social` and `/api/auth/callback/google` all answer this application's own
-`404 {"error":{"code":"NOT_FOUND"}}`, which is exactly what `src/app/api/auth/[...action]/route.ts`
-returns while the provider is `fallback`. The preview also carries no `GOOGLE_CLIENT_ID`,
-`GOOGLE_CLIENT_SECRET` or `BETTER_AUTH_URL` (this file's "Product auth direction" entry records
-those as `.dev.vars`, local-dev only). So the deployed Better Auth sign-in round-trip, the deployed
-revocation proof, deployed rehash-on-login, and the Google consent redirect are all blocked on an
-owner action — worker secrets plus a redeploy — and none of them is blocked on missing code.
-
-**What the attempt did establish, deployed:**
-
-- The *shipping* provider's credential round-trip works end to end on the preview: wrong password
-  → 401, real credential → 200 with an `ob_admin` cookie (Secure, HttpOnly, SameSite=lax, 7 days),
-  that cookie authorizing a real `requireAdmin` read, no cookie → 401, sign-out → 200 with the
-  cookie cleared.
-- **The revocation gap M42 exists to close, reproduced on the deployment:** replaying the
-  pre-sign-out cookie after a successful sign-out still returns 200. The fallback cookie is a
-  self-contained jose JWT with no server record, `revokeAdminSessions` returns 0 on this provider
-  by design, and `admin_sessions` is empty. Under Better Auth the same probe must answer 401 after
-  a row delete; that is the proof still owed.
-- The rehash-on-login *precondition* is real on `sb-test`: after `pnpm admin:bootstrap`, both
-  admins hold a legacy `pbkdf2-sha256$…` value in `users.password_hash` **and** in
-  `admin_accounts.password` under `provider_id = 'credential'` (the `upsertCredentialAccount`
-  mirror), which is precisely the row `needsRehash` upgrades on first sign-in once the flag flips.
-
-**Consequence for the guardrail in "Product auth direction": unchanged. The jose/PBKDF2 fallback
-remains the shipping auth**, because the deployed Better Auth round-trip is still unproven. This
-entry records that the reason is now configuration and an owner action, not an unknown-risk
-compatibility question.
-
-## Deployed auth-throttle proof — CP0 / R1 item 4 closed (2026-08-10)
-
-The last outstanding CP0 bullet ("a deployed application auth-throttle proof; unit coverage is not
-external evidence") is satisfied. Against the deployed preview, one throwaway address, requests
-paced 1.5 s apart:
-
-```
-attempt 1: 401   attempt 3: 401   attempt 5: 401
-attempt 2: 401   attempt 4: 401   attempt 6: 429 {"code":"RATE_LIMITED","message":"Too many sign-in attempts. Try again later."}
-```
-
-Five attempts per email+IP per 15 minutes, then a block — `registerLoginAttempt`'s documented
-policy, observed on the application rather than in a test. The independent P3-SEC IP limiter on
-the portal login-request route was proven in the same session with a fresh address every request
-(so the per-contact throttle could not be what answered): 20 × 200, then 429 on the 21st, matching
-`limit: 20, windowMs: 10 min`.
-
-**Finding recorded alongside it:** the *unpaced* version of the same probe — seven sign-in attempts
-back to back — returned Cloudflare **error 1102, "Worker exceeded resource limits"** (HTTP 503) for
-the first five and only then the 429. PBKDF2 at 100,000 iterations runs on every attempt, including
-for an unknown address against `DUMMY_PASSWORD_HASH`, so a login burst is CPU-bound on the Workers
-Free plan. The attacker still learns nothing, but a burst degrades the whole Worker and the 503s
-are indistinguishable from an outage in a log. Filed for M06a/M01's owners; not fixed by the
-evidence run.
-
-## Continuous preview deployment on `main` (2026-08-11)
-
-- A successful `main` CI run now deploys the `preview` environment automatically. Before this,
-  the only automatic target was `production` behind `PRODUCTION_DEPLOY_ENABLED`, which is unset
-  — so a merge to `main` deployed nothing and every preview refresh was a manual dispatch or a
-  laptop `pnpm deploy:web:preview`.
-- Production did not become automatic. `PRODUCTION_DEPLOY_ENABLED=1` still gates it, and it now
-  runs as a second sequential leg after `preview` in the same workflow run, so production can
-  only follow a preview that passed its own migration, deploy, and smoke test.
-- A manual `workflow_dispatch` deploys exactly the environment chosen and never adds a leg.
-- The stale-SHA freshness gate and `cancel-in-progress: false` concurrency are unchanged; each
-  environment keeps its own concurrency group, so a preview deploy cannot cancel a production one.
-- Operational requirement: the `preview` GitHub environment must have no required reviewer, or
-  every merge queues an approval instead of deploying.
+- **Per-event submit throughput is serialized.** `createSubmissionIn` takes the event row
+  `FOR UPDATE` before the final-submit checks, so one event sustains roughly 1.7 submits/sec
+  (~580 ms per submit, flat under contention; verified with a 50-concurrent deployed load test:
+  50/50 `200 ok`, zero duplicate codes). Correct by design, but a per-event ceiling worth
+  knowing before marketing a launch-day rush.
+- **Sign-in bursts are CPU-bound on Workers Free.** PBKDF2 at 100,000 iterations runs on every
+  attempt (including unknown addresses against the dummy hash), so an unpaced burst can hit
+  Cloudflare error 1102 (resource limits) before the application 429 does. The throttle itself
+  holds: five attempts per email+IP per 15 minutes, then `429 RATE_LIMITED`.
+- **DMARC is monitor-only.** Deliverability is proven aligned (`dkim=pass`, `spf=pass`,
+  `dmarc=pass` on the `EMAIL_FROM` domain), but the published policy is `p=NONE`; tightening to
+  `quarantine`/`reject` is optional hardening, not a gate.

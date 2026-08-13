@@ -73,7 +73,7 @@ the workflow run.
 | Signal | Threshold | Where |
 |---|---|---|
 | `pnpm worker:size` compressed bundle | warn `> 2.5 MiB`, fail `> 3 MiB` | `scripts/check-worker-size.sh`, already a CI gate (`.github/workflows/ci.yml`'s `artifacts` job) — listed here only so it appears in one place alongside the runtime thresholds, not duplicated as a new check. |
-| Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s final step — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
+| Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s `Smoke test the deployed web worker` step (followed, on preview only, by the self-service signup journey) — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
 | Jobs Cron Trigger invocation | any failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The web route owns raw error capture; dispatcher logs stay metadata-only. |
 
 ## R2 / storage

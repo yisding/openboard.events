@@ -51,7 +51,7 @@ another organization's data, etc.]
 
 ## 6. Fees and payment
 
-[TODO: pricing model reference — the product roadmap (`plan/product-roadmap.md`)
+[TODO: pricing model reference — the product roadmap
 notes billing (M49) as a planned module; this section stays a placeholder
 until that module and a pricing decision exist.]
 
