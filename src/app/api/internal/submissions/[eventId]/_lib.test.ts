@@ -3,6 +3,7 @@ import { manualAbstractSchema, toCreateSubmissionInput } from "./_lib";
 
 const OSEI = "e0000000-0000-4000-8000-0000000000a1";
 const PANELIST = "e0000000-0000-4000-8000-0000000000a2";
+const REQUEST_ID = "e0000000-0000-4000-8000-0000000000a3";
 
 function parse(body: Record<string, unknown>) {
   return manualAbstractSchema.parse({ title: "Dr. Osei's keynote", ...body });
@@ -37,6 +38,11 @@ describe("manual abstract input", () => {
 
   it("still accepts an abstract with nobody attached", () => {
     expect(toCreateSubmissionInput(parse({})).participants).toEqual([]);
+  });
+
+  it("maps a stable creation request id while accepting legacy tabs without one", () => {
+    expect(toCreateSubmissionInput(parse({ id: REQUEST_ID })).requestedSubmissionId).toBe(REQUEST_ID);
+    expect(toCreateSubmissionInput(parse({})).requestedSubmissionId).toBeNull();
   });
 
   it("refuses a speaker list with no primary, or with two", () => {

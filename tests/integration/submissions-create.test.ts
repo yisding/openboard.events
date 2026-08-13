@@ -4,7 +4,15 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { cleanAnswersSchema, contactIdSchema, eventIdSchema, formIdSchema, type CreateSubmissionInput } from "@/shared/contracts";
+import {
+  cleanAnswersSchema,
+  contactIdSchema,
+  eventIdSchema,
+  formIdSchema,
+  submissionIdSchema,
+  tagIdSchema,
+  type CreateSubmissionInput,
+} from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -23,6 +31,8 @@ const speaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000004");
 const missingContact = contactIdSchema.parse("e0000000-0000-4000-8000-000000000005");
 /** A second real contact, so "the first one selected is primary" can be asserted. */
 const coSpeaker = contactIdSchema.parse("e0000000-0000-4000-8000-000000000009");
+const manualRequest = submissionIdSchema.parse("e0000000-0000-4000-8000-00000000000a");
+const manualTag = tagIdSchema.parse("e0000000-0000-4000-8000-00000000000b");
 const titleField = "e0000000-0000-4000-8000-000000000006";
 const bioField = "e0000000-0000-4000-8000-000000000007";
 const section = "e0000000-0000-4000-8000-000000000008";
@@ -92,6 +102,10 @@ describe("createSubmission", () => {
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Test','Speaker')",
       [speaker, eventId],
+    );
+    await pglite.query(
+      "INSERT INTO tags(id,event_id,name) VALUES($1,$2,'Keynote')",
+      [manualTag, eventId],
     );
     await pglite.query(
       "INSERT INTO form_sections(id,event_id,form_id,key) VALUES($1,$2,$3,'main')",
@@ -232,6 +246,49 @@ describe("createSubmission", () => {
 
     expect(result.code).toBeGreaterThan(0);
     expect(await countRows("communication_logs")).toBe(0);
+  });
+
+  it("replays a manual creation request without duplicating its code, speakers, or tags", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'panelist@example.com','Second','Panelist') ON CONFLICT DO NOTHING",
+      [coSpeaker, eventId],
+    );
+    const input = cfpInput({
+      requestedSubmissionId: manualRequest,
+      formId: null,
+      formVersion: null,
+      source: "manual",
+      initialStatus: "accepted",
+      submitterContactId: null,
+      enforce: { deadline: false, limit: false },
+      sendConfirmation: false,
+      fields: { title: "Replay-safe keynote" },
+      participants: [
+        { contactId: speaker, role: "speaker", isPrimary: true, sortOrder: 0 },
+        { contactId: coSpeaker, role: "co_speaker", isPrimary: false, sortOrder: 1 },
+      ],
+      tagIds: [manualTag],
+    });
+
+    const first = await createSubmission(eventId, input);
+    const retry = await createSubmission(eventId, input);
+
+    expect(retry).toEqual(first);
+    expect(first.submissionId).toBe(manualRequest);
+    expect(await countRows("submissions", `id='${manualRequest}'`)).toBe(1);
+    expect(await countRows("submission_participants", `submission_id='${manualRequest}'`)).toBe(2);
+    expect(await countRows("submission_tags", `submission_id='${manualRequest}'`)).toBe(1);
+  });
+
+  it("does not accept organizer creation request ids on CFP submissions", async () => {
+    await pglite.query("DELETE FROM submissions");
+
+    const error = await createSubmission(eventId, cfpInput({ requestedSubmissionId: manualRequest }))
+      .catch((thrown: unknown) => thrown);
+
+    expect(isAppError(error) && error.code).toBe("VALIDATION");
+    expect(await countRows("submissions")).toBe(0);
   });
 
   // #117 — the invited keynote. "Add abstract" used to send no participants at

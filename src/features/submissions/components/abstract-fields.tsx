@@ -122,6 +122,7 @@ export function AbstractFields({
           value={values.descriptionHtml}
           onChange={(next) => set("descriptionHtml", next)}
           ariaLabel="Session description"
+          disabled={disabled}
         />
       </Field>
 

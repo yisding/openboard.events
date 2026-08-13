@@ -38,6 +38,7 @@ export function RichTextEditor({
   ariaDescribedBy,
   ariaInvalid = false,
   required = false,
+  disabled = false,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -48,6 +49,7 @@ export function RichTextEditor({
   ariaDescribedBy?: string;
   ariaInvalid?: boolean;
   required?: boolean;
+  disabled?: boolean;
 }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
@@ -72,6 +74,7 @@ export function RichTextEditor({
       ...(placeholder ? [Placeholder.configure({ placeholder })] : []),
     ],
     content: value,
+    editable: !disabled,
     editorProps: {
       attributes: {
         class: "rich-text-editor__surface",
@@ -104,6 +107,10 @@ export function RichTextEditor({
     if (plainTextLength(current) === 0 && plainTextLength(value) === 0) return;
     editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
+
+  useEffect(() => {
+    editor?.setEditable(!disabled);
+  }, [disabled, editor]);
 
   const openLinkDialog = useCallback(() => {
     if (!editor) return;
@@ -151,6 +158,7 @@ export function RichTextEditor({
       title={label}
       aria-label={label}
       aria-pressed={active ?? false}
+      disabled={disabled}
       className={cn("rich-text-editor__tool", active && "is-active")}
       onClick={run}
     >
@@ -159,7 +167,10 @@ export function RichTextEditor({
   );
 
   return (
-    <div className={cn("rich-text-editor", over && "is-over-limit")}>
+    <div
+      className={cn("rich-text-editor", over && "is-over-limit", disabled && "is-disabled")}
+      aria-disabled={disabled || undefined}
+    >
       <div className="rich-text-editor__toolbar" role="toolbar" aria-label="Formatting">
         {button("bold", "Bold", <Bold size={14} />, () => editor.chain().focus().toggleBold().run(), editor.isActive("bold"))}
         {button("italic", "Italic", <Italic size={14} />, () => editor.chain().focus().toggleItalic().run(), editor.isActive("italic"))}
