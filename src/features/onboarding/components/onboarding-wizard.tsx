@@ -366,6 +366,7 @@ export function OnboardingWizard({
   const [formName, setFormName] = useState(initialState?.form?.internalName ?? "Call for Speakers");
   const [publishNow, setPublishNow] = useState(true);
   const [creatingForm, setCreatingForm] = useState(false);
+  const [pendingFormPublication, setPendingFormPublication] = useState(false);
   const [formLink, setFormLink] = useState(initialState?.publicFormUrl ?? "");
   const [formStatus, setFormStatus] = useState(initialState?.form?.status ?? "draft");
   const [formAvailability, setFormAvailability] = useState<OnboardingFormAvailability>(
@@ -552,35 +553,64 @@ export function OnboardingWizard({
     }
   }
 
-  async function createFormStep() {
-    if (!event || creatingForm) return;
-    const closesAt = resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone);
+  function validateDeadline(closesAt: string | null) {
+    if (!event || !publishNow || deadlineChoice === "none") return true;
     const failDeadline = (message: string) => {
       setDeadlineError(message);
       requestAnimationFrame(() => document.getElementById(
         deadlineChoice === "custom" ? "onboarding-cfp-custom-deadline" : "onboarding-cfp-deadline",
       )?.focus());
     };
-    const validateDeadline = () => {
-      if (!publishNow || deadlineChoice === "none") return true;
-      if (!closesAt) {
-        failDeadline("Choose a closing date or select No deadline");
-        return false;
-      }
-      if (Date.parse(closesAt) <= Date.now()) {
-        failDeadline("Choose a closing date in the future");
-        return false;
-      }
-      if (Date.parse(closesAt) >= Date.parse(event.startsAt)) {
-        failDeadline("Choose a closing date before the event starts");
-        return false;
-      }
-      return true;
-    };
+    if (!closesAt) {
+      failDeadline("Choose a closing date or select No deadline");
+      return false;
+    }
+    if (Date.parse(closesAt) <= Date.now()) {
+      failDeadline("Choose a closing date in the future");
+      return false;
+    }
+    if (Date.parse(closesAt) >= Date.parse(event.startsAt)) {
+      failDeadline("Choose a closing date before the event starts");
+      return false;
+    }
+    return true;
+  }
+
+  async function completeFormStep(finalForm: BuilderFormLite) {
+    if (!event) return;
+    const isPublished = finalForm.status === "open";
+    setCreatedForm(finalForm);
+    setFormStatus(finalForm.status);
+    setFormAvailability(onboardingFormAvailability(finalForm));
+    setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
+    // Put the exact event in the address bar before completion. If the
+    // mutation commits but its response is lost, a refresh can authorize
+    // and restore this checkpoint instead of starting another event.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/organizations/${organizationId}/onboarding?event=${event.id}`,
+    );
+    await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
+    });
+    toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
+    setPendingFormPublication(false);
+    setStep(4);
+  }
+
+  async function createFormStep() {
+    if (!event || creatingForm) return;
+    const closesAt = resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone);
     // A brand-new form can be rejected before creating anything. An existing
     // draft must first be reconciled below: a prior publish may have committed
     // even when both its response and the immediate read were lost.
-    if (!createdForm && !validateDeadline()) return;
+    if (!createdForm && !validateDeadline(closesAt)) {
+      setPendingFormPublication(false);
+      return;
+    }
     let hasCreatedForm = createdForm !== null;
     let deadlineValidationFailed = false;
     setDeadlineError("");
@@ -604,7 +634,7 @@ export function OnboardingWizard({
         }),
         reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
         validatePublish: () => {
-          if (validateDeadline()) return;
+          if (validateDeadline(closesAt)) return;
           deadlineValidationFailed = true;
           throw new Error("CFP deadline needs attention");
         },
@@ -623,34 +653,70 @@ export function OnboardingWizard({
           });
         },
       });
-      const isPublished = finalForm.status === "open";
-      setCreatedForm(finalForm);
-      setFormStatus(finalForm.status);
-      setFormAvailability(onboardingFormAvailability(finalForm));
-      setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
-      // Put the exact event in the address bar before completion. If the
-      // mutation commits but its response is lost, a refresh can authorize
-      // and restore this checkpoint instead of starting another event.
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `/organizations/${organizationId}/onboarding?event=${event.id}`,
-      );
-      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
-      });
-      toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
-      setStep(4);
+      await completeFormStep(finalForm);
     } catch (caught) {
-      if (deadlineValidationFailed) return;
+      if (deadlineValidationFailed) {
+        setPendingFormPublication(false);
+        return;
+      }
       toast(hasCreatedForm
         ? `Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`
         : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
     } finally {
       setCreatingForm(false);
     }
+  }
+
+  async function reconcileOpenFormBeforeFinish(form: BuilderFormLite) {
+    if (!event || creatingForm) return;
+    setCreatingForm(true);
+    try {
+      const current = await requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`);
+      setCreatedForm(current);
+      setFormStatus(current.status);
+      setFormAvailability(onboardingFormAvailability(current));
+      if (current.status !== "open") {
+        // The cached status was stale. Do not let the ordinary completion path
+        // reconcile and silently republish it; require the same explicit
+        // confirmation as every other draft/closed form.
+        setPendingFormPublication(true);
+        return;
+      }
+      // Replay the durable association before completing setup, matching the
+      // existing create/publish recovery path without issuing a form mutation.
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "form", formId: current.id }),
+      });
+      await completeFormStep(current);
+    } catch (caught) {
+      toast(`Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`, { kind: "error" });
+    } finally {
+      setCreatingForm(false);
+    }
+  }
+
+  function requestFormStep() {
+    if (!event || creatingForm) return;
+    if (!publishNow) {
+      void createFormStep();
+      return;
+    }
+    if (createdForm?.status === "open") {
+      void reconcileOpenFormBeforeFinish(createdForm);
+      return;
+    }
+
+    // A new form has no ambiguous server state, so refuse an invalid deadline
+    // before showing the consequential-action dialog. An existing draft must
+    // reconcile inside createFormStep first: an earlier publish may be live even
+    // if both its mutation response and the immediate recovery read were lost.
+    if (!createdForm) {
+      const closesAt = resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone);
+      if (!validateDeadline(closesAt)) return;
+    }
+    setPendingFormPublication(true);
   }
 
   async function copyLink() {
@@ -675,6 +741,13 @@ export function OnboardingWizard({
 
   const remainingSuggestions = SUGGESTED_TRACKS.filter((suggestion) => !tracks.some((track) => track.name === suggestion.name));
   const published = formAvailability.open;
+  const publicationFormName = (createdForm?.internalName ?? formName).trim() || "Call for Speakers";
+  const publicationClosesAt = event
+    ? resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone)
+    : null;
+  const publicationOpensLater = Boolean(
+    createdForm?.opensAt && Date.parse(createdForm.opensAt) > Date.parse(nowIso),
+  );
 
   return (
     <div className="panel settings-section onboarding-wizard">
@@ -865,8 +938,24 @@ export function OnboardingWizard({
           </>}
           <footer className="cfp-actions">
             <Button variant="ghost" onClick={() => setStep(2)} disabled={creatingForm}><ArrowLeft size={16} /> Back to tracks</Button>
-            <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm?.status === "open" ? "Finish setup" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
+            <Button onClick={requestFormStep} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm?.status === "open" ? "Finish setup" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : publishNow ? "Create and publish form" : "Create draft"} <ArrowRight size={16} /></Button>
           </footer>
+          <ConfirmDialog
+            open={pendingFormPublication}
+            title={createdForm ? `Publish “${publicationFormName}” now?` : `Create and publish “${publicationFormName}” now?`}
+            body={<>
+              <p>{publicationOpensLater && createdForm?.opensAt
+                ? <>This publishes the form now. The public link will start accepting speaker submissions on <b>{formatInZone(createdForm.opensAt, event.timezone, "long")}</b>.</>
+                : "This makes the public link available immediately and starts accepting speaker submissions."}</p>
+              <p>{publicationClosesAt
+                ? <>Speakers can create and update submissions until <b>{formatInZone(publicationClosesAt, event.timezone, "long")}</b>.</>
+                : "The form will stay open until you close it."}</p>
+            </>}
+            confirmLabel={createdForm ? "Retry publishing" : "Create and publish form"}
+            variant="primary"
+            onConfirm={createFormStep}
+            onCancel={() => setPendingFormPublication(false)}
+          />
         </div>
       )}
 

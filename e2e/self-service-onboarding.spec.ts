@@ -256,7 +256,12 @@ test.describe("self-service signup to first value", () => {
       await page.getByLabel("Form name").fill(formName);
       await expect(page.getByRole("checkbox", { name: /publish immediately/i })).toBeChecked();
       await expect(page.getByLabel("CFP deadline")).toHaveValue("four_weeks");
-      await page.getByRole("button", { name: /^create form/i }).click();
+      await page.getByRole("button", { name: "Create and publish form" }).click();
+      const publication = page.getByRole("dialog", { name: `Create and publish “${formName}” now?` });
+      await expect(publication).toBeVisible();
+      await expect(publication).toContainText("starts accepting speaker submissions");
+      await expect(publication).toContainText(/Speakers can create and update submissions until .* P[DS]T/);
+      await publication.getByRole("button", { name: "Create and publish form" }).click();
 
       await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible({ timeout: 30_000 });
       const linkInput = page.locator(".onboarding-link-row input");

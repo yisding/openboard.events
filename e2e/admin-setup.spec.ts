@@ -122,7 +122,10 @@ test.describe("admin-setup", () => {
           await page.getByRole("button", { name: "Skip for now" }).click();
         }
         await expect(formHeading).toBeVisible({ timeout: 30_000 });
-        await page.getByRole("button", { name: "Create form" }).click();
+        await page.getByRole("button", { name: "Create and publish form" }).click();
+        const publication = page.getByRole("dialog", { name: "Create and publish “Call for Speakers” now?" });
+        await expect(publication).toContainText("starts accepting speaker submissions");
+        await publication.getByRole("button", { name: "Create and publish form" }).click();
         await expect(page.getByRole("heading", { name: "E2E created event is ready" })).toBeVisible({ timeout: 30_000 });
 
         // Communications exposes event mail only. The two platform-auth
