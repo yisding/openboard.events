@@ -191,7 +191,7 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
             label="LIVE PREVIEW"
             hint="Updates as you type"
             message={unknownTokens.length === 0 && preview.data
-              ? { subject: preview.data.subject, bodyHtml: preview.data.html }
+              ? { subject: preview.data.subject, bodyHtml: preview.data.html, bodyText: preview.data.text }
               : undefined}
             status={unknownTokens.length > 0
               ? "Fix the unknown variable to see a preview."

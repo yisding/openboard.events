@@ -91,6 +91,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     expect(result.skipped).toBe(0);
     expect(result.preview).toMatchObject({ recipientEmail: "ada@example.com", recipientName: "Ada Lovelace", subject: "Hi Ada" });
     expect(result.preview?.bodyHtml).toContain("See you at AI Engineer, Ada Lovelace.");
+    expect(result.preview?.bodyText).toContain("See you at AI Engineer, Ada Lovelace.");
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs");
     expect(rows.rows[0]?.n).toBe(0);
   });

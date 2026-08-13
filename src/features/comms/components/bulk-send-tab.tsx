@@ -80,7 +80,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [previewContactId, setPreviewContactId] = useState<ContactId | "">("");
-  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; fingerprint: string; attempt: BulkSendAttempt } | null>(null);
+  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; bodyText: string; fingerprint: string; attempt: BulkSendAttempt } | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [result, setResult] = useState<ComposeBulkSpeakerEmailResult | null>(null);
@@ -195,6 +195,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       if (rendered.preview) setPreview({
         subject: rendered.preview.subject,
         bodyHtml: rendered.preview.bodyHtml,
+        bodyText: rendered.preview.bodyText,
         fingerprint,
         attempt,
       });
