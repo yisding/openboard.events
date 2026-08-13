@@ -27,7 +27,31 @@ export type MoveSessionVariables = {
 };
 
 type MoveSessionResult = { session: ScheduledSessionDTO; conflicts: ConflictDTO[] };
-type MoveSessionContext = { previous: ScheduledSessionDTO[] | undefined };
+type MoveSessionContext = { previous: ScheduledSessionDTO[] | undefined; previousSession: ScheduledSessionDTO | undefined };
+
+function placementChanged(left: ScheduledSessionDTO, right: ScheduledSessionDTO): boolean {
+  return left.startsAt !== right.startsAt || left.endsAt !== right.endsAt || left.roomId !== right.roomId;
+}
+
+/**
+ * Build the inverse only from the row the organizer actually moved and the
+ * server row that committed. Its returned row version is the undo CAS token:
+ * if another edit lands first, the inverse is rejected instead of overwriting
+ * that newer schedule.
+ */
+export function undoVariablesForMove(
+  previous: ScheduledSessionDTO,
+  moved: ScheduledSessionDTO,
+): MoveSessionVariables | null {
+  if (previous.id !== moved.id || moved.rowVersion !== previous.rowVersion + 1 || !placementChanged(previous, moved)) return null;
+  return {
+    id: moved.id,
+    version: moved.rowVersion,
+    startsAt: previous.startsAt,
+    endsAt: previous.endsAt,
+    roomId: previous.roomId,
+  };
+}
 
 /**
  * The only write path this module calls. Every CAS check, `schedule_revision`
@@ -48,20 +72,61 @@ export function useMoveSession(eventId: EventId) {
   const { toast } = useToast();
   const key = agendaKeys.sessions(eventId);
 
-  return useMutation<MoveSessionResult, unknown, MoveSessionVariables, MoveSessionContext>({
-    mutationFn: (variables) => {
-      const { id, ...body } = variables;
-      return api(`agenda/sessions/${id}/move?eventId=${eventId}`, moveResultSchema, { method: "POST", body });
+  const requestMove = (variables: MoveSessionVariables) => {
+    const { id, ...body } = variables;
+    return api(`agenda/sessions/${id}/move?eventId=${eventId}`, moveResultSchema, { method: "POST", body });
+  };
+
+  const beginOptimisticMove = async (variables: MoveSessionVariables): Promise<MoveSessionContext> => {
+    await queryClient.cancelQueries({ queryKey: key });
+    const previous = queryClient.getQueryData<ScheduledSessionDTO[]>(key);
+    const previousSession = previous?.find((session) => session.id === variables.id);
+    queryClient.setQueryData<ScheduledSessionDTO[]>(key, (current) => (current ?? []).map((session) => (
+      session.id === variables.id
+        ? { ...session, startsAt: variables.startsAt, endsAt: variables.endsAt, roomId: variables.roomId }
+        : session
+    )));
+    return { previous, previousSession };
+  };
+
+  const acceptServerMove = (result: MoveSessionResult) => {
+    queryClient.setQueryData<ScheduledSessionDTO[]>(key, (current) => (current ?? []).map((session) => (
+      session.id === result.session.id ? result.session : session
+    )));
+  };
+
+  const undo = useMutation<MoveSessionResult, unknown, MoveSessionVariables, MoveSessionContext>({
+    mutationFn: requestMove,
+    onMutate: beginOptimisticMove,
+    onSuccess: (result) => {
+      acceptServerMove(result);
+      toast("Move undone");
     },
-    onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: key });
-      const previous = queryClient.getQueryData<ScheduledSessionDTO[]>(key);
-      queryClient.setQueryData<ScheduledSessionDTO[]>(key, (current) => (current ?? []).map((session) => (
-        session.id === variables.id
-          ? { ...session, startsAt: variables.startsAt, endsAt: variables.endsAt, roomId: variables.roomId }
-          : session
-      )));
-      return { previous };
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous);
+      const stale = isAppError(error) && error.code === "STALE_WRITE";
+      toast(stale
+        ? "Couldn’t undo — that session changed again. Reloading the latest schedule."
+        : "Could not undo that move", { kind: "error" });
+      if (stale) void queryClient.invalidateQueries({ queryKey: key });
+    },
+    // Undo is a real move through the same endpoint: published sessions receive
+    // a new schedule revision and correction notification, never a client-only
+    // rewind that disagrees with speaker calendars.
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: key }); },
+  });
+
+  return useMutation<MoveSessionResult, unknown, MoveSessionVariables, MoveSessionContext>({
+    mutationFn: requestMove,
+    onMutate: beginOptimisticMove,
+    onSuccess: (result, _variables, context) => {
+      acceptServerMove(result);
+      const inverse = context?.previousSession ? undoVariablesForMove(context.previousSession, result.session) : null;
+      if (!inverse) return;
+      toast(`“${result.session.title}” moved`, {
+        durationMs: 8_000,
+        action: { label: "Undo", onClick: () => undo.mutate(inverse) },
+      });
     },
     onError: (error, _variables, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous);

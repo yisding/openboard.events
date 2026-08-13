@@ -19,4 +19,18 @@ describe("ToastMessage", () => {
     expect(html).toContain("lucide-circle-alert");
     expect(html).not.toContain("lucide-circle-check-big");
   });
+
+  it("renders a named action separately from the dismiss control", () => {
+    const html = renderToStaticMarkup(React.createElement(ToastMessage, {
+      message: "Session moved",
+      kind: "success",
+      action: { label: "Undo", onClick: () => undefined },
+      onDismiss: () => undefined,
+    }));
+
+    expect(html).toContain('class="toast-action"');
+    expect(html).toContain(">Undo</button>");
+    expect(html).toContain('class="toast-dismiss"');
+    expect(html).toContain('aria-label="Dismiss"');
+  });
 });

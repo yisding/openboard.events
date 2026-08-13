@@ -527,6 +527,77 @@ describe("agenda sessions", () => {
       ].sort());
     });
 
+    it("treats undo as a new published schedule revision and correction notification", async () => {
+      const created = await createSession({
+        title: "Undoable keynote", roomId: mainStage, status: "published",
+        startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+        speakerContactIds: [ada],
+      });
+      await pglite.exec("TRUNCATE communication_logs");
+
+      const moved = await moveSession(eventId, {
+        id: created.id, version: created.rowVersion,
+        startsAt: at("2026-09-15T20:00:00Z"), endsAt: at("2026-09-15T20:30:00Z"), roomId: studio,
+      });
+      const undone = await moveSession(eventId, {
+        id: moved.session.id, version: moved.session.rowVersion,
+        startsAt: created.startsAt, endsAt: created.endsAt, roomId: created.roomId,
+      });
+
+      expect(undone.session).toMatchObject({
+        startsAt: created.startsAt,
+        endsAt: created.endsAt,
+        roomId: created.roomId,
+        rowVersion: created.rowVersion + 2,
+        scheduleRevision: created.scheduleRevision + 2,
+      });
+      const logs = await pglite.query<{ template_key: string; idempotency_key: string }>(
+        "SELECT template_key, idempotency_key FROM communication_logs ORDER BY idempotency_key",
+      );
+      expect(logs.rows).toEqual([
+        {
+          template_key: "schedule_changed",
+          idempotency_key: idem.scheduled(eventId, created.id, ada, moved.session.scheduleRevision),
+        },
+        {
+          template_key: "schedule_changed",
+          idempotency_key: idem.scheduled(eventId, created.id, ada, undone.session.scheduleRevision),
+        },
+      ]);
+    });
+
+    it("rejects an undo after another organizer move has intervened", async () => {
+      const created = await createSession({
+        title: "Intervening move", roomId: mainStage,
+        startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      });
+      const moved = await moveSession(eventId, {
+        id: created.id, version: created.rowVersion,
+        startsAt: at("2026-09-15T18:00:00Z"), endsAt: at("2026-09-15T18:30:00Z"), roomId: studio,
+      });
+      const intervened = await moveSession(eventId, {
+        id: moved.session.id, version: moved.session.rowVersion,
+        startsAt: at("2026-09-15T19:00:00Z"), endsAt: at("2026-09-15T19:30:00Z"), roomId: mainStage,
+      });
+
+      await expect(moveSession(eventId, {
+        id: moved.session.id,
+        // The undo token belongs to the first move, not the intervening one.
+        version: moved.session.rowVersion,
+        startsAt: created.startsAt,
+        endsAt: created.endsAt,
+        roomId: created.roomId,
+      })).rejects.toMatchObject({ code: "STALE_WRITE" });
+
+      const [stored] = await listSessions(eventId);
+      expect(stored).toMatchObject({
+        startsAt: intervened.session.startsAt,
+        endsAt: intervened.session.endsAt,
+        roomId: intervened.session.roomId,
+        rowVersion: intervened.session.rowVersion,
+      });
+    });
+
     it("enqueues nothing when a draft session moves", async () => {
       const created = await createSession({ title: "Draft move", speakerContactIds: [ada] });
       await moveSession(eventId, {

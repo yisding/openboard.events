@@ -4,12 +4,13 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 export type ToastKind = "success" | "error";
-export type ToastOptions = { kind?: ToastKind; durationMs?: number };
+export type ToastAction = { label: string; onClick: () => void };
+export type ToastOptions = { kind?: ToastKind; durationMs?: number; action?: ToastAction };
 type ToastContextValue = { toast: (message: string, options?: ToastOptions) => void };
-type ToastState = { message: string; kind: ToastKind };
+type ToastState = { message: string; kind: ToastKind; action?: ToastAction };
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-export function ToastMessage({ message, kind, onDismiss }: ToastState & { onDismiss: () => void }) {
+export function ToastMessage({ message, kind, action, onDismiss }: ToastState & { onDismiss: () => void }) {
   const error = kind === "error";
   return (
     <div className="toast" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true">
@@ -18,7 +19,8 @@ export function ToastMessage({ message, kind, onDismiss }: ToastState & { onDism
           every audit that reads it. */}
       {error ? <AlertCircle size={18} aria-hidden /> : <CheckCircle2 size={18} aria-hidden />}
       <span>{message}</span>
-      <button type="button" aria-label="Dismiss" onClick={onDismiss}><X size={16} /></button>
+      {action && <button type="button" className="toast-action" onClick={() => { onDismiss(); action.onClick(); }}>{action.label}</button>}
+      <button type="button" className="toast-dismiss" aria-label="Dismiss" onClick={onDismiss}><X size={16} /></button>
     </div>
   );
 }
@@ -33,7 +35,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const toast = useCallback((message: string, options: ToastOptions = {}) => {
     const kind = options.kind ?? "success";
-    setCurrent({ message, kind });
+    setCurrent({ message, kind, ...(options.action ? { action: options.action } : {}) });
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     const timer = window.setTimeout(() => {
       if (timerRef.current !== timer) return;
