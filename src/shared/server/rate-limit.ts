@@ -34,6 +34,13 @@ async function hashKey(key: string): Promise<string> {
  * `SELECT … FOR UPDATE` would). That is an acceptable slop of one for an
  * abuse guard, not a correctness invariant — nothing downstream depends on
  * the count being exact under contention.
+ *
+ * Rows are not self-expiring: this upsert only ever writes, so the daily
+ * retention sweep (`features/data-lifecycle/server/retention.ts`) deletes
+ * buckets idle for longer than any window in use. Without it the table would
+ * grow one permanent row per distinct key — and the keys public callers
+ * supply hash an IP address (`/api/v1`, portal login request), which is not
+ * something to retain forever.
  */
 export async function checkRateLimit(dbOrTx: DbOrTx, args: { key: string; limit: number; windowMs: number }): Promise<void> {
   const keyHash = await hashKey(args.key);

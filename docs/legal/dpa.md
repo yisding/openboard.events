@@ -65,9 +65,13 @@ subject request without engineering support once a request is received:
   that references it — submitted answers, roster data, uploaded files
   (including the underlying object storage), comms history, portal
   sessions/tokens — together with the organization-level speaker-CRM profile
-  that contact is linked to (profile fields, notes, activity timeline, tag
-  links, pipeline entries and history, and merge snapshots), in one atomic
-  operation; and anonymizes (rather than deletes) organizational records
+  that contact is linked to — or, where no link was ever recorded (a profile
+  created by CSV import or by hand and never pushed into an event), the
+  profile held under the same email address in that organization — including
+  its profile fields, notes, activity timeline, tag links, pipeline entries
+  and history, merge snapshots, and any duplicate profiles previously merged
+  into it, in one atomic operation; and anonymizes (rather than deletes)
+  organizational records
   that reference the contact but are not themselves personal data, such as a
   submission's title/status surviving with its speaker attribution removed.
   Implementation: `src/features/data-lifecycle/server/contact-erasure.ts`;
@@ -77,7 +81,13 @@ subject request without engineering support once a request is received:
   Scope limit: the unit of erasure is one contact *within one event*. Where
   the same data subject is also a contact of another event, that event's
   record is a separate identity and requires its own request; the shared
-  organization-level CRM profile is erased by the first such request.
+  organization-level CRM profile is erased by the first such request made by
+  a caller who also holds organization-level rights. A caller who is an
+  organizer of the event only — with no membership of the organization it
+  files under, and so no access to the CRM at all — performs the event-scoped
+  half: the contact and this event's link to the CRM profile go, the profile
+  itself and other events' links to it are left for someone who may act at
+  organization scope. The deletion receipt says which of the two happened.
 - **Organization-level export** (`GET /api/internal/organizations/{organizationId}/export`,
   organization-owner/organizer-authenticated): the organization's own
   administrative record — profile, team membership, pending invitations,
@@ -93,6 +103,8 @@ Automatic retention limits currently enforced by the Service (independent of
 any Controller-initiated erasure request):
 
 - Expired authentication tokens/sessions: purged 30 days after expiry.
+- Rate-limit and sign-in-throttle counters: purged 7 days after the last
+  request counted against them.
 - Rendered email content: redacted 90 days after send (audit metadata kept).
 
 [TODO: post-termination bulk deletion timeline — not yet implemented as an
