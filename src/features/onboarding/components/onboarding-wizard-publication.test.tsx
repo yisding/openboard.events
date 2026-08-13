@@ -52,14 +52,27 @@ function buttonNamed(name: string, within: ParentNode = container): HTMLButtonEl
     .find((button) => button.textContent?.trim().includes(name));
 }
 
-async function renderFormStep() {
+async function renderFormStep(state: OnboardingResumeState = initialState) {
   await act(async () => root.render(<OnboardingWizard
     organizationId={organizationId}
     organizationName="First Form Org"
     hasExistingEvents={false}
-    initialState={initialState}
+    initialState={state}
     nowIso="2026-08-13T12:00:00.000Z"
   />));
+}
+
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function success(data: unknown): Response {
+  return new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 beforeEach(() => {
@@ -132,5 +145,63 @@ describe("first-form publication preflight", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(container.querySelector("dialog")).toBeNull();
+  });
+
+  it("reconciles a cached open form and gates stale-state republication behind confirmation", async () => {
+    const cachedOpen = {
+      id: "30000000-0000-4000-8000-000000000001",
+      internalName: "Speaker applications",
+      status: "open",
+      updatedAt: "2026-08-13T12:00:00.000Z",
+      closesAt: "2030-08-18T06:59:59.999Z",
+    };
+    const serverDraft = {
+      ...cachedOpen,
+      status: "draft",
+      updatedAt: "2026-08-13T12:01:00.000Z",
+    };
+    const serverOpen = {
+      ...serverDraft,
+      status: "open",
+      updatedAt: "2026-08-13T12:02:00.000Z",
+    };
+    fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (path.includes(`/api/internal/forms/${cachedOpen.id}`) && method === "GET") return success(serverDraft);
+      if (path.includes(`/api/internal/forms/${cachedOpen.id}`) && method === "PATCH") return success(serverOpen);
+      return success({});
+    });
+    await renderFormStep({
+      ...initialState,
+      formId: cachedOpen.id,
+      form: cachedOpen,
+    });
+
+    expect(buttonNamed("Finish setup")).toBeDefined();
+    await act(async () => buttonNamed("Finish setup")?.click());
+    await settle();
+
+    const dialog = container.querySelector("dialog");
+    expect(dialog?.getAttribute("aria-label")).toBe("Publish “Speaker applications” now?");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/internal/forms/${cachedOpen.id}?eventId=${event.id}`,
+      undefined,
+    );
+    expect(fetchMock.mock.calls.some(([path, init]) =>
+      String(path).includes(`/api/internal/forms/${cachedOpen.id}`) && (init as RequestInit | undefined)?.method === "PATCH"))
+      .toBe(false);
+
+    await act(async () => buttonNamed("Retry publishing", dialog ?? container)?.click());
+    await settle();
+
+    const formPatches = fetchMock.mock.calls.filter(([path, init]) =>
+      String(path).includes(`/api/internal/forms/${cachedOpen.id}`) && (init as RequestInit | undefined)?.method === "PATCH");
+    expect(formPatches).toHaveLength(1);
+    expect(JSON.parse(String((formPatches[0]?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      expectedUpdatedAt: serverDraft.updatedAt,
+      patch: { status: "open", closesAt: cachedOpen.closesAt },
+    });
   });
 });

@@ -576,6 +576,31 @@ export function OnboardingWizard({
     return true;
   }
 
+  async function completeFormStep(finalForm: BuilderFormLite) {
+    if (!event) return;
+    const isPublished = finalForm.status === "open";
+    setCreatedForm(finalForm);
+    setFormStatus(finalForm.status);
+    setFormAvailability(onboardingFormAvailability(finalForm));
+    setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
+    // Put the exact event in the address bar before completion. If the
+    // mutation commits but its response is lost, a refresh can authorize
+    // and restore this checkpoint instead of starting another event.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/organizations/${organizationId}/onboarding?event=${event.id}`,
+    );
+    await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
+    });
+    toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
+    setPendingFormPublication(false);
+    setStep(4);
+  }
+
   async function createFormStep() {
     if (!event || creatingForm) return;
     const closesAt = resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone);
@@ -628,27 +653,7 @@ export function OnboardingWizard({
           });
         },
       });
-      const isPublished = finalForm.status === "open";
-      setCreatedForm(finalForm);
-      setFormStatus(finalForm.status);
-      setFormAvailability(onboardingFormAvailability(finalForm));
-      setFormLink(`${window.location.origin}/submit/${event.slug}/${finalForm.id}`);
-      // Put the exact event in the address bar before completion. If the
-      // mutation commits but its response is lost, a refresh can authorize
-      // and restore this checkpoint instead of starting another event.
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `/organizations/${organizationId}/onboarding?event=${event.id}`,
-      );
-      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ eventId: event.id, step: "complete", formId: finalForm.id }),
-      });
-      toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
-      setPendingFormPublication(false);
-      setStep(4);
+      await completeFormStep(finalForm);
     } catch (caught) {
       if (deadlineValidationFailed) {
         setPendingFormPublication(false);
@@ -662,10 +667,44 @@ export function OnboardingWizard({
     }
   }
 
+  async function reconcileOpenFormBeforeFinish(form: BuilderFormLite) {
+    if (!event || creatingForm) return;
+    setCreatingForm(true);
+    try {
+      const current = await requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`);
+      setCreatedForm(current);
+      setFormStatus(current.status);
+      setFormAvailability(onboardingFormAvailability(current));
+      if (current.status !== "open") {
+        // The cached status was stale. Do not let the ordinary completion path
+        // reconcile and silently republish it; require the same explicit
+        // confirmation as every other draft/closed form.
+        setPendingFormPublication(true);
+        return;
+      }
+      // Replay the durable association before completing setup, matching the
+      // existing create/publish recovery path without issuing a form mutation.
+      await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eventId: event.id, step: "form", formId: current.id }),
+      });
+      await completeFormStep(current);
+    } catch (caught) {
+      toast(`Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`, { kind: "error" });
+    } finally {
+      setCreatingForm(false);
+    }
+  }
+
   function requestFormStep() {
     if (!event || creatingForm) return;
-    if (!publishNow || createdForm?.status === "open") {
+    if (!publishNow) {
       void createFormStep();
+      return;
+    }
+    if (createdForm?.status === "open") {
+      void reconcileOpenFormBeforeFinish(createdForm);
       return;
     }
 
