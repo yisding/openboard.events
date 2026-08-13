@@ -24,13 +24,18 @@ import { organizationIdSchema, userIdSchema, type UserId } from "@/shared/contra
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
-import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
+import { safeInternalPath } from "../safe-next";
+import {
+  invitationTokenFromNextPath,
+  SIGNUP_ORGANIZATION_HEADER,
+  SIGNUP_VERIFICATION_CALLBACK,
+} from "../signup-context";
 import type { SignupLegalConsent } from "../legal-consent";
 import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 import { retargetSignupVerificationEmailIn, sendAdminAuthEmailIn } from "./admin-mail";
 import { recordSignupLegalAcceptanceIn } from "./legal-consent";
-import { resolveSignupHookInput, type SignupProvisioningInput } from "./signup-hook-input";
+import { resolveSignupHookInput, signupProvisioningFromEmailBody, type SignupProvisioningInput } from "./signup-hook-input";
 
 /**
  * M42 — the Better Auth instance behind `requireAdmin`.
@@ -66,6 +71,56 @@ const EMAIL_VERIFICATION_SECONDS = 60 * 60;
 
 function baseUrl(env: RuntimeEnv): string {
   return env.BETTER_AUTH_URL ?? env.APP_BASE_URL;
+}
+
+function invitationTokenFromVerificationBody(body: unknown): string | null {
+  const signupToken = signupProvisioningFromEmailBody(body).invitationToken;
+  if (signupToken) return signupToken;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const rawCallback = (body as Record<string, unknown>).callbackURL;
+  if (typeof rawCallback !== "string") return null;
+  const callback = safeInternalPath(rawCallback, "");
+  if (!callback) return null;
+  const parsed = new URL(callback, "https://openboard.invalid");
+  if (parsed.pathname !== "/signup/verified") return null;
+  return invitationTokenFromNextPath(safeInternalPath(parsed.searchParams.get("next"), ""));
+}
+
+async function invitationVerificationCallback(
+  database: typeof db,
+  email: string,
+  request?: Request,
+): Promise<string | null> {
+  const body = request ? await request.clone().json().catch(() => null) : null;
+  const invitationToken = invitationTokenFromVerificationBody(body);
+  if (!invitationToken) return null;
+
+  try {
+    // Existing accounts skip Better Auth's user-create hooks, so validate the
+    // invitation here before carrying its bearer token into the new message.
+    // The invitation is consumed only after activation, by the ordinary
+    // signed-in /join flow.
+    await assertOrganizationInvitationTokenForEmailIn(database, invitationToken, email);
+  } catch (error) {
+    // A stale, revoked, or wrong-address invitation must not reveal that the
+    // account already exists. Keep the generic activation recovery working;
+    // unexpected database failures still abort instead of claiming mail was
+    // queued when its authorization could not be established.
+    if (error instanceof AppError) return SIGNUP_VERIFICATION_CALLBACK;
+    throw error;
+  }
+
+  const next = `/join?token=${encodeURIComponent(invitationToken)}`;
+  return `/signup/verified?confirmed=1&next=${encodeURIComponent(next)}`;
+}
+
+async function existingSignupVerificationCallback(
+  database: typeof db,
+  email: string,
+  request?: Request,
+): Promise<string> {
+  return await invitationVerificationCallback(database, email, request)
+    ?? SIGNUP_VERIFICATION_CALLBACK;
 }
 
 type AuthDeps = {
@@ -137,7 +192,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       // message unless the application owns this hook. Without it our next
       // screen truthfully worked for a new account but stranded an existing
       // unverified account behind a "Nothing yet?" recovery click.
-      onExistingUserSignUp: async ({ user }) => {
+      onExistingUserSignUp: async ({ user }, request) => {
         if (user.emailVerified) return;
         const token = await createEmailVerificationToken(
           secret,
@@ -145,7 +200,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           undefined,
           EMAIL_VERIFICATION_SECONDS,
         );
-        const callbackURL = SIGNUP_VERIFICATION_CALLBACK;
+        const callbackURL = await existingSignupVerificationCallback(database, user.email, request);
         const url = new URL("/api/auth/verify-email", baseUrl(env));
         url.search = new URLSearchParams({ token, callbackURL }).toString();
         await sendAdminAuthEmailIn(database, {
@@ -213,6 +268,20 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       },
       sendVerificationEmail: async ({ user, url }, request) => {
         const provisioningSignup = request && new URL(request.url).pathname.endsWith("/sign-up/email");
+        const activationResend = request && new URL(request.url).pathname.endsWith("/send-verification-email");
+        let messageUrl = url;
+        if (activationResend) {
+          // The check-inbox page carries an existing invitee's `/join` target
+          // into explicit recovery. Re-authorize that bearer token against the
+          // account email before allowing it into the replacement message;
+          // stale or wrong-address tokens fall back to ordinary activation.
+          const callbackURL = await invitationVerificationCallback(database, user.email, request);
+          if (callbackURL) {
+            const parsed = new URL(url);
+            parsed.searchParams.set("callbackURL", callbackURL);
+            messageUrl = parsed.toString();
+          }
+        }
         await sendAdminAuthEmailIn(database, {
           templateKey: "admin_email_verification",
           userId: user.id as UserId,
@@ -220,7 +289,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           name: user.name,
           // Use Better Auth's URL intact so the callbackURL selected by the
           // signup/resend UI survives the email round-trip.
-          url,
+          url: messageUrl,
           expiresIn: "1 hour",
           // The user-create `after` hook below releases this row immediately
           // after it swaps in the concrete organization destination.

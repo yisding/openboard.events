@@ -54,11 +54,11 @@ describe("signupAndAwaitVerification", () => {
     expect(body).not.toHaveProperty("acknowledgedPrivacyVersion");
   });
 
-  it("does not revisit a consumed invitation when a generic signup response has no organization header", async () => {
+  it("keeps an unconsumed invitation available to duplicate-signup activation resends", async () => {
     const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 200 }));
 
     await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
-      destination: "/signup/check-email?email=new-owner%40example.com&next=%2Forganizations",
+      destination: "/signup/check-email?email=new-owner%40example.com&next=%2Fjoin%3Ftoken%3Dconsumed-invitation-token",
       refresh: false,
     });
     expect(request).toHaveBeenCalledOnce();

@@ -104,12 +104,15 @@ export async function signupAndAwaitVerification(
     return { error: body?.message || "Could not create that account" };
   }
 
-  // An invitation token is consumed while the account is created. A generic
-  // duplicate-signup response carries no organization header, so never put a
-  // spent `/join?token=…` back into the activation journey; `/organizations`
-  // resolves a new invitee's sole workspace safely.
-  const requestedDestination = input.invitationToken ? "/organizations" : input.next;
-  const destination = signupDestination(requestedDestination, signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER));
+  // A newly created invitee returns the concrete organization header because
+  // its token was consumed by provisioning. A duplicate signup has no header:
+  // keep its invitation through the check-inbox/resend journey because the
+  // existing-account hook validates it without consuming it before activation.
+  const invitedOrganizationId = signedUp.headers.get(SIGNUP_ORGANIZATION_HEADER);
+  const requestedDestination = input.invitationToken && invitedOrganizationId
+    ? "/organizations"
+    : input.next;
+  const destination = signupDestination(requestedDestination, invitedOrganizationId);
   const params = new URLSearchParams({ email: input.email.trim().toLowerCase(), next: destination });
   return { destination: `/signup/check-email?${params.toString()}`, refresh: false };
 }

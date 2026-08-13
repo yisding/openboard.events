@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "@/shared/lib/env";
 import { OAUTH_SIGNUP_INTENT_COOKIE, sealOAuthSignupIntent } from "./oauth-signup-intent";
-import { LEGAL_CONSENT_ERROR, resolveSignupHookInput } from "./signup-hook-input";
+import { LEGAL_CONSENT_ERROR, resolveSignupHookInput, signupProvisioningFromEmailBody } from "./signup-hook-input";
 
 const secret = "signup-hook-test-secret-at-least-32-bytes";
 const now = Date.UTC(2026, 7, 12, 12, 0, 0);
@@ -20,6 +20,14 @@ const reviewed = parseEnv({
 });
 
 describe("signup hook input", () => {
+  it("parses only bounded email-signup provisioning fields", () => {
+    expect(signupProvisioningFromEmailBody({ invitationToken: " invite-token ", organizationName: " Acme " }))
+      .toEqual({ invitationToken: "invite-token", organizationName: "Acme" });
+    expect(signupProvisioningFromEmailBody({ invitationToken: "x".repeat(513), organizationName: "x".repeat(161) }))
+      .toEqual({});
+    expect(signupProvisioningFromEmailBody(null)).toEqual({});
+  });
+
   it("keeps email signup on exact current versions", async () => {
     await expect(resolveSignupHookInput(reviewed, {
       path: "/sign-up/email",
