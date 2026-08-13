@@ -1,7 +1,7 @@
 "use client";
 
 import { Users } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   acceptedBulkSendCount,
   abandonBulkSendAttempt,
@@ -179,28 +179,31 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const draftDirtyRef = useRef(draftDirty);
   draftDirtyRef.current = draftDirty;
   const displacedDraftRef = useRef<DisplacedBulkSendDraft | null>(null);
+  const restoreDisplacedDraft = useCallback((): boolean => {
+    const draft = displacedDraftRef.current;
+    if (!draft) return false;
+    displacedDraftRef.current = null;
+    setWorkflowStatus(draft.workflowStatus);
+    setConfirmationStatus(draft.confirmationStatus);
+    setSegment(draft.segment);
+    setSubject(draft.subject);
+    setBodyHtml(draft.bodyHtml);
+    setPreviewContactId(draft.previewContactId);
+    setPreview(draft.preview);
+    setResult(draft.result);
+    setSavedDraftFingerprint(draft.savedDraftFingerprint);
+    return true;
+  }, []);
   useUnsavedWorkGuard(draftDirty || recoveryRequired || compose.isPending, { blocking: compose.isPending });
 
   useEffect(() => {
     const storageKey = bulkSendRecoveryStorageKey(recoveryIdentity);
-    const restoreDraft = (draft: DisplacedBulkSendDraft) => {
-      setWorkflowStatus(draft.workflowStatus);
-      setConfirmationStatus(draft.confirmationStatus);
-      setSegment(draft.segment);
-      setSubject(draft.subject);
-      setBodyHtml(draft.bodyHtml);
-      setPreviewContactId(draft.previewContactId);
-      setPreview(draft.preview);
-      setResult(draft.result);
-      setSavedDraftFingerprint(draft.savedDraftFingerprint);
-    };
     const refreshRecovery = (restoreDisplacedWhenMissing = false) => {
       const loaded = loadBulkSendRecovery(window.localStorage, recoveryIdentity);
       setRecovery(null);
       setRecoveryUnreadable(!loaded.ok && (loaded.reason === "corrupt" || loaded.reason === "identity_mismatch"));
       if (!loaded.ok && loaded.reason === "missing" && restoreDisplacedWhenMissing && displacedDraftRef.current) {
-        restoreDraft(displacedDraftRef.current);
-        displacedDraftRef.current = null;
+        restoreDisplacedDraft();
         return;
       }
       setWorkflowStatus([]);
@@ -253,7 +256,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [recoveryIdentity]);
+  }, [recoveryIdentity, restoreDisplacedDraft]);
 
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
@@ -498,8 +501,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         ? completeBulkSendAttempt(window.localStorage, attempt)
         : confirmedStored;
       const removed = completed.ok ? removeBulkSendRecovery(window.localStorage, confirmed) : completed;
+      let restoredDisplacedDraft = false;
       if (confirmedStored.ok && completed.ok && removed.ok) {
         setRecovery(null);
+        restoredDisplacedDraft = restoreDisplacedDraft();
       } else {
         toast(confirmedStored.ok
           ? "The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send."
@@ -507,16 +512,18 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       }
       // Keep the completed message visible as a receipt, but it is no longer
       // an unsent draft that should block navigation.
-      setSavedDraftFingerprint(bulkMessageDraftFingerprint({
-        workflowStatus,
-        confirmationStatus,
-        subject,
-        bodyHtml,
-        previewSendId: null,
-      }));
-      // A completed attempt needs a fresh preview (and therefore a fresh
-      // send id) before the organizer can intentionally send it again.
-      setPreview(null);
+      if (!restoredDisplacedDraft) {
+        setSavedDraftFingerprint(bulkMessageDraftFingerprint({
+          workflowStatus,
+          confirmationStatus,
+          subject,
+          bodyHtml,
+          previewSendId: null,
+        }));
+        // A completed attempt needs a fresh preview (and therefore a fresh
+        // send id) before the organizer can intentionally send it again.
+        setPreview(null);
+      }
       const accepted = acceptedBulkSendCount(sent);
       toast(
         `${accepted} accepted · ${sent.queued} newly queued${sent.alreadyQueued > 0 ? ` · ${sent.alreadyQueued} recovered from this attempt` : ""} · ${sent.skipped} skipped${sent.errors.length > 0 ? ` · ${sent.errors.length} error(s)` : ""}`,
@@ -549,7 +556,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       if (!removed.ok) return false;
       setRecovery(null);
       setConfirmAbandon(false);
-      discardDraft();
+      if (!restoreDisplacedDraft()) discardDraft();
       return true;
     });
     if (!locked.ok || !locked.value) {
@@ -571,6 +578,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
       if (!removed.ok) return false;
       setRecovery(null);
+      if (restoreDisplacedDraft()) {
+        toast("Completed recovery cleared; your draft is restored");
+        return true;
+      }
       // A restored audience is frozen send evidence, not the result of the
       // currently visible filter controls. Clear it after cleanup so a new
       // send must resolve those controls again instead of silently reusing a
@@ -620,7 +631,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     <div className="bulk-send-tab">
       {recoveryUnreadable && <UnreadableBulkSendRecovery
         identity={recoveryIdentity}
-        onCleared={() => setRecoveryUnreadable(false)}
+        onCleared={() => {
+          setRecoveryUnreadable(false);
+          restoreDisplacedDraft();
+        }}
       />}
       <section className="panel bulk-send-filters">
         <header className="panel-header"><div><h2>1. Choose a segment</h2><p>Leave a group empty to match every value for it.</p></div></header>

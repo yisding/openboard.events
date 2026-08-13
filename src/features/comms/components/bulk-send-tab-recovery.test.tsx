@@ -235,16 +235,10 @@ describe("segment bulk email recovery", () => {
     expect(subject.value).toBe("Program update");
     expect(container.textContent).toContain("Send confirmed; cleanup needed");
 
-    const oldValue = window.localStorage.getItem(storageKey);
-    window.localStorage.removeItem(storageKey);
-    await act(async () => window.dispatchEvent(new StorageEvent("storage", {
-      key: storageKey,
-      oldValue,
-      newValue: null,
-      storageArea: window.localStorage,
-    })));
+    await act(async () => buttonNamed("Clear completed recovery")?.click());
 
     expect(subject.value).toBe("My local draft");
     expect(container.textContent).not.toContain("Send confirmed; cleanup needed");
+    expect(loadBulkSendRecovery(window.localStorage, snapshot)).toEqual({ ok: false, reason: "missing" });
   });
 });
