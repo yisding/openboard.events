@@ -26,4 +26,11 @@ describe("form list mobile toolbars", () => {
     expect(mobile).toContain(".form-list-toolbar>.tabs button{min-height:44px;flex:0 0 auto}");
     expect(mobile).toContain(".form-list-toolbar>input{width:100%;min-width:0;min-height:44px;flex:1 0 100%}");
   });
+
+  it("wraps row actions instead of widening narrow form cards", () => {
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+    const actionRules = [...css.matchAll(/\.form-list-actions\s*\{([^}]*)\}/g)].map((match) => match[1]);
+
+    expect(actionRules.some((rule) => rule?.includes("flex-wrap:wrap"))).toBe(true);
+  });
 });
