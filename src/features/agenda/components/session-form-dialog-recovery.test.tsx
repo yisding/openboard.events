@@ -107,8 +107,9 @@ afterEach(async () => {
 
 describe("manual session creation recovery", () => {
   it("locks and replays an ambiguous create exactly, then uses a new id while keeping a definitive error editable", async () => {
+    let rejectCreate!: (error: unknown) => void;
     fetchMock
-      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockReturnValueOnce(new Promise<Response>((_resolve, reject) => { rejectCreate = reject; }))
       .mockResolvedValueOnce(Response.json({ data: {
         id: firstCreationId,
         title: "Opening keynote",
@@ -138,10 +139,25 @@ describe("manual session creation recovery", () => {
       title.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => buttonNamed("Save session")?.click());
+
+    expect(title.closest("fieldset")?.disabled).toBe(true);
+    await act(async () => {
+      // Model a user edit: disabled fieldset descendants never receive an
+      // editable input event. Directly assigning `.value` would mutate the
+      // happy-dom node in a way a browser user cannot.
+      if (!title.closest("fieldset")?.disabled) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(title, "Changed while pending");
+        title.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    expect(title.value).toBe("Opening keynote");
+
+    rejectCreate(new TypeError("response lost"));
     await settle();
 
     expect(container.textContent).toContain("We could not confirm whether this session was created");
     expect(title.closest("fieldset")?.disabled).toBe(true);
+    expect(title.value).toBe("Opening keynote");
     expect(buttonNamed("Retry creation")).toBeDefined();
     expect(routerMock.refresh).toHaveBeenCalledOnce();
     const firstBody = String(fetchMock.mock.calls[0]?.[1]?.body);

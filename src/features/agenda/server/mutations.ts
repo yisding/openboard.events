@@ -139,6 +139,23 @@ function uniqueSpeakers(ids: readonly ContactId[]): ContactId[] {
   return [...new Set(ids)];
 }
 
+/** Exact, normalized POST identity without persisting the organizer's content. */
+async function creationPayloadFingerprint(input: SaveSessionInput): Promise<string> {
+  const material = JSON.stringify({
+    title: input.title,
+    descriptionHtml: input.descriptionHtml,
+    formatId: input.formatId,
+    trackId: input.trackId,
+    roomId: input.roomId,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    speakerContactIds: input.speakerContactIds,
+    status: input.status,
+  });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 type SessionRowShape = {
   id: string; title: string; slug: string; description_html: string | null;
   starts_at: string | Date | null; ends_at: string | Date | null;
@@ -300,24 +317,31 @@ const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_
 async function insertSession(
   dbOrTx: DbOrTx,
   eventId: EventId,
-  input: SaveSessionInput,
+  input: SaveSessionInput & { creationId: SessionId },
   slug: string,
   descriptionHtml: string,
   speakers: readonly ContactId[],
   actorUserId: UserId | null,
+  payloadFingerprint: string,
 ): Promise<SessionRowShape> {
   // A session created already published and already timed has a schedule its
   // speakers have never seen, so it starts at revision 1 — otherwise the
   // notify below reads "nothing changed" and nobody is told.
   const initialRevision = input.status === "published" && input.startsAt !== null ? 1 : 0;
-  // One statement: the row, its speakers and its first content revision (M52)
-  // land together or not at all.
+  // One statement: the durable create receipt, row, speakers and first content
+  // revision (M52) land together or not at all. `receipt` selects from the
+  // event guard so an invalid event/bounds check cannot consume the id.
   const result = await dbOrTx.execute<SessionRowShape>(sql`
-    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), created AS (
+    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), receipt AS (
+      INSERT INTO session_creation_receipts (creation_id, event_id, payload_fingerprint)
+      SELECT ${input.creationId}, ${eventId}, ${payloadFingerprint}
+      FROM event_guard
+      RETURNING creation_id
+    ), created AS (
       INSERT INTO sessions (id, event_id, title, slug, description_html, format_id, track_id, room_id, starts_at, ends_at, status, schedule_revision)
       SELECT ${input.creationId}, ${eventId}, ${input.title}, ${slug}, ${descriptionHtml}, ${input.formatId}, ${input.trackId}, ${input.roomId},
              ${input.startsAt}, ${input.endsAt}, ${input.status}, ${initialRevision}
-      FROM event_guard
+      FROM receipt
       RETURNING *
     ), ins AS (
       INSERT INTO session_speakers (event_id, session_id, contact_id, role, sort_order)
@@ -346,6 +370,7 @@ type CreatedSessionRow = SessionRowShape & {
 };
 
 const CREATION_REPLAY_CONFLICT = "This creation attempt was already used for different session details";
+const CREATION_DELETED_CONFLICT = "This creation attempt already completed, but the session was later deleted";
 
 /**
  * Return the canonical result of an earlier committed create, but only when
@@ -358,9 +383,29 @@ async function recoverCreatedSession(
   dbOrTx: DbOrTx,
   eventId: EventId,
   input: SaveSessionInput & { creationId: SessionId },
+  payloadFingerprint: string,
   descriptionHtml: string,
   speakers: readonly ContactId[],
 ): Promise<ScheduledSessionDTO | null> {
+  const receiptResult = await dbOrTx.execute<{ event_id: string; payload_fingerprint: string }>(sql`
+    SELECT event_id, payload_fingerprint
+    FROM session_creation_receipts
+    WHERE creation_id = ${input.creationId}
+  `);
+  const receipt = (receiptResult.rows ?? [])[0];
+  if (!receipt) {
+    // A session using this globally unique id without our durable receipt is a
+    // legacy/collision row, never proof that this caller's attempt succeeded.
+    const collision = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM sessions WHERE id = ${input.creationId}
+    `);
+    if ((collision.rows ?? []).length > 0) throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+    return null;
+  }
+  if (receipt.event_id !== eventId || receipt.payload_fingerprint !== payloadFingerprint) {
+    throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+  }
+
   const result = await dbOrTx.execute<CreatedSessionRow>(sql`
     SELECT ${RETURNED_COLUMNS}, s.event_id, s.submission_id,
       (
@@ -372,11 +417,14 @@ async function recoverCreatedSession(
     WHERE s.id = ${input.creationId}
   `);
   const row = (result.rows ?? [])[0];
-  if (!row) return null;
+  if (!row) throw new AppError("CONFLICT", CREATION_DELETED_CONFLICT);
+  if (row.event_id !== eventId || row.submission_id !== null) {
+    throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+  }
 
-  const samePayload = row.event_id === eventId
-    && row.submission_id === null
-    && row.title === input.title
+  const currentSpeakers = (row.speaker_ids ?? []) as ContactId[];
+  const initialRevision = input.status === "published" && input.startsAt !== null ? 1 : 0;
+  const stillOriginalCreate = row.title === input.title
     && (row.description_html ?? "") === descriptionHtml
     && row.format_id === input.formatId
     && row.track_id === input.trackId
@@ -384,19 +432,24 @@ async function recoverCreatedSession(
     && iso(row.starts_at) === (input.startsAt === null ? null : new Date(input.startsAt).toISOString())
     && iso(row.ends_at) === (input.endsAt === null ? null : new Date(input.endsAt).toISOString())
     && row.status === input.status
-    && JSON.stringify(row.speaker_ids ?? []) === JSON.stringify(speakers);
-  if (!samePayload) throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+    && Number(row.schedule_revision) === initialRevision
+    && Number(row.row_version) === 1
+    && JSON.stringify(currentSpeakers) === JSON.stringify(speakers);
 
-  // The graph insert is already committed if a response was lost. Re-running
-  // only this repair is safe: the outbox key includes session, speaker and
-  // schedule revision, and enqueueEmail uses ON CONFLICT DO NOTHING.
-  await notifySchedule(
-    dbOrTx, eventId, row.id as SessionId,
-    { status: "draft", startsAt: null, scheduleRevision: 0 },
-    { status: row.status, startsAt: iso(row.starts_at), scheduleRevision: Number(row.schedule_revision) },
-    speakers,
-  );
-  return toDto(row, speakers);
+  if (stillOriginalCreate) {
+    // The graph insert is already committed if a response was lost. Re-running
+    // only this repair is safe: the outbox key includes session, speaker and
+    // schedule revision, and enqueueEmail uses ON CONFLICT DO NOTHING. If the
+    // canonical session has since been edited, return it without replaying an
+    // obsolete create notification.
+    await notifySchedule(
+      dbOrTx, eventId, row.id as SessionId,
+      { status: "draft", startsAt: null, scheduleRevision: 0 },
+      { status: row.status, startsAt: iso(row.starts_at), scheduleRevision: Number(row.schedule_revision) },
+      currentSpeakers,
+    );
+  }
+  return toDto(row, currentSpeakers);
 }
 
 /**
@@ -422,11 +475,13 @@ export async function saveSessionIn(
       ...input,
       creationId: input.creationId ?? sessionIdSchema.parse(crypto.randomUUID()),
     };
+    const payloadFingerprint = await creationPayloadFingerprint(createInput);
     if (input.creationId !== undefined) {
       const recovered = await recoverCreatedSession(
         dbOrTx,
         eventId,
         createInput,
+        payloadFingerprint,
         descriptionHtml,
         speakers,
       );
@@ -440,7 +495,16 @@ export async function saveSessionIn(
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
-        const row = await insertSession(dbOrTx, eventId, createInput, slug, descriptionHtml, speakers, actorUserId);
+        const row = await insertSession(
+          dbOrTx,
+          eventId,
+          createInput,
+          slug,
+          descriptionHtml,
+          speakers,
+          actorUserId,
+          payloadFingerprint,
+        );
         await notifySchedule(
           dbOrTx, eventId, row.id as SessionId,
           { status: "draft", startsAt: null, scheduleRevision: 0 },
@@ -455,6 +519,7 @@ export async function saveSessionIn(
             dbOrTx,
             eventId,
             createInput,
+            payloadFingerprint,
             descriptionHtml,
             speakers,
           );

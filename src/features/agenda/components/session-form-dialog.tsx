@@ -252,6 +252,11 @@ export function SessionFormDialog({
 
   const busy = save.isPending || remove.isPending;
   const createLocked = !session && createRecovery !== null;
+  // Freeze the visible draft as soon as its create request leaves the browser.
+  // If that response is lost, the recovery payload and the details still on
+  // screen must be the same attempt — not an old request hidden behind newer
+  // editable values.
+  const createControlsLocked = !session && (save.isPending || createLocked);
   const dirty = isSessionDraftDirty(draft, original);
   useUnsavedWorkGuard(open && dirty);
 
@@ -315,7 +320,7 @@ export function SessionFormDialog({
 
           <fieldset
             className="form-stack"
-            disabled={createLocked}
+            disabled={createControlsLocked}
             style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}
           >
 
@@ -335,7 +340,7 @@ export function SessionFormDialog({
               onChange={(html) => setDraft((current) => ({ ...current, descriptionHtml: html }))}
               ariaLabel="Session description"
               placeholder="What is this session about?"
-              disabled={createLocked}
+              disabled={createControlsLocked}
             />
           </Field>
 
@@ -417,7 +422,7 @@ export function SessionFormDialog({
             <div className="speaker-picker-add">
               <SpeakerQuickAdd
                 eventId={String(eventId)}
-                disabled={createLocked}
+                disabled={createControlsLocked}
                 onAdded={(speaker) => {
                   setAddedSpeakers((current) => [...current, speaker]);
                   toggleSpeaker(speaker.contactId);

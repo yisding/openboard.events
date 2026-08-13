@@ -218,6 +218,13 @@
       "when": 1786634708000,
       "tag": "0030_e2e_public_residue_cleanup",
       "breakpoints": false
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786664848203,
+      "tag": "0031_agenda_session_creation_receipts",
+      "breakpoints": false
     }
   ]
 }

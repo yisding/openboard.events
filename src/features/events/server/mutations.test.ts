@@ -38,6 +38,9 @@ const migrationTenancy = readFileSync(new URL("../../../../drizzle/0010_organiza
 // M44 appended `organization_invited` to `template_key`, same reasoning as
 // `migrationProductAuth` above.
 const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
+// Manual agenda creates now atomically consume their caller-owned id in a
+// durable receipt, so the event/session bounds race exercises this migration.
+const migrationAgendaCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -73,6 +76,7 @@ describe("database-backed event mutations", () => {
     await pglite.exec(migrationProductAuth);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
+    await pglite.exec(migrationAgendaCreationReceipts);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);
