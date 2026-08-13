@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { organizationContactLinks } from "@/db/schema";
+import { organizationContactLinks, speakerBulkMessages } from "@/db/schema";
 import { composeBulkSpeakerEmailIn } from "@/features/comms";
 import {
   composeCrmBulkEmailResultSchema,
@@ -70,41 +70,78 @@ export async function composeCrmBulkEmailIn(dbOrTx: DbOrTx, organizationId: Orga
     return composeCrmBulkEmailResultSchema.parse({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview: result.preview });
   }
 
-  const byEvent = new Map<string, { contactId: string; organizationContactId: string }[]>();
+  const idempotencyKeyByContact = new Map(input.organizationContactIds.map((organizationContactId) => [
+    organizationContactId,
+    idem.crmBulk(organizationId, organizationContactIdSchema.parse(organizationContactId), input.sendId),
+  ] as const));
+  // A merge can move every current link off the losing organization contact
+  // after its first request committed. Its durable message is therefore the
+  // authoritative recovery destination and must be consulted before treating
+  // the old CRM id as unlinked.
+  const existingMessages = new Map(
+    (await dbOrTx.select({
+      idempotencyKey: speakerBulkMessages.idempotencyKey,
+      eventId: speakerBulkMessages.eventId,
+      contactId: speakerBulkMessages.contactId,
+    }).from(speakerBulkMessages).where(inArray(speakerBulkMessages.idempotencyKey, [...idempotencyKeyByContact.values()])))
+      .map((message) => [message.idempotencyKey, message] as const),
+  );
+
+  const byEvent = new Map<string, { contactId: string; organizationContactId: string; idempotencyKey: string }[]>();
   for (const organizationContactId of input.organizationContactIds) {
+    const idempotencyKey = idempotencyKeyByContact.get(organizationContactId);
+    if (!idempotencyKey) throw new AppError("INTERNAL", "Could not build the CRM email recovery key");
     const link = links.get(organizationContactId);
-    if (!link) { errors.push({ organizationContactId, reason: "Not linked to any event yet — push this contact into an event first" }); continue; }
-    const bucket = byEvent.get(link.eventId) ?? [];
-    bucket.push({ contactId: link.contactId, organizationContactId });
-    byEvent.set(link.eventId, bucket);
+    const existing = existingMessages.get(idempotencyKey);
+    const target = existing ?? link;
+    if (!target) { errors.push({ organizationContactId, reason: "Not linked to any event yet — push this contact into an event first" }); continue; }
+    const bucket = byEvent.get(target.eventId) ?? [];
+    bucket.push({ contactId: target.contactId, organizationContactId, idempotencyKey });
+    byEvent.set(target.eventId, bucket);
   }
 
   let queued = 0;
   let alreadyQueued = 0;
   let skipped = 0;
-  for (const [eventId, linkedContacts] of byEvent) {
-    const contactIds = linkedContacts.map((link) => contactIdSchema.parse(link.contactId));
-    const idempotencyKeys = new Map(linkedContacts.map((link) => [
-      link.contactId,
-      idem.crmBulk(organizationId, organizationContactIdSchema.parse(link.organizationContactId), input.sendId),
-    ]));
-    const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(eventId), {
-      mode: "send", contactIds, subject: input.subject, bodyHtml: input.bodyHtml,
-      sendId: input.sendId,
-      idempotencyKeys,
-    });
-    queued += result.queued;
-    alreadyQueued += result.alreadyQueued;
-    skipped += result.skipped;
-    for (const error of result.errors) errors.push({ organizationContactId: findOrganizationContactId(links, error.contactId) ?? error.contactId, reason: error.reason });
+  for (const [eventId, eventContacts] of byEvent) {
+    // Two CRM identities can converge on one event contact after a merge.
+    // `composeBulkSpeakerEmailIn` keys overrides by contact id, so split only
+    // those collisions into another pass rather than letting one recovery key
+    // overwrite the other in a Map.
+    let remaining = eventContacts;
+    while (remaining.length > 0) {
+      const contactIdsInBatch = new Set<string>();
+      const linkedContacts: typeof eventContacts = [];
+      const next: typeof eventContacts = [];
+      for (const link of remaining) {
+        if (contactIdsInBatch.has(link.contactId)) next.push(link);
+        else {
+          contactIdsInBatch.add(link.contactId);
+          linkedContacts.push(link);
+        }
+      }
+      remaining = next;
+
+      const contactIds = linkedContacts.map((link) => contactIdSchema.parse(link.contactId));
+      const idempotencyKeys = new Map(linkedContacts.map((link) => [link.contactId, link.idempotencyKey]));
+      const result = await composeBulkSpeakerEmailIn(dbOrTx, eventIdSchema.parse(eventId), {
+        mode: "send", contactIds, subject: input.subject, bodyHtml: input.bodyHtml,
+        sendId: input.sendId,
+        idempotencyKeys,
+      });
+      queued += result.queued;
+      alreadyQueued += result.alreadyQueued;
+      skipped += result.skipped;
+      for (const error of result.errors) {
+        errors.push({
+          organizationContactId: linkedContacts.find((link) => link.contactId === error.contactId)?.organizationContactId ?? error.contactId,
+          reason: error.reason,
+        });
+      }
+    }
   }
 
   return composeCrmBulkEmailResultSchema.parse({ queued, alreadyQueued, skipped, errors, preview: null });
-}
-
-function findOrganizationContactId(links: Map<string, { eventId: string; contactId: string }>, contactId: string): string | undefined {
-  for (const [organizationContactId, link] of links) if (link.contactId === contactId) return organizationContactId;
-  return undefined;
 }
 
 export const composeCrmBulkEmail = (organizationId: OrganizationId, input: ComposeCrmBulkEmailInput): Promise<ComposeCrmBulkEmailResult> =>

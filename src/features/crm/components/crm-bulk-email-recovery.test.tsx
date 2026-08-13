@@ -12,6 +12,7 @@ import {
 } from "@/features/comms/bulk-send-recovery";
 import { bulkSendPreviewFingerprint } from "@/features/comms/bulk-send-attempt";
 import { organizationIdSchema } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -67,6 +68,19 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
+function buttonsNamed(name: string): HTMLButtonElement[] {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")]
+    .filter((button) => button.textContent?.trim() === name);
+}
+
+async function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(control, value);
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   apiMock.mockReset();
   toastMock.mockReset();
@@ -84,6 +98,49 @@ afterEach(async () => {
 });
 
 describe("CRM partial-batch recovery", () => {
+  it("keeps a first structured send failure recoverable because one request can commit multiple event groups", async () => {
+    const recipient = recipients[0];
+    if (!recipient) throw new Error("Recovery fixture needs a recipient");
+    const preview = {
+      recipientEmail: recipient.email,
+      recipientName: recipient.name,
+      subject: "CRM update",
+      bodyHtml: "<p>Hello</p>",
+      bodyText: "Hello",
+    };
+    apiMock
+      .mockResolvedValueOnce({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview })
+      .mockRejectedValueOnce(new AppError("NOT_FOUND", "A later event was removed"));
+    await act(async () => root.render(<CrmBulkEmailDialog
+      organizationId={organizationId}
+      open
+      recipients={[recipient]}
+      onClose={vi.fn()}
+    />));
+
+    const subject = container.querySelector<HTMLInputElement>('input[placeholder="A note for you"]');
+    const body = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!subject || !body) throw new Error("Compose fields were not rendered");
+    await change(subject, "CRM update");
+    await change(body, "<p>Hello</p>");
+    await act(async () => {
+      buttonNamed("Refresh preview")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(buttonsNamed("Send to 1")[0]?.disabled).toBe(false);
+    await act(async () => buttonsNamed("Send to 1")[0]?.click());
+    expect(container.textContent).toContain("Send this message to 1 contact?");
+    await act(async () => buttonsNamed("Send to 1").at(-1)?.click());
+
+    expect(container.textContent).toContain("couldn’t confirm whether every email was queued");
+    expect(buttonNamed("Retry this send")).toBeDefined();
+    expect(loadBulkSendRecovery(window.sessionStorage, { surface: "crm", scope: organizationId })).toMatchObject({
+      ok: true,
+      snapshot: { subject: "CRM update" },
+    });
+  });
+
   it("retries every batch with one send id and reports prior recipients as recovered", async () => {
     const snapshot = recovery();
     expect(persistBulkSendRecovery(window.sessionStorage, snapshot).ok).toBe(true);

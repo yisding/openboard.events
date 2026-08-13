@@ -15,7 +15,6 @@ import {
 } from "@/features/comms/bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
-  classifyBulkSendFailure,
   persistBulkSendRecovery,
   removeBulkSendRecovery,
   type BulkSendRecoveryBatchResult,
@@ -173,7 +172,6 @@ export function CrmBulkEmailDialog({
   }
 
   async function runSend(): Promise<boolean> {
-    const retryingRecovery = recovery !== null;
     if (!recovery && (!currentPreview || !canSend)) {
       setError("Preview this exact audience and message before sending");
       return false;
@@ -205,7 +203,6 @@ export function CrmBulkEmailDialog({
     onRecoveryChange?.(approved);
     setBusySend(true);
     setError(null);
-    const completedThisRun: ComposeCrmBulkEmailResult[] = [];
     try {
       const results = [];
       const recipientIds = approved.recipients.map((row) => row.id);
@@ -215,7 +212,6 @@ export function CrmBulkEmailDialog({
           body: { organizationContactIds, subject: approved.subject, bodyHtml: approved.bodyHtml, mode: "send", sendId: approved.sendId },
         });
         results.push(batch);
-        completedThisRun.push(batch);
         const generic: BulkSendRecoveryBatchResult = {
           queued: batch.queued,
           alreadyQueued: batch.alreadyQueued,
@@ -257,26 +253,12 @@ export function CrmBulkEmailDialog({
       );
       router.refresh();
       return true;
-    } catch (caught) {
-      const completed = completedThisRun.map((batch): BulkSendRecoveryBatchResult => ({
-        queued: batch.queued,
-        alreadyQueued: batch.alreadyQueued,
-        skipped: batch.skipped,
-        errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
-      }));
-      if (classifyBulkSendFailure(caught, [...approved.completedResults, ...completed], retryingRecovery) === "definite") {
-        const removed = removeBulkSendRecovery(window.sessionStorage, approved);
-        if (removed.ok) {
-          completeBulkSendAttempt(window.sessionStorage, { sendId: approved.sendId, storageKey: approved.attemptStorageKey });
-          setRecovery(null);
-          onRecoveryChange?.(null);
-          setError(isAppError(caught) ? caught.message : "That did not go through");
-        } else {
-          setError("That request was rejected, but browser recovery could not be cleared. Use Abandon recovery to clear it before starting again.");
-        }
-      } else {
-        setError("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.");
-      }
+    } catch {
+      // One CRM HTTP request fans out across event groups server-side. A
+      // structured failure from a later group cannot prove an earlier group
+      // did not commit, so every send failure remains recoverable with the
+      // frozen send ID until the organizer explicitly abandons it.
+      setError("We couldn’t confirm whether every email was queued. Retry this unchanged send to recover it safely.");
       return false;
     } finally {
       setBusySend(false);
