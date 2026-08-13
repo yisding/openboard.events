@@ -172,6 +172,10 @@ export function bulkSendAttemptScope(identity: BulkSendRecoveryIdentity): string
  * Keeping the lock through the API response and verified cleanup closes the
  * localStorage check-then-set race without allowing a queued click in another
  * tab to become a surprise second send after the first finishes.
+ *
+ * Exceptions raised by `action` after the lock is granted are rethrown. This
+ * preserves the action's own error contract while lock-manager failures that
+ * happen before the action starts are reported as `lock_unavailable`.
  */
 export async function withBulkSendRecoveryLock<T>(
   identity: BulkSendRecoveryIdentity,

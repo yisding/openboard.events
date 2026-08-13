@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import {
+  browserBulkSendRecoveryLockManager,
   removeUnreadableBulkSendRecovery,
+  withBulkSendRecoveryLock,
   type BulkSendRecoveryIdentity,
 } from "../bulk-send-recovery";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -19,9 +21,20 @@ export function UnreadableBulkSendRecovery({
   const { toast } = useToast();
   const [confirmClear, setConfirmClear] = useState(false);
 
-  function clearUnreadableRecovery() {
-    const removed = removeUnreadableBulkSendRecovery(window.localStorage, identity);
+  async function clearUnreadableRecovery() {
+    const locked = await withBulkSendRecoveryLock(
+      identity,
+      browserBulkSendRecoveryLockManager(),
+      () => removeUnreadableBulkSendRecovery(window.localStorage, identity),
+    );
     setConfirmClear(false);
+    if (!locked.ok) {
+      toast(locked.reason === "lock_busy"
+        ? "Another tab is using this email recovery. Finish there before clearing it."
+        : "This browser can’t safely coordinate recovery cleanup across tabs. Try a current browser or check its privacy settings.", { kind: "error" });
+      return;
+    }
+    const removed = locked.value;
     if (removed.ok) {
       onCleared();
       toast("Unreadable email recovery cleared");

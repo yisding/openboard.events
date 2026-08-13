@@ -135,4 +135,53 @@ describe("segment bulk email recovery", () => {
     expect(buttonNamed("Preview audience")?.disabled).toBe(false);
     expect(composeMock).not.toHaveBeenCalled();
   });
+
+  it("does not clear unreadable recovery while another tab owns its lock", async () => {
+    const identity = speakerBulkSendRecoveryIdentity(eventId);
+    const storageKey = bulkSendRecoveryStorageKey(identity);
+    window.localStorage.setItem(storageKey, JSON.stringify({ version: 0, old: "recovery" }));
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: async (_name: string, _options: unknown, callback: (lock: null) => unknown) => callback(null) },
+    });
+
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+    await act(async () => buttonNamed("Clear unreadable recovery")?.click());
+    await act(async () => buttonNamed("Clear recovery")?.click());
+
+    expect(window.localStorage.getItem(storageKey)).not.toBeNull();
+    expect(container.textContent).toContain("Saved email recovery can’t be read");
+    expect(toastMock).toHaveBeenCalledWith(
+      "Another tab is using this email recovery. Finish there before clearing it.",
+      { kind: "error" },
+    );
+  });
+
+  it("keeps a generic recovery with an invalid speaker audience explicitly abandonable", async () => {
+    const snapshot = completedRecovery();
+    const invalidContactId = "legacy-contact-id";
+    const subject = snapshot.subject;
+    const bodyHtml = snapshot.bodyHtml;
+    const genericOnly: BulkSendRecoverySnapshot = {
+      ...snapshot,
+      recipients: [{ id: invalidContactId, name: "Legacy Speaker", email: "legacy@example.com" }],
+      previewRecipients: [{ id: invalidContactId, name: "Legacy Speaker", email: "legacy@example.com" }],
+      previewRecipientId: invalidContactId,
+      fingerprint: bulkSendPreviewFingerprint({
+        contactIds: [invalidContactId],
+        previewContactId: invalidContactId,
+        subject,
+        bodyHtml,
+      }),
+    };
+    expect(persistBulkSendRecovery(window.localStorage, genericOnly).ok).toBe(true);
+
+    await act(async () => root.render(<BulkSendTab eventId={eventId} />));
+
+    expect(container.textContent).toContain("Send confirmed; cleanup needed");
+    expect(container.textContent).not.toContain("Saved email recovery can’t be read");
+    expect(buttonNamed("Preview audience")?.disabled).toBe(true);
+    expect(buttonNamed("Clear completed recovery")).toBeDefined();
+    expect(composeMock).not.toHaveBeenCalled();
+  });
 });

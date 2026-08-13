@@ -258,4 +258,22 @@ describe("bulk send cross-tab lock", () => {
       .resolves.toEqual({ ok: false, reason: "lock_unavailable" });
     expect(action).not.toHaveBeenCalled();
   });
+
+  it("rethrows action failures but normalizes a manager failure before the action starts", async () => {
+    const grantingManager = {
+      request: async <T>(_name: string, _options: { mode: "exclusive"; ifAvailable: true }, callback: (lock: object | null) => T | PromiseLike<T>) => callback({}),
+    };
+    const action = vi.fn(() => { throw new Error("send failed"); });
+    const brokenManager = {
+      request: async () => { throw new Error("locks unavailable"); },
+    };
+    const neverRun = vi.fn();
+
+    await expect(withBulkSendRecoveryLock({ surface: "crm", scope: "org-1" }, grantingManager, action))
+      .rejects.toThrow("send failed");
+    await expect(withBulkSendRecoveryLock({ surface: "crm", scope: "org-1" }, brokenManager, neverRun))
+      .resolves.toEqual({ ok: false, reason: "lock_unavailable" });
+    expect(action).toHaveBeenCalledOnce();
+    expect(neverRun).not.toHaveBeenCalled();
+  });
 });

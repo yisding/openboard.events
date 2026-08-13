@@ -171,12 +171,25 @@ describe("CRM partial-batch recovery", () => {
     apiMock
       .mockResolvedValueOnce({ queued: 0, alreadyQueued: 500, skipped: 0, errors: [], preview: null })
       .mockResolvedValueOnce({ queued: 1, alreadyQueued: 0, skipped: 0, errors: [], preview: null });
+    const removeItem = vi.spyOn(window.localStorage, "removeItem").mockImplementation(() => { throw new Error("blocked"); });
     await act(async () => buttonNamed("Retry this send")?.click());
 
     expect(apiMock).toHaveBeenCalledTimes(4);
     expect(apiMock.mock.calls.slice(2).every((call) => call[2].body.sendId === snapshot.sendId)).toBe(true);
     expect(container.textContent).toContain("501 accepted");
     expect(container.textContent).toContain("500 already queued by this attempt");
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId })).toMatchObject({
+      ok: true,
+      snapshot: {
+        completedResults: [
+          { queued: 0, alreadyQueued: 500, skipped: 0, errors: [] },
+          { queued: 1, alreadyQueued: 0, skipped: 0, errors: [] },
+        ],
+      },
+    });
+
+    removeItem.mockRestore();
+    await act(async () => buttonNamed("Clear completed recovery")?.click());
     expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId }))
       .toEqual({ ok: false, reason: "missing" });
   });
@@ -187,6 +200,41 @@ describe("CRM partial-batch recovery", () => {
       confirmedResult: { queued: 0, alreadyQueued: 501, skipped: 0, errors: [] },
     };
     expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    function Harness() {
+      const [saved, setSaved] = React.useState<BulkSendRecoverySnapshot | null>(snapshot);
+      return <CrmBulkEmailDialog
+        organizationId={organizationId}
+        open
+        recipients={[]}
+        initialRecovery={saved}
+        onRecoveryChange={setSaved}
+        onClose={vi.fn()}
+      />;
+    }
+    await act(async () => root.render(<Harness />));
+
+    expect(container.textContent).toContain("501 accepted");
+    expect(container.textContent).toContain("Email 501 contacts");
+    expect(buttonNamed("Retry this send")).toBeUndefined();
+    await act(async () => buttonNamed("Clear completed recovery")?.click());
+
+    expect(apiMock).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Email 501 contacts");
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId }))
+      .toEqual({ ok: false, reason: "missing" });
+  });
+
+  it("keeps a confirmed result active when its receipt cannot be persisted", async () => {
+    const snapshot = recovery();
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    let restoreSetItem = () => {};
+    apiMock
+      .mockResolvedValueOnce({ queued: 0, alreadyQueued: 500, skipped: 0, errors: [], preview: null })
+      .mockImplementationOnce(async () => {
+        const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+        restoreSetItem = () => setItem.mockRestore();
+        return { queued: 0, alreadyQueued: 1, skipped: 0, errors: [], preview: null };
+      });
     await act(async () => root.render(<CrmBulkEmailDialog
       organizationId={organizationId}
       open
@@ -195,12 +243,15 @@ describe("CRM partial-batch recovery", () => {
       onClose={vi.fn()}
     />));
 
-    expect(container.textContent).toContain("501 accepted");
-    expect(buttonNamed("Retry this send")).toBeUndefined();
-    await act(async () => buttonNamed("Clear completed recovery")?.click());
+    await act(async () => buttonNamed("Retry this send")?.click());
 
-    expect(apiMock).not.toHaveBeenCalled();
-    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId }))
-      .toEqual({ ok: false, reason: "missing" });
+    expect(container.textContent).toContain("501 accepted");
+    expect(container.textContent).toContain("receipt could not be saved");
+    expect(buttonNamed("Clear completed recovery")).toBeDefined();
+    expect(loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId })).toMatchObject({
+      ok: true,
+      snapshot: { confirmedResult: null },
+    });
+    restoreSetItem();
   });
 });

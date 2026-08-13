@@ -92,8 +92,8 @@ export function CrmBulkEmailDialog({
   const restored = initialRecovery?.surface === "crm" && initialRecovery.scope === recoveryScope
     ? initialRecovery
     : null;
-  const audience = restored?.recipients ?? recipients;
-  const previewCandidates = restored?.previewRecipients ?? previewRecipients ?? recipients;
+  const [audience] = useState(() => restored?.recipients ?? recipients);
+  const [previewCandidates] = useState(() => restored?.previewRecipients ?? previewRecipients ?? recipients);
   const [subject, setSubject] = useState(restored?.subject ?? "");
   const [bodyHtml, setBodyHtml] = useState(restored?.bodyHtml ?? "");
   const [previewId, setPreviewId] = useState(restored?.previewRecipientId ?? previewCandidates[0]?.id ?? "");
@@ -262,6 +262,7 @@ export function CrmBulkEmailDialog({
     setError(null);
     try {
       const results = [];
+      const attemptResults: BulkSendRecoveryBatchResult[] = [];
       const recipientIds = approved.recipients.map((row) => row.id);
       for (const organizationContactIds of chunkBulkRecipientIds(recipientIds, CRM_BULK_BATCH_SIZE)) {
         const batch = await api(`organizations/${organizationId}/crm/bulk-email`, composeCrmBulkEmailResultSchema, {
@@ -275,7 +276,8 @@ export function CrmBulkEmailDialog({
           skipped: batch.skipped,
           errors: batch.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
         };
-        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: [...approved.completedResults, generic] };
+        attemptResults.push(generic);
+        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: attemptResults };
         if (persistBulkSendRecovery(window.localStorage, updated).ok) {
           approved = updated;
           setRecovery(updated);
@@ -292,17 +294,21 @@ export function CrmBulkEmailDialog({
           errors: result.errors.map((entry) => ({ recipientId: entry.organizationContactId, reason: entry.reason })),
         },
       };
-      persistBulkSendRecovery(window.localStorage, confirmed);
+      const confirmedStored = persistBulkSendRecovery(window.localStorage, confirmed);
       setRecovery(confirmed);
       onRecoveryChange?.(confirmed);
       setSendResult(result);
-      const completed = completeBulkSendAttempt(window.localStorage, attempt);
+      const completed = confirmedStored.ok
+        ? completeBulkSendAttempt(window.localStorage, attempt)
+        : confirmedStored;
       const removed = completed.ok ? removeBulkSendRecovery(window.localStorage, confirmed) : completed;
-      if (completed.ok && removed.ok) {
+      if (confirmedStored.ok && completed.ok && removed.ok) {
         setRecovery(null);
         onRecoveryChange?.(null);
       } else {
-        setError("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.");
+        setError(confirmedStored.ok
+          ? "The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send."
+          : "The send is confirmed, but its receipt could not be saved. Keep this dialog open and clear recovery after browser storage is available.");
       }
       toast(
         `${acceptedBulkSendCount(result)} accepted · ${result.queued} newly queued${result.alreadyQueued > 0 ? ` · ${result.alreadyQueued} recovered` : ""}${result.skipped > 0 ? ` · ${result.skipped} skipped` : ""}${result.errors.length > 0 ? ` · ${result.errors.length} could not be sent` : ""}`,
@@ -346,6 +352,8 @@ export function CrmBulkEmailDialog({
   async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const stored = persistBulkSendRecovery(window.localStorage, recovery);
+      if (!stored.ok) return false;
       const completed = completeBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       if (!completed.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);

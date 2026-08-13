@@ -357,7 +357,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     expect(logs.rows).toEqual([{ idempotency_key: mergedKey }]);
   });
 
-  it("keeps overlapping CRM retries on the one winning destination", async () => {
+  it("keeps interleaved CRM retries on one winning destination within a transaction", async () => {
     const sendId = "91000000-0000-4000-8000-000000000021";
     const organizationId = organizationIdSchema.parse("e3000000-0000-4000-8000-000000000001");
     const organizationContactId = organizationContactIdSchema.parse("e3000000-0000-4000-8000-000000000011");

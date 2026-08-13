@@ -10,9 +10,12 @@ import {
   completeBulkSendAttempt,
 } from "@/features/comms/bulk-send-attempt";
 import {
+  BULK_SEND_RECOVERY_VERSION,
   bulkSendAttemptScope,
   loadBulkSendRecovery,
+  persistBulkSendRecovery,
   speakerBulkSendRecoveryIdentity,
+  type BulkSendRecoverySnapshot,
 } from "@/features/comms/bulk-send-recovery";
 import { AppError } from "@/shared/lib/errors";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
@@ -29,6 +32,33 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 const eventId = "b2000000-0000-4000-8000-000000000001";
 const contactId = "b1000000-0000-4000-8000-000000000001";
 const selected = [{ contactId, name: "Alex Speaker", email: "alex@example.com" }];
+
+function recoverySnapshot(confirmed = false): BulkSendRecoverySnapshot {
+  const subject = "Program update";
+  const bodyHtml = "<p>Hello</p>";
+  return {
+    version: BULK_SEND_RECOVERY_VERSION,
+    surface: "speaker",
+    scope: eventId,
+    recipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
+    previewRecipients: [{ id: contactId, name: "Alex Speaker", email: "alex@example.com" }],
+    subject,
+    bodyHtml,
+    previewRecipientId: contactId,
+    approvedPreview: {
+      recipientEmail: "alex@example.com",
+      recipientName: "Alex Speaker",
+      subject,
+      bodyHtml: "<p>Hello Alex</p>",
+      bodyText: "Hello Alex",
+    },
+    sendId: "b3000000-0000-4000-8000-000000000001",
+    attemptStorageKey: "openboard:bulk-send:speaker:test-hash",
+    fingerprint: bulkSendPreviewFingerprint({ contactIds: [contactId], previewContactId: contactId, subject, bodyHtml }),
+    completedResults: [],
+    confirmedResult: confirmed ? { queued: 0, alreadyQueued: 1, skipped: 0, errors: [] } : null,
+  };
+}
 
 let container: HTMLDivElement;
 let root: Root;
@@ -245,5 +275,59 @@ describe("targeted speaker email recovery", () => {
     expect(container.textContent).toContain("Discard this bulk email draft?");
     await act(async () => buttonsNamed("Discard draft")[0]?.click());
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the restored audience visible after parent recovery cleanup", async () => {
+    const snapshot = recoverySnapshot(true);
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    function Harness() {
+      const [saved, setSaved] = React.useState<BulkSendRecoverySnapshot | null>(snapshot);
+      return <SpeakerBulkEmailDialog
+        eventId={eventId}
+        open
+        selected={[]}
+        initialRecovery={saved}
+        onRecoveryChange={setSaved}
+        onClose={vi.fn()}
+      />;
+    }
+    await act(async () => root.render(<Harness />));
+
+    expect(container.textContent).toContain("Email 1 speaker");
+    expect(container.textContent).toContain("1 accepted");
+    await act(async () => buttonsNamed("Clear completed recovery")[0]?.click());
+
+    expect(container.textContent).toContain("Email 1 speaker");
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId)))
+      .toEqual({ ok: false, reason: "missing" });
+  });
+
+  it("keeps a confirmed result active when its receipt cannot be persisted", async () => {
+    const snapshot = recoverySnapshot();
+    expect(persistBulkSendRecovery(window.localStorage, snapshot).ok).toBe(true);
+    let restoreSetItem = () => {};
+    apiMock.mockImplementationOnce(async () => {
+      const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+      restoreSetItem = () => setItem.mockRestore();
+      return { queued: 0, alreadyQueued: 1, skipped: 0, errors: [], preview: null };
+    });
+    await act(async () => root.render(<SpeakerBulkEmailDialog
+      eventId={eventId}
+      open
+      selected={[]}
+      initialRecovery={snapshot}
+      onClose={vi.fn()}
+    />));
+
+    await act(async () => buttonsNamed("Retry this send")[0]?.click());
+
+    expect(container.textContent).toContain("1 accepted");
+    expect(container.textContent).toContain("receipt could not be saved");
+    expect(buttonsNamed("Clear completed recovery")).toHaveLength(1);
+    expect(loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId))).toMatchObject({
+      ok: true,
+      snapshot: { confirmedResult: null },
+    });
+    restoreSetItem();
   });
 });

@@ -162,7 +162,23 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
         email: recipient.email,
       })),
     });
-    if (!restoredSegment.success) return;
+    if (!restoredSegment.success) {
+      // The generic recovery is still valid, so the corrupt-record clear path
+      // must not delete it. Keep it as a blocked recovery that the organizer
+      // can explicitly abandon (or clear if its receipt was confirmed).
+      setSubject(snapshot.subject);
+      setBodyHtml(snapshot.bodyHtml);
+      setPreview({
+        subject: snapshot.approvedPreview.subject,
+        bodyHtml: snapshot.approvedPreview.bodyHtml,
+        bodyText: snapshot.approvedPreview.bodyText,
+        fingerprint: snapshot.fingerprint,
+        attempt: { sendId: snapshot.sendId, storageKey: snapshot.attemptStorageKey },
+      });
+      setResult(confirmedSegmentResult(snapshot));
+      setRecovery(snapshot);
+      return;
+    }
     setSegment(restoredSegment.data);
     setSubject(snapshot.subject);
     setBodyHtml(snapshot.bodyHtml);
@@ -398,7 +414,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
           errors: batch.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
         };
         completedThisRun.push(generic);
-        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: [...approved.completedResults, generic] };
+        const updated: BulkSendRecoverySnapshot = { ...approved, completedResults: completedThisRun };
         if (persistBulkSendRecovery(window.localStorage, updated).ok) {
           approved = updated;
           setRecovery(updated);
@@ -414,15 +430,19 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
           errors: sent.errors.map((entry) => ({ recipientId: entry.contactId, reason: entry.reason })),
         },
       };
-      persistBulkSendRecovery(window.localStorage, confirmed);
+      const confirmedStored = persistBulkSendRecovery(window.localStorage, confirmed);
       setRecovery(confirmed);
       setResult(sent);
-      const completed = completeBulkSendAttempt(window.localStorage, attempt);
+      const completed = confirmedStored.ok
+        ? completeBulkSendAttempt(window.localStorage, attempt)
+        : confirmedStored;
       const removed = completed.ok ? removeBulkSendRecovery(window.localStorage, confirmed) : completed;
-      if (completed.ok && removed.ok) {
+      if (confirmedStored.ok && completed.ok && removed.ok) {
         setRecovery(null);
       } else {
-        toast("The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send.", { kind: "error", durationMs: 8_000 });
+        toast(confirmedStored.ok
+          ? "The send is confirmed, but browser recovery could not be cleared. Try clearing it again before starting another send."
+          : "The send is confirmed, but its receipt could not be saved. Keep this page open and try clearing recovery after browser storage is available.", { kind: "error", durationMs: 8_000 });
       }
       // Keep the completed message visible as a receipt, but it is no longer
       // an unsent draft that should block navigation.
@@ -483,6 +503,8 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   async function clearCompletedRecovery() {
     if (!recovery?.confirmedResult) return;
     const locked = await withBulkSendRecoveryLock(recoveryIdentity, browserBulkSendRecoveryLockManager(), () => {
+      const stored = persistBulkSendRecovery(window.localStorage, recovery);
+      if (!stored.ok) return false;
       const completed = completeBulkSendAttempt(window.localStorage, { sendId: recovery.sendId, storageKey: recovery.attemptStorageKey });
       if (!completed.ok) return false;
       const removed = removeBulkSendRecovery(window.localStorage, recovery);
