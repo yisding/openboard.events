@@ -91,6 +91,21 @@ describe("authentication destination continuity", () => {
     expect(html).toContain("Organization name");
   });
 
+  it("describes a preserved protected destination without promising guided setup", () => {
+    navigation.searchParams = new URLSearchParams("next=%2Fevents%2Fevent-123%2Freview");
+    const email = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(email).toContain("Create your Openboard workspace, then return to the page you requested.");
+    expect(email).toContain("Confirm your email, sign in, and continue where you left off.");
+    expect(email).not.toContain("add your event details");
+
+    navigation.searchParams = new URLSearchParams("error=access_denied&next=%2Fevents%2Fevent-123%2Freview");
+    const google = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(google).toContain("Google confirms your identity, creates your workspace, then returns you to the page you requested.");
+    expect(google).not.toContain("guided setup takes you");
+  });
+
   it("reveals the password on request and hides it again after changing signup methods", async () => {
     navigation.searchParams = new URLSearchParams();
     const container = document.createElement("div");
