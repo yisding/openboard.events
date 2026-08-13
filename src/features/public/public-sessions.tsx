@@ -4,7 +4,6 @@ import Link from "next/link";
 import { CalendarPlus, ChevronDown, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Dash } from "@/shared/ui/app/dash";
 import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
@@ -163,7 +162,7 @@ export function PublicSessions({
                 <h3>{session.title}</h3>
                 <div className="session-card-meta">
                   <span>{dayLabel(session.dayKey, event.timezone)} · {formatInZone(session.startsAt, event.timezone, { hour: "numeric", minute: "2-digit" })}</span>
-                  <span>{session.room ? session.room.name : <Dash />}</span>
+                  {session.room && <span>{session.room.name}</span>}
                 </div>
                 {session.speakers.length > 0 && (
                   <ul className="session-card-speakers">
@@ -178,18 +177,12 @@ export function PublicSessions({
                     ))}
                   </ul>
                 )}
-                {showDescription && (
+                {showDescription && session.descriptionHtml && (
                   <>
-                    {session.descriptionHtml ? (
-                      <div id={descriptionId} className={`session-card-desc ${expanded ? "" : "truncated"}`}><RichTextView html={session.descriptionHtml} /></div>
-                    ) : (
-                      <p className="session-detail-empty"><Dash /> No description yet.</p>
-                    )}
-                    {session.descriptionHtml && (
-                      <button type="button" className="session-card-toggle" aria-label={`${expanded ? "Show less about" : "Read more about"} ${session.title}`} aria-expanded={expanded} aria-controls={descriptionId} onClick={() => toggleExpanded(session.id)}>
-                        {expanded ? "Show less" : "Read more"} <ChevronDown size={13} className={expanded ? "flipped" : ""} />
-                      </button>
-                    )}
+                    <div id={descriptionId} className={`session-card-desc ${expanded ? "" : "truncated"}`}><RichTextView html={session.descriptionHtml} /></div>
+                    <button type="button" className="session-card-toggle" aria-label={`${expanded ? "Show less about" : "Read more about"} ${session.title}`} aria-expanded={expanded} aria-controls={descriptionId} onClick={() => toggleExpanded(session.id)}>
+                      {expanded ? "Show less" : "Read more"} <ChevronDown size={13} className={expanded ? "flipped" : ""} />
+                    </button>
                   </>
                 )}
               </div>

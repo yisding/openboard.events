@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { CalendarDays } from "lucide-react";
 import { useEffect } from "react";
 import { formatDateRangeInZone } from "@/shared/lib/time";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
@@ -166,9 +165,6 @@ export function PublicEventShell({
         <div className="public-event-container">
           {range && <span className="public-eyebrow">{range.toUpperCase()}</span>}
           <h1>{event.name}</h1>
-          <div>
-            {range && <span><CalendarDays size={16} /> {range}</span>}
-          </div>
         </div>
       </section>
       {children}

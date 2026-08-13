@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Openboard">
+  <defs>
+    <linearGradient id="openboard-mark" x1="8" y1="5" x2="56" y2="59" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00b583"/>
+      <stop offset="1" stop-color="#007a58"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#openboard-mark)"/>
+  <rect x="14" y="34" width="9" height="17" rx="3" fill="#fff" fill-opacity=".94"/>
+  <rect x="28" y="13" width="9" height="38" rx="3" fill="#fff" fill-opacity=".94"/>
+  <rect x="42" y="25" width="9" height="26" rx="3" fill="#fff" fill-opacity=".94"/>
+</svg>

@@ -13,6 +13,7 @@ import { HistoryPositionTracker } from "@/shared/ui/app/unsaved-work-guard";
 const archivo = Archivo({
   subsets: ["latin"],
   display: "swap",
+  preload: false,
   variable: "--font-sans",
 });
 

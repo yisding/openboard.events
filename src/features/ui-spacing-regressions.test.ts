@@ -78,19 +78,26 @@ describe("shared UI spacing regressions", () => {
     expect(flow).toContain('className="speaker-card-copy"');
   });
 
-  it("keeps the landing-page sign-in action visible on compact layouts", () => {
+  it("keeps every landing destination available in a compact navigation menu", () => {
+    const home = read("../app/page.tsx");
+    const mobileNav = read("../app/landing-mobile-nav.tsx");
+
     expect(css).toContain("@media (max-width: 385px) {");
     expect(css).toContain(".landing-links > a:not(.button) { display: none; }");
+    expect(css).toContain(".landing-links > .button-secondary { display: none; }");
     expect(css).toContain(".landing-links { gap: 8px; }");
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");
+    expect(css).toContain(".landing-mobile-nav { display: block; }");
+    expect(home).toContain("<LandingMobileNav");
+    for (const label of ["Platform", "Why Openboard", "View sample CFP", "Sign in"]) {
+      expect(mobileNav).toContain(label);
+    }
+    expect(mobileNav).toContain('event.key !== "Escape"');
     expect(css).toContain(
       ".landing-nav > .brand > span:not(.brand-mark) { display: none; }",
     );
     expect(css).toContain(
       ".hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }",
-    );
-    expect(css).not.toContain(
-      ".landing-links > a:not(.button), .landing-links .button-secondary { display: none; }",
     );
   });
 
