@@ -9,6 +9,7 @@ import { ActivationGuide, resolveActivationState } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
 import { FormProgressCards } from "./FormProgressCards";
 import { OverdueList } from "./OverdueList";
+import { RecentSubmissionsTable } from "./RecentSubmissionsTable";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
 import { TodayPanel } from "./TodayPanel";
 import { TopSpeakersList } from "./TopSpeakersList";
@@ -132,6 +133,19 @@ describe("dashboard components", () => {
     expect(topHtml).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/speakers?contactId=${contactId}`);
     expect(overdueHtml).toContain("/speakers?contactId=");
     expect(`${topHtml}${overdueHtml}`).not.toContain(`/speakers/${contactId}`);
+  });
+
+  it("opens each recent submission directly in the abstracts drawer", () => {
+    const html = renderToStaticMarkup(React.createElement(RecentSubmissionsTable, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone: FIXTURE_OVERVIEW.event.timezone,
+      rows: FIXTURE_OVERVIEW.recentSubmissions,
+    }));
+
+    for (const row of FIXTURE_OVERVIEW.recentSubmissions) {
+      expect(html).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/abstracts?submission=${row.id}`);
+    }
+    expect(html).toContain("Open submission");
   });
 
   it("honors a valid requested dashboard tab and falls back otherwise", () => {
