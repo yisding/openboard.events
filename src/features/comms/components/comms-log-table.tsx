@@ -1,21 +1,33 @@
 "use client";
 
-import { Mail, Search, Send, X } from "lucide-react";
+import { Mail, RotateCcw, Search, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { COMM_STATUSES, TEMPLATE_KEYS, type CommLogId, type CommLogRow, type CommStatus, type ContactId, type EventId, type TemplateKey } from "@/shared/contracts";
+import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
 import { Button, EmptyState, Select, StatusBadge } from "@/shared/ui/ui-kit";
-import { useCommLog } from "../hooks/use-comm-log";
+import { useToast } from "@/shared/ui/toast";
+import { useCommLog, useRetryFailedCommunications } from "../hooks/use-comm-log";
+import { canRetryCommunication, type RetryFailedCommunicationsResult } from "../schemas";
 import { LogDetailSheet } from "./log-detail-sheet";
 import { SendReminderDialog } from "./send-reminder-dialog";
 
 // P3-EMAIL added `bounced`/`complained` (Resend webhook) to `COMM_STATUSES`;
 // sourced from the contract so this filter can never drift from it again.
 const STATUSES: readonly CommStatus[] = COMM_STATUSES;
+
+export function retryResultMessage(result: RetryFailedCommunicationsResult): string {
+  const parts: string[] = [];
+  if (result.requeued > 0) parts.push(`${result.requeued} requeued`);
+  if (result.alreadyQueued > 0) parts.push(`${result.alreadyQueued} already queued`);
+  if (result.ineligible > 0) parts.push(`${result.ineligible} no longer eligible`);
+  if (result.notFound > 0) parts.push(`${result.notFound} not found in this event`);
+  return parts.join(" · ") || "No messages were requeued";
+}
 
 function humanizeKey(key: TemplateKey): string {
   return key.replaceAll("_", " ");
@@ -42,6 +54,9 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
   const [search, setSearch] = useState("");
   const [openLogId, setOpenLogId] = useState<CommLogId | null>(null);
   const [sendingTo, setSendingTo] = useState(false);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
+  const { toast } = useToast();
+  const retry = useRetryFailedCommunications(eventId);
 
   // `initialData` only matches the server-fetched shape while no filter has
   // been touched — the moment status/templateKey change, this is a different
@@ -75,6 +90,20 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
     { id: "sentAt", header: "Sent", accessorKey: "sentAt", cell: ({ row }) => <TzTime instant={row.original.sentAt} tz={timezone} style="date" secondary="time" /> },
   ], [timezone]);
 
+  async function retrySelected(selectedRows: CommLogRow[]): Promise<void> {
+    try {
+      const result = await retry.mutateAsync(selectedRows.map((row) => row.id));
+      const partial = result.ineligible > 0 || result.notFound > 0;
+      toast(retryResultMessage(result), partial ? { kind: "error" } : undefined);
+      setSelectionEpoch((epoch) => epoch + 1);
+    } catch {
+      // The response can be lost after a successful commit. The hook refreshes
+      // the activity list, and another click is safe because queued rows are
+      // reported as already queued without altering the logical message.
+      toast("Could not confirm those retries — activity is refreshing, and retrying again is safe", { kind: "error" });
+    }
+  }
+
   return (
     <section>
       <DataTable
@@ -82,6 +111,28 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
         data={rows}
         isLoading={query.isLoading}
         getRowId={(row) => row.id}
+        enableSelection
+        isRowSelectable={canRetryCommunication}
+        getRowLabel={(row) => `${row.recipientName}, ${humanizeKey(row.templateKey)}, ${row.status}`}
+        selectionEpoch={selectionEpoch}
+        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
+          <BulkActionBar
+            count={selectedRows.length}
+            countLabel={countLabel}
+            onClear={clearSelection}
+            actions={(
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={retry.isPending}
+                onClick={() => { void retrySelected(selectedRows); }}
+              >
+                <RotateCcw size={14} aria-hidden />
+                {retry.isPending ? "Retrying…" : `Retry ${selectedRows.length}`}
+              </Button>
+            )}
+          />
+        )}
         onRowClick={(row) => setOpenLogId(row.id)}
         pageSize={50}
         {...(contactId ? {} : { columnVisibilityKey: `comms-log:${eventId}` })}

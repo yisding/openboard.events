@@ -62,6 +62,22 @@ describe("DataTable loading accessibility", () => {
     expect(html).not.toContain("Loading table data…");
     expect(html).toContain("No rows");
   });
+
+  it("disables ineligible rows and leaves select-all limited to eligible rows", () => {
+    const html = renderToStaticMarkup(
+      <DataTable
+        columns={columns}
+        data={[{ id: "eligible", name: "Eligible" }, { id: "blocked", name: "Blocked" }]}
+        empty={<p>No rows</p>}
+        enableSelection
+        isRowSelectable={(row) => row.id === "eligible"}
+      />,
+    );
+
+    expect(html).toContain('aria-label="Select row blocked" disabled=""');
+    expect(html).toContain('aria-label="Select row eligible"');
+    expect(html).not.toContain('aria-label="Select row eligible" checked="" disabled=""');
+  });
 });
 
 describe("DataTable column disclosure accessibility", () => {

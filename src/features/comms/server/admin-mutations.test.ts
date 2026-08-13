@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, taskIdSchema, type CommLogId } from "@/shared/contracts";
+import { commLogIdSchema, contactIdSchema, eventIdSchema, taskIdSchema, type CommLogId } from "@/shared/contracts";
 import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import { isAppError } from "@/shared/lib/errors";
 import {
@@ -12,6 +12,7 @@ import {
   listOpenAssignmentsForContactIn,
   listReminderRulesIn,
   listTemplatesIn,
+  retryFailedCommunicationsIn,
   saveReminderRulesIn,
   saveTemplateIn,
 } from "./admin-mutations";
@@ -264,6 +265,90 @@ describe("comms admin mutations", () => {
       await expectAppError(getLogDetailIn(tx, eventId, theirLogId as CommLogId), "NOT_FOUND");
       // An id that exists in no event at all is still a 404, not a crash.
       await expectAppError(getLogDetailIn(tx, eventId, "e0000000-0000-4000-8000-000000000051" as CommLogId), "NOT_FOUND");
+    });
+  });
+
+  describe("retryFailedCommunications", () => {
+    it("requeues only eligible event rows in place and preserves their logical identity", async () => {
+      const otherEventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000091");
+      const otherSpeakerId = contactIdSchema.parse("e0000000-0000-4000-8000-000000000092");
+      const eligibleId = commLogIdSchema.parse("e0000000-0000-4000-8000-000000000060");
+      const sentId = commLogIdSchema.parse("e0000000-0000-4000-8000-000000000061");
+      const credentialId = commLogIdSchema.parse("e0000000-0000-4000-8000-000000000062");
+      const crossEventId = commLogIdSchema.parse("e0000000-0000-4000-8000-000000000063");
+
+      await pglite.query(
+        "INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'Other','other-retry','Elsewhere','UTC','2026-10-01T00:00:00Z','2026-10-02T00:00:00Z')",
+        [otherEventId],
+      );
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'other-retry@example.com','Other','Person')",
+        [otherSpeakerId, otherEventId],
+      );
+      await pglite.query(
+        `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,attempts,error,sent_at) VALUES
+          ($1,$5,$6,'reviewer_invited','retry-same-logical-message','failed',6,'provider timeout',NULL),
+          ($2,$5,$6,'reviewer_invited','retry-sent-message','sent',1,NULL,now()),
+          ($3,$5,$6,'portal_login','retry-expired-credential','failed',1,'payload invalid',NULL),
+          ($4,$7,$8,'reviewer_invited','retry-cross-event','failed',6,'provider timeout',NULL)`,
+        [eligibleId, sentId, credentialId, crossEventId, eventId, speakerId, otherEventId, otherSpeakerId],
+      );
+
+      const result = await retryFailedCommunicationsIn(tx, eventId, [eligibleId, sentId, credentialId, crossEventId]);
+      expect(result).toEqual({
+        outcomes: [
+          { logId: eligibleId, outcome: "requeued" },
+          { logId: sentId, outcome: "ineligible" },
+          { logId: credentialId, outcome: "ineligible" },
+          { logId: crossEventId, outcome: "not_found" },
+        ],
+        requeued: 1,
+        alreadyQueued: 0,
+        ineligible: 2,
+        notFound: 1,
+      });
+
+      const rows = await pglite.query<{
+        id: string;
+        status: string;
+        attempts: number;
+        error: string | null;
+        idempotency_key: string;
+      }>("SELECT id,status,attempts,error,idempotency_key FROM communication_logs ORDER BY id");
+      const byId = new Map(rows.rows.map((row) => [row.id, row]));
+      expect(byId.get(eligibleId)).toMatchObject({
+        status: "queued",
+        attempts: 0,
+        error: null,
+        idempotency_key: "retry-same-logical-message",
+      });
+      expect(byId.get(sentId)).toMatchObject({ status: "sent", attempts: 1 });
+      expect(byId.get(credentialId)).toMatchObject({ status: "failed", attempts: 1 });
+      expect(byId.get(crossEventId)).toMatchObject({ status: "failed", attempts: 6 });
+      expect(rows.rows).toHaveLength(4);
+
+      const repeated = await retryFailedCommunicationsIn(tx, eventId, [eligibleId]);
+      expect(repeated).toMatchObject({ requeued: 0, alreadyQueued: 1, ineligible: 0, notFound: 0 });
+      expect((await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM communication_logs WHERE idempotency_key='retry-same-logical-message'",
+      )).rows[0]?.count).toBe(1);
+    });
+
+    it("allows only one of two concurrent retries to requeue the row", async () => {
+      const logId = commLogIdSchema.parse("e0000000-0000-4000-8000-000000000064");
+      await pglite.query(
+        "INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,attempts,error) VALUES($1,$2,$3,'reviewer_invited','retry-concurrent','failed',6,'provider timeout')",
+        [logId, eventId, speakerId],
+      );
+
+      const results = await Promise.all([
+        retryFailedCommunicationsIn(tx, eventId, [logId]),
+        retryFailedCommunicationsIn(tx, eventId, [logId]),
+      ]);
+      expect(results.map((result) => result.outcomes[0]?.outcome).sort()).toEqual(["already_queued", "requeued"]);
+      expect((await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM communication_logs WHERE idempotency_key='retry-concurrent'",
+      )).rows[0]?.count).toBe(1);
     });
   });
 

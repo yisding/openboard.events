@@ -1,4 +1,4 @@
-import { and, asc, eq, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { communicationLogs, contacts, emailTemplates, reminderRules } from "@/db/schema";
 import {
@@ -19,9 +19,15 @@ import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {
   CommLogDetailWithFlag,
   EmailTemplateRow,
+  RetryFailedCommunicationsResult,
   OpenAssignmentRow,
   ReminderRuleRow,
   TemplateSaveInput,
+} from "../schemas";
+import {
+  canRetryCommunication,
+  MAX_COMMUNICATION_RETRY_BATCH,
+  NON_RETRYABLE_COMM_TEMPLATE_KEYS,
 } from "../schemas";
 
 /**
@@ -35,6 +41,7 @@ export type {
   EmailTemplateRow,
   OpenAssignmentRow,
   ReminderRuleRow,
+  RetryFailedCommunicationsResult,
   TemplateSaveInput,
 } from "../schemas";
 export {
@@ -43,6 +50,8 @@ export {
   openAssignmentRowSchema,
   reminderRuleRowSchema,
   reminderRulesInputSchema,
+  retryFailedCommunicationsInputSchema,
+  retryFailedCommunicationsResultSchema,
   templateSaveInputSchema,
 } from "../schemas";
 
@@ -204,6 +213,96 @@ export async function getLogDetailIn(dbOrTx: DbOrTx, eventId: EventId, logId: Co
 
 export async function getLogDetail(eventId: EventId, logId: CommLogId): Promise<CommLogDetailWithFlag> {
   return getLogDetailIn(db, eventId, logId);
+}
+
+function retryOutcomeCounts(outcomes: RetryFailedCommunicationsResult["outcomes"]): RetryFailedCommunicationsResult {
+  return {
+    outcomes,
+    requeued: outcomes.filter((row) => row.outcome === "requeued").length,
+    alreadyQueued: outcomes.filter((row) => row.outcome === "already_queued").length,
+    ineligible: outcomes.filter((row) => row.outcome === "ineligible").length,
+    notFound: outcomes.filter((row) => row.outcome === "not_found").length,
+  };
+}
+
+/**
+ * Re-opens terminal event-mail failures in place. The existing row and its
+ * globally unique idempotency key are retained, so a network ambiguity at the
+ * provider cannot become a second logical message. Every UPDATE re-checks the
+ * event, failed status, and template eligibility; concurrent retries therefore
+ * produce one `requeued` and one `already_queued`, never two rows.
+ */
+export async function retryFailedCommunicationsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  logIds: CommLogId[],
+): Promise<RetryFailedCommunicationsResult> {
+  if (logIds.length < 1 || logIds.length > MAX_COMMUNICATION_RETRY_BATCH || new Set(logIds).size !== logIds.length) {
+    throw new AppError("VALIDATION", `Choose between 1 and ${MAX_COMMUNICATION_RETRY_BATCH} distinct failed messages`);
+  }
+
+  const scoped = await dbOrTx.select({
+    id: communicationLogs.id,
+    status: communicationLogs.status,
+    templateKey: communicationLogs.templateKey,
+  }).from(communicationLogs).where(and(
+    eq(communicationLogs.eventId, eventId),
+    inArray(communicationLogs.id, logIds),
+  ));
+  const byId = new Map(scoped.map((row) => [row.id, row]));
+  const outcomes: RetryFailedCommunicationsResult["outcomes"] = [];
+
+  for (const logId of logIds) {
+    const initial = byId.get(logId);
+    if (!initial) {
+      outcomes.push({ logId, outcome: "not_found" });
+      continue;
+    }
+    if (initial.status === "queued") {
+      outcomes.push({ logId, outcome: "already_queued" });
+      continue;
+    }
+    if (!canRetryCommunication(initial)) {
+      outcomes.push({ logId, outcome: "ineligible" });
+      continue;
+    }
+
+    const [updated] = await dbOrTx.update(communicationLogs).set({
+      status: "queued",
+      attempts: 0,
+      error: null,
+      nextAttemptAt: sql`now()`,
+      lockedUntil: null,
+    }).where(and(
+      eq(communicationLogs.id, logId),
+      eq(communicationLogs.eventId, eventId),
+      eq(communicationLogs.status, "failed"),
+      notInArray(communicationLogs.templateKey, [...NON_RETRYABLE_COMM_TEMPLATE_KEYS]),
+    )).returning();
+
+    if (updated) {
+      outcomes.push({ logId, outcome: "requeued" });
+      continue;
+    }
+
+    // A competing organizer may have requeued the same row after our initial
+    // read. Re-read its event-scoped state so the result reports that race
+    // truthfully instead of claiming this request performed the retry.
+    const [current] = await dbOrTx.select({ status: communicationLogs.status })
+      .from(communicationLogs)
+      .where(and(eq(communicationLogs.id, logId), eq(communicationLogs.eventId, eventId)))
+      .limit(1);
+    outcomes.push({
+      logId,
+      outcome: current?.status === "queued" ? "already_queued" : current ? "ineligible" : "not_found",
+    });
+  }
+
+  return retryOutcomeCounts(outcomes);
+}
+
+export async function retryFailedCommunications(eventId: EventId, logIds: CommLogId[]): Promise<RetryFailedCommunicationsResult> {
+  return retryFailedCommunicationsIn(db, eventId, logIds);
 }
 
 function rowsOf<Row>(result: unknown): Row[] {
