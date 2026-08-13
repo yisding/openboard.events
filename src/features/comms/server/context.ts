@@ -8,6 +8,7 @@ import { isTransactionalTemplate, organizationInvitationIdSchema, tokenIdSchema,
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";
+import { isEmailAllowed } from "@/shared/server/email-allowlist";
 import { escapeHtml } from "./render";
 import { signUnsubscribeToken } from "./unsubscribe";
 
@@ -57,13 +58,6 @@ function rowsOf<Row>(result: unknown): Row[] {
     return (result as { rows: Row[] }).rows;
   }
   return [];
-}
-
-function allowlisted(email: string, env: RuntimeEnv): boolean {
-  if (env.EMAIL_MODE !== "send" || !env.EMAIL_ALLOWLIST) return true;
-  const normalized = email.toLowerCase();
-  return env.EMAIL_ALLOWLIST.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean)
-    .some((entry) => entry.startsWith("@") ? normalized.endsWith(entry) : normalized === entry);
 }
 
 function formatDue(value: Date | string | null, timezone: string): string {
@@ -194,7 +188,7 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
     .leftJoin(contactSuppressions, eq(contactSuppressions.contactId, contacts.id))
     .where(eq(events.id, row.eventId)).limit(1);
   if (!base) throw new SkipEmail("contact no longer exists");
-  if (!allowlisted(base.email, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
+  if (!isEmailAllowed(base.email, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
   // P3-EMAIL: a hard bounce/complaint (Resend webhook, `suppressedAt`) blocks
   // EVERY send, including decision/schedule/portal-login — the address is
   // provider-confirmed undeliverable or has reported the sender as spam, so
