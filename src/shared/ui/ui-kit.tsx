@@ -1,7 +1,7 @@
 "use client";
 
 import { UserRound, X } from "lucide-react";
-import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
 export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
@@ -65,23 +65,29 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
   return <header className="page-header"><div>{eyebrow && <div className="page-eyebrow">{eyebrow}</div>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
 }
 
-// Native <dialog> provides focus trapping, Escape-to-close, and focus restore.
-function ModalDialog({ onClose, title, className, children }: { onClose: () => void; title: string; className: string; children: ReactNode }) {
+// Native <dialog> provides focus trapping and Escape-to-close. Because React
+// unmounts the dialog, cleanup restores the control that opened it explicitly.
+function ModalDialog({ onClose, title, className, children, initialFocusRef }: { onClose: () => void; title: string; className: string; children: ReactNode; initialFocusRef?: RefObject<HTMLElement | null> | undefined }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
-    return () => dialog.close();
-  }, []);
+    initialFocusRef?.current?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, [initialFocusRef]);
   return <dialog ref={ref} className="modal-shell" aria-label={title} onCancel={(event) => { event.preventDefault(); onClose(); }} onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
     <section className={className}>{children}</section>
   </dialog>;
 }
 
-export function Modal({ open, onClose, title, description, children, footer, wide = false }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+export function Modal({ open, onClose, title, description, children, footer, wide = false, initialFocusRef }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean; initialFocusRef?: RefObject<HTMLElement | null> | undefined }) {
   if (!open) return null;
-  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
+  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
 function DrawerDialog({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {
@@ -89,9 +95,11 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
     return () => {
       if (dialog.open) dialog.close();
+      if (returnFocus?.isConnected) returnFocus.focus();
     };
   }, []);
   return (
