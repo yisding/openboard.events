@@ -9,9 +9,15 @@ import { duplicateFormAsDraft, formDuplicateOutcomeUnknown } from "./duplicate-f
 import { formAvailability, type FormAvailability } from "./lib/form-open";
 import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
-import { createStableCreateRequestId, type StableCreateRequestId } from "@/shared/lib/stable-create-request-id";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { copyText } from "@/shared/ui/app/copy-text";
 import { useToast } from "@/shared/ui/toast";
+import {
+  closeFormCreateLifecycle,
+  formCreateOutcomeUnknown,
+  openFormCreateLifecycle,
+  requestFormCreate,
+} from "./form-create-request";
 
 const formTabs: ReadonlyArray<{ value: "all" | FormAvailability; label: string }> = [
   { value: "all", label: "All" },
@@ -21,49 +27,6 @@ const formTabs: ReadonlyArray<{ value: "all" | FormAvailability; label: string }
   { value: "ended", label: "Ended" },
   { value: "closed", label: "Closed" },
 ];
-
-export class FormCreateRequestError extends Error {
-  constructor(message: string, readonly outcomeUnknown: boolean) {
-    super(message);
-    this.name = "FormCreateRequestError";
-  }
-}
-
-export function formCreateOutcomeUnknown(error: unknown): boolean {
-  return error instanceof FormCreateRequestError && error.outcomeUnknown;
-}
-
-export function openFormCreateLifecycle(requestId: StableCreateRequestId, outcomeUnknown: boolean): void {
-  if (outcomeUnknown) return;
-  requestId.reset();
-  requestId.begin();
-}
-
-export function closeFormCreateLifecycle(
-  requestId: StableCreateRequestId,
-  outcomeUnknown: boolean,
-  busy: boolean,
-): boolean {
-  if (busy) return false;
-  if (!outcomeUnknown) requestId.reset();
-  return true;
-}
-
-export async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, init);
-  } catch {
-    throw new FormCreateRequestError("Could not reach the server", true);
-  }
-  const payload = await response.json().catch(() => null) as { data?: T; error?: { message?: string } } | null;
-  if (!response.ok) throw new FormCreateRequestError(
-    payload?.error?.message ?? "The form could not be saved",
-    response.status >= 500,
-  );
-  if (payload?.data === undefined) throw new FormCreateRequestError("The server response could not be confirmed", true);
-  return payload.data;
-}
 
 export function FormsPage({ event, initialForms }: { event: BuilderEvent; initialForms: FormListRow[] }) {
   const { toast } = useToast();
@@ -100,7 +63,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     if (!name.trim() || busy) return;
     setBusy(true);
     try {
-      const form = await requestData<BuilderForm>(`/api/internal/forms?eventId=${event.id}`, {
+      const form = await requestFormCreate<BuilderForm>(`/api/internal/forms?eventId=${event.id}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(createRequestId.current.payload(undefined, { internalName: name, kind, collectParticipants })),
