@@ -23,8 +23,8 @@ describe("E2E public residue cleanup migration", () => {
         ('e3000000-0000-4000-8000-000000000001','E2E publish me someday','not-a-test-timestamp','published');
 
       INSERT INTO contacts(event_id,email,first_name,bio_html) VALUES
-        ('e3000000-0000-4000-8000-000000000001','ada@example.com','Ada','<p>E2E bio 1786423950034 Ada works on analytical engines.</p>'),
-        ('e3000000-0000-4000-8000-000000000001','alan@example.com','Alan','<p>E2E bio 1786426713749E2E bio 1786423950035 Alan works on cryptanalysis.</p>'),
+        ('e3000000-0000-4000-8000-000000000001','ada@example.com','Ada','<p><strong>E2E bio 1786423950034</strong>Ada works on analytical engines.</p>'),
+        ('e3000000-0000-4000-8000-000000000001','alan@example.com','Alan','<p><strong>E2E bio 1786426713749E2E bio 1786423950035</strong>Alan works on cryptanalysis.</p>'),
         ('e3000000-0000-4000-8000-000000000001','writer@example.com','Writer','<p>My E2E bio 1786423950036 is legitimate prose.</p>'),
         ('e3000000-0000-4000-8000-000000000001','words@example.com','Words','<p>E2E bio is a phrase without a test timestamp.</p>');
     `);

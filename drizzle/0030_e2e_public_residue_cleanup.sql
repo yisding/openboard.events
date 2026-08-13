@@ -9,11 +9,13 @@ WHERE title ~ '^E2E (publish me|overlap [AB]|auto-place|blacked out) [0-9]+$'
 -- The portal profile spec typed its marker at the start of an existing rich
 -- text bio, sometimes repeatedly across runs. Preserve the opening paragraph
 -- tag and every byte of the real biography after the timestamp prefixes.
+-- TipTap may wrap text typed at the active cursor in `<strong>`; accept that
+-- exact optional inline wrapper as part of each marker, not as biography.
 UPDATE contacts
 SET bio_html = regexp_replace(
   bio_html,
-  '^((<p[^>]*>)?)((E2E bio [0-9]+)[[:space:]]*)+',
+  '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+',
   '\1',
   'i'
 ), updated_at = now()
-WHERE bio_html ~* '^((<p[^>]*>)?)((E2E bio [0-9]+)[[:space:]]*)+';
+WHERE bio_html ~* '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+';
