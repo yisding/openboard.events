@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
 import { queryRows } from "./helpers/db";
 import { NO_DATABASE, NO_TARGET, databaseConfigured, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, FORMS, USERS } from "./helpers/seeded";
 
 /**
@@ -89,7 +88,6 @@ function planUpdate(plan: PlanDTO, window: { opensAt: string | null; closesAt: s
 
 test.describe("review-operations", () => {
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M50"), waitingOn("M50"));
 
   test("an organizer governs a round and a reviewer works exactly their queue", async ({ page, request }) => {
     const assertClean = expectNoConsoleErrors(page);

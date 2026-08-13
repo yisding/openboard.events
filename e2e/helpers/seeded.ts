@@ -1,4 +1,4 @@
-import { OPENBOARD_NS, seedId } from "./ids";
+import { seedId } from "./ids";
 
 /**
  * The seeded world the specs assert on, exactly as M09 §3 specifies it. Specs
@@ -11,8 +11,6 @@ import { OPENBOARD_NS, seedId } from "./ids";
  * seed modules' own keys — change one here and the id stops resolving, which is
  * the intended failure mode.
  */
-export const SEED_NAMESPACE = OPENBOARD_NS;
-
 export const EVENTS = {
   /** The demo world. Everything judged renders against this event. */
   main: {

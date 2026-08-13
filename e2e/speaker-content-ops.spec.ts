@@ -2,7 +2,6 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin, loginAsSpeaker } from "./helpers/auth";
 import { queryRows } from "./helpers/db";
 import { NO_DATABASE, NO_TARGET, databaseConfigured, targetConfigured } from "./helpers/env";
-import { landed, waitingOn } from "./helpers/landed";
 import { EVENTS, SESSIONS, TASKS, VOCAB, uniqueEmail } from "./helpers/seeded";
 
 /**
@@ -46,7 +45,6 @@ async function speakerWithOpenFileRequest(request: APIRequestContext): Promise<S
 
 test.describe("speaker-content-ops", () => {
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M51"), waitingOn("M51"));
 
   // These are single long round trips — roster, import, invite, a real browser
   // upload through presign→PUT→finalize, bulk send — and the upload step alone
@@ -318,7 +316,6 @@ const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 
 test.describe("content-deliverables (M52)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
-  test.skip(!landed("M52"), waitingOn("M52"));
 
   // Same budget as M51's block above, for the same reason: two real uploads,
   // a comment exchange, a bulk reminder through the outbox, a restore/publish
