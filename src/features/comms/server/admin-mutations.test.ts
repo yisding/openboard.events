@@ -87,6 +87,9 @@ describe("comms admin mutations", () => {
       expect(keys).toEqual(EVENT_EDITABLE_TEMPLATE_KEYS);
       expect(keys).not.toContain("admin_password_reset");
       expect(keys).not.toContain("admin_email_verification");
+      // M44 team invitations render fixed copy from the admin outbox, so a
+      // rail row for them would be a control that changes nothing.
+      expect(keys).not.toContain("organization_invited");
     });
 
     it("rejects attempts to edit a platform authentication template", async () => {
@@ -95,6 +98,18 @@ describe("comms admin mutations", () => {
           subject: "Reset your password",
           bodyHtml: "<p>Reset</p>",
           enabled: true,
+          expectedUpdatedAt: new Date().toISOString(),
+        }),
+        "VALIDATION",
+      );
+    });
+
+    it("rejects attempts to edit the team invitation template", async () => {
+      await expectAppError(
+        saveTemplateIn(tx, eventId, "organization_invited", {
+          subject: "Join us",
+          bodyHtml: "<p>Join</p>",
+          enabled: false,
           expectedUpdatedAt: new Date().toISOString(),
         }),
         "VALIDATION",
