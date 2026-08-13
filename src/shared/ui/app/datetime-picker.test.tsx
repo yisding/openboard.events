@@ -8,6 +8,7 @@ import {
   calendarCells,
   datetimePopoverContainer,
   draftZoneAbbreviation,
+  localCalendarDay,
   localDateTimeExists,
   pagedCalendarDay,
   wrappedPopoverTabTarget,
@@ -75,6 +76,16 @@ describe("DateTimePicker", () => {
     expect(html).toContain('aria-label="Open date picker"');
     expect(html).not.toContain(`type=${JSON.stringify("date")}`);
     expect(html).not.toContain('class="datetime-zone"');
+  });
+
+  it("derives timezone-free Today from local calendar fields", () => {
+    const localClock = {
+      getFullYear: () => 2026,
+      getMonth: () => 6,
+      getDate: () => 4,
+    };
+
+    expect(localCalendarDay(localClock)).toBe("2026-07-04");
   });
 
   it("builds stable six-week calendars including adjacent-month navigation targets", () => {

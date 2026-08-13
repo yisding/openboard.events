@@ -19,6 +19,11 @@ function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** A timezone-free calendar day follows the participant's own local clock. */
+export function localCalendarDay(date: Pick<Date, "getFullYear" | "getMonth" | "getDate">): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function dayKeyParts(value: string): { year: number; month: number; day: number } {
   const match = DAY_KEY.exec(value);
   if (!match) throw new TypeError(`Invalid calendar day: ${value}`);
@@ -130,6 +135,7 @@ function ThemedDateControl({
   onClear,
   tz,
   mode,
+  todaySource,
   displayValue,
   zoneLabel,
   clearable,
@@ -146,6 +152,7 @@ function ThemedDateControl({
   onClear: () => void;
   tz: string;
   mode: PickerMode;
+  todaySource: "event-zone" | "local";
   displayValue: string;
   zoneLabel?: string | undefined;
   clearable: boolean;
@@ -170,7 +177,11 @@ function ThemedDateControl({
   const initialMonth = dayKeyParts(selectedDay ?? "1970-01-01");
   const [visibleMonth, setVisibleMonth] = useState({ year: initialMonth.year, month: initialMonth.month });
   const [rovingDay, setRovingDay] = useState(selectedDay ?? "1970-01-01");
-  const today = eventDayKey(new Date(), tz);
+  const currentDay = useCallback(
+    (now: Date) => todaySource === "local" ? localCalendarDay(now) : eventDayKey(now, tz),
+    [todaySource, tz],
+  );
+  const today = currentDay(new Date());
   const cells = useMemo(() => calendarCells(visibleMonth.year, visibleMonth.month), [visibleMonth]);
   const validLocalTime = mode === "date" || localDateTimeExists(draft, tz);
   const displayedZoneLabel = open && zoneLabel ? draftZoneAbbreviation(draft, tz) : zoneLabel;
@@ -183,7 +194,7 @@ function ThemedDateControl({
 
   function openPicker() {
     if (disabled || open) return;
-    const fallbackDay = eventDayKey(new Date(), tz);
+    const fallbackDay = currentDay(new Date());
     const fallbackTime = hourMinuteInZone(new Date(), tz);
     const next = {
       dayKey: selectedDay ?? fallbackDay,
@@ -356,7 +367,7 @@ function ThemedDateControl({
       </div>}
       {!validLocalTime && <p className="datetime-picker-warning" role="alert">That local time does not exist because the clock changes on this date. Choose another time.</p>}
       <footer className="datetime-popover-actions">
-        <Button size="sm" variant="ghost" onClick={() => chooseDay(today)}>Today</Button>
+        <Button size="sm" variant="ghost" onClick={() => chooseDay(currentDay(new Date()))}>Today</Button>
         <span />
         <Button size="sm" variant="secondary" onClick={() => closePicker(true)}>Cancel</Button>
         <Button size="sm" disabled={!validLocalTime} onClick={apply}>Apply</Button>
@@ -449,6 +460,7 @@ export function DateTimePicker({
     onClear={() => onChange(null)}
     tz={tz}
     mode={mode}
+    todaySource="event-zone"
     displayValue={value ? displayInstant(value, tz, mode) : ""}
     zoneLabel={zoneAbbreviation(value ?? new Date(), tz)}
     clearable={clearable}
@@ -486,6 +498,7 @@ export function CalendarDatePicker({
     onClear={() => onChange(null)}
     tz="UTC"
     mode="date"
+    todaySource="local"
     displayValue={value ? formatDayKeyInZone(value, "UTC", { month: "short", day: "numeric", year: "numeric" }) : ""}
     clearable
     id={id}
