@@ -616,7 +616,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* M37 — comms admin UI (server-backed template editor, reminder ladder, log) */
 .comms-templates{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
-.template-editor-grid{display:grid;gap:24px;grid-template-columns:minmax(0,1fr) 320px}
+.template-editor-grid{display:grid;gap:28px;grid-template-columns:minmax(0,1fr) 340px}
 .template-editor-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:20px;margin-bottom:24px;border-bottom:1px solid var(--line)}
 .template-editor-header h2{margin:8px 0 4px;font-size:20px;letter-spacing:-.4px}.template-editor-header p{margin:0;color:var(--muted);font-size:12.5px}
 .template-state{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:var(--fill);color:var(--muted);font-size:11px;font-weight:600}.template-state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--line-heavy)}.template-state.is-enabled{background:var(--green-soft);color:var(--green)}.template-state.is-enabled::before{background:var(--green)}
@@ -2032,16 +2032,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    card. The compact chrome row keeps LIVE PREVIEW and its hint on one baseline;
    the subject and body continue directly below with one divider per layer. */
 .template-editor__preview.message-preview{display:block;padding:0;background:var(--surface)}
-.message-preview .template-preview-heading{min-height:44px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);background:var(--surface-subtle)}
-.message-preview .template-preview-heading small{text-align:right}
+.message-preview .template-preview-heading{min-height:48px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);background:var(--surface-subtle)}
+.message-preview .template-preview-heading small{line-height:1.35;text-align:right}
 .message-preview .template-preview-message{padding:0;border:0;border-radius:0;background:var(--surface);box-shadow:none}
-.message-preview .template-preview-subject{padding:12px 16px;border-bottom:1px solid var(--fill)}
-.message-preview .template-preview-subject small{display:block;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.65px;text-transform:uppercase}
-.message-preview .template-preview-subject b{display:block;margin-top:4px;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
-.message-preview .template-preview-body{padding:16px}
+.message-preview .template-preview-subject{padding:16px 18px 17px;border-bottom:1px solid var(--fill)}
+.message-preview .template-preview-subject small{display:block;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.65px;line-height:1;text-transform:uppercase}
+.message-preview .template-preview-subject b{display:block;margin-top:7px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.message-preview .template-preview-body{padding:20px 18px}
 .message-preview .template-preview-body>.rich-text>:first-child{margin-top:0}
 .message-preview .template-preview-body>.rich-text>:last-child{margin-bottom:0}
-.message-preview .template-preview-status{margin:16px;background:var(--surface-subtle)}
+.message-preview .template-preview-status{margin:18px;background:var(--surface-subtle)}
 .communication-template-card{min-height:258px;display:flex;flex-direction:column;overflow:hidden}
 .communication-template-card__header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0}
 .template-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark)}
@@ -2074,6 +2074,12 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .template-enabled-setting{min-width:0;flex:1;padding:0}
 .template-enabled-setting b,.template-enabled-setting small{display:block}
 .template-enabled-setting b{font-size:12.5px}.template-enabled-setting small{margin-top:3px;color:var(--muted);font-size:11px}
+
+/* With the fixed admin sidebar still present, a side-by-side compose form and
+   preview leave neither column enough reading room on ordinary laptops. Keep
+   the template rail beside the editor, but let the preview use the full editor
+   width until the page has desktop space again. */
+@media(max-width:1280px){.template-editor-grid{grid-template-columns:1fr}.template-editor__preview{position:static;max-height:none}}
 
 .embeds-admin-page{max-width:1120px}
 .embed-overview{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:14px;align-items:center;margin-bottom:14px;padding:16px 20px;background:linear-gradient(100deg,var(--surface),var(--accent-faint))}
