@@ -49,6 +49,8 @@ describe("review score history migration", () => {
         '2026-08-10T10:00:00Z',
         '2026-08-10T10:00:00Z'
       );
+      UPDATE reviews SET is_ai=true
+      WHERE id='f2700000-0000-4000-8000-000000000006';
     `);
     await db.exec(migration27);
   });
@@ -60,14 +62,16 @@ describe("review score history migration", () => {
       revision: number;
       overall_score: string;
       comment: string;
+      is_ai: boolean;
       criteria_snapshot: Array<{ label: string }>;
       recorded_at: Date;
-    }>("SELECT revision, overall_score, comment, criteria_snapshot, recorded_at FROM review_revisions");
+    }>("SELECT revision, overall_score, comment, is_ai, criteria_snapshot, recorded_at FROM review_revisions");
     expect(initial.rows).toHaveLength(1);
     expect(initial.rows[0]).toMatchObject({
       revision: 1,
       overall_score: "3",
       comment: "Original verdict",
+      is_ai: true,
       criteria_snapshot: [{ label: "Original label" }],
     });
     expect(new Date(initial.rows[0]?.recorded_at ?? 0).toISOString()).toBe("2026-08-10T10:00:00.000Z");
@@ -81,23 +85,26 @@ describe("review score history migration", () => {
       WHERE id='f2700000-0000-4000-8000-000000000005';
       UPDATE reviews SET
         overall_score=5,
+        is_ai=false,
         criterion_scores='{"f2700000-0000-4000-8000-000000000005":{"kind":"numeric","value":5}}'::jsonb,
         comment='Revised verdict',
         submitted_at='2026-08-11T10:00:00Z'
       WHERE id='f2700000-0000-4000-8000-000000000006';
     `);
-    const revisions = await db.query<{ revision: number; overall_score: string; criteria_snapshot: Array<{ label: string }> }>(
-      "SELECT revision, overall_score, criteria_snapshot FROM review_revisions ORDER BY revision",
+    const revisions = await db.query<{ revision: number; overall_score: string; is_ai: boolean; criteria_snapshot: Array<{ label: string }> }>(
+      "SELECT revision, overall_score, is_ai, criteria_snapshot FROM review_revisions ORDER BY revision",
     );
     expect(revisions.rows).toEqual([
       expect.objectContaining({
         revision: 1,
         overall_score: "3",
+        is_ai: true,
         criteria_snapshot: [expect.objectContaining({ label: "Original label" })],
       }),
       expect.objectContaining({
         revision: 2,
         overall_score: "5",
+        is_ai: false,
         criteria_snapshot: [expect.objectContaining({ label: "Renamed criterion" })],
       }),
     ]);

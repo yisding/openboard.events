@@ -14,6 +14,7 @@ CREATE TABLE review_revisions (
   overall_score numeric,
   criterion_scores jsonb NOT NULL DEFAULT '{}'::jsonb,
   criteria_snapshot jsonb NOT NULL DEFAULT '[]'::jsonb,
+  is_ai boolean NOT NULL DEFAULT false,
   comment text,
   submitted_at timestamptz,
   recorded_at timestamptz NOT NULL DEFAULT now(),
@@ -28,7 +29,7 @@ CREATE INDEX review_revisions_submission_idx
 -- Preserve the current state of every review that predates history support.
 INSERT INTO review_revisions (
   event_id, review_id, plan_id, submission_id, reviewer_user_id, revision,
-  overall_score, criterion_scores, criteria_snapshot, comment, submitted_at,
+  overall_score, criterion_scores, criteria_snapshot, is_ai, comment, submitted_at,
   recorded_at
 )
 SELECT
@@ -43,7 +44,7 @@ SELECT
     FROM evaluation_criteria c
     WHERE c.plan_id = r.plan_id AND c.event_id = r.event_id
   ), '[]'::jsonb),
-  r.comment, r.submitted_at, r.updated_at
+  r.is_ai, r.comment, r.submitted_at, r.updated_at
 FROM reviews r;
 
 CREATE OR REPLACE FUNCTION capture_review_revision() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -53,9 +54,9 @@ DECLARE
 BEGIN
   -- An exact re-save is idempotent, not a new historical verdict.
   IF TG_OP = 'UPDATE' AND ROW(
-    OLD.overall_score, OLD.criterion_scores, OLD.comment, OLD.submitted_at
+    OLD.overall_score, OLD.criterion_scores, OLD.is_ai, OLD.comment, OLD.submitted_at
   ) IS NOT DISTINCT FROM ROW(
-    NEW.overall_score, NEW.criterion_scores, NEW.comment, NEW.submitted_at
+    NEW.overall_score, NEW.criterion_scores, NEW.is_ai, NEW.comment, NEW.submitted_at
   ) THEN
     RETURN NEW;
   END IF;
@@ -76,11 +77,11 @@ BEGIN
 
   INSERT INTO review_revisions (
     event_id, review_id, plan_id, submission_id, reviewer_user_id, revision,
-    overall_score, criterion_scores, criteria_snapshot, comment, submitted_at
+    overall_score, criterion_scores, criteria_snapshot, is_ai, comment, submitted_at
   ) VALUES (
     NEW.event_id, NEW.id, NEW.plan_id, NEW.submission_id,
     NEW.reviewer_user_id, next_revision, NEW.overall_score,
-    NEW.criterion_scores, criterion_snapshot, NEW.comment, NEW.submitted_at
+    NEW.criterion_scores, criterion_snapshot, NEW.is_ai, NEW.comment, NEW.submitted_at
   );
 
   RETURN NEW;
@@ -88,5 +89,5 @@ END;
 $$;
 
 CREATE TRIGGER reviews_capture_revision
-AFTER INSERT OR UPDATE OF overall_score, criterion_scores, comment, submitted_at
+AFTER INSERT OR UPDATE OF overall_score, criterion_scores, is_ai, comment, submitted_at
 ON reviews FOR EACH ROW EXECUTE FUNCTION capture_review_revision();

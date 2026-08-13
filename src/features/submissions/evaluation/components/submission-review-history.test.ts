@@ -15,6 +15,8 @@ describe("submission review history", () => {
     expect(component).toContain('role="alert"');
     expect(component).toContain("entry.reviewerName");
     expect(component).toContain("entry.reviewerEmail");
+    expect(component).toContain('entry.isAi ? "AI-generated review"');
+    expect(component).toContain("Generated for ${entry.reviewerName}");
     expect(component).toContain("<TzTime instant={entry.recordedAt} tz={timezone}");
     expect(drawer).toContain("{canEdit && (\n              <SubmissionReviewHistory");
   });

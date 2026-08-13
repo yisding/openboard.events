@@ -454,6 +454,7 @@ type ReviewRevisionRow = {
   reviewer_email: string;
   revision: number;
   overall_score: string | null;
+  is_ai: boolean;
   criterion_scores: unknown;
   criteria_snapshot: unknown;
   comment: string | null;
@@ -505,7 +506,7 @@ export async function listReviewHistoryIn(
   const result = await dbOrTx.execute<ReviewRevisionRow>(sql`
     SELECT rr.id, rr.review_id, rr.plan_id, p.name AS plan_name,
       rr.reviewer_user_id, u.name AS reviewer_name, u.email AS reviewer_email,
-      rr.revision, rr.overall_score, rr.criterion_scores, rr.criteria_snapshot,
+      rr.revision, rr.overall_score, rr.is_ai, rr.criterion_scores, rr.criteria_snapshot,
       rr.comment, rr.submitted_at, rr.recorded_at
     FROM review_revisions rr
     JOIN evaluation_plans p ON p.id = rr.plan_id AND p.event_id = rr.event_id
@@ -527,6 +528,7 @@ export async function listReviewHistoryIn(
       reviewerEmail: row.reviewer_email,
       revision: Number(row.revision),
       overallScore: row.overall_score === null ? null : Number(row.overall_score),
+      isAi: row.is_ai,
       answers: criteria.flatMap((criterion) => {
         const criterionId = criterionIdSchema.safeParse(criterion.id);
         if (!criterionId.success) return [];

@@ -51,8 +51,8 @@ export function SubmissionReviewHistory({
             <li key={entry.id}>
               <header>
                 <div>
-                  <b>{entry.planName} · {entry.reviewerName}</b>
-                  <span>{entry.reviewerEmail} · Revision {entry.revision} · <TzTime instant={entry.recordedAt} tz={timezone} /></span>
+                  <b>{entry.planName} · {entry.isAi ? "AI-generated review" : entry.reviewerName}</b>
+                  <span>{entry.isAi ? `Generated for ${entry.reviewerName} (${entry.reviewerEmail})` : entry.reviewerEmail} · Revision {entry.revision} · <TzTime instant={entry.recordedAt} tz={timezone} /></span>
                 </div>
                 <strong>{entry.overallScore === null ? (entry.complete ? "Complete" : "In progress") : entry.overallScore}</strong>
               </header>

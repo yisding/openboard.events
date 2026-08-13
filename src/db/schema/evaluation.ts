@@ -68,6 +68,7 @@ export const reviewRevisions = pgTable("review_revisions", {
   overallScore: numeric("overall_score"),
   criterionScores: jsonb("criterion_scores").notNull().default({}),
   criteriaSnapshot: jsonb("criteria_snapshot").notNull().default([]),
+  isAi: boolean("is_ai").notNull().default(false),
   comment: text("comment"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),

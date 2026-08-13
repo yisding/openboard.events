@@ -238,6 +238,7 @@ export type ReviewHistoryEntry = {
   reviewerEmail: string;
   revision: number;
   overallScore: number | null;
+  isAi: boolean;
   answers: Array<{ criterionId: string; label: string; value: string }>;
   comment: string | null;
   complete: boolean;
