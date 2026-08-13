@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { contactIdSchema, fileRequestIdSchema, taskIdSchema } from "@/shared/contracts";
+import { parsePageQuery, type PageQuery } from "@/shared/lib/page-query";
 
 const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date, YYYY-MM-DD");
 
@@ -31,18 +32,6 @@ export type DeliverablePageFilters = z.infer<typeof deliverableFiltersSchema>;
  * is dropped by name rather than taking the page down, mirroring
  * `parseSubmissionFiltersForPage`.
  */
-export function parseDeliverableFiltersForPage(query: Record<string, string | string[] | undefined>): DeliverablePageFilters {
-  const input: Record<string, string> = {};
-  for (const [key, value] of Object.entries(query)) {
-    const scalar = Array.isArray(value) ? value[value.length - 1] : value;
-    if (typeof scalar === "string" && scalar !== "") input[key] = scalar;
-  }
-  const parsed = deliverableFiltersSchema.safeParse(input);
-  if (parsed.success) return parsed.data;
-  for (const issue of parsed.error.issues) {
-    const key = issue.path[0];
-    if (typeof key === "string") delete input[key];
-  }
-  const retried = deliverableFiltersSchema.safeParse(input);
-  return retried.success ? retried.data : deliverableFiltersSchema.parse({});
+export function parseDeliverableFiltersForPage(query: PageQuery): DeliverablePageFilters {
+  return parsePageQuery(deliverableFiltersSchema, query);
 }

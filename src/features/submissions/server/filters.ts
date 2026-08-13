@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LIMITS, formatIdSchema, submissionStatusSchema, tagIdSchema, trackIdSchema } from "@/shared/contracts";
+import { parsePageQuery, type PageQuery } from "@/shared/lib/page-query";
 import { BULK_DECISION_LIMIT } from "../bulk-decision-limit";
 
 /**
@@ -52,26 +53,8 @@ export type SubmissionFilters = z.infer<typeof submissionFiltersSchema>;
  * is dropped by name and the rest kept — a mistyped `sort` must not also lose
  * the `status` tab the organizer is standing on.
  */
-export function parseSubmissionFiltersForPage(query: Record<string, string | string[] | undefined>): SubmissionFilters {
-  const input: Record<string, string> = {};
-  for (const [key, value] of Object.entries(query)) {
-    // A repeated parameter (`?status=a&status=b`) is ambiguous; the last one
-    // wins, which is what a browser form would have sent anyway.
-    const scalar = Array.isArray(value) ? value[value.length - 1] : value;
-    if (typeof scalar === "string" && scalar !== "") input[key] = scalar;
-  }
-  const parsed = submissionFiltersSchema.safeParse(input);
-  if (parsed.success) return parsed.data;
-  for (const issue of parsed.error.issues) {
-    const key = issue.path[0];
-    if (typeof key === "string") delete input[key];
-  }
-  // Every remaining key already parsed once and each field has a default, so
-  // the retry succeeds; the bare defaults are the floor if it somehow does not,
-  // because a page that renders the first page of everything is always better
-  // than a page that does not render.
-  const retried = submissionFiltersSchema.safeParse(input);
-  return retried.success ? retried.data : submissionFiltersSchema.parse({});
+export function parseSubmissionFiltersForPage(query: PageQuery): SubmissionFilters {
+  return parsePageQuery(submissionFiltersSchema, query);
 }
 
 /**
