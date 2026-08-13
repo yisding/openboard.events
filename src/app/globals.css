@@ -685,7 +685,12 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      the fixed menu button. Recorded in design-system.md T4. */
   .topbar { padding-left: 64px; }.search-trigger { width: 44px; height: 44px; }.search-trigger span, .search-trigger kbd, .save-indicator { display: none; }
   .dashboard-grid { grid-template-columns: 1fr; }.speaker-attention, .quick-actions { grid-column: 1; grid-row: auto; }
-  .landing-links > a:not(.button), .landing-links .button-secondary { display: none; }
+  /* Keep authentication discoverable on compact layouts. The section and
+     sample links are repeated in the hero immediately below, but "Sign in"
+     has no other direct entry point for an existing anonymous user. */
+  .landing-links > a:not(.button) { display: none; }
+  .landing-links { gap: 8px; }
+  .landing-links .button-primary svg { display: none; }
 }
 
 @media (max-width: 768px) {
