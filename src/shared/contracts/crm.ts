@@ -149,7 +149,10 @@ export const crmNoteDtoSchema = z.object({
 });
 export type CrmNoteDTO = z.infer<typeof crmNoteDtoSchema>;
 
-export const createCrmNoteInputSchema = z.object({ bodyHtml: z.string().trim().min(1).max(5_000) });
+export const createCrmNoteInputSchema = z.object({
+  noteId: crmNoteIdSchema,
+  bodyHtml: z.string().trim().min(1).max(5_000),
+});
 export type CreateCrmNoteInput = z.infer<typeof createCrmNoteInputSchema>;
 
 export const crmActivityDtoSchema = z.object({

@@ -12,11 +12,13 @@ import {
   organizationContactTagLinks,
   organizationContactTags,
   organizationContacts,
+  users,
 } from "@/db/schema";
 import { getEventOrganizationIn } from "@/features/organizations";
 import { getOrCreateContact, updateContactFields, type ContactPatch } from "@/features/portal/server/contacts";
 import {
   crmCustomFieldDtoSchema,
+  crmNoteDtoSchema,
   crmPipelineEntryDtoSchema,
   crmSegmentDtoSchema,
   crmTagDtoSchema,
@@ -30,6 +32,7 @@ import {
   type CreateCrmTagInput,
   type CreateOrganizationContactInput,
   type CrmCustomFieldDTO,
+  type CrmNoteDTO,
   type CrmPipelineEntryDTO,
   type CrmPipelineId,
   type CrmSegmentDTO,
@@ -231,14 +234,36 @@ export const createCrmCustomField = (organizationId: OrganizationId, input: Crea
 
 // --- Notes -----------------------------------------------------------------
 
-export async function createCrmNoteIn(dbOrTx: DbOrTx, organizationId: OrganizationId, id: OrganizationContactId, input: CreateCrmNoteInput, actorUserId: UserId | null): Promise<void> {
+export async function createCrmNoteIn(dbOrTx: DbOrTx, organizationId: OrganizationId, id: OrganizationContactId, input: CreateCrmNoteInput, actorUserId: UserId | null): Promise<CrmNoteDTO> {
   await assertContactInOrgIn(dbOrTx, organizationId, id);
-  await dbOrTx.insert(organizationContactNotes).values({
-    organizationId, organizationContactId: id, authorUserId: actorUserId, bodyHtml: sanitize(input.bodyHtml),
-  });
-  await recordActivityIn(dbOrTx, organizationId, id, "note_added", actorUserId);
+  const [inserted] = await dbOrTx.insert(organizationContactNotes).values({
+    id: input.noteId,
+    organizationId,
+    organizationContactId: id,
+    authorUserId: actorUserId,
+    bodyHtml: sanitize(input.bodyHtml),
+  }).onConflictDoNothing().returning();
+
+  const [note] = await dbOrTx.select({
+    id: organizationContactNotes.id,
+    bodyHtml: organizationContactNotes.bodyHtml,
+    authorUserId: organizationContactNotes.authorUserId,
+    authorName: users.name,
+    createdAt: organizationContactNotes.createdAt,
+  }).from(organizationContactNotes)
+    .leftJoin(users, eq(users.id, organizationContactNotes.authorUserId))
+    .where(and(
+      eq(organizationContactNotes.id, input.noteId),
+      eq(organizationContactNotes.organizationId, organizationId),
+      eq(organizationContactNotes.organizationContactId, id),
+    ))
+    .limit(1);
+  if (!note) throw new AppError("CONFLICT", "That note request ID is already in use");
+
+  if (inserted) await recordActivityIn(dbOrTx, organizationId, id, "note_added", actorUserId, { noteId: note.id });
+  return crmNoteDtoSchema.parse({ ...note, createdAt: note.createdAt.toISOString() });
 }
-export const createCrmNote = (organizationId: OrganizationId, id: OrganizationContactId, input: CreateCrmNoteInput, actorUserId: UserId | null): Promise<void> =>
+export const createCrmNote = (organizationId: OrganizationId, id: OrganizationContactId, input: CreateCrmNoteInput, actorUserId: UserId | null): Promise<CrmNoteDTO> =>
   createCrmNoteIn(db, organizationId, id, input, actorUserId);
 
 // --- Segments ----------------------------------------------------------------

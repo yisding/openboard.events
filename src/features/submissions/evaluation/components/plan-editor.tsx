@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CriterionKind } from "@/shared/contracts";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
@@ -174,12 +176,21 @@ export function PlanEditor({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [draft, setDraft] = useState<PlanDraft>(plan ? draftFrom(plan) : emptyDraft(nextRound));
+  const [baseline] = useState<PlanDraft>(() => plan ? draftFrom(plan) : emptyDraft(nextRound));
+  const [draft, setDraft] = useState<PlanDraft>(baseline);
   const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
   const [saving, setSaving] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
+  const { runGuarded } = useGuardedAction();
+  const dirty = pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline);
+
+  useUnsavedWorkGuard(dirty);
 
   const patch = (next: Partial<PlanDraft>) => setDraft((current) => ({ ...current, ...next }));
+
+  function closeEditor() {
+    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: onClose });
+  }
 
   async function save() {
     setSaving(true);
@@ -252,7 +263,7 @@ export function PlanEditor({
   }));
 
   return (
-    <Drawer open onClose={onClose} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
+    <Drawer open onClose={closeEditor} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
       <div className="form-stack drawer-body">
         {pendingReviewerPlanId && (
           <p className="portal-note" role="alert">
@@ -411,7 +422,7 @@ export function PlanEditor({
           Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Abstracts by rating and move the survivors.
         </p>
         <div className="drawer-actions">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" disabled={saving} onClick={closeEditor}>Cancel</Button>
           <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
             {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
           </Button>

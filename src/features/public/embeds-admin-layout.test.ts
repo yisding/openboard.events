@@ -34,6 +34,12 @@ describe("embeds admin layout", () => {
     expect(css).toContain(".embed-overview{display:grid");
   });
 
+  it("protects aggregate settings drafts without guarding harmless card collapse", () => {
+    expect(source).toContain("const hasUnsavedSettings = hasUnsavedEmbedSettings(configs, styleDrafts, filterDrafts)");
+    expect(source).toContain("useUnsavedWorkGuard(hasUnsavedSettings)");
+    expect(source).toContain("setOpenConfigId(open ? null : config.id)");
+  });
+
   it("reports clipboard failures instead of claiming a copy succeeded", () => {
     expect(source).toContain("await navigator.clipboard.writeText(value)");
     expect(source).toContain("setManualCopy({ contentType, label, value })");
