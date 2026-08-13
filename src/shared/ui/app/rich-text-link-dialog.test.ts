@@ -12,6 +12,8 @@ describe("rich-text link dialog", () => {
 
   it("returns inline guidance for empty and unsafe links", () => {
     expect(richTextLinkError(" ")).toBe("Enter a link URL.");
+    expect(richTextLinkError("https://")).toBe("Enter a complete link URL.");
+    expect(richTextLinkError("mailto:")).toBe("Enter a complete link URL.");
     expect(richTextLinkError("javascript:alert(1)")).toBe("Use an http://, https://, or mailto: link.");
     expect(richTextLinkError("example.com")).toBe("Use an http://, https://, or mailto: link.");
   });
