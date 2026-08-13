@@ -97,7 +97,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </nav>
             <div className="portal-account">
               <Avatar initials={speaker.avatar} color={speaker.avatarColor} />
-              <span><b>{speaker.firstName}</b><small>Speaker</small></span>
+              <span className="portal-account-copy"><b>{speaker.firstName}</b><small>Speaker</small></span>
               <SignOutButton kind="portal" eventSlug={event.slug} compact />
             </div>
           </div>
