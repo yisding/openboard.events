@@ -7,10 +7,11 @@ import {
   participantRoleSchema,
   submissionKindSchema,
 } from "@/shared/contracts";
-import { deleteFormIn, updateFormIn } from "@/features/forms/server/builder-mutations";
+import { deleteFormIn, updateFormWithAvailabilityReplayIn } from "@/features/forms/server/builder-mutations";
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
+import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import { db, withTx } from "@/db/client";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -55,7 +56,11 @@ const get = defineHandler({
 // id, which `updateFormIn`'s own event scoping still bounds.
 const update = defineHandler({
   auth: formBuilderAuth(),
-  input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
+  input: z.object({
+    expectedUpdatedAt: z.iso.datetime(),
+    patch: patchSchema,
+    availabilityReplay: z.boolean().optional(),
+  }),
   // M14: the Settings/Notifications steps' own validation (submission-limit
   // range, confirmation-template variables — R2 boundary #6, checked at save
   // time) runs here too, since every builder step's save reaches the
@@ -65,7 +70,22 @@ const update = defineHandler({
     const formId = routeInput.parse(params).formId;
     assertValidSubmissionLimit(input.patch.submissionLimit);
     await assertValidConfirmationTemplate(db, parsedEventId, formId, input.patch);
-    return withTx((tx) => updateFormIn(tx, parsedEventId, formId, input.patch, input.expectedUpdatedAt));
+    const updated = await withTx((tx) => updateFormWithAvailabilityReplayIn(
+      tx,
+      parsedEventId,
+      formId,
+      input.patch,
+      input.expectedUpdatedAt,
+      input.availabilityReplay === true,
+    ));
+    // Product telemetry is intentionally outside the authoring transaction.
+    // Catching a failed SQL statement inside a PostgreSQL transaction cannot
+    // make that transaction committable again, even when the JS helper catches
+    // the error. The idempotent signal runs only after authoring has committed.
+    if (input.patch.status === "open") {
+      await tryRecordEventOnboardingMilestoneIn(db, parsedEventId, "form_published");
+    }
+    return updated;
   },
 });
 

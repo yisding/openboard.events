@@ -134,6 +134,10 @@ const formAvailabilityAuthoritySchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 type FormAvailabilityAuthority = z.infer<typeof formAvailabilityAuthoritySchema>;
+type FormAvailabilityRecovery = {
+  action: FormAvailabilityAction;
+  expectedUpdatedAt: string;
+};
 
 /** Accept authoritative lifecycle metadata without replacing local authoring drafts. */
 export function mergeFormAvailabilityAuthority(local: BuilderForm, server: FormAvailabilityAuthority): BuilderForm {
@@ -174,7 +178,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [duplicating, setDuplicating] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [availabilityAlert, setAvailabilityAlert] = useState<string | null>(null);
-  const [availabilityRecovery, setAvailabilityRecovery] = useState<FormAvailabilityAction | null>(null);
+  const [availabilityRecovery, setAvailabilityRecovery] = useState<FormAvailabilityRecovery | null>(null);
   const [pendingAvailabilityAction, setPendingAvailabilityAction] = useState<FormAvailabilityAction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
   const [compactInspector, setCompactInspector] = useState(false);
@@ -440,28 +444,39 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     router.refresh();
   }
 
-  async function reconcileAvailability(action: FormAvailabilityAction): Promise<"matched" | "unchanged" | "unknown"> {
+  function availabilityPatch(recovery: FormAvailabilityRecovery, replay: boolean): Promise<BuilderForm> {
+    return requestData<BuilderForm>(`/api/internal/forms/${form.id}?eventId=${event.id}`, json("PATCH", {
+      expectedUpdatedAt: recovery.expectedUpdatedAt,
+      patch: { status: recovery.action === "open" ? "open" : "closed" },
+      ...(replay ? { availabilityReplay: true } : {}),
+    }));
+  }
+
+  async function replayAvailability(recovery: FormAvailabilityRecovery): Promise<boolean> {
     try {
-      const latest = formAvailabilityAuthoritySchema.parse(
-        await requestData<unknown>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
-      );
+      const latest = formAvailabilityAuthoritySchema.parse(await availabilityPatch(recovery, true));
+      const requestedStatus = recovery.action === "open" ? "open" : "closed";
+      if (latest.status !== requestedStatus) {
+        throw new AppError("INTERNAL", "The replay did not confirm the requested form status");
+      }
       applyAvailabilityAuthority(latest);
       setAvailabilityRecovery(null);
-      const requestedStatus = action === "open" ? "open" : "closed";
-      if (latest.status === requestedStatus) {
-        setPendingAvailabilityAction(null);
-        toast(action === "open"
-          ? "Form opened — confirmed from the latest saved status"
-          : "Form closed — confirmed from the latest saved status");
-        return "matched";
-      }
-      toast(`The latest saved status is ${latest.status}. You can retry ${action === "open" ? "opening" : "closing"} the form.`, { kind: "error" });
-      return "unchanged";
-    } catch {
-      setAvailabilityRecovery(action);
       setPendingAvailabilityAction(null);
-      toast(formAvailabilityRecoveryMessage(action), { kind: "error" });
-      return "unknown";
+      toast(recovery.action === "open"
+        ? "Form opened — confirmed from the completed request"
+        : "Form closed — confirmed from the completed request");
+      return true;
+    } catch (error) {
+      if (!formAvailabilityOutcomeUnknown(error)) {
+        setAvailabilityRecovery(null);
+        setPendingAvailabilityAction(null);
+        if (isAppError(error)) toast(error.message, { kind: "error" });
+        return false;
+      }
+      setAvailabilityRecovery(recovery);
+      setPendingAvailabilityAction(null);
+      toast(formAvailabilityRecoveryMessage(recovery.action), { kind: "error" });
+      return false;
     }
   }
 
@@ -469,7 +484,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     if (!availabilityRecovery || busy) return;
     setBusy(true);
     try {
-      await reconcileAvailability(availabilityRecovery);
+      await replayAvailability(availabilityRecovery);
     } finally {
       setBusy(false);
     }
@@ -477,7 +492,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
 
   function requestAvailabilityChange() {
     if (availabilityRecovery) {
-      toast(formAvailabilityRecoveryMessage(availabilityRecovery), { kind: "error" });
+      toast(formAvailabilityRecoveryMessage(availabilityRecovery.action), { kind: "error" });
       return;
     }
     const action: FormAvailabilityAction = persistedAvailabilityInput.status === "open" ? "close" : "open";
@@ -494,9 +509,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   async function confirmAvailabilityChange() {
     if (!pendingAvailabilityAction || availabilityRecovery || busy) return;
     const action = pendingAvailabilityAction;
+    const recovery = { action, expectedUpdatedAt: form.updatedAt } satisfies FormAvailabilityRecovery;
     setBusy(true);
     try {
-      const next = await patchForm({ status: action === "open" ? "open" : "closed" });
+      const next = await availabilityPatch(recovery, false);
       setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt });
       setAvailabilityNow(new Date().toISOString());
       const remaining = new Set(dirtyRevisions.current.keys());
@@ -508,7 +524,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       toast(action === "open" ? "Form availability updated" : "Form closed");
       router.refresh();
     } catch (error) {
-      if (formAvailabilityOutcomeUnknown(error)) await reconcileAvailability(action);
+      if (formAvailabilityOutcomeUnknown(error)) await replayAvailability(recovery);
       else if (isAppError(error)) toast(error.message, { kind: "error" });
     } finally {
       setBusy(false);
@@ -528,7 +544,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     </div></header>
     <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
       <div className="builder-canvas">
-        {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Checking…" : "Check current status"}</Button></div>}
+        {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
         {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
         {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}

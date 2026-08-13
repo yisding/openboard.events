@@ -1,7 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events, formFields, forms, formSections, formVersions, sessionFormats, tags, tracks } from "@/db/schema";
-import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import {
   COMMITTED_FIELD_TYPES,
   fieldIdSchema,
@@ -17,7 +16,7 @@ import {
   type MapsToTarget,
   type TaskTarget,
 } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
+import { AppError, isAppError } from "@/shared/lib/errors";
 import { compileFormSnapshot } from "@/shared/lib/form-snapshot";
 import { sanitize } from "@/shared/lib/sanitize";
 import { stableUuid } from "@/shared/server/stable-uuid";
@@ -346,10 +345,36 @@ export async function updateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
     ...(cleaned.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: cleaned.confirmationBodyHtml } : {}),
   }).where(and(eq(forms.id, formId), eq(forms.eventId, eventId)));
   await storeVersionIn(dbOrTx, eventId, form, snapshot);
-  if (cleaned.status === "open" && form.status !== "open") {
-    await tryRecordEventOnboardingMilestoneIn(dbOrTx, eventId, "form_published");
-  }
   return getFormForBuilderIn(dbOrTx, eventId, formId);
+}
+
+/**
+ * A replay still attempts the original CAS write before inspecting current
+ * state. PostgreSQL therefore waits on an in-flight original transaction's
+ * row lock; a same-status response cannot race ahead of that transaction.
+ * Only the exact availability-only operation is replayable. Every other stale
+ * write retains the normal conflict instead of being mistaken for success.
+ */
+export async function updateFormWithAvailabilityReplayIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  formId: FormId,
+  patch: FormPatch,
+  expectedUpdatedAt: string,
+  availabilityReplay: boolean,
+): Promise<BuilderForm> {
+  const availabilityOnly = Object.keys(patch).length === 1 && patch.status !== undefined;
+  if (availabilityReplay && !availabilityOnly) {
+    throw new AppError("VALIDATION", "Availability replay requires a status-only update");
+  }
+  try {
+    return await updateFormIn(dbOrTx, eventId, formId, patch, expectedUpdatedAt);
+  } catch (error) {
+    if (!availabilityReplay || !isAppError(error) || error.code !== "STALE_WRITE") throw error;
+    const current = await getFormForBuilderIn(dbOrTx, eventId, formId);
+    if (current.status !== patch.status) throw error;
+    return current;
+  }
 }
 
 export async function saveFormStep(

@@ -162,7 +162,7 @@ afterEach(async () => {
 });
 
 describe("form availability outcome recovery", () => {
-  it("recovers a committed close after a lost response without replacing dirty authoring content", async () => {
+  it("recovers a committed close by replaying the original CAS request without replacing dirty authoring content", async () => {
     const latest = form({
       status: "closed",
       externalTitle: "Server title must not replace the draft",
@@ -184,13 +184,21 @@ describe("form availability outcome recovery", () => {
     expect(container.textContent).not.toContain("Server title must not replace the draft");
     expect(container.querySelector("dialog")).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
-    expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the latest saved status");
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === "PATCH")).toBe(true);
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    const replayBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
+    expect(firstBody).toEqual({
+      expectedUpdatedAt: "2026-08-13T12:00:00.000Z",
+      patch: { status: "closed" },
+    });
+    expect(replayBody).toEqual({ ...firstBody, availabilityReplay: true });
+    expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the completed request");
   });
 
-  it("keeps an offline close unconfirmed, preserves the dirty draft, and blocks another PATCH", async () => {
+  it("keeps repeated offline ambiguity locked and replays the same original operation from the recovery control", async () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError("connection dropped"))
+      .mockRejectedValueOnce(new TypeError("still offline"))
       .mockRejectedValueOnce(new TypeError("still offline"));
     await mount();
 
@@ -202,14 +210,25 @@ describe("form availability outcome recovery", () => {
     expect(title?.value).toBe("Unsaved while offline");
     expect(container.textContent).toContain("Form status is unconfirmed");
     expect(container.textContent).toContain(recoveryMessage);
-    expect(buttonNamed("Check current status")).toBeDefined();
+    expect(buttonNamed("Confirm current status")).toBeDefined();
     expect(container.querySelector("dialog")).toBeNull();
     const close = buttonNamed("Close");
     expect(close?.disabled).toBe(true);
     await act(async () => close?.click());
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    await act(async () => buttonNamed("Confirm current status")?.click());
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(bodies).toEqual([
+      { expectedUpdatedAt: "2026-08-13T12:00:00.000Z", patch: { status: "closed" } },
+      { expectedUpdatedAt: "2026-08-13T12:00:00.000Z", patch: { status: "closed" }, availabilityReplay: true },
+      { expectedUpdatedAt: "2026-08-13T12:00:00.000Z", patch: { status: "closed" }, availabilityReplay: true },
+    ]);
+    expect(title?.value).toBe("Unsaved while offline");
+    expect(container.textContent).toContain("Form status is unconfirmed");
+    expect(buttonNamed("Close")?.disabled).toBe(true);
     expect(toastMock).toHaveBeenCalledWith(recoveryMessage, { kind: "error" });
   });
 
@@ -242,6 +261,7 @@ describe("form availability outcome recovery", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.querySelector(".status-closed")).not.toBeNull();
-    expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the latest saved status");
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === "PATCH")).toBe(true);
+    expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the completed request");
   });
 });
