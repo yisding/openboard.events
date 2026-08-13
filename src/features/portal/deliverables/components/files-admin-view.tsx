@@ -619,7 +619,12 @@ function DeliverableDrawer({
       const payload = await response?.json().catch(() => null) as { data?: FileCommentDTO } | null;
       const created = payload?.data;
       if (!response?.ok || !created) {
-        toast("That comment did not go through — try again", { kind: "error" });
+        if (!response || response.status >= 500 || response.ok) {
+          setLoadAttempt((attempt) => attempt + 1);
+          toast("We couldn't confirm whether that comment was sent — retry it unchanged to recover the result", { kind: "error" });
+        } else {
+          toast("That comment could not be sent — review it and try again", { kind: "error" });
+        }
         return;
       }
       const commentCount = currentDetail.comments.length + 1;

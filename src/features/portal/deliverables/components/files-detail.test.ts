@@ -124,6 +124,8 @@ describe("Files deliverable detail recovery", () => {
     expect(source).toContain('aria-label="Reply to speaker"');
     expect(source).toContain("persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)");
     expect(source).toContain("recovery storage is unavailable");
+    expect(source).toContain("couldn't confirm whether that comment was sent — retry it unchanged");
+    expect(source).toContain("setLoadAttempt((attempt) => attempt + 1)");
     expect(source).toContain("comment.id === draft.id && comment.body === draft.attemptedBody");
     expect(source).toContain("commentDraftAfterEdit(draft, key, event.target.value)");
     expect(source).toContain('toast("Comment sent")');
