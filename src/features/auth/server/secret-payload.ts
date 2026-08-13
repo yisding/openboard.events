@@ -84,7 +84,16 @@ export async function openPortalLoginPayload(envelope: Uint8Array, context: Port
  * secret.
  */
 const ADMIN_LINK_INFO = "admin_auth_link-v1";
-const adminLinkPayloadSchema = z.object({ url: z.url(), expiresIn: z.string().min(1) });
+const adminLinkPayloadSchema = z.object({
+  url: z.url(),
+  expiresIn: z.string().min(1),
+  // Product-scoped organization invitations share the durable, encrypted
+  // link channel below. Auth messages omit these fields; invitation delivery
+  // requires all three before rendering.
+  organizationName: z.string().min(1).optional(),
+  inviterName: z.string().min(1).optional(),
+  invitationRole: z.enum(["organizer", "reviewer"]).optional(),
+});
 export type AdminLinkPayload = z.infer<typeof adminLinkPayloadSchema>;
 export type AdminLinkPayloadContext = { eventId: EventId; contactId: ContactId; linkId: string };
 
