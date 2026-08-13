@@ -8,6 +8,13 @@ import type { MemberRole } from "@/shared/contracts";
 import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { SearchResult, SearchResultType } from "@/features/shell/server/search";
 import { emojiRain } from "@/shared/ui/emoji-rain";
+import {
+  commandPaletteSearchFeedback,
+  idleCommandPaletteSearch,
+  loadingCommandPaletteSearch,
+  settleCommandPaletteSearch,
+  type CommandPaletteSearchState,
+} from "./command-palette-search";
 
 /**
  * M58 — the shell's "Search anything ⌘K" trigger, made real. Two kinds of
@@ -74,8 +81,11 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
+  const searchStatusId = useId();
+  const searchRequest = useRef(0);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searchState, setSearchState] = useState<CommandPaletteSearchState>(() => idleCommandPaletteSearch());
+  const [retryEpoch, setRetryEpoch] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -97,30 +107,47 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   // 150ms is short enough to still feel instant.
   useEffect(() => {
     const term = query.trim();
+    const requestId = searchRequest.current + 1;
+    searchRequest.current = requestId;
     if (term.length < 2) {
-      setResults([]);
+      setSearchState(idleCommandPaletteSearch(term));
       return;
     }
     // Results from the previous term must never remain keyboard-selectable
     // while the next debounced request is in flight.
-    setResults([]);
+    setSearchState(loadingCommandPaletteSearch(term));
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      fetch(`/api/internal/events/${eventId}/search?q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then((response) => response.ok ? response.json() : Promise.reject(new Error("search failed")))
-        .then((payload: { data?: SearchResult[] }) => setResults(payload.data ?? []))
-        .catch(() => setResults([]));
+      void settleCommandPaletteSearch({
+        eventId,
+        term,
+        signal: controller.signal,
+        isCurrent: () => searchRequest.current === requestId,
+        onSettled: setSearchState,
+      });
     }, 150);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, eventId]);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      if (searchRequest.current === requestId) searchRequest.current += 1;
+    };
+  }, [query, eventId, retryEpoch]);
+
+  const term = query.trim();
+  // Effects run after render. Derive the pending state synchronously so the
+  // previous term's results disappear before they can be selected.
+  const currentSearchState = searchState.term === term
+    ? searchState
+    : term.length >= 2 ? loadingCommandPaletteSearch(term) : idleCommandPaletteSearch(term);
 
   const items = useMemo(() => {
-    const list = toItems(filteredVerbs, results);
+    const list = toItems(filteredVerbs, currentSearchState.results);
     if (isPandaQuery(query)) list.push(PANDA_EGG);
     return list;
-  }, [filteredVerbs, results, query]);
+  }, [filteredVerbs, currentSearchState.results, query]);
   const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [items.length]);
+  const feedback = commandPaletteSearchFeedback(currentSearchState, items.length);
 
   function go(item: PaletteItem) {
     if (item.key === PANDA_EGG.key) {
@@ -152,8 +179,6 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
     }
   }
 
-  const showingResults = query.trim().length >= 2;
-
   return (
     <dialog
       ref={dialogRef}
@@ -174,15 +199,22 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
             role="combobox"
             aria-expanded="true"
             aria-controls={listboxId}
+            aria-describedby={searchStatusId}
             aria-activedescendant={activeOptionId}
             aria-autocomplete="list"
           />
           <kbd>Esc</kbd>
         </div>
-        <div className="command-palette-results" role="listbox" id={listboxId}>
-          {items.length === 0 && (
-            <p className="command-palette-empty">{showingResults ? "Nothing matches" : "No matching commands"}</p>
-          )}
+        <div
+          id={searchStatusId}
+          className={`command-palette-feedback${feedback.visible ? "" : " sr-only"}${currentSearchState.status === "error" ? " command-palette-feedback-error" : ""}`}
+          role={currentSearchState.status === "error" ? "alert" : "status"}
+          aria-live={currentSearchState.status === "error" ? "assertive" : "polite"}
+        >
+          <span>{feedback.message}</span>
+          {feedback.retry && <button type="button" onClick={() => setRetryEpoch((epoch) => epoch + 1)}>Retry search</button>}
+        </div>
+        <div className="command-palette-results" role="listbox" id={listboxId} aria-busy={currentSearchState.status === "loading"}>
           {items.map((item, index) => {
             const Icon = item.icon;
             return (
