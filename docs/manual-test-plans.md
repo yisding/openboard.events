@@ -456,6 +456,7 @@ the number the organizer decides on is the number the criteria define.
 | 20 | Have a second reviewer score the same submission differently | The aggregate reflects both, per the round's documented rule, and the reviewer count is visible |
 | 21 | Sort Abstracts by Rating | The order matches the ratings; unscored rows sort predictably rather than as zero |
 | 22 | Edit the form after a submission was scored, then re-open the queue item | The reviewer still sees the **pinned snapshot**, not the edited form |
+| 22a | With **Share committee averages** off, score the same proposal as two reviewers; then enable it and reload | Before opt-in, neither reviewer payload nor UI reveals the live mean or reviewer count. After opt-in, both show the committee average clearly |
 
 ### §5 Reminders
 

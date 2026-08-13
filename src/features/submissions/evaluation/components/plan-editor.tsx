@@ -43,6 +43,7 @@ type PlanDraft = {
   opensAt: string | null;
   closesAt: string | null;
   anonymizeAuthors: boolean;
+  showPeerScores: boolean;
   criteria: CriterionDraft[];
   reviewers: Array<{ userId: string; trackIds: string[] }>;
 };
@@ -57,6 +58,7 @@ const emptyDraft = (nextRound: number): PlanDraft => ({
   opensAt: null,
   closesAt: null,
   anonymizeAuthors: false,
+  showPeerScores: false,
   criteria: [],
   reviewers: [],
 });
@@ -95,6 +97,7 @@ function draftFrom(plan: PlanDTO): PlanDraft {
     opensAt: plan.opensAt,
     closesAt: plan.closesAt,
     anonymizeAuthors: plan.anonymizeAuthors,
+    showPeerScores: plan.showPeerScores,
     criteria: plan.criteria.map((criterion) => ({
       id: criterion.id as string,
       label: criterion.label,
@@ -207,6 +210,7 @@ export function PlanEditor({
         opensAt: draft.opensAt,
         closesAt: draft.closesAt,
         anonymizeAuthors: draft.anonymizeAuthors,
+        showPeerScores: draft.showPeerScores,
         criteria: draft.criteria.map((criterion) => ({
           id: criterion.id,
           label: criterion.label,
@@ -310,6 +314,21 @@ export function PlanEditor({
             aria-label="Blind review"
             className={`switch ${draft.anonymizeAuthors ? "on" : ""}`}
             onClick={() => patch({ anonymizeAuthors: !draft.anonymizeAuthors })}
+          ><i /></button>
+        </div>
+
+        <div className="inline-setting">
+          <div>
+            <b>Share committee averages</b>
+            <small>Off keeps scores independent. Turn this on only when reviewers should calibrate against the live committee mean.</small>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={draft.showPeerScores}
+            aria-label="Share committee averages with reviewers"
+            className={`switch ${draft.showPeerScores ? "on" : ""}`}
+            onClick={() => patch({ showPeerScores: !draft.showPeerScores })}
           ><i /></button>
         </div>
 

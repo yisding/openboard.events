@@ -351,7 +351,7 @@ export function ReviewQueueView({
       <PageHeader
         eyebrow="REVIEW"
         title={plan.name}
-        description={`Scoring ${plan.scaleMin}–${plan.scaleMax}${plan.criteria.length > 0 ? ` across ${plan.criteria.length} criteria` : ""}.${plan.anonymizeAuthors ? " Authors are hidden in this round." : ""}`}
+        description={`Scoring ${plan.scaleMin}–${plan.scaleMax}${plan.criteria.length > 0 ? ` across ${plan.criteria.length} criteria` : ""}.${plan.anonymizeAuthors ? " Authors are hidden in this round." : ""}${plan.showPeerScores ? " Committee averages are shared." : " Scores stay independent while reviewers work."}`}
         {...roundSwitcher}
       />
 
@@ -408,7 +408,8 @@ export function ReviewQueueView({
                   <h1>{active.title}</h1>
                   <p>
                     {plan.anonymizeAuthors ? "Blind review" : active.trackName ?? "Uncategorized"}
-                    {active.nScores > 0 && ` · round average ${active.avgRating?.toFixed(1)} from ${active.nScores}`}
+                    {plan.showPeerScores && active.avgRating !== null && active.nScores !== null && active.nScores > 0
+                      && ` · round average ${active.avgRating.toFixed(1)} from ${active.nScores}`}
                   </p>
                 </div>
               </header>

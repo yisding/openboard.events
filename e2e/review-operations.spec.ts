@@ -28,6 +28,7 @@ type PlanDTO = {
   status: string;
   trackIds: string[] | null;
   anonymizeAuthors: boolean;
+  showPeerScores: boolean;
   opensAt: string | null;
   closesAt: string | null;
   criteria: Array<{
@@ -73,6 +74,7 @@ function planUpdate(plan: PlanDTO, window: { opensAt: string | null; closesAt: s
     status: plan.status,
     trackIds: plan.trackIds,
     anonymizeAuthors: plan.anonymizeAuthors,
+    showPeerScores: plan.showPeerScores,
     criteria: plan.criteria.map((criterion) => ({
       id: criterion.id,
       label: criterion.label,

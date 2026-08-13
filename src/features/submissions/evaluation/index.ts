@@ -18,6 +18,7 @@ export type {
   PlanDTO,
   PlanInput,
   PlanUpdate,
+  PlanWrite,
   RecusalInput,
   ReviewInput,
   ReviewQueueDTO,

@@ -52,6 +52,7 @@ const planFields = z.object({
   opensAt: z.iso.datetime().nullable().default(null),
   closesAt: z.iso.datetime().nullable().default(null),
   anonymizeAuthors: z.boolean().default(false),
+  showPeerScores: z.boolean().default(false),
   criteria: z.array(criterionInputSchema).max(12).default([]),
 });
 
@@ -93,8 +94,15 @@ export type CriterionInput = z.infer<typeof criterionInputSchema>;
  * timestamp: sending it turns a concurrent edit into a conflict the organizer
  * can see instead of an overwrite they cannot.
  */
-export const planUpdateSchema = refinePlan(planFields.extend({ expectedUpdatedAt: z.iso.datetime().optional() }));
+export const planUpdateSchema = refinePlan(planFields.extend({
+  // A tab loaded before `showPeerScores` existed does not send it. Keeping the
+  // field absent lets the write preserve the stored setting instead of
+  // interpreting an old client as an explicit request to disable sharing.
+  showPeerScores: z.boolean().optional(),
+  expectedUpdatedAt: z.iso.datetime().optional(),
+}));
 export type PlanUpdate = z.infer<typeof planUpdateSchema>;
+export type PlanWrite = Omit<PlanInput, "showPeerScores"> & { showPeerScores?: boolean | undefined };
 
 export const reviewerAssignmentSchema = z.object({
   userId: userIdSchema,
@@ -184,6 +192,8 @@ export type PlanDTO = {
   opensAt: string | null;
   closesAt: string | null;
   anonymizeAuthors: boolean;
+  /** Whether reviewers may see the live committee mean while scoring. */
+  showPeerScores: boolean;
   criteria: CriterionDTO[];
   reviewers: ReviewerProgress[];
   /** Plan-level progress: submissions with a finished review, over the round's own scope. */
@@ -204,7 +214,8 @@ export type ReviewQueueRow = {
   myComment: string | null;
   scoredAt: string | null;
   avgRating: number | null;
-  nScores: number;
+  /** Null means the round keeps committee aggregates organizer-only. */
+  nScores: number | null;
   assignmentStatus: ReviewAssignmentStatus;
   recusalReason: string | null;
 };

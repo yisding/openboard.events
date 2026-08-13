@@ -171,6 +171,7 @@ export function PlansView({
             {row.original.closesAt ? <TzTime instant={row.original.closesAt} tz={timezone} /> : "No close date"}
           </span>
           {row.original.anonymizeAuthors && <small>Blind review</small>}
+          <small>{row.original.showPeerScores ? "Committee averages shared" : "Independent scoring"}</small>
         </div>
       ),
     },
