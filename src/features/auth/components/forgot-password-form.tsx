@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { ArrowRight, Mail } from "lucide-react";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
+import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
 
 export function PasswordResetConfirmation({
@@ -99,7 +100,7 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
     <p>We will email you a link to choose a new one.</p>
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary button-lg" disabled={pending} type="submit">{pending ? "Sending…" : "Email me a link"} <ArrowRight size={16} /></button>
+    <Button size="lg" disabled={pending} type="submit">{pending ? "Sending…" : "Email me a link"} <ArrowRight size={16} /></Button>
     <p><Link href={loginHref}>Back to sign in</Link></p>
   </form>;
 }

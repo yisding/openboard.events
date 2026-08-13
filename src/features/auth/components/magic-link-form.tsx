@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { Button } from "@/shared/ui/ui-kit";
 import { safeInternalPath } from "../safe-next";
 import { portalAuthRequest } from "./portal-auth-request";
 
@@ -32,6 +33,6 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
   return <form onSubmit={submit}>
     <p>For your security, opening this page did not sign you in. Confirm below to use the link.</p>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-primary" disabled={pending} type="submit">{pending ? "Signing in…" : impersonate ? "Open speaker portal" : "Confirm sign in"}</button>
+    <Button disabled={pending} type="submit">{pending ? "Signing in…" : impersonate ? "Open speaker portal" : "Confirm sign in"}</Button>
   </form>;
 }

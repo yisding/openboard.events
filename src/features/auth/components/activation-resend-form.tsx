@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Mail } from "lucide-react";
+import { Button } from "@/shared/ui/ui-kit";
 
 export function ActivationResendForm({
   initialEmail = "",
@@ -59,6 +60,6 @@ export function ActivationResendForm({
     {emailLocked && <small id="activation-resend-email-help">A new link can only be sent to the address used to create this account.</small>}
     {sent && <p className="auth-inline-success" role="status">If that address still needs confirmation, a fresh link is on its way.</p>}
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="button button-secondary" disabled={pending} type="submit">{pending ? "Sending…" : sent ? "Send another link" : "Send a new link"} <ArrowRight size={16} /></button>
+    <Button variant="secondary" disabled={pending} type="submit">{pending ? "Sending…" : sent ? "Send another link" : "Send a new link"} <ArrowRight size={16} /></Button>
   </form>;
 }
