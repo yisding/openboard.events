@@ -20,9 +20,14 @@ describe("PaletteDialog", () => {
     }));
 
     const activeId = html.match(/aria-activedescendant="([^"]+)"/)?.[1];
+    const statusId = html.match(/aria-describedby="([^"]+)"/)?.[1];
     expect(activeId).toBeTruthy();
+    expect(statusId).toBeTruthy();
     expect(html).toContain(`id="${activeId}"`);
+    expect(html).toContain(`id="${statusId}"`);
     expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-busy="false"');
   });
 
   it("routes imperative palette navigation through the unsaved-work guard", () => {
@@ -36,5 +41,16 @@ describe("PaletteDialog", () => {
     expect(go).toContain("runGuarded(() => allowNextNavigation(() => {");
     expect(go).toContain("{ destination: item.href }");
     expect(guardedNavigation.indexOf("router.push(item.href)")).toBeLessThan(guardedNavigation.indexOf("onClose()"));
+  });
+
+  it("connects live search feedback to the combobox and offers retry only after failure", () => {
+    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("aria-describedby={searchStatusId}");
+    expect(source).toContain('role={currentSearchState.status === "error" ? "alert" : "status"}');
+    expect(source).toContain('aria-live={currentSearchState.status === "error" ? "assertive" : "polite"}');
+    expect(source).toContain('aria-busy={currentSearchState.status === "loading"}');
+    expect(source).toContain("feedback.retry && <button");
+    expect(source).toContain("Retry search");
   });
 });
