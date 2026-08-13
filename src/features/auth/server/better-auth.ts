@@ -24,7 +24,12 @@ import { organizationIdSchema, userIdSchema, type UserId } from "@/shared/contra
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
-import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
+import { safeInternalPath } from "../safe-next";
+import {
+  invitationTokenFromNextPath,
+  SIGNUP_ORGANIZATION_HEADER,
+  SIGNUP_VERIFICATION_CALLBACK,
+} from "../signup-context";
 import type { SignupLegalConsent } from "../legal-consent";
 import { passwordResetLandingUrl } from "../password-reset-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
@@ -68,14 +73,27 @@ function baseUrl(env: RuntimeEnv): string {
   return env.BETTER_AUTH_URL ?? env.APP_BASE_URL;
 }
 
-async function existingSignupVerificationCallback(
+function invitationTokenFromVerificationBody(body: unknown): string | null {
+  const signupToken = signupProvisioningFromEmailBody(body).invitationToken;
+  if (signupToken) return signupToken;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const rawCallback = (body as Record<string, unknown>).callbackURL;
+  if (typeof rawCallback !== "string") return null;
+  const callback = safeInternalPath(rawCallback, "");
+  if (!callback) return null;
+  const parsed = new URL(callback, "https://openboard.invalid");
+  if (parsed.pathname !== "/signup/verified") return null;
+  return invitationTokenFromNextPath(safeInternalPath(parsed.searchParams.get("next"), ""));
+}
+
+async function invitationVerificationCallback(
   database: typeof db,
   email: string,
   request?: Request,
-): Promise<string> {
+): Promise<string | null> {
   const body = request ? await request.clone().json().catch(() => null) : null;
-  const { invitationToken } = signupProvisioningFromEmailBody(body);
-  if (!invitationToken) return SIGNUP_VERIFICATION_CALLBACK;
+  const invitationToken = invitationTokenFromVerificationBody(body);
+  if (!invitationToken) return null;
 
   try {
     // Existing accounts skip Better Auth's user-create hooks, so validate the
@@ -94,6 +112,15 @@ async function existingSignupVerificationCallback(
 
   const next = `/join?token=${encodeURIComponent(invitationToken)}`;
   return `/signup/verified?confirmed=1&next=${encodeURIComponent(next)}`;
+}
+
+async function existingSignupVerificationCallback(
+  database: typeof db,
+  email: string,
+  request?: Request,
+): Promise<string> {
+  return await invitationVerificationCallback(database, email, request)
+    ?? SIGNUP_VERIFICATION_CALLBACK;
 }
 
 type AuthDeps = {
@@ -241,6 +268,20 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
       },
       sendVerificationEmail: async ({ user, url }, request) => {
         const provisioningSignup = request && new URL(request.url).pathname.endsWith("/sign-up/email");
+        const activationResend = request && new URL(request.url).pathname.endsWith("/send-verification-email");
+        let messageUrl = url;
+        if (activationResend) {
+          // The check-inbox page carries an existing invitee's `/join` target
+          // into explicit recovery. Re-authorize that bearer token against the
+          // account email before allowing it into the replacement message;
+          // stale or wrong-address tokens fall back to ordinary activation.
+          const callbackURL = await invitationVerificationCallback(database, user.email, request);
+          if (callbackURL) {
+            const parsed = new URL(url);
+            parsed.searchParams.set("callbackURL", callbackURL);
+            messageUrl = parsed.toString();
+          }
+        }
         await sendAdminAuthEmailIn(database, {
           templateKey: "admin_email_verification",
           userId: user.id as UserId,
@@ -248,7 +289,7 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           name: user.name,
           // Use Better Auth's URL intact so the callbackURL selected by the
           // signup/resend UI survives the email round-trip.
-          url,
+          url: messageUrl,
           expiresIn: "1 hour",
           // The user-create `after` hook below releases this row immediately
           // after it swaps in the concrete organization destination.

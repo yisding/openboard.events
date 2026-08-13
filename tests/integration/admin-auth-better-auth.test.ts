@@ -499,9 +499,37 @@ describe("M42 admin auth on Better Auth", () => {
       expect(callbackUrl.searchParams.get("next")).toBe(`/join?token=${issued.raw}`);
       expect(emailConfirmationLandingUrl(link).searchParams.get("next")).toBe(`/join?token=${issued.raw}`);
 
-      const verified = await auth.handler(new Request(link));
+      const forgedNext = "/join?token=not-a-live-invitation";
+      const forgedResend = await auth.handler(new Request("http://localhost:3000/api/auth/send-verification-email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+        body: JSON.stringify({
+          email,
+          callbackURL: `/signup/verified?confirmed=1&next=${encodeURIComponent(forgedNext)}`,
+        }),
+      }));
+      expect(forgedResend.ok).toBe(true);
+      const forgedLink = await getAdminAuthFallbackLinkIn(database, email, env);
+      if (!forgedLink) throw new Error("expected a generic replacement link");
+      expect(new URL(forgedLink).searchParams.get("callbackURL")).toBe(SIGNUP_VERIFICATION_CALLBACK);
+
+      // The check-inbox recovery action must preserve the same validated
+      // invitation instead of replacing it with the generic workspace route.
+      const resent = await auth.handler(new Request("http://localhost:3000/api/auth/send-verification-email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+        body: JSON.stringify({ email, callbackURL: callback }),
+      }));
+      expect(resent.ok).toBe(true);
+      const resentLink = await getAdminAuthFallbackLinkIn(database, email, env);
+      if (!resentLink) throw new Error("expected an invitation-aware replacement link");
+      const resentCallback = new URL(resentLink).searchParams.get("callbackURL");
+      expect(resentCallback).toBe(callback);
+      expect(emailConfirmationLandingUrl(resentLink).searchParams.get("next")).toBe(`/join?token=${issued.raw}`);
+
+      const verified = await auth.handler(new Request(resentLink));
       expect(verified.status).toBe(302);
-      expect(verified.headers.get("location")).toBe(callback);
+      expect(verified.headers.get("location")).toBe(resentCallback);
       expect(hasAdminSessionCookie(verified.headers.getSetCookie().map((cookie) => cookie.split("=")[0] ?? ""))).toBe(true);
       const accepted = await acceptOrganizationInvitationByTokenIn(database, issued.raw, {
         userId: userIdSchema.parse(existingUser.id),
