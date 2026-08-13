@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
 import { z } from "zod";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -90,6 +90,16 @@ export type OnboardingResumeState = {
 };
 
 type OnboardingTrackCreate = { id: string; name: string; color: string };
+
+export async function saveOnboardingEvent(input: {
+  existing: EventDTO | null;
+  create: () => Promise<EventDTO>;
+  update: (eventId: EventDTO["id"], expectedRowVersion: number) => Promise<EventDTO>;
+}): Promise<EventDTO> {
+  return input.existing
+    ? input.update(input.existing.id, input.existing.rowVersion)
+    : input.create();
+}
 
 export async function createAndReconcileOnboardingTrack(input: {
   request: OnboardingTrackCreate;
@@ -238,12 +248,12 @@ export function OnboardingWizard({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(() => initialState?.step === "complete" ? 4 : initialState?.step === "form" ? 3 : initialState ? 2 : 1);
 
   // Step 1 — event basics
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [eventType, setEventType] = useState<EventType>("conference");
-  const [timezone, setTimezone] = useState(DEFAULT_TZ);
-  const [startsAt, setStartsAt] = useState<string | null>(null);
-  const [endsAt, setEndsAt] = useState<string | null>(null);
+  const [name, setName] = useState(initialState?.event.name ?? "");
+  const [slug, setSlug] = useState(initialState?.event.slug ?? "");
+  const [eventType, setEventType] = useState<EventType>((initialState?.event.eventType as EventType | undefined) ?? "conference");
+  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
+  const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
+  const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -256,8 +266,9 @@ export function OnboardingWizard({
   const previousStepRef = useRef(step);
 
   useEffect(() => {
+    if (initialState?.event) return;
     setTimezone(preferredTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone, timeZones));
-  }, [timeZones]);
+  }, [initialState?.event, timeZones]);
 
   useEffect(() => {
     if (previousStepRef.current === step) return;
@@ -310,8 +321,18 @@ export function OnboardingWizard({
     });
   }
 
-  async function createEventStep() {
+  function syncEventFields(saved: EventDTO) {
+    setName(saved.name);
+    setSlug(saved.slug);
+    setEventType(saved.eventType as EventType);
+    setTimezone(saved.timezone);
+    setStartsAt(saved.startsAt);
+    setEndsAt(saved.endsAt);
+  }
+
+  async function saveEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
+    if (event && !slug.trim()) return fail("Event slug is required", { slug: "Event slug is required" });
     if (!startsAt || !endsAt) {
       return fail("Both start and end dates are required", {
         ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
@@ -321,12 +342,28 @@ export function OnboardingWizard({
     setSaving(true);
     fail("");
     try {
-      const created = await api(`organizations/${organizationId}/onboarding/event`, eventDtoSchema, {
-        method: "POST",
-        body: { id: eventCreateId, name: name.trim(), slug: slug.trim() || undefined, eventType, timezone, startsAt, endsAt },
+      const fields = {
+        name: name.trim(),
+        slug: slug.trim() || undefined,
+        eventType,
+        timezone,
+        startsAt,
+        endsAt,
+      };
+      const saved = await saveOnboardingEvent({
+        existing: event,
+        create: () => api(`organizations/${organizationId}/onboarding/event`, eventDtoSchema, {
+          method: "POST",
+          body: { id: eventCreateId, ...fields },
+        }),
+        update: (eventId, expectedRowVersion) => api(`events/${eventId}`, eventDtoSchema, {
+          method: "PATCH",
+          body: { expectedRowVersion, patch: fields },
+        }),
       });
-      setEvent(created);
-      toast(`${created.name} created`);
+      setEvent(saved);
+      syncEventFields(saved);
+      toast(event ? `${saved.name} updated` : `${saved.name} created`);
       setStep(2);
     } catch (caught) {
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;
@@ -521,9 +558,13 @@ export function OnboardingWizard({
       <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
 
       {step === 1 && (
-        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>
+        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void saveEventStep(); }}>
           <p className="onboarding-lede">
-            {hasExistingEvents ? `Set up another event for ${organizationName}.` : `Welcome to ${organizationName} — let's set up your first event.`}
+            {event
+              ? "Correct the event details below, then continue setup where you left off."
+              : hasExistingEvents
+                ? `Set up another event for ${organizationName}.`
+                : `Welcome to ${organizationName} — let's set up your first event.`}
           </p>
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
             <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
@@ -556,7 +597,7 @@ export function OnboardingWizard({
           </div>
           {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           <footer className="cfp-actions">
-            <Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create event"} <ArrowRight size={16} /></Button>
+            <Button type="submit" disabled={saving}>{saving ? "Saving…" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>
         </form>
       )}
@@ -615,6 +656,7 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
+            <Button variant="ghost" onClick={() => setStep(1)} disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}><ArrowLeft size={16} /> Edit event details</Button>
             <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
             <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
@@ -645,6 +687,7 @@ export function OnboardingWizard({
             Publish immediately so the link is shareable right away
           </label>
           <footer className="cfp-actions">
+            <Button variant="ghost" onClick={() => setStep(2)} disabled={creatingForm}><ArrowLeft size={16} /> Back to tracks</Button>
             <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm?.status === "open" ? "Finish setup" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
           </footer>
         </div>

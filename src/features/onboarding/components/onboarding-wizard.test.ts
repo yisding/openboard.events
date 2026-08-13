@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
+import { createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, saveOnboardingEvent } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -143,6 +143,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('aria-label="Event details, completed"');
     expect(html).toContain("AI");
     expect(html).toContain('aria-label="Remove AI"');
+    expect(html).toContain("Edit event details");
     expect(html).not.toContain('id="onboarding-event-name"');
   });
 
@@ -170,6 +171,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('class="sr-only">Step 3: First form</h2>');
     expect(html).toContain('value="Speaker applications"');
     expect(html).toContain("Finish setup");
+    expect(html).toContain("Back to tracks");
   });
 
   it("restores the completed handoff with direct actions for the exact form", () => {
@@ -272,6 +274,45 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(focus).toHaveBeenCalledOnce();
     cancel();
     expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(23);
+  });
+});
+
+describe("onboarding event correction", () => {
+  const event = eventDtoSchema.parse({
+    id: "10000000-0000-4000-8000-000000000001",
+    name: "Resumable Conf",
+    slug: "resumable-conf",
+    eventType: "conference",
+    websiteUrl: null,
+    location: null,
+    physicalAddress: null,
+    timezone: "America/Los_Angeles",
+    startsAt: "2026-09-15T16:00:00.000Z",
+    endsAt: "2026-09-17T01:00:00.000Z",
+    theme: null,
+    logoFileId: null,
+    backgroundFileId: null,
+    submissionCapPerUser: 3,
+    rowVersion: 4,
+  });
+
+  it("updates the existing event with its current row version instead of creating another", async () => {
+    const create = vi.fn();
+    const update = vi.fn().mockResolvedValue({ ...event, name: "Corrected Conf", rowVersion: 5 });
+
+    await expect(saveOnboardingEvent({ existing: event, create, update }))
+      .resolves.toMatchObject({ name: "Corrected Conf", rowVersion: 5 });
+    expect(create).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(event.id, 4);
+  });
+
+  it("uses the retry-safe create path before an event exists", async () => {
+    const create = vi.fn().mockResolvedValue(event);
+    const update = vi.fn();
+
+    await expect(saveOnboardingEvent({ existing: null, create, update })).resolves.toBe(event);
+    expect(create).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
   });
 });
 
