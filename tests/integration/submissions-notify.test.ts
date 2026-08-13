@@ -160,6 +160,7 @@ describe("decide and notify", () => {
       subject: "Accepted for Event",
     });
     expect(preview.samples[0]?.bodyHtml).toContain("Welcome Ada: Proposal 11");
+    expect(preview.samples[0]?.bodyText).toContain("Welcome Ada: Proposal 11");
 
     const statuses = await pglite.query<{ status: string }>("SELECT status FROM submissions ORDER BY code");
     expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "accept_queue", "decline_queue"]);
