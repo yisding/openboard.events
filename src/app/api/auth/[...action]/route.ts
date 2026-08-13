@@ -11,8 +11,9 @@ import {
   signAdminToken,
   throttleAdminLogin,
 } from "@/features/auth";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, toHttp } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
+import { assertSameOrigin } from "@/shared/server/csrf";
 import { checkRateLimit } from "@/shared/server/rate-limit";
 import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
 
@@ -194,6 +195,22 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   const path = action.join("/");
   const env = getEnv();
   const betterAuth = env.ADMIN_AUTH_PROVIDER === "better-auth";
+
+  try {
+    // Every POST here either mints or clears an admin session cookie. The
+    // fallback provider's `sign-in` branch below writes `ob_admin` straight
+    // from the request body, and `SameSite=Lax` stops a cross-site form post's
+    // cookie from being *sent*, not from being *stored* — so a forged login
+    // would silently swap the organizer into the attacker's workspace. Reject
+    // login CSRF once, before any branch reads a credential. Better Auth
+    // validates origin itself, so this is harmlessly redundant on that path.
+    assertSameOrigin(request);
+  } catch (error) {
+    if (isAppError(error)) {
+      return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: toHttp(error.code) });
+    }
+    throw error;
+  }
 
   if (path === "sign-out") {
     if (betterAuth) return betterAuthSignOut(request);

@@ -3,7 +3,7 @@ import { AwsClient } from "aws4fetch";
 import { eq, inArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { fileAssets } from "@/db/schema";
-import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type JobStats, type MemberRole } from "@/shared/contracts";
+import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type JobStats, type MemberRole, type UserId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -196,20 +196,29 @@ export function sniffMatchesMime(mime: string, bytes: Uint8Array): boolean {
   }
 }
 
+// The admin arm carries the member's role and id because the decision below
+// needs both: a reviewer is not an organizer with a smaller screen, and
+// resolving their scope takes the user the assignment is written against.
 export type FileRequester =
-  | { kind: "admin"; role?: MemberRole }
+  | { kind: "admin"; role: MemberRole; userId: UserId }
   | { kind: "contact"; contactId: ContactId };
 
 /**
  * Pure access decision. `linkedContactIds` is every contact the file is attached
  * to through a file request, a task upload, or a submission they participate in.
+ * `reviewerScopedFile` is the same question for a reviewer: organizers own every
+ * file in their event, but a reviewer reads only what a round routes to them, so
+ * for that role it is the whole decision and it is resolved by the caller.
  */
 export function decideFileAccess(input: {
   uploadedByContactId: string | null;
   linkedContactIds: readonly string[];
+  reviewerScopedFile?: boolean;
   requester: FileRequester;
 }): boolean {
-  if (input.requester.kind === "admin") return true;
+  if (input.requester.kind === "admin") {
+    return input.requester.role === "reviewer" ? input.reviewerScopedFile === true : true;
+  }
   const { contactId } = input.requester;
   return input.uploadedByContactId === contactId || input.linkedContactIds.includes(contactId);
 }
@@ -558,10 +567,51 @@ export async function getDownloadUrl(eventId: EventId, fileId: string, requester
   }
 
   const linkedContactIds = requester.kind === "contact" ? await linkedContacts(eventId, id) : [];
-  if (!decideFileAccess({ uploadedByContactId: asset.uploadedByContactId, linkedContactIds, requester })) {
+  const reviewerScopedFile = requester.kind === "admin" && requester.role === "reviewer"
+    ? await reviewerScopesFile(eventId, id, requester.userId)
+    : false;
+  if (!decideFileAccess({ uploadedByContactId: asset.uploadedByContactId, linkedContactIds, reviewerScopedFile, requester })) {
     throw new AppError("FORBIDDEN", "You do not have access to this file");
   }
   return presign(asset.r2Key, "GET", DOWNLOAD_URL_SECONDS);
+}
+
+/**
+ * A reviewer's file scope in one statement: the file answers a question on a
+ * submission routed to this reviewer by a round they may already read. It is
+ * deliberately no wider than the reviewer's own DTO —
+ * `assertReviewerCanReadSubmissionIn` for the assignment and the window,
+ * `blindAnswerPanel`'s kept file ids for an anonymized round — so a file id they
+ * hold from a revoked assignment, a closed-then-reopened question or another
+ * organizer surface does not outlive the screen that handed it to them.
+ */
+async function reviewerScopesFile(eventId: EventId, fileId: FileId, reviewerUserId: UserId): Promise<boolean> {
+  const rows = await db.execute<{ ok: number }>(sql`
+    SELECT 1 AS ok
+    FROM submission_answers sa
+      JOIN submissions s ON s.id = sa.submission_id AND s.event_id = sa.event_id
+      JOIN review_assignments ra ON ra.submission_id = sa.submission_id AND ra.event_id = sa.event_id
+        AND ra.reviewer_user_id = ${reviewerUserId} AND ra.status = 'assigned'
+      JOIN evaluation_plans p ON p.id = ra.plan_id AND p.event_id = ra.event_id
+    WHERE sa.event_id = ${eventId} AND sa.value->>'t' = 'file' AND sa.value->>'v' = ${fileId}
+      -- reviewWindow().canRead: reading starts when the round opens and never
+      -- stops again, so only a round still before its opens_at withholds it.
+      AND (p.opens_at IS NULL OR p.opens_at <= now())
+      -- An anonymized round shows only content-classified answers, so only those
+      -- file ids were ever the reviewer's to hold. A locked field, and a snapshot
+      -- compiled before the classification existed, both read as identity here
+      -- exactly as they do in blindAnswerPanel.
+      AND (NOT p.anonymize_authors OR EXISTS (
+        SELECT 1 FROM form_versions fv
+          CROSS JOIN LATERAL jsonb_array_elements(fv.snapshot->'sections') sec
+          CROSS JOIN LATERAL jsonb_array_elements(sec->'fields') f
+        WHERE fv.event_id = s.event_id AND fv.form_id = s.form_id AND fv.version = s.form_version
+          AND f->>'id' = sa.field_id::text AND f->>'reviewVisibility' = 'content'
+          AND COALESCE((f->>'locked')::boolean, false) = false
+      ))
+    LIMIT 1
+  `);
+  return (rows.rows ?? []).length > 0;
 }
 
 async function linkedContacts(eventId: EventId, fileId: FileId): Promise<string[]> {

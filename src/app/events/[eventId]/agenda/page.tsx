@@ -32,7 +32,10 @@ export default async function Page({
 }) {
   const { eventId: rawEventId } = await params;
   const eventId = eventIdSchema.parse(rawEventId);
-  await requireAdmin(eventId, "reviewer");
+  // Organizer, matching the layout's guard for this path — the reviewer bar
+  // that used to be here let a reviewer soft-navigate in from `/review`, which
+  // no longer re-runs the layout.
+  await requireAdmin(eventId, "organizer");
 
   const query = await searchParams;
   const view = parseView(query.view);
