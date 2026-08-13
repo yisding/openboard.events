@@ -7,13 +7,13 @@ import { z } from "zod";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 
-const acceptedSchema = z.object({ organizationId: z.string(), role: z.string() });
+const acceptedSchema = z.object({ organizationId: z.string(), role: z.string(), eventId: z.string().nullable() });
 
 type Status = "checking" | "signed-out" | "accepting" | "accepted" | "error";
 
 /**
- * M44 — the landing page for a team-invitation link (`invite.action_url` in
- * `organization_invited`'s mail). No page-level auth gate: unlike every
+ * M44/M61 — the landing page for a workspace or reviewer invitation link. No
+ * page-level auth gate: unlike every
  * `/events/…`/`/organizations/…` surface, arriving here signed out is the
  * expected first visit, not an error — the invitation itself is the
  * credential that is missing an identity to attach to, not the reverse.
@@ -24,6 +24,7 @@ export function JoinInvitationView() {
   const [status, setStatus] = useState<Status>("checking");
   const [message, setMessage] = useState("");
   const [organizationId, setOrganizationId] = useState("");
+  const [eventId, setEventId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -38,6 +39,7 @@ export function JoinInvitationView() {
         const result = await api("organizations/invitations/accept", acceptedSchema, { method: "POST", body: { token } });
         if (cancelled) return;
         setOrganizationId(result.organizationId);
+        setEventId(result.eventId);
         setStatus("accepted");
       } catch (caught) {
         if (cancelled) return;
@@ -72,8 +74,8 @@ export function JoinInvitationView() {
     return <div>
       <span className="metric-icon accent"><CheckCircle2 size={20} /></span>
       <h1>You&apos;re in</h1>
-      <p>The invitation was accepted. Continue straight to your new workspace.</p>
-      <a className="button button-primary button-lg" href={`/organizations/${encodeURIComponent(organizationId)}`}>Continue <LogIn size={16} /></a>
+      <p>{eventId ? "The invitation was accepted. Your review queue is ready." : "The invitation was accepted. Continue straight to your new workspace."}</p>
+      <a className="button button-primary button-lg" href={eventId ? `/events/${encodeURIComponent(eventId)}/review` : `/organizations/${encodeURIComponent(organizationId)}`}>{eventId ? "Open review queue" : "Continue"} <LogIn size={16} /></a>
     </div>;
   }
 

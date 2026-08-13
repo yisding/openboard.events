@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
 import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { AuthPasswordField } from "./auth-password-field";
 
 /**
  * M42 — the landing page for a Better Auth password-reset link.
@@ -70,8 +71,8 @@ export function ResetPasswordForm() {
     <span className="metric-icon accent"><LockKeyhole size={20} /></span>
     <h1>Choose a new password</h1>
     <p>Pick something you have not used here before.</p>
-    <label className="field"><span>New password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" /></label>
-    <label className="field"><span>Confirm new password</span><input name="confirm" autoComplete="new-password" required minLength={12} type="password" /></label>
+    <AuthPasswordField id="reset-password" name="password" label="New password" autoComplete="new-password" minLength={12} hint="Use at least 12 characters." />
+    <AuthPasswordField id="reset-password-confirm" name="confirm" label="Confirm new password" autoComplete="new-password" minLength={12} />
     {error && <p className="field-error" role="alert">{error}</p>}
     {error.includes("no longer valid") && <p><Link href={forgotPasswordHref}>Request a new reset link</Link></p>}
     <Button size="lg" disabled={pending || done} type="submit">

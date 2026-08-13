@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
+import { deleteAgendaSessionsWhere } from "./helpers/cleanup";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 import { EVENTS, SESSIONS, uniqueEmail } from "./helpers/seeded";
 
@@ -46,6 +47,13 @@ async function fillPlacement(dialog: Locator, room: string, startsLocal: string,
 
 test.describe("agenda-schedule", () => {
   test.skip(!targetConfigured(), NO_TARGET);
+
+  test.afterEach(async ({ request }) => {
+    if (!targetConfigured()) return;
+    await loginAsAdmin(request);
+    await deleteAgendaSessionsWhere(request, EVENTS.main.id, ({ title }) =>
+      /^E2E (overlap [AB]|publish me|auto-place|blacked out) [0-9]+$/.test(title));
+  });
 
   test.describe("conflict detection", () => {
     test("overlapping sessions in one room raise exactly one conflict", async ({ page }) => {

@@ -686,13 +686,21 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     );
   }
 
+  const activeStepIndex = flowSteps.findIndex((name) => name === step);
+
   return (
     <FormUploadProvider eventId={event.id}>
     <section ref={stepRegion} className={`cfp-step${step === "account" ? " cfp-step--compact" : ""}`}>
-      <ol className="public-form-progress" aria-label="Submission progress">
-        {flowSteps.map((name) => (
-          <li key={name} className={step === name ? "active" : ""} aria-current={step === name ? "step" : undefined}>{name}</li>
-        ))}
+      <ol className={`public-form-progress public-form-progress-${flowSteps.length}`} aria-label="Submission progress">
+        {flowSteps.map((name, index) => {
+          const complete = activeStepIndex > index;
+          return (
+            <li key={name} className={step === name ? "active" : complete ? "complete" : ""} aria-current={step === name ? "step" : undefined}>
+              <span aria-hidden="true">{complete ? "✓" : index + 1}</span>
+              <b>{name}</b>
+            </li>
+          );
+        })}
       </ol>
 
       {step === "account" && (
@@ -711,8 +719,8 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 <span>Six-digit code</span>
                 <input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(change) => setCode(change.target.value.replace(/\D/g, "").slice(0, 6))} />
               </label>
-              {/* Development diagnostics only — production does not return this. */}
-              {fallbackOtp && <p className="demo-code">Development code: <code>{fallbackOtp}</code></p>}
+              {/* Explicit demo fallback only — production does not return this. */}
+              {fallbackOtp && <p className="demo-code">Demo access code: <code>{fallbackOtp}</code></p>}
               <div className="cfp-code-actions">
                 <Button type="button" variant="ghost" onClick={() => { setCodeRequested(false); setCode(""); }}>Change email</Button>
                 <Button type="button" variant="secondary" disabled={busy} onClick={() => void requestCode()}>Resend code</Button>

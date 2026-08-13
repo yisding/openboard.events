@@ -45,6 +45,18 @@ describe("signup check-inbox recovery", () => {
     expect(html).not.toContain("Start again with the correct address");
   });
 
+  it("presents the non-production activation link as demo access", async () => {
+    getAdminAuthFallbackLinkMock.mockResolvedValue("http://localhost:3000/api/auth/verify-email?token=demo-token");
+    const html = renderToStaticMarkup(await CheckEmailPage({
+      searchParams: Promise.resolve({ email: "demo@example.com" }),
+    }));
+
+    expect(html).toContain("Demo access");
+    expect(html).toContain("Email delivery is limited in this environment.");
+    expect(html).toContain("Confirm email and continue");
+    expect(html).not.toContain("Development / fallback mode");
+  });
+
   it("rejects an external post-activation destination", async () => {
     const html = renderToStaticMarkup(await CheckEmailPage({
       searchParams: Promise.resolve({

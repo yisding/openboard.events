@@ -36,6 +36,35 @@ describe("PublicSpeakerGallery", () => {
     expect(html).not.toContain("R&amp;amp;D");
   });
 
+  it("omits missing public profile fields instead of rendering dash placeholders", () => {
+    const speaker = {
+      ...firstSpeaker,
+      jobTitle: null,
+      company: null,
+      bioHtml: null,
+      linkedinUrl: null,
+      twitterUrl: null,
+      websiteUrl: null,
+      sessions: [],
+    };
+    const speakers = { ...PUBLISHED_SPEAKERS_FIXTURE, speakers: [speaker] };
+    const card = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, {
+      eventSlug: "openboard-summit",
+      speakers,
+    }));
+    const detail = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, {
+      eventSlug: "openboard-summit",
+      speakers,
+      initialSpeakerId: speaker.contactId,
+    }));
+
+    expect(card).not.toContain("<small>");
+    expect(card).not.toContain('class="dash"');
+    expect(detail).not.toContain("No bio yet");
+    expect(detail).not.toContain("Their sessions");
+    expect(detail).not.toContain('class="dash"');
+  });
+
   it("hides company on the card when the embed field-visibility filter turns it off", () => {
     const html = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, {
       eventSlug: "openboard-summit",

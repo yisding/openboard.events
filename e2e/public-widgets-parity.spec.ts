@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { apiData, expectNoConsoleErrors, loginAsAdmin } from "./helpers/auth";
+import { getSpeakerPublicSnapshot, restoreSpeakerConfirmation, type SpeakerPublicSnapshot } from "./helpers/cleanup";
 import { BASE_URL, NO_TARGET, targetConfigured } from "./helpers/env";
 import { seedId } from "./helpers/ids";
 import { EVENTS, SESSIONS, VOCAB } from "./helpers/seeded";
@@ -91,6 +92,7 @@ async function waitForVisible(page: Page, url: string, text: string): Promise<vo
 test.describe("public-widgets-parity (M53)", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 390, height: 844 } });
+  const originalConfirmations = new Map<string, SpeakerPublicSnapshot["confirmationStatus"]>();
 
   // Every surface in this file is `revalidate = 60`, so each navigation is
   // wrapped in a retry window of up to 120 s (`waitForVisible`, and the embed
@@ -101,23 +103,35 @@ test.describe("public-widgets-parity (M53)", () => {
   // unchanged; only the budget they were written against is now declared.
   test.beforeEach(({}, testInfo) => { testInfo.setTimeout(180_000); });
 
-  // Worker-scoped: puts Ada into the "confirmed" state the leakage rule needs
-  // (every seeded contact starts `unconfirmed`, which the gallery/speakers
-  // list treat exactly like `declined` for identity purposes) and Grace into
-  // `declined`, so this file's cross-surface identity checks and its
-  // leakage checks both have a real state to assert on rather than an
-  // ambiguous absence. Idempotent, so re-running this file (or running
-  // alongside `public-embeds.spec.ts`, which arranges the same two states)
-  // never conflicts.
+  // Worker-scoped: temporarily puts Ada/Grace into the two states the leakage
+  // checks compare, then restores the seed's exact public state in `afterAll`.
   test.beforeAll(async ({ playwright }) => {
     if (!targetConfigured()) return;
     const request = await playwright.request.newContext({ baseURL: BASE_URL });
     try {
       await loginAsAdmin(request);
+      for (const contactId of [ADA_ID, GRACE_ID]) {
+        const snapshot = await getSpeakerPublicSnapshot(request, EVENTS.main.id, contactId);
+        originalConfirmations.set(contactId, snapshot.confirmationStatus);
+      }
       await apiData(request, `/api/internal/speakers/${EVENTS.main.id}/${ADA_ID}`, { method: "PATCH", data: { confirmationStatus: "confirmed" } });
       await apiData(request, `/api/internal/speakers/${EVENTS.main.id}/${GRACE_ID}`, { method: "PATCH", data: { confirmationStatus: "declined" } });
     } finally {
       await request.dispose();
+    }
+  });
+
+  test.afterAll(async ({ playwright }) => {
+    if (originalConfirmations.size === 0) return;
+    const request = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      await loginAsAdmin(request);
+      for (const [contactId, confirmationStatus] of originalConfirmations) {
+        await restoreSpeakerConfirmation(request, EVENTS.main.id, contactId, confirmationStatus);
+      }
+    } finally {
+      await request.dispose();
+      originalConfirmations.clear();
     }
   });
 

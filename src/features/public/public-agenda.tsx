@@ -4,7 +4,6 @@ import Link from "next/link";
 import { CalendarPlus, Clock3, MapPin, Radio, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { Dash } from "@/shared/ui/app/dash";
 import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO, PublishedSessionDTO } from "@/shared/contracts";
 import { computeLiveHighlight, EMPTY_LIVE_HIGHLIGHT, type LiveHighlight } from "./live-highlight";
@@ -44,7 +43,7 @@ function dayLabel(dayKey: string, timezone: string): { weekday: string; date: st
 function SessionDetail({ session, eventSlug }: { session: PublishedSessionDTO; eventSlug: string }) {
   return (
     <div className="session-detail">
-      {session.descriptionHtml ? <RichTextView html={session.descriptionHtml} /> : <p className="session-detail-empty"><Dash /> No description yet.</p>}
+      {session.descriptionHtml && <RichTextView html={session.descriptionHtml} />}
       {session.speakers.length > 0 && (
         <ul className="session-detail-speakers">
           {session.speakers.map((speaker) => (
@@ -62,6 +61,10 @@ function SessionDetail({ session, eventSlug }: { session: PublishedSessionDTO; e
       )}
     </div>
   );
+}
+
+function hasPublicSessionDetail(session: PublishedSessionDTO): boolean {
+  return Boolean(session.descriptionHtml) || session.speakers.length > 0;
 }
 
 /**
@@ -106,7 +109,9 @@ export function PublicAgenda({
 
   const initialSession = initialExpandedSessionId ? sessions.find((item) => item.id === initialExpandedSessionId) : undefined;
   const [day, setDay] = useState<string | undefined>(initialSession?.dayKey ?? days[0]);
-  const [expandedId, setExpandedId] = useState<string | null>(initialExpandedSessionId);
+  const [expandedId, setExpandedId] = useState<string | null>(
+    initialSession && hasPublicSessionDetail(initialSession) ? initialSession.id : null,
+  );
 
   // Same after-hydration deep-link contract as every other public surface
   // (keeps the route cacheable — see the sessions list's identical comment).
@@ -114,7 +119,11 @@ export function PublicAgenda({
     const params = new URLSearchParams(window.location.search);
     const sessionParam = params.get("session");
     const matched = sessionParam ? sessions.find((item) => item.id === sessionParam || item.slug === sessionParam) : undefined;
-    setExpandedId(matched ? matched.id : (initialExpandedSessionId ?? null));
+    const fallback = initialExpandedSessionId ? sessions.find((item) => item.id === initialExpandedSessionId) : undefined;
+    let nextExpandedId: string | null = null;
+    if (matched && hasPublicSessionDetail(matched)) nextExpandedId = matched.id;
+    if (!matched && fallback && hasPublicSessionDetail(fallback)) nextExpandedId = fallback.id;
+    setExpandedId(nextExpandedId);
     if (matched) setDay(matched.dayKey);
   }, [initialExpandedSessionId, sessions]);
 
@@ -190,12 +199,16 @@ export function PublicAgenda({
                   const primary = session.speakers[0];
                   const isLiveNow = live.nowSessionIds.has(session.id);
                   const isUpNext = live.nextSessionId === session.id;
+                  const hasDetails = hasPublicSessionDetail(session);
                   const detailId = `session-${session.id}-details`;
                   return (
                     <div key={session.id}>
                       <article
-                        className={isLiveNow ? "session-live-now" : isUpNext ? "session-up-next" : ""}
-                        onClick={() => toggleExpanded(session.id)}>
+                        className={[
+                          isLiveNow ? "session-live-now" : isUpNext ? "session-up-next" : "",
+                          hasDetails ? "session-has-details" : "",
+                        ].filter(Boolean).join(" ")}
+                        onClick={hasDetails ? () => toggleExpanded(session.id) : undefined}>
                         <i className="session-stripe" style={{ background: session.track?.color ?? "var(--accent)" }} />
                         <div className="public-session-main">
                           <span>
@@ -203,17 +216,19 @@ export function PublicAgenda({
                             {isLiveNow && <em className="live-now-badge"><Radio size={10} /> Happening now</em>}
                             {!isLiveNow && isUpNext && <em className="up-next-badge">Up next</em>}
                           </span>
-                          <h3><button type="button" aria-expanded={expandedId === session.id} aria-controls={detailId} onClick={(event) => { event.stopPropagation(); toggleExpanded(session.id); }}>{session.title}</button></h3>
-                          {primary ? (
+                          <h3>{hasDetails
+                            ? <button type="button" aria-expanded={expandedId === session.id} aria-controls={detailId} onClick={(event) => { event.stopPropagation(); toggleExpanded(session.id); }}>{session.title}</button>
+                            : session.title}</h3>
+                          {primary && (
                             <div className="public-session-speaker">
                               <SpeakerAvatar name={primary.name} headshotUrl={primary.headshotUrl} size="sm" />
                               <b>{primary.name}{session.speakers.length > 1 ? ` +${session.speakers.length - 1}` : ""}</b>
                             </div>
-                          ) : <div className="public-session-speaker"><small><Dash /></small></div>}
+                          )}
                         </div>
                         <div className="public-session-meta">
                           <span><Clock3 size={14} />{Math.max(1, Math.round((new Date(session.endsAt).getTime() - new Date(session.startsAt).getTime()) / 60000))} min</span>
-                          <span><MapPin size={14} />{session.room ? session.room.name : <Dash />}</span>
+                          {session.room && <span><MapPin size={14} />{session.room.name}</span>}
                           <a className="public-calendar-link" title="Add to calendar" aria-label={`Add ${session.title} to calendar`}
                             href={`/api/v1/events/${encodeURIComponent(eventSlug)}/schedule/ics?session=${encodeURIComponent(session.id)}`}
                             onClick={(e) => e.stopPropagation()}>
@@ -221,7 +236,7 @@ export function PublicAgenda({
                           </a>
                         </div>
                       </article>
-                      {expandedId === session.id && <div id={detailId}><SessionDetail session={session} eventSlug={eventSlug} /></div>}
+                      {hasDetails && expandedId === session.id && <div id={detailId}><SessionDetail session={session} eventSlug={eventSlug} /></div>}
                     </div>
                   );
                 })}

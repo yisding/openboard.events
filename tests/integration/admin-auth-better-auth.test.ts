@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { emailConfirmationLandingUrl } from "@/app/api/auth/[...action]/_lib";
 import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
+import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, selfServiceSignups, userLegalAcceptances, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
 import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
@@ -18,6 +18,7 @@ import {
   acceptOrganizationInvitationByTokenIn,
   createOrganizationIn,
   getOrganizationMemberRoleIn,
+  inviteEventReviewerIn,
   inviteOrganizationMemberIn,
   issueOrganizationInvitationTokenIn,
 } from "@/features/organizations";
@@ -53,12 +54,17 @@ const M42_MIGRATION = "0009_product_auth";
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
 const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
+const REVIEWER_INVITATION_MIGRATION = "0029_event_reviewer_invitations";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
 const legacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000011");
 const modernUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000012");
 const reviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000013");
+const resetLegacyUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000014");
+const newerUnverifiedUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000015");
+const provisionedReviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-000000000016");
+const newerSignupOrganization = "b0000000-0000-4000-8000-000000000017";
 
 const LEGACY_PASSWORD = "legacy organizer passphrase";
 const MODERN_PASSWORD = "modern organizer passphrase";
@@ -100,8 +106,8 @@ describe("M42 admin auth on Better Auth", () => {
     // `users.password_hash` written by the fallback's own hasher, and nothing
     // in `admin_accounts` beyond what 0009's backfill puts there.
     await pglite.query(
-      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'legacy@example.com','Legacy Organizer',$4),($2,'modern@example.com','Modern Organizer',NULL),($3,'reviewer@example.com','Reviewer',NULL)",
-      [legacyUser, modernUser, reviewerUser, await hashPassword(LEGACY_PASSWORD)],
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'legacy@example.com','Legacy Organizer',$5),($2,'modern@example.com','Modern Organizer',NULL),($3,'reviewer@example.com','Reviewer',NULL),($4,'reset-legacy@example.com','Reset Legacy Organizer',$5)",
+      [legacyUser, modernUser, reviewerUser, resetLegacyUser, await hashPassword(LEGACY_PASSWORD)],
     );
     await pglite.query(
       "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$4,'organizer'),($2,$4,'owner'),($3,$4,'reviewer'),($3,$5,'owner')",
@@ -112,11 +118,42 @@ describe("M42 admin auth on Better Auth", () => {
     await apply(M42_MIGRATION);
     for (const name of POST_M42_MIGRATIONS) await apply(name);
 
-    // These are accounts that predate this activation slice. The tests below
-    // exercise session/rehash behavior rather than activation, so treat their
-    // already-established addresses as verified; the new self-serve account
-    // created later remains false and proves the new gate end to end.
-    await pglite.query("UPDATE users SET email_verified=true WHERE id IN ($1,$2,$3)", [legacyUser, modernUser, reviewerUser]);
+    // A pre-self-service account may already have reset its password by the
+    // time 0029 deploys. Both credential copies then use the modern scheme.
+    const resetHash = await hashAdminPassword(RESET_PASSWORD);
+    await pglite.query("UPDATE users SET password_hash=$1 WHERE id=$2", [resetHash, resetLegacyUser]);
+    await pglite.query(
+      "UPDATE admin_accounts SET password=$1,updated_at=now() WHERE user_id=$2 AND provider_id='credential'",
+      [resetHash, resetLegacyUser],
+    );
+
+    // A self-service signup and an operator-provisioned reviewer can both be
+    // newer unverified credentials. The signup's atomic organization outcome
+    // is durable even when legal-policy variables are omitted; the operator
+    // account has no self-service evidence and must survive a fallback rollback.
+    const newerHash = await hashAdminPassword(MODERN_PASSWORD);
+    await pglite.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'newer-unverified@example.com','Newer Unverified',$3),($2,'provisioned-reviewer@example.com','Provisioned Reviewer',$3)",
+      [newerUnverifiedUser, provisionedReviewerUser, newerHash],
+    );
+    await pglite.query(
+      "INSERT INTO admin_accounts(user_id,account_id,provider_id,password) VALUES($1::uuid,$1::text,'credential',$3),($2::uuid,$2::text,'credential',$3)",
+      [newerUnverifiedUser, provisionedReviewerUser, newerHash],
+    );
+    await pglite.query(
+      "INSERT INTO organizations(id,name,slug) VALUES($1,'No-policy signup','no-policy-signup')",
+      [newerSignupOrganization],
+    );
+    await pglite.query(
+      "INSERT INTO organization_members(user_id,organization_id,role) VALUES($1,$2,'owner')",
+      [newerUnverifiedUser, newerSignupOrganization],
+    );
+    await apply(REVIEWER_INVITATION_MIGRATION);
+
+    // These accounts have no passwords and exist only as authorization
+    // fixtures, so activation is outside their test scope. The legacy password
+    // account is intentionally omitted: 0029 must identify and grandfather it.
+    await pglite.query("UPDATE users SET email_verified=true WHERE id IN ($1,$2)", [modernUser, reviewerUser]);
 
     database = drizzle(pglite, { schema }) as unknown as typeof RepositoryDb;
     auth = buildAdminAuth(env, { database });
@@ -155,11 +192,26 @@ describe("M42 admin auth on Better Auth", () => {
   it("backfills a credential account for every pre-existing password, and none for accounts without one", async () => {
     const accounts = await database.select({ userId: adminAccounts.userId, password: adminAccounts.password })
       .from(adminAccounts).where(eq(adminAccounts.providerId, "credential"));
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]?.userId).toBe(legacyUser);
+    expect(accounts.filter((account) => account.userId === legacyUser || account.userId === resetLegacyUser)).toHaveLength(2);
+    expect(accounts.some((account) => account.userId === modernUser || account.userId === reviewerUser)).toBe(false);
+    const legacyAccount = accounts.find((account) => account.userId === legacyUser);
     // Copied verbatim — the migration must not attempt to re-hash anything.
-    expect(needsRehash(accounts[0]?.password ?? "")).toBe(true);
-    await expect(verifyAdminPassword({ hash: accounts[0]?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
+    expect(needsRehash(legacyAccount?.password ?? "")).toBe(true);
+    await expect(verifyAdminPassword({ hash: legacyAccount?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
+  });
+
+  it("keeps the fallback provider usable for established legacy credentials", async () => {
+    const verification = await database.select({ id: users.id, emailVerified: users.emailVerified })
+      .from(users)
+      .where(inArray(users.id, [legacyUser, resetLegacyUser, newerUnverifiedUser, provisionedReviewerUser]));
+    expect(verification.find((user) => user.id === legacyUser)?.emailVerified).toBe(true);
+    expect(verification.find((user) => user.id === resetLegacyUser)?.emailVerified).toBe(true);
+    expect(verification.find((user) => user.id === newerUnverifiedUser)?.emailVerified).toBe(false);
+    expect(verification.find((user) => user.id === provisionedReviewerUser)?.emailVerified).toBe(true);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, newerUnverifiedUser))).toHaveLength(1);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, provisionedReviewerUser))).toHaveLength(0);
   });
 
   it("signs a legacy PBKDF2 credential in and rehashes it in place — no forced reset (AC 1)", async () => {
@@ -255,8 +307,8 @@ describe("M42 admin auth on Better Auth", () => {
   });
 
   it("lets provisioning mint a credential account that Better Auth accepts", async () => {
-    // The path `createEventReviewer` and `bootstrap-admin.ts` now take: write
-    // `users.password_hash`, mirror it into `admin_accounts`. Without the
+    // The path `bootstrap-admin.ts` takes: write `users.password_hash`, mirror
+    // it into `admin_accounts`. Without the
     // mirror this account would be an orphan the moment the switch flipped.
     const passwordHash = await hashAdminPassword(MODERN_PASSWORD);
     await database.update(users).set({ passwordHash }).where(eq(users.id, modernUser));
@@ -325,6 +377,8 @@ describe("M42 admin auth on Better Auth", () => {
     const [stranger] = await database.select().from(users).where(eq(users.email, "stranger@example.com")).limit(1);
     expect(stranger).toBeDefined();
     expect(stranger?.emailVerified).toBe(false);
+    expect(await database.select().from(selfServiceSignups)
+      .where(eq(selfServiceSignups.userId, stranger?.id ?? ""))).toHaveLength(1);
     expect(await database.select({
       termsVersion: userLegalAcceptances.termsVersion,
       privacyVersion: userLegalAcceptances.privacyVersion,
@@ -617,6 +671,69 @@ describe("M42 admin auth on Better Auth", () => {
       await pglite.query("DELETE FROM organizations WHERE id=$1", [organization.id]);
       await pglite.query("DELETE FROM users WHERE email IN ('invited-through-signup@example.com','wrong-invite-address@example.com')");
     }
+  });
+
+  it("lands a new event reviewer on the review queue after self-service activation", async () => {
+    const email = "reviewer-through-signup@example.com";
+    const queued = await database.transaction((tx) => inviteEventReviewerIn(
+      tx as unknown as TxDb,
+      eventA,
+      legacyUser,
+      { email },
+      env,
+    ));
+    expect(queued).toMatchObject({ email, eventName: "A", emailQueued: true });
+    const [invitation] = await database.select({ id: schema.organizationInvitations.id })
+      .from(schema.organizationInvitations)
+      .where(and(
+        eq(schema.organizationInvitations.eventId, eventA),
+        eq(schema.organizationInvitations.email, email),
+      ));
+    if (!invitation) throw new Error("expected a pending event reviewer invitation");
+    const [inviteMail] = await database.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.recipientEmail, email));
+    if (!inviteMail?.secretPayloadCiphertext) throw new Error("expected a sealed event reviewer invitation");
+    const invitePayload = await openPlatformAdminLinkPayload(
+      inviteMail.secretPayloadCiphertext,
+      { userId: legacyUser, messageId: inviteMail.id },
+      env.SESSION_SECRET,
+    );
+    const invitationToken = new URL(invitePayload.url).searchParams.get("token");
+    if (!invitationToken) throw new Error("expected the emailed event reviewer token");
+
+    const signup = await auth.handler(new Request("http://localhost:3000/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({
+        email,
+        password: "a reviewer-selected password",
+        name: "Self-service Reviewer",
+        invitationToken,
+        callbackURL: SIGNUP_VERIFICATION_CALLBACK,
+        ...LEGAL_REQUEST,
+      }),
+    }));
+    expect(signup.ok).toBe(true);
+    const [created] = await database.select({ id: users.id }).from(users).where(eq(users.email, email));
+    if (!created) throw new Error("expected the reviewer account");
+    const [access] = await database.select({ role: eventMembers.role }).from(eventMembers).where(and(
+      eq(eventMembers.eventId, eventA),
+      eq(eventMembers.userId, created.id),
+    ));
+    expect(access?.role).toBe("reviewer");
+    const reviewerContact = await pglite.query<{ email: string }>(
+      "SELECT email FROM contacts WHERE event_id=$1 AND email=$2",
+      [eventA, email],
+    );
+    expect(reviewerContact.rows).toEqual([{ email }]);
+
+    const verificationLink = await getAdminAuthFallbackLinkIn(database, email, env);
+    if (!verificationLink) throw new Error("expected a reviewer activation link");
+    const callback = new URL(verificationLink).searchParams.get("callbackURL");
+    if (!callback) throw new Error("expected a reviewer activation callback");
+    expect(new URL(callback, env.APP_BASE_URL).searchParams.get("next")).toBe(`/events/${eventA}/review`);
+
+    await pglite.query("DELETE FROM users WHERE id=$1", [created.id]);
+    await pglite.query("DELETE FROM organization_invitations WHERE id=$1", [invitation.id]);
   });
 
   it("issues a session cookie the /events middleware gate recognises", async () => {

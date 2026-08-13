@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { withTx, type TxDb } from "@/db/client";
-import { eventMembers, events, users } from "@/db/schema";
+import { eventMembers, events, selfServiceSignups, users } from "@/db/schema";
 import { hashPassword, upsertCredentialAccount } from "@/features/auth";
 import { eventIdSchema, type EventId, type MemberRole, type UserId } from "@/shared/contracts";
 
@@ -26,13 +26,29 @@ async function upsertAdmin(
 ) {
   const passwordHash = await hashPassword(input.password);
   const [user] = await tx.insert(users)
-    .values({ email: input.email, name: input.name, passwordHash })
+    // This operator-only recovery path is the authority that establishes the
+    // fixed seeded accounts. Mark them verified explicitly so the secure
+    // fallback provider can distinguish them from an unverified web signup.
+    .values({
+      email: input.email,
+      name: input.name,
+      passwordHash,
+      emailVerified: true,
+    })
     .onConflictDoUpdate({
       target: users.email,
-      set: { name: input.name, passwordHash, updatedAt: new Date() },
+      set: {
+        name: input.name,
+        passwordHash,
+        emailVerified: true,
+        updatedAt: new Date(),
+      },
     })
     .returning({ id: users.id });
   if (!user) throw new Error(`Could not create ${input.email}`);
+  // 0029's database trigger treats every unknown new identity as public by
+  // default. This operator-only recovery command is the explicit exception.
+  await tx.delete(selfServiceSignups).where(eq(selfServiceSignups.userId, user.id));
   // M42 — mirror the credential into `admin_accounts` so a bootstrapped
   // account can sign in under either auth provider (credential-account.ts).
   await upsertCredentialAccount(tx, user.id as UserId, passwordHash);

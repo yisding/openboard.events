@@ -27,6 +27,7 @@ import { log } from "@/shared/lib/log";
 import { safeInternalPath } from "../safe-next";
 import {
   invitationTokenFromNextPath,
+  SIGNUP_EVENT_HEADER,
   SIGNUP_ORGANIZATION_HEADER,
   SIGNUP_VERIFICATION_CALLBACK,
 } from "../signup-context";
@@ -305,8 +306,8 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
     },
     socialProviders: google,
     // M44 — self-serve signup. `/sign-up/email` was closed under M42
-    // (accounts were provisioned only by `createEventReviewer` and the
-    // bootstrap script) and opens here; `databaseHooks.user.create.after`
+    // (accounts were provisioned only by the bootstrap script) and opens here;
+    // `databaseHooks.user.create.after`
     // below is what keeps an open endpoint from producing an orphaned
     // account — every freshly created `users` row lands in an organization
     // before the request that created it returns.
@@ -354,7 +355,10 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
               if (user.emailVerified) await tryRecordSignupEmailVerifiedIn(database, userId);
             }
             try {
-              await retargetSignupVerificationEmailIn(database, user.id as UserId, result.organizationId, env);
+              const destination = result.eventId
+                ? `/events/${result.eventId}/review`
+                : `/organizations/${result.organizationId}`;
+              await retargetSignupVerificationEmailIn(database, user.id as UserId, destination, env);
             } catch (error) {
               // The deferred generic link remains valid and becomes claimable
               // after one minute, so retargeting is latency/navigation
@@ -367,7 +371,10 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
                 feature: "auth",
               });
             }
-            if (result.viaInvitation) context?.setHeader(SIGNUP_ORGANIZATION_HEADER, result.organizationId);
+            if (result.viaInvitation) {
+              context?.setHeader(SIGNUP_ORGANIZATION_HEADER, result.organizationId);
+              if (result.eventId) context?.setHeader(SIGNUP_EVENT_HEADER, result.eventId);
+            }
           },
         },
       },
@@ -394,9 +401,9 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
  * M44 AC — no orphaned accounts through the new signup door. Fires for
  * *every* freshly inserted `users` row Better Auth's adapter creates — an
  * email+password `/sign-up/email` call and a Google account creation nobody's
- * account matched, alike — and never for `createEventReviewer`/`bootstrap-admin.ts`,
- * which write `users` directly through Drizzle rather than through this
- * adapter. Better Auth awaits this hook before the signup response returns,
+ * account matched, alike — and never for `bootstrap-admin.ts`, which writes
+ * `users` directly through Drizzle rather than through this adapter. Better
+ * Auth awaits this hook before the signup response returns,
  * so by the time a client's subsequent "list my organizations" call lands,
  * the organization already exists.
  *
@@ -412,7 +419,7 @@ async function provisionNewUser(
   user: { id: string; email: string; name?: string | null },
   input: SignupProvisioningInput,
   consent: SignupLegalConsent | null,
-): Promise<{ organizationId: string; viaInvitation: boolean }> {
+): Promise<{ organizationId: string; viaInvitation: boolean; eventId: string | null }> {
   const userId = userIdSchema.parse(user.id);
   try {
     if (consent) await recordSignupLegalAcceptanceIn(database, userId, consent);

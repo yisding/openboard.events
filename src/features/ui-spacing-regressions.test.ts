@@ -12,6 +12,20 @@ describe("shared UI spacing regressions", () => {
     expect(css).toMatch(/\.datetime-picker\{[^}]*height:40px/gu);
   });
 
+  it("uses the application theme for the complete calendar surface", () => {
+    const picker = read("../shared/ui/app/datetime-picker.tsx");
+    const formRenderer = read("./forms/components/form-field-renderer.tsx");
+
+    expect(picker).toContain('role="dialog"');
+    expect(picker).toContain('className="datetime-calendar-grid"');
+    expect(picker).toContain("CalendarDatePicker");
+    expect(formRenderer).toContain("<CalendarDatePicker");
+    expect(css).toContain(".datetime-popover{position:fixed;z-index:300;");
+    expect(css).toContain("background:var(--surface);box-shadow:var(--shadow);");
+    expect(css).toContain(".datetime-calendar-day.is-selected{border-color:var(--accent);background:var(--accent);color:var(--on-accent);");
+    expect(css).toContain(".datetime-picker-warning{");
+  });
+
   it("gives evaluation drawers the shared body inset and a compact invite variant", () => {
     const invite = read("./submissions/evaluation/components/reviewer-invite-dialog.tsx");
     const plan = read("./submissions/evaluation/components/plan-editor.tsx");
@@ -27,6 +41,7 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".drawer-body { padding: 24px; }");
     expect(css).toContain(".drawer-compact { width: min(480px, 95vw); }");
     expect(css).toContain(".evaluation-number-row{grid-template-columns:repeat(3,minmax(0,1fr))}");
+    expect(css).toContain(".reviewer-pending-invitations li{display:flex;align-items:center;justify-content:space-between;gap:12px");
   });
 
   it("keeps repeated action clusters visibly separated", () => {
@@ -78,19 +93,26 @@ describe("shared UI spacing regressions", () => {
     expect(flow).toContain('className="speaker-card-copy"');
   });
 
-  it("keeps the landing-page sign-in action visible on compact layouts", () => {
+  it("keeps every landing destination available in a compact navigation menu", () => {
+    const home = read("../app/page.tsx");
+    const mobileNav = read("../app/landing-mobile-nav.tsx");
+
     expect(css).toContain("@media (max-width: 385px) {");
     expect(css).toContain(".landing-links > a:not(.button) { display: none; }");
+    expect(css).toContain(".landing-links > .button-secondary { display: none; }");
     expect(css).toContain(".landing-links { gap: 8px; }");
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");
+    expect(css).toContain(".landing-mobile-nav { display: block; }");
+    expect(home).toContain("<LandingMobileNav");
+    for (const label of ["Platform", "Why Openboard", "View sample CFP", "Sign in"]) {
+      expect(mobileNav).toContain(label);
+    }
+    expect(mobileNav).toContain('event.key !== "Escape"');
     expect(css).toContain(
       ".landing-nav > .brand > span:not(.brand-mark) { display: none; }",
     );
     expect(css).toContain(
       ".hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }",
-    );
-    expect(css).not.toContain(
-      ".landing-links > a:not(.button), .landing-links .button-secondary { display: none; }",
     );
   });
 

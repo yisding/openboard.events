@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SIGNUP_ORGANIZATION_HEADER } from "./signup-context";
+import { SIGNUP_EVENT_HEADER, SIGNUP_ORGANIZATION_HEADER } from "./signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "./signup-request";
 
 const organizationId = "00000000-0000-4000-8000-000000000001";
@@ -62,6 +62,22 @@ describe("signupAndAwaitVerification", () => {
       refresh: false,
     });
     expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an accepted reviewer invitation on the event review destination for resends", async () => {
+    const eventId = "00000000-0000-4000-8000-000000000010";
+    const request = vi.fn().mockResolvedValueOnce(new Response(null, {
+      status: 200,
+      headers: {
+        [SIGNUP_ORGANIZATION_HEADER]: organizationId,
+        [SIGNUP_EVENT_HEADER]: eventId,
+      },
+    }));
+
+    await expect(signupAndAwaitVerification(input, request)).resolves.toEqual({
+      destination: `/signup/check-email?email=new-owner%40example.com&next=%2Fevents%2F${eventId}%2Freview`,
+      refresh: false,
+    });
   });
 
   it("keeps a signup rejection on the signup form with the server message", async () => {

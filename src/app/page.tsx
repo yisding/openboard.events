@@ -3,6 +3,7 @@ import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { getAdminSession } from "@/features/auth";
 import { Brand } from "@/shared/ui/brand";
 import { getEnv } from "@/shared/lib/env";
+import { LandingMobileNav } from "./landing-mobile-nav";
 
 // Signup availability is a runtime Cloudflare binding. Do not freeze the
 // provider gate into the build-time prerendered homepage.
@@ -42,6 +43,7 @@ export default async function HomePage() {
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
           <Link href={CFP_HREF}>View sample CFP</Link>
+          <LandingMobileNav cfpHref={CFP_HREF} showSignIn={!signedIn} />
           {!signedIn && <Link className="button button-secondary" href="/login">Sign in</Link>}
           <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
         </div>

@@ -5,9 +5,9 @@ import { PORTAL_COOKIE_PREFIX } from "../../src/features/auth/cookies";
 import { USERS } from "./seeded";
 
 /**
- * Admin sign-in for specs. `/api/test/login` 404s unless `TEST_AUTH=1` at build
- * time, so it exists on preview and cannot exist in production. There is no
- * seeded bearer token: this is the only machine path into an admin session.
+ * Admin sign-in for specs running against a controlled fallback-auth target.
+ * `/api/test/login` 404s unless `TEST_AUTH=1` and deliberately cannot mint a
+ * Better Auth session, so deployed preview and production do not expose it.
  *
  * Accepts either a `Page` (the browser gets the cookie) or a bare
  * `APIRequestContext` (a separate cookie jar, for the arrange/assert calls a
@@ -28,7 +28,7 @@ export async function loginAsAdmin(target: Page | APIRequestContext, email: stri
     throw new Error(
       `/api/test/login returned ${response.status()} for ${email}. `
       + (explanation
-        || "Deploy the preview with TEST_AUTH=1 and seed the user, or the spec has nothing to sign in as."),
+        || "Run admin E2E against a seeded fallback-auth target with TEST_AUTH=1."),
     );
   }
 }

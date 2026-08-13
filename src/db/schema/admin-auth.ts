@@ -112,3 +112,13 @@ export const userLegalAcceptances = pgTable("user_legal_acceptances", {
   check("user_legal_acceptances_privacy_version_ck", sql`length(trim(${table.privacyVersion})) BETWEEN 1 AND 80`),
   check("user_legal_acceptances_source_ck", sql`${table.source} = 'signup'`),
 ]);
+
+/**
+ * Fail-closed provenance for identities created through the public account
+ * door. Migration 0029 backfills earlier signups and installs the insert
+ * trigger; trusted operator provisioning explicitly removes its marker.
+ */
+export const selfServiceSignups = pgTable("self_service_signups", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

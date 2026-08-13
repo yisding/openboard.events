@@ -4,7 +4,10 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "keep_vars": true,
+  // Committed config is authoritative for plaintext vars. Wrangler preserves
+  // encrypted secrets independently, while removing retired bindings (for
+  // example preview's former TEST_AUTH flag) on the next deployment.
+  "keep_vars": false,
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "observability": { "enabled": true },
   "vars": {
@@ -40,8 +43,7 @@
         "EMAIL_FALLBACK_UI": "1",
         "AIRTABLE_CRON": "0",
         "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
-        "R2_BUCKET_NAME": "sb-files-preview",
-        "TEST_AUTH": "1"
+        "R2_BUCKET_NAME": "sb-files-preview"
       },
       "r2_buckets": [
         { "binding": "FILES", "bucket_name": "sb-files-preview" },

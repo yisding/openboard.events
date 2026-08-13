@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ChevronDown, Globe, Linkedin, Search, Twitter, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Dash } from "@/shared/ui/app/dash";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { formatInZone } from "@/shared/lib/time";
 import type { PublishedSpeakersDTO } from "@/shared/contracts";
@@ -93,18 +92,22 @@ export function PublicSpeakersList({
                       <SpeakerAvatar name={speaker.name} headshotUrl={speaker.headshotUrl} size="md" />
                       <span className="speaker-row-name">
                         <b>{speaker.name}</b>
-                        <small>{speaker.jobTitle ?? <Dash />}{showCompany && speaker.company ? ` · ${speaker.company}` : ""}</small>
+                        {(speaker.jobTitle || (showCompany && speaker.company)) && (
+                          <small>{[speaker.jobTitle, showCompany ? speaker.company : null].filter(Boolean).join(" · ")}</small>
+                        )}
                       </span>
                       <ChevronDown size={16} className={expanded ? "flipped" : ""} />
                     </button>
                     {expanded && (
                       <div className="speaker-row-detail">
-                        <div className="speaker-detail-links">
-                          {speaker.linkedinUrl ? <a href={speaker.linkedinUrl} target="_blank" rel="noreferrer"><Linkedin size={15} /> LinkedIn</a> : <span><Dash /></span>}
-                          {speaker.twitterUrl ? <a href={speaker.twitterUrl} target="_blank" rel="noreferrer"><Twitter size={15} /> Twitter</a> : <span><Dash /></span>}
-                          {speaker.websiteUrl ? <a href={speaker.websiteUrl} target="_blank" rel="noreferrer"><Globe size={15} /> Website</a> : <span><Dash /></span>}
-                        </div>
-                        {showBio && (speaker.bioHtml ? <RichTextView html={speaker.bioHtml} /> : <p className="session-detail-empty"><Dash /> No bio yet.</p>)}
+                        {(speaker.linkedinUrl || speaker.twitterUrl || speaker.websiteUrl) && (
+                          <div className="speaker-detail-links">
+                            {speaker.linkedinUrl && <a href={speaker.linkedinUrl} target="_blank" rel="noreferrer"><Linkedin size={15} /> LinkedIn</a>}
+                            {speaker.twitterUrl && <a href={speaker.twitterUrl} target="_blank" rel="noreferrer"><Twitter size={15} /> Twitter</a>}
+                            {speaker.websiteUrl && <a href={speaker.websiteUrl} target="_blank" rel="noreferrer"><Globe size={15} /> Website</a>}
+                          </div>
+                        )}
+                        {showBio && speaker.bioHtml && <RichTextView html={speaker.bioHtml} />}
                         {speaker.sessions.length > 0 && (
                           <ul className="speaker-detail-sessions">
                             {speaker.sessions.map((session) => (

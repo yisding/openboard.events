@@ -232,7 +232,7 @@ describe("OnboardingWizard event step accessibility", () => {
 
     expect(html).toContain('value="custom" selected=""');
     expect(html).toContain('id="onboarding-cfp-custom-deadline"');
-    expect(html).toContain('value="2026-08-27"');
+    expect(html).toContain('value="Aug 27, 2026"');
   });
 
   it("restores the completed handoff with direct actions for the exact form", () => {
@@ -261,6 +261,8 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("https://preview.example.com/submit/resumable-conf/form-1");
     expect(html).toContain('href="/events/10000000-0000-4000-8000-000000000001/forms/form-1"');
     expect(html).toContain("Manage form");
+    expect(html).toContain('href="/organizations/00000000-0000-4000-8000-000000000001/team"');
+    expect(html).toContain("Invite teammates");
   });
 
   it("sends a completed draft straight to the form builder to publish", () => {
@@ -286,6 +288,7 @@ describe("OnboardingWizard event step accessibility", () => {
 
     expect(html).toContain("Edit and publish form");
     expect(html).not.toContain("onboarding-link-row");
+    expect(html).not.toContain("Invite teammates");
     expect(html).toContain('class="button button-primary"');
   });
 

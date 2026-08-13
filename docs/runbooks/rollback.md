@@ -21,10 +21,10 @@ introduced bad data (not just bad code), that is a `backup-restore.md` problem, 
 | A GitHub Actions run itself is broken (bad token, workflow bug) and you cannot wait for CI | **Fast path**, run locally with `pnpm exec wrangler` |
 
 `wrangler rollback` only swaps which previously-uploaded **code version** is live. It does not
-touch secrets or vars (`keep_vars: true` in both `wrangler.jsonc` files) and does not re-run
-migrations — which is exactly what makes it safe to run without CI. If the bad deploy also
-shipped a secret/var change the rollback target didn't expect, the fast path alone will not fix
-that; use the redeploy-a-known-good-SHA path instead.
+rewrite bindings or re-run migrations, because it activates an existing version rather than
+uploading the checked-out configuration. That is exactly what makes it safe to run without CI. If
+the bad deploy also shipped a secret/var change the rollback target didn't expect, the fast path
+alone will not fix that; use the redeploy-a-known-good-SHA path instead.
 
 ## Fast path: `wrangler rollback`
 

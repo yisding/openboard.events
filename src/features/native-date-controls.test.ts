@@ -12,15 +12,14 @@ import { describe, expect, it } from "vitest";
  * through a conditional or a spread, though, so this walks the syntax tree and
  * resolves every statically-knowable `type` value instead.
  *
- * The two exemptions match the script's, deliberately — if you widen one, widen
- * both, and say why in the same breath.
+ * The themed picker renders a read-only text trigger and an application-owned
+ * calendar. The allowlist is therefore empty: a newly introduced native date
+ * popup is always a regression, including in participant-authored forms.
  */
 const SRC = fileURLToPath(new URL("../", import.meta.url));
 
-/** The picker is the implementation; the form builder's `date` question is a
- *  calendar day the respondent picks, not an instant on the event's clock. */
-const DATETIME_LOCAL_EXEMPT = ["shared/ui/app/datetime-picker.tsx"];
-const DATE_EXEMPT = [...DATETIME_LOCAL_EXEMPT, "features/forms/components/form-field-renderer.tsx"];
+const DATETIME_LOCAL_EXEMPT: string[] = [];
+const DATE_EXEMPT: string[] = [];
 
 function tsxFiles(): string[] {
   return readdirSync(SRC, { recursive: true, encoding: "utf8" })
@@ -93,14 +92,14 @@ describe("native date controls", () => {
     expect(files).toContain("shared/ui/app/datetime-picker.tsx");
   });
 
-  it("renders no zone-less instant outside the picker, however the type is written", () => {
+  it("renders no native zone-less instant, however the type is written", () => {
     const offenders = files
       .filter((file) => !DATETIME_LOCAL_EXEMPT.includes(file))
       .filter((file) => nativeDateControls(file).includes("datetime-local"));
     expect(offenders).toEqual([]);
   });
 
-  it("renders no bare calendar date outside the picker and the form builder's date question", () => {
+  it("renders no native calendar date, including in participant forms", () => {
     const offenders = files
       .filter((file) => !DATE_EXEMPT.includes(file))
       .filter((file) => nativeDateControls(file).includes("date"));

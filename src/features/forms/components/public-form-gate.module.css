@@ -30,13 +30,79 @@
   position: relative;
 }
 
-.eventName {
-  margin: 0 0 8px;
+.eventBar {
+  min-height: 64px;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eventIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eventIdentity > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.eventIdentity small {
   color: var(--accent-dark);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
+}
+
+.eventIdentity b {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eventLogo {
+  width: auto;
+  max-width: 96px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.eventFallback {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.backLink {
+  min-height: 40px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 /* T5 canonical breakpoint: the mapping table sends 650 -> 768. This file is the
@@ -49,4 +115,8 @@
     padding-block: 32px;
     border-radius: 12px;
   }
+
+  .eventBar { margin-bottom: 24px; }
+
+  .backLink { width: 44px; padding: 0; justify-content: center; font-size: 0; }
 }

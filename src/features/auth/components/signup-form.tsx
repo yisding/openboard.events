@@ -9,6 +9,7 @@ import { authPathWithNext, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
 import type { SignupLegalConsent } from "../legal-consent";
+import { AuthPasswordField } from "./auth-password-field";
 import { GoogleMark } from "./google-mark";
 
 /**
@@ -140,7 +141,13 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <h1>{invitationToken ? "Create your account" : "Create your workspace"}</h1>
     <p>{invitationToken
       ? "Create an Openboard account to securely join the workspace that invited you."
-      : "Start a new Openboard organization — invite your team once you’re in."}</p>
+      : "Start your organization now, then publish your first call for speakers in guided setup."}</p>
+    <aside className="auth-help auth-signup-path">
+      <b>What happens next</b>
+      <span>{invitationToken
+        ? "Confirm your email, then continue straight to the workspace that invited you."
+        : "Confirm your email, add your event details, and leave with a ready-to-share CFP."}</span>
+    </aside>
     {googleEnabled && <>
       <Button variant="secondary" size="lg" className="google-signin" disabled={pending !== null} onClick={() => { setGoogleSetup(true); setError(""); }} type="button">
         <GoogleMark /> Continue with Google
@@ -150,8 +157,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
     <label className="field"><span>Your name</span><input name="name" autoComplete="name" required maxLength={160} type="text" /></label>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
-    <label className="field"><span>Password</span><input name="password" autoComplete="new-password" required minLength={12} type="password" aria-describedby="signup-password-help" /></label>
-    <small id="signup-password-help">Use at least 12 characters.</small>
+    <AuthPasswordField id="signup-password" name="password" label="Password" autoComplete="new-password" minLength={12} hint="Use at least 12 characters." />
     <LegalConsentField legalConsent={legalConsent} />
     {error && <p className="field-error" role="alert">{error}</p>}
     <Button size="lg" disabled={pending !== null} type="submit">{pending === "email" ? "Creating…" : "Create account"} <ArrowRight size={16} /></Button>

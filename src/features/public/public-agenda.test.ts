@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { publishedScheduleDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { PUBLISHED_SCHEDULE_FIXTURE } from "@/shared/fixtures/sessions";
 import { PublicAgenda } from "./public-agenda";
+import { formatDateRangeInZone } from "@/shared/lib/time";
 
 Object.assign(globalThis, { React });
 
@@ -22,6 +23,40 @@ describe("PublicAgenda", () => {
     expect(html).toContain(`src="${PUBLISHED_SCHEDULE_FIXTURE.event.logoUrl}"`);
     expect(html).toContain(`src="${PUBLISHED_SCHEDULE_FIXTURE.event.backgroundUrl}"`);
     expect(html).toContain('class="public-event-hero-image"');
+  });
+
+  it("shows the event date once in the public hero", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+    }));
+    const range = formatDateRangeInZone(
+      PUBLISHED_SCHEDULE_FIXTURE.event.startsAt,
+      PUBLISHED_SCHEDULE_FIXTURE.event.endsAt,
+      PUBLISHED_SCHEDULE_FIXTURE.event.timezone,
+    ).toLowerCase();
+
+    expect(html.toLowerCase().split(range)).toHaveLength(2);
+  });
+
+  it("omits attendee-facing placeholders for missing session content", () => {
+    const session = PUBLISHED_SCHEDULE_FIXTURE.sessions[0];
+    if (!session) throw new Error("fixture must carry a session");
+    const schedule = {
+      ...PUBLISHED_SCHEDULE_FIXTURE,
+      sessions: [{ ...session, descriptionHtml: null, speakers: [] }],
+    };
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
+      eventSlug: "openboard-summit",
+      schedule,
+      initialExpandedSessionId: session.id,
+    }));
+
+    expect(html).not.toContain("No description yet");
+    expect(html).not.toContain('class="public-session-speaker"');
+    expect(html).not.toContain("aria-expanded=");
+    expect(html).not.toContain('class="session-detail"');
+    expect(html).toContain(`<h3>${session.title}</h3>`);
   });
 
   it("keeps hosted-site branding out of embeddable agenda documents", () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { signupLegalConsent } from "@/features/auth/legal-consent";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { invitationTokenFromNextPath } from "@/features/auth/signup-context";
+import { getOrganizationInvitationDestinationByToken } from "@/features/organizations";
 import {
   OAUTH_SIGNUP_INTENT_COOKIE,
   oauthSignupIntentCookieOptions,
@@ -128,6 +129,9 @@ export async function beginGoogleSignup(
   request: NextRequest,
   env: RuntimeEnv,
   handler: BetterAuthRequestHandler,
+  dependencies: {
+    invitationDestinationByToken?: (token: string) => Promise<string | null>;
+  } = {},
 ): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
@@ -184,7 +188,16 @@ export async function beginGoogleSignup(
   // created identity consumes the token inside that hook and must not replay
   // it; Better Auth selects newUserCallbackURL for that branch.
   const callbackURL = next;
-  const newUserCallbackURL = invitationFromNext ? "/organizations" : next;
+  let newUserCallbackURL = next;
+  if (invitationFromNext) {
+    const invitationDestination = await (
+      dependencies.invitationDestinationByToken ?? getOrganizationInvitationDestinationByToken
+    )(invitationFromNext);
+    if (!invitationDestination) {
+      return authError("VALIDATION", "That invitation is no longer valid — ask for a new one", 400);
+    }
+    newUserCallbackURL = invitationDestination;
+  }
   const errorCallbackURL = `/signup?${new URLSearchParams({ next }).toString()}`;
   const forwardedUrl = new URL(request.url);
   forwardedUrl.pathname = "/api/auth/sign-in/social";

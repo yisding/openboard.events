@@ -27,14 +27,14 @@ function mediaBlocks(css: string, query: string): string[] {
 }
 
 describe("CFP progress responsive styles", () => {
-  it("compacts the progress labels and connectors through the 768px mobile breakpoint", () => {
+  it("keeps progress labels and connectors in one stable numbered grid", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    const mobileBlock = mediaBlocks(css, "@media(max-width:768px)")
-      .find((block) => block.includes(".cfp-progress"));
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
 
-    expect(mobileBlock).toBeDefined();
-    expect(mobileBlock).toContain(".cfp-progress b{display:none}");
-    expect(mobileBlock).toContain(".cfp-progress i{width:25px;margin:0 6px}");
+    expect(source).toContain("public-form-progress-${flowSteps.length}");
+    expect(source).toContain('<span aria-hidden="true">{complete ? "✓" : index + 1}</span>');
+    expect(css).toContain(".public-form-progress-4{grid-template-columns:repeat(4,minmax(0,1fr))}");
+    expect(css).toContain('.public-form-progress li:not(:last-child)::after{content:"";position:absolute');
   });
 
   it("bottom-aligns the email submit control with its 40px input", () => {
@@ -65,7 +65,6 @@ describe("CFP progress responsive styles", () => {
     expect(mobile).toContain(".cfp-account-form>.demo-code+.cfp-code-actions{grid-column:1}");
     expect(phone).toContain(".cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}");
     expect(phone).toContain(".cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}");
-    expect(phone).toContain(".public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}");
-    expect(phone).toContain(".public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}");
+    expect(phone).toContain(".public-form-welcome .welcome-facts{grid-template-columns:1fr}");
   });
 });

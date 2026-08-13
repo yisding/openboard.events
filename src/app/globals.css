@@ -216,6 +216,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .landing-nav { height: 78px; display: flex; align-items: center; justify-content: space-between; position: relative; z-index: 5; }
 .landing-links { display: flex; align-items: center; gap: 24px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .landing-links > a:not(.button):hover { color: var(--accent-dark); }
+.landing-mobile-nav { display: none; position: relative; }
+.landing-mobile-nav > button { width: 38px; height: 38px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); place-items: center; cursor: pointer; }
+.landing-mobile-links { position: fixed; top: 65px; right: 14px; width: min(250px, calc(100vw - 28px)); padding: 8px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.landing-mobile-links a { min-height: 42px; padding: 0 12px; display: flex; align-items: center; border-radius: 7px; color: var(--ink); }
+.landing-mobile-links a:hover { background: var(--accent-faint); color: var(--accent-dark); }
 .hero { min-height: 690px; display: grid; grid-template-columns: .92fr 1.08fr; gap: 64px; align-items: center; padding-block: 64px 96px; position: relative; }
 .hero::before { content: ""; position: absolute; width: 620px; height: 620px; left: -410px; top: 30px; border-radius: 50%; background: radial-gradient(circle, rgba(0,168,120,.09), transparent 68%); pointer-events: none; }
 .hero-copy { position: relative; z-index: 2; }
@@ -541,6 +546,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .drawer-form { display: grid; gap: 24px; }
 .drawer-body > .drawer-actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
 .reviewer-invite-note { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); line-height: 1.55; }
+.reviewer-pending-invitations{display:grid;gap:8px;padding-top:4px}.reviewer-pending-invitations h3{margin:0;font-size:12px}.reviewer-pending-invitations ul{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}.reviewer-pending-invitations li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 10px;background:var(--surface)}.reviewer-pending-invitations li+li{border-top:1px solid var(--line)}.reviewer-pending-invitations li>span{min-width:0}.reviewer-pending-invitations b,.reviewer-pending-invitations small{display:block;overflow-wrap:anywhere}.reviewer-pending-invitations b{font-size:11.5px}.reviewer-pending-invitations small{margin-top:3px;color:var(--muted);font-size:10px}
 .flow-nav-controls { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .flow-nav-controls .icon-button { width: 32px; height: 32px; }
 .flow-nav-controls span { margin-left: 4px; }
@@ -689,12 +695,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      the fixed menu button. Recorded in design-system.md T4. */
   .topbar { padding-left: 64px; }.search-trigger { width: 44px; height: 44px; }.search-trigger span, .search-trigger kbd, .save-indicator { display: none; }
   .dashboard-grid { grid-template-columns: 1fr; }.speaker-attention, .quick-actions { grid-column: 1; grid-row: auto; }
-  /* Keep authentication discoverable on compact layouts. The section and
-     sample links are repeated in the hero immediately below, but "Sign in"
-     has no other direct entry point for an existing anonymous user. */
+  /* Keep every landing destination discoverable without crowding the brand
+     and primary workspace action into an overflowing row. */
   .landing-links > a:not(.button) { display: none; }
+  .landing-links > .button-secondary { display: none; }
   .landing-links { gap: 8px; }
   .landing-links .button-primary svg { display: none; }
+  .landing-mobile-nav { display: block; }
+  .landing-mobile-nav > button { width: 44px; height: 44px; display: grid; }
 }
 
 @media (max-width: 768px) {
@@ -902,7 +910,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* Public schedule/gallery: clickable rows, the session-detail accordion, and
    the speaker-detail takeover (M32 real published-view queries). */
-.schedule-time-group article{cursor:pointer}
+.schedule-time-group article.session-has-details{cursor:pointer}
+.schedule-time-group article:not(.session-has-details):hover{box-shadow:none;border-color:var(--line)}
 .session-detail{padding:16px 16px 24px;border:1px solid var(--line);border-top:0;margin-top:-1px;border-radius:0 0 9px 9px;background:var(--surface-raised)}
 .session-detail-empty{color:var(--muted);font-size:11px;display:flex;align-items:center;gap:6px}
 .session-detail-speakers{list-style:none;padding:0;margin:16px 0 0;display:flex;flex-wrap:wrap;gap:16px}
@@ -1100,19 +1109,45 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-error-state__actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
 .section-title{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 12px}
 
-/* M05b rich primitives. */
-.datetime-picker{display:flex;align-items:center;gap:6px;height:40px;padding:0 6px 0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);transition:border .15s,box-shadow .15s}
-.datetime-picker:focus-within{border-color:var(--accent);box-shadow:var(--focus-ring)}
+/* M05b rich primitives. The popover is application-owned rather than the
+   browser's unstyleable date UI, so event setup, agenda, evaluation, task,
+   speaker and participant-form calendars all share this same jade language. */
+.datetime-picker{position:relative;display:flex;align-items:center;gap:6px;min-width:0;height:40px;padding:0 6px 0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-sm);transition:border .15s,box-shadow .15s,background .15s}
+.datetime-picker:focus-within,.datetime-picker.is-open{border-color:var(--accent);box-shadow:var(--focus-ring);background:var(--surface)}
 .datetime-picker.is-invalid{border-color:var(--red)}
-.datetime-picker input{min-width:0;flex:1;height:38px;padding:0;border:0;background:transparent;box-shadow:none;font-size:12.5px;color-scheme:light;accent-color:var(--accent)}
+.datetime-picker input{min-width:0;flex:1;height:38px;padding:0;border:0;background:transparent;box-shadow:none;font-size:12.5px;color:var(--ink);text-overflow:ellipsis;cursor:pointer}
+.datetime-picker input::placeholder{color:var(--subtle)}
 .datetime-picker input:focus{border:0;box-shadow:none}
-.datetime-picker input::-webkit-calendar-picker-indicator{width:0;height:0;margin:0;padding:0;opacity:0}
 .datetime-picker-button{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:var(--accent-soft);color:var(--accent-dark);display:inline-grid;place-items:center;cursor:pointer}
-.datetime-picker-button:hover{background:var(--accent-faint)}
+.datetime-picker-button:hover{background:var(--accent-border)}
 .datetime-picker-button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .datetime-picker-button:disabled{cursor:not-allowed}
 .datetime-picker.is-disabled{opacity:.6}
 .datetime-zone{flex:none;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.4px}
+.datetime-picker-clear{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);display:inline-grid;place-items:center;cursor:pointer}
+.datetime-picker-clear:hover{background:var(--fill);color:var(--ink)}
+.datetime-picker-clear:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.datetime-popover{position:fixed;z-index:300;max-height:calc(100vh - 24px);overflow:auto;padding:14px;border:1px solid var(--line-strong);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);color:var(--ink);font-size:12.5px;overscroll-behavior:contain}
+.datetime-popover-header{display:grid;grid-template-columns:32px 1fr 32px;align-items:center;gap:8px;margin-bottom:10px}
+.datetime-popover-header strong{text-align:center;font-size:13px;letter-spacing:-.1px}
+.datetime-popover-header .icon-button{width:32px;height:32px;border-color:var(--line);background:var(--surface-raised)}
+.datetime-popover-header .icon-button:hover{border-color:var(--accent-border);background:var(--accent-faint);color:var(--accent-dark)}
+.datetime-calendar-weekdays,.datetime-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.datetime-calendar-weekdays{margin-bottom:4px;color:var(--muted);font-size:10px;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.35px}
+.datetime-calendar-weekdays span{padding:4px 0}
+.datetime-calendar-day{min-width:0;height:36px;padding:0;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--ink);font-size:11.5px;font-variant-numeric:tabular-nums;cursor:pointer}
+.datetime-calendar-day:hover{border-color:var(--accent-border);background:var(--accent-faint);color:var(--accent-dark)}
+.datetime-calendar-day:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.datetime-calendar-day.is-outside{color:var(--subtle)}
+.datetime-calendar-day.is-today{border-color:var(--accent-border);font-weight:700;color:var(--accent-dark)}
+.datetime-calendar-day.is-selected{border-color:var(--accent);background:var(--accent);color:var(--on-accent);font-weight:700;box-shadow:var(--shadow-sm)}
+.datetime-calendar-day.is-selected:hover{background:var(--accent-hover);color:var(--on-accent)}
+.datetime-time-row{display:grid;grid-template-columns:1fr 64px 8px 64px;align-items:center;gap:6px;margin-top:12px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.datetime-time-label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-weight:600}
+.datetime-time-row>b{text-align:center;color:var(--muted)}
+.datetime-time-select{height:36px;padding-top:0;padding-bottom:0;font-variant-numeric:tabular-nums}
+.datetime-picker-warning{margin:10px 0 0;padding:9px 10px;border:1px solid var(--red-border);border-radius:7px;background:var(--red-soft);color:var(--red);font-size:11px;line-height:1.45}
+.datetime-popover-actions{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;margin-top:12px}
 .file-upload{display:grid;gap:8px}
 .file-upload__drop{display:grid;justify-items:center;gap:4px;padding:24px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface-raised);color:var(--muted);font-size:11.5px;cursor:pointer}
 .file-upload__drop:disabled{cursor:progress;opacity:.75}
@@ -1478,6 +1513,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-done p{color:var(--muted);font-size:11.5px;max-width:440px;margin:0 auto}
 .onboarding-done .cfp-actions{justify-content:center;margin-top:24px}
 .onboarding-link-row{display:flex;gap:8px;margin:16px auto 0;max-width:440px}
+.onboarding-team-prompt{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;max-width:540px;margin:18px auto 0;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-subtle);text-align:left}
+.onboarding-team-prompt>.metric-icon{width:32px;height:32px;margin:0}
+.onboarding-team-prompt>span:nth-child(2){min-width:0}
+.onboarding-team-prompt b,.onboarding-team-prompt small{display:block}
+.onboarding-team-prompt b{font-size:12px}
+.onboarding-team-prompt small{margin-top:2px;color:var(--muted);font-size:10.5px;line-height:1.4}
+.onboarding-team-prompt .button{white-space:nowrap}
 
 /* Organizer form preview — the public renderer without the speaker OTP,
    draft, or submission side effects. */
@@ -1514,6 +1556,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .onboarding-wizard .cfp-actions>*{flex:1 1 100%;justify-content:center}
   .onboarding-link-row{flex-direction:column}
   .onboarding-link-row .button{width:100%;justify-content:center}
+  .onboarding-team-prompt{grid-template-columns:32px minmax(0,1fr)}
+  .onboarding-team-prompt .button{grid-column:1/-1;width:100%;justify-content:center}
 }
 
 @media(max-width:768px){
@@ -1612,10 +1656,22 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    credential-free demo hero, which intentionally uses similarly named pieces. */
 .public-form-welcome{margin-bottom:32px}
 .public-form-welcome h1{font-size:32px;letter-spacing:-1px;margin:0 0 12px}
-.public-form-progress{list-style:none;display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 16px;padding:0;font-size:12.5px;text-transform:capitalize;color:var(--muted)}
-.public-form-progress li{display:flex;align-items:center;gap:6px}
-.public-form-progress li:not(:last-child)::after{content:"";width:18px;height:1px;background:var(--line-strong);margin-left:8px}
-.public-form-progress li.active{color:var(--accent-dark);font-weight:600}
+.public-form-welcome .welcome-facts{display:grid;grid-template-columns:repeat(2,minmax(0,max-content));gap:16px;margin:24px 0}
+.public-form-welcome .welcome-facts>div{display:grid;gap:4px;padding-left:12px;border-left:2px solid var(--accent-border)}
+.public-form-welcome .welcome-facts dt{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.public-form-welcome .welcome-facts dd{margin:0;color:var(--ink);font-size:11.5px;font-weight:600}
+.public-form-progress{list-style:none;display:grid;gap:0;margin:0 0 24px;padding:0;color:var(--muted)}
+.public-form-progress-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.public-form-progress-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.public-form-progress li{position:relative;display:grid;justify-items:center;gap:7px;text-align:center}
+.public-form-progress li:not(:last-child)::after{content:"";position:absolute;top:12px;left:calc(50% + 17px);width:calc(100% - 34px);height:1px;background:var(--line-strong)}
+.public-form-progress li>span{position:relative;z-index:1;width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--line-strong);border-radius:50%;background:var(--surface);font-size:10px;font-weight:700}
+.public-form-progress li>b{font-size:10px;font-weight:600;text-transform:capitalize}
+.public-form-progress li.active{color:var(--accent-dark)}
+.public-form-progress li.active>span{border-color:var(--accent);background:var(--accent);color:var(--on-accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.public-form-progress li.complete{color:var(--green)}
+.public-form-progress li.complete>span{border-color:var(--green);background:var(--green);color:var(--on-fill)}
+.public-form-progress li.complete::after{background:var(--green)}
 .cfp-account-form{align-items:end}
 .cfp-account-form>.button{height:40px}
 .cfp-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;grid-column:1/-1}
@@ -1679,6 +1735,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-divider::before,.auth-divider::after{content:"";height:1px;flex:1;background:var(--line)}
 .auth-help{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12.5px;line-height:1.45}
 .auth-help span{color:var(--muted)}
+.auth-signup-path{background:var(--accent-faint);border-color:var(--accent-border)}
+.auth-password-input{position:relative}
+.auth-password-input input{width:100%;padding-right:46px}
+.auth-password-toggle{position:absolute;top:50%;right:5px;width:34px;height:34px;padding:0;display:grid;place-items:center;transform:translateY(-50%);border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+.auth-password-toggle:hover{background:var(--surface-subtle);color:var(--ink)}
+.auth-password-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .auth-resend-form{display:grid;gap:12px!important;padding-top:4px}
 .auth-confirm-form{display:grid}
 .auth-inline-success{padding:12px 14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-faint);color:var(--accent-dark)!important;font-size:12.5px;line-height:1.45}
@@ -1765,11 +1827,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}
   .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
 
-  /* Four progress labels otherwise land as an unstable 2 / 2 at 390px but
-     3 / 1 around 440px. Keep the same two-column rhythm across phone widths. */
-  .public-form-progress:has(>li:nth-child(4)){display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .public-form-progress:has(>li:nth-child(4)) li:not(:last-child)::after{margin-left:auto}
-  .public-form-progress:has(>li:nth-child(4)) li:nth-child(2)::after{display:none}
+  .public-form-welcome .welcome-facts{grid-template-columns:1fr}
 }
 
 .communications-tabs button{display:inline-flex;align-items:center;gap:7px}

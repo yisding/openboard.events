@@ -1,14 +1,10 @@
-import { crmMergeIdSchema, crmPipelineIdSchema, organizationContactIdSchema, organizationIdSchema, type CrmMergeId, type CrmPipelineId, type OrganizationContactId, type OrganizationId } from "@/shared/contracts";
+import { crmMergeIdSchema, crmPipelineIdSchema, organizationContactIdSchema, type CrmMergeId, type CrmPipelineId, type OrganizationContactId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import type { RouteParams } from "@/shared/server/handler";
 
-/** Shared route param readers for `/api/internal/organizations/[organizationId]/crm/**`. */
+export { requireOrganizationId } from "../_lib";
 
-export function requireOrganizationId(params: RouteParams): OrganizationId {
-  const raw = params.organizationId;
-  if (typeof raw !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
-  return organizationIdSchema.parse(raw);
-}
+/** Shared route param readers for `/api/internal/organizations/[organizationId]/crm/**`. */
 
 export function requireOrganizationContactId(params: RouteParams): OrganizationContactId {
   const raw = params.organizationContactId;
