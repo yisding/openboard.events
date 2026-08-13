@@ -6,10 +6,12 @@ import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { plainTextLength } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { sanitize } from "@/shared/lib/sanitize";
+import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { richTextLinkError } from "./rich-text-link";
 
 /**
  * The toolbar is deliberately the sanitizer's allowlist and nothing more. No
@@ -49,6 +51,12 @@ export function RichTextEditor({
   required?: boolean;
   disabled?: boolean;
 }) {
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkHref, setLinkHref] = useState("");
+  const [linkError, setLinkError] = useState("");
+  const [editingLink, setEditingLink] = useState(false);
+  const linkInputRef = useRef<HTMLInputElement>(null);
+  const linkErrorId = useId();
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -104,23 +112,37 @@ export function RichTextEditor({
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
 
-  const addLink = useCallback(() => {
+  const openLinkDialog = useCallback(() => {
     if (!editor) return;
     const previous = editor.getAttributes("link").href as string | undefined;
-    const entered = window.prompt("Link URL", previous ?? "https://");
-    if (entered === null) return;
-    if (entered === "") {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-    // Anything but http(s) and mailto is a script-URL vector; refuse before insert
-    // rather than relying on the sanitizer to clean up after.
-    if (!/^(https?:|mailto:)/i.test(entered)) {
-      window.alert("Links must start with http://, https:// or mailto:");
-      return;
-    }
-    editor.chain().focus().setLink({ href: entered }).run();
+    setLinkHref(previous ?? "https://");
+    setEditingLink(Boolean(previous));
+    setLinkError("");
+    setLinkOpen(true);
   }, [editor]);
+
+  const closeLinkDialog = useCallback(() => {
+    setLinkOpen(false);
+    setLinkError("");
+  }, []);
+
+  const applyLink = useCallback(() => {
+    if (!editor) return;
+    const error = richTextLinkError(linkHref);
+    if (error) {
+      setLinkError(error);
+      return;
+    }
+    const href = linkHref.trim();
+    closeLinkDialog();
+    window.requestAnimationFrame(() => editor.chain().focus().setLink({ href }).run());
+  }, [closeLinkDialog, editor, linkHref]);
+
+  const removeLink = useCallback(() => {
+    if (!editor) return;
+    closeLinkDialog();
+    window.requestAnimationFrame(() => editor.chain().focus().unsetLink().run());
+  }, [closeLinkDialog, editor]);
 
   if (!editor) return <div className="rich-text-editor rich-text-editor--loading" aria-busy="true" />;
 
@@ -158,7 +180,7 @@ export function RichTextEditor({
         {button("ordered", "Numbered list", <ListOrdered size={14} />, () => editor.chain().focus().toggleOrderedList().run(), editor.isActive("orderedList"))}
         {button("quote", "Quote", <Quote size={14} />, () => editor.chain().focus().toggleBlockquote().run(), editor.isActive("blockquote"))}
         {button("code", "Code", <Code size={14} />, () => editor.chain().focus().toggleCode().run(), editor.isActive("code"))}
-        {button("link", "Link", <Link2 size={14} />, addLink, editor.isActive("link"))}
+        {button("link", "Link", <Link2 size={14} />, openLinkDialog, editor.isActive("link"))}
       </div>
       <EditorContent editor={editor} />
       {maxChars !== undefined && (
@@ -166,6 +188,40 @@ export function RichTextEditor({
           {used} / {maxChars}
         </div>
       )}
+      <Modal
+        open={linkOpen}
+        onClose={closeLinkDialog}
+        title={editingLink ? "Edit link" : "Add link"}
+        description="Use an http, https, or mailto address."
+        initialFocusRef={linkInputRef}
+        footer={<>
+          {editingLink && <Button variant="ghost" onClick={removeLink}>Remove link</Button>}
+          <Button variant="secondary" onClick={closeLinkDialog}>Cancel</Button>
+          <Button onClick={applyLink}>{editingLink ? "Update link" : "Add link"}</Button>
+        </>}
+      >
+        <div className="form-stack">
+          <Field label="Link URL" required error={linkError} errorId={linkErrorId}>
+            <input
+              ref={linkInputRef}
+              type="text"
+              inputMode="url"
+              required
+              aria-invalid={Boolean(linkError) || undefined}
+              aria-describedby={linkError ? linkErrorId : undefined}
+              value={linkHref}
+              onChange={(event) => { setLinkHref(event.target.value); setLinkError(""); }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                applyLink();
+              }}
+              placeholder="https://example.com"
+            />
+          </Field>
+        </div>
+      </Modal>
     </div>
   );
 }

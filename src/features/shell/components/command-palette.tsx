@@ -91,9 +91,13 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
     inputRef.current?.focus();
-    return () => dialog.close();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
   }, []);
 
   const verbs = useMemo(() => verbsForRole(base, role), [base, role]);
