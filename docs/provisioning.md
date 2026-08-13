@@ -271,7 +271,7 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
-  | `E2E_RESEND_API_KEY` | preview-only, read-capable Resend key for the sent-email delivery probe | unset |
+  | `E2E_RESEND_API_KEY` | optional preview-only, read-capable Resend key for the sent-email delivery probe | unset |
 
   The preview E2E job derives `NEON_TEST_URL` from the `DATABASE_URL_DIRECT` secret
   (`.github/workflows/deploy.yml`); do not store a second copy.
@@ -282,7 +282,7 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   |---|---|---|
   | `APP_BASE_URL` | exact preview origin | exact production origin |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
-  | `E2E_SIGNUP_EMAIL` | dedicated address included in preview's exact email allowlist | unset |
+  | `E2E_SIGNUP_EMAIL` | optional dedicated address included in preview's exact email allowlist | unset |
 
   `E2E_BASE_URL` is derived from `APP_BASE_URL` for the preview E2E job and defaults to the
   preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` also needs no entry:
@@ -292,6 +292,13 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   one-address preview allowlist is committed in `wrangler.jsonc`, and a GitHub value silently
   overrides it. Leave the `SMOKE_*` variables unset: the deploy workflow fills each unset one
   from `pnpm smoke:fixture-ids`; set one only to deliberately override a fixture.
+
+  Every preview deploy runs the complete signup → activation → organization → event → public CFP
+  → first proposal browser journey. With no E2E mailbox credentials, it uses the preview-only
+  activation and OTP fallback plus the reserved `e2e-self-service@openboard.invalid` address, so
+  the product journey remains a credential-free deployment gate. Configure both optional E2E
+  values to make the same journey additionally prove delivery through Resend; configuring only
+  one deliberately falls back instead of partially exercising the provider path.
 
 - [x] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset. While it is unset, a
   successful `main` CI run deploys `preview` only.
