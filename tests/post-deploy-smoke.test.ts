@@ -88,6 +88,7 @@ printf '%s' "$status"
         ...process.env,
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         SMOKE_FAKE_STATE: state,
+        NEXT_PUBLIC_BUILD_SHA: "new-build",
       },
     });
 
