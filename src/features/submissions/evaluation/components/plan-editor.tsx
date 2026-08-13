@@ -7,7 +7,7 @@ import type { CriterionKind } from "@/shared/contracts";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
-import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
+import { Button, Drawer, Field, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
@@ -307,14 +307,11 @@ export function PlanEditor({
             <b>Blind review</b>
             <small>Hide author, co-authors and every answer not marked as proposal content in the form builder.</small>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={draft.anonymizeAuthors}
-            aria-label="Blind review"
-            className={`switch ${draft.anonymizeAuthors ? "on" : ""}`}
+          <Switch
+            label="Blind review"
+            checked={draft.anonymizeAuthors}
             onClick={() => patch({ anonymizeAuthors: !draft.anonymizeAuthors })}
-          ><i /></button>
+          />
         </div>
 
         <div className="inline-setting">
@@ -322,14 +319,11 @@ export function PlanEditor({
             <b>Share committee averages</b>
             <small>Off keeps scores independent. Turn this on only when reviewers should calibrate against the live committee mean.</small>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={draft.showPeerScores}
-            aria-label="Share committee averages with reviewers"
-            className={`switch ${draft.showPeerScores ? "on" : ""}`}
+          <Switch
+            label="Share committee averages with reviewers"
+            checked={draft.showPeerScores}
             onClick={() => patch({ showPeerScores: !draft.showPeerScores })}
-          ><i /></button>
+          />
         </div>
 
         <Field label="Status">

@@ -45,7 +45,7 @@ describe("evaluation plan editor lifecycle", () => {
   it("makes reviewer score visibility an explicit round setting", () => {
     expect(source).toContain("showPeerScores: false");
     expect(source).toContain("Share committee averages");
-    expect(source).toContain('aria-label="Share committee averages with reviewers"');
+    expect(source).toContain('label="Share committee averages with reviewers"');
     expect(source).toContain("showPeerScores: draft.showPeerScores");
   });
 });

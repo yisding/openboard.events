@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
-import { Button, Field, Modal } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { slugify } from "@/shared/lib/slug";
@@ -222,14 +222,11 @@ export function ResourcePageEditor({
 
         <label className="inline-setting">
           <div><b>Published</b><small>Unpublished pages are invisible in the portal — organizers only.</small></div>
-          <button
-            type="button"
-            className={`switch ${draft.published ? "on" : ""}`}
-            role="switch"
-            aria-checked={draft.published}
-            aria-label="Published"
+          <Switch
+            label="Published"
+            checked={draft.published}
             onClick={() => setDraft((current) => ({ ...current, published: !current.published }))}
-          ><i /></button>
+          />
         </label>
 
         {draft.id && draft.slug && (

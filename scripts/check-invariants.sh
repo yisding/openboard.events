@@ -37,6 +37,14 @@ check_forbidden "from ['\"](date-fns|date-fns-tz)" src --glob '!src/shared/lib/t
 # select underneath — it keeps type-ahead, Esc and the mobile picker — but wears
 # the kit's chrome. The kit itself is the one place the raw element may appear.
 check_forbidden "<select[[:space:]/>]" src --glob '*.tsx' --glob '!src/shared/ui/ui-kit.tsx'
+# DD-3: one interactive switch contract. A hand-authored `role="switch"`
+# duplicates the kit's accessible name, checked-state and visual-class wiring;
+# keep that behavior centralized in `<Switch>`. Static indicators and radio
+# groups remain separate because neither exposes the switch role.
+check_forbidden "role[[:space:]]*=[[:space:]]*\\{?[[:space:]]*['\"]switch['\"]" src \
+  --glob '*.tsx' \
+  --glob '!**/*.test.tsx' \
+  --glob '!src/shared/ui/ui-kit.tsx'
 # DD-2 (#116): one date idiom, and event instants name their zone. Native date
 # controls expose an unstyleable operating-system calendar and datetime-local
 # speaks wall-clock with no zone. The shared picker now renders a themed text
