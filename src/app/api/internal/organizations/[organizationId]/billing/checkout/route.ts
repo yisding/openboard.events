@@ -1,16 +1,9 @@
 import type { NextRequest } from "next/server";
 import { organizationAuth } from "@/features/auth";
 import { billingSurfaceUnavailableResponse, getBillingProviderAdapter, isBillingSurfaceEnabled, startBillingCheckoutInputSchema } from "@/features/billing";
-import { organizationIdSchema } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
-import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-
-function requireOrganizationId(params: Record<string, string | string[] | undefined>) {
-  const raw = params.organizationId;
-  if (typeof raw !== "string") throw new AppError("VALIDATION", "organizationId route parameter is required");
-  return organizationIdSchema.parse(raw);
-}
+import { requireOrganizationId } from "../../_lib";
 
 /**
  * M49 — starts a plan-change checkout through the provider seam
