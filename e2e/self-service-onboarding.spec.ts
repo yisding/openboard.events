@@ -362,14 +362,17 @@ test.describe("self-service signup to first value", () => {
         await publicPage.getByRole("button", { name: /^continue$/i }).click();
 
         await expect(proposalTitleInput(publicPage)).toBeVisible({ timeout: 30_000 });
-        // The generated form retains empty vocabulary questions in its
-        // authoring model so an organizer can configure them later, but the
-        // actual proposal step must not show Format/Tags with no choices.
-        await expect(publicPage.getByRole("combobox", { name: "Format", exact: true })).toHaveCount(0);
+        // New events seed useful session formats, while Tags remains empty
+        // until an organizer configures it. The starter CFP should expose the
+        // former as an answerable required question and omit the latter.
+        const formatInput = publicPage.getByRole("combobox", { name: "Format", exact: true });
+        await expect(formatInput).toBeVisible();
+        await expect(formatInput.locator("option")).toHaveCount(6);
         await expect(publicPage.getByText("Tags", { exact: true })).toHaveCount(0);
         await proposalTitleInput(publicPage).fill(proposalTitle);
         await publicPage.getByLabel("Description").click();
         await publicPage.keyboard.type("A real proposal proving the first customer loop end to end.");
+        await formatInput.selectOption({ label: "Talk" });
         await publicPage.getByRole("combobox", { name: "Track", exact: true }).selectOption({ label: "Main Stage" });
         await publicPage.getByRole("button", { name: /^continue$/i }).click();
 
@@ -387,13 +390,15 @@ test.describe("self-service signup to first value", () => {
     });
 
     await test.step("the organizer sees the first proposal arrive", async () => {
-      const submissions = await queryRows<{ id: string; code: number; status: string }>(`
-        SELECT id, code, status
-        FROM submissions
-        WHERE event_id = $1 AND form_id = $2 AND title = $3
+      const submissions = await queryRows<{ id: string; code: number; status: string; format_name: string | null }>(`
+        SELECT submission.id, submission.code, submission.status, format.name AS format_name
+        FROM submissions submission
+        LEFT JOIN session_formats format ON format.id = submission.format_id
+        WHERE submission.event_id = $1 AND submission.form_id = $2 AND submission.title = $3
       `, [eventId, formId, proposalTitle]);
       expect(submissions).toHaveLength(1);
       expect(submissions[0]?.status).toBe("submitted");
+      expect(submissions[0]?.format_name).toBe("Talk");
       expect(`SESS-${submissions[0]?.code}`).toBe(submissionCode);
 
       await page.goto(`/events/${eventId}/dashboard`);
