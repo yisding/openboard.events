@@ -314,7 +314,7 @@ describe("organization tenancy (M43)", () => {
         // The owner is an event member of both legacy events and a member of
         // the default organization; Fleet B is not theirs, but Legacy B still
         // is — via `event_members`, which is what `requireAdmin` reads.
-        expect((await listEventsIn(db, ownerUserId)).map((event) => [event.slug, event.role]).sort()).toEqual([
+        expect((await listEventsIn(db, ownerUserId, new Date("2026-09-16T12:00:00.000Z"))).map((event) => [event.slug, event.role])).toEqual([
           ["legacy-a", "reviewer"],
           ["legacy-b", "owner"],
         ]);
@@ -328,6 +328,30 @@ describe("organization tenancy (M43)", () => {
       } finally {
         await assignEventToOrganizationIn(db, legacyEventB, DEFAULT_ORGANIZATION_ID);
         await pglite.query("DELETE FROM organizations WHERE id IN ($1,$2)", [orgA.id, orgB.id]);
+      }
+    });
+
+    it("orders past actionable events newest-first instead of leading with stale work", async () => {
+      await pglite.query(
+        "UPDATE events SET starts_at='2025-01-01T12:00:00Z',ends_at='2025-01-02T12:00:00Z' WHERE id=$1",
+        [legacyEventA],
+      );
+      await pglite.query(
+        "UPDATE events SET starts_at='2026-06-01T12:00:00Z',ends_at='2026-06-02T12:00:00Z' WHERE id=$1",
+        [legacyEventB],
+      );
+      try {
+        expect((await listEventsIn(db, ownerUserId, new Date("2026-08-13T12:00:00.000Z"))).map((event) => event.slug))
+          .toEqual(["legacy-b", "legacy-a"]);
+      } finally {
+        await pglite.query(
+          "UPDATE events SET starts_at='2026-09-15T16:00:00Z',ends_at='2026-09-17T01:00:00Z' WHERE id=$1",
+          [legacyEventA],
+        );
+        await pglite.query(
+          "UPDATE events SET starts_at='2026-10-15T16:00:00Z',ends_at='2026-10-17T01:00:00Z' WHERE id=$1",
+          [legacyEventB],
+        );
       }
     });
 

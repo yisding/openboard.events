@@ -15,8 +15,9 @@ export default async function Page() {
   const identity = await getAdminSession();
   if (!identity) redirect("/login?next=%2Fevents");
 
+  const now = new Date();
   const [events, memberships] = await Promise.all([
-    listEvents(identity.userId),
+    listEvents(identity.userId, now),
     listOrganizationsForUser(identity.userId),
   ]);
   const createHref = manageableOrganizations(memberships).length > 0
@@ -27,5 +28,6 @@ export default async function Page() {
     user={{ name: identity.name, email: identity.email }}
     createHref={createHref}
     hasOrganizations={memberships.length > 0}
+    nowIso={now.toISOString()}
   />;
 }
