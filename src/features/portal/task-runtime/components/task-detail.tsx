@@ -221,6 +221,7 @@ export function TaskDetailView({
               ))}
             <div className="form-stack" style={{ marginTop: 12 }}>
               <textarea
+                aria-label="Comment for organizers"
                 rows={2}
                 value={commentDraft}
                 onChange={(event) => setCommentDraft(event.target.value)}

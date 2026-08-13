@@ -227,7 +227,7 @@ export function TeamPanel({
       accessorKey: "role",
       meta: { className: "organization-member-role" },
       cell: ({ row }) => canManage
-        ? <Select value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
+        ? <Select aria-label={`Role for ${row.original.name || row.original.email}`} value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
             {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
           </Select>
         : <StatusBadge value={row.original.role} />,
