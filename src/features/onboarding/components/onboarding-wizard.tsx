@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { z } from "zod";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
@@ -24,6 +25,7 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
 ];
 const STEPS = ["Event details", "Tracks", "First form", "Share"] as const;
 const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
+const deletedSchema = z.object({ deleted: z.boolean() });
 const FIELD_IDS: Record<string, string> = {
   name: "onboarding-event-name",
   slug: "onboarding-event-slug",
@@ -184,6 +186,7 @@ export function OnboardingWizard({
   const [tracks, setTracks] = useState<TrackDTO[]>(initialState?.tracks ?? []);
   const [trackName, setTrackName] = useState("");
   const [addingTrack, setAddingTrack] = useState(false);
+  const [removingTrackId, setRemovingTrackId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
 
   // Step 3 — first form
@@ -248,7 +251,7 @@ export function OnboardingWizard({
   }
 
   async function addTrack(candidateName: string, color: string) {
-    if (!event || !candidateName.trim() || addingTrack) return;
+    if (!event || !candidateName.trim() || addingTrack || removingTrackId) return;
     if (tracks.some((track) => track.name.toLowerCase() === candidateName.trim().toLowerCase())) return;
     setAddingTrack(true);
     try {
@@ -265,8 +268,30 @@ export function OnboardingWizard({
     }
   }
 
+  async function removeTrack(track: TrackDTO) {
+    if (!event || addingTrack || removingTrackId) return;
+    const originalIndex = tracks.findIndex((candidate) => candidate.id === track.id);
+    if (originalIndex < 0) return;
+    setRemovingTrackId(track.id);
+    setTracks((current) => current.filter((candidate) => candidate.id !== track.id));
+    try {
+      await api(`events/${event.id}/vocab/tracks/${track.id}`, deletedSchema, { method: "DELETE" });
+      toast(`${track.name} removed`);
+    } catch (caught) {
+      setTracks((current) => {
+        if (current.some((candidate) => candidate.id === track.id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(originalIndex, restored.length), 0, track);
+        return restored;
+      });
+      toast(isAppError(caught) ? caught.message : "That track could not be removed", { kind: "error" });
+    } finally {
+      setRemovingTrackId(null);
+    }
+  }
+
   async function continueToForm() {
-    if (!event || advancing) return;
+    if (!event || advancing || addingTrack || removingTrackId) return;
     setAdvancing(true);
     try {
       await requestData(`/api/internal/organizations/${organizationId}/onboarding/event`, {
@@ -438,7 +463,7 @@ export function OnboardingWizard({
           {remainingSuggestions.length > 0 && (
             <div className="chip-picker">
               {remainingSuggestions.map((suggestion) => (
-                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
+                <button key={suggestion.name} type="button" className="chip" disabled={addingTrack || Boolean(removingTrackId)} onClick={() => void addTrack(suggestion.name, suggestion.color)}>
                   <Plus size={12} /> {suggestion.name}
                 </button>
               ))}
@@ -446,7 +471,18 @@ export function OnboardingWizard({
           )}
           {tracks.length > 0 && (
             <ul className="onboarding-track-list">
-              {tracks.map((track) => <li key={track.id}><i style={{ background: track.color }} />{track.name}</li>)}
+              {tracks.map((track) => <li key={track.id}>
+                <span><i style={{ background: track.color }} />{track.name}</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Remove ${track.name}`}
+                  disabled={addingTrack || Boolean(removingTrackId)}
+                  onClick={() => void removeTrack(track)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </li>)}
             </ul>
           )}
           <Field label="Add a custom track" hint="Optional — press Enter or click Add">
@@ -458,8 +494,8 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
-            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack}><Plus size={16} /> Add track</Button>
-            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
+            <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(removingTrackId)}><Plus size={16} /> Add track</Button>
+            <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(removingTrackId)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
         </div>
       )}

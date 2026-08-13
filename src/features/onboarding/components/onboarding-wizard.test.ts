@@ -44,8 +44,15 @@ describe("onboarding organization access", () => {
     expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced">');
   });
 
-  it("does not advance while a custom track is still being saved", () => {
-    expect(wizard).toContain("disabled={advancing || addingTrack}");
+  it("does not advance while a track mutation is still being saved", () => {
+    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId)}");
+  });
+
+  it("lets users remove an accidental track without leaving onboarding and restores failed deletes", () => {
+    expect(wizard).toContain('aria-label={`Remove ${track.name}`}');
+    expect(wizard).toContain('api(`events/${event.id}/vocab/tracks/${track.id}`, deletedSchema, { method: "DELETE" })');
+    expect(wizard).toContain("restored.splice(Math.min(originalIndex, restored.length), 0, track)");
+    expect(wizard).toContain("That track could not be removed");
   });
 
   it("makes the published handoff previewable and resilient to clipboard failure", () => {
@@ -132,6 +139,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain("Tracks help organize submissions");
     expect(html).toContain('aria-label="Event details, completed"');
     expect(html).toContain("AI");
+    expect(html).toContain('aria-label="Remove AI"');
     expect(html).not.toContain('id="onboarding-event-name"');
   });
 

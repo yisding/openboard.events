@@ -57,7 +57,9 @@ Deployed evidence — **automated, protected run outstanding**:
 6. Walk the full 4-step wizard (basics → vocabulary/tracks → default CFP form → shareable link) on
    the deployed preview as a freshly onboarded organization admin, then complete
    the generated CFP as a real OTP-authenticated speaker and see that proposal
-   arrive back in the organizer dashboard.
+   arrive back in the organizer dashboard. The spec also removes and re-adds a
+   suggested track in step 2, proving that accidental setup choices are
+   recoverable without leaving onboarding.
 7. Confirm the resulting public CFP link is reachable, hides empty optional
    vocabulary controls, accepts a real submission, returns its SESS reference,
    and produces the organizer's first-submission dashboard handoff.
