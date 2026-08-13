@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { EventsView } from "@/features/events/components/events-view";
 import { listEvents } from "@/features/events";
 import { getAdminSession } from "@/features/auth";
+import { eventCreationDestination, listOrganizationsForUser, manageableOrganizations } from "@/features/organizations";
 
 export const metadata: Metadata = { title: "Your events" };
 export const dynamic = "force-dynamic";
@@ -14,6 +15,12 @@ export default async function Page() {
   const identity = await getAdminSession();
   if (!identity) redirect("/login?next=%2Fevents");
 
-  const events = await listEvents(identity.userId);
-  return <EventsView events={events} user={{ name: identity.name, email: identity.email }} />;
+  const [events, memberships] = await Promise.all([
+    listEvents(identity.userId),
+    listOrganizationsForUser(identity.userId),
+  ]);
+  const createHref = manageableOrganizations(memberships).length > 0
+    ? eventCreationDestination(memberships)
+    : null;
+  return <EventsView events={events} user={{ name: identity.name, email: identity.email }} createHref={createHref} />;
 }

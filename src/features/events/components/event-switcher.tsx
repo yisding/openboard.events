@@ -31,10 +31,12 @@ export function EventSwitcher({
   eventId,
   initialEvent,
   demoEvents,
+  canCreateEvent,
 }: {
   eventId: EventId;
   initialEvent?: { name: string; detail: string };
   demoEvents?: SwitcherEvent[];
+  canCreateEvent: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [remoteEvents, setRemoteEvents] = useState<EventDTO[] | null>(null);
@@ -136,11 +138,11 @@ export function EventSwitcher({
             </Link>
           ))}
           <Link
-            href={demoEvents ? "/events" : "/events/new"}
+            href={demoEvents || !canCreateEvent ? "/events" : "/organizations?intent=create-event"}
             onClick={() => setOpen(false)}
             style={{ display: "block", marginTop: 6, padding: "8px 12px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 600, color: "var(--accent-dark)", textDecoration: "none" }}
           >
-            {demoEvents ? "All events" : "+ Create event"}
+            {demoEvents || !canCreateEvent ? "All events" : "+ Create event"}
           </Link>
         </div>
       )}

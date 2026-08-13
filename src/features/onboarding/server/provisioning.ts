@@ -3,7 +3,9 @@ import { db, type DbOrTx } from "@/db/client";
 import { events } from "@/db/schema";
 import { assertOrganizationCanCreateEventIn, incrementOrganizationUsageIn } from "@/features/billing";
 import { createEventIn, type CreateEventInput } from "@/features/events";
+import { getOrganizationMemberRoleIn, resolvePrimaryOrganizationIn } from "@/features/organizations";
 import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
+import { AppError } from "@/shared/lib/errors";
 import type { EventDTO, OrganizationId, UserId } from "@/shared/contracts";
 import { startOrganizationOnboardingIn } from "./progress";
 
@@ -52,3 +54,27 @@ export const provisionOrganizationEvent = (
   organizationId: OrganizationId,
   input: CreateEventInput,
 ): Promise<EventDTO> => provisionOrganizationEventIn(db, actorUserId, organizationId, input);
+
+/**
+ * Compatibility entry for the legacy organization-blind events endpoint.
+ * Organization members still receive the full guided provisioning path —
+ * including role and plan checks — while a hand-bootstrapped administrator
+ * with no organization keeps the original single-tenant bootstrap behavior.
+ */
+export async function provisionEventForActorIn(
+  dbOrTx: DbOrTx,
+  actorUserId: UserId,
+  input: CreateEventInput,
+): Promise<EventDTO> {
+  const organizationId = await resolvePrimaryOrganizationIn(dbOrTx, actorUserId);
+  if (!organizationId) return createEventIn(dbOrTx, actorUserId, input);
+
+  const role = await getOrganizationMemberRoleIn(dbOrTx, organizationId, actorUserId);
+  if (role !== "owner" && role !== "organizer") {
+    throw new AppError("FORBIDDEN", "Only organization organizers can create events");
+  }
+  return provisionOrganizationEventIn(dbOrTx, actorUserId, organizationId, input);
+}
+
+export const provisionEventForActor = (actorUserId: UserId, input: CreateEventInput): Promise<EventDTO> =>
+  provisionEventForActorIn(db, actorUserId, input);

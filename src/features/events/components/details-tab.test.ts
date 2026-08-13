@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { fixtureEvent } from "../fixtures";
 import {
+  eventDetailsDraftFrom,
   eventDetailsValidationErrors,
   eventSlugValidationError,
   focusDetailsError,
   focusDetailsNotice,
+  incomingEventDetailsAction,
+  isEventDetailsDraftDirty,
   STALE_NOTICE_A11Y,
 } from "./details-tab";
 
@@ -47,5 +52,51 @@ describe("event details slug validation", () => {
     focusDetailsNotice({ current: { focus } }, schedule);
     expect(schedule).toHaveBeenCalledOnce();
     expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it("compares every organizer-editable detail against the saved baseline", () => {
+    const baseline = eventDetailsDraftFrom(fixtureEvent);
+    expect(isEventDetailsDraftDirty({ ...baseline }, baseline)).toBe(false);
+    expect(isEventDetailsDraftDirty({ ...baseline, name: "A better event name" }, baseline)).toBe(true);
+    expect(isEventDetailsDraftDirty({ ...baseline, physicalAddress: "123 Main St" }, baseline)).toBe(true);
+    expect(isEventDetailsDraftDirty({ ...baseline, timezone: "UTC" }, baseline)).toBe(true);
+  });
+
+  it("distinguishes safe version advances from incoming detail replacements", () => {
+    const baseline = eventDetailsDraftFrom(fixtureEvent);
+    const dirty = { ...baseline, name: "My unsaved name" };
+    const incoming = { ...baseline, location: "A newer saved venue" };
+
+    expect(incomingEventDetailsAction({ draft: dirty, baseline, incoming: baseline })).toBe("advance-version");
+    expect(incomingEventDetailsAction({ draft: baseline, baseline, incoming })).toBe("replace-pristine");
+    expect(incomingEventDetailsAction({ draft: dirty, baseline, incoming })).toBe("defer-dirty");
+  });
+
+  it("guards page and button-driven tab exits, while stale recovery preserves the draft until confirmation", () => {
+    const details = readFileSync(new URL("./details-tab.tsx", import.meta.url), "utf8");
+    const shell = readFileSync(new URL("./settings-shell.tsx", import.meta.url), "utf8");
+
+    expect(details).toContain("useUnsavedWorkGuard(dirty)");
+    expect(details).toContain("if (dirty) setConfirmingLoadLatest(true)");
+    expect(details).toContain('title="Load the latest event details?"');
+    expect(details).toContain('confirmLabel="Load latest"');
+    expect(details).toContain("const latest = await api(`events/${event.id}`, eventDtoSchema)");
+    expect(details).toContain("replaceWith(latest)");
+    expect(details).not.toContain("router.refresh()");
+
+    expect(shell).toContain("event.rowVersion > saved.rowVersion ? event : saved");
+    expect(shell).toContain("runGuarded(() => allowNextNavigation(() => {");
+    expect(shell).toContain("router.push(href, { scroll: false })");
+    expect(shell).toContain("{ destination: href }");
+  });
+
+  it("advances branding-only versions without overwriting a details draft", () => {
+    const source = readFileSync(new URL("./details-tab.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('if (action === "advance-version") {');
+    expect(source).toContain("setSourceEvent(event);");
+    expect(source).toContain('if (action === "replace-pristine") {');
+    expect(source).toContain("setDraft(incoming);");
+    expect(source).toContain("expectedRowVersion: sourceEvent.rowVersion");
   });
 });
