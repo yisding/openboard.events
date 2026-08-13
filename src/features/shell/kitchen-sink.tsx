@@ -8,6 +8,7 @@ import { ColorChip } from "@/shared/ui/app/color-chip";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable, nullsLast } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
+import { FirstRunHints, Hint, resetHints } from "@/shared/ui/app/first-run-hints";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 
@@ -28,6 +29,10 @@ type DemoRow = {
    This is a DataTable, so it takes the neutral path — and a showcase route
    that demonstrated the wrong one would teach the wrong rule. */
 const TRACKS = [{ label: "Agents" }, { label: "Evals" }, { label: "Infra" }];
+
+/* Own scope and ids, so acknowledging the demo never touches the admin
+   shell's real first-run beacons (and vice versa). */
+const HINT_IDS: readonly string[] = ["kitchen-sink:demo"];
 
 // 25 rows, matching seed volume. Every third row has no rating and every fifth
 // has no track, so the dash and the nulls-last comparator are both visible.
@@ -99,6 +104,23 @@ export function KitchenSink() {
           <TzTime instant="2026-09-15T16:00:00Z" tz={TIMEZONE} style="long" /> — always with its zone
           label, because the reader is rarely in the event&apos;s zone.
         </p>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 className="section-title">First-run hints</h2>
+        <p>
+          A pulsing beacon marks UI a first-time organizer may not have found yet. Clicking it opens a
+          tip card; <b>Got it</b> retires that beacon for this browser, <b>Skip all tips</b> retires the
+          whole scope. Acknowledged already? Reset brings the demo beacon back.
+        </p>
+        <FirstRunHints scope="kitchen-sink" ids={HINT_IDS}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <Hint id="kitchen-sink:demo" title="This is a first-run hint" body="It waits until clicked, never blocks the UI underneath, and shows exactly once per browser." placement="bottom">
+              <Button variant="secondary">A control with a tip</Button>
+            </Hint>
+            <Button variant="secondary" onClick={() => { resetHints("kitchen-sink", HINT_IDS); window.location.reload(); }}>Reset the demo hint</Button>
+          </div>
+        </FirstRunHints>
       </section>
 
       <section style={{ marginBottom: 32 }}>

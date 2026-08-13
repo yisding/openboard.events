@@ -341,8 +341,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .nav-group a.active svg { color: var(--accent-bright); }
 .nav-group a em { margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; background: var(--sidebar-line); border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-style: normal; color: var(--on-dark-muted); }
 .sidebar-bottom { border-top: 1px solid rgba(255,255,255,.07); padding: 8px 12px 12px; }
-.sidebar-bottom > a { height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 7px; color: var(--on-dark-faint); font-size: 12.5px; }
-.sidebar-bottom > a:hover { color: var(--on-fill); background: rgba(255,255,255,.05); }
+/* Descendant, not child: the "View public event" row is wrapped in a
+   first-run `Hint` anchor and must keep its chrome inside that span. */
+.sidebar-bottom a { height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 7px; color: var(--on-dark-faint); font-size: 12.5px; }
+.sidebar-bottom a:hover { color: var(--on-fill); background: rgba(255,255,255,.05); }
 .sidebar-user { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.07); padding: 12px 8px 2px; display: grid; grid-template-columns: 32px 1fr 20px; align-items: center; gap: 8px; }
 /* Light chip inside the dark sidebar, so the text is deep jade, not the
    --accent-bright used elsewhere on the sidebar's own dark surface. */
@@ -2006,7 +2008,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   /* The sidebar's "View public event" row is authored at a fixed 34px and is
      reachable at this width (the mobile sidebar is a full-screen overlay), so
      it needs the floor like every other row in that overlay. */
-  .sidebar-bottom > a { min-height: 44px; }
+  .sidebar-bottom a { min-height: 44px; }
   .landing-links > a, .portal-site-footer div div a,
   .portal-task-card.completed > button { min-width: 44px; min-height: 44px; }
   .portal-session-card > a::before { width: 44px; height: 44px; }
@@ -2047,6 +2049,9 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+  /* The global rule collapses durations but not delays, which would leave a
+     staggered hint beacon invisible for its whole entrance delay. */
+  .hint-beacon{animation:none}
 }
 
 /* ---------------------------------------------------------------------------
@@ -2228,6 +2233,37 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .embed-install-section footer{display:grid}
   .embed-install-section footer .button{width:100%}
 }
+
+/* ---------------------------------------------------------------------------
+   First-run hints — `FirstRunHints`/`Hint` in shared/ui/app. A beacon is a
+   small jade dot with a slow pulse and a springy staggered entrance; the tip
+   card is a fixed-position popover portalled to <body>, so no sidebar
+   overflow or topbar backdrop-filter can clip or re-root it. The dot is
+   --accent-bright with a translucent white ring: bright enough to register
+   on the dark sidebar, ringed so it separates from the light topbar too. */
+.hint-anchor { position: relative; display: inline-flex; }
+.hint-anchor-block { display: block; }
+.hint-beacon { position: absolute; top: -6px; right: -6px; z-index: 5; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; animation: hint-beacon-in .5s cubic-bezier(.34, 1.56, .64, 1) backwards; }
+.hint-beacon i { position: relative; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-bright); box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); transition: transform .15s; }
+.hint-beacon i::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--accent-bright); animation: hint-pulse 2.6s ease-out infinite; }
+.hint-beacon:hover i { transform: scale(1.2); }
+.hint-beacon:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Contextual nudges: beacons sit centred on 34–36px sidebar rows rather than
+   overlapping the row above, and inside the event switcher's own margins. */
+.hint-on-nav .hint-beacon { top: 6px; right: 6px; }
+.hint-on-switcher .hint-beacon { top: 8px; right: 6px; }
+@keyframes hint-beacon-in { from { opacity: 0; transform: scale(0); } }
+@keyframes hint-pulse { 0% { transform: scale(.55); opacity: .9; } 70%, 100% { transform: scale(1.8); opacity: 0; } }
+.hint-pop { position: fixed; z-index: 120; width: 264px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
+.hint-pop-eyebrow { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-dark); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+.hint-pop b { display: block; margin-top: 5px; font-size: 13px; }
+.hint-pop p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.hint-pop-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.hint-pop-confirm { border: 0; border-radius: 7px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; cursor: pointer; }
+.hint-pop-confirm:hover { background: var(--accent-hover); }
+.hint-pop-confirm:focus-visible, .hint-pop-skip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.hint-pop-skip { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 2px; cursor: pointer; }
+.hint-pop-skip:hover { color: var(--ink); text-decoration: underline; }
 
 /* ---------------------------------------------------------------------------
    Easter eggs — the emoji-rain overlay (palette pandas, Konami code) and the
