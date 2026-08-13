@@ -15,5 +15,5 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
     getBuilderEvent(parsedEventId),
     getFormForBuilder(parsedEventId, parsedFormId, "cfp"),
   ]);
-  return <OrganizerFormPreview event={event} form={form} />;
+  return <OrganizerFormPreview event={event} form={form} nowIso={new Date().toISOString()} />;
 }

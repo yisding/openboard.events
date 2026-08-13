@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FilePlus2 } from "lucide-react";
+import { SavedFormActions } from "@/features/forms/components/saved-form-actions";
 import { StatusBadge } from "@/shared/ui/ui-kit";
 import { daysToEvent, formatInZone } from "@/shared/lib/time";
 import type { DashboardOverview } from "../index";
@@ -37,9 +38,17 @@ export function FormProgressCards({ eventId, eventSlug, timezone, forms }: { eve
       <header><div><b>{form.name}</b><span>{availabilityLabel(form, timezone)}</span></div><StatusBadge value={form.availability} /></header>
       <dl><div><dt>Submitted</dt><dd>{form.submitted}</dd></div><div><dt>Drafts</dt><dd>{form.drafts}</dd></div></dl>
       <footer>
-        {form.availability === "live"
-          ? <Link className="button button-secondary button-sm" href={`/submit/${eventSlug}/${form.formId}`} target="_blank" rel="noreferrer" aria-label={`Open live form: ${form.name} (opens in a new tab)`}>Open live form</Link>
-          : <Link className="button button-secondary button-sm" href={`/events/${eventId}/forms/${form.formId}/preview`} target="_blank" rel="noreferrer" aria-label={`Preview form: ${form.name} (opens in a new tab)`}>Preview</Link>}
+        <SavedFormActions
+          availability={form.availability}
+          eventSlug={eventSlug}
+          formId={form.formId}
+          formName={form.name}
+          status={form.status}
+          opensAt={form.opensAt}
+          closesAt={form.closesAt}
+          previewHref={`/events/${eventId}/forms/${form.formId}/preview`}
+          compact
+        />
         <Link className="button button-primary button-sm" href={`/events/${eventId}/forms/${form.formId}`}>Manage</Link>
       </footer>
     </article>)}</div>
