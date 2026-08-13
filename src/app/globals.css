@@ -1655,6 +1655,19 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .auth-consent input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
 .auth-consent a{color:var(--accent-dark);font-weight:600;text-decoration:underline;text-underline-offset:2px}
 
+/* Accepted abstracts use explicit checkbox rows so organizers can promote a
+   bounded selection in one request without losing the compact agenda tray. */
+.accepted-tray>.accepted-tray-heading{min-height:18px;display:flex;grid-template-columns:none;align-items:center;justify-content:space-between;border:0;color:var(--muted);font-size:10px;font-weight:600}
+.accepted-tray-heading>span:last-child{min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--fill-strong);display:grid;place-items:center}
+.accepted-tray>.accepted-tray-actions{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:4px;align-items:center;border:0;margin:8px 0}
+.accepted-tray-actions .button{width:100%;height:32px;min-width:0;padding-inline:6px}
+.accepted-tray>.accepted-tray-list{min-height:0;display:grid;grid-template-columns:1fr;gap:0;align-items:stretch;border:0}
+.accepted-tray-row{min-height:48px;display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:center;border-bottom:1px solid var(--line);cursor:pointer}
+.accepted-tray-row input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.accepted-tray-row small,.accepted-tray-row b{display:block}.accepted-tray-row small{color:var(--muted);font-size:10px}.accepted-tray-row b{font-size:10px;line-height:1.4;margin-top:2px}
+.accepted-tray>.accepted-tray-feedback{min-height:0;display:block;grid-template-columns:none;align-items:normal;border:1px solid var(--red-border);padding:8px;border-radius:7px;background:var(--red-soft);color:var(--red);font-size:10px}
+.accepted-tray-feedback b{font-size:10px}.accepted-tray-feedback ul{margin:6px 0 0;padding-left:16px}.accepted-tray-feedback li+li{margin-top:4px}
+
 @media(max-width:768px){
   /* The hosted event nav is the only route switcher on public pages. Preserve
      it as a horizontally scrollable, 44px-high tab row on phones. */
@@ -1762,6 +1775,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .accepted-tray>div{min-width:180px;min-height:72px;padding:8px;grid-template-columns:1fr 44px;border:1px solid var(--line);border-radius:7px}
   .accepted-tray>p{min-width:180px;margin:0;align-self:center}
   .accepted-tray button{width:44px;height:44px}
+  .accepted-tray>.accepted-tray-heading{width:96px;min-width:96px;min-height:72px;padding:0;border:0;align-content:center;flex-wrap:wrap}
+  .accepted-tray>.accepted-tray-actions{min-width:180px;min-height:72px;margin:0;padding:8px;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:7px}
+  .accepted-tray>.accepted-tray-list{min-width:0;min-height:72px;padding:0;display:flex;grid-template-columns:none;gap:8px;border:0}
+  .accepted-tray-row{min-width:180px;min-height:72px;padding:8px;border:1px solid var(--line);border-radius:7px}
+  .accepted-tray>.accepted-tray-feedback{min-width:220px;min-height:72px;align-content:center}
+  .accepted-tray .button{width:auto;height:auto;min-height:44px}
 }
 
 @media(max-width:480px){

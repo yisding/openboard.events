@@ -5,10 +5,13 @@ import {
   contactIdSchema,
   formatIdSchema,
   idem,
+  MAX_BULK_AGENDA_PROMOTIONS,
   roomIdSchema,
   sessionIdSchema,
   sessionStatusSchema,
   trackIdSchema,
+  type AgendaPromotionResultItem,
+  type BulkAgendaPromotionResult,
   type ConflictDTO,
   type ContactId,
   type EventId,
@@ -686,12 +689,12 @@ export async function promoteSubmissionIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   submissionId: SubmissionId,
-): Promise<{ sessionId: SessionId }> {
+): Promise<{ sessionId: SessionId; outcome: "created" | "already_existed" }> {
   const existing = await dbOrTx.execute<{ id: string }>(sql`
     SELECT id FROM sessions WHERE submission_id = ${submissionId} AND event_id = ${eventId}
   `);
   const already = (existing.rows ?? [])[0];
-  if (already) return { sessionId: already.id as SessionId };
+  if (already) return { sessionId: already.id as SessionId, outcome: "already_existed" };
 
   const source = await dbOrTx.execute<{
     id: string; title: string; description_html: string | null; track_id: string | null; format_id: string | null;
@@ -765,7 +768,7 @@ export async function promoteSubmissionIn(
         await assertWithinEventBounds(dbOrTx, eventId, startsAt, endsAt);
         throw new AppError("INTERNAL", "The session could not be created");
       }
-      return { sessionId: sessionId as SessionId };
+      return { sessionId: sessionId as SessionId, outcome: "created" };
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       // A racing promotion of the *same* submission wins on `submission_id`;
@@ -774,7 +777,7 @@ export async function promoteSubmissionIn(
         SELECT id FROM sessions WHERE submission_id = ${submissionId} AND event_id = ${eventId}
       `);
       const winner = (raced.rows ?? [])[0];
-      if (winner) return { sessionId: winner.id as SessionId };
+      if (winner) return { sessionId: winner.id as SessionId, outcome: "already_existed" };
     }
   }
   throw new AppError("CONFLICT", "Could not find a free URL for that title — rename the abstract");
@@ -782,6 +785,55 @@ export async function promoteSubmissionIn(
 
 export const promoteSubmission = (eventId: EventId, submissionId: SubmissionId) =>
   promoteSubmissionIn(db, eventId, submissionId);
+
+/**
+ * Promote independent accepted abstracts without turning one bad row into an
+ * all-or-nothing batch. Each write retains `promoteSubmissionIn`'s unique-key
+ * idempotency; deterministic row rejections are returned beside successes,
+ * while an unknown failure aborts the response so the client treats every
+ * unreported row as unconfirmed and safely retries after refreshing.
+ */
+export async function bulkPromoteSubmissionsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  submissionIds: readonly SubmissionId[],
+): Promise<BulkAgendaPromotionResult> {
+  if (submissionIds.length === 0 || submissionIds.length > MAX_BULK_AGENDA_PROMOTIONS) {
+    throw new AppError("VALIDATION", `Select between 1 and ${MAX_BULK_AGENDA_PROMOTIONS} abstracts`);
+  }
+  if (new Set(submissionIds).size !== submissionIds.length) {
+    throw new AppError("VALIDATION", "Each abstract may only be selected once");
+  }
+
+  const results: AgendaPromotionResultItem[] = [];
+  for (const submissionId of submissionIds) {
+    try {
+      const promoted = await promoteSubmissionIn(dbOrTx, eventId, submissionId);
+      results.push({ submissionId, ...promoted });
+    } catch (error) {
+      if (error instanceof AppError && ["NOT_FOUND", "VALIDATION", "CONFLICT"].includes(error.code)) {
+        results.push({
+          submissionId,
+          outcome: "rejected",
+          code: error.code as "NOT_FOUND" | "VALIDATION" | "CONFLICT",
+          message: error.message,
+        });
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return {
+    results,
+    created: results.filter((row) => row.outcome === "created").length,
+    alreadyExisted: results.filter((row) => row.outcome === "already_existed").length,
+    rejected: results.filter((row) => row.outcome === "rejected").length,
+  };
+}
+
+export const bulkPromoteSubmissions = (eventId: EventId, submissionIds: readonly SubmissionId[]) =>
+  bulkPromoteSubmissionsIn(db, eventId, submissionIds);
 
 /**
  * Audited `withTx` path #8.

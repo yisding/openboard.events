@@ -39,6 +39,7 @@ const studio = roomIdSchema.parse("a8000000-0000-4000-8000-000000000021");
 const agentsTrack = trackIdSchema.parse("a8000000-0000-4000-8000-000000000030");
 const acceptedTalk = submissionIdSchema.parse("a8000000-0000-4000-8000-000000000040");
 const pendingTalk = submissionIdSchema.parse("a8000000-0000-4000-8000-000000000041");
+const batchTalk = submissionIdSchema.parse("a8000000-0000-4000-8000-000000000042");
 const organizer = userIdSchema.parse("a8000000-0000-4000-8000-000000000050");
 
 // The event runs 9am–6pm PT on 2026-09-15/16. Times below are written as UTC
@@ -67,7 +68,7 @@ vi.mock("@/db/client", async (importOriginal) => {
 });
 
 const {
-  bulkSetPublished, deleteSession, detectConflicts, getMySessions, getSchedulableSessions,
+  bulkPromoteSubmissions, bulkSetPublished, deleteSession, detectConflicts, getMySessions, getSchedulableSessions,
   listAgendaVocabulary, listSessionContentRevisions, listSessions, moveSession, promoteSubmission,
   restoreSessionContent, saveSession,
 } = await import("@/features/agenda");
@@ -148,6 +149,7 @@ describe("agenda sessions", () => {
 
   beforeEach(async () => {
     await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, session_content_revisions CASCADE");
+    await pglite.query("DELETE FROM submissions WHERE id=$1", [batchTalk]);
     await pglite.query(
       "UPDATE events SET starts_at='2026-09-15T16:00:00Z', ends_at='2026-09-17T01:00:00Z', row_version=1, updated_at=now() WHERE id IN ($1,$2)",
       [eventId, otherEventId],
@@ -645,6 +647,52 @@ describe("agenda sessions", () => {
       await promoteSubmission(eventId, acceptedTalk);
       const after = await getAcceptedForScheduling(eventId);
       expect(after[0]?.alreadyPromoted).toBe(true);
+    });
+
+    it("reports created, already-existing, and rejected batch rows independently", async () => {
+      await pglite.query(
+        "INSERT INTO submissions(id,event_id,code,title,status,submitted_at) VALUES($1,$2,3,'Batch candidate','accepted',now())",
+        [batchTalk, eventId],
+      );
+      const existing = await promoteSubmission(eventId, acceptedTalk);
+      expect(existing.outcome).toBe("created");
+
+      const result = await bulkPromoteSubmissions(eventId, [acceptedTalk, batchTalk, pendingTalk]);
+      expect(result).toMatchObject({ created: 1, alreadyExisted: 1, rejected: 1 });
+      expect(result.results).toEqual([
+        { submissionId: acceptedTalk, sessionId: existing.sessionId, outcome: "already_existed" },
+        expect.objectContaining({ submissionId: batchTalk, outcome: "created" }),
+        { submissionId: pendingTalk, outcome: "rejected", code: "VALIDATION", message: "Only accepted abstracts can be added to the agenda" },
+      ]);
+      expect(await count("sessions")).toBe(2);
+
+      const retry = await bulkPromoteSubmissions(eventId, [acceptedTalk, batchTalk]);
+      expect(retry).toMatchObject({ created: 0, alreadyExisted: 2, rejected: 0 });
+      expect(await count("sessions")).toBe(2);
+    });
+
+    it("keeps batch promotion event-scoped and bounded", async () => {
+      const wrongEvent = await bulkPromoteSubmissions(otherEventId, [acceptedTalk]);
+      expect(wrongEvent).toEqual({
+        results: [{ submissionId: acceptedTalk, outcome: "rejected", code: "NOT_FOUND", message: "Submission not found" }],
+        created: 0,
+        alreadyExisted: 0,
+        rejected: 1,
+      });
+      expect(await count("sessions")).toBe(0);
+      await expect(bulkPromoteSubmissions(eventId, [])).rejects.toMatchObject({ code: "VALIDATION" });
+      await expect(bulkPromoteSubmissions(eventId, [acceptedTalk, acceptedTalk])).rejects.toMatchObject({ code: "VALIDATION" });
+    });
+
+    it("converges concurrent batch retries on one linked session", async () => {
+      const [first, second] = await Promise.all([
+        bulkPromoteSubmissions(eventId, [acceptedTalk]),
+        bulkPromoteSubmissions(eventId, [acceptedTalk]),
+      ]);
+      expect([first.results[0]?.outcome, second.results[0]?.outcome].sort()).toEqual(["already_existed", "created"]);
+      expect(first.results[0]?.outcome === "rejected" ? null : first.results[0]?.sessionId)
+        .toBe(second.results[0]?.outcome === "rejected" ? null : second.results[0]?.sessionId);
+      expect(await count("sessions")).toBe(1);
     });
   });
 

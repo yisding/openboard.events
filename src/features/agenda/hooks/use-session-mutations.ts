@@ -3,7 +3,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
-import { scheduledSessionDtoSchema, type EventId, type SessionId, type SubmissionId } from "@/shared/contracts";
+import {
+  bulkAgendaPromotionResultSchema,
+  scheduledSessionDtoSchema,
+  type EventId,
+  type SessionId,
+  type SubmissionId,
+} from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { agendaKeys } from "./keys";
 
@@ -71,6 +77,15 @@ export function useSessionMutations(eventId: EventId) {
     onSuccess: settle,
   });
 
+  const promoteBatch = useMutation({
+    mutationFn: (submissionIds: SubmissionId[]) =>
+      api(`agenda/promote/bulk?eventId=${eventId}`, bulkAgendaPromotionResultSchema, { method: "POST", body: { submissionIds } }),
+    // A lost/5xx response can follow earlier committed rows in this deliberately
+    // non-transactional batch. Refresh exactly once either way; the unique
+    // submission link makes every still-visible row safe to retry.
+    onSettled: settle,
+  });
+
   // M52 — restore an earlier content revision as the session's current
   // title/description. Same settle rule as every other write here.
   const restoreContent = useMutation({
@@ -79,5 +94,5 @@ export function useSessionMutations(eventId: EventId) {
     onSuccess: settle,
   });
 
-  return { save, remove, setPublished, promote, restoreContent };
+  return { save, remove, setPublished, promote, promoteBatch, restoreContent };
 }

@@ -6,6 +6,7 @@ import {
   SUBMISSION_STATUSES,
   TASK_FANOUT_RULE,
   TEMPLATE_KEYS,
+  bulkAgendaPromotionResultSchema,
   cleanAnswersSchema,
   contactIdSchema,
   eventIdSchema,
@@ -53,6 +54,19 @@ describe("frozen contracts", () => {
     };
     expect(cleanAnswersSchema.safeParse([duplicate, duplicate]).success).toBe(false);
     expect(cleanAnswersSchema.safeParse([duplicate, { ...duplicate, participantId: "participant-2" }]).success).toBe(true);
+  });
+
+  it("keeps bulk agenda promotion counters tied to per-row truth", () => {
+    const submissionId = submissionIdSchema.parse("00000000-0000-4000-8000-000000000111");
+    const sessionId = "00000000-0000-4000-8000-000000000222";
+    const result = {
+      results: [{ submissionId, sessionId, outcome: "created" }],
+      created: 1,
+      alreadyExisted: 0,
+      rejected: 0,
+    };
+    expect(bulkAgendaPromotionResultSchema.safeParse(result).success).toBe(true);
+    expect(bulkAgendaPromotionResultSchema.safeParse({ ...result, created: 0 }).success).toBe(false);
   });
 
   it("keeps task resources and completion metadata coherent", () => {
