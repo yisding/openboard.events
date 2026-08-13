@@ -88,6 +88,10 @@ beforeEach(() => {
   apiMock.mockReset();
   window.sessionStorage.clear();
   window.localStorage.clear();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: { request: async (_name: string, _options: unknown, callback: (lock: object) => unknown) => callback({}) },
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
