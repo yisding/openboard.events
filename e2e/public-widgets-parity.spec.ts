@@ -523,6 +523,10 @@ test.describe("public-widgets-parity (M53)", () => {
         // not re-rendered on every visitor — the M53 caching-regression fix
         // (status.md rev. 11) is what makes the second assertion here possible
         // at all; the embed used to be `private, no-cache` on every request.
+        const healthResponse = await page.request.get("/api/health");
+        expect(healthResponse.ok(), `/api/health → ${healthResponse.status()}`).toBe(true);
+        const health = await healthResponse.json() as { sha?: string };
+        expect(health.sha, "health must identify the deployed build").toBeTruthy();
         for (const [label, url] of [["direct", SURFACES.agenda], ["embed", `/embed/${SLUG}/agenda`]] as const) {
           await test.step(`the ${label} agenda page is edge-cacheable`, async () => {
             await expect(async () => {
@@ -531,6 +535,7 @@ test.describe("public-widgets-parity (M53)", () => {
               const nextCache = (headers["x-nextjs-cache"] ?? "").toLowerCase();
               const fresh = (headers["cache-control"] ?? "").includes("s-maxage=") || nextCache === "hit";
               expect(fresh, `${url} never became freshly edge-cached (last state: ${nextCache || "none"})`).toBe(true);
+              expect(await response.text()).toContain(`data-openboard-build="${health.sha}"`);
             }).toPass({ timeout: 60_000, intervals: [5_000] });
           });
         }

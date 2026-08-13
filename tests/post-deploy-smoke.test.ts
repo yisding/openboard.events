@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("post-deploy smoke retries", () => {
-  it("retries an early failure and STALE response until OpenNext reports HIT", () => {
+  it("rejects old cached HTML until the deployed build regenerates it", () => {
     const scratch = join(homedir(), "Code");
     mkdirSync(scratch, { recursive: true });
     const root = mkdtempSync(join(scratch, "openboard-smoke-test-"));
@@ -38,8 +38,8 @@ extra=''
 # The surface map mirrors the deployed one after M53: /e/<slug>/agenda is the
 # canonical cached page, /e/<slug>/schedule is the legacy redirect, and the
 # embed reads its style from the saved row so it is edge-cached too. Both cached
-# surfaces open cold — a 503, then a STALE response with no Cache-Control,
-# before regeneration succeeds and OpenNext reports HIT.
+# surfaces open cold — a 503, then STALE and HIT responses carrying the old
+# build marker — before regeneration succeeds and HIT carries the new marker.
 cold_then_cached() {
   local count_file="$SMOKE_FAKE_STATE/$1"
   local count=0
@@ -47,12 +47,19 @@ cold_then_cached() {
   count=$((count+1))
   echo "$count" > "$count_file"
   if (( count == 1 )); then status=503
-  elif (( count == 2 )); then extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
-  else extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
+  elif (( count == 2 )); then
+    extra="$extra"$'X-Nextjs-Cache: STALE\\r\\n'
+    payload='<span hidden data-openboard-build="old-build"></span>'
+  elif (( count == 3 )); then
+    extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
+    payload='<span hidden data-openboard-build="old-build"></span>'
+  else
+    extra="$extra"$'X-Nextjs-Cache: HIT\\r\\n'
+    payload='<span hidden data-openboard-build="new-build"></span>'
   fi
 }
 case "$url" in
-  */api/health) payload='{"ok":true,"errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
+  */api/health) payload='{"ok":true,"sha":"new-build","errors":{"ok":true,"windowSeconds":3600,"recentCount":0},"jobs":{"ok":true,"outboxLastSuccessAgeSeconds":30},"ms":1}' ;;
   */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
@@ -88,7 +95,7 @@ printf '%s' "$status"
     expect(result.stdout).toContain("ok    /api/auth/get-session");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
-    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("3");
-    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("3");
+    expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("4");
+    expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("4");
   });
 });
