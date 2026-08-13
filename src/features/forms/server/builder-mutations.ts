@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events, formFields, forms, formSections, formVersions, sessionFormats, tags, tracks } from "@/db/schema";
+import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import {
   COMMITTED_FIELD_TYPES,
   fieldIdSchema,
@@ -375,6 +376,36 @@ export async function updateFormWithAvailabilityReplayIn(
     if (current.status !== patch.status) throw error;
     return current;
   }
+}
+
+type FormUpdateTransaction = <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
+
+/**
+ * Commit the authoring operation before attempting its best-effort product
+ * signal. A caught PostgreSQL error still aborts its transaction, so the
+ * milestone must never share the authoring transaction it describes.
+ */
+export async function updateFormWithPostCommitSignalsIn(
+  database: DbOrTx,
+  runInTransaction: FormUpdateTransaction,
+  eventId: EventId,
+  formId: FormId,
+  patch: FormPatch,
+  expectedUpdatedAt: string,
+  availabilityReplay: boolean,
+): Promise<BuilderForm> {
+  const updated = await runInTransaction((tx) => updateFormWithAvailabilityReplayIn(
+    tx,
+    eventId,
+    formId,
+    patch,
+    expectedUpdatedAt,
+    availabilityReplay,
+  ));
+  if (patch.status === "open") {
+    await tryRecordEventOnboardingMilestoneIn(database, eventId, "form_published");
+  }
+  return updated;
 }
 
 export async function saveFormStep(

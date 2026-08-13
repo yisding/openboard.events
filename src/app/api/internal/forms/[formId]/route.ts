@@ -7,11 +7,10 @@ import {
   participantRoleSchema,
   submissionKindSchema,
 } from "@/shared/contracts";
-import { deleteFormIn, updateFormWithAvailabilityReplayIn } from "@/features/forms/server/builder-mutations";
+import { deleteFormIn, updateFormWithPostCommitSignalsIn } from "@/features/forms/server/builder-mutations";
 import { getFormForBuilder } from "@/features/forms/server/builder-queries";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { assertValidConfirmationTemplate, assertValidSubmissionLimit } from "@/features/forms/server/settings-mutations";
-import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import { db, withTx } from "@/db/client";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -70,22 +69,15 @@ const update = defineHandler({
     const formId = routeInput.parse(params).formId;
     assertValidSubmissionLimit(input.patch.submissionLimit);
     await assertValidConfirmationTemplate(db, parsedEventId, formId, input.patch);
-    const updated = await withTx((tx) => updateFormWithAvailabilityReplayIn(
-      tx,
+    return updateFormWithPostCommitSignalsIn(
+      db,
+      withTx,
       parsedEventId,
       formId,
       input.patch,
       input.expectedUpdatedAt,
       input.availabilityReplay === true,
-    ));
-    // Product telemetry is intentionally outside the authoring transaction.
-    // Catching a failed SQL statement inside a PostgreSQL transaction cannot
-    // make that transaction committable again, even when the JS helper catches
-    // the error. The idempotent signal runs only after authoring has committed.
-    if (input.patch.status === "open") {
-      await tryRecordEventOnboardingMilestoneIn(db, parsedEventId, "form_published");
-    }
-    return updated;
+    );
   },
 });
 

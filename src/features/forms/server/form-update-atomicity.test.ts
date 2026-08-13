@@ -4,9 +4,13 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { tryRecordEventOnboardingMilestoneIn } from "@/features/product-signals";
 import { eventIdSchema } from "@/shared/contracts";
-import { createFormIn, updateFormIn, updateFormWithAvailabilityReplayIn } from "./builder-mutations";
+import {
+  createFormIn,
+  updateFormIn,
+  updateFormWithAvailabilityReplayIn,
+  updateFormWithPostCommitSignalsIn,
+} from "./builder-mutations";
 import { getFormForBuilderIn } from "./builder-queries";
 
 const migrations = [
@@ -35,6 +39,10 @@ describe("atomic form authoring update", () => {
   }, 60_000);
 
   afterAll(async () => pg.close());
+
+  function runInTransaction<T>(work: (tx: DbOrTx) => Promise<T>): Promise<T> {
+    return database.transaction((tx) => work(tx as unknown as DbOrTx));
+  }
 
   it("rolls back availability, CAS metadata, and versions when snapshot persistence fails", async () => {
     const form = await createFormIn(database, eventId, {
@@ -68,13 +76,15 @@ describe("atomic form authoring update", () => {
     `);
 
     try {
-      await expect(database.transaction((tx) => updateFormIn(
-        tx as unknown as TxDb,
+      await expect(updateFormWithPostCommitSignalsIn(
+        database,
+        runInTransaction,
         eventId,
         form.id,
         { status: "open" },
         form.updatedAt,
-      ))).rejects.toThrow('Failed query: insert into "form_versions"');
+        false,
+      )).rejects.toThrow('Failed query: insert into "form_versions"');
 
       const afterForm = await pg.query<{
         status: string;
@@ -103,15 +113,6 @@ describe("atomic form authoring update", () => {
       kind: "abstract",
       collectParticipants: true,
     });
-    const opened = await database.transaction((tx) => updateFormWithAvailabilityReplayIn(
-      tx as unknown as TxDb,
-      eventId,
-      form.id,
-      { status: "open" },
-      form.updatedAt,
-      false,
-    ));
-
     await pg.exec(`
       CREATE FUNCTION fail_form_publication_milestone() RETURNS trigger AS $$
       BEGIN
@@ -127,7 +128,15 @@ describe("atomic form authoring update", () => {
     `);
 
     try {
-      await expect(tryRecordEventOnboardingMilestoneIn(database, eventId, "form_published")).resolves.toBe(false);
+      const opened = await updateFormWithPostCommitSignalsIn(
+        database,
+        runInTransaction,
+        eventId,
+        form.id,
+        { status: "open" },
+        form.updatedAt,
+        false,
+      );
       const stored = await pg.query<{
         status: string;
         row_version: number;

@@ -62,9 +62,10 @@ export type DbOrTx = typeof db | TxDb;
  * (`bulkSetPublished` in `src/features/agenda/server/mutations.ts`) likewise
  * commits every selected session and its speaker outbox rows together, so a
  * later enqueue failure cannot leave a partially notified publication batch.
- * Form PATCH authoring (`updateFormIn` in the internal form route) is
- * transactional as well: its CAS bump, public availability change, immutable
- * snapshot, and current-version pointer must never disagree.
+ * Form PATCH authoring (`updateFormWithPostCommitSignalsIn` in the internal
+ * form route) runs its CAS bump, public availability change, immutable
+ * snapshot, and current-version pointer transactionally before attempting its
+ * best-effort onboarding signal outside that transaction.
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).

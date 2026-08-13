@@ -13,6 +13,7 @@ import {
   reorderFieldsIn,
   updateFieldIn,
   updateFormIn,
+  updateFormWithPostCommitSignalsIn,
   updateSectionIn,
 } from "@/features/forms";
 import { eventIdSchema, formIdSchema, formSnapshotSchema } from "@/shared/contracts";
@@ -78,10 +79,19 @@ describe("database-backed form builder", () => {
 
   it("records only the first transition to an open form", async () => {
     const created = await createFormIn(database, eventId, { internalName: "Milestone CFP", kind: "abstract", collectParticipants: true });
+    const update = (status: "open" | "closed", expectedUpdatedAt: string) => updateFormWithPostCommitSignalsIn(
+      database,
+      (work) => database.transaction((tx) => work(tx as unknown as DbOrTx)),
+      eventId,
+      created.id,
+      { status },
+      expectedUpdatedAt,
+      false,
+    );
     try {
-      const opened = await updateFormIn(database, eventId, created.id, { status: "open" }, created.updatedAt);
-      const closed = await updateFormIn(database, eventId, created.id, { status: "closed" }, opened.updatedAt);
-      await updateFormIn(database, eventId, created.id, { status: "open" }, closed.updatedAt);
+      const opened = await update("open", created.updatedAt);
+      const closed = await update("closed", opened.updatedAt);
+      await update("open", closed.updatedAt);
 
       const milestones = await pglite.query<{ milestone: string; n: number }>(
         "SELECT milestone, count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='form_published' GROUP BY milestone",
