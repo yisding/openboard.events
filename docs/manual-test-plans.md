@@ -51,7 +51,7 @@ pnpm dev                           # http://localhost:3000
 > (tsx) run outside Next, where `getCloudflareContext()` throws and `getEnv()` falls back to bare
 > `process.env`. In a clean shell they see nothing: `drizzle.config.ts` gets an empty
 > `DATABASE_URL_DIRECT` and the seed fails with `DATABASE_URL is required`. Export the file, or pass
-> the two URLs inline on each command. (The same gap is in the README's quickstart.)
+> the two URLs inline on each command. (The same gap is in `docs/development.md`'s quickstart.)
 
 Then the admin accounts (`docs/admin-bootstrap.md` has the full flow), in the same exported shell:
 
