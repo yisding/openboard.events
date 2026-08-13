@@ -19,3 +19,15 @@ SET bio_html = regexp_replace(
   'i'
 ), updated_at = now()
 WHERE bio_html ~* '^((<p[^>]*>)?)((<strong[^>]*>)?E2E bio [0-9]+(</strong>)?[[:space:]]*)+';
+
+-- Both public-surface specs temporarily declined the deterministic Grace seed
+-- and, before teardown existed, left her out of the demo gallery. Repair only
+-- that exact seed row in that exact demo event; real declined speakers remain
+-- decisions, not cleanup candidates.
+UPDATE contacts AS speaker
+SET confirmation_status = 'confirmed', updated_at = now()
+FROM events AS event
+WHERE speaker.id = '8c33e03d-60c7-58ac-b4a6-2e56b80f829b'::uuid
+  AND speaker.event_id = event.id
+  AND event.slug = 'ai-engineer-sandbox-event'
+  AND speaker.confirmation_status = 'declined';
