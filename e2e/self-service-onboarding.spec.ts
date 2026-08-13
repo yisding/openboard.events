@@ -130,6 +130,19 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
+      const createdTrack = await queryRows<{ id: string }>(`
+        SELECT id FROM tracks WHERE event_id = (
+          SELECT event_id FROM event_onboarding_progress
+          WHERE organization_id = (
+            SELECT organization_id FROM organization_members om
+            JOIN users u ON u.id = om.user_id
+            WHERE lower(u.email) = lower($1)
+            ORDER BY om.created_at LIMIT 1
+          )
+          ORDER BY updated_at DESC LIMIT 1
+        ) AND name = 'Main Stage'
+      `, [SIGNUP_EMAIL]);
+      expect(createdTrack).toHaveLength(1);
       await page.getByRole("button", { name: "Remove Main Stage" }).click();
       await expect(page.getByRole("heading", { name: "Remove Main Stage?" })).toBeVisible();
       await page.getByRole("button", { name: "Remove track" }).click();

@@ -31,6 +31,13 @@ const UNIQUE_CONSTRAINTS: Record<VocabKind, string> = {
   tags: "tags_event_id_name_key",
 };
 
+const PRIMARY_KEY_CONSTRAINTS: Record<VocabKind, string> = {
+  tracks: "tracks_pkey",
+  rooms: "rooms_pkey",
+  formats: "session_formats_pkey",
+  tags: "tags_pkey",
+};
+
 type VocabDto = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 
 function toDto(kind: VocabKind, row: Record<string, unknown>): VocabDto {
@@ -51,23 +58,99 @@ async function nextSortOrder(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind):
 async function insertRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, input: VocabInput, sortOrder: number) {
   switch (kind) {
     case "tracks": {
-      const [row] = await dbOrTx.insert(tracks).values({ eventId, name: input.name, color: input.color ?? DEFAULT_BRAND_COLOR, description: input.description ?? null, sortOrder }).returning();
+      const [row] = await dbOrTx.insert(tracks).values({ id: input.id, eventId, name: input.name, color: input.color ?? DEFAULT_BRAND_COLOR, description: input.description ?? null, sortOrder }).returning();
       return row;
     }
     case "rooms": {
-      const [row] = await dbOrTx.insert(rooms).values({ eventId, name: input.name, capacity: input.capacity ?? null, sortOrder }).returning();
+      const [row] = await dbOrTx.insert(rooms).values({ id: input.id, eventId, name: input.name, capacity: input.capacity ?? null, sortOrder }).returning();
       return row;
     }
     case "formats": {
-      const [row] = await dbOrTx.insert(sessionFormats).values({ eventId, name: input.name, defaultDurationMins: input.defaultDurationMins ?? 30, sortOrder }).returning();
+      const [row] = await dbOrTx.insert(sessionFormats).values({ id: input.id, eventId, name: input.name, defaultDurationMins: input.defaultDurationMins ?? 30, sortOrder }).returning();
       return row;
     }
     case "tags": {
-      const [row] = await dbOrTx.insert(tags).values({ eventId, name: input.name }).returning();
+      const [row] = await dbOrTx.insert(tags).values({ id: input.id, eventId, name: input.name }).returning();
       return row;
     }
   }
 }
+
+async function findRowById(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string) {
+  switch (kind) {
+    case "tracks": {
+      const [row] = await dbOrTx.select().from(tracks).where(and(eq(tracks.id, id), eq(tracks.eventId, eventId))).limit(1);
+      return row;
+    }
+    case "rooms": {
+      const [row] = await dbOrTx.select().from(rooms).where(and(eq(rooms.id, id), eq(rooms.eventId, eventId))).limit(1);
+      return row;
+    }
+    case "formats": {
+      const [row] = await dbOrTx.select().from(sessionFormats).where(and(eq(sessionFormats.id, id), eq(sessionFormats.eventId, eventId))).limit(1);
+      return row;
+    }
+    case "tags": {
+      const [row] = await dbOrTx.select().from(tags).where(and(eq(tags.id, id), eq(tags.eventId, eventId))).limit(1);
+      return row;
+    }
+  }
+}
+
+function createRequestMatches(kind: VocabKind, row: Record<string, unknown>, input: VocabInput): boolean {
+  if (row.name !== input.name) return false;
+  switch (kind) {
+    case "tracks": return row.color === (input.color ?? DEFAULT_BRAND_COLOR) && row.description === (input.description ?? null);
+    case "rooms": return row.capacity === (input.capacity ?? null);
+    case "formats": return row.defaultDurationMins === (input.defaultDurationMins ?? 30);
+    case "tags": return true;
+  }
+}
+
+function recoveredCreate(kind: VocabKind, row: Record<string, unknown>, input: VocabInput): VocabDto {
+  if (!createRequestMatches(kind, row, input)) {
+    throw new AppError("CONFLICT", `A different ${VOCAB_LABELS[kind]} already uses that creation request`);
+  }
+  return toDto(kind, row);
+}
+
+/**
+ * Create-only vocabulary entry point. A caller-supplied id is a request
+ * correlation token, never an update instruction: replaying the same payload
+ * returns the original row, while reusing it for different content fails.
+ * This lets first-use onboarding retry a response-lost POST without producing
+ * a duplicate-name dead end or silently editing the committed track.
+ */
+export async function createVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, input: VocabInput): Promise<VocabDto> {
+  const strict = vocabInputSchemaFor(kind).parse(input);
+  if (strict.id) {
+    const existing = await findRowById(dbOrTx, eventId, kind, strict.id);
+    if (existing) return recoveredCreate(kind, existing as unknown as Record<string, unknown>, strict);
+  }
+
+  try {
+    const sortOrder = await nextSortOrder(dbOrTx, eventId, kind);
+    const row = await insertRow(dbOrTx, eventId, kind, strict, sortOrder);
+    if (!row) throw new AppError("INTERNAL", `Could not create the ${VOCAB_LABELS[kind]}`);
+    return toDto(kind, row);
+  } catch (error) {
+    if (strict.id) {
+      // PostgreSQL may report either the primary-key or per-event name index
+      // first when an exact replay collides with both. Correlate by id before
+      // classifying the constraint, then verify the full create payload.
+      const raced = await findRowById(dbOrTx, eventId, kind, strict.id);
+      if (raced) return recoveredCreate(kind, raced as unknown as Record<string, unknown>, strict);
+      if (isConstraintViolation(error, PRIMARY_KEY_CONSTRAINTS[kind])) {
+        throw new AppError("CONFLICT", `That ${VOCAB_LABELS[kind]} creation request is already in use`);
+      }
+    }
+    if (isConstraintViolation(error, UNIQUE_CONSTRAINTS[kind])) {
+      throw new AppError("VALIDATION", `A ${VOCAB_LABELS[kind]} named “${strict.name}” already exists`, { field: "name" });
+    }
+    throw error;
+  }
+}
+export const createVocabItem = (eventId: EventId, kind: VocabKind, input: VocabInput) => createVocabItemIn(db, eventId, kind, input);
 
 /** PATCHes write only the named columns. Apart from avoiding a needless read,
  * this makes two serialized field edits composable: a color/capacity save can

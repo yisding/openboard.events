@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
+import { createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -46,7 +46,7 @@ describe("onboarding organization access", () => {
   });
 
   it("does not advance while a track mutation is still being saved", () => {
-    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId) || Boolean(trackSyncError)}");
+    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}");
   });
 
   it("confirms destructive track removal and blocks progress while server state is ambiguous", () => {
@@ -349,6 +349,53 @@ describe("onboarding track deletion recovery", () => {
       remove: vi.fn(async () => { throw error; }),
       list: vi.fn(async () => { throw new Error("offline"); }),
     })).resolves.toEqual({ status: "unconfirmed", error });
+  });
+});
+
+describe("onboarding track creation recovery", () => {
+  const request = { id: "20000000-0000-4000-8000-000000000002", name: "AI", color: "#6958d7" };
+  const track = trackDtoSchema.parse({ ...request, description: null, sortOrder: 0 });
+
+  it("does not reconcile after a confirmed create", async () => {
+    const list = vi.fn(async () => [track]);
+    await expect(createAndReconcileOnboardingTrack({ request, create: vi.fn(async () => track), list }))
+      .resolves.toEqual({ status: "added", track });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("replays a lost response with the same stable request id", async () => {
+    const create = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(track);
+    await expect(createAndReconcileOnboardingTrack({ request, create, list: vi.fn() }))
+      .resolves.toEqual({ status: "added", track });
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers the exact committed row after both create responses are lost", async () => {
+    const error = new Error("response lost");
+    await expect(createAndReconcileOnboardingTrack({
+      request,
+      create: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => [track]),
+    })).resolves.toEqual({ status: "added", track });
+  });
+
+  it("blocks progress when neither replay nor reconciliation establishes the result", async () => {
+    const error = new Error("response lost");
+    await expect(createAndReconcileOnboardingTrack({
+      request,
+      create: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => []),
+    })).resolves.toEqual({ status: "unconfirmed", error });
+  });
+
+  it("surfaces a definitive server refusal without retrying", async () => {
+    const error = new AppError("VALIDATION", "name rejected");
+    const create = vi.fn(async () => { throw error; });
+    await expect(createAndReconcileOnboardingTrack({ request, create, list: vi.fn() }))
+      .resolves.toEqual({ status: "refused", error });
+    expect(create).toHaveBeenCalledOnce();
   });
 });
 

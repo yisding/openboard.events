@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
-import { listVocab, saveVocabItem, vocabItemInputSchema, vocabKindSchema } from "@/features/events";
+import { createVocabItem, listVocab, vocabItemInputSchema, vocabKindSchema } from "@/features/events";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -13,12 +13,12 @@ const list = defineHandler({
   handler: async ({ eventId, params }) => listVocab(eventIdSchema.parse(eventId), routeParams.parse(params).kind),
 });
 
-// `id` is dropped so this route can only ever create — updates go through
-// `PATCH .../vocab/[kind]/[id]`, which is where an id is meaningful.
+// A supplied id is a create-request correlation token, not an update. Updates
+// still go exclusively through `PATCH .../vocab/[kind]/[id]`.
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: vocabItemInputSchema.omit({ id: true }),
-  handler: async ({ eventId, input, params }) => saveVocabItem(eventIdSchema.parse(eventId), routeParams.parse(params).kind, input),
+  input: vocabItemInputSchema,
+  handler: async ({ eventId, input, params }) => createVocabItem(eventIdSchema.parse(eventId), routeParams.parse(params).kind, input),
 });
 
 type Route = { params: Promise<{ eventId: string; kind: string }> };
