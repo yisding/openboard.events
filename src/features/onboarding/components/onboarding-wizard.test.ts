@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { cfpDeadlineForWeeksBefore, createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, defaultCfpDeadline, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, resolveCfpDeadline, saveOnboardingEvent } from "./onboarding-wizard";
+import { cfpDeadlineForWeeksBefore, createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, defaultCfpDeadline, deleteAndReconcileOnboardingTrack, onboardingEventCreateOutcomeUnknown, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, resolveCfpDeadline, retainOnboardingEventCreateFields, saveOnboardingEvent } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -42,7 +42,7 @@ describe("onboarding organization access", () => {
 
   it("reveals the optional URL field before focusing a server-side slug error", () => {
     expect(wizard).toContain('if (firstInvalid === "slug" && slugDetailsRef.current) slugDetailsRef.current.open = true');
-    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event)}>');
+    expect(wizard).toContain('<details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event) || eventCreateRecoveryRequired}>');
   });
 
   it("marks the existing slug as required when correcting an event", () => {
@@ -374,6 +374,33 @@ describe("onboarding event correction", () => {
     await expect(saveOnboardingEvent({ existing: null, create, update })).resolves.toBe(event);
     expect(create).toHaveBeenCalledOnce();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("locks one payload for an ambiguous create retry but not a definite rejection", () => {
+    const first = {
+      name: "Original Conf",
+      slug: "original-conf",
+      eventType: "conference" as const,
+      timezone: "America/Los_Angeles",
+      startsAt: "2026-09-15T16:00:00.000Z",
+      endsAt: "2026-09-17T01:00:00.000Z",
+    };
+    const edited = { ...first, name: "Changed after response loss" };
+
+    expect(retainOnboardingEventCreateFields(first, edited)).toBe(first);
+    expect(retainOnboardingEventCreateFields(null, edited)).toBe(edited);
+    expect(onboardingEventCreateOutcomeUnknown(new TypeError("response lost"))).toBe(true);
+    expect(onboardingEventCreateOutcomeUnknown(new AppError("INTERNAL", "database unavailable"))).toBe(true);
+    expect(onboardingEventCreateOutcomeUnknown(new AppError("CONFLICT", "slug already exists"))).toBe(false);
+  });
+
+  it("freezes every correlation field and labels the retry honestly", () => {
+    const wizard = readFileSync(new URL("./onboarding-wizard.tsx", import.meta.url), "utf8");
+    expect(wizard.match(/disabled=\{saving \|\| eventCreateRecoveryRequired\}/gu)).toHaveLength(6);
+    expect(wizard).toContain("eventCreateFieldsRef.current = fields");
+    expect(wizard).toContain("Creation could not be confirmed.");
+    expect(wizard).toContain("Retry event creation");
+    expect(wizard).toContain("original details are locked");
   });
 });
 

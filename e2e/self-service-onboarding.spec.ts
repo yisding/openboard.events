@@ -126,7 +126,42 @@ test.describe("self-service signup to first value", () => {
       await page.getByLabel("Event name").fill(eventName);
       await page.getByLabel("Starts").fill(localInput(30, "09:00"));
       await page.getByLabel("Ends").fill(localInput(31, "17:00"));
+      const createPayloads: unknown[] = [];
+      let dropFirstCreateResponse = true;
+      await page.route("**/api/internal/organizations/*/onboarding/event", async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        createPayloads.push(route.request().postDataJSON());
+        if (!dropFirstCreateResponse) return route.continue();
+        dropFirstCreateResponse = false;
+        const response = await route.fetch();
+        expect(response.status(), "the first event create must commit before its response is dropped").toBe(200);
+        await route.abort("failed");
+      });
       await page.getByRole("button", { name: /^create event/i }).click();
+
+      await expect(page.getByRole("alert")).toContainText("Creation could not be confirmed");
+      await expect(page.getByRole("button", { name: /retry event creation/i })).toBeVisible();
+      await expect(page.getByLabel("Event name")).toBeDisabled();
+      await expect(page.getByLabel("Event type")).toBeDisabled();
+      await expect(page.getByLabel("Timezone")).toBeDisabled();
+      await expect(page.getByLabel("Starts")).toBeDisabled();
+      await expect(page.getByLabel("Ends")).toBeDisabled();
+      const committedAfterLostResponse = await queryRows<{ id: string }>(`
+        SELECT event.id
+        FROM events event
+        JOIN organizations organization ON organization.id = event.organization_id
+        WHERE organization.name = $1 AND event.name = $2
+      `, [organizationName, eventName]);
+      expect(committedAfterLostResponse, "a lost response must still leave exactly one committed event").toHaveLength(1);
+
+      const recoveredResponse = page.waitForResponse((response) =>
+        /\/api\/internal\/organizations\/[0-9a-f-]{36}\/onboarding\/event$/.test(new URL(response.url()).pathname)
+        && response.request().method() === "POST");
+      await page.getByRole("button", { name: /retry event creation/i }).click();
+      expect((await recoveredResponse).status()).toBe(200);
+      await page.unroute("**/api/internal/organizations/*/onboarding/event");
+      expect(createPayloads).toHaveLength(2);
+      expect(createPayloads[1], "the recovery request must preserve its id and every correlation field").toEqual(createPayloads[0]);
 
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible({ timeout: 30_000 });
       await page.getByRole("button", { name: "Edit event details" }).click();
