@@ -69,6 +69,7 @@ describe("shared UI spacing regressions", () => {
   });
 
   it("keeps the landing-page sign-in action visible on compact layouts", () => {
+    expect(css).toContain("@media (max-width: 385px) {");
     expect(css).toContain(".landing-links > a:not(.button) { display: none; }");
     expect(css).toContain(".landing-links { gap: 8px; }");
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");

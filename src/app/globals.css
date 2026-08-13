@@ -716,7 +716,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }.drawer-body { padding: 20px 16px; }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 385px) {
   /* Preserve both authentication actions on the narrowest supported phones.
      The linked brand mark keeps its accessible name while its wordmark yields
      the horizontal space the two 44px-tall actions need. */
