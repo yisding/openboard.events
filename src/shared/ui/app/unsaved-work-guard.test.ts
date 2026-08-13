@@ -47,6 +47,9 @@ describe("shell unsaved-work guard wiring", () => {
     expect(signOut.indexOf("runGuarded")).toBeLessThan(signOut.indexOf('fetch(kind === "admin"'));
     expect(signOut).toContain("allowNextNavigation(() => {");
     expect(signOut).toContain("{ hardUnload: true }");
-    expect(shell).toContain("<UnsavedWorkGuardProvider><div className=\"app-shell\">");
+    // The guard stays the shell's outermost provider; first-run hints nest
+    // inside it so a hint's own navigation (none today) would still be guarded.
+    expect(shell).toContain("<UnsavedWorkGuardProvider><FirstRunHints");
+    expect(shell).toContain('><div className="app-shell">');
   });
 });
