@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
-import { createOrPublishOnboardingForm, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
+import { createOrPublishOnboardingForm, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone } from "./onboarding-wizard";
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -45,14 +45,17 @@ describe("onboarding organization access", () => {
   });
 
   it("does not advance while a track mutation is still being saved", () => {
-    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId)}");
+    expect(wizard).toContain("disabled={advancing || addingTrack || Boolean(removingTrackId) || syncingTracks || trackSyncError}");
   });
 
-  it("lets users remove an accidental track without leaving onboarding and restores failed deletes", () => {
+  it("confirms destructive track removal and blocks progress while server state is ambiguous", () => {
     expect(wizard).toContain('aria-label={`Remove ${track.name}`}');
-    expect(wizard).toContain('api(`events/${event.id}/vocab/tracks/${track.id}`, deletedSchema, { method: "DELETE" })');
-    expect(wizard).toContain("restored.splice(Math.min(originalIndex, restored.length), 0, track)");
-    expect(wizard).toContain("That track could not be removed");
+    expect(wizard).toContain('title={`Remove ${pendingTrackDelete?.name ?? "this track"}?`}');
+    expect(wizard).toContain('confirmLabel="Remove track"');
+    expect(wizard).toContain("Submissions assigned to this track will become unassigned");
+    expect(wizard).toContain("Routing rules that use it will be disabled");
+    expect(wizard).toContain("syncingTracks || trackSyncError");
+    expect(wizard).toContain("Refresh tracks");
   });
 
   it("makes the published handoff previewable and resilient to clipboard failure", () => {
@@ -279,6 +282,49 @@ describe("OnboardingWizard first-use defaults", () => {
     expect(preferredTimeZone("UTC", supported)).toBe("UTC");
     expect(preferredTimeZone("Not/A_Zone", supported)).toBe("America/Los_Angeles");
     expect(preferredTimeZone(undefined, supported)).toBe("America/Los_Angeles");
+  });
+});
+
+describe("onboarding track deletion recovery", () => {
+  const track = trackDtoSchema.parse({
+    id: "20000000-0000-4000-8000-000000000001",
+    name: "AI",
+    color: "#6958d7",
+    description: null,
+    sortOrder: 0,
+  });
+
+  it("does not perform an unnecessary reconciliation after a confirmed delete", async () => {
+    const list = vi.fn(async () => [track]);
+    await expect(deleteAndReconcileOnboardingTrack({ trackId: track.id, remove: vi.fn(async () => undefined), list }))
+      .resolves.toEqual({ status: "removed" });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a delete that committed when its response was lost", async () => {
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw new Error("response lost"); }),
+      list: vi.fn(async () => []),
+    })).resolves.toEqual({ status: "removed", tracks: [] });
+  });
+
+  it("restores the authoritative list when the server refused deletion", async () => {
+    const error = new Error("delete refused");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => [track]),
+    })).resolves.toEqual({ status: "restored", tracks: [track], error });
+  });
+
+  it("reports ambiguity rather than inventing state when deletion and reconciliation both fail", async () => {
+    const error = new Error("response lost");
+    await expect(deleteAndReconcileOnboardingTrack({
+      trackId: track.id,
+      remove: vi.fn(async () => { throw error; }),
+      list: vi.fn(async () => { throw new Error("offline"); }),
+    })).resolves.toEqual({ status: "unconfirmed", error });
   });
 });
 

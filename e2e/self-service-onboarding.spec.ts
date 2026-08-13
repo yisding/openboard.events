@@ -131,6 +131,8 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Remove Main Stage" }).click();
+      await expect(page.getByRole("heading", { name: "Remove Main Stage?" })).toBeVisible();
+      await page.getByRole("button", { name: "Remove track" }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toHaveCount(0);
       await page.getByRole("button", { name: /main stage/i }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
