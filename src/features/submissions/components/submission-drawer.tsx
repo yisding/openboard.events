@@ -21,6 +21,49 @@ import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
+type DetailLoadPurpose = "open" | "stale";
+type DetailLoadFailure = {
+  kind: "transport" | "response";
+  message: string;
+  retryable: boolean;
+};
+type DetailLoadState =
+  | { status: "loading"; purpose: DetailLoadPurpose }
+  | { status: "ready"; purpose: DetailLoadPurpose }
+  | { status: "failed"; purpose: DetailLoadPurpose; failure: DetailLoadFailure };
+
+type DetailPayload = {
+  data?: SubmissionDetailDTO;
+  error?: { code?: string; message?: string };
+};
+
+const TERMINAL_DETAIL_CODES = new Set(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"]);
+
+function responseFailure(response: Response, payload: DetailPayload | null, purpose: DetailLoadPurpose): DetailLoadFailure {
+  const code = payload?.error?.code;
+  const terminal = response.status === 401
+    || response.status === 403
+    || response.status === 404
+    || (code !== undefined && TERMINAL_DETAIL_CODES.has(code));
+  return {
+    kind: "response",
+    message: payload?.error?.message ?? (purpose === "stale"
+      ? "The latest version could not be loaded. Try again."
+      : "Could not load this submission. Try again."),
+    retryable: !terminal,
+  };
+}
+
+function transportFailure(purpose: DetailLoadPurpose): DetailLoadFailure {
+  return {
+    kind: "transport",
+    message: purpose === "stale"
+      ? "The latest version couldn’t be loaded. Check your connection and retry."
+      : "Could not load this submission. Check your connection and try again.",
+    retryable: true,
+  };
+}
+
 /**
  * The submission a reviewer opens. Answers render through the *pinned* snapshot,
  * so a question renamed after submission still reads the way the speaker
@@ -75,20 +118,20 @@ export function SubmissionDrawer({
   const router = useRouter();
   const { toast } = useToast();
   const [detail, setDetail] = useState<SubmissionDetailDTO | null>(null);
-  const [error, setError] = useState("");
+  const [loadState, setLoadState] = useState<DetailLoadState>({ status: "loading", purpose: "open" });
   const [values, setValues] = useState<AbstractFieldValues | null>(null);
   const [original, setOriginal] = useState<AbstractFieldValues | null>(null);
   const [rowVersion, setRowVersion] = useState<number | null>(null);
-  const [saveError, setSaveError] = useState("");
+  const [saveFeedback, setSaveFeedback] = useState<{ kind: "error" | "status"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   /** Bumped to re-run the loader for the *same* submission — `router.refresh()`
    * re-renders the server tree but cannot reach this client-side fetch, so a
    * stale-write conflict needs its own reload signal. */
   const [reloadToken, setReloadToken] = useState(0);
-  /** True from a 409 until the reload it triggers settles. Saving again in that
-   * window would send the row version the server has already refused, so the
-   * button stays disabled rather than buying a second guaranteed conflict. */
-  const [reloading, setReloading] = useState(false);
+  /** The effect deliberately does not depend on load state: this ref records
+   * whether a token asks for an ordinary open or recovery after a refused row
+   * version, without rebuilding the event-scoped vocabulary into a dependency. */
+  const loadPurpose = useRef<DetailLoadPurpose>("open");
 
   /** Which submission the drawer is showing *now*. `save()` is async and this
    * component is not remounted between submissions (the parent swaps the id
@@ -102,33 +145,55 @@ export function SubmissionDrawer({
   // the organizer.
   useEffect(() => {
     active.current = { eventId, submissionId };
+    loadPurpose.current = "open";
     setDetail(null);
-    setError("");
-    setSaveError("");
+    setLoadState({ status: "loading", purpose: "open" });
+    setSaveFeedback(null);
     setValues(null);
     setOriginal(null);
     setRowVersion(null);
     setBusy(false);
-    setReloading(false);
   }, [eventId, submissionId]);
 
   useEffect(() => {
     let cancelled = false;
+    const purpose = loadPurpose.current;
+    setLoadState({ status: "loading", purpose });
     fetch(`/api/internal/submissions/${eventId}/${submissionId}`)
       .then(async (response) => {
-        const payload = await response.json().catch(() => null) as { data?: SubmissionDetailDTO; error?: { message?: string } } | null;
+        const payload = await response.json().catch(() => null) as DetailPayload | null;
         if (cancelled) return;
         if (!response.ok || !payload?.data) {
-          setError(payload?.error?.message ?? "Could not load this submission");
+          const failure = responseFailure(response, payload, purpose);
+          setLoadState({ status: "failed", purpose, failure });
+          if (purpose === "stale") {
+            setSaveFeedback(null);
+            // A terminal response is authoritative: the row is gone or this
+            // organizer may no longer read it, so do not leave its old detail
+            // and identity-bearing fields on screen.
+            if (!failure.retryable) {
+              setDetail(null);
+              setValues(null);
+              setOriginal(null);
+              setRowVersion(null);
+            }
+          }
           return;
         }
         setDetail(payload.data);
         setValues(toValues(payload.data, vocabulary));
         setOriginal(toValues(payload.data, vocabulary));
         setRowVersion(payload.data.rowVersion);
+        setLoadState({ status: "ready", purpose });
+        setSaveFeedback(purpose === "stale"
+          ? { kind: "status", message: "Latest version loaded. Re-apply your edit, then save." }
+          : null);
       })
-      .catch(() => { if (!cancelled) setError("Could not load this submission"); })
-      .finally(() => { if (!cancelled) setReloading(false); });
+      .catch(() => {
+        if (cancelled) return;
+        setLoadState({ status: "failed", purpose, failure: transportFailure(purpose) });
+        if (purpose === "stale") setSaveFeedback(null);
+      });
     // A reviewer clicking down a list opens several in a row; a late response
     // for one they have already moved past must not replace what they are reading.
     return () => { cancelled = true; };
@@ -142,7 +207,13 @@ export function SubmissionDrawer({
 
   const patch = values && original ? toPatch(values, original) : {};
   const dirty = Object.keys(patch).length > 0;
-  const interactionLocked = busy || reloading;
+  // A failed recovery keeps the old draft visible so it can be re-applied, but
+  // never makes the rejected row version writable again. Navigation itself is
+  // blocked only while a request is active; once a retry fails, the ordinary
+  // unsaved-work guard can safely handle Close/next/previous.
+  const staleRecoveryRequired = loadState.purpose === "stale" && loadState.status !== "ready";
+  const fieldsLocked = busy || staleRecoveryRequired;
+  const interactionLocked = busy || (loadState.status === "loading" && loadState.purpose === "stale");
   useUnsavedWorkGuard(dirty);
 
   useEffect(() => {
@@ -151,11 +222,21 @@ export function SubmissionDrawer({
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
+  function retryLoad() {
+    if (loadState.status !== "failed" || !loadState.failure.retryable) return;
+    loadPurpose.current = loadState.purpose;
+    setLoadState({ status: "loading", purpose: loadState.purpose });
+    if (loadState.purpose === "stale") {
+      setSaveFeedback({ kind: "status", message: "This abstract changed since you opened it. Loading the latest version…" });
+    }
+    setReloadToken((token) => token + 1);
+  }
+
   async function save() {
     if (!values || !original || rowVersion === null) return;
     const request = { eventId, submissionId };
     setBusy(true);
-    setSaveError("");
+    setSaveFeedback(null);
     try {
       const response = await fetch(`/api/internal/submissions/${eventId}/${submissionId}`, {
         method: "PATCH",
@@ -177,14 +258,15 @@ export function SubmissionDrawer({
         // The reload has to be explicit — `router.refresh()` alone leaves this
         // drawer holding the same fields and the same row version, so every
         // retry would keep conflicting until it was closed and reopened.
-        setSaveError("This abstract changed since you opened it. Reloading the latest version — please re-apply your edit.");
-        setReloading(true);
+        setSaveFeedback({ kind: "status", message: "This abstract changed since you opened it. Loading the latest version…" });
+        loadPurpose.current = "stale";
+        setLoadState({ status: "loading", purpose: "stale" });
         setReloadToken((token) => token + 1);
         router.refresh();
         return;
       }
       if (!response.ok || !payload?.data) {
-        setSaveError(payload?.error?.message ?? "That did not save");
+        setSaveFeedback({ kind: "error", message: payload?.error?.message ?? "That did not save" });
         return;
       }
       setRowVersion(payload.data.rowVersion);
@@ -211,8 +293,21 @@ export function SubmissionDrawer({
       title={detail ? formatCode(detail.code) : "Submission"}
       {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={nav.itemLabel} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
-      {error && <p className="portal-note" role="alert">{error}</p>}
-      {!detail && !error && <p className="portal-note">Loading…</p>}
+      {loadState.status === "failed" && (
+        <div className="portal-note" role="alert">
+          <p>{loadState.failure.message}</p>
+          {loadState.failure.retryable && (
+            <Button size="sm" variant="secondary" onClick={retryLoad}>
+              {loadState.purpose === "stale" ? "Retry loading latest" : "Retry"}
+            </Button>
+          )}
+        </div>
+      )}
+      {!detail && loadState.status === "loading" && (
+        <p className="portal-note" role="status">
+          {loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"}
+        </p>
+      )}
       {detail && (
         <div className="submission-drawer">
           <header className="drawer-hero">
@@ -242,17 +337,17 @@ export function SubmissionDrawer({
             {canEdit && values && (
               <section>
                 <h3>Details</h3>
-                {saveError && <p className="portal-note" role="alert">{saveError}</p>}
+                {saveFeedback && <p className="portal-note" role={saveFeedback.kind === "error" ? "alert" : "status"}>{saveFeedback.message}</p>}
                 <AbstractFields
                   values={values}
                   onChange={setValues}
                   vocabulary={vocabulary}
                   timezone={timezone}
-                  disabled={busy || reloading}
+                  disabled={fieldsLocked}
                 />
                 <div className="drawer-actions">
-                  <Button disabled={busy || reloading || !dirty} onClick={save}>
-                    {busy ? "Saving…" : reloading ? "Reloading…" : "Save changes"}
+                  <Button disabled={fieldsLocked || !dirty} onClick={save}>
+                    {busy ? "Saving…" : staleRecoveryRequired ? "Latest version required" : "Save changes"}
                   </Button>
                 </div>
               </section>
