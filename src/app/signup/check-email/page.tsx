@@ -22,7 +22,7 @@ export default async function CheckEmailPage({ searchParams }: { searchParams: P
       <p>Check{email ? <> <b>{email}</b></> : " your email"} for a confirmation link. If this address still needs confirmation, a fresh link is on its way. Use it within one hour to continue into your workspace.</p>
       <aside className="auth-help"><b>Nothing yet?</b><span>Check spam or request a fresh link to the same address.</span></aside>
       <ActivationResendForm initialEmail={email} next={next} emailLocked={Boolean(email)} />
-      {fallbackLink && <aside className="demo-code"><b>Development / fallback mode</b><Link href={fallbackLink}>Open confirmation link</Link></aside>}
+      {fallbackLink && <aside className="demo-code"><b>Demo access</b><span>Email delivery is limited in this environment.</span><Link href={fallbackLink}>Confirm email and continue</Link></aside>}
       {email && <p>Wrong email? <Link href="/signup">Start again with the correct address</Link></p>}
       <p><Link href={`/login?next=${encodeURIComponent(next)}`}>Back to sign in</Link></p>
     </div></div></section>

@@ -15,8 +15,9 @@ what Openboard does and how to use it, start with the [README](../README.md).
   GitHub environment. `scripts/deploy-cloudflare.sh` remains available for a manual deploy from a
   workstation; it validates the exact origin and the remote secret inventory before it builds.
 - Both deployed environments run `ADMIN_AUTH_PROVIDER=better-auth` (revocable sessions, Google
-  sign-in). `TEST_AUTH` is enabled on the preview only; the environment validation refuses it in
-  production, along with `EMAIL_MODE=log` and `EMAIL_FALLBACK_UI`.
+  sign-in). Preview uses the explicit `EMAIL_FALLBACK_UI` demo affordance, but does not expose the
+  fallback-only `TEST_AUTH` admin route. Production validation refuses both fallback flags and
+  `EMAIL_MODE=log`.
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
