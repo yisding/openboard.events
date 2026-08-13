@@ -1,10 +1,9 @@
-import { and, asc, eq, sql } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
-import { events, organizationInvitations, organizations } from "@/db/schema";
+import { and, asc, eq, like, sql } from "drizzle-orm";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { adminAuthEmailOutbox, communicationLogs, organizationInvitations, organizations } from "@/db/schema";
 import {
   idem,
   organizationInvitationDtoSchema,
-  type EventId,
   type MemberRole,
   type OrganizationId,
   type OrganizationInvitationDTO,
@@ -12,23 +11,24 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { addDuration } from "@/shared/lib/time";
-import { enqueueEmail } from "@/shared/server/enqueue-email";
-import { getOrCreateContact } from "@/features/portal";
 import { randomBytes, sha256, toBase64Url } from "@/features/auth/server/crypto";
+import { sealPlatformAdminLinkPayload } from "@/features/auth/server/secret-payload";
 import type { InviteOrganizationMemberInput } from "../schemas";
 import { recordOrganizationAuditEventIn } from "./audit";
 
 /**
  * M44 — team invitations, addressed to an email and routed through the
- * inviting organization's own outbox mail exactly the way M42's admin auth
- * mail borrows a "home event" to send from (`features/auth/server/
- * admin-mail.ts`). Resolution #4 confines `withTx` to eight named runtime
- * functions and this feature is not one of them: each state transition below
- * is a single statement. Acceptance uses one data-modifying CTE for the
- * guarded invitation claim and membership upsert, so the token is consumed at
- * most once and can never be consumed without granting the membership.
+ * product-level durable outbox. Invitations deliberately do not borrow an
+ * event/contact: a brand-new workspace must be able to invite teammates before
+ * its first event exists. Enqueue is transactional because rotating the bearer
+ * token, retiring prior messages, storing the new encrypted message, and
+ * recording the audit event are one consistency boundary. Acceptance uses one
+ * data-modifying CTE for the guarded invitation claim and membership upsert, so
+ * the token is consumed at most once and can never be consumed without granting
+ * the membership.
  */
 
 const INVITATION_TTL = "P14D";
@@ -39,10 +39,6 @@ function rowsOf<Row>(result: unknown): Row[] {
     return (result as { rows: Row[] }).rows;
   }
   return [];
-}
-
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
 }
 
 function toInvitationDto(row: {
@@ -70,22 +66,6 @@ function toInvitationDto(row: {
 }
 
 /**
- * The event an organization's mail is sent "from" — deterministic (oldest
- * event, then event id) for the same retry-stability reason `admin-mail.ts`'s
- * `homeEventId` is. `null` until the organization has at least one event,
- * which for a freshly self-serve-signed-up organization is true until M45's
- * event-creation flow lands; see this module's report for the seam.
- */
-async function organizationHomeEventId(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<EventId | null> {
-  const [row] = await dbOrTx.select({ id: events.id })
-    .from(events)
-    .where(eq(events.organizationId, organizationId))
-    .orderBy(asc(events.createdAt), asc(events.id))
-    .limit(1);
-  return (row?.id as EventId | undefined) ?? null;
-}
-
-/**
  * Invite (or re-invite) an email to an organization.
  *
  * Upserts on the same partial unique index the migration declares (one live
@@ -95,16 +75,22 @@ async function organizationHomeEventId(dbOrTx: DbOrTx, organizationId: Organizat
  * click already queued.
  */
 export async function inviteOrganizationMemberIn(
-  dbOrTx: DbOrTx,
+  dbOrTx: TxDb,
   organizationId: OrganizationId,
   invitedByUserId: UserId,
   input: InviteOrganizationMemberInput,
+  env: RuntimeEnv = getEnv(),
 ): Promise<{ invitation: OrganizationInvitationDTO; emailQueued: boolean }> {
   const email = input.email.trim().toLowerCase();
+  // Validate every deployment-dependent value before the transaction's first
+  // mutation. Any later crypto/database failure then rolls the whole enqueue
+  // boundary back instead of leaving a rotated token without a message.
+  if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for organization invitation mail");
+  const appBaseUrl = new URL(env.APP_BASE_URL);
   const expiresAt = addDuration(new Date(), INVITATION_TTL);
-  // The row's own token is never used to build the mailed link — see
-  // `issueOrganizationInvitationTokenIn` below — so it only has to be a valid,
-  // unique placeholder until the first render mints the real one.
+  // The placeholder is replaced by `issueOrganizationInvitationTokenIn`
+  // immediately before the encrypted product-outbox row is inserted. Keeping
+  // it unique still protects the brief interval between those statements.
   const placeholderTokenHash = await sha256(`placeholder:${crypto.randomUUID()}`);
   const result = await dbOrTx.execute(sql`
     INSERT INTO organization_invitations (organization_id, email, role, token_hash, invited_by_user_id, expires_at)
@@ -118,18 +104,80 @@ export async function inviteOrganizationMemberIn(
   const invitation = toInvitationDto(row);
   const invitationId = invitation.id;
 
-  const homeEventId = await organizationHomeEventId(dbOrTx, organizationId);
-  let emailQueued = false;
-  if (homeEventId) {
-    const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), homeEventId, email);
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
-      eventId: homeEventId,
-      templateKey: "organization_invited",
-      contactId,
-      idempotencyKey: idem.organizationInvited(homeEventId, invitationId, crypto.randomUUID()),
-    });
-    emailQueued = true;
+  // A resend rotates the invitation token. Cancel every older queued copy
+  // first so no worker can intentionally pick up a message whose link is now
+  // stale. Delivery also revalidates the raw token immediately before send,
+  // which closes the race with a row that was already claimed here.
+  const invitationKey = `%:organization_invited:${invitationId}:%`;
+  // Lock every prior copy before deciding whether it can be superseded. A
+  // claimed row remains `queued` but has a future `locked_until`; refusing the
+  // resend in that short window prevents token rotation after delivery has
+  // already been authorized. If this transaction locks first, the dispatcher's
+  // `FOR UPDATE SKIP LOCKED` claim cannot select the stale row.
+  const priorLegacyRows = await dbOrTx.select({ lockedUntil: communicationLogs.lockedUntil })
+    .from(communicationLogs)
+    .where(and(
+      eq(communicationLogs.templateKey, "organization_invited"),
+      eq(communicationLogs.status, "queued"),
+      like(communicationLogs.idempotencyKey, invitationKey),
+    ))
+    .for("update");
+  const priorPlatformRows = await dbOrTx.select({ lockedUntil: adminAuthEmailOutbox.lockedUntil })
+    .from(adminAuthEmailOutbox)
+    .where(and(
+      eq(adminAuthEmailOutbox.templateKey, "organization_invited"),
+      eq(adminAuthEmailOutbox.status, "queued"),
+      like(adminAuthEmailOutbox.idempotencyKey, invitationKey),
+    ))
+    .for("update");
+  const now = Date.now();
+  if ([...priorLegacyRows, ...priorPlatformRows].some((queued) => queued.lockedUntil && queued.lockedUntil.getTime() > now)) {
+    throw new AppError("CONFLICT", "That invitation email is already being delivered — try again shortly");
   }
+  await dbOrTx.update(communicationLogs).set({
+    status: "skipped",
+    error: "superseded by a newer organization invitation",
+    lockedUntil: null,
+    secretPayloadCiphertext: null,
+  }).where(and(
+    eq(communicationLogs.templateKey, "organization_invited"),
+    eq(communicationLogs.status, "queued"),
+    like(communicationLogs.idempotencyKey, invitationKey),
+  ));
+  await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: "skipped",
+    error: "superseded by a newer organization invitation",
+    lockedUntil: null,
+    secretPayloadCiphertext: null,
+  }).where(and(
+    eq(adminAuthEmailOutbox.templateKey, "organization_invited"),
+    eq(adminAuthEmailOutbox.status, "queued"),
+    like(adminAuthEmailOutbox.idempotencyKey, invitationKey),
+  ));
+
+  const issued = await issueOrganizationInvitationTokenIn(dbOrTx, invitationId);
+  if (!issued) throw new AppError("CONFLICT", "That invitation is no longer pending");
+  if (issued.role === "owner") throw new AppError("INTERNAL", "Organization ownership cannot be invited");
+  const messageId = crypto.randomUUID();
+  const actionUrl = new URL("/join", appBaseUrl);
+  actionUrl.searchParams.set("token", issued.raw);
+  const secretPayloadCiphertext = await sealPlatformAdminLinkPayload({
+    url: actionUrl.toString(),
+    expiresIn: new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }).format(issued.expiresAt),
+    organizationName: issued.organizationName,
+    inviterName: issued.inviterEmail,
+    invitationRole: issued.role,
+  }, { userId: invitedByUserId, messageId }, env.SESSION_SECRET);
+  await dbOrTx.insert(adminAuthEmailOutbox).values({
+    id: messageId,
+    userId: invitedByUserId,
+    recipientEmail: email,
+    recipientName: "",
+    templateKey: "organization_invited",
+    idempotencyKey: idem.platformOrganizationInvited(invitationId, messageId),
+    secretPayloadCiphertext,
+  });
+  const emailQueued = true;
 
   await recordOrganizationAuditEventIn(dbOrTx, organizationId, invitedByUserId, "member.invited", null, {
     email, role: input.role, emailQueued,
@@ -138,7 +186,7 @@ export async function inviteOrganizationMemberIn(
   return { invitation, emailQueued };
 }
 export const inviteOrganizationMember = (organizationId: OrganizationId, invitedByUserId: UserId, input: InviteOrganizationMemberInput) =>
-  inviteOrganizationMemberIn(db, organizationId, invitedByUserId, input);
+  withTx((tx) => inviteOrganizationMemberIn(tx, organizationId, invitedByUserId, input));
 
 export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
   const rows = await dbOrTx.select({
@@ -188,14 +236,12 @@ export const revokeOrganizationInvitation = (organizationId: OrganizationId, inv
   revokeOrganizationInvitationIn(db, organizationId, invitationId, actorUserId);
 
 /**
- * Mint a fresh bearer token for a pending invitation and bind it to the row —
- * called at *render* time (from `features/comms/server/context.ts`), not at
- * enqueue time. This is the same trick `buildContext` already plays for every
- * other magic-link-bearing template (`issuePortalToken` in its final
- * "portal.magic_link" branch): the raw value is never persisted, only its
- * hash, so it can only ever be read back from the one rendered email it was
- * minted for. A retried render mints a new token and silently orphans the
- * previous one — harmless, because nothing was ever delivered with it.
+ * Mint a fresh bearer token for a pending invitation and bind it to the row.
+ * New product-scoped delivery calls this at enqueue time, then stores the raw
+ * link only in the row-bound encrypted payload. That makes provider retries
+ * render the same valid link instead of rotating the token underneath
+ * Resend's idempotency key. The event-scoped legacy dispatcher may still call
+ * it at render time for rows queued before the product outbox existed.
  *
  * Returns `null` when the invitation is gone, already accepted, or already
  * revoked — the caller (`buildContext`) turns that into a `SkipEmail`.

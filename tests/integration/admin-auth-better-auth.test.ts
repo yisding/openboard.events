@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import type { db as RepositoryDb } from "@/db/client";
+import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
@@ -50,7 +50,7 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -415,10 +415,13 @@ describe("M42 admin auth on Better Auth", () => {
   it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {
     const organization = await createOrganizationIn(database, legacyUser, { name: "Inviting Org", slug: "inviting-org" });
     try {
-      const { invitation } = await inviteOrganizationMemberIn(database, organization.id, legacyUser, {
-        email: "invited-through-signup@example.com",
-        role: "organizer",
-      });
+      const { invitation } = await database.transaction((tx) => inviteOrganizationMemberIn(
+        tx as unknown as TxDb,
+        organization.id,
+        legacyUser,
+        { email: "invited-through-signup@example.com", role: "organizer" },
+        env,
+      ));
       const issued = await issueOrganizationInvitationTokenIn(database, invitation.id);
       if (!issued) throw new Error("expected a live invitation token");
 

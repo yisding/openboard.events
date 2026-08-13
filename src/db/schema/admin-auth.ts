@@ -54,12 +54,15 @@ export const adminVerifications = pgTable("admin_verifications", {
 });
 
 /**
- * Product-level password-reset and email-verification delivery.
+ * Product-level password-reset, email-verification, and organization-invite
+ * delivery.
  *
  * These messages exist before an organizer has created an event, so they
  * cannot honestly live in the event/contact-scoped `communication_logs`
- * outbox. They still get the same durable claim/retry/idempotency posture,
- * while the short-lived bearer URL stays encrypted until dispatch.
+ * outbox. A new organization's team invitations have the same constraint:
+ * they must work before the first event exists. These messages still get the
+ * same durable claim/retry/idempotency posture, while each short-lived bearer
+ * URL stays encrypted until dispatch.
  */
 export const adminAuthEmailOutbox = pgTable("admin_auth_email_outbox", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -82,7 +85,7 @@ export const adminAuthEmailOutbox = pgTable("admin_auth_email_outbox", {
   suppressedAt: timestamp("suppressed_at", { withTimezone: true }),
 }, (table) => [
   check("admin_auth_email_outbox_template_ck", sql`
-    ${table.templateKey} in ('admin_password_reset', 'admin_email_verification')
+    ${table.templateKey} in ('admin_password_reset', 'admin_email_verification', 'organization_invited')
   `),
   index("admin_auth_email_outbox_due_idx").on(table.status, table.nextAttemptAt, table.lockedUntil, table.createdAt),
   index("admin_auth_email_outbox_provider_idx").on(table.providerMessageId),

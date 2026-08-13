@@ -97,6 +97,11 @@ the real database-backed surfaces.
   onboarding. A single eligible workspace continues immediately, several
   require an explicit choice, and reviewer-only accounts get a permission
   recovery instead of silently creating under a guessed tenant.
+- Removed the first-event dependency from team invitations. A new workspace can
+  now invite teammates immediately through the encrypted, retryable product
+  outbox; resends retire stale queued links, provider retries reuse the same
+  token, and delivery revalidates revocation and recipient binding immediately
+  before send.
 
 ## Remaining launch gaps, in priority order
 
