@@ -906,6 +906,7 @@ export function OnboardingWizard({
                     : "Edit and publish form"}
             </Link>}
             {published && createdForm && <Link href={`/events/${event.id}/forms/${createdForm.id}/preview`} target="_blank" rel="noreferrer" className="button button-secondary">Preview form <ExternalLink size={16} /></Link>}
+            {published && formLink && <a href={formLink} target="_blank" rel="noreferrer" className="button button-secondary">Open live form <ExternalLink size={16} /></a>}
             <Link href={`/events/${event.id}/dashboard`} className={`button ${published ? "button-primary" : "button-secondary"}`}><Sparkles size={16} /> Open dashboard</Link>
           </footer>
         </div>
