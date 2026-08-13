@@ -62,7 +62,7 @@ describe("Files deliverable detail recovery", () => {
 
   it("guards reply drafts and blocks every drawer close path while sending", () => {
     const source = readFileSync(new URL("./files-admin-view.tsx", import.meta.url), "utf8");
-    expect(source).toContain("useUnsavedWorkGuard(Boolean(row) && draftDirty)");
+    expect(source).toContain("useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending })");
     expect(source).toContain("if (sending) return;");
     expect(source).toContain("runGuarded(() => {");
     expect(source).toContain("onClose={requestClose}");

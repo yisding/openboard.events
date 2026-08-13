@@ -470,7 +470,7 @@ function DeliverableDrawer({
   const currentDetail = key ? visibleDeliverableDetail(detail, key) : detail;
   const draftBody = key && draft.key === key ? draft.body : "";
   const draftDirty = draftBody.trim().length > 0;
-  useUnsavedWorkGuard(Boolean(row) && draftDirty);
+  useUnsavedWorkGuard(Boolean(row) && (draftDirty || sending), { blocking: sending });
 
   useEffect(() => {
     if (!key || !versionsPath || !commentsPath) return;

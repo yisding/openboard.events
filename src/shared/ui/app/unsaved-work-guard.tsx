@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "./confirm-dialog";
 
 type GuardContext = {
-  register: (token: symbol, active: boolean) => void;
+  register: (token: symbol, active: boolean, blocking: boolean) => void;
   runGuarded: (action: () => void) => void;
   allowNextNavigation: (action?: () => void, options?: NavigationOptions) => void;
 };
@@ -18,7 +18,7 @@ const GuardContext = createContext<GuardContext>({
   allowNextNavigation: (action) => action?.(),
 });
 
-type PendingDecision = { confirm: () => void | Promise<void>; cancel: () => void };
+type PendingDecision = { confirm?: () => void | Promise<void>; cancel?: () => void; blocked?: boolean };
 
 type NavigationEventLike = Event & {
   canIntercept: boolean;
@@ -111,17 +111,23 @@ export function HistoryPositionTracker() {
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const guardsRef = useRef(new Set<symbol>());
+  const blockingGuardsRef = useRef(new Set<symbol>());
   const [guardCount, setGuardCount] = useState(0);
+  const [blockingGuardCount, setBlockingGuardCount] = useState(0);
   const [pending, setPending] = useState<PendingDecision | null>(null);
   const allowNextRef = useRef(false);
   const allowNextUnloadRef = useRef(false);
   const historyFallbackRef = useRef<HistoryFallback | null>(null);
   const hasUnsavedWork = guardCount > 0;
+  const hasBlockingWork = blockingGuardCount > 0;
 
-  const register = useCallback((token: symbol, active: boolean) => {
+  const register = useCallback((token: symbol, active: boolean, blocking: boolean) => {
     if (active) guardsRef.current.add(token);
     else guardsRef.current.delete(token);
+    if (active && blocking) blockingGuardsRef.current.add(token);
+    else blockingGuardsRef.current.delete(token);
     setGuardCount(guardsRef.current.size);
+    setBlockingGuardCount(blockingGuardsRef.current.size);
   }, []);
 
   const allowNextNavigation = useCallback((action?: () => void, options?: NavigationOptions) => {
@@ -161,6 +167,10 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       action();
       return;
     }
+    if (blockingGuardsRef.current.size > 0) {
+      setPending((current) => current ?? { blocked: true });
+      return;
+    }
     // Keep the first requested destination stable while its confirmation is
     // open. Global keyboard shortcuts may still fire behind the native dialog;
     // replacing this decision would make “Discard” perform a different action
@@ -182,6 +192,11 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     globalThis.addEventListener("beforeunload", warnBeforeUnload);
     return () => globalThis.removeEventListener("beforeunload", warnBeforeUnload);
   }, [hasUnsavedWork]);
+
+  useEffect(() => {
+    if (hasBlockingWork) return;
+    setPending((current) => current?.blocked ? null : current);
+  }, [hasBlockingWork]);
 
   useEffect(() => {
     if (!hasUnsavedWork) {
@@ -241,13 +256,15 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
           const returned = returningTraversal;
           returningTraversal = null;
           if (returned) {
-            setPending((current) => current ?? {
-              confirm: () => leave(() => {
-                allowNextRef.current = true;
-                window.history.go(returned.delta);
-              }),
-              cancel: () => undefined,
-            });
+            setPending((current) => current ?? (hasBlockingWork
+              ? { blocked: true }
+              : {
+                confirm: () => leave(() => {
+                  allowNextRef.current = true;
+                  window.history.go(returned.delta);
+                }),
+                cancel: () => undefined,
+              }));
           }
           return;
         }
@@ -280,6 +297,15 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       // same-document navigation. Let beforeunload own both so confirming
       // actually loads the requested document.
       if (!shouldInterceptNavigation(event)) return;
+      if (hasBlockingWork) {
+        event.intercept({
+          handler: async () => {
+            setPending((current) => current ?? { blocked: true });
+            throw new DOMException("An action is still in progress", "AbortError");
+          },
+        });
+        return;
+      }
       event.intercept({
         handler: () => new Promise<void>((resolve, reject) => {
           setPending({
@@ -291,7 +317,7 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     };
     navigation.addEventListener("navigate", guardNavigation);
     return () => navigation.removeEventListener("navigate", guardNavigation);
-  }, [hasUnsavedWork]);
+  }, [hasBlockingWork, hasUnsavedWork]);
 
   const context = useMemo(() => ({ register, runGuarded, allowNextNavigation }), [register, runGuarded, allowNextNavigation]);
 
@@ -317,16 +343,20 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
       <div onClickCapture={captureLink} style={{ display: "contents" }}>{children}</div>
       <ConfirmDialog
         open={pending !== null}
-        title="Discard unsaved work?"
-        body="Your unsaved changes will be lost if you leave this page or switch to another item."
-        confirmLabel="Discard changes"
+        title={pending?.blocked ? "Action in progress" : "Discard unsaved work?"}
+        body={pending?.blocked
+          ? "Wait for the current action to finish before leaving this page."
+          : "Your unsaved changes will be lost if you leave this page or switch to another item."}
+        confirmLabel={pending?.blocked ? "Working…" : "Discard changes"}
+        cancelLabel={pending?.blocked ? "Stay here" : "Cancel"}
+        confirmDisabled={Boolean(pending?.blocked)}
         onConfirm={async () => {
           const decision = pending;
           setPending(null);
-          await decision?.confirm();
+          await decision?.confirm?.();
         }}
         onCancel={() => {
-          pending?.cancel();
+          pending?.cancel?.();
           setPending(null);
         }}
       />
@@ -334,14 +364,14 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   );
 }
 
-export function useUnsavedWorkGuard(active: boolean) {
+export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boolean } = {}) {
   const { register } = useContext(GuardContext);
   const token = useRef(Symbol("unsaved-work"));
   useEffect(() => {
     const current = token.current;
-    register(current, active);
-    return () => register(current, false);
-  }, [active, register]);
+    register(current, active, options.blocking === true);
+    return () => register(current, false, false);
+  }, [active, options.blocking, register]);
 }
 
 export function useGuardedAction() {

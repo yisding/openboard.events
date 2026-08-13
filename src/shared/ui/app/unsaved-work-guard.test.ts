@@ -17,6 +17,10 @@ describe("shell unsaved-work guard wiring", () => {
     expect(sameDestination).toBeGreaterThan(-1);
     expect(sameDestination).toBeLessThan(source.indexOf("const fallback = historyFallbackRef.current"));
     expect(source).toContain("if (!shouldInterceptNavigation(event)) return;");
+    expect(source).toContain("blockingGuardsRef");
+    expect(source).toContain("if (hasBlockingWork)");
+    expect(source).toContain('title={pending?.blocked ? "Action in progress" : "Discard unsaved work?"}');
+    expect(source).toContain("confirmDisabled={Boolean(pending?.blocked)}");
     expect(rootLayout).toContain("<HistoryPositionTracker /><KonamiListener />{children}");
   });
 
