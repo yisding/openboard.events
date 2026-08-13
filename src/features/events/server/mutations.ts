@@ -1,12 +1,12 @@
 import { and, eq, gt, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
+import { isConstraintViolation } from "@/db/errors";
 import { emailTemplates, eventMembers, events, sessionFormats, sessions } from "@/db/schema";
 import { seedDefaultTemplates } from "@/features/comms";
 import { eventIdSchema, type EventDTO, type EventId, type OrganizationId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { RESERVED_SLUGS, slugify } from "@/shared/lib/slug";
 import type { CreateEventInput, UpdateEventInput } from "../schemas";
-import { isConstraintViolation } from "./db-errors";
 import { getEventIn } from "./queries";
 
 export {

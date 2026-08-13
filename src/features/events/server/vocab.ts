@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx } from "@/db/client";
+import { isConstraintViolation } from "@/db/errors";
 import { embeds, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
   roomDtoSchema,
@@ -14,7 +15,6 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { VOCAB_LABELS, vocabInputSchemaFor, vocabPatchSchemaFor, type VocabInput, type VocabKind, type VocabPatch } from "../schemas";
-import { isConstraintViolation } from "./db-errors";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 /**

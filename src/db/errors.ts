@@ -1,8 +1,7 @@
 /**
- * Drizzle wraps the driver's error in one of its own and keeps the original as
- * `cause`, so the constraint name is a level or two down. Without walking the
- * chain, "that slug is taken" and "a track named X already exists" both come
- * back as an opaque 500.
+ * Drizzle may wrap the driver's error and retain the original as `cause`, so
+ * inspect the bounded cause chain for either the structured constraint field
+ * or a driver message that names it.
  */
 export function isConstraintViolation(error: unknown, constraintName: string): boolean {
   for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
