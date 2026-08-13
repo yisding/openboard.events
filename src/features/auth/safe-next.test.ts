@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authPathWithNext, safeInternalPath } from "./safe-next";
+import { authenticatedAuthDestination, authPathWithNext, safeInternalPath } from "./safe-next";
 
 describe("safeInternalPath", () => {
   it("keeps internal paths with query strings and fragments", () => {
@@ -17,8 +17,13 @@ describe("safeInternalPath", () => {
     "\\evil.example/path",
     "/%5cevil.example/path",
     "/%2f%2fevil.example/path",
+    "/.//evil.example/path",
   ])("rejects unsafe redirect target %s", (value) => {
     expect(safeInternalPath(value)).toBe("/events");
+  });
+
+  it("rejects repeated redirect parameters instead of choosing one", () => {
+    expect(safeInternalPath(["/events", "/join?token=invite-123"])).toBe("/events");
   });
 });
 
@@ -31,5 +36,23 @@ describe("authPathWithNext", () => {
   it("drops external and protocol-relative destinations", () => {
     expect(authPathWithNext("/signup", "https://attacker.example/steal")).toBe("/signup");
     expect(authPathWithNext("/signup", "//attacker.example/steal")).toBe("/signup");
+  });
+});
+
+describe("authenticatedAuthDestination", () => {
+  it("continues an authenticated invitee to the pending invitation", () => {
+    expect(authenticatedAuthDestination("/join?token=invite-123"))
+      .toBe("/join?token=invite-123");
+  });
+
+  it.each([
+    [undefined, "/organizations"],
+    ["https://attacker.example/steal", "/organizations"],
+    ["/.//attacker.example/steal", "/organizations"],
+    ["/login?next=%2Fsignup", "/organizations"],
+    ["/signup/check-email?email=owner%40example.com", "/organizations"],
+    [["/events", "/join?token=invite-123"], "/organizations"],
+  ])("falls back instead of redirecting an existing session to %s", (value, expected) => {
+    expect(authenticatedAuthDestination(value)).toBe(expected);
   });
 });
