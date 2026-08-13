@@ -1,11 +1,7 @@
-import { notFound } from "next/navigation";
-import { getEventBySlug } from "@/features/events";
-import { EmbedDisabledNotice } from "@/features/public/embed-disabled-notice";
-import { PublicEventShell } from "@/features/public/public-event-shell";
 import { PublicSpeakerGallery } from "@/features/public/public-speaker-gallery";
 import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSpeakers } from "@/features/public/server/public-queries";
-import { resolveEmbedOptions } from "../embed-options";
+import { renderEmbedSurface } from "../embed-page";
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",
@@ -18,21 +14,12 @@ export async function generateStaticParams(): Promise<Array<{ eventSlug: string 
 
 export default async function Page({ params }: { params: Promise<{ eventSlug: string }> }) {
   const { eventSlug } = await params;
-  const event = await getEventBySlug(eventSlug);
-  if (!event) notFound();
-
-  // Same gate-before-fetch + config-not-URL discipline as every embed route.
-  const config = await getOrCreateEmbedConfig(event.id, "speaker_gallery");
-  const embedOptions = resolveEmbedOptions(config.style);
-  if (!config.enabled) {
-    return (
-      <PublicEventShell active="gallery" eventSlug={eventSlug} event={{ name: event.name, timezone: event.timezone, accentColor: event.theme }} embed embedOptions={embedOptions}>
-        <EmbedDisabledNotice label="speaker gallery" />
-      </PublicEventShell>
-    );
-  }
-
-  const speakers = await getPublishedSpeakers(eventSlug);
-  if (!speakers) notFound();
-  return <PublicSpeakerGallery eventSlug={eventSlug} speakers={speakers} embed embedOptions={embedOptions} filters={config.filters} />;
+  return renderEmbedSurface({
+    eventSlug,
+    active: "gallery",
+    disabledLabel: "speaker gallery",
+    getConfig: (eventId) => getOrCreateEmbedConfig(eventId, "speaker_gallery"),
+    getContent: getPublishedSpeakers,
+    renderContent: (speakers, context) => <PublicSpeakerGallery {...context} speakers={speakers} embed />,
+  });
 }
