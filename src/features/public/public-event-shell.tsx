@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { useEffect } from "react";
@@ -42,7 +43,13 @@ export function accentTextShade(accent: string): string {
 
 /** The event branding this shell needs — `PublishedScheduleDTO["event"]` and
  * `PublishedSpeakersDTO["event"]` both satisfy this shape verbatim. */
-export type PublicEventInfo = { name: string; timezone: string; accentColor: string | null } & Partial<{ startsAt: string; endsAt: string }>;
+export type PublicEventInfo = {
+  name: string;
+  timezone: string;
+  accentColor: string | null;
+  logoUrl?: string | null;
+  backgroundUrl?: string | null;
+} & Partial<{ startsAt: string; endsAt: string }>;
 
 // Posts the document height to the parent frame so /public/embed.js can size
 // the iframe. Runs only when embedded.
@@ -131,7 +138,10 @@ export function PublicEventShell({
     <div className="public-event" style={accentStyle}>
       <header className="public-event-header">
         <div className="public-event-container">
-          <span className="public-event-logo">{event.name}</span>
+          <Link className="public-event-logo" href={`/e/${eventSlug}/agenda`} aria-label={`${event.name} agenda`}>
+            {event.logoUrl && <Image src={event.logoUrl} alt="" aria-hidden="true" width={36} height={36} unoptimized />}
+            {event.name}
+          </Link>
           <nav aria-label="Event navigation">
             {NAV_ITEMS.map((item) => (
               <Link key={item.key} className={active === item.key ? "active" : ""} aria-current={active === item.key ? "page" : undefined} href={`/e/${eventSlug}/${item.key}`}>{item.label}</Link>
@@ -141,6 +151,18 @@ export function PublicEventShell({
         </div>
       </header>
       <section className="public-event-hero">
+        {event.backgroundUrl && (
+          <Image
+            src={event.backgroundUrl}
+            alt=""
+            aria-hidden="true"
+            className="public-event-hero-image"
+            fill
+            priority
+            unoptimized
+            sizes="100vw"
+          />
+        )}
         <div className="public-event-container">
           {range && <span className="public-eyebrow">{range.toUpperCase()}</span>}
           <h1>{event.name}</h1>

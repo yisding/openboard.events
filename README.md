@@ -132,7 +132,8 @@ List, week, track, and room views cover the other ways you'll want to look at th
 Nothing leaks until you publish: the public pages render only published sessions and speakers.
 Your event gets a public site with sessions, a day-by-day agenda, a speaker directory and photo
 gallery, and a personal itinerary where attendees star sessions and export them to their
-calendar (ICS).
+calendar (ICS). The hosted site carries the logo, background artwork, and accent color configured
+in Event settings, so the attendee experience stays recognizably yours.
 
 ![The public schedule page for the sample event](docs/screenshots/public-schedule.png)
 
