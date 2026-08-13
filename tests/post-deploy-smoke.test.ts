@@ -151,19 +151,22 @@ record() {
 case "$url" in
   */api/health)
     record health
-    payload='{"ok":true,"sha":"same-build","deployment":"old-deployment","errors":{"ok":true},"jobs":{"ok":true},"ms":1}'
+    health_deployment="\${SMOKE_FAKE_HEALTH_DEPLOYMENT:-old-deployment}"
+    printf -v payload '{"ok":true,"sha":"same-build","deployment":"%s","errors":{"ok":true},"jobs":{"ok":true},"ms":1}' "$health_deployment"
     ;;
   */api/auth/get-session) payload='null' ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     record embed
     extra=$'Content-Security-Policy: frame-ancestors *\\r\\nX-Nextjs-Cache: HIT\\r\\n'
-    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
+    cache_deployment="\${SMOKE_FAKE_CACHE_DEPLOYMENT:-old-deployment}"
+    printf -v payload '<span hidden data-openboard-deployment="%s"></span>' "$cache_deployment"
     ;;
   */e/*/agenda)
     record agenda
     extra=$'X-Nextjs-Cache: HIT\\r\\n'
-    payload='<span hidden data-openboard-deployment="old-deployment"></span>'
+    cache_deployment="\${SMOKE_FAKE_CACHE_DEPLOYMENT:-old-deployment}"
+    printf -v payload '<span hidden data-openboard-deployment="%s"></span>' "$cache_deployment"
     ;;
   */e/*/schedule) status=307 ;;
 esac
@@ -196,5 +199,28 @@ printf '%s' "$status"
     expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("1");
     expect(readFileSync(join(state, "agenda"), "utf8").trim()).toBe("1");
     expect(readFileSync(join(state, "embed"), "utf8").trim()).toBe("1");
+
+    const manualState = join(root, "manual-state");
+    mkdirSync(manualState, { recursive: true });
+    const manualResult = spawnSync("bash", [resolve("scripts/post-deploy-smoke.sh"), "https://example.test"], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        SMOKE_FAKE_STATE: manualState,
+        SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
+        SMOKE_FAKE_HEALTH_DEPLOYMENT: "new-deployment",
+        SMOKE_FAKE_CACHE_DEPLOYMENT: "new-deployment",
+        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        DEPLOYMENT_ID: "",
+      },
+    });
+
+    expect(manualResult.status, `${manualResult.stdout}\n${manualResult.stderr}`).toBe(0);
+    expect(readFileSync(join(manualState, "health"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(manualState, "agenda"), "utf8").trim()).toBe("1");
+    expect(readFileSync(join(manualState, "embed"), "utf8").trim()).toBe("1");
   });
 });

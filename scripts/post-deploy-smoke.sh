@@ -43,8 +43,10 @@ body_file="$(mktemp)"
 health_headers_file="$(mktemp)"
 health_body_file="$(mktemp)"
 schedule_headers_file="$(mktemp)"
+schedule_body_file="$(mktemp)"
 embed_headers_file="$(mktemp)"
-trap 'rm -f "$headers_file" "$body_file" "$health_headers_file" "$health_body_file" "$schedule_headers_file" "$embed_headers_file"' EXIT
+embed_body_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file" "$health_headers_file" "$health_body_file" "$schedule_headers_file" "$schedule_body_file" "$embed_headers_file" "$embed_body_file"' EXIT
 deployed_build_sha=""
 deployed_id="${DEPLOYMENT_ID:-}"
 # Cloudflare can briefly route requests to the previous Worker after wrangler
@@ -222,11 +224,13 @@ embed_contract_ok=0
 embed_attempts=0
 embed_last_status=""
 while (( ! health_ok || ! schedule_ok || ! embed_ok )); do
+  learned_deployment_id=0
   if (( ! schedule_ok )); then
     schedule_attempts=$((schedule_attempts + 1))
     propagation_fetch "$base_url/e/$event_slug/agenda"
     schedule_last_status="$last_status"
     cp "$headers_file" "$schedule_headers_file"
+    cp "$body_file" "$schedule_body_file"
     if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
       schedule_ok=1
     fi
@@ -237,6 +241,7 @@ while (( ! health_ok || ! schedule_ok || ! embed_ok )); do
     propagation_fetch "$base_url/embed/$event_slug/agenda"
     embed_last_status="$last_status"
     cp "$headers_file" "$embed_headers_file"
+    cp "$body_file" "$embed_body_file"
     if [[ "$last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
       embed_ok=1
       if expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
@@ -259,7 +264,31 @@ while (( ! health_ok || ! schedule_ok || ! embed_ok )); do
       && { [[ -z "${DEPLOYMENT_ID:-}" ]] || [[ "$candidate_deployment_id" == "$DEPLOYMENT_ID" ]]; }; then
       health_ok=1
       deployed_build_sha="$candidate_build_sha"
+      if [[ -z "$deployed_id" ]]; then learned_deployment_id=1; fi
       deployed_id="$candidate_deployment_id"
+    fi
+  fi
+
+  # A standalone invocation has no expected DEPLOYMENT_ID, so the cache probes
+  # above cannot be judged until health supplies it later in this first
+  # successful cycle. Re-evaluate the retained responses immediately instead
+  # of requiring another cycle that may fall beyond the shared deadline.
+  if (( learned_deployment_id && ! schedule_ok )); then
+    cp "$schedule_headers_file" "$headers_file"
+    cp "$schedule_body_file" "$body_file"
+    if [[ "$schedule_last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      schedule_ok=1
+    fi
+  fi
+  if (( learned_deployment_id && ! embed_ok )); then
+    cp "$embed_headers_file" "$headers_file"
+    cp "$embed_body_file" "$body_file"
+    if [[ "$embed_last_status" == "200" ]] && is_edge_cache_fresh && is_current_deployment; then
+      embed_ok=1
+      if expect_header "content-security-policy" "frame-ancestors *" "embed allows framing" \
+        && expect_no_header "x-frame-options" "embed does not send X-Frame-Options"; then
+        embed_contract_ok=1
+      fi
     fi
   fi
 
