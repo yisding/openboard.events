@@ -42,16 +42,17 @@ function hintProp(hint: string | undefined): { hint: string } | Record<string, n
   return hint ? { hint } : {};
 }
 
-function draftFromTask(task: AdminTaskDTO | null, timezone: string): TaskDraft {
+export function draftFromTask(task: AdminTaskDTO | null, timezone: string, duplicate = false): TaskDraft {
   if (!task) {
     return {
       name: "", descriptionHtml: "", targetType: "contact", completionMode: "manual",
       formId: null, fileRequestId: null, dueAt: null, isActive: true,
     };
   }
+  const duplicateSuffix = " (copy)";
   return {
-    id: task.id,
-    name: task.name,
+    ...(duplicate ? {} : { id: task.id }),
+    name: duplicate ? `${task.name.slice(0, 255 - duplicateSuffix.length)}${duplicateSuffix}` : task.name,
     descriptionHtml: task.descriptionHtml,
     targetType: task.targetType,
     completionMode: task.completionMode,
@@ -61,7 +62,7 @@ function draftFromTask(task: AdminTaskDTO | null, timezone: string): TaskDraft {
     // zones that instant falls on the next UTC date, so slicing the raw ISO string
     // would show (and re-save) the day after. Format the day in the event zone.
     dueAt: task.dueAt ? eventDayKey(task.dueAt, timezone) : null,
-    isActive: task.isActive,
+    isActive: duplicate ? false : task.isActive,
   };
 }
 
@@ -76,6 +77,7 @@ export function TaskEditor({
   timezone,
   open,
   task,
+  duplicateOf,
   locked,
   forms,
   fileRequests,
@@ -86,6 +88,7 @@ export function TaskEditor({
   timezone: string;
   open: boolean;
   task: AdminTaskDTO | null;
+  duplicateOf: AdminTaskDTO | null;
   locked: boolean;
   forms: FormOption[];
   fileRequests: FileRequestDTO[];
@@ -93,7 +96,8 @@ export function TaskEditor({
   onSaved: (saved: TaskDTO) => void | Promise<void>;
 }) {
   const { toast } = useToast();
-  const initialDraft = draftFromTask(task, timezone);
+  const duplicating = duplicateOf !== null;
+  const initialDraft = draftFromTask(task ?? duplicateOf, timezone, duplicating);
   const [draft, setDraft] = useState<TaskDraft>(initialDraft);
   const [baseline, setBaseline] = useState<TaskDraft>(initialDraft);
   const [saving, setSaving] = useState(false);
@@ -111,11 +115,11 @@ export function TaskEditor({
     }
     if (task) createRequestId.current.reset();
     else createRequestId.current.begin();
-    const nextDraft = draftFromTask(task, timezone);
+    const nextDraft = draftFromTask(task ?? duplicateOf, timezone, duplicating);
     setDraft(nextDraft);
     setBaseline(nextDraft);
     setFieldErrors({});
-  }, [open, task, timezone]);
+  }, [duplicateOf, duplicating, open, task, timezone]);
 
   useEffect(() => {
     if (Object.keys(fieldErrors).length === 0) return;
@@ -181,7 +185,10 @@ export function TaskEditor({
           formId: draft.formId,
           fileRequestId: draft.fileRequestId,
           dueAt: draft.dueAt,
-          isActive: draft.isActive,
+          // A duplicate's first save is always an inactive draft. The switch is
+          // disabled below as the visible guard; this payload rule is the
+          // backstop that prevents stale client state from creating fan-out.
+          isActive: duplicating ? false : draft.isActive,
         })),
       });
       const payload = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
@@ -191,7 +198,7 @@ export function TaskEditor({
         toast(payload?.error?.message ?? "That task could not be saved", { kind: "error" });
         return;
       }
-      toast(draft.id ? "Task updated" : "Task created");
+      toast(draft.id ? "Task updated" : duplicating ? "Inactive task copy created" : "Task created");
       setBaseline(draft);
       await onSaved(saved.data);
       createRequestId.current.reset();
@@ -206,12 +213,14 @@ export function TaskEditor({
     <Modal
       open={open}
       onClose={closeEditor}
-      title={draft.id ? "Edit task" : "Create a task"}
-      description="Assign once to accepted speakers or per accepted submission."
+      title={draft.id ? "Edit task" : duplicating ? "Duplicate task" : "Create a task"}
+      description={duplicating
+        ? "Review the copied setup. The new task will stay inactive until you deliberately activate it."
+        : "Assign once to accepted speakers or per accepted submission."}
       wide
       footer={<>
         <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
-        <Button disabled={!draft.name.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create task"}</Button>
+        <Button disabled={!draft.name.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : duplicating ? "Create inactive copy" : "Create task"}</Button>
       </>}
     >
       <div ref={editorRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
@@ -281,8 +290,8 @@ export function TaskEditor({
         )}
 
         <div className="inline-setting">
-          <div><b>Active</b><small>Inactive tasks stop assigning to new speakers and drop off the portal.</small></div>
-          <Switch label="Active" checked={draft.isActive} onClick={() => setDraft((current) => ({ ...current, isActive: !current.isActive }))} />
+          <div><b>Active</b><small>{duplicating ? "Copies start inactive. Save this draft, then activate it when you are ready to assign speakers." : "Inactive tasks stop assigning to new speakers and drop off the portal."}</small></div>
+          <Switch label="Active" checked={draft.isActive} disabled={duplicating} onClick={() => setDraft((current) => ({ ...current, isActive: !current.isActive }))} />
         </div>
       </div>
     </Modal>

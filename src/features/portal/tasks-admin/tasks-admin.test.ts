@@ -152,6 +152,55 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     expect(new Date(requestRow.rows[0]?.updated_at ?? 0).toISOString()).toBe(preservedTimestamp);
   });
 
+  it("creates a copied task as an assignment-free inactive draft until it is deliberately activated", async () => {
+    const source = await saveTaskIn(db, eventId, taskInput({
+      name: "Collect final confirmation",
+      descriptionHtml: "<p>Confirm the final session details.</p>",
+      dueAt: "2026-11-01",
+    }));
+    await pglite.query(
+      "INSERT INTO task_completions(event_id,task_id,contact_id,submission_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
+      [eventId, source.id, ada, talkOne],
+    );
+
+    const copyId = taskIdSchema.parse("d5000000-0000-4000-8000-000000000092");
+    const copyInput = taskInput({
+      id: copyId,
+      name: "Collect final confirmation (copy)",
+      descriptionHtml: "<p>Confirm the final session details.</p>",
+      dueAt: "2026-11-01",
+      isActive: false,
+    });
+    const copy = await createTaskIn(db, eventId, copyInput);
+
+    expect(copy).toMatchObject({
+      id: copyId,
+      name: "Collect final confirmation (copy)",
+      descriptionHtml: "<p>Confirm the final session details.</p>",
+      targetType: source.targetType,
+      completionMode: source.completionMode,
+      isActive: false,
+    });
+    expect(copy.id).not.toBe(source.id);
+    expect(await getTaskCompletionMatrixIn(db, eventId, copyId)).toEqual([]);
+    expect(await count("task_completions", `task_id = '${copyId}'`)).toBe(0);
+
+    // A response-lost retry keeps both the same row id and the inactive state,
+    // even if stale editor state tries to turn the copy on in the replay body.
+    const replayed = await createTaskIn(db, eventId, taskInput({
+      ...copyInput,
+      name: "Stale retry",
+      isActive: true,
+    }));
+    expect(replayed).toMatchObject({ id: copyId, name: "Collect final confirmation (copy)", isActive: false });
+    expect(await count("portal_tasks", `id = '${copyId}'`)).toBe(1);
+    expect(await getTaskCompletionMatrixIn(db, eventId, copyId)).toEqual([]);
+
+    const activated = await saveTaskIn(db, eventId, taskInput({ ...copyInput, isActive: true }));
+    expect(activated.isActive).toBe(true);
+    expect((await getTaskCompletionMatrixIn(db, eventId, copyId)).length).toBeGreaterThan(0);
+  });
+
   it("reads counts from task_assignments_v, never re-derived", async () => {
     const { id: taskId } = await saveTaskIn(db, eventId, taskInput({ name: "Counting law task" }));
     await pglite.query(

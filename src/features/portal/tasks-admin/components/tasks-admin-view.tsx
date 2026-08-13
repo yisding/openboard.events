@@ -86,6 +86,7 @@ export function TasksAdminView({
   const [tabCounts, setTabCounts] = useState(initialTabCounts);
   const [fileRequests, setFileRequests] = useState(initialFileRequests);
   const [editing, setEditing] = useState<AdminTaskDTO | null>(null);
+  const [duplicatingTask, setDuplicatingTask] = useState<AdminTaskDTO | null>(null);
   const [creating, setCreating] = useState(false);
   // M57 — the open task drawer is an id into `filtered`, not a captured
   // object, so next/prev always resolves against whatever is on screen right
@@ -220,7 +221,7 @@ export function TasksAdminView({
                     <div><b>{task.counts.completed}/{total}</b><span>{progress}%</span></div>
                     <ProgressBar label={`Completion for ${task.name}`} value={progress} tone={progress > 75 ? "green" : "accent"} />
                   </div>
-                  <TaskRowMenu task={task} onView={() => setMatrixTaskId(task.id)} onEdit={() => setEditing(task)} onDelete={() => setPendingDelete(task)} />
+                  <TaskRowMenu task={task} onView={() => setMatrixTaskId(task.id)} onEdit={() => setEditing(task)} onDuplicate={() => setDuplicatingTask(task)} onDelete={() => setPendingDelete(task)} />
                 </article>
               );
             })}
@@ -233,16 +234,18 @@ export function TasksAdminView({
       <TaskEditor
         eventId={eventId}
         timezone={timezone}
-        open={creating || editing !== null}
+        open={creating || editing !== null || duplicatingTask !== null}
         task={editing}
+        duplicateOf={duplicatingTask}
         locked={editing !== null && editing.counts.completed > 0}
         forms={forms}
         fileRequests={fileRequests}
-        onClose={() => { setCreating(false); setEditing(null); }}
+        onClose={() => { setCreating(false); setEditing(null); setDuplicatingTask(null); }}
         onSaved={async (saved) => {
           const previous = tasks.find((task) => task.id === saved.id);
           setCreating(false);
           setEditing(null);
+          setDuplicatingTask(null);
           await applyAuthoritativeChange(() => {
             setTasks((current) => mergeSavedTask(current, saved));
             if (!previous) {
@@ -285,7 +288,7 @@ export function TasksAdminView({
   );
 }
 
-export function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDelete: () => void }) {
+export function TaskRowMenu({ task, onView, onEdit, onDuplicate, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDuplicate: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -339,7 +342,8 @@ export function TaskRowMenu({ task, onView, onEdit, onDelete }: { task: AdminTas
         <div id={menuId} role="menu" aria-label={`Actions for ${task.name}`} onKeyDown={onMenuKeyDown} style={{ position: "absolute", right: 0, top: "100%", zIndex: 10, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow-sm)", minWidth: 140, padding: 4 }}>
           <button ref={(node) => { itemRefs.current[0] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onView(); }}>View responses</button>
           <button ref={(node) => { itemRefs.current[1] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
-          <button ref={(node) => { itemRefs.current[2] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={{ ...menuItemStyle, color: "var(--red)" }} onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
+          <button ref={(node) => { itemRefs.current[2] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onDuplicate(); }}>Duplicate</button>
+          <button ref={(node) => { itemRefs.current[3] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={{ ...menuItemStyle, color: "var(--red)" }} onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
         </div>
       )}
     </div>
