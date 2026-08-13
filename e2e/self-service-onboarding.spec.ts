@@ -159,6 +159,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
       await page.getByLabel("Form name").fill(formName);
       await expect(page.getByRole("checkbox", { name: /publish immediately/i })).toBeChecked();
+      await expect(page.getByLabel("CFP deadline")).toHaveValue("four_weeks");
       await page.getByRole("button", { name: /^create form/i }).click();
 
       await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible({ timeout: 30_000 });
@@ -173,6 +174,13 @@ test.describe("self-service signup to first value", () => {
       formId = new URL(publicLink).pathname.split("/").at(-1) ?? "";
       expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
       expect(formId).toMatch(/^[0-9a-f-]{36}$/);
+      const publishedForm = await queryRows<{ closes_at: string | null; status: string }>(
+        "SELECT closes_at::text AS closes_at, status FROM forms WHERE id = $1",
+        [formId],
+      );
+      expect(publishedForm).toHaveLength(1);
+      expect(publishedForm[0]?.status).toBe("open");
+      expect(publishedForm[0]?.closes_at, "onboarding must not publish an indefinitely open CFP by default").not.toBeNull();
       await expect(page.getByRole("heading", { name: `${eventName} is ready` })).toBeVisible();
       await expect(page.locator(".onboarding-link-row input")).toHaveValue(publicLink);
       await expect(page.getByRole("link", { name: "Manage form" })).toHaveAttribute("href", /\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}$/);
