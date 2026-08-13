@@ -26,6 +26,13 @@ describe("embeds admin layout", () => {
     expect(css).not.toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:hidden}");
   });
 
+  it("keeps sticky editor controls below the shared admin topbar", () => {
+    expect(css).toContain("--admin-topbar-height: 65px");
+    expect(css).toContain(".topbar { position: sticky; z-index: 20; top: 0; height: var(--admin-topbar-height)");
+    expect(css).toContain(".embed-editor-bar{position:sticky;z-index:3;top:var(--admin-topbar-height)");
+    expect(css).toContain(".embed-editor-sidebar{position:sticky;top:calc(var(--admin-topbar-height) + 62px)");
+  });
+
   it("collapses optional filter groups and summarizes each selection", () => {
     expect(source).toContain('<details className="embed-filter-group">');
     expect(source).toContain('selectedCount > 0 ? `${selectedCount} selected` : "All included"');
