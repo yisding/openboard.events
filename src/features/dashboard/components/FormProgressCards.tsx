@@ -35,7 +35,7 @@ export function FormProgressCards({ eventId, eventSlug, timezone, forms }: { eve
   return <section className="dashboard-widget dashboard-form-progress">
     <WidgetTitle title="Form progress" hint="Submitted totals exclude drafts" action={<Link href={`/events/${eventId}/forms`}>View all</Link>} />
     <div>{forms.map((form) => <article key={form.formId}>
-      <header><div><b>{form.name}</b><span>{availabilityLabel(form, timezone)}</span></div><StatusBadge value={form.availability} /></header>
+      <header><div className="dashboard-form-progress-copy"><b>{form.name}</b><span>{availabilityLabel(form, timezone)}</span></div><StatusBadge value={form.availability} /></header>
       <dl><div><dt>Submitted</dt><dd>{form.submitted}</dd></div><div><dt>Drafts</dt><dd>{form.drafts}</dd></div></dl>
       <footer>
         <SavedFormActions

@@ -99,7 +99,7 @@ export function SpeakerFlowDrawer({
               {detail && detail.tasks.length === 0 && <p className="long-copy">No onboarding tasks assigned yet.</p>}
               {detail?.tasks.map((task) => (
                 <div className="mini-session" key={task.taskId}>
-                  <span><Dash value={task.dueAt} /></span>
+                  <span className="mini-session-meta"><Dash value={task.dueAt} /></span>
                   <b>{task.name}</b>
                   <StatusBadge value={task.completed ? "complete" : task.overdue ? "overdue" : "open"} />
                 </div>
@@ -116,7 +116,7 @@ export function SpeakerFlowDrawer({
               {detail && detail.submissions.length === 0 && <p className="long-copy">No submissions from this contact.</p>}
               {detail?.submissions.map((submission) => (
                 <Link key={submission.submissionId} className="mini-session" href={`/events/${eventId}/abstracts?submission=${submission.submissionId}`}>
-                  <span>SESS-{submission.code}</span>
+                  <span className="mini-session-meta">SESS-{submission.code}</span>
                   <b>{submission.title}{submission.isPrimary ? "" : ` (${participantRoleLabel(submission.role)})`}</b>
                   <StatusBadge value={submission.portalStatus} />
                 </Link>

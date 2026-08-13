@@ -403,7 +403,7 @@ export function ReviewQueueView({
             <article className="review-detail">
               <header>
                 <div>
-                  <span>{formatCode(active.code)}</span>
+                  <span className="review-detail-code">{formatCode(active.code)}</span>
                   {detail && <StatusBadge value={detail.status} />}
                   <h1>{active.title}</h1>
                   <p>

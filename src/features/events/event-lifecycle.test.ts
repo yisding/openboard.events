@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventLifecycle, groupEventsByLifecycle, orderEventsByLifecycle } from "./event-lifecycle";
+import { eventLifecycle, groupEventsByLifecycle, nextEventLifecycleRefreshMs, orderEventsByLifecycle } from "./event-lifecycle";
 
 const NOW = "2026-08-13T12:00:00.000Z";
 const event = (id: string, startsAt: string, endsAt: string) => ({ id, startsAt, endsAt });
@@ -23,5 +23,16 @@ describe("event lifecycle ordering", () => {
 
     expect(orderEventsByLifecycle(rows, NOW).map(({ id }) => id)).toEqual(["current", "next", "later", "recent", "oldest"]);
     expect(groupEventsByLifecycle(rows, NOW).past.map(({ id }) => id)).toEqual(["recent", "oldest"]);
+  });
+
+  it("schedules a refresh just after the next lifecycle boundary", () => {
+    const nowMs = new Date(NOW).getTime();
+    const rows = [
+      event("current", "2026-08-13T11:00:00.000Z", "2026-08-13T12:05:00.000Z"),
+      event("upcoming", "2026-08-13T12:01:00.000Z", "2026-08-13T13:00:00.000Z"),
+    ];
+
+    expect(nextEventLifecycleRefreshMs(rows, nowMs)).toBe(60_025);
+    expect(nextEventLifecycleRefreshMs(rows, new Date("2026-08-13T14:00:00.000Z").getTime())).toBeNull();
   });
 });
