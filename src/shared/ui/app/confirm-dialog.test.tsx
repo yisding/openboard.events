@@ -19,4 +19,12 @@ describe("ConfirmDialog labels", () => {
     );
     expect(html).toContain(">Load latest</button>");
   });
+
+  it("can prevent confirmation until a preflight is ready", () => {
+    const html = renderToStaticMarkup(
+      <ConfirmDialog open title="Review" body="Preparing…" confirmLabel="Send" confirmDisabled onConfirm={() => undefined} onCancel={() => undefined} />,
+    );
+    expect(html).toContain('disabled=""');
+    expect(html).toContain(">Send</button>");
+  });
 });

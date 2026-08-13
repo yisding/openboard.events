@@ -1,4 +1,4 @@
-export type { CreateSubmissionResult, DraftParticipantInput, NotifyResult, TransitionResult } from "./server/mutations";
+export type { CreateSubmissionResult, DecisionEmailPreviewSample, DraftParticipantInput, NotifyPreview, NotifyResult, TransitionResult } from "./server/mutations";
 export {
   createSubmission,
   createSubmissionIn,
@@ -6,6 +6,8 @@ export {
   getAcceptedForScheduling,
   nextSubmissionCode,
   notifyQueues,
+  previewNotifyQueues,
+  previewNotifyQueuesIn,
   saveDraftAnswers,
   transitionStatus,
   updateSubmissionFields,

@@ -1,6 +1,10 @@
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { submissionIdSchema, type SubmissionStatus } from "@/shared/contracts";
-import { completeBulkDecision } from "./decision-bar";
+import { completeBulkDecision, DecisionEmailPreflight } from "./decision-bar";
+
+Object.assign(globalThis, { React });
 
 const ids = {
   pending: submissionIdSchema.parse("e5000000-0000-4000-8000-000000000001"),
@@ -149,5 +153,38 @@ describe("completeBulkDecision", () => {
     expect(sideEffects.toast).toHaveBeenCalledWith("1 moved · 1 unchanged, someone else had already moved them");
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
+  });
+});
+
+describe("DecisionEmailPreflight", () => {
+  it("shows exact counts, delivery gaps, and the current sample template", () => {
+    const html = renderToStaticMarkup(React.createElement(DecisionEmailPreflight, {
+      preview: {
+        accepted: 2,
+        declined: 1,
+        emailsQueued: 2,
+        skippedNoRecipient: 1,
+        queueRevision: "accept_queue:one:0",
+        samples: [{
+          decision: "accepted",
+          recipientName: "Ada Lovelace",
+          recipientEmail: "ada@example.com",
+          submissionTitle: "Practical Engines",
+          subject: "You are accepted",
+          bodyHtml: "<p>Welcome, Ada.</p>",
+          templateEnabled: false,
+        }],
+      },
+      error: "",
+      loading: false,
+      onRetry: () => undefined,
+    }));
+
+    expect(html).toContain("3 queued decisions");
+    expect(html).toContain("2 accepted · 1 declined · 2 emails");
+    expect(html).toContain("1 submission has no recipient");
+    expect(html).toContain("This template is paused");
+    expect(html).toContain("You are accepted");
+    expect(html).toContain("Links shown in samples are placeholders");
   });
 });

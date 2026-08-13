@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
-import { db, withTx, type TxDb } from "@/db/client";
-import { contacts, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { contacts, emailTemplates, events, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
   acceptedForSchedulingRowSchema,
@@ -27,6 +27,8 @@ import { deriveMappedFields } from "@/features/forms/server/pipeline";
 import { getPinnedSnapshotIn } from "@/features/forms/server/snapshots";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
+import { formatInZone } from "@/shared/lib/time";
+import { renderTemplateContent } from "@/features/comms/server/render";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { assertTransition } from "./guards";
 import type { SubmissionFieldPatch } from "./filters";
@@ -581,6 +583,151 @@ export type NotifyResult = {
   skippedNoRecipient: SubmissionId[];
 };
 
+export type DecisionEmailPreviewSample = {
+  decision: "accepted" | "declined";
+  recipientName: string;
+  recipientEmail: string;
+  submissionTitle: string;
+  subject: string;
+  bodyHtml: string;
+  templateEnabled: boolean;
+};
+
+export type NotifyPreview = {
+  accepted: number;
+  declined: number;
+  emailsQueued: number;
+  skippedNoRecipient: number;
+  queueRevision: string;
+  samples: DecisionEmailPreviewSample[];
+};
+
+type PreviewQueueRow = {
+  id: string;
+  status: "accept_queue" | "decline_queue";
+  title: string;
+  code: number;
+  notifyRevision: number;
+  recipientId: string | null;
+};
+
+type QueueRevisionRow = Pick<PreviewQueueRow, "id" | "status" | "notifyRevision">;
+
+function decisionQueueRevision(rows: QueueRevisionRow[]): string {
+  return rows
+    .map((row) => `${row.status}:${row.id}:${row.notifyRevision}`)
+    .sort()
+    .join("|") || "empty";
+}
+
+function resultRows<Row>(result: unknown): Row[] {
+  if (Array.isArray(result)) return result as Row[];
+  if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: unknown }).rows)) {
+    return (result as { rows: Row[] }).rows;
+  }
+  return [];
+}
+
+/**
+ * Read-only decision-email preflight. It uses the current queue rows, current
+ * recipient records, and current templates, but deliberately does not mint a
+ * portal credential. Preview-only links are visibly marked in the UI and are
+ * replaced by fresh per-recipient links when the outbox actually renders.
+ */
+export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): Promise<NotifyPreview> {
+  const queueResult = await dbOrTx.execute(sql`
+    SELECT s.id, s.status, s.title, s.code, s.notify_revision AS "notifyRevision",
+      COALESCE(s.submitter_contact_id, (
+        SELECT sp.contact_id FROM submission_participants sp
+        WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
+        LIMIT 1
+      )) AS "recipientId"
+    FROM submissions s
+    WHERE s.event_id = ${eventId}
+      AND s.status IN ('accept_queue', 'decline_queue')
+      AND s.notified_at IS NULL
+    ORDER BY s.code, s.id
+  `);
+  const rows = resultRows<PreviewQueueRow>(queueResult);
+  const accepted = rows.filter((row) => row.status === "accept_queue");
+  const declined = rows.filter((row) => row.status === "decline_queue");
+  const deliverable = rows.filter((row) => row.recipientId !== null);
+
+  const [event] = await dbOrTx.select({
+    name: events.name,
+    slug: events.slug,
+    timezone: events.timezone,
+    startsAt: events.startsAt,
+    location: events.location,
+    physicalAddress: events.physicalAddress,
+    logoFileId: events.logoFileId,
+  }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new AppError("NOT_FOUND", "Event not found");
+
+  const samples: DecisionEmailPreviewSample[] = [];
+  for (const [decision, candidates, templateKey] of [
+    ["accepted", accepted, "submission_accepted"],
+    ["declined", declined, "submission_declined"],
+  ] as const) {
+    const sample = candidates.find((row) => row.recipientId !== null);
+    if (!sample?.recipientId) continue;
+    const [[contact], [template]] = await Promise.all([
+      dbOrTx.select({ email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName })
+        .from(contacts).where(and(eq(contacts.eventId, eventId), eq(contacts.id, sample.recipientId))).limit(1),
+      dbOrTx.select({ subject: emailTemplates.subject, bodyHtml: emailTemplates.bodyHtml, enabled: emailTemplates.enabled })
+        .from(emailTemplates).where(and(eq(emailTemplates.eventId, eventId), eq(emailTemplates.key, templateKey))).limit(1),
+    ]);
+    if (!contact) continue;
+    if (!template) throw new AppError("NOT_FOUND", `${decision === "accepted" ? "Acceptance" : "Decline"} email template not found`);
+    // The template contract validates links as absolute URLs. `.invalid` is a
+    // reserved, non-routable domain, so a preview can never become a usable
+    // credential even if somebody copies it out of the message body.
+    const previewBase = `https://preview.invalid/portal/${encodeURIComponent(event.slug)}`;
+    const rendered = renderTemplateContent(templateKey, template.subject, template.bodyHtml, {
+      event: {
+        name: event.name,
+        start_date: formatInZone(event.startsAt, event.timezone, "date"),
+        location: event.location?.trim() || "Location to be announced",
+        timezone: event.timezone,
+      },
+      speaker: {
+        first_name: contact.firstName.trim() || "there",
+        last_name: contact.lastName.trim(),
+        email: contact.email,
+      },
+      portal: { magic_link: `${previewBase}/verify?token=preview-only` },
+      unsubscribe: { url: `${previewBase}/unsubscribe?token=preview-only` },
+      submission: { title: sample.title, code: `SESS-${sample.code}` },
+    }, {
+      ...(event.logoFileId ? { logoUrl: `/f/${event.logoFileId}` } : {}),
+      unsubscribeUrl: `${previewBase}/unsubscribe?token=preview-only`,
+      ...(event.physicalAddress ? { physicalAddress: event.physicalAddress } : {}),
+    });
+    samples.push({
+      decision,
+      recipientName: `${contact.firstName} ${contact.lastName}`.trim() || contact.email,
+      recipientEmail: contact.email,
+      submissionTitle: sample.title,
+      subject: rendered.subject,
+      bodyHtml: rendered.html,
+      templateEnabled: template.enabled,
+    });
+  }
+
+  return {
+    accepted: accepted.length,
+    declined: declined.length,
+    emailsQueued: deliverable.length,
+    skippedNoRecipient: rows.length - deliverable.length,
+    queueRevision: decisionQueueRevision(rows),
+    samples,
+  };
+}
+
+export function previewNotifyQueues(eventId: EventId): Promise<NotifyPreview> {
+  return previewNotifyQueuesIn(db, eventId);
+}
+
 type QueueRow = { id: string; notify_revision: number; recipient: string | null; primary_contact: string | null };
 
 /**
@@ -595,12 +742,31 @@ type QueueRow = { id: string; notify_revision: number; recipient: string | null;
  * Co-speakers learn through the portal; mailing all of them turns one decision
  * into four emails, three of which nobody asked for.
  */
-export async function notifyQueues(eventId: EventId): Promise<NotifyResult> {
+export async function notifyQueues(eventId: EventId, expectedQueueRevision?: string): Promise<NotifyResult> {
   return withTx(async (tx) => {
+    // Freeze the exact set reviewed in the preflight. Locking the current rows
+    // and updating only those ids also keeps a newly queued decision from
+    // slipping into this batch between the preview and the two UPDATEs below.
+    const queueRows = (await tx.execute<QueueRevisionRow>(sql`
+      SELECT id, status, notify_revision AS "notifyRevision"
+      FROM submissions
+      WHERE event_id = ${eventId}
+        AND status IN ('accept_queue', 'decline_queue')
+        AND notified_at IS NULL
+      ORDER BY status, id
+      FOR UPDATE
+    `)).rows ?? [];
+    if (expectedQueueRevision && decisionQueueRevision(queueRows) !== expectedQueueRevision) {
+      throw new AppError("STALE_WRITE", "Decision queues changed. Review a fresh preview before sending.");
+    }
+
     const finalize = async (queue: "accept_queue" | "decline_queue", decided: "accepted" | "declined") => {
+      const ids = queueRows.filter((row) => row.status === queue).map((row) => row.id);
+      if (ids.length === 0) return [];
       const result = await tx.execute<QueueRow>(sql`
         UPDATE submissions s SET status = ${decided}, notified_at = now(), row_version = row_version + 1, updated_at = now()
         WHERE s.event_id = ${eventId} AND s.status = ${queue} AND s.notified_at IS NULL
+          AND s.id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
         RETURNING s.id, s.notify_revision,
           -- Two different people, deliberately. The decision email goes to whoever
           -- submitted; the confirmation belongs to whoever is actually presenting,
