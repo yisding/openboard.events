@@ -247,7 +247,22 @@ else
   skip "/f/<seededHeadshotFileId>" "set SMOKE_HEADSHOT_FILE_ID to a seeded headshot"
 fi
 
-# 8. The test-login route must not exist in production. It 404s unless
+# 8. www is not a second origin. Cookies are host-scoped and the OAuth
+#    callback is registered on the apex, so a sign-in started on www strands
+#    its state cookie there; every www path must permanently redirect to the
+#    apex instead of serving.
+if (( production )); then
+  www_url="${base_url/#https:\/\//https://www.}"
+  fetch "$www_url/login"
+  apex_location="location: ${base_url}/login"
+  if [[ "$last_status" == "308" || "$last_status" == "301" ]] && grep -qi "^${apex_location}" "$headers_file"; then
+    pass "www redirects to the apex"
+  else
+    fail "$www_url/login" "www must permanently redirect to the apex /login (got $last_status)"
+  fi
+fi
+
+# 9. The test-login route must not exist in production. It 404s unless
 #    TEST_AUTH=1 at build time; this is what proves the production build lacks it.
 if (( production )); then
   status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 -X POST \

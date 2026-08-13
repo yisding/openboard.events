@@ -125,6 +125,20 @@ probe_redirect() {
 # below even if Next turns one into an otherwise ambiguous HTTP 500.
 probe "/" "200"
 probe "/login" "200"
+
+# The canonical-host redirect in next.config.ts must survive the OpenNext
+# transform, and only a workerd probe can prove that: a `has: host` redirect
+# that the adapter mishandles is invisible to every static gate. 4fe419a's
+# chunk regression taught the same lesson about this artifact.
+www_response="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}\t%{redirect_url}' --max-time 15 -H 'Host: www.openboard.events' "$base_url/login")" || www_response=$'000\t'
+www_status="${www_response%%$'\t'*}"
+www_redirect_url="${www_response#*$'\t'}"
+if [[ "$www_status" != "308" || "$www_redirect_url" != "https://openboard.events/login" ]]; then
+  echo "worker artifact smoke failed: www host GET /login returned $www_status -> $www_redirect_url; expected 308 -> https://openboard.events/login" >&2
+  tail -80 "$log_file" >&2
+  exit 1
+fi
+echo "ok    GET /login (Host: www.openboard.events) -> 308 -> https://openboard.events/login"
 # This production-mode artifact smoke deliberately exercises the fallback
 # provider. The signup entry still has to load cleanly, but it must route users
 # to sign-in instead of presenting an account form backed by a disabled API.

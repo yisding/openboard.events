@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
 import { z } from "zod";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -16,6 +16,7 @@ import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/lib/form-open";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
+import { endOfDayInTz, eventDayKey, formatInZone } from "@/shared/lib/time";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
@@ -70,6 +71,55 @@ type BuilderFormLite = {
 
 type OnboardingFormAvailability = { open: boolean; reason: FormOpenReason };
 
+export type CfpDeadlineChoice = "four_weeks" | "two_weeks" | "one_week" | "custom" | "none";
+
+const CFP_DEADLINE_PRESETS: ReadonlyArray<{ choice: Exclude<CfpDeadlineChoice, "custom" | "none">; weeks: number; label: string }> = [
+  { choice: "four_weeks", weeks: 4, label: "4 weeks before the event" },
+  { choice: "two_weeks", weeks: 2, label: "2 weeks before the event" },
+  { choice: "one_week", weeks: 1, label: "1 week before the event" },
+];
+
+/**
+ * Calendar-week presets stay anchored to the event's local calendar rather
+ * than subtracting UTC hours. A daylight-saving boundary can make "28 days"
+ * land at 10:59 PM or 12:59 AM locally; CFP deadlines should keep the much
+ * simpler promise that the selected local day remains open through 11:59 PM.
+ */
+export function cfpDeadlineForWeeksBefore(eventStartsAt: string, timezone: string, weeks: number): string {
+  const eventDay = eventDayKey(eventStartsAt, timezone);
+  const calendar = new Date(`${eventDay}T12:00:00.000Z`);
+  calendar.setUTCDate(calendar.getUTCDate() - weeks * 7);
+  return endOfDayInTz(calendar.toISOString().slice(0, 10), timezone).toISOString();
+}
+
+export function resolveCfpDeadline(choice: CfpDeadlineChoice, customClosesAt: string | null, eventStartsAt: string, timezone: string): string | null {
+  if (choice === "none") return null;
+  if (choice === "custom") return customClosesAt;
+  const preset = CFP_DEADLINE_PRESETS.find((candidate) => candidate.choice === choice);
+  return preset ? cfpDeadlineForWeeksBefore(eventStartsAt, timezone, preset.weeks) : null;
+}
+
+/** Prefer the earliest useful preset; for a near-term event, fall back to the
+ * previous local day. Only very short-notice or already-started events begin
+ * with the organizer's explicit "No deadline" escape hatch selected. */
+export function defaultCfpDeadline(eventStartsAt: string, timezone: string, nowIso: string): { choice: CfpDeadlineChoice; customClosesAt: string | null } {
+  const now = Date.parse(nowIso);
+  const eventStart = Date.parse(eventStartsAt);
+  for (const preset of CFP_DEADLINE_PRESETS) {
+    const closesAt = cfpDeadlineForWeeksBefore(eventStartsAt, timezone, preset.weeks);
+    if (Date.parse(closesAt) > now && Date.parse(closesAt) < eventStart) {
+      return { choice: preset.choice, customClosesAt: null };
+    }
+  }
+
+  const eventDay = new Date(`${eventDayKey(eventStartsAt, timezone)}T12:00:00.000Z`);
+  eventDay.setUTCDate(eventDay.getUTCDate() - 1);
+  const previousDay = endOfDayInTz(eventDay.toISOString().slice(0, 10), timezone).toISOString();
+  return Date.parse(previousDay) > now && Date.parse(previousDay) < eventStart
+    ? { choice: "custom", customClosesAt: previousDay }
+    : { choice: "none", customClosesAt: null };
+}
+
 function onboardingFormAvailability(form: BuilderFormLite, nowIso = new Date().toISOString()): OnboardingFormAvailability {
   if (form.status !== "open") return { open: false, reason: "closed_by_admin" };
   return formOpenState({
@@ -90,6 +140,16 @@ export type OnboardingResumeState = {
 };
 
 type OnboardingTrackCreate = { id: string; name: string; color: string };
+
+export async function saveOnboardingEvent(input: {
+  existing: EventDTO | null;
+  create: () => Promise<EventDTO>;
+  update: (eventId: EventDTO["id"], expectedRowVersion: number) => Promise<EventDTO>;
+}): Promise<EventDTO> {
+  return input.existing
+    ? input.update(input.existing.id, input.existing.rowVersion)
+    : input.create();
+}
 
 export async function createAndReconcileOnboardingTrack(input: {
   request: OnboardingTrackCreate;
@@ -177,6 +237,7 @@ export async function createOrPublishOnboardingForm(input: {
   create: () => Promise<BuilderFormLite>;
   reconcile: (form: BuilderFormLite) => Promise<BuilderFormLite>;
   publish: (form: BuilderFormLite) => Promise<BuilderFormLite>;
+  validatePublish?: (form: BuilderFormLite) => void;
   onReady: (form: BuilderFormLite) => void | Promise<void>;
 }): Promise<BuilderFormLite> {
   let form = input.existing ?? await input.create();
@@ -190,6 +251,7 @@ export async function createOrPublishOnboardingForm(input: {
   await input.onReady(form);
 
   if (!input.publishNow || form.status === "open") return form;
+  input.validatePublish?.(form);
   try {
     return await input.publish(form);
   } catch (publishError) {
@@ -227,23 +289,25 @@ export function OnboardingWizard({
   organizationName,
   hasExistingEvents,
   initialState = null,
+  nowIso = new Date().toISOString(),
 }: {
   organizationId: OrganizationId;
   organizationName: string;
   hasExistingEvents: boolean;
   initialState?: OnboardingResumeState | null;
+  nowIso?: string;
 }) {
   const { toast } = useToast();
   const timeZones = useMemo(browserTimeZones, []);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(() => initialState?.step === "complete" ? 4 : initialState?.step === "form" ? 3 : initialState ? 2 : 1);
 
   // Step 1 — event basics
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [eventType, setEventType] = useState<EventType>("conference");
-  const [timezone, setTimezone] = useState(DEFAULT_TZ);
-  const [startsAt, setStartsAt] = useState<string | null>(null);
-  const [endsAt, setEndsAt] = useState<string | null>(null);
+  const [name, setName] = useState(initialState?.event.name ?? "");
+  const [slug, setSlug] = useState(initialState?.event.slug ?? "");
+  const [eventType, setEventType] = useState<EventType>((initialState?.event.eventType as EventType | undefined) ?? "conference");
+  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
+  const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
+  const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -256,8 +320,9 @@ export function OnboardingWizard({
   const previousStepRef = useRef(step);
 
   useEffect(() => {
+    if (initialState?.event) return;
     setTimezone(preferredTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone, timeZones));
-  }, [timeZones]);
+  }, [initialState?.event, timeZones]);
 
   useEffect(() => {
     if (previousStepRef.current === step) return;
@@ -287,6 +352,19 @@ export function OnboardingWizard({
   );
   const [createdForm, setCreatedForm] = useState<BuilderFormLite | null>(initialState?.form ?? null);
   const [formCreateId] = useState(() => initialState?.formId ?? crypto.randomUUID());
+  const [deadlineChoice, setDeadlineChoice] = useState<CfpDeadlineChoice>(() => {
+    if (initialState?.form?.closesAt) return "custom";
+    if (initialState?.form?.status === "open") return "none";
+    return initialState?.event
+      ? defaultCfpDeadline(initialState.event.startsAt, initialState.event.timezone, nowIso).choice
+      : "four_weeks";
+  });
+  const [customClosesAt, setCustomClosesAt] = useState<string | null>(() => {
+    if (initialState?.form?.closesAt) return initialState.form.closesAt;
+    if (!initialState?.event) return null;
+    return defaultCfpDeadline(initialState.event.startsAt, initialState.event.timezone, nowIso).customClosesAt;
+  });
+  const [deadlineError, setDeadlineError] = useState("");
 
   function fail(summary: string, fields: Record<string, string> = {}) {
     const shownInline = Object.keys(fields).some((key) => RENDERED_FIELDS.has(key));
@@ -310,8 +388,18 @@ export function OnboardingWizard({
     });
   }
 
-  async function createEventStep() {
+  function syncEventFields(saved: EventDTO) {
+    setName(saved.name);
+    setSlug(saved.slug);
+    setEventType(saved.eventType as EventType);
+    setTimezone(saved.timezone);
+    setStartsAt(saved.startsAt);
+    setEndsAt(saved.endsAt);
+  }
+
+  async function saveEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
+    if (event && !slug.trim()) return fail("Event slug is required", { slug: "Event slug is required" });
     if (!startsAt || !endsAt) {
       return fail("Both start and end dates are required", {
         ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
@@ -321,12 +409,33 @@ export function OnboardingWizard({
     setSaving(true);
     fail("");
     try {
-      const created = await api(`organizations/${organizationId}/onboarding/event`, eventDtoSchema, {
-        method: "POST",
-        body: { id: eventCreateId, name: name.trim(), slug: slug.trim() || undefined, eventType, timezone, startsAt, endsAt },
+      const fields = {
+        name: name.trim(),
+        slug: slug.trim() || undefined,
+        eventType,
+        timezone,
+        startsAt,
+        endsAt,
+      };
+      const saved = await saveOnboardingEvent({
+        existing: event,
+        create: () => api(`organizations/${organizationId}/onboarding/event`, eventDtoSchema, {
+          method: "POST",
+          body: { id: eventCreateId, ...fields },
+        }),
+        update: (eventId, expectedRowVersion) => api(`events/${eventId}`, eventDtoSchema, {
+          method: "PATCH",
+          body: { expectedRowVersion, patch: fields },
+        }),
       });
-      setEvent(created);
-      toast(`${created.name} created`);
+      setEvent(saved);
+      syncEventFields(saved);
+      if (!event) {
+        const deadline = defaultCfpDeadline(saved.startsAt, saved.timezone, nowIso);
+        setDeadlineChoice(deadline.choice);
+        setCustomClosesAt(deadline.customClosesAt);
+      }
+      toast(event ? `${saved.name} updated` : `${saved.name} created`);
       setStep(2);
     } catch (caught) {
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;
@@ -413,7 +522,36 @@ export function OnboardingWizard({
 
   async function createFormStep() {
     if (!event || creatingForm) return;
+    const closesAt = resolveCfpDeadline(deadlineChoice, customClosesAt, event.startsAt, event.timezone);
+    const failDeadline = (message: string) => {
+      setDeadlineError(message);
+      requestAnimationFrame(() => document.getElementById(
+        deadlineChoice === "custom" ? "onboarding-cfp-custom-deadline" : "onboarding-cfp-deadline",
+      )?.focus());
+    };
+    const validateDeadline = () => {
+      if (!publishNow || deadlineChoice === "none") return true;
+      if (!closesAt) {
+        failDeadline("Choose a closing date or select No deadline");
+        return false;
+      }
+      if (Date.parse(closesAt) <= Date.now()) {
+        failDeadline("Choose a closing date in the future");
+        return false;
+      }
+      if (Date.parse(closesAt) >= Date.parse(event.startsAt)) {
+        failDeadline("Choose a closing date before the event starts");
+        return false;
+      }
+      return true;
+    };
+    // A brand-new form can be rejected before creating anything. An existing
+    // draft must first be reconciled below: a prior publish may have committed
+    // even when both its response and the immediate read were lost.
+    if (!createdForm && !validateDeadline()) return;
     let hasCreatedForm = createdForm !== null;
+    let deadlineValidationFailed = false;
+    setDeadlineError("");
     setCreatingForm(true);
     try {
       // Reserve the stable client ID before the form INSERT. If the POST
@@ -433,10 +571,15 @@ export function OnboardingWizard({
           body: JSON.stringify({ id: formCreateId, internalName: formName.trim() || "Call for Speakers", kind: "abstract", collectParticipants: true }),
         }),
         reconcile: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`),
+        validatePublish: () => {
+          if (validateDeadline()) return;
+          deadlineValidationFailed = true;
+          throw new Error("CFP deadline needs attention");
+        },
         publish: (form) => requestData<BuilderFormLite>(`/api/internal/forms/${form.id}?eventId=${event.id}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ expectedUpdatedAt: form.updatedAt, patch: { status: "open" } }),
+          body: JSON.stringify({ expectedUpdatedAt: form.updatedAt, patch: { status: "open", closesAt } }),
         }),
         onReady: async (form) => {
           hasCreatedForm = true;
@@ -469,6 +612,7 @@ export function OnboardingWizard({
       toast(isPublished ? "Your call for speakers is live" : "Form created as a draft");
       setStep(4);
     } catch (caught) {
+      if (deadlineValidationFailed) return;
       toast(hasCreatedForm
         ? `Your form is saved, but setup could not be finished: ${caught instanceof Error ? caught.message : "try again"}`
         : caught instanceof Error ? caught.message : "The form could not be created", { kind: "error" });
@@ -521,17 +665,21 @@ export function OnboardingWizard({
       <OnboardingStepHeading step={step} headingRef={stepHeadingRef} />
 
       {step === 1 && (
-        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void createEventStep(); }}>
+        <form className="cfp-step form-stack" noValidate onSubmit={(submitEvent) => { submitEvent.preventDefault(); void saveEventStep(); }}>
           <p className="onboarding-lede">
-            {hasExistingEvents ? `Set up another event for ${organizationName}.` : `Welcome to ${organizationName} — let's set up your first event.`}
+            {event
+              ? "Correct the event details below, then continue setup where you left off."
+              : hasExistingEvents
+                ? `Set up another event for ${organizationName}.`
+                : `Welcome to ${organizationName} — let's set up your first event.`}
           </p>
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
             <input id="onboarding-event-name" name="name" required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
           </Field>
-          <details ref={slugDetailsRef} className="onboarding-advanced">
-            <summary>Customize public URL</summary>
-            <Field label="Event slug" hint="Optional — leave blank to generate it from the event name" hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
-              <input id="onboarding-event-slug" name="slug" aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
+          <details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event)}>
+            <summary>{event ? "Public URL" : "Customize public URL"}</summary>
+            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+              <input id="onboarding-event-slug" name="slug" required={Boolean(event)} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
             </Field>
           </details>
           <div className="form-grid">
@@ -556,7 +704,7 @@ export function OnboardingWizard({
           </div>
           {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           <footer className="cfp-actions">
-            <Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create event"} <ArrowRight size={16} /></Button>
+            <Button type="submit" disabled={saving}>{saving ? "Saving…" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>
         </form>
       )}
@@ -615,6 +763,7 @@ export function OnboardingWizard({
             />
           </Field>
           <footer className="cfp-actions">
+            <Button variant="ghost" onClick={() => setStep(1)} disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}><ArrowLeft size={16} /> Edit event details</Button>
             <Button variant="secondary" onClick={() => void addTrack(trackName, CUSTOM_TRACK_COLOR)} disabled={!trackName.trim() || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}><Plus size={16} /> Add track</Button>
             <Button onClick={() => void continueToForm()} disabled={advancing || addingTrack || Boolean(trackCreateSyncError) || Boolean(removingTrackId) || Boolean(trackSyncError)}>{advancing ? "Saving…" : tracks.length > 0 ? "Continue" : "Skip for now"} <ArrowRight size={16} /></Button>
           </footer>
@@ -641,10 +790,44 @@ export function OnboardingWizard({
             <input value={formName} disabled={createdForm !== null} onChange={(event) => setFormName(event.target.value)} />
           </Field>
           <label className="onboarding-toggle">
-            <input type="checkbox" checked={publishNow} onChange={(event) => setPublishNow(event.target.checked)} />
+            <input type="checkbox" checked={publishNow} onChange={(event) => { setPublishNow(event.target.checked); setDeadlineError(""); }} />
             Publish immediately so the link is shareable right away
           </label>
+          {publishNow && createdForm?.status !== "open" && <>
+            <Field label="CFP deadline" required error={deadlineChoice === "custom" ? undefined : deadlineError} errorId="onboarding-cfp-deadline-error">
+              <Select
+                id="onboarding-cfp-deadline"
+                required
+                value={deadlineChoice}
+                aria-invalid={Boolean(deadlineError) && deadlineChoice !== "custom" || undefined}
+                aria-describedby={deadlineError && deadlineChoice !== "custom" ? "onboarding-cfp-deadline-error" : "onboarding-cfp-deadline-help"}
+                onChange={(changeEvent) => { setDeadlineChoice(changeEvent.target.value as CfpDeadlineChoice); setDeadlineError(""); }}
+              >
+                {CFP_DEADLINE_PRESETS.map((preset) => {
+                  const deadline = cfpDeadlineForWeeksBefore(event.startsAt, event.timezone, preset.weeks);
+                  return <option key={preset.choice} value={preset.choice}>{preset.label} · {formatInZone(deadline, event.timezone, "date")}</option>;
+                })}
+                <option value="custom">Choose a date…</option>
+                <option value="none">No deadline</option>
+              </Select>
+              {(!deadlineError || deadlineChoice === "custom") && <small id="onboarding-cfp-deadline-help">Speakers can create and update submissions until the end of this day.</small>}
+            </Field>
+            {deadlineChoice === "custom" && <Field label="Closing date" required error={deadlineError} errorId="onboarding-cfp-deadline-error">
+              <DateTimePicker
+                id="onboarding-cfp-custom-deadline"
+                mode="date"
+                clearable={false}
+                required
+                invalid={Boolean(deadlineError)}
+                {...(deadlineError ? { ariaDescribedBy: "onboarding-cfp-deadline-error" } : {})}
+                value={customClosesAt}
+                onChange={(value) => { setCustomClosesAt(value); setDeadlineError(""); }}
+                tz={event.timezone}
+              />
+            </Field>}
+          </>}
           <footer className="cfp-actions">
+            <Button variant="ghost" onClick={() => setStep(2)} disabled={creatingForm}><ArrowLeft size={16} /> Back to tracks</Button>
             <Button onClick={() => void createFormStep()} disabled={creatingForm}>{creatingForm ? "Saving…" : createdForm?.status === "open" ? "Finish setup" : createdForm && publishNow ? "Retry publishing" : createdForm ? "Continue with draft" : "Create form"} <ArrowRight size={16} /></Button>
           </footer>
         </div>

@@ -685,7 +685,12 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      the fixed menu button. Recorded in design-system.md T4. */
   .topbar { padding-left: 64px; }.search-trigger { width: 44px; height: 44px; }.search-trigger span, .search-trigger kbd, .save-indicator { display: none; }
   .dashboard-grid { grid-template-columns: 1fr; }.speaker-attention, .quick-actions { grid-column: 1; grid-row: auto; }
-  .landing-links > a:not(.button), .landing-links .button-secondary { display: none; }
+  /* Keep authentication discoverable on compact layouts. The section and
+     sample links are repeated in the hero immediately below, but "Sign in"
+     has no other direct entry point for an existing anonymous user. */
+  .landing-links > a:not(.button) { display: none; }
+  .landing-links { gap: 8px; }
+  .landing-links .button-primary svg { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -709,6 +714,14 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .events-index-header { padding: 0 16px; }.header-help { display: none; }.events-index-content { width: calc(100% - 28px); padding-top: 32px; }.events-title { align-items: flex-start; gap: 24px; }.events-title .page-actions .button-secondary { display: none; }.event-grid { grid-template-columns: 1fr; }
   .app-content, .showcase-page { padding: 24px 16px 32px; }.topbar { padding-right: 12px; }.breadcrumbs span, .breadcrumbs i { display: none; }.page-header { display: grid; }.page-header .page-actions { padding: 0; width: 100%; }.page-header .page-actions .button { flex: 1 1 auto; min-width: 0; }.metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.metric-card { min-height: 166px; padding: 12px; }.metric-card > strong { font-size: 24px; }.attention-banner { align-items: flex-start; }.attention-banner a { display: none; }.attention-list > div { grid-template-columns: 34px 1fr auto; }.attention-progress { display: none; }
   .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }.drawer-body { padding: 20px 16px; }
+}
+
+@media (max-width: 385px) {
+  /* Preserve both authentication actions on the narrowest supported phones.
+     The linked brand mark keeps its accessible name while its wordmark yields
+     the horizontal space the two 44px-tall actions need. */
+  .landing-nav > .brand > span:not(.brand-mark) { display: none; }
+  .hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }
 }
 
 @media (max-width: 480px) {
@@ -1615,7 +1628,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    touch target in both hosted and dark embedded schedules. */
 .public-session-meta .public-calendar-link{position:absolute;right:11px;top:11px;width:31px;height:31px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--accent-dark);display:grid;place-items:center}
 .embed-shell.embed-dark .public-session-meta .public-calendar-link{background:var(--sidebar-2);border-color:var(--sidebar-line)}
-.public-session-main h3 button{border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;padding:0;cursor:pointer}
+.public-session-main h3 button{width:100%;min-height:32px;border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;padding:0;cursor:pointer;display:flex;align-items:center}
+.session-card-toggle,.speaker-gallery footer button,.speaker-gallery footer a{min-height:32px}
 
 /* Initials avatars are spans too; undo the legacy direct-child badge geometry.
    The placeholder primitive above owns its colour, border, and surface. */
@@ -1697,6 +1711,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .mobile-close,.portal-mobile-menu{width:44px;height:44px;padding:0;flex:0 0 44px}
   .portal-header nav a{height:44px}
   .session-card-cal,.public-session-meta .public-calendar-link{width:44px;height:44px;right:5px;top:5px}
+  .public-session-main h3 button,.session-card-toggle,.speaker-gallery footer button,.speaker-gallery footer a{min-height:44px}
   /* T4 mirrored-offset exemption: 54 = the 44px calendar button plus its 5px
      inset on each side. It is an equality with a fixed component dimension,
      not a spacing step, so it does not snap to the grid. */
