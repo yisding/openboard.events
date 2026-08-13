@@ -5,14 +5,14 @@ import type { PublicForm } from "@/features/forms";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import { PublicFormGate } from "./public-form-gate";
 
-function publicForm(backgroundUrl: string | null): PublicForm {
+function publicForm(backgroundUrl: string | null, logoUrl: string | null = null): PublicForm {
   return {
     event: {
       id: "event-1",
       name: "OpenBoard Conf",
       slug: "openboard-conf",
       timezone: "UTC",
-      logoUrl: null,
+      logoUrl,
       backgroundUrl,
     },
     form: {
@@ -57,5 +57,26 @@ describe("PublicFormGate event background", () => {
 
     expect(markup).not.toContain("<img");
     expect(markup).toContain("Form body");
+  });
+});
+
+describe("PublicFormGate event identity", () => {
+  it("names an unbranded event without replacing the organizer's welcome heading", () => {
+    const markup = renderToStaticMarkup(createElement(PublicFormGate, { data: publicForm(null) }));
+
+    expect(markup).toContain("OpenBoard Conf");
+    expect(markup).toContain("<h1>Share your idea</h1>");
+    expect(markup.match(/<h1>/g)).toHaveLength(1);
+  });
+
+  it("keeps the event name visible when a logo is also configured", () => {
+    const markup = renderToStaticMarkup(createElement(
+      PublicFormGate,
+      { data: publicForm(null, "/f/event-logo") },
+    ));
+
+    expect(markup).toContain("%2Ff%2Fevent-logo");
+    expect(markup).toContain('alt="OpenBoard Conf"');
+    expect(markup).toContain(">OpenBoard Conf</p>");
   });
 });
