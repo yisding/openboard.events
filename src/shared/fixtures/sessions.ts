@@ -12,6 +12,8 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
     startsAt: "2026-09-15T15:00:00.000Z",
     endsAt: "2026-09-16T01:00:00.000Z",
     accentColor: "#00a878",
+    logoUrl: "/f/00000000-0000-4000-8000-000000000701",
+    backgroundUrl: "/f/00000000-0000-4000-8000-000000000702",
   },
   days: ["2026-09-15"],
   sessions: [{
@@ -36,7 +38,13 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
 });
 
 export const PUBLISHED_SPEAKERS_FIXTURE = publishedSpeakersDtoSchema.parse({
-  event: { name: "OpenBoard Summit", timezone: "America/Los_Angeles", accentColor: "#00a878" },
+  event: {
+    name: "OpenBoard Summit",
+    timezone: "America/Los_Angeles",
+    accentColor: "#00a878",
+    logoUrl: "/f/00000000-0000-4000-8000-000000000701",
+    backgroundUrl: "/f/00000000-0000-4000-8000-000000000702",
+  },
   speakers: [{
     contactId: "00000000-0000-4000-8000-000000000401",
     name: "Ada Lovelace",

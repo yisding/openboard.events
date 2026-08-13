@@ -19,6 +19,20 @@ describe("PublicAgenda", () => {
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Main Hall");
     expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain(`src="${PUBLISHED_SCHEDULE_FIXTURE.event.logoUrl}"`);
+    expect(html).toContain(`src="${PUBLISHED_SCHEDULE_FIXTURE.event.backgroundUrl}"`);
+    expect(html).toContain('class="public-event-hero-image"');
+  });
+
+  it("keeps hosted-site branding out of embeddable agenda documents", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+      embed: true,
+    }));
+
+    expect(html).not.toContain(PUBLISHED_SCHEDULE_FIXTURE.event.logoUrl);
+    expect(html).not.toContain(PUBLISHED_SCHEDULE_FIXTURE.event.backgroundUrl);
   });
 
   it("jumps the active day tab to a deep-linked session on a later day (?session=<id>)", () => {
