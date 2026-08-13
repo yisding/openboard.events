@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import type { db as RepositoryDb } from "@/db/client";
+import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, userLegalAcceptances, users } from "@/db/schema";
 import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
@@ -415,10 +415,13 @@ describe("M42 admin auth on Better Auth", () => {
   it("accepts only the invitation token carried by signup and returns the correct workspace destination", async () => {
     const organization = await createOrganizationIn(database, legacyUser, { name: "Inviting Org", slug: "inviting-org" });
     try {
-      const { invitation } = await inviteOrganizationMemberIn(database, organization.id, legacyUser, {
-        email: "invited-through-signup@example.com",
-        role: "organizer",
-      }, env);
+      const { invitation } = await database.transaction((tx) => inviteOrganizationMemberIn(
+        tx as unknown as TxDb,
+        organization.id,
+        legacyUser,
+        { email: "invited-through-signup@example.com", role: "organizer" },
+        env,
+      ));
       const issued = await issueOrganizationInvitationTokenIn(database, invitation.id);
       if (!issued) throw new Error("expected a live invitation token");
 

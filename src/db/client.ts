@@ -55,6 +55,9 @@ export type DbOrTx = typeof db | TxDb;
  * duplicate-contact merge reassigns references across five tables and then
  * tombstones the losing identity, which must commit or roll back together
  * the same way an erasure does.
+ * Organization invitation enqueue is also transactional: token rotation,
+ * stale-message retirement, the replacement outbox row, and its audit record
+ * must commit together (`src/features/organizations/server/invitations.ts`).
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {

@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DbOrTx } from "@/db/client";
+import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAuthEmailOutbox, communicationLogs, organizationInvitations } from "@/db/schema";
 import { dispatchAdminAuthEmailOutboxIn, openPlatformAdminLinkPayload } from "@/features/auth";
@@ -67,6 +67,14 @@ const env = parseEnv({
 describe("M44 user management", () => {
   let pglite: PGlite;
   let db: DbOrTx;
+  let testDb: ReturnType<typeof drizzle>;
+
+  const inviteForTest = (
+    organizationId: Parameters<typeof inviteOrganizationMemberIn>[1],
+    userId: Parameters<typeof inviteOrganizationMemberIn>[2],
+    input: Parameters<typeof inviteOrganizationMemberIn>[3],
+    runtimeEnv = env,
+  ) => testDb.transaction((tx) => inviteOrganizationMemberIn(tx as unknown as TxDb, organizationId, userId, input, runtimeEnv));
 
   beforeAll(async () => {
     pglite = new PGlite();
@@ -81,7 +89,8 @@ describe("M44 user management", () => {
       "INSERT INTO users(id,email,name) VALUES($1,'owner@example.com','Ada Owner'),($2,'organizer@example.com','Oscar Organizer'),($3,'reviewer@example.com','Rae Reviewer')",
       [ownerId, organizerId, reviewerId],
     );
-    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+    testDb = drizzle(pglite, { schema });
+    db = testDb as unknown as DbOrTx;
   }, 60_000);
 
   beforeEach(async () => {
@@ -96,7 +105,7 @@ describe("M44 user management", () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Invite Co", slug: "invite-co" });
       await pglite.query("UPDATE events SET organization_id=$1 WHERE id=$2", [org.id, eventId]);
       try {
-        const first = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "New.Person@Example.com", role: "reviewer" }, env);
+        const first = await inviteForTest(org.id, ownerId, { email: "New.Person@Example.com", role: "reviewer" });
         expect(first.emailQueued).toBe(true);
         expect(first.invitation.email).toBe("new.person@example.com");
         expect(first.invitation.role).toBe("reviewer");
@@ -106,7 +115,7 @@ describe("M44 user management", () => {
 
         // Re-inviting the same address at a different role refreshes the same
         // row (same id) rather than erroring or duplicating.
-        const second = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "new.person@example.com", role: "organizer" }, env);
+        const second = await inviteForTest(org.id, ownerId, { email: "new.person@example.com", role: "organizer" });
         expect(second.invitation.id).toBe(first.invitation.id);
         expect(second.invitation.role).toBe("organizer");
         expect((await listPendingOrganizationInvitationsIn(db, org.id))).toHaveLength(1);
@@ -127,6 +136,34 @@ describe("M44 user management", () => {
       }
     });
 
+    it("rolls a resend back while the prior message is being delivered", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Claimed Invite Co", slug: "claimed-invite-co" });
+      try {
+        const first = await inviteForTest(org.id, ownerId, { email: "claimed@example.com", role: "reviewer" });
+        const [before] = await db.select({ tokenHash: organizationInvitations.tokenHash })
+          .from(organizationInvitations).where(eq(organizationInvitations.id, first.invitation.id));
+        await pglite.query(
+          "UPDATE admin_auth_email_outbox SET locked_until=now()+interval '3 minutes' WHERE recipient_email=$1",
+          ["claimed@example.com"],
+        );
+
+        await expect(inviteForTest(org.id, ownerId, { email: "claimed@example.com", role: "organizer" }))
+          .rejects.toMatchObject({ code: "CONFLICT" });
+
+        const [invitation] = await db.select({ role: organizationInvitations.role, tokenHash: organizationInvitations.tokenHash })
+          .from(organizationInvitations).where(eq(organizationInvitations.id, first.invitation.id));
+        expect(invitation).toEqual({ role: "reviewer", tokenHash: before?.tokenHash });
+        const messages = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "claimed@example.com"));
+        expect(messages).toHaveLength(1);
+        expect(messages[0]?.status).toBe("queued");
+        const audits = await listOrganizationAuditLogIn(db, org.id);
+        expect(audits.filter((entry) => entry.action === "member.invited")).toHaveLength(1);
+      } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
     it("refuses to invite anyone as owner — ownership is transferred, not invited", () => {
       // The zod schema itself excludes "owner": the API surface, not just a
       // runtime check inside the mutation, refuses it.
@@ -136,7 +173,7 @@ describe("M44 user management", () => {
     it("queues a deliverable invitation before the organization has any event", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "No Events Yet", slug: "no-events-yet" });
       try {
-        const result = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "stranded@example.com", role: "reviewer" }, env);
+        const result = await inviteForTest(org.id, ownerId, { email: "stranded@example.com", role: "reviewer" });
         expect(result.emailQueued).toBe(true);
         expect(result.invitation.email).toBe("stranded@example.com");
         const [queued] = await db.select().from(adminAuthEmailOutbox)
@@ -151,7 +188,7 @@ describe("M44 user management", () => {
     it("revokes a pending invitation, and refuses to revoke one twice", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Revoke Co", slug: "revoke-co" });
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "gone@example.com", role: "reviewer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "gone@example.com", role: "reviewer" });
         await revokeOrganizationInvitationIn(db, org.id, invitation.id, ownerId);
         await expect(revokeOrganizationInvitationIn(db, org.id, invitation.id, ownerId)).rejects.toMatchObject({ code: "NOT_FOUND" });
         expect(await listPendingOrganizationInvitationsIn(db, org.id)).toEqual([]);
@@ -170,7 +207,7 @@ describe("M44 user management", () => {
       );
       const inviteeId = userIdSchema.parse("e4400000-0000-4000-8000-000000000099");
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "invitee@example.com", role: "reviewer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "invitee@example.com", role: "reviewer" });
         const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
         if (!issued) throw new Error("expected a mintable token");
 
@@ -196,7 +233,7 @@ describe("M44 user management", () => {
     it("does not consume an invitation that would demote the organization's last owner", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Owner Guard Co", slug: "owner-guard-co" });
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "owner@example.com", role: "reviewer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "owner@example.com", role: "reviewer" });
         const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
         if (!issued) throw new Error("expected a mintable token");
 
@@ -275,7 +312,7 @@ describe("M44 user management", () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Fold Co", slug: "fold-co" });
       const invitedUserId = userIdSchema.parse("e4400000-0000-4000-8000-000000000202");
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "invited-signup@example.com", role: "organizer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "invited-signup@example.com", role: "organizer" });
         const issued = await issueOrganizationInvitationTokenIn(db, invitation.id);
         if (!issued) throw new Error("expected a live invitation token");
 
@@ -310,7 +347,7 @@ describe("M44 user management", () => {
     it("encrypts one stable join token and renders eventless invitation mail with no speaker-portal link", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Mail Co", slug: "mail-co" });
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "mailed@example.com", role: "reviewer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "mailed@example.com", role: "reviewer" });
         const [row] = await db.select().from(adminAuthEmailOutbox)
           .where(eq(adminAuthEmailOutbox.recipientEmail, "mailed@example.com"));
         if (!row) throw new Error("expected a queued organization_invited row");
@@ -348,7 +385,7 @@ describe("M44 user management", () => {
     it("skips delivery once the invitation has already been revoked", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Skip Co", slug: "skip-co" });
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "revoked-before-send@example.com", role: "reviewer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "revoked-before-send@example.com", role: "reviewer" });
         await revokeOrganizationInvitationIn(db, org.id, invitation.id, ownerId);
         const sender = vi.fn().mockResolvedValue("must-not-send");
         const sendEnv = parseEnv({
@@ -374,7 +411,7 @@ describe("M44 user management", () => {
     it("retries provider failures with the same invitation token and idempotency key", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Retry Co", slug: "retry-co" });
       try {
-        const { invitation } = await inviteOrganizationMemberIn(db, org.id, ownerId, { email: "retry@example.com", role: "organizer" }, env);
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "retry@example.com", role: "organizer" });
         const [queued] = await db.select().from(adminAuthEmailOutbox)
           .where(eq(adminAuthEmailOutbox.recipientEmail, "retry@example.com"));
         if (!queued) throw new Error("expected a queued organization_invited row");
