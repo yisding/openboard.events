@@ -225,8 +225,9 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
     --secrets-file "$JOBS_SECRETS_FILE"
   ```
 
-- [x] Confirm `sb-jobs-preview` has only `APP_BASE_URL` and `CRON_SECRET`; do not copy database,
-  session, R2, Resend, or Airtable credentials to it.
+- [x] Confirm `sb-jobs-preview` has the `WEB_JOBS` Service Binding to
+  `sb-web-preview#JobsEntrypoint` and only the temporary `APP_BASE_URL` / `CRON_SECRET`
+  compatibility bindings; do not copy database, session, R2, Resend, or Airtable credentials to it.
 - [x] Run the preview smoke check. Without the `SMOKE_*` fixture ids the dashboard,
   submit-form, and headshot checks skip instead of running; `--strict` turns any skip into a
   failure, which is how the deploy workflow runs it:
@@ -255,9 +256,10 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   credentials held outside the repository).
 
 Subsequent jobs deployments can use `pnpm deploy:jobs:preview`; Wrangler preserves the
-existing Worker secret. The jobs Worker uses `global_fetch_strictly_public` because its
-documented `APP_BASE_URL` is a sibling Worker on the same `workers.dev` zone; without that
-flag Cloudflare rejects the scheduled subrequest with error 1042.
+existing Worker secret. The primary scheduled transport is the account-scoped `WEB_JOBS`
+Service Binding. `global_fetch_strictly_public` remains only for the one-release public rollback
+adapter, because its `APP_BASE_URL` is a sibling Worker on the same `workers.dev` zone and
+Cloudflare otherwise rejects that compatibility subrequest with error 1042.
 
 ## 7. Configure protected GitHub environments
 
@@ -335,7 +337,8 @@ stores only the credentials and direct database URL needed by the deployment wor
 - [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, and no
   `EMAIL_ALLOWLIST`.
 - [ ] Create `sb-jobs` with the production `CRON_SECRET` attached on its first deploy, using
-  the same `--secrets-file` pattern as preview with `--env production`.
+  the same `--secrets-file` pattern as preview with `--env production`, and confirm its declared
+  `WEB_JOBS` binding resolves to `sb-web#JobsEntrypoint`.
 - [ ] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
   `Deploy` workflow for `production` and approve its protected environment gate. The workflow
   first replays the exact commit through preview; production cannot be selected alone.

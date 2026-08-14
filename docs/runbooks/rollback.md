@@ -59,6 +59,12 @@ pnpm exec wrangler rollback <version-id> --config workers/jobs/wrangler.jsonc --
   -m "rollback: <why>"
 ```
 
+During the private-jobs compatibility release, deploy or roll back the web Worker first. A new
+jobs Worker automatically falls back to the authenticated public callback when an older web
+version has no `JobsEntrypoint`; an old jobs Worker can still call the retained public route on a
+new web version. Treat any `transport: "public-fallback"` log as expected only for that rollback
+window, then restore matching private-capable versions.
+
 Use `--env preview` against the preview config/URL to rehearse this exact sequence risk-free
 before ever touching production — the submission checklist's "rehearsed against production at
 least once" item means having actually run this against `sb-web` once, not just read this file.
