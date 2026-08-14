@@ -24,6 +24,15 @@ export function targetedReminderRecoveryKey(eventId: EventId, contactId: Contact
   return `openboard:targeted-reminder:${eventId}:${contactId}`;
 }
 
+/** Storage acquisition itself can throw in privacy-restricted browsers. */
+export function targetedReminderRecoveryStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function loadTargetedReminderRecovery(
   storage: Pick<Storage, "getItem">,
   eventId: EventId,

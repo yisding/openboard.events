@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { communicationLogs } from "@/db/schema";
-import { idem, type ContactId, type EventId, type JobStats, type SubmissionId, type TaskId } from "@/shared/contracts";
+import { idem, type CommStatus, type ContactId, type EventId, type JobStats, type SendReminderNowResult, type SubmissionId, type TaskId } from "@/shared/contracts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 
 /**
@@ -280,7 +280,7 @@ export async function sendReminderNowIn(
   submissionId: SubmissionId | null,
   now: number = Date.now(),
   attemptId?: string,
-): Promise<{ enqueued: boolean }> {
+): Promise<SendReminderNowResult> {
   const minuteBucket = Math.floor(now / 60_000);
   const idempotencyKey = attemptId
     ? idem.taskReminderManualAttempt(eventId, taskId, contactId, submissionId, attemptId)
@@ -291,12 +291,12 @@ export async function sendReminderNowIn(
   // response was lost. `communication_logs` is both the activity log and the
   // outbox, so this read has no second write boundary to reconcile.
   if (attemptId) {
-    const [existing] = rowsOf<{ exists: boolean }>(await dbOrTx.execute(sql`
-      SELECT true AS exists FROM communication_logs
+    const [existing] = rowsOf<{ status: CommStatus }>(await dbOrTx.execute(sql`
+      SELECT status FROM communication_logs
       WHERE idempotency_key = ${idempotencyKey}
       LIMIT 1
     `));
-    if (existing) return { enqueued: true };
+    if (existing) return { enqueued: existing.status === "queued", attemptStatus: existing.status };
   }
 
   const [assignment] = rowsOf<{ completed: boolean }>(await dbOrTx.execute(sql`
@@ -326,7 +326,7 @@ export async function sendReminderNow(
   contactId: ContactId,
   submissionId: SubmissionId | null,
   attemptId?: string,
-): Promise<{ enqueued: boolean }> {
+): Promise<SendReminderNowResult> {
   return sendReminderNowIn(db, eventId, taskId, contactId, submissionId, Date.now(), attemptId);
 }
 

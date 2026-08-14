@@ -14,6 +14,12 @@ export const sendReminderNowInputSchema = z.object({
   attemptId: z.uuid().optional(),
 });
 export type SendReminderNowInput = z.infer<typeof sendReminderNowInputSchema>;
+export const sendReminderNowResultSchema = z.object({
+  enqueued: z.boolean(),
+  /** Present when a stable-attempt replay recovered an existing outbox row. */
+  attemptStatus: commStatusSchema.optional(),
+});
+export type SendReminderNowResult = z.infer<typeof sendReminderNowResultSchema>;
 
 export const commLogRowSchema = z.object({
   id: commLogIdSchema,

@@ -397,12 +397,26 @@ describe("reminder + assignment scan", () => {
         null,
         firstRequestAt + 121_000,
         reminderAttemptId,
-      )).toEqual({ enqueued: true });
+      )).toEqual({ enqueued: true, attemptStatus: "queued" });
+
+      await pglite.query(
+        "UPDATE communication_logs SET status='sent', sent_at=now() WHERE idempotency_key=$1",
+        [idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, reminderAttemptId)],
+      );
+      expect(await sendReminderNowIn(
+        tx,
+        eventId,
+        taskId,
+        speakerId,
+        null,
+        firstRequestAt + 181_000,
+        reminderAttemptId,
+      )).toEqual({ enqueued: false, attemptStatus: "sent" });
 
       const rows = await logs("task_reminder");
       expect(rows).toEqual([expect.objectContaining({
         idempotency_key: idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, reminderAttemptId),
-        status: "queued",
+        status: "sent",
         task_id: taskId,
         contact_id: speakerId,
       })]);

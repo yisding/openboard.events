@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ContactId, EventId, SendReminderNowInput } from "@/shared/contracts";
+import type { CommStatus, ContactId, EventId, SendReminderNowInput } from "@/shared/contracts";
 import type { OpenAssignmentRow } from "@/features/comms";
 import { isAppError } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -13,6 +13,7 @@ import {
   clearTargetedReminderRecovery,
   loadTargetedReminderRecovery,
   persistTargetedReminderRecovery,
+  targetedReminderRecoveryStorage,
 } from "../targeted-reminder-recovery";
 
 type FrozenReminderAttempt = {
@@ -27,6 +28,17 @@ function assignmentKey(assignment: Pick<OpenAssignmentRow, "taskId" | "submissio
 
 function outcomeIsUnknown(caught: unknown): boolean {
   return !isAppError(caught) || caught.code === "INTERNAL";
+}
+
+function recoveredAttemptMessage(status: CommStatus): string {
+  switch (status) {
+    case "queued": return "Reminder is already queued — it will arrive soon";
+    case "sent": return "Reminder was already sent";
+    case "failed": return "That reminder attempt failed — check Communications to retry it";
+    case "skipped": return "That reminder was not sent — check Communications for details";
+    case "bounced": return "That reminder was sent but bounced — check Communications for details";
+    case "complained": return "That reminder was delivered, then reported as unwanted";
+  }
 }
 
 /**
@@ -52,7 +64,9 @@ export function SendReminderDialog({
   const [pending, setPending] = useState<FrozenReminderAttempt | null>(null);
 
   useEffect(() => {
-    const recovered = loadTargetedReminderRecovery(window.localStorage, eventId, contactId);
+    const storage = targetedReminderRecoveryStorage();
+    if (!storage) return;
+    const recovered = loadTargetedReminderRecovery(storage, eventId, contactId);
     if (recovered) {
       setPending((current) => current ?? {
         assignment: recovered.assignment,
@@ -76,7 +90,8 @@ export function SendReminderDialog({
   }
 
   async function send(attempt: FrozenReminderAttempt) {
-    const recoveryStored = persistTargetedReminderRecovery(window.localStorage, {
+    const storage = targetedReminderRecoveryStorage();
+    const recoveryStored = storage && persistTargetedReminderRecovery(storage, {
       version: 1,
       eventId,
       contactId,
@@ -89,9 +104,16 @@ export function SendReminderDialog({
     }
     try {
       const result = await sendReminder.mutateAsync(attempt.input);
-      clearTargetedReminderRecovery(window.localStorage, eventId, contactId, attempt.input.attemptId);
-      if (result.enqueued) setSentAssignmentKey(assignmentKey(attempt.assignment));
-      toast(result.enqueued ? "Reminder queued — it will arrive in about a second" : "Already complete — nothing to remind");
+      clearTargetedReminderRecovery(storage, eventId, contactId, attempt.input.attemptId);
+      if (result.enqueued || result.attemptStatus === "sent") {
+        setSentAssignmentKey(assignmentKey(attempt.assignment));
+      }
+      if (result.attemptStatus) {
+        const isDeliveryProblem = ["failed", "skipped", "bounced", "complained"].includes(result.attemptStatus);
+        toast(recoveredAttemptMessage(result.attemptStatus), isDeliveryProblem ? { kind: "error" } : undefined);
+      } else {
+        toast(result.enqueued ? "Reminder queued — it will arrive in about a second" : "Already complete — nothing to remind");
+      }
       setPending((current) => current?.input.attemptId === attempt.input.attemptId ? null : current);
     } catch (caught) {
       if (outcomeIsUnknown(caught)) {
@@ -101,7 +123,7 @@ export function SendReminderDialog({
         toast("Could not confirm whether that reminder was queued", { kind: "error" });
         return;
       }
-      clearTargetedReminderRecovery(window.localStorage, eventId, contactId, attempt.input.attemptId);
+      clearTargetedReminderRecovery(storage, eventId, contactId, attempt.input.attemptId);
       setPending((current) => current?.input.attemptId === attempt.input.attemptId ? null : current);
       toast(isAppError(caught) ? caught.message : "Could not queue that reminder", { kind: "error" });
     }
@@ -143,8 +165,9 @@ export function SendReminderDialog({
           await send(pending);
         }}
         onCancel={() => {
-          if (pending) {
-            clearTargetedReminderRecovery(window.localStorage, eventId, contactId, pending.input.attemptId);
+          const storage = targetedReminderRecoveryStorage();
+          if (pending && storage) {
+            clearTargetedReminderRecovery(storage, eventId, contactId, pending.input.attemptId);
           }
           setPending(null);
         }}

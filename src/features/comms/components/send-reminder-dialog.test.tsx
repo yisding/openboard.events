@@ -69,6 +69,7 @@ describe("targeted reminder recovery", () => {
   it("restores and retries one frozen attempt after a lost response, then acknowledges it once", async () => {
     sendMock
       .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce({ enqueued: false, attemptStatus: "sent" })
       .mockResolvedValue({ enqueued: true });
 
     await act(async () => root.render(
@@ -115,8 +116,9 @@ describe("targeted reminder recovery", () => {
     expect(buttonNamed("Retry reminder")).toBeUndefined();
     expect(buttonNamed("Sent")).toBeDefined();
     expect(window.localStorage.getItem(targetedReminderRecoveryKey(eventId, contactId))).toBeNull();
-    expect(toastMock.mock.calls.filter(([message]) => message === "Reminder queued — it will arrive in about a second"))
+    expect(toastMock.mock.calls.filter(([message]) => message === "Reminder was already sent"))
       .toHaveLength(1);
+    expect(toastMock).not.toHaveBeenCalledWith("Reminder queued — it will arrive in about a second");
 
     // Clicking again is a deliberate new confirmation, not a replay of the
     // acknowledged attempt, so it receives a fresh identity.
@@ -142,6 +144,28 @@ describe("targeted reminder recovery", () => {
     expect(sendMock).not.toHaveBeenCalled();
     expect(buttonNamed("Send reminder")).toBeDefined();
     expect(buttonNamed("Cancel")?.disabled).toBe(false);
+    expect(toastMock).toHaveBeenCalledWith(
+      "Could not prepare a safe reminder retry. The reminder was not sent.",
+      { kind: "error" },
+    );
+  });
+
+  it("does not crash or send when access to browser storage is denied", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+    sendMock.mockResolvedValue({ enqueued: true });
+
+    await act(async () => root.render(
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+    ));
+    await settle();
+    await act(async () => buttonNamed("Send reminder")?.click());
+    await act(async () => buttonNamed("Send reminder")?.click());
+    await settle();
+
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(buttonNamed("Send reminder")).toBeDefined();
     expect(toastMock).toHaveBeenCalledWith(
       "Could not prepare a safe reminder retry. The reminder was not sent.",
       { kind: "error" },
