@@ -2581,3 +2581,29 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .notify-bar{flex-direction:column;gap:12px}
   .notify-bar>.button{width:100%}
 }
+
+/* Phase 8: keep the public agenda's useful controls and first session above
+   the fold. The event name remains the document h1 for assistive technology,
+   while its visible identity appears once in the persistent header. */
+.public-event-hero{height:184px}
+.public-event-hero>.public-event-container{padding-top:0;display:flex;align-items:center}
+.public-event-hero-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.public-event-hero-controls{background:var(--surface);border-bottom:1px solid var(--line)}
+.public-event-hero-controls .public-day-tabs{border-inline:1px solid var(--line)}
+.public-schedule{padding-top:36px}
+.public-speakers{padding-top:48px}
+.public-schedule>header,.public-speakers>header{margin-bottom:24px}
+.schedule-controls{border-radius:10px}
+.schedule-controls>.schedule-list{border:0;border-radius:0}
+
+@media(max-width:768px){
+  .public-event-hero{height:184px}
+  .public-schedule{padding-top:32px}
+  .public-speakers{padding-top:40px}
+}
+
+@media(max-width:480px){
+  .public-event-hero{min-height:184px;height:184px}
+  .public-event-hero>.public-event-container{padding-block:0;display:flex}
+  .public-event-hero-controls .public-event-container{width:100%}
+}
