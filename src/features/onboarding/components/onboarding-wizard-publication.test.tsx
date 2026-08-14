@@ -75,6 +75,21 @@ function success(data: unknown): Response {
   });
 }
 
+function failure(message: string, status = 503): Response {
+  return new Response(JSON.stringify({ error: { message } }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function unreadableSuccess(): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => { throw new TypeError("connection closed before the response body completed"); },
+  } as unknown as Response;
+}
+
 beforeEach(() => {
   toastMock.mockReset();
   fetchMock = vi.fn();
@@ -123,7 +138,7 @@ describe("first-form publication preflight", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.querySelector("dialog")).not.toBeNull();
   });
 
@@ -143,8 +158,23 @@ describe("first-form publication preflight", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.querySelector("dialog")).toBeNull();
+  });
+
+  it("surfaces a user-actionable response without replaying it", async () => {
+    fetchMock.mockResolvedValue(failure("Setup changed; reload and try again", 409));
+    await renderFormStep();
+
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click());
+    await act(async () => {
+      buttonNamed("Create draft")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(toastMock).toHaveBeenCalledWith("Setup changed; reload and try again", { kind: "error" });
   });
 
   it("reconciles a cached open form and gates stale-state republication behind confirmation", async () => {
@@ -203,5 +233,47 @@ describe("first-form publication preflight", () => {
       expectedUpdatedAt: serverDraft.updatedAt,
       patch: { status: "open", closesAt: cachedOpen.closesAt },
     });
+  });
+
+  it.each([
+    { failureKind: "server failure", firstResponse: () => failure("temporarily unavailable") },
+    { failureKind: "truncated successful response", firstResponse: unreadableSuccess },
+  ])("retries a $failureKind before showing the ready handoff", async ({ firstResponse }) => {
+    const cachedOpen = {
+      id: "30000000-0000-4000-8000-000000000002",
+      internalName: "Speaker applications",
+      status: "open",
+      updatedAt: "2026-08-13T12:00:00.000Z",
+      closesAt: "2030-08-18T06:59:59.999Z",
+    };
+    let completionAttempts = 0;
+    fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (path.includes(`/api/internal/forms/${cachedOpen.id}`) && method === "GET") return success(cachedOpen);
+      if (path.includes("/onboarding/event") && method === "PATCH") {
+        const body = JSON.parse(String(init?.body)) as { step: string };
+        if (body.step === "complete") {
+          completionAttempts += 1;
+          if (completionAttempts === 1) return firstResponse();
+        }
+        return success(body);
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    });
+    await renderFormStep({
+      ...initialState,
+      formId: cachedOpen.id,
+      form: cachedOpen,
+    });
+
+    await act(async () => {
+      buttonNamed("Finish setup")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(completionAttempts).toBe(2);
+    expect(container.textContent).toContain("First Form Conf is ready");
+    expect(toastMock).toHaveBeenCalledWith("Your call for speakers is live");
   });
 });

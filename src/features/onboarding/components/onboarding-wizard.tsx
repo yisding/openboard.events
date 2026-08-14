@@ -289,10 +289,30 @@ export async function createOrPublishOnboardingForm(input: {
 }
 
 async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
-  const payload = await response.json() as { data?: T; error?: { message?: string } };
-  if (!response.ok || payload.data === undefined) throw new Error(payload.error?.message ?? "That request failed");
-  return payload.data;
+  // Calls routed through this helper are replay-safe onboarding operations:
+  // reads, idempotent progress checkpoints, a stable-ID form create, or a
+  // version-checked form update. Replay one transport/5xx failure so an edge
+  // hiccup does not force a customer to reconstruct which setup step saved.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(path, init);
+    } catch (error) {
+      if (attempt === 0) continue;
+      throw error;
+    }
+    let payload: { data?: T; error?: { message?: string } };
+    try {
+      payload = await response.json() as typeof payload;
+    } catch {
+      if (attempt === 0 && (response.ok || response.status >= 500)) continue;
+      throw new Error("That request failed");
+    }
+    if (response.ok && payload.data !== undefined) return payload.data;
+    if (attempt === 0 && response.status >= 500) continue;
+    throw new Error(payload.error?.message ?? "That request failed");
+  }
+  throw new Error("That request failed");
 }
 
 /**
