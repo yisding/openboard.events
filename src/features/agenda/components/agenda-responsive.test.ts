@@ -22,7 +22,7 @@ describe("agenda workspace responsive styles", () => {
     expect(toolbar).toContain('className="agenda-toolbar-actions"');
     expect(dayView).not.toContain("<DayTabs");
     expect(css).not.toContain(".dv-day-tabs");
-    expect(css).toContain("@media(max-width:1024px){.dv-layout{grid-template-columns:minmax(0,1fr)}");
+    expect(css).toContain("@media(max-width:1024px){\n  .dv-layout{grid-template-columns:minmax(0,1fr)}");
     expect(css).toContain(".agenda-workspace{display:block}");
     expect(css).toContain(".agenda-workspace>.day-grid{min-width:0;width:100%}");
     expect(css).toContain(".agenda-workspace>.day-grid .dv-grid{min-width:700px}");
@@ -46,8 +46,8 @@ describe("agenda workspace responsive styles", () => {
     // the band is now a ≤1024 wrap plus a ≤768 mobile reflow that keeps every
     // action reachable. Assert both halves, and that no min-width or
     // range-syntax query has crept back in.
-    expect(css).toContain(".page:has(.agenda-workspace)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap");
-    expect(css).toContain(".page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap");
+    expect(css).toContain(".page:has(.agenda-workspace)>.agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap");
+    expect(css).toContain(".page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap");
     // Match only the query preludes, not the prose in the comment that records
     // why the band was folded.
     const preludes = css.match(/@media[^{]*/g) ?? [];

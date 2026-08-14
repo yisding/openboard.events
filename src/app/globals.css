@@ -890,7 +890,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 /* Keep agenda actions contained and long event-day sets inside their own
    horizontal rail instead of widening the page. The Day view uses this as its
    only day picker. */
-.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap;gap:8px}
+.agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap;gap:8px;padding-inline:16px}
+.agenda-view-tabs{height:auto;min-height:44px;align-self:stretch}
+.agenda-view-tabs button{align-self:stretch}
 .agenda-toolbar>.agenda-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;max-width:100%;flex-wrap:wrap;gap:8px}
 .agenda-daybar{min-width:0;overflow:hidden;gap:12px}
 .agenda-daybar>.agenda-daybar-scroll{min-width:0;flex:1;display:flex;height:100%;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-gutter:stable;scrollbar-width:thin}
@@ -1365,12 +1367,14 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 /* M30 day-grid drag & drop — `dv-` prefix keeps this scoped away from the
    unrelated pre-existing `.day-grid`/`.calendar-session` demo mockup rules. */
 .dv-root{display:flex;flex-direction:column;gap:12px;min-width:0}
-.dv-layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;align-items:start}
+.dv-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;align-items:start}
 .accepted-tray--promotion{border-top:0;margin-top:0;padding-top:0}
 .dv-side-panels{display:grid;gap:12px;min-width:0}
 .dv-unscheduled-panel{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:12px}
 .dv-unscheduled-panel>header{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .dv-unscheduled-panel>header>div{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;flex:1}
+.dv-unscheduled-panel:not(.dv-needs-room-panel)>header{display:grid;grid-template-columns:minmax(0,1fr)}
+.dv-unscheduled-panel:not(.dv-needs-room-panel)>header>.button{width:100%}
 .dv-unscheduled-panel h3{font-size:var(--text-xs);margin:0}
 .dv-unscheduled-panel header span{min-width:18px;height:18px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);display:grid;place-items:center;font-size:var(--text-xs)}
 .dv-unscheduled-hint{font-size:var(--text-xs);color:var(--muted);margin:6px 0}
@@ -1409,7 +1413,14 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-resize-handle{position:absolute;left:0;right:0;height:6px;cursor:ns-resize;z-index:3}
 .dv-resize-handle--top{top:0}
 .dv-resize-handle--bottom{bottom:0}
-@media(max-width:1024px){.dv-layout{grid-template-columns:minmax(0,1fr)}.dv-unscheduled-panel{display:flex;overflow-x:auto;gap:6px}.dv-unscheduled-panel>header{min-width:70px;display:block}.dv-unscheduled-card{min-width:190px;margin-top:0}}
+@media(max-width:1024px){
+  .dv-layout{grid-template-columns:minmax(0,1fr)}
+  .dv-unscheduled-panel{display:flex;align-items:stretch;overflow-x:auto;gap:8px;padding:10px}
+  .dv-unscheduled-panel>header{flex:0 0 148px;min-width:148px;align-content:start;padding-right:8px;border-right:1px solid var(--line)}
+  .dv-unscheduled-hint{flex:0 0 180px;margin:0;padding:8px 10px;display:flex;align-items:center;border-radius:7px;background:var(--surface-raised)}
+  .dv-unscheduled-card{width:190px;min-width:190px;flex:0 0 190px;margin-top:0}
+  .dv-unscheduled-panel>.dash{min-width:160px;margin:0;display:flex;align-items:center}
+}
 /* M27 — speakers admin inline email edit */
 .speaker-email-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .speaker-email-row span{font-size:var(--text-xs)}
@@ -1920,9 +1931,9 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
 
   /* Four 12px progress labels need more than the desktop card's nested
-     24px + 24px insets leave at 320px. Keep the page gutter, but let each
-     public CFP step own a full, readable label cell. */
-  main.cfp-container{padding-inline:12px}
+     insets leave at 320px. Use one 12px page gutter rather than stacking the
+     container's 20px gutter with another inner inset. */
+  main.cfp-container{width:calc(100% - 24px);padding-inline:0}
   main.cfp-container .cfp-step{padding:16px}
 
   .public-form-welcome .welcome-facts{grid-template-columns:1fr}
@@ -1938,7 +1949,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 @media(max-width:1024px){
   /* With the desktop sidebar present, the action group gets its own flexible
      row. The search may give space back to the two intact button labels. */
-  .page:has(.agenda-workspace)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap;padding-block:8px}
+  .page:has(.agenda-workspace)>.agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:8px}
   .page:has(.agenda-workspace)>.agenda-toolbar>.agenda-toolbar-actions{width:100%;margin-left:0}
   .agenda-toolbar>.agenda-toolbar-actions .table-search{min-width:180px;flex:1 1 180px}
   .agenda-toolbar>.agenda-toolbar-actions .button{flex:0 0 auto}
@@ -1949,7 +1960,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      collapses. The earlier compact rule hides the action group and accepted
      tray; these later, more specific rules restore them as wrapped and
      wrapped and horizontally scrollable mobile surfaces, respectively. */
-  .page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:49px;flex-wrap:wrap;padding-block:8px;gap:8px}
+  .page:has(>.agenda-toolbar)>.agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:8px;gap:8px}
   .agenda-toolbar>div:last-child{display:flex;width:100%;margin-left:0;align-items:center;flex-wrap:wrap;gap:8px}
   .agenda-toolbar>div:last-child .table-search{min-width:180px;flex:1 1 180px}
   .agenda-toolbar>div:last-child .button{flex:0 0 auto}
