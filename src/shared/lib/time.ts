@@ -15,11 +15,22 @@ export function formatInZone(utc: Date | string | number, timeZone: string, styl
   const value = asDate(utc);
   if (typeof style === "object") {
     const usesStyleShortcut = style.dateStyle !== undefined || style.timeStyle !== undefined;
+    const rendersTime = style.timeStyle !== undefined
+      || style.hour !== undefined
+      || style.minute !== undefined
+      || style.second !== undefined;
+    // A zone belongs to an instant, not a calendar label. Adding one to a
+    // date-only component format makes Intl join it as “August 12 at PDT”.
+    // `dateStyle`/`timeStyle` cannot be mixed with component options, so the
+    // shortcut form gets its default zone appended after Intl formats it.
+    const appendShortcutZone = usesStyleShortcut && rendersTime && style.timeZoneName === undefined;
     const options: Intl.DateTimeFormatOptions = usesStyleShortcut
       ? { ...style, timeZone }
-      : { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" };
+      : rendersTime
+        ? { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" }
+        : { ...style, timeZone };
     const rendered = new Intl.DateTimeFormat("en-US", options).format(value);
-    return rendered;
+    return appendShortcutZone ? `${rendered} ${zoneAbbreviation(value, timeZone)}` : rendered;
   }
   const pattern = style === "date" ? "MMM d, yyyy" : style === "time" ? "h:mm a" : style === "long" ? "MMMM d, yyyy 'at' h:mm a" : "MMM d, yyyy, h:mm a";
   return formatInTimeZone(value, timeZone, `${pattern} zzz`);

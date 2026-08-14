@@ -33,6 +33,20 @@ describe("event timezone API", () => {
 
   it("accepts Intl style shortcuts without mixing component options", () => {
     expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { dateStyle: "medium" })).toBe("Oct 15, 2026");
+    expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { timeStyle: "short" })).toBe("12:00 PM PDT");
+  });
+
+  it("keeps date-only component formats free of a dangling zone joiner", () => {
+    expect(formatInZone("2026-08-12T19:00:00.000Z", LA, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    })).toBe("Wednesday, August 12");
+    expect(formatInZone("2026-08-12T19:00:00.000Z", LA, {
+      month: "long",
+      day: "numeric",
+      timeZoneName: "short",
+    })).toBe("August 12 at PDT");
   });
 
   it("formats event ranges compactly with one shared zone label", () => {
