@@ -695,7 +695,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 @media (max-width: 1024px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding-top: 48px; }
   .hero-copy { width: 100%; min-width: 0; text-align: center; margin: 0 auto; }.hero h1, .hero-copy > p { margin-inline: auto; }.eyebrow, .hero-actions { margin-inline: auto; }.hero-actions { justify-content: center; }.hero-proof { justify-content: center; }
-  .hero-art { min-width: 710px; width: 710px; margin: 16px auto 0; transform: none; }
+  .hero-art { min-width: 710px; width: 710px; margin: 16px auto 0; transform: none; }.floating-card-one { left: 0; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .event-grid { grid-template-columns: repeat(2, 1fr); }
   .landing-feature-grid { grid-template-columns: repeat(2, 1fr); }
@@ -732,22 +732,25 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .landing-nav { height: 66px; }.landing-nav .button { height: 34px; padding: 0 12px; }
   .landing-section { scroll-margin-top: 66px; padding-block: 48px; }.landing-feature-grid { grid-template-columns: 1fr; }
   .hero { padding: 48px 0 64px; min-height: auto; }.hero h1 { letter-spacing: -2.8px; }.hero-copy > p { font-size: 16px; }.hero-actions { display: grid; grid-template-columns: 1fr; justify-content: stretch; }.hero-proof { text-align: left; }
-  /* T5 ≤768: text blocks take max-width 100% and nothing keeps a min-width
-     above 320px. `.hero-art` is the clip: a grid item's automatic minimum
-     size follows its definite width, so the 710px from the 1024 block kept
-     forcing the single 1fr track (and with it the centred h1/p) past the
-     viewport. An explicit `min-width: 0` overrides that automatic minimum, so
-     the track collapses to the viewport while the item keeps the 620px box
-     the illustration is drawn at; `justify-self: start` + `margin-inline: 0`
-     cancel the 1024 block's auto centring so the leftover box overflows to
-     the right of the origin the `scale()` shrinks from, where
-     `.landing { overflow: hidden }` absorbs it. The visual size is that
-     `scale()`; only the track shrinks. */
+  /* The illustration keeps its 710px drawing canvas so its tiny dashboard UI
+     stays proportional. Scale that canvas from its centre at each responsive
+     tier: left-origin scaling made the mockup occupy only half a tablet at
+     768px, then jump to full width at 769px, while clipping 56px on a 320px
+     phone. The negative margin removes only the unpainted layout height left
+     behind by transform scaling. */
   .hero h1, .hero-copy > p { max-width: 100%; }
-  .hero-art { width: 620px; min-width: 0; justify-self: start; margin-inline: 0; transform: scale(.58); transform-origin: top left; margin-bottom: -190px; }.floating-card-two { right: 10px; }
+  .hero-art { width: 710px; min-width: 0; justify-self: center; margin: 16px 0 -64px; transform: scale(.86); transform-origin: top center; }.floating-card-two { right: 10px; }
   .events-index-header { padding: 0 16px; }.header-help { display: none; }.events-index-content { width: calc(100% - 28px); padding-top: 32px; }.events-title { align-items: flex-start; gap: 24px; }.events-title .page-actions .button-secondary { display: none; }.event-grid { grid-template-columns: 1fr; }
   .app-content, .showcase-page { padding: 24px 16px 32px; }.topbar { padding-right: 12px; }.breadcrumbs span, .breadcrumbs i { display: none; }.page-header { display: grid; }.page-header .page-actions { padding: 0; width: 100%; }.page-header .page-actions .button { flex: 1 1 auto; min-width: 0; }.metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.metric-card { min-height: 166px; padding: 12px; }.metric-card > strong { font-size: 24px; }.attention-banner { align-items: flex-start; }.attention-banner a { display: none; }.attention-list > div { grid-template-columns: 34px 1fr auto; }.attention-progress { display: none; }
   .form-grid { grid-template-columns: 1fr; }.modal-backdrop { padding: 12px; }.modal { max-height: calc(100vh - 20px); }.modal > footer { flex-wrap: wrap; }.drawer-body { padding: 20px 16px; }
+}
+
+@media (max-width: 640px) {
+  .hero-art { transform: scale(.76); margin-bottom: -108px; }
+}
+
+@media (max-width: 560px) {
+  .hero-art { transform: scale(.64); margin-bottom: -165px; }
 }
 
 @media (max-width: 385px) {
@@ -761,7 +764,15 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 @media (max-width: 480px) {
   /* .metric-grid stays 2-up here on purpose (T5 ≤480: "summary/KPI rows go
      2-up"); only its card height steps down. */
-  .metric-card { min-height: 155px; }.hero-art { transform: scale(.51); margin-bottom: -220px; }.countdown { gap: 8px; }
+  .metric-card { min-height: 155px; }.hero-art { transform: scale(.52); margin-bottom: -220px; }.countdown { gap: 8px; }
+}
+
+@media (max-width: 420px) {
+  .hero-art { transform: scale(.46); margin-bottom: -248px; }
+}
+
+@media (max-width: 340px) {
+  .hero-art { transform: scale(.4); margin-bottom: -275px; }
 }
 
 /* Speakers, tasks, and resources admin */
