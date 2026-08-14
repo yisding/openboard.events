@@ -159,4 +159,21 @@ describe("AST source invariants", () => {
     expect(result.stderr.match(/\[query-key-literal\]/gu)).toHaveLength(1);
     expect(result.stderr.match(/\[query-initial-data\]/gu)).toHaveLength(1);
   });
+
+  it("confines cross-identity email comparisons to the identity resolver", () => {
+    const root = fixture({
+      "src/features/event-contacts/server/identity-links.ts": `
+        export const candidate = sql\`SELECT 1 FROM users u JOIN contacts c ON lower(c.email) = lower(u.email)\`;
+      `,
+      "src/features/example/server.ts": `
+        export const sqlJoin = sql\`SELECT 1 FROM users u JOIN contacts c ON lower(c.email) = lower(u.email)\`;
+        export const drizzleJoin = eq(users.email, contacts.email);
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[identity-email-join\]/gu)).toHaveLength(2);
+    expect(result.stderr).not.toContain("event-contacts/server/identity-links.ts");
+  });
 });

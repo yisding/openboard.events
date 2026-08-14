@@ -36,7 +36,7 @@ product email does not silently mutate a speaker profile, changing a speaker
 email does not change admin credentials, and neither change rewires a stable
 link.
 
-## Backfill and rollout
+## Backfill and cutover
 
 Migration `0041_stable_user_contact_links.sql` builds candidate sets from the
 canonical event email and existing stable CRM link. Exactly one candidate is
@@ -56,15 +56,17 @@ ORDER BY outcome;
 
 Ambiguous rows are reviewed by joining their ids to current records. Resolution
 creates one `source = 'operator'` link; the original audit row remains unchanged
-as the migration-time record. Application rollout is additive schema, dual
-write/dual read, stable read, then removal of the legacy email join. Rollback is
-the reverse application order; the additive tables stay until no deployed
-version writes them.
+as the migration-time record. The application has completed stable-read
+cutover: event invitation acceptance and reminder provisioning write links,
+reminder discovery reads only those links, and enqueue proceeds only after the
+resolver/writer returns `linked`. The legacy user-to-contact email join no
+longer exists.
 
-The compatibility release dual-writes event invitation acceptance and reminder
-provisioning. Reminder recipient discovery prefers `user_contact_links` and
-temporarily retains the legacy same-event email candidate, but enqueue first
-calls the resolver/writer and proceeds only after it returns `linked`.
+The organization-authorized erasure path is the narrow exception for imported
+or manually created CRM profiles that predate an event link. It asks the same
+identity service for an explicit `unlinked` candidate and may erase that one
+candidate; broken or cyclic merge ancestry is `ambiguous` and aborts the
+transaction. Feature-local email joins are rejected by the source invariant.
 
 ## Boundary scenarios
 

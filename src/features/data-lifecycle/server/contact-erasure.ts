@@ -28,7 +28,7 @@ import {
   submissions,
   taskCompletions,
 } from "@/db/schema";
-import { getEventOrganizationIn } from "@/features/organizations";
+import { resolveOrganizationContactForEventContactIn } from "@/features/event-contacts";
 import { contactErasureReceiptSchema, type ContactErasureReceipt, type ContactId, type EventId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -43,35 +43,6 @@ import { purgeOrphanedFileAssets } from "@/shared/server/r2";
  * must never turn into an unbounded loop inside a transaction.
  */
 const MERGE_CHAIN_MAX_DEPTH = 32;
-
-/**
- * The organization identity of an event contact that has no link row. A
- * missing link does *not* mean "never pulled into the CRM": only
- * `pushOrganizationContactToEventIn` ever writes `organization_contact_links`,
- * while `importCrmContactsCsvIn` and `createOrganizationContactIn` both create
- * `organization_contacts` rows with no link at all — so a CSV-imported
- * prospect who later submits to this event has a full CRM profile and no link.
- * The fallback is `(organization_id, email)`: unique, normalized the same way
- * by every writer on both sides, and the identity key the CRM itself dedupes
- * on (`csv-import.ts`) and matches contacts on (`pushOrganizationContactToEventIn`).
- * A tombstoned duplicate resolves up to the surviving primary, which is the row
- * that holds this person's data now.
- */
-async function resolveOrganizationContactByEmailIn(tx: TxDb, eventId: EventId, email: string): Promise<string | undefined> {
-  const organizationId = await getEventOrganizationIn(tx, eventId);
-  if (!organizationId) return undefined;
-  let [row] = await tx.select({ id: organizationContacts.id, mergedIntoId: organizationContacts.mergedIntoId })
-    .from(organizationContacts)
-    .where(and(eq(organizationContacts.organizationId, organizationId), eq(organizationContacts.email, email)))
-    .limit(1);
-  for (let depth = 0; row?.mergedIntoId && depth < MERGE_CHAIN_MAX_DEPTH; depth += 1) {
-    [row] = await tx.select({ id: organizationContacts.id, mergedIntoId: organizationContacts.mergedIntoId })
-      .from(organizationContacts)
-      .where(eq(organizationContacts.id, row.mergedIntoId))
-      .limit(1);
-  }
-  return row?.id;
-}
 
 /**
  * Every duplicate tombstoned into `rootId`, transitively. A merge is the
@@ -181,7 +152,7 @@ export async function eraseContactDataIn(
   contactId: ContactId,
   options: { eraseOrganizationProfile?: boolean } = {},
 ): Promise<{ receipt: ContactErasureReceipt; purgeCandidateFileIds: string[] }> {
-  const [existing] = await tx.select({ id: contacts.id, email: contacts.email, headshotFileId: contacts.headshotFileId })
+  const [existing] = await tx.select({ id: contacts.id, headshotFileId: contacts.headshotFileId })
     .from(contacts)
     .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
     .limit(1);
@@ -278,14 +249,11 @@ export async function eraseContactDataIn(
   // Deleting it is what makes the claim in `docs/legal/dpa.md` ("permanently
   // deletes the contact and every row that references it") true.
   //
-  // Resolved through the link row first, because `organization_contact_links`
-  // is the explicit join M55 introduced precisely so an event contact's
-  // organization identity is a stated fact rather than a string match. A
-  // missing link is *not* proof that this person has no CRM profile, though —
-  // CSV import and manual creation both produce link-less profiles — so an
-  // organization-scoped erasure falls back to the `(organization_id, email)`
-  // match documented on `resolveOrganizationContactByEmailIn` above. With
-  // neither, the counts below stay zero.
+  // The identity service resolves the stable link first. A missing link is not
+  // proof that this person has no CRM profile: CSV import and manual creation
+  // both produce link-less profiles, so the organization-authorized erasure
+  // may act on one explicit same-organization candidate. Ordinary consumers
+  // never receive that candidate as if it were a durable relationship.
   //
   // Deleting the identity also removes its links to *other* events in the same
   // organization — deliberate: erasure is about the person, and one
@@ -304,12 +272,17 @@ export async function eraseContactDataIn(
   // organization authority (`authorizeOrganization`) and passes the flag; with
   // the flag off, only this event's own link row is removed and every count
   // below stays zero.
-  const [crmLink] = await tx.select({ organizationContactId: organizationContactLinks.organizationContactId })
-    .from(organizationContactLinks)
-    .where(and(eq(organizationContactLinks.eventId, eventId), eq(organizationContactLinks.contactId, contactId)))
-    .limit(1);
-  const organizationContactId = crmLink?.organizationContactId
-    ?? (options.eraseOrganizationProfile ? await resolveOrganizationContactByEmailIn(tx, eventId, existing.email) : undefined);
+  const crmResolution = await resolveOrganizationContactForEventContactIn(tx, eventId, contactId);
+  if (options.eraseOrganizationProfile && crmResolution.status === "ambiguous") {
+    throw new AppError("CONFLICT", "The organization contact identity is ambiguous; resolve its merge chain before erasure", {
+      organizationContactIds: crmResolution.candidateOrganizationContactIds,
+    });
+  }
+  const organizationContactId = crmResolution.status === "linked"
+    ? crmResolution.organizationContactId
+    : options.eraseOrganizationProfile && crmResolution.status === "unlinked"
+      ? crmResolution.candidateOrganizationContactId ?? undefined
+      : undefined;
   counts.organizationContactPipelineHistory = 0;
   counts.organizationContactPipeline = 0;
   counts.organizationContactNotes = 0;

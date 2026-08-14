@@ -1,11 +1,19 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx, TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
-import { userContactLinks } from "@/db/schema";
+import {
+  contacts,
+  events,
+  organizationContactLinks,
+  organizationContacts,
+  userContactLinks,
+} from "@/db/schema";
 import {
   contactIdSchema,
   type ContactId,
   type EventId,
+  organizationContactIdSchema,
+  type OrganizationContactId,
   type UserId,
 } from "@/shared/contracts";
 import { getOrCreateContact } from "./contacts";
@@ -17,10 +25,98 @@ export type UserContactResolution =
   | { status: "unlinked"; candidateContactId: ContactId | null }
   | { status: "ambiguous"; candidateContactIds: ContactId[] };
 
+export type OrganizationContactResolution =
+  | { status: "linked"; organizationContactId: OrganizationContactId }
+  | { status: "unlinked"; candidateOrganizationContactId: OrganizationContactId | null }
+  | { status: "ambiguous"; candidateOrganizationContactIds: OrganizationContactId[] };
+
 type CandidateRow = {
   contact_id: string;
   linked_user_id: string | null;
 };
+
+const MERGE_CHAIN_MAX_DEPTH = 32;
+
+async function canonicalOrganizationContactIn(
+  dbOrTx: DbOrTx,
+  initial: { id: string; mergedIntoId: string | null },
+): Promise<
+  | { status: "resolved"; organizationContactId: OrganizationContactId }
+  | { status: "ambiguous"; candidateOrganizationContactIds: OrganizationContactId[] }
+> {
+  const seen = new Set<string>();
+  let current = initial;
+  for (let depth = 0; depth < MERGE_CHAIN_MAX_DEPTH; depth += 1) {
+    if (seen.has(current.id)) {
+      return {
+        status: "ambiguous",
+        candidateOrganizationContactIds: [...seen].map((id) => organizationContactIdSchema.parse(id)),
+      };
+    }
+    seen.add(current.id);
+    if (!current.mergedIntoId) {
+      return { status: "resolved", organizationContactId: organizationContactIdSchema.parse(current.id) };
+    }
+    const [parent] = await dbOrTx.select({ id: organizationContacts.id, mergedIntoId: organizationContacts.mergedIntoId })
+      .from(organizationContacts)
+      .where(eq(organizationContacts.id, current.mergedIntoId))
+      .limit(1);
+    if (!parent) break;
+    current = parent;
+  }
+  return {
+    status: "ambiguous",
+    candidateOrganizationContactIds: [...seen].map((id) => organizationContactIdSchema.parse(id)),
+  };
+}
+
+/**
+ * Resolve the CRM relationship without letting downstream features infer one.
+ *
+ * A stable event-to-CRM link wins. For the organization-authorized erasure
+ * path, the canonical same-organization email match remains candidate evidence
+ * when imported/manual CRM profiles predate event linking. Merge chains are
+ * followed to their survivor; a broken or cyclic chain is explicit ambiguity.
+ */
+export async function resolveOrganizationContactForEventContactIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+): Promise<OrganizationContactResolution> {
+  const [stable] = await dbOrTx.select({
+    id: organizationContacts.id,
+    mergedIntoId: organizationContacts.mergedIntoId,
+  })
+    .from(organizationContactLinks)
+    .innerJoin(organizationContacts, eq(organizationContacts.id, organizationContactLinks.organizationContactId))
+    .where(and(eq(organizationContactLinks.eventId, eventId), eq(organizationContactLinks.contactId, contactId)))
+    .limit(1);
+  if (stable) {
+    const canonical = await canonicalOrganizationContactIn(dbOrTx, stable);
+    return canonical.status === "resolved"
+      ? { status: "linked", organizationContactId: canonical.organizationContactId }
+      : canonical;
+  }
+
+  const [candidate] = await dbOrTx.select({
+    id: organizationContacts.id,
+    mergedIntoId: organizationContacts.mergedIntoId,
+  })
+    .from(contacts)
+    .innerJoin(events, eq(events.id, contacts.eventId))
+    .innerJoin(organizationContacts, and(
+      eq(organizationContacts.organizationId, events.organizationId),
+      eq(organizationContacts.email, contacts.email),
+    ))
+    .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
+    .limit(1);
+  if (!candidate) return { status: "unlinked", candidateOrganizationContactId: null };
+
+  const canonical = await canonicalOrganizationContactIn(dbOrTx, candidate);
+  return canonical.status === "resolved"
+    ? { status: "unlinked", candidateOrganizationContactId: canonical.organizationContactId }
+    : canonical;
+}
 
 /**
  * Resolve the relationship without treating an email match as identity.

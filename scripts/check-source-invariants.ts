@@ -8,6 +8,9 @@ const FINAL_SUBMIT_FILES = new Set([
   "src/features/forms/server/submit.ts",
   "src/features/submissions/server/mutations.ts",
 ]);
+const IDENTITY_RESOLUTION_FILE = "src/features/event-contacts/server/identity-links.ts";
+const SQL_EMAIL_COLUMN_EQUALITY = /\b[a-z_][a-z0-9_]*\.email\b\s*\)*\s*=\s*(?:(?:lower|btrim)\s*\(\s*)*\b[a-z_][a-z0-9_]*\.email\b/iu;
+const IDENTITY_TABLE_NAMES = new Set(["contacts", "organizationContacts", "users"]);
 
 type Violation = {
   line: number;
@@ -183,6 +186,20 @@ function unwrapExpression(node: ts.Expression): ts.Expression {
   return node;
 }
 
+function emailTableName(node: ts.Expression | undefined): string | null {
+  if (!node) return null;
+  const expression = unwrapExpression(node);
+  if (
+    (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
+    && accessName(expression) === "email"
+    && ts.isIdentifier(expression.expression)
+    && IDENTITY_TABLE_NAMES.has(expression.expression.text)
+  ) {
+    return expression.expression.text;
+  }
+  return null;
+}
+
 function shorthandInitializer(node: ts.ShorthandPropertyAssignment): ts.Expression | undefined {
   let parent: ts.Node | undefined = node.parent;
   while (parent) {
@@ -304,6 +321,18 @@ function inspectFile(absolutePath: string): Violation[] {
     if (ts.isCallExpression(node)) {
       if (
         !isTestFile
+        && path !== IDENTITY_RESOLUTION_FILE
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === "eq"
+        && emailTableName(node.arguments[0]) !== null
+        && emailTableName(node.arguments[1]) !== null
+        && emailTableName(node.arguments[0]) !== emailTableName(node.arguments[1])
+      ) {
+        report(node, "identity-email-join", "cross-identity email comparisons belong in the event-contact identity resolver");
+      }
+
+      if (
+        !isTestFile
         && ts.isIdentifier(node.expression)
         && ["useInfiniteQuery", "useQuery", "useSuspenseQuery"].includes(node.expression.text)
       ) {
@@ -380,6 +409,18 @@ function inspectFile(absolutePath: string): Violation[] {
       if (/\b(?:FROM|UPDATE) EVENTS\b/u.test(statement) && statement.includes("FOR UPDATE")) {
         report(node, "submission-event-lock", "final submit must not lock the shared event row");
       }
+    }
+
+
+    if (
+      !isTestFile
+      && path !== IDENTITY_RESOLUTION_FILE
+      && ts.isTaggedTemplateExpression(node)
+      && ts.isIdentifier(node.tag)
+      && node.tag.text === "sql"
+      && SQL_EMAIL_COLUMN_EQUALITY.test(taggedTemplateText(node))
+    ) {
+      report(node, "identity-email-join", "cross-identity email comparisons belong in the event-contact identity resolver");
     }
 
     if (
