@@ -31,6 +31,6 @@ describe("ToastMessage", () => {
     expect(html).toContain('class="toast-action"');
     expect(html).toContain(">Undo</button>");
     expect(html).toContain('class="toast-dismiss"');
-    expect(html).toContain('aria-label="Dismiss"');
+    expect(html).toContain('aria-label="Dismiss “Session moved”"');
   });
 });
