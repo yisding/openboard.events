@@ -77,9 +77,9 @@ export function formAvailabilityActionCopy(
 ): FormAvailabilityActionCopy {
   if (action === "close") {
     return {
-      title: "Close this form now?",
+      title: "Stop accepting submissions now?",
       body: "This immediately stops new submissions. People with in-progress drafts will not be able to submit them until you reopen the form.",
-      confirmLabel: "Close form",
+      confirmLabel: "Stop accepting submissions",
     };
   }
 

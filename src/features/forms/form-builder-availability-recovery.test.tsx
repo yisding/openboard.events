@@ -126,10 +126,10 @@ async function mount(initialForm = form()) {
 }
 
 async function requestClose() {
-  await act(async () => buttonNamed("Close")?.click());
+  await act(async () => buttonNamed("Stop accepting submissions")?.click());
   const dialog = container.querySelector("dialog");
   if (!dialog) throw new Error("Close confirmation was not rendered");
-  await act(async () => buttonNamed("Close form", dialog)?.click());
+  await act(async () => buttonNamed("Stop accepting submissions", dialog)?.click());
   await settle();
 }
 
@@ -220,7 +220,7 @@ describe("form availability outcome recovery", () => {
     expect(deadlineInputs.map((input) => input.value)).toEqual([display(opensAt), display(closesAt)]);
     expect(container.querySelector<HTMLInputElement>('input[type="number"]')?.value).toBe("7");
 
-    await act(async () => buttonNamed("Save")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const settingsBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
@@ -274,7 +274,7 @@ describe("form availability outcome recovery", () => {
     expect(container.textContent).toContain(recoveryMessage);
     expect(buttonNamed("Confirm current status")).toBeDefined();
     expect(container.querySelector("dialog")).toBeNull();
-    const close = buttonNamed("Close");
+    const close = buttonNamed("Stop accepting submissions");
     expect(close?.disabled).toBe(true);
     await act(async () => close?.click());
     await settle();
@@ -290,7 +290,7 @@ describe("form availability outcome recovery", () => {
     ]);
     expect(title?.value).toBe("Unsaved while offline");
     expect(container.textContent).toContain("Form status is unconfirmed");
-    expect(buttonNamed("Close")?.disabled).toBe(true);
+    expect(buttonNamed("Stop accepting submissions")?.disabled).toBe(true);
     expect(toastMock).toHaveBeenCalledWith(recoveryMessage, { kind: "error" });
   });
 

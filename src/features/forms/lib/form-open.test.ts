@@ -123,7 +123,8 @@ describe("formAvailabilityActionCopy", () => {
 
   it("warns that closing blocks in-progress submissions", () => {
     const copy = formAvailabilityActionCopy("close", { opensAt: null, closesAt: null }, now);
-    expect(copy.title).toBe("Close this form now?");
+    expect(copy.title).toBe("Stop accepting submissions now?");
+    expect(copy.confirmLabel).toBe("Stop accepting submissions");
     expect(copy.body).toContain("in-progress drafts will not be able to submit");
   });
 

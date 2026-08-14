@@ -174,7 +174,7 @@ describe("participant-step save recovery", () => {
       edit(inputWithValue("Participant details"), "Frozen speaker details");
       container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Allow co-speaker role"]')?.click();
     });
-    await act(async () => { buttonNamed("Save step")?.click(); await Promise.resolve(); });
+    await act(async () => { buttonNamed("Publish version")?.click(); await Promise.resolve(); });
     expect(fetchMock).toHaveBeenCalledOnce();
     await act(async () => edit(inputWithValue("Participants"), "New local heading"));
     await act(async () => { rejectFirst?.(new TypeError("response lost after commit")); });
@@ -220,7 +220,7 @@ describe("participant-step save recovery", () => {
     fetchMock.mockResolvedValueOnce(response({ data: saved }));
     await act(async () => root.render(<FormBuilder event={event} initialForm={initial} />));
 
-    await act(async () => buttonNamed("Save step")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -236,14 +236,13 @@ describe("participant-step save recovery", () => {
     await act(async () => root.render(<FormBuilder event={event} initialForm={form({ hasNonDraftSubmissions: true })} />));
 
     await act(async () => edit(inputWithValue("Participants"), "Offline heading"));
-    await act(async () => buttonNamed("Save step")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Participant save is unconfirmed");
     expect(container.textContent).toContain(PARTICIPANT_STEP_RECOVERY_MESSAGE);
-    expect(buttonNamed("Save step")?.disabled).toBe(true);
-    expect(buttonNamed("Save")?.disabled).toBe(true);
+    expect(buttonNamed("Publish version")?.disabled).toBe(true);
     expect(buttonNamed("Duplicate as draft")?.disabled).toBe(true);
     expect(inputWithValue("Offline heading")).toBeDefined();
 
@@ -255,7 +254,7 @@ describe("participant-step save recovery", () => {
     expect(bodies[1]).toEqual({ ...bodies[0], participantReplay: true });
     expect(bodies[2]).toEqual(bodies[1]);
     expect(container.textContent).toContain("Participant save is unconfirmed");
-    expect(buttonNamed("Save step")?.disabled).toBe(true);
+    expect(buttonNamed("Publish version")?.disabled).toBe(true);
     expect(toastMock).toHaveBeenCalledWith(PARTICIPANT_STEP_RECOVERY_MESSAGE, { kind: "error" });
   });
 
@@ -266,12 +265,12 @@ describe("participant-step save recovery", () => {
     await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
 
     await act(async () => edit(inputWithValue("Participants"), "Draft heading"));
-    await act(async () => buttonNamed("Save step")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain("Participant save is unconfirmed");
-    expect(buttonNamed("Save step")?.disabled).toBe(false);
+    expect(buttonNamed("Publish version")?.disabled).toBe(false);
     expect(inputWithValue("Draft heading")).toBeDefined();
     expect(toastMock).toHaveBeenCalledWith("Participant heading is required", { kind: "error" });
   });
@@ -286,7 +285,7 @@ describe("participant-step save recovery", () => {
       .mockResolvedValueOnce(response({ data: saved }));
     await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
 
-    await act(async () => buttonNamed("Save step")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);

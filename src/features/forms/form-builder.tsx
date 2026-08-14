@@ -10,6 +10,7 @@ import {
   Bell,
   Check,
   CircleCheck,
+  CircleStop,
   Copy,
   Eye,
   FileText,
@@ -635,7 +636,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     }
     const action: FormAvailabilityAction = persistedAvailabilityInput.status === "open" ? "close" : "open";
     if (action === "open" && hasUnsavedBuilderTargets) {
-      const message = "Save every unsaved form change before opening. Only saved content can be published.";
+      const message = "Publish every unsaved form change before opening. Only published content appears on the public form.";
       setAvailabilityAlert(message);
       toast(message, { kind: "error" });
       return;
@@ -674,24 +675,41 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     ? formAvailabilityActionCopy(pendingAvailabilityAction, persistedAvailabilityInput, availabilityNow)
     : null;
   return <div className="builder-wrap">
-    <header className="builder-header"><div className="builder-title"><Link className="icon-button" aria-label="Back to forms" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
-      {availability === "live" && <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</Button>}
-      <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
-      <Button disabled={busy || participantStepRecovery !== null} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
-      <Button variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"} disabled={busy || availabilityRecovery !== null || participantStepRecovery !== null} onClick={requestAvailabilityChange}><Rocket size={16} /> {persistedAvailabilityInput.status === "open" ? "Close" : "Open form"}</Button>
-    </div></header>
-    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
+    <header className="builder-header">
+      <div className="builder-title"><Link className="icon-button" aria-label="Back to forms" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unpublished changes" : "Version published"}</i></span></div></div>
+      <div className="builder-actions">
+        <div className="builder-edit-actions" role="group" aria-label="Form editing actions">
+          {availability === "live" && <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</Button>}
+          <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
+          <Button id="publish-form-version" aria-label="Publish a new immutable form version" title="Publish a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
+        </div>
+        <div className="builder-lifecycle-actions" role="group" aria-label="Form availability">
+          <span>Availability</span>
+          <Button
+            aria-label={persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}
+            title={persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}
+            variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"}
+            disabled={busy || availabilityRecovery !== null || participantStepRecovery !== null}
+            onClick={requestAvailabilityChange}
+          >
+            {persistedAvailabilityInput.status === "open" ? <CircleStop size={16} /> : <Rocket size={16} />}
+            <span className="builder-action-label">{persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}</span>
+          </Button>
+        </div>
+      </div>
+    </header>
+    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every publish creates a new immutable version.</small></div></aside>
       <div className="builder-canvas">
         {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
         {participantStepRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Participant save is unconfirmed</b><span>{PARTICIPANT_STEP_RECOVERY_MESSAGE}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void confirmParticipantStep()}>{busy ? "Confirming…" : "Confirm participant save"}</Button></div>}
-        {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
+        {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Publish before opening</b><span>{availabilityAlert}</span></div></div>}
         {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating || participantStepRecovery !== null} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
-        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
+        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><a className="builder-publish-link" href="#publish-form-version">Publish this step from the header <ArrowUp size={14} aria-hidden="true" /></a><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
