@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { communicationLogs } from "@/db/schema";
+import { lockTaskAssignmentsIn } from "@/db/task-assignment-lock";
 import {
   BULK_REMINDER_TARGET_LIMIT,
   idem,
@@ -285,6 +286,23 @@ export async function scanReminders(): Promise<JobStats> {
   return scanRemindersIn(db);
 }
 
+export function sendReminderNowIn(
+  tx: TxDb,
+  eventId: EventId,
+  taskId: TaskId,
+  contactId: ContactId,
+  submissionId: SubmissionId | null,
+  now: number,
+  attemptId: string,
+): Promise<SendReminderNowResult>;
+export function sendReminderNowIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  taskId: TaskId,
+  contactId: ContactId,
+  submissionId: SubmissionId | null,
+  now?: number,
+): Promise<SendReminderNowResult>;
 export async function sendReminderNowIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -299,11 +317,11 @@ export async function sendReminderNowIn(
     ? idem.taskReminderManualAttempt(eventId, taskId, contactId, submissionId, attemptId)
     : idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket);
 
-  // A stable-attempt replay is an acknowledgement of the durable outbox row,
-  // even if the assignment became complete after the organizer's first
-  // response was lost. `communication_logs` is both the activity log and the
-  // outbox, so this read has no second write boundary to reconcile.
+  // Stable attempts must arrive on a caller-owned transaction. The task row is
+  // the shared mutex with all completion writers; after waiting for it, both
+  // the exact-attempt lookup and assignment authority are fresh statements.
   if (attemptId) {
+    await lockTaskAssignmentsIn(dbOrTx as TxDb, eventId, taskId);
     const [existing] = rowsOf<{ status: CommStatus }>(await dbOrTx.execute(sql`
       SELECT status FROM communication_logs
       WHERE idempotency_key = ${idempotencyKey}
@@ -350,10 +368,6 @@ type ReminderTarget = {
   submissionId: SubmissionId | null;
 };
 
-function reminderTargetKey(target: ReminderTarget): string {
-  return `${target.taskId}:${target.contactId}:${target.submissionId ?? "-"}`;
-}
-
 async function upsertManualReminderAttemptIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -397,59 +411,6 @@ async function loadManualReminderAttemptStatusesIn(
   return new Map(rows.map((row) => [row.idempotency_key, row.status]));
 }
 
-async function loadOpenReminderTargetsIn(
-  dbOrTx: DbOrTx,
-  eventId: EventId,
-  targets: readonly ReminderTarget[],
-): Promise<Set<string>> {
-  if (targets.length === 0) return new Set();
-  const requested = sql.join(targets.map((target) => sql`
-    (${target.taskId}::uuid, ${target.contactId}::uuid, ${target.submissionId}::uuid)
-  `), sql`, `);
-  const rows = rowsOf<{ task_id: string; contact_id: string; submission_id: string | null }>(await dbOrTx.execute(sql`
-    SELECT requested.task_id, requested.contact_id, requested.submission_id
-    FROM (VALUES ${requested}) AS requested(task_id, contact_id, submission_id)
-    WHERE EXISTS (
-      SELECT 1 FROM task_assignments_v assignment
-      WHERE assignment.event_id = ${eventId}
-        AND assignment.task_id = requested.task_id
-        AND assignment.contact_id = requested.contact_id
-        AND assignment.submission_id IS NOT DISTINCT FROM requested.submission_id
-        AND NOT assignment.completed
-    )
-  `));
-  return new Set(rows.map((row) => reminderTargetKey({
-    taskId: row.task_id as TaskId,
-    contactId: row.contact_id as ContactId,
-    submissionId: row.submission_id as SubmissionId | null,
-  })));
-}
-
-async function sendReminderWithPrefetchedAuthorityIn(
-  dbOrTx: DbOrTx,
-  eventId: EventId,
-  target: ReminderTarget,
-  attemptId: string,
-  prefetchedStatus: CommStatus | null,
-  assignmentOpen: boolean,
-): Promise<SendReminderNowResult> {
-  if (prefetchedStatus) {
-    return { enqueued: prefetchedStatus === "queued", attemptStatus: prefetchedStatus };
-  }
-  if (!assignmentOpen) return { enqueued: false };
-  const status = await upsertManualReminderAttemptIn(
-    dbOrTx,
-    eventId,
-    target.taskId,
-    target.contactId,
-    target.submissionId,
-    idem.taskReminderManualAttempt(eventId, target.taskId, target.contactId, target.submissionId, attemptId),
-  );
-  return status === "queued"
-    ? { enqueued: true }
-    : { enqueued: false, attemptStatus: status };
-}
-
 /** M37's per-speaker "send reminder now" button. */
 export async function sendReminderNow(
   eventId: EventId,
@@ -458,23 +419,26 @@ export async function sendReminderNow(
   submissionId: SubmissionId | null,
   attemptId?: string,
 ): Promise<SendReminderNowResult> {
-  return sendReminderNowIn(db, eventId, taskId, contactId, submissionId, Date.now(), attemptId);
+  return attemptId
+    ? withTx((tx) => sendReminderNowIn(tx, eventId, taskId, contactId, submissionId, Date.now(), attemptId))
+    : sendReminderNowIn(db, eventId, taskId, contactId, submissionId, Date.now());
 }
+
+export type ReminderTargetTransaction = <T>(work: (tx: TxDb) => Promise<T>) => Promise<T>;
 
 /**
  * M52's central Files view "remind the selection" bar. The production `db`
  * handle commits each target independently on purpose: one failed row does not
  * roll back reminders already accepted for other speakers. A durable attempt
- * makes that partial boundary recoverable: one batch read classifies all
- * already-committed keys, one batch read classifies only missing assignments,
- * and each remaining insert is one statement. Missing targets that are no
- * longer open get one final batched status read: an overlapping exact request
- * may have inserted and then completed the assignment between the first two
- * snapshots. A row that commits after this final read linearizes after this
- * request and is recovered by the next exact retry. The 20-target contract
- * still uses at most 22 persistence subrequests (a closed-target recheck
- * replaces at least one insert), leaving 28 under Workers' ceiling for auth
- * and route work. A nudge that exhausts the remainder yields to the cron.
+ * makes that partial boundary recoverable: one HTTP batch read classifies all
+ * already-committed keys, then every missing target gets one WebSocket
+ * transaction. That transaction locks the target's task-row mutex, freshly
+ * re-reads the exact attempt, and only then reads assignment authority and
+ * inserts. Completion and reminder writers therefore have one serialization
+ * order instead of trying to reconcile independent snapshots. At the 20-target
+ * cap this costs at most 21 Workers subrequests (one HTTP status read plus 20
+ * WebSocket transactions); SQL statements within a WebSocket transaction are
+ * not separate Workers fetch subrequests.
  */
 export async function sendRemindersNowIn(
   dbOrTx: DbOrTx,
@@ -482,6 +446,7 @@ export async function sendRemindersNowIn(
   targets: readonly ReminderTarget[],
   now: number = Date.now(),
   attemptId?: string,
+  targetTransaction: ReminderTargetTransaction = withTx,
 ): Promise<BulkReminderResult> {
   if (targets.length > BULK_REMINDER_TARGET_LIMIT) {
     throw new AppError("VALIDATION", `Send reminders to up to ${BULK_REMINDER_TARGET_LIMIT} assignments at a time`);
@@ -493,20 +458,6 @@ export async function sendRemindersNowIn(
   const statusByAttemptKey = attemptId
     ? await loadManualReminderAttemptStatusesIn(dbOrTx, eventId, targets, attemptId)
     : null;
-  const missingTargets = attemptId
-    ? targets.filter((target) => !statusByAttemptKey?.has(idem.taskReminderManualAttempt(
-      eventId, target.taskId, target.contactId, target.submissionId, attemptId,
-    )))
-    : [];
-  const openTargets = attemptId
-    ? await loadOpenReminderTargetsIn(dbOrTx, eventId, missingTargets)
-    : null;
-  const closedMissingTargets = attemptId
-    ? missingTargets.filter((target) => !openTargets?.has(reminderTargetKey(target)))
-    : [];
-  const statusAfterClosedSnapshot = attemptId && closedMissingTargets.length > 0
-    ? await loadManualReminderAttemptStatusesIn(dbOrTx, eventId, closedMissingTargets, attemptId)
-    : null;
   for (const target of targets) {
     // The batch id is intentionally shared: `taskReminderManualAttempt` also
     // includes the target coordinates, so a partial retry recovers each
@@ -514,15 +465,19 @@ export async function sendRemindersNowIn(
     const attemptKey = attemptId
       ? idem.taskReminderManualAttempt(eventId, target.taskId, target.contactId, target.submissionId, attemptId)
       : null;
+    const prefetchedStatus = attemptKey ? statusByAttemptKey?.get(attemptKey) : undefined;
     const result = attemptId && attemptKey
-      ? await sendReminderWithPrefetchedAuthorityIn(
-        dbOrTx,
-        eventId,
-        target,
-        attemptId,
-        statusByAttemptKey?.get(attemptKey) ?? statusAfterClosedSnapshot?.get(attemptKey) ?? null,
-        openTargets?.has(reminderTargetKey(target)) ?? false,
-      )
+      ? prefetchedStatus
+        ? { enqueued: prefetchedStatus === "queued", attemptStatus: prefetchedStatus }
+        : await targetTransaction((tx) => sendReminderNowIn(
+          tx,
+          eventId,
+          target.taskId,
+          target.contactId,
+          target.submissionId,
+          now,
+          attemptId,
+        ))
       : await sendReminderNowIn(
         dbOrTx,
         eventId,

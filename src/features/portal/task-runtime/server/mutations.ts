@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { lockTaskAssignmentsIn } from "@/db/task-assignment-lock";
 import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
-import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId } from "@/shared/contracts";
+import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId, TaskId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
@@ -124,17 +125,18 @@ async function requireFinishedUpload(
 }
 
 /**
- * Manual mode: one guarded statement, no transaction. There is nothing else to
- * write atomically with it, and `withTx` is confined to the eight audited paths.
+ * Manual mode shares the task-row mutex with stable reminder attempts, so the
+ * completion insert and a concurrent reminder have one serialization order.
  */
 export async function completeTaskManualIn(
-  dbOrTx: DbOrTx,
+  tx: TxDb,
   eventId: EventId,
   contactId: ContactId,
   taskId: string,
   submissionId: string | null,
 ): Promise<void> {
-  const result = await dbOrTx.execute<{ id: string }>(sql`
+  await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
+  const result = await tx.execute<{ id: string }>(sql`
     INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via)
     SELECT v.event_id, v.task_id, v.contact_id, v.submission_id, 'manual'
     FROM task_assignments_v v
@@ -149,13 +151,13 @@ export async function completeTaskManualIn(
 
   // Nothing was written: either it was already done — the double-click this
   // guard exists for — or the task is not this speaker's.
-  const existing = await dbOrTx.execute<{ id: string }>(sql`
+  const existing = await tx.execute<{ id: string }>(sql`
     SELECT id FROM task_completions
     WHERE event_id = ${eventId} AND task_id = ${taskId} AND contact_id = ${contactId}
       AND submission_id IS NOT DISTINCT FROM ${submissionId}
   `);
   if ((existing.rows ?? []).length > 0) return;
-  await requireAssignment(dbOrTx, eventId, contactId, taskId, submissionId, "manual");
+  await requireAssignment(tx, eventId, contactId, taskId, submissionId, "manual");
   throw new AppError("INTERNAL", "The task could not be completed");
 }
 
@@ -176,6 +178,7 @@ export async function completeTaskViaUploadIn(
   submissionId: string | null,
   fileAssetId: string,
 ): Promise<FileVersionDTO> {
+  await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
   if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
 
@@ -189,7 +192,6 @@ export async function completeTaskViaUploadIn(
   // first response is lost; that replay returns the original version instead
   // of turning one upload into two historical versions. A genuinely replaced
   // file has a new asset id and still follows the versioning path below.
-  await tx.execute(sql`SELECT id FROM portal_tasks WHERE id = ${taskId} AND event_id = ${eventId} FOR UPDATE`);
   const existing = (await listFileVersionsIn(
     tx,
     eventId,
@@ -309,6 +311,7 @@ export async function completeTaskViaResponseIn(
   submissionId: string | null,
   answers: RawAnswers,
 ): Promise<void> {
+  await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "form");
   if (!assignment.formId) throw new AppError("VALIDATION", "This task has no form attached");
 
@@ -386,7 +389,7 @@ export async function completeTaskViaResponseIn(
 }
 
 export const completeTaskManual = (eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null) =>
-  completeTaskManualIn(db, eventId, contactId, taskId, submissionId);
+  withTx((tx) => completeTaskManualIn(tx, eventId, contactId, taskId, submissionId));
 
 export const completeTaskViaUpload = (
   eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, fileAssetId: string,
