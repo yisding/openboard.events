@@ -245,14 +245,8 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
           body: attempt.body,
         });
       }
-      let currentEntry = confirmedEntry;
-      let currentContact: OrganizationContactDTO = attempt.contact;
-      if (confirmedEntry.organizationContactId !== attempt.contact.id) {
-        const resolved = await resolveCurrentPipelineContact(organizationId, confirmedEntry);
-        currentEntry = resolved.entry;
-        currentContact = resolved.contact;
-      }
-      onCreated(currentEntry, currentContact);
+      const resolved = await resolveCurrentPipelineContact(organizationId, confirmedEntry);
+      onCreated(resolved.entry, resolved.contact);
       toast("Added to the pipeline");
       reset();
       onClose(false);

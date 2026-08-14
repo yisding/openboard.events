@@ -148,12 +148,22 @@ afterEach(async () => {
 describe("CRM prospect creation recovery", () => {
   it("retries one frozen request and adds exactly one confirmed card", async () => {
     let pipelineAttempts = 0;
+    let pipelineReads = 0;
+    let pipelineId = "";
     apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
       if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
-      pipelineAttempts += 1;
-      if (pipelineAttempts === 1) throw new TypeError("connection lost after commit");
-      return crmPipelineEntryDtoSchema.parse({
-        id: init?.body?.id,
+      if (path.endsWith(`/crm/contacts/${contactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (init?.body) {
+        pipelineAttempts += 1;
+        pipelineId = String(init.body.id);
+        if (pipelineAttempts === 1) throw new TypeError("connection lost after commit");
+      } else {
+        pipelineReads += 1;
+      }
+      const entry = crmPipelineEntryDtoSchema.parse({
+        id: pipelineId,
         organizationContactId: contactId,
         targetEventId: eventId,
         stage: "open",
@@ -161,6 +171,7 @@ describe("CRM prospect creation recovery", () => {
         createdAt: "2026-08-13T18:05:00.000Z",
         updatedAt: "2026-08-13T18:05:00.000Z",
       });
+      return init?.body ? entry : [entry];
     });
     await renderBoard();
     await pickContact();
@@ -176,7 +187,7 @@ describe("CRM prospect creation recovery", () => {
       await Promise.resolve();
     });
 
-    const createCalls = () => apiMock.mock.calls.filter(([path]) => String(path).endsWith("/crm/pipeline"));
+    const createCalls = () => apiMock.mock.calls.filter(([path, , init]) => String(path).endsWith("/crm/pipeline") && init?.body);
     const firstBody = createCalls()[0]?.[2]?.body;
     expect(firstBody).toMatchObject({
       id: expect.any(String),
@@ -195,11 +206,70 @@ describe("CRM prospect creation recovery", () => {
 
     expect(createCalls()).toHaveLength(2);
     expect(createCalls()[1]?.[2]?.body).toEqual(firstBody);
+    expect(pipelineReads).toBe(2);
     expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
     expect(container.querySelector(".crm-board-card")?.textContent).toContain("Ada Speaker");
     expect(container.querySelector(".crm-board-card")?.textContent).toContain("Follow up after the keynote");
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
     expect(toastMock).toHaveBeenCalledWith("Added to the pipeline");
+  });
+
+  it("resolves a merge that commits after a matching create response was read", async () => {
+    let pipelineId = "";
+    let pipelinePosts = 0;
+    let pipelineReads = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact: canonicalContact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (path.endsWith("/crm/pipeline") && init?.body) {
+        pipelinePosts += 1;
+        pipelineId = String(init.body.id);
+        return crmPipelineEntryDtoSchema.parse({
+          id: pipelineId,
+          organizationContactId: contactId,
+          targetEventId: null,
+          stage: "open",
+          notes: "Merged after the response read",
+          createdAt: "2026-08-13T18:05:00.000Z",
+          updatedAt: "2026-08-13T18:05:00.000Z",
+        });
+      }
+      if (path.endsWith("/crm/pipeline")) {
+        pipelineReads += 1;
+        return [crmPipelineEntryDtoSchema.parse({
+          id: pipelineId,
+          organizationContactId: canonicalContactId,
+          targetEventId: null,
+          stage: "open",
+          notes: "Merged after the response read",
+          createdAt: "2026-08-13T18:05:00.000Z",
+          updatedAt: "2026-08-13T18:06:00.000Z",
+        })];
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await renderBoard();
+    await pickContact();
+    const notes = container.querySelector<HTMLTextAreaElement>(".modal-body textarea");
+    if (!notes) throw new Error("Prospect notes were not rendered");
+    await changeValue(notes, "Merged after the response read");
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelinePosts).toBe(1);
+    expect(pipelineReads).toBe(2);
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith(`/crm/contacts/${canonicalContactId}`))).toHaveLength(1);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("Grace Hopper");
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("grace@example.com");
+    expect(container.querySelector(".crm-board-card")?.textContent).not.toContain("Ada Speaker");
+    expect(container.querySelector(".crm-board-card")?.textContent).not.toContain("Unknown contact");
+    expect(toastMock.mock.calls.filter(([message]) => message === "Added to the pipeline")).toHaveLength(1);
   });
 
   it("follows a second merge before materializing the latest canonical replay", async () => {
