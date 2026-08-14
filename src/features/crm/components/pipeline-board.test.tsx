@@ -465,6 +465,60 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("won");
   });
 
+  it("accepts unchanged authority rows returned in the opposite order", async () => {
+    const tiedUpdatedAt = "2026-08-13T19:00:00.000Z";
+    const firstEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-000000000008",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "open",
+      notes: "First tied prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: tiedUpdatedAt,
+    });
+    const secondEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-000000000009",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "won",
+      notes: "Second tied prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: tiedUpdatedAt,
+    });
+    let pipelineReads = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${contactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (path.endsWith("/crm/pipeline") && init?.body) throw new AppError("INTERNAL", "Unexpected API response (500)");
+      if (path.endsWith("/crm/pipeline")) {
+        pipelineReads += 1;
+        return pipelineReads === 1 ? [firstEntry, secondEntry] : [secondEntry, firstEntry];
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await renderBoard();
+    await pickContact();
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonNamed("Close and check pipeline")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(2);
+    expect(buttonNamed("Add prospect")?.disabled).toBe(false);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(2);
+    expect(container.textContent).toContain("First tied prospect");
+    expect(container.textContent).toContain("Second tied prospect");
+    expect(container.textContent).not.toContain("The pipeline kept changing while it was refreshed");
+  });
+
   it("continues the authority barrier after an in-flight stage move rejects", async () => {
     const existingEntry = crmPipelineEntryDtoSchema.parse({
       id: "c8000000-0000-4000-8000-000000000007",

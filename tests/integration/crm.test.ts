@@ -23,6 +23,7 @@ import {
   getCrmMetricsIn,
   getCrmPipelineHistoryIn,
   getOrganizationContactHistoryIn,
+  listCrmPipelineIn,
   listOrganizationContactsIn,
   resolveCrmSegmentIn,
 } from "@/features/crm/server/queries";
@@ -334,6 +335,24 @@ describe("organization-level speaker CRM (M55)", () => {
         (SELECT count(*)::int FROM organization_contact_activity a WHERE a.metadata->>'pipelineId'=p.id::text) AS activity
       FROM organization_contact_pipeline p WHERE p.id=$1
     `, [pipelineId])).rows).toEqual([{ notes: input.notes, history: 1, activity: 1 }]);
+  });
+
+  it("orders pipeline rows deterministically when update timestamps tie", async () => {
+    const firstContactId = await createOrganizationContactIn(db, orgB, { email: "pipeline.tie.first@example.com" });
+    const secondContactId = await createOrganizationContactIn(db, orgB, { email: "pipeline.tie.second@example.com" });
+    const firstPipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e5");
+    const secondPipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e6");
+    await createCrmPipelineEntryIn(db, orgB, { id: secondPipelineId, organizationContactId: secondContactId });
+    await createCrmPipelineEntryIn(db, orgB, { id: firstPipelineId, organizationContactId: firstContactId });
+    await pglite.query(
+      "UPDATE organization_contact_pipeline SET updated_at='2026-08-14T04:00:00Z' WHERE id = ANY($1::uuid[])",
+      [[firstPipelineId, secondPipelineId]],
+    );
+
+    const tiedIds = (await listCrmPipelineIn(db, orgB))
+      .filter((entry) => entry.id === firstPipelineId || entry.id === secondPipelineId)
+      .map((entry) => entry.id);
+    expect(tiedIds).toEqual([firstPipelineId, secondPipelineId]);
   });
 
   it("replays an immutable prospect request after its target event is deleted", async () => {

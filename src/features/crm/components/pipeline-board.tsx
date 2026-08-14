@@ -89,7 +89,8 @@ async function fetchContact(organizationId: OrganizationId, contactId: Organizat
 }
 
 function samePipelineSnapshot(left: CrmPipelineEntryDTO[], right: CrmPipelineEntryDTO[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const byId = (entries: CrmPipelineEntryDTO[]) => [...entries].sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify(byId(left)) === JSON.stringify(byId(right));
 }
 
 async function resolveCurrentPipelineContact(
