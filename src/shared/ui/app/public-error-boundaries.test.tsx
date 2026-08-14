@@ -55,6 +55,6 @@ describe("public error boundaries", () => {
     expect(html).toContain("This embedded program didn&#x27;t load");
     expect(html).toContain("Try again");
     expect(html).toContain('href="/e/openboard-summit/agenda"');
-    expect(html).toContain('target="_top"');
+    expect(html.match(/target="_top"/g)).toHaveLength(2);
   });
 });

@@ -13,6 +13,7 @@ export default function EmbedError({ reset }: { error: Error & { digest?: string
       backHref={eventSlug ? `/e/${encodeURIComponent(eventSlug)}/agenda` : "/"}
       backLabel="Open the full event"
       backTarget="_top"
+      brandTarget="_top"
     />
   );
 }

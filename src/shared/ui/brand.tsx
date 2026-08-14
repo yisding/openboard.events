@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export function Brand({ dark = false, compact = false, decorative = false }: { dark?: boolean; compact?: boolean; decorative?: boolean }) {
+export function Brand({ dark = false, compact = false, decorative = false, target }: { dark?: boolean; compact?: boolean; decorative?: boolean; target?: React.HTMLAttributeAnchorTarget }) {
   const className = dark ? "brand brand-dark" : "brand";
   const content = (
     <>
@@ -12,7 +12,7 @@ export function Brand({ dark = false, compact = false, decorative = false }: { d
     return <span className={className} aria-hidden="true">{content}</span>;
   }
   return (
-    <Link href="/" className={className} aria-label="Openboard home">
+    <Link href="/" className={className} aria-label="Openboard home" target={target}>
       {content}
     </Link>
   );
