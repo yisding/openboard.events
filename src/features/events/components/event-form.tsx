@@ -9,6 +9,7 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
+import { timeZoneOptionLabel } from "@/shared/lib/time";
 import { EVENT_TYPES, type EventType } from "../schemas";
 
 const DEFAULT_TZ = "America/Los_Angeles";
@@ -165,7 +166,7 @@ export function EventForm() {
         </Field>
         <Field label="Timezone" required error={fieldErrors.timezone} errorId="event-timezone-error">
           <Select id="event-timezone" name="timezone" required disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-            {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+            {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
           </Select>
         </Field>
       </div>

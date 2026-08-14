@@ -96,6 +96,45 @@ export function zoneAbbreviation(utc: Date | string | number, timeZone: string):
   return formatInTimeZone(asDate(utc), timeZone, "zzz");
 }
 
+const timeZoneOptionLabelCache = new Map<string, string>();
+
+/**
+ * A readable label for timezone selectors while the option value remains the
+ * canonical IANA identifier used by the API and date math.
+ *
+ * `America/Los_Angeles` is useful to software, but organizers scan a long
+ * native select more easily when it starts with “Pacific Time”. The location
+ * suffix keeps zones with the same generic name distinguishable. A fixed
+ * instant makes the generic label deterministic across seasons instead of
+ * letting the current DST boundary rename options during hydration.
+ */
+export function timeZoneOptionLabel(timeZone: string): string {
+  const cached = timeZoneOptionLabelCache.get(timeZone);
+  if (cached) return cached;
+  if (timeZone === "UTC" || timeZone === "Etc/UTC" || timeZone === "Etc/GMT") {
+    timeZoneOptionLabelCache.set(timeZone, "UTC");
+    return "UTC";
+  }
+  const segments = timeZone.split("/");
+  const location = (segments.at(-1) ?? timeZone).replaceAll("_", " ");
+  let label: string | undefined;
+  try {
+    const genericName = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "longGeneric",
+    }).formatToParts(new Date("2026-01-15T12:00:00.000Z"))
+      .find((part) => part.type === "timeZoneName")?.value;
+    if (genericName && genericName !== timeZone) {
+      label = segments[0] === "Etc" ? genericName : `${genericName} — ${location}`;
+    }
+  } catch {
+    // Unsupported identifiers still get a readable fallback for recovery UIs.
+  }
+  label ??= segments.map((segment) => segment.replaceAll("_", " ")).join(" — ");
+  timeZoneOptionLabelCache.set(timeZone, label);
+  return label;
+}
+
 type LocalDateParts = { year: string; month: string; day: string };
 
 function localDateParts(utc: Date | string | number, timeZone: string): LocalDateParts {
