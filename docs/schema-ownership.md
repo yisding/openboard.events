@@ -19,7 +19,8 @@ metadata. It checks:
   presence of a database default;
 - all 33 enum names and their ordered values;
 - primary keys, checks, foreign keys, unique constraints, and indexes;
-- every SQL-only view, function, trigger, advanced constraint, and index.
+- every SQL-only view, function, trigger, advanced constraint, and normalized
+  index definition (columns, order, null placement, uniqueness, and predicate).
 
 `architecture/schema-sql-only-allowlist.json` is the exact reviewed difference
 ledger. CI fails when an entry appears or becomes stale. Its current intentional

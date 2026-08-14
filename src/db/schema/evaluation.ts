@@ -75,5 +75,6 @@ export const reviewRevisions = pgTable("review_revisions", {
 }, (table) => [
   unique().on(table.reviewId, table.revision),
   unique().on(table.id, table.eventId),
-  index("review_revisions_submission_idx").on(table.eventId, table.submissionId, table.recordedAt),
+  index("review_revisions_submission_idx")
+    .on(table.eventId, table.submissionId, table.recordedAt.desc().nullsFirst()),
 ]);

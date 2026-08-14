@@ -62,8 +62,11 @@ export const organizationInvitations = pgTable("organization_invitations", {
   acceptedUserId: uuid("accepted_user_id").references(() => users.id, { onDelete: "set null" }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, (table) => [
-  index("organization_invitations_org_idx").on(table.organizationId, table.createdAt),
-  index("organization_invitations_event_idx").on(table.eventId, table.createdAt).where(sql`${table.eventId} IS NOT NULL`),
+  index("organization_invitations_org_idx")
+    .on(table.organizationId, table.createdAt.desc().nullsFirst()),
+  index("organization_invitations_event_idx")
+    .on(table.eventId, table.createdAt.desc().nullsFirst())
+    .where(sql`${table.eventId} IS NOT NULL`),
   foreignKey({
     name: "organization_invitations_event_organization_fk",
     columns: [table.eventId, table.organizationId],
@@ -85,4 +88,7 @@ export const organizationAuditLog = pgTable("organization_audit_log", {
   targetUserId: uuid("target_user_id").references(() => users.id, { onDelete: "set null" }),
   metadata: jsonb("metadata").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [index("organization_audit_log_org_created_idx").on(table.organizationId, table.createdAt)]);
+}, (table) => [
+  index("organization_audit_log_org_created_idx")
+    .on(table.organizationId, table.createdAt.desc().nullsFirst()),
+]);

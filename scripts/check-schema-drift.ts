@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { getTableName, is } from "drizzle-orm";
-import { getTableConfig, isPgEnum, PgTable } from "drizzle-orm/pg-core";
+import { getTableName, is, type SQL } from "drizzle-orm";
+import { getTableConfig, isPgEnum, PgDialect, PgTable } from "drizzle-orm/pg-core";
 import * as querySchema from "../src/db/schema";
 import { applyProductMigrations, readProductMigrations } from "./lib/product-migrations";
 
@@ -39,7 +39,7 @@ type ColumnRow = {
   udt_name: string;
 };
 
-type ConstraintRow = {
+export type ConstraintRow = {
   columns: string[];
   foreign_columns: string[] | null;
   foreign_table_name: string | null;
@@ -58,6 +58,16 @@ type EnumRow = {
 };
 
 type NamedRow = { name: string };
+
+export type IndexRow = {
+  columns: string[];
+  flags: number[];
+  method: string;
+  name: string;
+  predicate: string | null;
+  table_name: string;
+  unique: boolean;
+};
 
 type ExpectedColumn = {
   hasDefault: boolean;
@@ -92,6 +102,10 @@ function exactDrift(label: string, current: string[], baseline: string[]): strin
   return errors;
 }
 
+function normalizedSql(value: string | null | undefined): string {
+  return value?.replace(/\s+/gu, " ").trim() ?? "";
+}
+
 function modeledObjects(): ModeledObjects {
   const checks: string[] = [];
   const columns = new Map<string, ExpectedColumn>();
@@ -100,6 +114,7 @@ function modeledObjects(): ModeledObjects {
   const primaryKeys: string[] = [];
   const tables: string[] = [];
   const uniqueConstraints: string[] = [];
+  const dialect = new PgDialect();
   const drizzleTables = Object.values(querySchema).filter((value) => is(value, PgTable)) as PgTable[];
 
   for (const table of drizzleTables) {
@@ -127,7 +142,22 @@ function modeledObjects(): ModeledObjects {
     }));
     for (const index of config.indexes) {
       if (!index.config.name) throw new Error(`unnamed Drizzle index on ${config.name}`);
-      indexes.push(index.config.name);
+      const predicate = index.config.where ? dialect.sqlToQuery(index.config.where) : null;
+      if (predicate && predicate.params.length > 0) {
+        throw new Error(`parameterized Drizzle index predicate on ${index.config.name}`);
+      }
+      const indexColumns = index.config.columns.map((column) => {
+        const indexed = column as { indexConfig?: { nulls?: string; order?: string }; name?: string };
+        const expression = indexed.name ?? dialect.sqlToQuery(column as SQL).sql;
+        const order = indexed.indexConfig?.order ?? "asc";
+        const nulls = indexed.indexConfig?.nulls ?? (order === "asc" ? "last" : "first");
+        return `${normalizedSql(expression)}:${order}:${nulls}`;
+      });
+      indexes.push(
+        `${index.config.name}|table=${config.name}|unique=${index.config.unique}`
+        + `|method=${index.config.method ?? "btree"}|columns=${indexColumns.join(",")}`
+        + `|where=${normalizedSql(predicate?.sql)}`,
+      );
     }
     primaryKeys.push(...config.primaryKeys.map((primaryKey) => (
       `${config.name}(${primaryKey.columns.map((column) => column.name).join(",")})`
@@ -162,24 +192,37 @@ function databaseType(row: ColumnRow): string {
   return row.data_type;
 }
 
+export function databaseConstraintDescriptor(row: ConstraintRow): string {
+  const local = `${row.table_name}(${row.columns.join(",")})`;
+  if (row.kind === "f") {
+    return `${local}->${row.foreign_table_name}(${row.foreign_columns?.join(",") ?? ""})`
+      + `:${row.on_delete}:${row.on_update}`;
+  }
+  if (row.kind === "p") return local;
+  if (row.kind === "u") return `${local}:nullsNotDistinct=${row.nulls_not_distinct}`;
+  return row.name;
+}
+
 function groupConstraints(rows: ConstraintRow[]): Record<ConstraintRow["kind"], string[]> {
-  const descriptor = (row: ConstraintRow): string => {
-    const local = `${row.table_name}(${row.columns.join(",")})`;
-    if (row.kind === "f") {
-      return `${local}->${row.foreign_table_name}(${row.foreign_columns?.join(",") ?? ""})`
-        + `:${row.on_delete}:${row.on_update}`;
-    }
-    if (row.kind === "p") return local;
-    if (row.kind === "u") return `${local}:nullsNotDistinct=${row.nulls_not_distinct}`;
-    return row.name;
-  };
   return {
-    c: sorted(rows.filter((row) => row.kind === "c").map(descriptor)),
-    f: sorted(rows.filter((row) => row.kind === "f").map(descriptor)),
-    p: sorted(rows.filter((row) => row.kind === "p").map(descriptor)),
-    u: sorted(rows.filter((row) => row.kind === "u").map(descriptor)),
-    x: sorted(rows.filter((row) => row.kind === "x").map(descriptor)),
+    c: sorted(rows.filter((row) => row.kind === "c").map(databaseConstraintDescriptor)),
+    f: sorted(rows.filter((row) => row.kind === "f").map(databaseConstraintDescriptor)),
+    p: sorted(rows.filter((row) => row.kind === "p").map(databaseConstraintDescriptor)),
+    u: sorted(rows.filter((row) => row.kind === "u").map(databaseConstraintDescriptor)),
+    x: sorted(rows.filter((row) => row.kind === "x").map(databaseConstraintDescriptor)),
   };
+}
+
+export function databaseIndexDescriptor(row: IndexRow): string {
+  const columns = row.columns.map((column, index) => {
+    const flags = row.flags[index] ?? 0;
+    const order = (flags & 1) === 1 ? "desc" : "asc";
+    const nulls = (flags & 2) === 2 ? "first" : "last";
+    return `${column}:${order}:${nulls}`;
+  });
+  return `${row.name}|table=${row.table_name}|unique=${row.unique}`
+    + `|method=${row.method}|columns=${columns.join(",")}`
+    + `|where=${normalizedSql(row.predicate)}`;
 }
 
 async function inspectDatabase(database: PGlite) {
@@ -217,11 +260,12 @@ async function inspectDatabase(database: PGlite) {
              when 'a' then 'no action' when 'r' then 'restrict' when 'c' then 'cascade'
              when 'n' then 'set null' when 'd' then 'set default' else ''
            end as on_update,
-           false as nulls_not_distinct
+           coalesce(constraint_index.indnullsnotdistinct, false) as nulls_not_distinct
     from pg_constraint c
     join pg_namespace n on n.oid = c.connamespace
     join pg_class table_class on table_class.oid = c.conrelid
     left join pg_class foreign_class on foreign_class.oid = c.confrelid
+    left join pg_index constraint_index on constraint_index.indexrelid = c.conindid
     where n.nspname = 'public' and c.contype in ('c', 'f', 'p', 'u', 'x')
     order by c.contype, c.conname
   `);
@@ -240,12 +284,25 @@ async function inspectDatabase(database: PGlite) {
     where n.nspname = 'public'
     order by name
   `);
-  const indexes = await database.query<NamedRow>(`
-    select index_class.relname as name
+  const indexes = await database.query<IndexRow>(`
+    select index_class.relname as name, table_class.relname as table_name,
+           i.indisunique as unique, access_method.amname as method,
+           array(
+             select pg_get_indexdef(i.indexrelid, position, true)
+             from generate_series(1, i.indnkeyatts) as position
+             order by position
+           ) as columns,
+           array(
+             select i.indoption[position]
+             from generate_series(0, i.indnkeyatts - 1) as position
+             order by position
+           ) as flags,
+           pg_get_expr(i.indpred, i.indrelid, true) as predicate
     from pg_index i
     join pg_class index_class on index_class.oid = i.indexrelid
     join pg_class table_class on table_class.oid = i.indrelid
     join pg_namespace n on n.oid = table_class.relnamespace
+    join pg_am access_method on access_method.oid = index_class.relam
     left join pg_constraint c on c.conindid = i.indexrelid
     where n.nspname = 'public' and c.oid is null
     order by index_class.relname
@@ -270,7 +327,7 @@ async function inspectDatabase(database: PGlite) {
     constraints: groupConstraints(constraints.rows),
     enums: enums.rows,
     functions: sorted(functions.rows.map((row) => row.name)),
-    indexes: sorted(indexes.rows.map((row) => row.name)),
+    indexes: sorted(indexes.rows.map(databaseIndexDescriptor)),
     triggers: sorted(triggers.rows.map((row) => row.name)),
     views: sorted(views.rows.map((row) => row.name)),
   };

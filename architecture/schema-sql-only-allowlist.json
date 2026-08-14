@@ -143,9 +143,9 @@
     ],
     "unique": [
       "events(id,organization_id):nullsNotDistinct=false",
-      "form_responses(form_id,contact_id,submission_id):nullsNotDistinct=false",
-      "submission_answers(submission_id,field_id,participant_id):nullsNotDistinct=false",
-      "task_completions(task_id,contact_id,submission_id):nullsNotDistinct=false"
+      "form_responses(form_id,contact_id,submission_id):nullsNotDistinct=true",
+      "submission_answers(submission_id,field_id,participant_id):nullsNotDistinct=true",
+      "task_completions(task_id,contact_id,submission_id):nullsNotDistinct=true"
     ]
   },
   "functions": [
@@ -158,31 +158,34 @@
     "validate_track_scope_array()"
   ],
   "indexes": [
-    "admin_accounts_user_idx",
-    "admin_sessions_expires_idx",
-    "admin_sessions_token_key",
-    "admin_sessions_user_idx",
-    "admin_verifications_identifier_idx",
-    "communication_logs_provider_message_idx",
-    "communication_logs_queued_idx",
-    "events_organization_idx",
-    "file_comments_slot_idx",
-    "file_export_jobs_event_idx",
-    "file_uploads_latest_uq",
-    "file_uploads_request_contact_idx",
-    "file_uploads_slot_version_idx",
-    "organization_invitations_pending_lookup_idx",
-    "organization_invitations_pending_target_idx",
-    "portal_tokens_contact_purpose_idx",
-    "reviews_event_submission_idx",
-    "session_content_revisions_session_idx",
-    "session_speakers_event_contact_idx",
-    "sessions_event_room_start_idx",
-    "sessions_event_start_idx",
-    "sessions_event_status_idx",
-    "submission_participants_event_contact_idx",
-    "submissions_event_submitted_idx",
-    "task_completions_event_contact_idx"
+    "admin_accounts_user_idx|table=admin_accounts|unique=false|method=btree|columns=user_id:asc:last|where=",
+    "admin_sessions_expires_idx|table=admin_sessions|unique=false|method=btree|columns=expires_at:asc:last|where=",
+    "admin_sessions_token_key|table=admin_sessions|unique=true|method=btree|columns=token:asc:last|where=",
+    "admin_sessions_user_idx|table=admin_sessions|unique=false|method=btree|columns=user_id:asc:last|where=",
+    "admin_verifications_identifier_idx|table=admin_verifications|unique=false|method=btree|columns=identifier:asc:last|where=",
+    "communication_logs_provider_message_idx|table=communication_logs|unique=false|method=btree|columns=provider_message_id:asc:last|where=provider_message_id IS NOT NULL",
+    "communication_logs_queued_idx|table=communication_logs|unique=false|method=btree|columns=event_id:asc:last,status:asc:last|where=status = 'queued'::comm_status",
+    "events_organization_idx|table=events|unique=false|method=btree|columns=organization_id:asc:last|where=",
+    "file_comments_slot_idx|table=file_comments|unique=false|method=btree|columns=event_id:asc:last,file_request_id:asc:last,contact_id:asc:last,submission_id:asc:last,created_at:asc:last|where=",
+    "file_export_jobs_event_idx|table=file_export_jobs|unique=false|method=btree|columns=event_id:asc:last,created_at:desc:first|where=",
+    "file_uploads_latest_uq|table=file_uploads|unique=true|method=btree|columns=file_request_id:asc:last,contact_id:asc:last,COALESCE(submission_id, '00000000-0000-0000-0000-000000000000'::uuid):asc:last|where=is_latest",
+    "file_uploads_request_contact_idx|table=file_uploads|unique=false|method=btree|columns=file_request_id:asc:last,contact_id:asc:last|where=",
+    "file_uploads_slot_version_idx|table=file_uploads|unique=false|method=btree|columns=file_request_id:asc:last,contact_id:asc:last,submission_id:asc:last,version:desc:first|where=",
+    "form_versions_participant_operation_uq|table=form_versions|unique=true|method=btree|columns=event_id:asc:last,form_id:asc:last,participant_operation_id:asc:last|where=participant_operation_id IS NOT NULL",
+    "organization_invitations_event_idx|table=organization_invitations|unique=false|method=btree|columns=event_id:asc:last,created_at:desc:first|where=event_id IS NOT NULL",
+    "organization_invitations_pending_lookup_idx|table=organization_invitations|unique=false|method=btree|columns=email:asc:last|where=accepted_at IS NULL AND revoked_at IS NULL",
+    "organization_invitations_pending_target_idx|table=organization_invitations|unique=true|method=btree|columns=organization_id:asc:last,email:asc:last,event_id:asc:last|where=accepted_at IS NULL AND revoked_at IS NULL",
+    "portal_tokens_contact_purpose_idx|table=portal_tokens|unique=false|method=btree|columns=contact_id:asc:last,purpose:asc:last|where=",
+    "reviews_event_submission_idx|table=reviews|unique=false|method=btree|columns=event_id:asc:last,submission_id:asc:last|where=",
+    "session_content_revisions_session_idx|table=session_content_revisions|unique=false|method=btree|columns=session_id:asc:last,created_at:desc:first|where=",
+    "session_speakers_event_contact_idx|table=session_speakers|unique=false|method=btree|columns=event_id:asc:last,contact_id:asc:last|where=",
+    "sessions_event_room_start_idx|table=sessions|unique=false|method=btree|columns=event_id:asc:last,room_id:asc:last,starts_at:asc:last|where=",
+    "sessions_event_start_idx|table=sessions|unique=false|method=btree|columns=event_id:asc:last,starts_at:asc:last|where=",
+    "sessions_event_status_idx|table=sessions|unique=false|method=btree|columns=event_id:asc:last,status:asc:last|where=",
+    "submission_participants_event_contact_idx|table=submission_participants|unique=false|method=btree|columns=event_id:asc:last,contact_id:asc:last|where=",
+    "submissions_event_submitted_idx|table=submissions|unique=false|method=btree|columns=event_id:asc:last,submitted_at:desc:last|where=",
+    "submissions_one_draft_per_contact_form_uq|table=submissions|unique=true|method=btree|columns=event_id:asc:last,form_id:asc:last,submitter_contact_id:asc:last|where=status = 'draft'::submission_status AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL",
+    "task_completions_event_contact_idx|table=task_completions|unique=false|method=btree|columns=event_id:asc:last,contact_id:asc:last|where="
   ],
   "queryOnly": {
     "checks": [],
@@ -234,7 +237,11 @@
       "task_completions(submission_id)->submissions(id):cascade:no action",
       "task_completions(task_id)->portal_tasks(id):cascade:no action"
     ],
-    "indexes": [],
+    "indexes": [
+      "form_versions_participant_operation_uq|table=form_versions|unique=true|method=btree|columns=event_id:asc:last,form_id:asc:last,participant_operation_id:asc:last|where=\"form_versions\".\"participant_operation_id\" IS NOT NULL",
+      "organization_invitations_event_idx|table=organization_invitations|unique=false|method=btree|columns=event_id:asc:last,created_at:desc:first|where=\"organization_invitations\".\"event_id\" IS NOT NULL",
+      "submissions_one_draft_per_contact_form_uq|table=submissions|unique=true|method=btree|columns=event_id:asc:last,form_id:asc:last,submitter_contact_id:asc:last|where=status='draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL"
+    ],
     "uniqueConstraints": [
       "admin_sessions(token):nullsNotDistinct=false"
     ]
