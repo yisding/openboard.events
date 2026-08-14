@@ -25,6 +25,16 @@ vi.mock("@/features/auth", () => ({
   throttleAdminLogin: vi.fn(async () => "attempt-key"),
   clearAdminLoginThrottle: vi.fn(async () => undefined),
   nudgeAdminAuthEmailOutbox: vi.fn(),
+  withCredentialVerificationBudget: async (work: () => Promise<unknown>) => work(),
+}));
+
+vi.mock("@/shared/server/rate-limit", () => ({
+  checkRateLimit: vi.fn(async () => undefined),
+  clientIp: (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown",
+}));
+
+vi.mock("@/shared/lib/log", () => ({
+  log: vi.fn(),
 }));
 
 vi.mock("@/features/auth/server/better-auth", () => ({

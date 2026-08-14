@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fromBase64Url, randomBytes, safeEqual, toBase64Url } from "@/shared/lib/crypto";
+import { log } from "@/shared/lib/log";
 
 /**
  * M42 AC 1 — Better Auth's custom password-hashing hooks.
@@ -67,14 +68,57 @@ export async function hashAdminPassword(password: string, salt = randomBytes(CUR
  * by error shape.
  */
 export async function verifyAdminPassword(args: { hash: string; password: string }): Promise<boolean> {
-  const parsed = encodedSchema.safeParse(args.hash.split("$"));
-  if (!parsed.success) return false;
-  const [scheme, iterations, salt, expected] = parsed.data;
-  // The legacy writer pinned its iteration count; refuse a stored hash that
-  // claims a weaker one so a tampered row cannot downgrade the work factor.
-  if (scheme === LEGACY_SCHEME && iterations < PBKDF2_ITERATIONS) return false;
-  const digest = await derive(args.password, fromBase64Url(salt), iterations);
-  return safeEqual(digest, expected);
+  const startedAt = performance.now();
+  const requestId = `password:${crypto.randomUUID()}`;
+  try {
+    const parsed = encodedSchema.safeParse(args.hash.split("$"));
+    if (!parsed.success) {
+      log({
+        level: "warn",
+        msg: "auth.password_verification",
+        requestId,
+        feature: "auth",
+        code: "malformed_hash",
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+      return false;
+    }
+    const [scheme, iterations, salt, expected] = parsed.data;
+    // The legacy writer pinned its iteration count; refuse a stored hash that
+    // claims a weaker one so a tampered row cannot downgrade the work factor.
+    if (scheme === LEGACY_SCHEME && iterations < PBKDF2_ITERATIONS) {
+      log({
+        level: "warn",
+        msg: "auth.password_verification",
+        requestId,
+        feature: "auth",
+        code: "downgrade_rejected",
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+      return false;
+    }
+    const digest = await derive(args.password, fromBase64Url(salt), iterations);
+    const accepted = safeEqual(digest, expected);
+    log({
+      level: "info",
+      msg: "auth.password_verification",
+      requestId,
+      feature: "auth",
+      code: accepted ? "accepted" : "rejected",
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return accepted;
+  } catch (error) {
+    log({
+      level: "error",
+      msg: "auth.password_verification",
+      requestId,
+      feature: "auth",
+      code: "failed",
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    throw error;
+  }
 }
 
 /**

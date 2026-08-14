@@ -47,6 +47,18 @@ describe("checkRateLimit (PLAN P3-SEC)", () => {
     await expect(checkRateLimit(tx, { key: b, limit: 1, windowMs: 60_000 })).resolves.toBeUndefined();
   });
 
+  it("serializes concurrent increments against one key", async () => {
+    const results = await Promise.allSettled(Array.from({ length: 12 }, async () => {
+      await checkRateLimit(tx, { key: "concurrent-credential-burst", limit: 1, windowMs: 60_000 });
+    }));
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(11);
+    for (const result of results) {
+      if (result.status === "rejected") expect(result.reason).toMatchObject({ code: "RATE_LIMITED" });
+    }
+  });
+
   it("opens a fresh window once the previous one has fully elapsed", async () => {
     // Fakes only `Date` (not timers): a real 20ms wall-clock margin is too
     // tight under CI/parallel load, where a single PGlite round trip can
