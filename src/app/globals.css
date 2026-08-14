@@ -891,7 +891,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    horizontal rail instead of widening the page. The Day view uses this as its
    only day picker. */
 .agenda-toolbar{height:auto;min-height:57px;flex-wrap:wrap;gap:8px;padding-inline:16px}
-.agenda-view-tabs{height:auto;min-height:44px;align-self:stretch}
+.agenda-view-tabs{height:55px;min-height:55px;align-self:flex-start}
 .agenda-view-tabs button{align-self:stretch}
 .agenda-toolbar>.agenda-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;max-width:100%;flex-wrap:wrap;gap:8px}
 .agenda-daybar{min-width:0;overflow:hidden;gap:12px}

@@ -147,7 +147,9 @@ test.describe("agenda workspace geometry", () => {
       });
 
       expect(layout.actionOverlapsHint).toBe(false);
-      expect(layout.activeTabHeight).toBeGreaterThanOrEqual(44);
+      // Match the 57px Submission Forms toolbar's label-to-indicator rhythm.
+      // The agenda header has a border on both edges, leaving a 55px tab row.
+      expect(layout.activeTabHeight).toBeGreaterThanOrEqual(55);
       expect(layout.underlineOffset).toBeLessThanOrEqual(0.5);
       expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
     }

@@ -174,3 +174,43 @@ export function formatDateRangeInZone(
   if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year} ${endZone}`;
   return `${full(start)} – ${full(end)} ${endZone}`;
 }
+
+type LocalTimeParts = { hour: string; minute: string; dayPeriod: string };
+
+function localTimeParts(utc: Date | string | number, timeZone: string): LocalTimeParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(asDate(utc));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return { hour: value("hour"), minute: value("minute"), dayPeriod: value("dayPeriod") };
+}
+
+/**
+ * A compact event-local time range with one shared day period and zone when
+ * possible. Phone cards should read “9:00–9:45 AM PDT”, not repeat “AM PDT”
+ * on both endpoints; a meridiem or DST transition keeps the labels that
+ * actually differ.
+ */
+export function formatTimeRangeInZone(
+  startsAt: Date | string | number,
+  endsAt: Date | string | number,
+  timeZone: string,
+): string {
+  const start = localTimeParts(startsAt, timeZone);
+  const end = localTimeParts(endsAt, timeZone);
+  const startClock = `${start.hour}:${start.minute}`;
+  const endClock = `${end.hour}:${end.minute}`;
+  const startZone = zoneAbbreviation(startsAt, timeZone);
+  const endZone = zoneAbbreviation(endsAt, timeZone);
+
+  if (startZone !== endZone) {
+    return `${startClock} ${start.dayPeriod} ${startZone}–${endClock} ${end.dayPeriod} ${endZone}`;
+  }
+  if (start.dayPeriod !== end.dayPeriod) {
+    return `${startClock} ${start.dayPeriod}–${endClock} ${end.dayPeriod} ${endZone}`;
+  }
+  return `${startClock}–${endClock} ${end.dayPeriod} ${endZone}`;
+}
