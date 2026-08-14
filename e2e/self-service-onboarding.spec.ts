@@ -138,7 +138,12 @@ test.describe("self-service signup to first value", () => {
   test.skip(!signupJourneyConfigured(), NO_SIGNUP_JOURNEY);
 
   test("a new customer verifies, provisions, publishes, and receives their first proposal", async ({ page, browser }) => {
-    test.setTimeout(180_000);
+    // This is one deliberately continuous customer journey rather than a set
+    // of isolated fixtures: it creates and verifies an account, provisions an
+    // organization and event, publishes a CFP, then submits through it. Keep
+    // the individual 30–60 second UI/delivery limits below as the failure
+    // signals; the suite-wide budget only needs to cover their cumulative work.
+    test.setTimeout(300_000);
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     const password = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
     const personName = `E2E Self-service ${stamp}`;
