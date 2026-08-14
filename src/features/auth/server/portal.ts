@@ -11,7 +11,7 @@ import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { safeInternalPath } from "../safe-next";
 import { getAdminSession, requireAdmin } from "./admin";
 import { PORTAL_COOKIE_PREFIX } from "../cookies";
-import { randomBytes, sha256, toBase64Url } from "./crypto";
+import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
 import { sealPortalLoginPayload } from "./secret-payload";
 import { consumeToken, issuePortalToken } from "./tokens";
 

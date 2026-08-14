@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { userLegalAcceptances, users } from "@/db/schema";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
 import { OAUTH_SIGNUP_INTENT_COOKIE, sealOAuthSignupIntent } from "@/features/auth/server/oauth-signup-intent";
-import { toBase64Url } from "@/features/auth/server/crypto";
+import { toBase64Url } from "@/shared/lib/crypto";
 import { parseEnv } from "@/shared/lib/env";
 
 /**

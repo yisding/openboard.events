@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
-import { sha256 } from "./crypto";
+import { sha256 } from "@/shared/lib/crypto";
 import { createConcurrentPortalRecoverySessionIn } from "./portal";
 
 describe("concurrent portal-login recovery", () => {
