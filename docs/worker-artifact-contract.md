@@ -26,6 +26,13 @@ Node-runtime server compilations it lowers `splitChunks.minSize` to zero and
 removes the browser-oriented initial/async request caps. It deliberately does
 not name a cache group.
 
+`wrangler.jsonc` also enables Wrangler's supported final `minify` pass.
+OpenNext's generated handler is valid but only partially minified; on the same
+local artifact, Wrangler reduced the upload from 19,353.00 to 14,138.35 KiB
+and its gzip size from 2,593.73 to 2,338.69 KiB. This is a deployment compiler
+setting, not another Webpack chunk assumption, and all completeness/workerd
+gates run against its output.
+
 The override remains necessary with the supported matrix. A clean comparison
 on 2026-08-14 measured:
 
