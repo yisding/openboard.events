@@ -486,10 +486,12 @@ test.describe("content-deliverables (M52)", () => {
       const original = `E2E content history original ${stamp}`;
       const editOne = `E2E content history edit one ${stamp}`;
       const editTwo = `E2E content history edit two ${stamp}`;
+      const creationId = crypto.randomUUID();
 
       const created = await apiData<SessionRow>(request, `${AGENDA_SESSIONS}?eventId=${encodeURIComponent(EVENT)}`, {
         method: "POST",
         data: {
+          creationId,
           title: original, descriptionHtml: "<p>Original description</p>",
           roomId: VOCAB.rooms.studio, startsAt, endsAt, status: "draft",
         },

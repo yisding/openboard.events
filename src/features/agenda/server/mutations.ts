@@ -45,6 +45,8 @@ import { getSchedulableSessionsIn } from "./queries";
 
 export const saveSessionInputSchema = z.object({
   id: sessionIdSchema.optional(),
+  /** Caller-owned identity for a retry-safe manual create. */
+  creationId: sessionIdSchema.optional(),
   /** Required whenever `id` is present: an update without a version is a blind write. */
   expectedVersion: z.int().positive().optional(),
   title: z.string().trim().min(1).max(255),
@@ -57,6 +59,9 @@ export const saveSessionInputSchema = z.object({
   speakerContactIds: z.array(contactIdSchema).max(50).default([]),
   status: sessionStatusSchema.default("draft"),
 }).superRefine((value, context) => {
+  if (value.id !== undefined && value.creationId !== undefined) {
+    context.addIssue({ code: "custom", path: ["creationId"], message: "creationId is only valid when creating" });
+  }
   if (value.id !== undefined && value.expectedVersion === undefined) {
     context.addIssue({ code: "custom", path: ["expectedVersion"], message: "expectedVersion is required when updating" });
   }
@@ -71,6 +76,16 @@ export const saveSessionInputSchema = z.object({
 });
 
 export type SaveSessionInput = z.infer<typeof saveSessionInputSchema>;
+
+/** The collection POST is stricter than internal create callers and PATCH. */
+export const createSessionInputSchema = z.intersection(
+  saveSessionInputSchema,
+  z.object({
+    creationId: sessionIdSchema,
+    id: z.never().optional(),
+    expectedVersion: z.never().optional(),
+  }),
+);
 
 export const moveSessionInputSchema = z.object({
   id: sessionIdSchema,
@@ -122,6 +137,23 @@ function isUniqueViolation(error: unknown): boolean {
 /** Deduped, order-preserving: the PK is `(session_id, contact_id)`, so a repeat in the array must not reach the database twice. */
 function uniqueSpeakers(ids: readonly ContactId[]): ContactId[] {
   return [...new Set(ids)];
+}
+
+/** Exact, normalized POST identity without persisting the organizer's content. */
+async function creationPayloadFingerprint(input: SaveSessionInput): Promise<string> {
+  const material = JSON.stringify({
+    title: input.title,
+    descriptionHtml: input.descriptionHtml,
+    formatId: input.formatId,
+    trackId: input.trackId,
+    roomId: input.roomId,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    speakerContactIds: input.speakerContactIds,
+    status: input.status,
+  });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 type SessionRowShape = {
@@ -285,24 +317,31 @@ const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_
 async function insertSession(
   dbOrTx: DbOrTx,
   eventId: EventId,
-  input: SaveSessionInput,
+  input: SaveSessionInput & { creationId: SessionId },
   slug: string,
   descriptionHtml: string,
   speakers: readonly ContactId[],
   actorUserId: UserId | null,
+  payloadFingerprint: string,
 ): Promise<SessionRowShape> {
   // A session created already published and already timed has a schedule its
   // speakers have never seen, so it starts at revision 1 — otherwise the
   // notify below reads "nothing changed" and nobody is told.
   const initialRevision = input.status === "published" && input.startsAt !== null ? 1 : 0;
-  // One statement: the row, its speakers and its first content revision (M52)
-  // land together or not at all.
+  // One statement: the durable create receipt, row, speakers and first content
+  // revision (M52) land together or not at all. `receipt` selects from the
+  // event guard so an invalid event/bounds check cannot consume the id.
   const result = await dbOrTx.execute<SessionRowShape>(sql`
-    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), created AS (
-      INSERT INTO sessions (event_id, title, slug, description_html, format_id, track_id, room_id, starts_at, ends_at, status, schedule_revision)
-      SELECT ${eventId}, ${input.title}, ${slug}, ${descriptionHtml}, ${input.formatId}, ${input.trackId}, ${input.roomId},
-             ${input.startsAt}, ${input.endsAt}, ${input.status}, ${initialRevision}
+    WITH event_guard AS (${serializeScheduleWriteSql(eventId, input.startsAt, input.endsAt)}), receipt AS (
+      INSERT INTO session_creation_receipts (creation_id, event_id, payload_fingerprint)
+      SELECT ${input.creationId}, ${eventId}, ${payloadFingerprint}
       FROM event_guard
+      RETURNING creation_id
+    ), created AS (
+      INSERT INTO sessions (id, event_id, title, slug, description_html, format_id, track_id, room_id, starts_at, ends_at, status, schedule_revision)
+      SELECT ${input.creationId}, ${eventId}, ${input.title}, ${slug}, ${descriptionHtml}, ${input.formatId}, ${input.trackId}, ${input.roomId},
+             ${input.startsAt}, ${input.endsAt}, ${input.status}, ${initialRevision}
+      FROM receipt
       RETURNING *
     ), ins AS (
       INSERT INTO session_speakers (event_id, session_id, contact_id, role, sort_order)
@@ -324,6 +363,95 @@ async function insertSession(
   return row;
 }
 
+type CreatedSessionRow = SessionRowShape & {
+  event_id: string;
+  submission_id: string | null;
+  speaker_ids: string[] | null;
+};
+
+const CREATION_REPLAY_CONFLICT = "This creation attempt was already used for different session details";
+const CREATION_DELETED_CONFLICT = "This creation attempt already completed, but the session was later deleted";
+
+/**
+ * Return the canonical result of an earlier committed create, but only when
+ * the caller is replaying the exact same event-scoped payload. The create id is
+ * globally unique, so querying it without an event predicate is intentional:
+ * an id already owned by another event is a conflict, never a successful
+ * cross-event replay.
+ */
+async function recoverCreatedSession(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  input: SaveSessionInput & { creationId: SessionId },
+  payloadFingerprint: string,
+  descriptionHtml: string,
+  speakers: readonly ContactId[],
+): Promise<ScheduledSessionDTO | null> {
+  const receiptResult = await dbOrTx.execute<{ event_id: string; payload_fingerprint: string }>(sql`
+    SELECT event_id, payload_fingerprint
+    FROM session_creation_receipts
+    WHERE creation_id = ${input.creationId}
+  `);
+  const receipt = (receiptResult.rows ?? [])[0];
+  if (!receipt) {
+    // A session using this globally unique id without our durable receipt is a
+    // legacy/collision row, never proof that this caller's attempt succeeded.
+    const collision = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM sessions WHERE id = ${input.creationId}
+    `);
+    if ((collision.rows ?? []).length > 0) throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+    return null;
+  }
+  if (receipt.event_id !== eventId || receipt.payload_fingerprint !== payloadFingerprint) {
+    throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+  }
+
+  const result = await dbOrTx.execute<CreatedSessionRow>(sql`
+    SELECT ${RETURNED_COLUMNS}, s.event_id, s.submission_id,
+      (
+        SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
+        FROM session_speakers ss
+        WHERE ss.session_id = s.id AND ss.event_id = s.event_id
+      ) AS speaker_ids
+    FROM sessions s
+    WHERE s.id = ${input.creationId}
+  `);
+  const row = (result.rows ?? [])[0];
+  if (!row) throw new AppError("CONFLICT", CREATION_DELETED_CONFLICT);
+  if (row.event_id !== eventId || row.submission_id !== null) {
+    throw new AppError("CONFLICT", CREATION_REPLAY_CONFLICT);
+  }
+
+  const currentSpeakers = (row.speaker_ids ?? []) as ContactId[];
+  const initialRevision = input.status === "published" && input.startsAt !== null ? 1 : 0;
+  const stillOriginalCreate = row.title === input.title
+    && (row.description_html ?? "") === descriptionHtml
+    && row.format_id === input.formatId
+    && row.track_id === input.trackId
+    && row.room_id === input.roomId
+    && iso(row.starts_at) === (input.startsAt === null ? null : new Date(input.startsAt).toISOString())
+    && iso(row.ends_at) === (input.endsAt === null ? null : new Date(input.endsAt).toISOString())
+    && row.status === input.status
+    && Number(row.schedule_revision) === initialRevision
+    && Number(row.row_version) === 1
+    && JSON.stringify(currentSpeakers) === JSON.stringify(speakers);
+
+  if (stillOriginalCreate) {
+    // The graph insert is already committed if a response was lost. Re-running
+    // only this repair is safe: the outbox key includes session, speaker and
+    // schedule revision, and enqueueEmail uses ON CONFLICT DO NOTHING. If the
+    // canonical session has since been edited, return it without replaying an
+    // obsolete create notification.
+    await notifySchedule(
+      dbOrTx, eventId, row.id as SessionId,
+      { status: "draft", startsAt: null, scheduleRevision: 0 },
+      { status: row.status, startsAt: iso(row.starts_at), scheduleRevision: Number(row.schedule_revision) },
+      currentSpeakers,
+    );
+  }
+  return toDto(row, currentSpeakers);
+}
+
 /**
  * Create or update. Both branches are one statement; the update's is guarded by
  * `row_version`, which is what turns two organizers editing the same session
@@ -336,13 +464,32 @@ export async function saveSessionIn(
   actorUserId: UserId | null = null,
 ): Promise<ScheduledSessionDTO> {
   const input = saveSessionInputSchema.parse(rawInput);
-  await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
   // Never trust the editor's output: resolution #2 puts `sanitize()` on every
   // write path, create and update alike.
   const descriptionHtml = sanitize(input.descriptionHtml);
   const speakers = uniqueSpeakers(input.speakerContactIds);
 
   if (input.id === undefined) {
+    const createInput: SaveSessionInput & { creationId: SessionId } = {
+      ...input,
+      creationId: input.creationId ?? sessionIdSchema.parse(crypto.randomUUID()),
+    };
+    const payloadFingerprint = await creationPayloadFingerprint(createInput);
+    if (input.creationId !== undefined) {
+      const recovered = await recoverCreatedSession(
+        dbOrTx,
+        eventId,
+        createInput,
+        payloadFingerprint,
+        descriptionHtml,
+        speakers,
+      );
+      if (recovered) return recovered;
+    }
+    // Mutable current bounds apply only to a genuinely fresh create. An exact
+    // replay is proof of an already committed operation and must be recovered
+    // above even if the event was narrowed after that commit.
+    await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
     const base = slugify(input.title) || "session";
     // Retry on the constraint rather than pre-checking: a pre-check races, the
     // unique index does not. This is why `saveSession` runs on the autocommitting
@@ -351,7 +498,16 @@ export async function saveSessionIn(
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
-        const row = await insertSession(dbOrTx, eventId, input, slug, descriptionHtml, speakers, actorUserId);
+        const row = await insertSession(
+          dbOrTx,
+          eventId,
+          createInput,
+          slug,
+          descriptionHtml,
+          speakers,
+          actorUserId,
+          payloadFingerprint,
+        );
         await notifySchedule(
           dbOrTx, eventId, row.id as SessionId,
           { status: "draft", startsAt: null, scheduleRevision: 0 },
@@ -361,6 +517,17 @@ export async function saveSessionIn(
         return toDto(row, speakers);
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
+        if (input.creationId !== undefined) {
+          const recovered = await recoverCreatedSession(
+            dbOrTx,
+            eventId,
+            createInput,
+            payloadFingerprint,
+            descriptionHtml,
+            speakers,
+          );
+          if (recovered) return recovered;
+        }
       }
     }
     throw new AppError("CONFLICT", "Could not find a free URL for that title — rename the session");
@@ -368,6 +535,7 @@ export async function saveSessionIn(
 
   const sessionId = input.id;
   const expectedVersion = input.expectedVersion ?? 0;
+  await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
 
   // The prior speaker set comes back with the guard read, not from a second
   // round trip after the write: step 3 is explicit that recipients are the

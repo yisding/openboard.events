@@ -11,6 +11,7 @@ import {
   type SubmissionId,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
+import { isAppError } from "@/shared/lib/errors";
 import { agendaKeys } from "./keys";
 
 const savedSchema = scheduledSessionDtoSchema;
@@ -20,6 +21,8 @@ const deletedSchema = z.object({ deleted: z.boolean() });
 
 export type SaveSessionPayload = {
   id?: SessionId;
+  /** Stable for every retry of one manual create attempt. */
+  creationId?: SessionId;
   expectedVersion?: number;
   title: string;
   descriptionHtml: string;
@@ -57,6 +60,13 @@ export function useSessionMutations(eventId: EventId) {
         : api(`agenda/sessions?eventId=${eventId}`, savedSchema, { method: "POST", body });
     },
     onSuccess: settle,
+    // A create may have committed before its response was lost or replaced by
+    // an invalid/5xx envelope. Refresh the agenda truth while the dialog keeps
+    // its exact retry payload locked; definitive 4xx responses remain purely
+    // editable and do not disturb the form.
+    onError: async (error, payload) => {
+      if (payload.id === undefined && (!isAppError(error) || error.code === "INTERNAL")) await settle();
+    },
   });
 
   const remove = useMutation({

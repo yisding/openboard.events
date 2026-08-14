@@ -24,7 +24,7 @@ describe("organizer unsaved-edit guards", () => {
   it("guards agenda close, Escape/backdrop, and Cancel while preserving save/delete closes", () => {
     const source = readFileSync(new URL("./session-form-dialog.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("useUnsavedWorkGuard(open && dirty)");
+    expect(source).toContain("useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy })");
     expect(source).toContain("runGuarded(() => {");
     expect(source).toContain("setDraft(original);");
     expect(source).toContain("onClose={requestClose}");

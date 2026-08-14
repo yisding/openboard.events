@@ -1,4 +1,5 @@
-import { integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, rooms, sessionFormats, tracks, users } from "./core";
 import { participantRoleEnum, sessionStatusEnum } from "./enums";
@@ -12,6 +13,22 @@ export const sessions = pgTable("sessions", {
   scheduleRevision: integer("schedule_revision").notNull().default(0), rowVersion: integer("row_version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.slug), unique().on(table.id, table.eventId)]);
+
+/**
+ * Durable idempotency tombstone for a manual create. Deliberately has no FK to
+ * `sessions`: a hard delete removes the session but must not make its caller-
+ * owned primary id reusable by a delayed original POST.
+ */
+export const sessionCreationReceipts = pgTable("session_creation_receipts", {
+  creationId: uuid("creation_id").primaryKey(),
+  eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  payloadFingerprint: text("payload_fingerprint").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("session_creation_receipts_event_idx").on(table.eventId),
+  check("session_creation_receipts_payload_fingerprint_ck", sql`btrim(${table.payloadFingerprint}) <> ''`),
+]);
+
 export const sessionSpeakers = pgTable("session_speakers", {
   eventId: uuid("event_id").notNull(), sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
   contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }), role: participantRoleEnum("role").notNull().default("speaker"), sortOrder: integer("sort_order").notNull().default(0),

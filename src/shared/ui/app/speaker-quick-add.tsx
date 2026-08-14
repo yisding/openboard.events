@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, UserPlus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Field } from "@/shared/ui/ui-kit";
 
 export type QuickAddedSpeaker = { contactId: string; name: string };
@@ -56,11 +56,14 @@ type SpeakerCreatedResponse = {
 export function SpeakerQuickAdd({
   eventId,
   onAdded,
+  onPendingChange,
   disabled = false,
 }: {
   eventId: string;
   /** Called with the created contact so the caller can select it immediately. */
   onAdded: (speaker: QuickAddedSpeaker) => void;
+  /** Lets a containing mutation wait until the selected contact really exists. */
+  onPendingChange?: (pending: boolean) => void;
   disabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -70,6 +73,22 @@ export function SpeakerQuickAdd({
   const [company, setCompany] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const pendingChangeRef = useRef(onPendingChange);
+
+  useEffect(() => {
+    pendingChangeRef.current = onPendingChange;
+  }, [onPendingChange]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // A containing dialog can be replaced externally even though its own
+      // close action is blocked. Never strand that replacement in a busy state.
+      pendingChangeRef.current?.(false);
+    };
+  }, []);
 
   function collapse() {
     setExpanded(false);
@@ -78,7 +97,9 @@ export function SpeakerQuickAdd({
   }
 
   async function submit() {
+    if (saving || disabled) return;
     setSaving(true);
+    pendingChangeRef.current?.(true);
     setError(null);
     try {
       const response = await fetch(`/api/internal/speakers/${eventId}`, {
@@ -88,6 +109,7 @@ export function SpeakerQuickAdd({
       });
       const json = await response.json().catch(() => null) as SpeakerCreatedResponse | null;
       const contact = json?.data?.contact;
+      if (!mountedRef.current) return;
       if (!response.ok || !contact?.contactId) {
         setError(json?.error?.message ?? "Could not add that speaker");
         return;
@@ -95,9 +117,12 @@ export function SpeakerQuickAdd({
       onAdded({ contactId: contact.contactId, name: contact.name?.trim() || contact.email || email });
       collapse();
     } catch {
-      setError("Could not add that speaker — check your connection and try again");
+      if (mountedRef.current) setError("Could not add that speaker — check your connection and try again");
     } finally {
-      setSaving(false);
+      if (mountedRef.current) {
+        setSaving(false);
+        pendingChangeRef.current?.(false);
+      }
     }
   }
 

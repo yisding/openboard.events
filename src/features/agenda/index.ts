@@ -62,6 +62,7 @@ export {
   restoreSessionContent,
   restoreSessionContentIn,
   saveSession,
+  createSessionInputSchema,
   saveSessionInputSchema,
   saveSessionIn,
 } from "./server/mutations";

@@ -25,6 +25,9 @@ const migration6 = readFileSync(new URL("../../drizzle/0006_content_deliverables
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
 // M51's `contact_unavailability` table — M54's read contract for blackouts.
 const migrationSpeakerRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+// Manual agenda creates atomically consume their caller-owned id in a durable
+// receipt, so this reduced fixture needs the receipt table as well.
+const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a9000000-0000-4000-8000-000000000001");
 const ada = contactIdSchema.parse("a9000000-0000-4000-8000-000000000010");
@@ -89,6 +92,7 @@ describe("M54 assisted agenda placement", () => {
     await pglite.exec(migration6);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationSpeakerRoster);
+    await pglite.exec(migrationAgendaCreationReceipts);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -116,7 +120,7 @@ describe("M54 assisted agenda placement", () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, contact_unavailability CASCADE");
+    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, contact_unavailability, session_creation_receipts CASCADE");
   });
 
   it("previews a deterministic, conflict-free placement and applying it persists day/time/room", async () => {
