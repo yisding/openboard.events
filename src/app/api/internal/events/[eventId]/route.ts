@@ -4,6 +4,7 @@ import { getEvent, updateEvent, updateEventBodySchema } from "@/features/events"
 import { adminAuth } from "@/features/auth";
 import { eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { revalidatePublicEventMetadata } from "@/features/public/server/revalidate";
 import { defineHandler } from "@/shared/server/handler";
 
 const get_ = defineHandler({
@@ -19,7 +20,12 @@ const get_ = defineHandler({
 const patch = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: updateEventBodySchema,
-  handler: async ({ eventId, input }) => updateEvent(eventIdSchema.parse(eventId), input.patch, input.expectedRowVersion),
+  handler: async ({ eventId, input, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const updated = await updateEvent(scopedEventId, input.patch, input.expectedRowVersion);
+    await revalidatePublicEventMetadata(scopedEventId, requestId);
+    return updated;
+  },
 });
 
 export function GET(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {

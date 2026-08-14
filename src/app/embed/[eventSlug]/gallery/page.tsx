@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PublicSpeakerGallery } from "@/features/public/public-speaker-gallery";
-import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
+import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSpeakers } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
@@ -21,7 +21,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     eventSlug,
     active: "gallery",
     disabledLabel: "speaker gallery",
-    getConfig: (eventId) => getOrCreateEmbedConfig(eventId, "speaker_gallery"),
+    getConfig: (eventId) => getPublicEmbedConfig(eventId, "speaker_gallery"),
     getContent: getPublishedSpeakers,
     renderContent: (speakers, context) => <PublicSpeakerGallery {...context} speakers={speakers} embed />,
   });

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { PUBLIC_CACHE_MUTATION_BUDGET_SECONDS } from "../src/features/public/cache-contract";
 import { eventDayKey, formatDayKeyInZone } from "../src/shared/lib/time";
 import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
+import { apiData } from "./helpers/auth";
 import { queryRows, withDatabase } from "./helpers/db";
 import {
   databaseConfigured,
@@ -15,6 +17,28 @@ import {
 } from "./helpers/env";
 
 const ONBOARDING_TIMEZONE = "America/Los_Angeles";
+
+async function waitForPublicContent(
+  request: APIRequestContext,
+  paths: readonly string[],
+  expected: string,
+  timeoutMs: number,
+): Promise<number> {
+  const startedAt = Date.now();
+  await expect.poll(async () => {
+    const results = await Promise.all(paths.map(async (path) => {
+      const response = await request.get(path, { timeout: Math.min(timeoutMs, 5_000) });
+      const body = await response.text();
+      return response.status() === 200 && body.includes(expected) ? null : `${path} (${response.status()})`;
+    }));
+    return results.filter((result): result is string => result !== null);
+  }, {
+    message: `every public alias should contain ${JSON.stringify(expected)}`,
+    timeout: timeoutMs,
+    intervals: [250, 500, 1_000],
+  }).toEqual([]);
+  return Date.now() - startedAt;
+}
 
 function addCalendarDays(dayKey: string, days: number): string {
   const date = new Date(`${dayKey}T12:00:00.000Z`);
@@ -143,7 +167,7 @@ test.describe("self-service signup to first value", () => {
     // organization and event, publishes a CFP, then submits through it. Keep
     // the individual 30–60 second UI/delivery limits below as the failure
     // signals; the suite-wide budget only needs to cover their cumulative work.
-    test.setTimeout(300_000);
+    test.setTimeout(420_000);
     page.setDefaultTimeout(30_000);
     page.setDefaultNavigationTimeout(30_000);
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -528,7 +552,7 @@ test.describe("self-service signup to first value", () => {
         await publicPage.getByLabel("Last Name").fill("Speaker");
         await publicPage.getByRole("button", { name: /^review$/i }).click();
         await expect(publicPage.getByText(proposalTitle, { exact: true })).toBeVisible();
-        await publicPage.getByRole("button", { name: /submit proposal/i }).click();
+        await publicPage.getByRole("button", { name: /^submit$/i }).click();
         await expect(publicPage.getByRole("heading", { name: /your proposal is in/i })).toBeVisible({ timeout: 30_000 });
         submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
         expect(submissionCode).toMatch(/^SESS-\d+$/);
@@ -556,6 +580,151 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText("Your first submission arrived", { exact: true })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(proposalTitle, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Get your first submission" })).toHaveCount(0);
+    });
+
+    await test.step("public aliases and embeds observe domain invalidation within budget", async () => {
+      type Session = {
+        id: string;
+        title: string;
+        descriptionHtml: string;
+        startsAt: string;
+        endsAt: string;
+        formatId: string | null;
+        trackId: string | null;
+        roomId: string | null;
+        status: "published";
+        rowVersion: number;
+        speakerIds: string[];
+      };
+      type EmbedConfig = { id: string; contentType: string };
+
+      const [fixture] = await queryRows<{
+        slug: string;
+        starts_at: Date;
+        ends_at: Date;
+        contact_id: string;
+        confirmation_status: string;
+      }>(`
+        SELECT event.slug, event.starts_at, event.ends_at,
+               contact.id AS contact_id, contact.confirmation_status
+        FROM events event
+        JOIN contacts contact ON contact.event_id = event.id
+        WHERE event.id = $1 AND lower(contact.email) = lower($2)
+        ORDER BY contact.created_at
+        LIMIT 1
+      `, [eventId, SIGNUP_EMAIL]);
+      expect(fixture?.confirmation_status).toBe("confirmed");
+      if (!fixture) throw new Error("the submitted speaker contact was not created");
+
+      const sessionStartsAt = new Date(new Date(fixture.starts_at).getTime() + 60 * 60 * 1_000);
+      const sessionEndsAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1_000);
+      expect(sessionEndsAt.getTime()).toBeLessThan(new Date(fixture.ends_at).getTime());
+      const initialTitle = `Cache proof ${stamp}`;
+      const session = await apiData<Session>(page.request, `/api/internal/agenda/sessions?eventId=${eventId}`, {
+        method: "POST",
+        data: {
+          creationId: crypto.randomUUID(),
+          title: initialTitle,
+          descriptionHtml: "<p>Distributed cache proof.</p>",
+          startsAt: sessionStartsAt.toISOString(),
+          endsAt: sessionEndsAt.toISOString(),
+          speakerContactIds: [fixture.contact_id],
+          status: "published",
+        },
+      });
+
+      const schedulePaths = [
+        `/e/${fixture.slug}/schedule`,
+        `/e/${fixture.slug}/agenda`,
+        `/e/${fixture.slug}/sessions`,
+        `/e/${fixture.slug}/itinerary`,
+        `/embed/${fixture.slug}/schedule`,
+        `/embed/${fixture.slug}/agenda`,
+        `/embed/${fixture.slug}/sessions`,
+        `/embed/${fixture.slug}/itinerary`,
+      ];
+      const speakerPaths = [
+        `/e/${fixture.slug}/speakers`,
+        `/e/${fixture.slug}/gallery`,
+        `/embed/${fixture.slug}/speakers`,
+        `/embed/${fixture.slug}/gallery`,
+      ];
+      await waitForPublicContent(page.request, schedulePaths, initialTitle, 30_000);
+      await waitForPublicContent(page.request, speakerPaths, "E2E Speaker", 30_000);
+
+      const changedTitle = `${initialTitle} updated`;
+      const updatedSession = await apiData<Session>(page.request, `/api/internal/agenda/sessions/${session.id}?eventId=${eventId}`, {
+        method: "PATCH",
+        data: {
+          id: session.id,
+          expectedVersion: session.rowVersion,
+          title: changedTitle,
+          descriptionHtml: session.descriptionHtml,
+          formatId: session.formatId,
+          trackId: session.trackId,
+          roomId: session.roomId,
+          startsAt: session.startsAt,
+          endsAt: session.endsAt,
+          speakerContactIds: session.speakerIds,
+          status: session.status,
+        },
+      });
+      expect(updatedSession.title).toBe(changedTitle);
+      await waitForPublicContent(
+        page.request,
+        schedulePaths,
+        changedTitle,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const changedFirstName = `Cache-${stamp}`;
+      await apiData(page.request, `/api/internal/speakers/${eventId}/${fixture.contact_id}/roster`, {
+        method: "PATCH",
+        data: { firstName: changedFirstName },
+      });
+      await waitForPublicContent(
+        page.request,
+        speakerPaths,
+        `${changedFirstName} Speaker`,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const event = await apiData<{ rowVersion: number }>(page.request, `/api/internal/events/${eventId}`);
+      const cacheEventName = `${correctedEventName} Cache proof`;
+      await apiData(page.request, `/api/internal/events/${eventId}`, {
+        method: "PATCH",
+        data: { expectedRowVersion: event.rowVersion, patch: { name: cacheEventName } },
+      });
+      await waitForPublicContent(
+        page.request,
+        [...schedulePaths, ...speakerPaths],
+        cacheEventName,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const configs = await apiData<EmbedConfig[]>(page.request, `/api/internal/embeds/${eventId}`);
+      const agenda = configs.find((config) => config.contentType === "agenda");
+      if (!agenda) throw new Error("the canonical agenda embed config is missing");
+      await apiData(page.request, `/api/internal/embeds/${eventId}/${agenda.id}`, {
+        method: "PATCH",
+        data: { enabled: false },
+      });
+      await waitForPublicContent(
+        page.request,
+        [`/embed/${fixture.slug}/agenda`],
+        "This agenda is not currently available.",
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+      await apiData(page.request, `/api/internal/embeds/${eventId}/${agenda.id}`, {
+        method: "PATCH",
+        data: { enabled: true },
+      });
+      await waitForPublicContent(
+        page.request,
+        [`/embed/${fixture.slug}/agenda`],
+        changedTitle,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
     });
 
     await test.step("the privacy-safe first-value milestones are complete", async () => {

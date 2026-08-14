@@ -23,13 +23,32 @@ and tag caches declare it stale.
 
 ## Freshness and recovery
 
-Public pages currently retain their 60-second route revalidation bound. A
-mutation requests on-demand invalidation; if that signal fails, the time bound
-is the recovery path rather than the normal consistency mechanism. Domain tags
-and per-surface service levels are layered on this durable foundation.
+All public pages retain a 60-second route and data revalidation bound. A
+successful mutation is expected to appear on the next request across Worker
+isolates within 10 seconds. If its on-demand signal fails, 60 seconds is the
+recovery bound rather than the normal consistency mechanism.
 
-Deployment is additive: preview creates the two SQLite namespaces first and
-proves a warm/mutate/read cycle before production promotion. If the distributed
+| Public data | Canonical routes | Embed routes | Domain tag | Normal / recovery budget |
+| --- | --- | --- | --- | --- |
+| Event metadata and branding | every `/e/[slug]/**` surface | every enabled or disabled `/embed/[slug]/**` surface | `public:event:<eventId>:metadata` | 10 s / 60 s |
+| Published schedule | agenda, sessions, itinerary | agenda, sessions, itinerary | `public:event:<eventId>:schedule` | 10 s / 60 s |
+| Published speakers and headshots | speakers, gallery | speakers, gallery | `public:event:<eventId>:speakers` | 10 s / 60 s |
+| Embed kill switch, style, and filters | n/a | one tag per canonical embed content type | `public:event:<eventId>:embed:<contentType>` | 10 s / 60 s |
+
+The `/f/<fileId>` response is immutable. Asset freshness therefore means that
+a logo, background, or headshot mutation stores a new file id and invalidates
+the event or speaker data tag; cached HTML then points at the new immutable
+object. Published objects themselves are never purged or overwritten.
+
+Writers emit event-scoped domain invalidations. Session, placement, published
+speaker, vocabulary, CFP/profile-writeback, and erasure changes emit schedule
+and speaker tags as appropriate. Event detail/branding changes emit the shared
+metadata tag. Embed settings emit only their content-type tag. No writer knows
+or enumerates `/e` or `/embed` route aliases.
+
+Deployment is additive: preview creates the two SQLite namespaces first, then
+the deployed cache proof warms every alias, mutates through an authenticated
+application route, and requires the new value inside the 10-second budget. If the distributed
 components fail, roll the application back to the memory queue and dummy tag
 cache while leaving the bindings and empty namespaces in place. Do not publish
 a Durable Object deletion migration during incident rollback; remove a class

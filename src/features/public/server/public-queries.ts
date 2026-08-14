@@ -2,13 +2,16 @@ import { eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events } from "@/db/schema";
 import {
+  eventIdSchema,
   publishedScheduleDtoSchema,
   publishedSpeakersDtoSchema,
+  type EventId,
   type PublishedScheduleDTO,
   type PublishedSpeakersDTO,
 } from "@/shared/contracts";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 import { eventDayKey } from "@/shared/lib/time";
+import { cachePublicRead } from "./cache";
 
 /**
  * The public schedule and speaker gallery's only reads. Every row comes from
@@ -27,7 +30,7 @@ import { eventDayKey } from "@/shared/lib/time";
  */
 
 type PublicEventRow = {
-  id: string;
+  id: EventId;
   name: string;
   timezone: string;
   startsAt: Date;
@@ -52,7 +55,7 @@ async function resolveEventBySlug(dbOrTx: DbOrTx, eventSlug: string): Promise<Pu
     .from(events)
     .where(eq(events.slug, eventSlug))
     .limit(1);
-  return row ?? null;
+  return row ? { ...row, id: eventIdSchema.parse(row.id) } : null;
 }
 
 function headshotUrl(fileId: string | null): string | null {
@@ -88,10 +91,7 @@ type ScheduleSessionRow = {
  * `getPublishedSchedule` — see M32 work order Step 2. `null` means an unknown
  * or deleted slug; the caller renders `notFound()`, never a crash.
  */
-export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string): Promise<PublishedScheduleDTO | null> {
-  const event = await resolveEventBySlug(dbOrTx, eventSlug);
-  if (!event) return null;
-
+async function getPublishedScheduleForEventIn(dbOrTx: DbOrTx, event: PublicEventRow): Promise<PublishedScheduleDTO> {
   const result = await dbOrTx.execute<ScheduleSessionRow>(sql`
     SELECT v.id, v.schedule_revision, v.slug, v.title, v.description_html,
            v.starts_at, COALESCE(v.ends_at, v.starts_at) AS ends_at,
@@ -158,8 +158,16 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
   });
 }
 
-export function getPublishedSchedule(eventSlug: string): Promise<PublishedScheduleDTO | null> {
-  return getPublishedScheduleIn(db, eventSlug);
+export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string): Promise<PublishedScheduleDTO | null> {
+  const event = await resolveEventBySlug(dbOrTx, eventSlug);
+  return event ? getPublishedScheduleForEventIn(dbOrTx, event) : null;
+}
+
+export async function getPublishedSchedule(eventSlug: string): Promise<PublishedScheduleDTO | null> {
+  const event = await resolveEventBySlug(db, eventSlug);
+  return event
+    ? cachePublicRead(event.id, "schedule", () => getPublishedScheduleForEventIn(db, event))
+    : null;
 }
 
 type SpeakerRow = {
@@ -187,10 +195,7 @@ type SpeakerRow = {
  * one published session, so an admin-declined speaker never reaches this
  * function's result set even when they remain on a published session row.
  */
-export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string): Promise<PublishedSpeakersDTO | null> {
-  const event = await resolveEventBySlug(dbOrTx, eventSlug);
-  if (!event) return null;
-
+async function getPublishedSpeakersForEventIn(dbOrTx: DbOrTx, event: PublicEventRow): Promise<PublishedSpeakersDTO> {
   const result = await dbOrTx.execute<SpeakerRow>(sql`
     SELECT p.contact_id, p.first_name, p.last_name, p.job_title, p.company, p.bio_html, p.headshot_file_id,
            p.linkedin_url, p.twitter_url, p.website_url,
@@ -247,6 +252,14 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
   });
 }
 
-export function getPublishedSpeakers(eventSlug: string): Promise<PublishedSpeakersDTO | null> {
-  return getPublishedSpeakersIn(db, eventSlug);
+export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string): Promise<PublishedSpeakersDTO | null> {
+  const event = await resolveEventBySlug(dbOrTx, eventSlug);
+  return event ? getPublishedSpeakersForEventIn(dbOrTx, event) : null;
+}
+
+export async function getPublishedSpeakers(eventSlug: string): Promise<PublishedSpeakersDTO | null> {
+  const event = await resolveEventBySlug(db, eventSlug);
+  return event
+    ? cachePublicRead(event.id, "speakers", () => getPublishedSpeakersForEventIn(db, event))
+    : null;
 }

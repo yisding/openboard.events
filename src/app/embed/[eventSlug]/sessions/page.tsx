@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PublicSessions } from "@/features/public/public-sessions";
-import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
+import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSchedule } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
@@ -21,7 +21,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     eventSlug,
     active: "sessions",
     disabledLabel: "sessions list",
-    getConfig: (eventId) => getOrCreateEmbedConfig(eventId, "session_list"),
+    getConfig: (eventId) => getPublicEmbedConfig(eventId, "session_list"),
     getContent: getPublishedSchedule,
     renderContent: (schedule, context) => <PublicSessions {...context} schedule={schedule} embed />,
   });

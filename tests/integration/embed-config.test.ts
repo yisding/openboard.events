@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import {
   getOrCreateEmbedConfigIn,
   getOrCreateSpeakerListConfigIn,
+  getPublicEmbedConfigIn,
   isEmbedEnabledIn,
   listEmbedConfigsIn,
 } from "@/features/public/server/embed-config-queries";
@@ -50,6 +51,42 @@ describe("embed config CRUD (M33/M53)", () => {
   it("treats a never-configured event as enabled — the public route must work before any admin visits settings", async () => {
     await expect(isEmbedEnabledIn(db, eventId, "schedule_itinerary")).resolves.toBe(true);
     await expect(isEmbedEnabledIn(db, eventId, "speaker_gallery")).resolves.toBe(true);
+  });
+
+  it("keeps public rendering read-only while preserving legacy speaker-list settings", async () => {
+    const publicEventId = "b1000000-0000-4000-8000-000000000005" as EventId;
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Public Event','public-event','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [publicEventId],
+    );
+
+    await expect(getPublicEmbedConfigIn(db, publicEventId, "agenda")).resolves.toEqual({
+      enabled: true,
+      style: {},
+      filters: {},
+    });
+    const empty = await pglite.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM embeds WHERE event_id = $1",
+      [publicEventId],
+    );
+    expect(empty.rows[0]?.count).toBe("0");
+
+    const legacy = await getOrCreateEmbedConfigIn(db, publicEventId, "speaker_gallery");
+    await updateEmbedConfigIn(db, publicEventId, legacy.id, {
+      enabled: false,
+      style: { theme: "dark" },
+      filters: { trackIds: ["legacy-track"] },
+    });
+    await expect(getPublicEmbedConfigIn(db, publicEventId, "speaker_list")).resolves.toEqual({
+      enabled: false,
+      style: { theme: "dark" },
+      filters: { trackIds: ["legacy-track"] },
+    });
+    const inherited = await pglite.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM embeds WHERE event_id = $1 AND content_type = 'speaker_list'",
+      [publicEventId],
+    );
+    expect(inherited.rows[0]?.count).toBe("0");
   });
 
   it("creates a default row on first read and returns the same row on subsequent reads", async () => {
@@ -111,7 +148,7 @@ describe("embed config CRUD (M33/M53)", () => {
     await expect(updateEmbedConfigIn(db, eventId, "b1000000-0000-4000-8000-0000000000ff" as EmbedId, { enabled: false })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("getOrCreateSpeakerListConfigIn seeds a first-ever row from the legacy speaker_gallery config (M53 /embed/[slug]/speakers URL continuity)", async () => {
+  it("the admin list seeds a first-ever speaker_list row from the legacy speaker_gallery config", async () => {
     const migratedEventId = "b1000000-0000-4000-8000-000000000003" as EventId;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Migrated Event','migrated-event','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -122,7 +159,9 @@ describe("embed config CRUD (M33/M53)", () => {
     const legacy = await getOrCreateEmbedConfigIn(db, migratedEventId, "speaker_gallery");
     await updateEmbedConfigIn(db, migratedEventId, legacy.id, { enabled: false, style: { accent: "#ff00aa", theme: "dark" } });
 
-    const migrated = await getOrCreateSpeakerListConfigIn(db, migratedEventId);
+    const migrated = (await listEmbedConfigsIn(db, migratedEventId))
+      .find((config) => config.contentType === "speaker_list");
+    if (!migrated) throw new Error("speaker_list config missing");
     expect(migrated.contentType).toBe("speaker_list");
     expect(migrated.enabled).toBe(false);
     expect(migrated.style).toEqual({ accent: "#ff00aa", theme: "dark" });

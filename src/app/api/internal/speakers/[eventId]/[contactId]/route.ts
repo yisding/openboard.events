@@ -7,7 +7,7 @@ import { getSpeakerDetail, setConfirmationStatus, updateSpeakerBio, updateSpeake
 import { CONFIRMATION_STATUSES, contactIdSchema, type EventId, eventIdSchema, fileIdSchema } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 
 export const dynamic = "force-dynamic";
 

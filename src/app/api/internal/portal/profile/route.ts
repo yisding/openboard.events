@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getSpeakerProfile, profilePatchSchema, updateProfile } from "@/features/portal";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { portalQueryAuth, sessionContactId } from "../_lib";
@@ -23,7 +24,12 @@ const getMine = defineHandler({
 const patchMine = defineHandler({
   auth: portalQueryAuth,
   input: profilePatchSchema,
-  handler: async ({ eventId, session, input }) => updateProfile(eventIdSchema.parse(eventId), sessionContactId(session), input),
+  handler: async ({ eventId, session, input, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const profile = await updateProfile(scopedEventId, sessionContactId(session), input);
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    return profile;
+  },
 });
 
 export const GET = (request: NextRequest) => getMine(request);

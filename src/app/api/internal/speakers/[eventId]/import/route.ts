@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { adminAuth } from "@/features/auth";
 import { importSpeakersCsv } from "@/features/portal";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { eventIdSchema, importSpeakersCsvInputSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -17,7 +18,14 @@ export const dynamic = "force-dynamic";
 const importRoute = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: importSpeakersCsvInputSchema,
-  handler: ({ eventId, input }) => importSpeakersCsv(eventIdSchema.parse(eventId), input),
+  handler: async ({ eventId, input, requestId }) => {
+    const parsedEventId = eventIdSchema.parse(eventId);
+    const result = await importSpeakersCsv(parsedEventId, input);
+    if (input.mode === "commit") {
+      await revalidatePublicEvent(parsedEventId, ["schedule", "speakers"], requestId);
+    }
+    return result;
+  },
 });
 
 export async function POST(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {

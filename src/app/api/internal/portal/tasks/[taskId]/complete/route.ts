@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { completeTaskManual, completeTaskViaResponse, getMyTask } from "@/features/portal";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
@@ -21,7 +22,7 @@ const complete = defineHandler({
     submissionId: z.uuid().nullable().default(null),
     answers: z.record(z.string(), z.unknown()).default({}),
   }),
-  handler: async ({ eventId, session, input }) => {
+  handler: async ({ eventId, session, input, requestId }) => {
     const event = eventIdSchema.parse(eventId);
     const contactId = sessionContactId(session);
     const task = await getMyTask(event, contactId, input.taskId, input.submissionId);
@@ -32,6 +33,7 @@ const complete = defineHandler({
       await completeTaskManual(event, contactId, input.taskId, input.submissionId);
     } else if (task.completionMode === "form") {
       await completeTaskViaResponse(event, contactId, input.taskId, input.submissionId, input.answers);
+      await revalidatePublicEvent(event, ["schedule", "speakers"], requestId);
     } else {
       throw new AppError("VALIDATION", "This task is completed by uploading a file");
     }
