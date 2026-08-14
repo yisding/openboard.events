@@ -133,6 +133,57 @@ test.describe("public event phone navigation", () => {
   });
 });
 
+test.describe("speaker portal sign-in rhythm", () => {
+  test("uses one compact vertical rhythm from brand through the email field", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="login-page">
+        <section class="login-card portal-login-card">
+          <div class="login-card__brand"><span style="display:block;width:32px;height:32px"></span></div>
+          <form>
+            <h1>Speaker portal</h1>
+            <p>Enter your email to receive a one-time code and secure sign-in link.</p>
+            <label class="field"><span>Email address</span><input type="email"></label>
+            <button class="button button-primary" type="submit">Send sign-in code</button>
+          </form>
+        </section>
+      </main>
+    </body></html>`);
+
+    for (const width of [320, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await page.locator(".portal-login-card").evaluate((card) => {
+        const brand = card.querySelector(".login-card__brand");
+        const heading = card.querySelector("h1");
+        const copy = card.querySelector("form>p");
+        const field = card.querySelector(".field");
+        if (!brand || !heading || !copy || !field) throw new Error("Portal login fixture is incomplete");
+        const cardBox = card.getBoundingClientRect();
+        const brandBox = brand.getBoundingClientRect();
+        const headingBox = heading.getBoundingClientRect();
+        const copyBox = copy.getBoundingClientRect();
+        const fieldBox = field.getBoundingClientRect();
+        const copyStyle = getComputedStyle(copy);
+        return {
+          brandToHeading: headingBox.top - brandBox.bottom,
+          headingToCopy: copyBox.top - headingBox.bottom,
+          copyToField: fieldBox.top - copyBox.bottom,
+          copyLineHeightRatio: Number.parseFloat(copyStyle.lineHeight) / Number.parseFloat(copyStyle.fontSize),
+          cardFits: cardBox.left >= 0 && cardBox.right <= window.innerWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.brandToHeading).toBeCloseTo(16, 0);
+      expect(layout.headingToCopy).toBeCloseTo(16, 0);
+      expect(layout.copyToField).toBeCloseTo(16, 0);
+      expect(layout.copyLineHeightRatio).toBeGreaterThanOrEqual(1.4);
+      expect(layout.cardFits).toBe(true);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("self-service auth readability", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 320, height: 700 } });
