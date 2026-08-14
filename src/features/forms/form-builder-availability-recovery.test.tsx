@@ -191,7 +191,7 @@ describe("form availability outcome recovery", () => {
     await requestClose();
 
     expect(title?.value).toBe("Unsaved local title");
-    expect(container.querySelector(".status-closed")).not.toBeNull();
+    expect(container.querySelector('[data-status="closed"]')).not.toBeNull();
     expect(container.textContent).toContain("Version 2");
     expect(container.textContent).not.toContain("Server title must not replace the draft");
     expect(container.querySelector("dialog")).toBeNull();
@@ -322,7 +322,7 @@ describe("form availability outcome recovery", () => {
     await requestClose();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(container.querySelector(".status-closed")).not.toBeNull();
+    expect(container.querySelector('[data-status="closed"]')).not.toBeNull();
     expect(fetchMock.mock.calls.every(([, init]) => init?.method === "PATCH")).toBe(true);
     expect(toastMock).toHaveBeenCalledWith("Form closed — confirmed from the completed request");
   });

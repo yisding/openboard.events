@@ -289,7 +289,7 @@ test.describe("admin-setup", () => {
       await test.step("set the form open and copy its link", async () => {
         await context.grantPermissions(["clipboard-read", "clipboard-write"]);
         await page.getByRole("button", { name: /open form/i }).click();
-        await expect(page.locator(".builder-header .status-badge")).toHaveText("open", { timeout: 20_000 });
+        await expect(page.locator(".builder-header .status-badge")).toHaveText("Open", { timeout: 20_000 });
         await page.getByRole("button", { name: /copy link/i }).click();
       });
 

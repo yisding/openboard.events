@@ -7,6 +7,7 @@ import { sessionCalendarLinks } from "@/features/portal/lib/session-calendar-lin
 import { StatTile } from "@/shared/ui/app/stat-tile";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { StatusBadge } from "@/shared/ui/ui-kit";
+import { PORTAL_STATUS_BADGES } from "@/shared/ui/status-badge";
 import { AddToCalendarButton } from "./add-to-calendar-button";
 import { SpeakerHomeHero } from "./speaker-home-hero";
 import { SubmissionStatusTimeline } from "./submission-status-timeline";
@@ -107,7 +108,7 @@ export function PortalHomeWidgets({
             {recent.map((row) => (
               <li key={row.submissionId}>
                 <Link href={`${portalRoot}/submissions/${row.submissionId}`}>{row.title}</Link>
-                <StatusBadge value={row.status} />
+                <StatusBadge value={PORTAL_STATUS_BADGES[row.status]} />
                 <SubmissionStatusTimeline status={row.status} />
                 {row.submittedAt && <TzTime instant={row.submittedAt} tz={timezone} style="date" />}
               </li>

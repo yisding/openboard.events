@@ -5,6 +5,7 @@ import { ColorChip } from "@/shared/ui/app/color-chip";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { StatusBadge } from "@/shared/ui/ui-kit";
+import { PORTAL_STATUS_BADGES } from "@/shared/ui/status-badge";
 import { participantRoleLabel } from "../../lib/participant-role";
 
 /**
@@ -33,7 +34,7 @@ export function SubmissionDetail({
       </Link>
       <header>
         <span className="submission-code">SESS-{submission.code}</span>
-        <StatusBadge value={submission.status} />
+        <StatusBadge value={PORTAL_STATUS_BADGES[submission.status]} />
         <h1>{submission.title}</h1>
         <div className="portal-submission__vocab">
           {submission.trackName && <ColorChip label={submission.trackName} />}

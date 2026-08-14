@@ -29,10 +29,10 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function statusOf(row: DeliverableRowDTO): "Completed" | "Overdue" | "Open" {
-  if (row.completed) return "Completed";
-  if (row.overdue) return "Overdue";
-  return "Open";
+function statusOf(row: DeliverableRowDTO): "completed" | "overdue" | "open" {
+  if (row.completed) return "completed";
+  if (row.overdue) return "overdue";
+  return "open";
 }
 
 type DeliverableDetail = {

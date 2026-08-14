@@ -102,7 +102,7 @@ export function KitchenSink() {
         <div className="speaker-card" style={{ maxWidth: 420, marginTop: 16 }}>
           <Avatar initials="TJ" size="lg" />
           <div className="speaker-card-copy"><b>TJ Johnson</b><span>Speaker profile</span></div>
-          <StatusBadge value="Unconfirmed" />
+          <StatusBadge value="unconfirmed" />
         </div>
       </section>
 

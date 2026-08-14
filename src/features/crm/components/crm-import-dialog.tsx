@@ -51,13 +51,6 @@ function downloadErrorsCsv(rows: ImportCrmContactsCsvResult["rows"]) {
 
 type Step = "upload" | "map" | "preview" | "done";
 
-const STATUS_LABEL: Record<ImportCrmContactsCsvResult["rows"][number]["status"], string> = {
-  created: "new",
-  matched_existing: "matched",
-  duplicate_in_file: "duplicate",
-  error: "error",
-};
-
 /**
  * M55 — CSV import (work order scope): upload → map columns → preview with
  * row-level errors and organization-aware duplicate detection → commit.
@@ -213,7 +206,7 @@ export function CrmImportDialog({ organizationId, open, onClose }: { organizatio
                   <tr key={row.rowNumber}>
                     <td>{row.rowNumber}</td>
                     <td>{row.email ?? "—"}</td>
-                    <td><StatusBadge value={STATUS_LABEL[row.status]} /></td>
+                    <td><StatusBadge value={row.status} /></td>
                     <td>{row.error ?? "—"}</td>
                   </tr>
                 ))}

@@ -221,7 +221,7 @@ export function SpeakersAdminView({
       accessorKey: "openTasks",
       cell: ({ row }) => {
         const { openTasks: open, overdueTasks: overdue } = row.original;
-        if (open === 0 && overdue === 0) return <StatusBadge value="Ready" />;
+        if (open === 0 && overdue === 0) return <StatusBadge value="ready" />;
         return <span>{open} open{overdue > 0 ? <> · <span style={{ color: "var(--red)" }}>{overdue} overdue</span></> : null}</span>;
       },
     },

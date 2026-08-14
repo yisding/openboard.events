@@ -293,7 +293,7 @@ export type SpeakerDetailDTO = {
     links: { linkedin: string | null; twitter: string | null; facebook: string | null; website: string | null };
     unsubscribedAt: string | null;
   };
-  submissions: Array<{ submissionId: SubmissionId; code: number; title: string; portalStatus: string; isPrimary: boolean; role: ParticipantRole }>;
+  submissions: Array<{ submissionId: SubmissionId; code: number; title: string; portalStatus: ReturnType<typeof toPortalStatus>; isPrimary: boolean; role: ParticipantRole }>;
   tasks: Array<{ taskId: string; name: string; submissionId: SubmissionId | null; dueAt: string | null; completed: boolean; overdue: boolean }>;
   comms: CommLogRow[];
 };

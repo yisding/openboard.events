@@ -163,7 +163,7 @@ describe("dashboard components", () => {
     const previewHref = `${manageHref}/preview`;
     const publicHref = `/submit/${FIXTURE_OVERVIEW.event.slug}/${form.formId}`;
 
-    expect(html).toContain(`status-${availability}`);
+    expect(html).toContain(`data-status="${availability}"`);
     expect(html).toContain(timing);
     expect(html).toContain(`href="${manageHref}"`);
     expect(html).toContain('target="_blank"');

@@ -2,8 +2,9 @@
 
 import { UserRound, X } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
+import React, { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
+import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 
 export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
   return <button type={type} className={cn("button", `button-${variant}`, size === "sm" && "button-sm", size === "lg" && "button-lg", className)} {...props} />;
@@ -36,9 +37,9 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return <select className={cn("select-control", className)} {...props} />;
 }
 
-export function StatusBadge({ value }: { value: string }) {
-  const normalized = value.toLowerCase().replaceAll(" ", "-").replaceAll("_", "-");
-  return <span className={`status-badge status-${normalized}`}><i />{value.replaceAll("_", " ")}</span>;
+export function StatusBadge({ value }: { value: StatusBadgeValue }) {
+  const badge = STATUS_BADGES[value];
+  return <span className={`status-badge status-tone-${badge.tone}`} data-status={value}><i aria-hidden="true" />{badge.label}</span>;
 }
 
 export type AvatarSize = "sm" | "md" | "lg" | "xl";
