@@ -41,15 +41,16 @@ the event or speaker data tag; cached HTML then points at the new immutable
 object. Published objects themselves are never purged or overwritten.
 
 Writers emit event-scoped domain invalidations. Session, placement, published
-speaker, vocabulary, CFP/profile-writeback, and erasure changes emit schedule
-and speaker tags as appropriate. Event detail/branding changes emit the shared
+speaker, committed speaker CSV import, vocabulary, CFP/profile-writeback, and
+erasure changes emit schedule and speaker tags as appropriate. Preview-only
+CSV imports do not invalidate. Event detail/branding changes emit the shared
 metadata tag. Embed settings emit only their content-type tag. No writer knows
 or enumerates `/e` or `/embed` route aliases.
 
 Deployment is additive: preview creates the two SQLite namespaces first, then
 the deployed cache proof warms every alias, mutates through an authenticated
-application route, and requires the new value inside the 10-second budget. If the distributed
-components fail, roll the application back to the memory queue and dummy tag
-cache while leaving the bindings and empty namespaces in place. Do not publish
-a Durable Object deletion migration during incident rollback; remove a class
-only after no deployed version references it.
+application route, and requires the new value inside the 10-second budget. If
+the distributed components fail, roll the application back to the memory queue
+and dummy tag cache while leaving the bindings and empty namespaces in place.
+Do not publish a Durable Object deletion migration during incident rollback;
+remove a class only after no deployed version references it.
