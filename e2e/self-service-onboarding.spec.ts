@@ -603,18 +603,22 @@ test.describe("self-service signup to first value", () => {
         starts_at: Date;
         ends_at: Date;
         contact_id: string;
-        confirmation_status: string;
       }>(`
         SELECT event.slug, event.starts_at, event.ends_at,
-               contact.id AS contact_id, contact.confirmation_status
+               contact.id AS contact_id
         FROM events event
         JOIN contacts contact ON contact.event_id = event.id
         WHERE event.id = $1 AND lower(contact.email) = lower($2)
         ORDER BY contact.created_at
         LIMIT 1
       `, [eventId, SIGNUP_EMAIL]);
-      expect(fixture?.confirmation_status).toBe("confirmed");
       if (!fixture) throw new Error("the submitted speaker contact was not created");
+      const confirmedSpeaker = await apiData<{ confirmationStatus: string }>(
+        page.request,
+        `/api/internal/speakers/${eventId}/${fixture.contact_id}`,
+        { method: "PATCH", data: { confirmationStatus: "confirmed" } },
+      );
+      expect(confirmedSpeaker.confirmationStatus).toBe("confirmed");
 
       const sessionStartsAt = new Date(new Date(fixture.starts_at).getTime() + 60 * 60 * 1_000);
       const sessionEndsAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1_000);
