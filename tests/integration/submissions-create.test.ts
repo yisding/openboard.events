@@ -56,7 +56,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { createSubmission, lockSubmissionLimitScopeIn, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
+const { createSubmission, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
 
 const noAnswers = cleanAnswersSchema.parse([]);
 
@@ -138,18 +138,29 @@ describe("createSubmission", () => {
     expect((codes.at(-1) ?? 0) - (codes[0] ?? 0)).toBe(9);
   });
 
-  it("reuses one durable limit guard for a speaker's form scope", async () => {
-    await testDb.transaction(async (handle) => {
-      const transaction = handle as unknown as TxDb;
-      await lockSubmissionLimitScopeIn(transaction, eventId, openForm, speaker);
-      await lockSubmissionLimitScopeIn(transaction, eventId, openForm, speaker);
-    });
+  it("serializes concurrent cap decisions on one durable speaker/form guard", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("UPDATE forms SET submission_limit=1 WHERE id=$1", [openForm]);
+    try {
+      const settled = await Promise.allSettled([
+        createSubmission(eventId, cfpInput({ fields: { title: "First concurrent talk" } })),
+        createSubmission(eventId, cfpInput({ fields: { title: "Second concurrent talk" } })),
+      ]);
+      const fulfilled = settled.filter((result) => result.status === "fulfilled");
+      const rejected = settled.filter((result) => result.status === "rejected");
 
-    const rows = await pglite.query<{ count: number }>(
-      "SELECT count(*)::int AS count FROM submission_limit_guards WHERE event_id=$1 AND form_id=$2 AND contact_id=$3",
-      [eventId, openForm, speaker],
-    );
-    expect(rows.rows[0]?.count).toBe(1);
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected.some((result) => result.status === "rejected" && isAppError(result.reason) && result.reason.code === "LIMIT_REACHED")).toBe(true);
+      expect(await countRows("submissions", "status='pending'")).toBe(1);
+      expect(await countRows(
+        "submission_limit_guards",
+        `event_id='${eventId}' AND form_id='${openForm}' AND contact_id='${speaker}'`,
+      )).toBe(1);
+    } finally {
+      await pglite.query("UPDATE forms SET submission_limit=NULL WHERE id=$1", [openForm]);
+    }
   });
 
   it("creates a CFP submission with exactly one confirmation email", async () => {
