@@ -14,170 +14,30 @@ on:
         default: preview
         options: [preview, production]
 
+# The reusable workflow owns environment-scoped variables and secrets. This
+# caller owns promotion order: production has an explicit dependency on a
+# successful deployment of the exact same commit to preview.
+permissions:
+  contents: read
+
 jobs:
-  targets:
-    # A merge to main deploys preview and nothing else, leaving a soak window.
-    # A production dispatch always replays the same commit through preview
-    # first, so production cannot bypass the canary's smoke and browser proof.
+  preview:
+    name: Preview canary
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      environments: ${{ steps.pick.outputs.environments }}
-    steps:
-      - name: Pick the environments this event deploys
-        id: pick
-        env:
-          DISPATCH_ENV: ${{ inputs.environment }}
-        run: |
-          case "$DISPATCH_ENV" in
-            production) environments='["preview","production"]' ;;
-            preview|"") environments='["preview"]' ;;
-            *) echo "::error::unknown deployment environment $DISPATCH_ENV"; exit 2 ;;
-          esac
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: preview
+      deploy_sha: ${{ github.event.workflow_run.head_sha || github.sha }}
+      automatic: ${{ github.event_name == 'workflow_run' }}
+    secrets: inherit
 
-          # Never empty: an empty matrix vector fails the run rather than
-          # skipping it, and the job-level `if` already discards failed CI.
-          echo "environments=$environments" >> "$GITHUB_OUTPUT"
-          echo "::notice::Deploying $environments"
-
-  deploy:
-    needs: targets
-    strategy:
-      # Sequential so production deploys only behind the same commit in preview
-      # after its migration, deploy, smoke test, and browser journey.
-      max-parallel: 1
-      fail-fast: true
-      matrix:
-        environment: ${{ fromJSON(needs.targets.outputs.environments) }}
-    runs-on: ubuntu-latest
-    environment: ${{ matrix.environment }}
-    concurrency:
-      group: deploy-${{ matrix.environment }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
-      APP_BASE_URL: ${{ vars.APP_BASE_URL }}
-      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-      EMAIL_FROM: ${{ vars.EMAIL_FROM }}
-      EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
-      E2E_SIGNUP_EMAIL: ${{ vars.E2E_SIGNUP_EMAIL }}
-      E2E_RESEND_API_KEY: ${{ secrets.E2E_RESEND_API_KEY }}
-      NEXT_PUBLIC_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-      DEPLOYMENT_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.environment }}
-      DEPLOY_ENV: ${{ matrix.environment }}
-      SMOKE_EVENT_SLUG: ${{ vars.SMOKE_EVENT_SLUG || 'ai-engineer-sandbox-event' }}
-      SMOKE_EVENT_ID: ${{ vars.SMOKE_EVENT_ID }}
-      SMOKE_FORM_ID: ${{ vars.SMOKE_FORM_ID }}
-      SMOKE_HEADSHOT_FILE_ID: ${{ vars.SMOKE_HEADSHOT_FILE_ID }}
-    steps:
-      - name: Suppress stale automatic deployments
-        id: freshness
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" != "workflow_run" ]]; then
-            echo "current=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [[ "$DEPLOY_SHA" == "$current_sha" ]]; then
-            echo "current=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "::notice::Skipping stale deployment for $DEPLOY_SHA; main is $current_sha"
-          echo "current=false" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.freshness.outputs.current == 'true'
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        if: steps.freshness.outputs.current == 'true'
-        with: { version: 11.21.0 }
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: steps.freshness.outputs.current == 'true'
-        with: { node-version: 22, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-        if: steps.freshness.outputs.current == 'true'
-      - name: Derive seeded smoke fixture ids
-        if: steps.freshness.outputs.current == 'true'
-        # Seeded ids are deterministic uuidv5 values, so the fixtures the smoke
-        # test asserts against are derived from the seed source at deploy time.
-        # An environment that sets its own SMOKE_* variable still wins — the
-        # derivation only fills ids the environment left empty.
-        run: |
-          while IFS='=' read -r name value; do
-            if [[ "$name" == SMOKE_* && -n "$value" && -z "${!name:-}" ]]; then
-              echo "$name=$value" >> "$GITHUB_ENV"
-              echo "::notice::derived $name=$value from the seed source"
-            fi
-          done < <(pnpm --silent smoke:fixture-ids)
-      - name: Validate protected deployment inputs
-        if: steps.freshness.outputs.current == 'true'
-        run: |
-          required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_URL_DIRECT APP_BASE_URL R2_ACCOUNT_ID SMOKE_EVENT_ID SMOKE_FORM_ID SMOKE_HEADSHOT_FILE_ID)
-          missing=()
-          for name in "${required[@]}"; do
-            [[ -n "${!name:-}" ]] || missing+=("$name")
-          done
-          if (( ${#missing[@]} > 0 )); then
-            echo "::error::protected environment is missing required deploy inputs: ${missing[*]}"
-            exit 1
-          fi
-      - name: Verify remote Worker secret inventories
-        if: steps.freshness.outputs.current == 'true'
-        run: |
-          pnpm deploy:preflight web "$DEPLOY_ENV"
-          pnpm deploy:preflight jobs "$DEPLOY_ENV"
-      - name: Apply migrations with the direct Neon URL
-        if: steps.freshness.outputs.current == 'true'
-        run: pnpm db:migrate
-      - name: Deploy web before jobs
-        if: steps.freshness.outputs.current == 'true'
-        run: pnpm deploy:web:${{ matrix.environment }}
-      - name: Deploy jobs against the matching web URL
-        if: steps.freshness.outputs.current == 'true'
-        run: pnpm deploy:jobs:${{ matrix.environment }}
-      - name: Smoke test the deployed web worker
-        if: steps.freshness.outputs.current == 'true'
-        run: |
-          smoke_args=(--strict)
-          if [[ "$DEPLOY_ENV" == "production" ]]; then
-            smoke_args+=(--production)
-          fi
-          bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"
-      - name: Select the self-service journey credential path
-        if: >-
-          steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview'
-        run: |
-          if [[ -n "$E2E_SIGNUP_EMAIL" && -n "$E2E_RESEND_API_KEY" ]]; then
-            echo "E2E_FALLBACK_ACTIVATION=0" >> "$GITHUB_ENV"
-            echo "::notice::self-service browser proof will verify real Resend delivery"
-          else
-            echo "E2E_FALLBACK_ACTIVATION=1" >> "$GITHUB_ENV"
-            echo "::notice::self-service browser proof will use the preview-only activation fallback; configure both E2E_SIGNUP_EMAIL and E2E_RESEND_API_KEY to additionally verify provider delivery"
-          fi
-      - name: Install Chromium for the self-service journey
-        if: >-
-          steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview'
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Prove signup to first public CFP on preview
-        if: >-
-          steps.freshness.outputs.current == 'true' &&
-          matrix.environment == 'preview'
-        env:
-          E2E_BASE_URL: ${{ env.APP_BASE_URL }}
-          NEON_TEST_URL: ${{ env.DATABASE_URL_DIRECT }}
-          E2E_SEED: "0"
-        run: pnpm exec playwright test e2e/self-service-onboarding.spec.ts
+  production:
+    name: Production promotion
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
+    needs: preview
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: production
+      deploy_sha: ${{ github.sha }}
+      automatic: false
+    secrets: inherit

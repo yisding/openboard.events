@@ -88,7 +88,8 @@ For each PR:
 4. Let preview pass at least one scheduled 15-minute uptime cycle with no new
    Worker errors. Production is then promoted through the protected manual
    workflow, which replays the exact commit through preview and keeps the
-   production leg behind that successful canary with `max-parallel: 1`.
+   production job behind that successful canary with an explicit
+   `needs: preview` dependency.
 
 If preview fails, stop promotion and either fix forward in a new PR or follow
 the Worker rollback runbook. Never compensate by weakening the artifact gate
