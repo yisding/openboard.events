@@ -90,7 +90,7 @@ describe("form builder accessibility", () => {
     const requestStart = source.indexOf("function requestAvailabilityChange()");
     const confirmStart = source.indexOf("async function confirmAvailabilityChange()");
 
-    expect(source).toContain("const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty");
+    expect(source).toContain("const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty || participantStepRecovery !== null");
     expect(source).toContain('action === "open" && hasUnsavedBuilderTargets');
     expect(source).toContain('availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"');
     expect(source).toContain("onClick={requestAvailabilityChange}");
@@ -98,7 +98,7 @@ describe("form builder accessibility", () => {
     expect(source.slice(requestStart, confirmStart)).not.toContain("patchForm(");
     expect(source.slice(confirmStart, source.indexOf("const section", confirmStart))).toContain("await availabilityPatch(");
     expect(source).toContain('variant={pendingAvailabilityAction === "open" ? "primary" : "destructive"}');
-    expect(source).toContain("confirmDisabled={availabilityRecovery !== null}");
+    expect(source).toContain("confirmDisabled={availabilityRecovery !== null || participantStepRecovery !== null}");
   });
 
   it("keeps a new-question draft open when its save fails", () => {

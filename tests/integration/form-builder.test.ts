@@ -26,6 +26,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationParticipantReceipts = readFileSync(new URL("../../drizzle/0032_participant_step_receipts.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000001");
 const retryEventId = eventIdSchema.parse("ad000000-0000-4000-8000-000000000002");
 
@@ -45,6 +46,7 @@ describe("database-backed form builder", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationParticipantReceipts);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Builder Conf','builder-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",

@@ -35,6 +35,7 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // the ones above do. Applied in journal order, after the rest.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
+const migrationParticipantReceipts = readFileSync(new URL("../../drizzle/0032_participant_step_receipts.sql", import.meta.url), "utf8");
 
 describe("forms seed", () => {
   let pglite: PGlite;
@@ -51,6 +52,7 @@ describe("forms seed", () => {
     await pglite.exec(migrationRoster);
     await pglite.exec(migrationBilling);
     await pglite.exec(migrationSpeakerMoments);
+    await pglite.exec(migrationParticipantReceipts);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
       now: new Date("2026-08-09T12:00:00.000Z"),

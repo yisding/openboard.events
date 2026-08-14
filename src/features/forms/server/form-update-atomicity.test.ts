@@ -10,6 +10,7 @@ import {
   updateFormIn,
   updateFormWithAvailabilityReplayIn,
   updateFormWithPostCommitSignalsIn,
+  updateSectionIn,
 } from "./builder-mutations";
 import { getFormForBuilderIn } from "./builder-queries";
 
@@ -19,6 +20,7 @@ const migrations = [
   "../../../../drizzle/0004_review_operations.sql",
   "../../../../drizzle/0010_organization_tenancy.sql",
   "../../../../drizzle/0023_onboarding_milestones.sql",
+  "../../../../drizzle/0032_participant_step_receipts.sql",
 ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 
 const eventId = eventIdSchema.parse("a9000000-0000-4000-8000-000000000001");
@@ -104,6 +106,60 @@ describe("atomic form authoring update", () => {
       expect(afterVersions.rows).toEqual(beforeVersions.rows);
     } finally {
       await pg.exec("DROP TRIGGER fail_form_version_persistence ON form_versions; DROP FUNCTION fail_form_version_persistence();");
+    }
+  });
+
+  it("rolls back a child section writer and its form CAS when its snapshot cannot persist", async () => {
+    const form = await createFormIn(database, eventId, {
+      internalName: "Section rollback CFP",
+      kind: "abstract",
+      collectParticipants: true,
+    });
+    const section = form.sections.find((candidate) => candidate.key === "abstract");
+    if (!section) throw new Error("Abstract section missing from fixture");
+    const beforeForm = await pg.query(
+      "SELECT updated_at::text, row_version, current_version FROM forms WHERE id=$1",
+      [form.id],
+    );
+    const beforeSection = await pg.query(
+      "SELECT title, updated_at::text FROM form_sections WHERE id=$1",
+      [section.id],
+    );
+
+    await pg.exec(`
+      CREATE FUNCTION fail_section_version_persistence() RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced section version persistence failure';
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_section_version_persistence
+      BEFORE INSERT ON form_versions
+      FOR EACH ROW EXECUTE FUNCTION fail_section_version_persistence();
+    `);
+
+    try {
+      await expect(runInTransaction((tx) => updateSectionIn(
+        tx,
+        eventId,
+        form.id,
+        section.id,
+        { title: "Must roll back" },
+        form.updatedAt,
+      ))).rejects.toThrow('Failed query: insert into "form_versions"');
+      expect((await pg.query(
+        "SELECT updated_at::text, row_version, current_version FROM forms WHERE id=$1",
+        [form.id],
+      )).rows).toEqual(beforeForm.rows);
+      expect((await pg.query(
+        "SELECT title, updated_at::text FROM form_sections WHERE id=$1",
+        [section.id],
+      )).rows).toEqual(beforeSection.rows);
+      expect((await pg.query<{ versions: number }>(
+        "SELECT count(*)::int AS versions FROM form_versions WHERE form_id=$1",
+        [form.id],
+      )).rows).toEqual([{ versions: 1 }]);
+    } finally {
+      await pg.exec("DROP TRIGGER fail_section_version_persistence ON form_versions; DROP FUNCTION fail_section_version_persistence();");
     }
   });
 

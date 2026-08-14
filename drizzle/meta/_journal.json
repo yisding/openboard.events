@@ -225,6 +225,13 @@
       "when": 1786664848203,
       "tag": "0031_agenda_session_creation_receipts",
       "breakpoints": false
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786665419000,
+      "tag": "0032_participant_step_receipts",
+      "breakpoints": false
     }
   ]
 }

@@ -34,6 +34,7 @@ import {
   formIdSchema,
   formStatusSchema,
   MAPS_TO_TARGETS,
+  sectionIdSchema,
   taskTargetSchema,
 } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
@@ -59,6 +60,12 @@ import { VisibilityRuleEditor } from "./components/builder/visibility-rule-edito
 import { NotificationsStep } from "./components/builder/notifications-step";
 import { SettingsStep } from "./components/builder/settings-step";
 import { duplicateFormAsDraft, formDuplicateOutcomeUnknown } from "./duplicate-form";
+import {
+  normalizeParticipantStepRoles,
+  participantStepOperationSchema,
+  participantStepRolesSchema,
+  type ParticipantStepOperation,
+} from "./participant-step";
 
 const stepMeta = [
   { id: "setup", label: "Setup", icon: Settings2 },
@@ -138,6 +145,25 @@ type FormAvailabilityRecovery = {
   expectedUpdatedAt: string;
 };
 
+const participantStepAuthoritySchema = formAvailabilityAuthoritySchema.extend({
+  participantRoles: participantStepRolesSchema,
+  sections: z.array(z.object({
+    id: sectionIdSchema,
+    key: z.string(),
+    title: z.string(),
+    pageHeading: z.string(),
+    descriptionHtml: z.string(),
+    fields: z.array(z.unknown()),
+  }).passthrough()),
+}).passthrough();
+
+type ParticipantStepRecovery = {
+  operation: ParticipantStepOperation;
+  savedRevisions: ReadonlyArray<readonly [BuilderDirtyTarget, number | undefined]>;
+};
+
+export const PARTICIPANT_STEP_RECOVERY_MESSAGE = "We couldn’t confirm whether the participant settings and copy were saved. Restore your connection, then confirm this exact save before trying to save the form again.";
+
 /** Accept the full server form, then restore only editor targets still dirty locally. */
 export function mergeFormAvailabilityAuthority(
   local: BuilderForm,
@@ -187,6 +213,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [dirty, setDirty] = useState(false);
   const [availabilityAlert, setAvailabilityAlert] = useState<string | null>(null);
   const [availabilityRecovery, setAvailabilityRecovery] = useState<FormAvailabilityRecovery | null>(null);
+  const [participantStepRecovery, setParticipantStepRecovery] = useState<ParticipantStepRecovery | null>(null);
   const [pendingAvailabilityAction, setPendingAvailabilityAction] = useState<FormAvailabilityAction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
   const [compactInspector, setCompactInspector] = useState(false);
@@ -194,8 +221,8 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== "text");
   const [routingDraftDirty, setRoutingDraftDirty] = useState(false);
   const hasUnsavedWork = dirty || newQuestionDraftDirty;
-  const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty;
-  useUnsavedWorkGuard(hasUnsavedWork);
+  const hasUnsavedBuilderTargets = hasUnsavedWork || routingDraftDirty || participantStepRecovery !== null;
+  useUnsavedWorkGuard(hasUnsavedWork || participantStepRecovery !== null);
   const { runGuarded, allowNextNavigation } = useGuardedAction();
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
   const availability = formAvailability(persistedAvailabilityInput, availabilityNow);
@@ -277,6 +304,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
 
   async function run(action: () => Promise<BuilderForm>, success: string, savedTargets: BuilderDirtyTarget[] = []) {
     if (busy) return false;
+    if (participantStepRecovery) {
+      toast(PARTICIPANT_STEP_RECOVERY_MESSAGE, { kind: "error" });
+      return false;
+    }
     const savedRevisions = new Map(savedTargets.map((target) => [target, dirtyRevisions.current.get(target)]));
     setBusy(true);
     try {
@@ -305,21 +336,113 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     return requestData(`/api/internal/forms/${form.id}?eventId=${event.id}`, json("PATCH", { expectedUpdatedAt: source.updatedAt, patch }));
   }
 
+  function participantStepRequest(recovery: ParticipantStepRecovery, replay: boolean): Promise<BuilderForm> {
+    return requestData<unknown>(`/api/internal/forms/${form.id}/participant-step?eventId=${event.id}`, json("PATCH", {
+      ...recovery.operation,
+      ...(replay ? { participantReplay: true } : {}),
+    })).then((value) => {
+      const authority = participantStepAuthoritySchema.parse(value);
+      const section = authority.sections.find((candidate) => candidate.id === recovery.operation.sectionId);
+      if (authority.id !== form.id
+        || authority.eventId !== event.id
+        || authority.context !== "cfp"
+        || section?.key !== "participant") {
+        throw new AppError("INTERNAL", "The saved participant step did not match this form");
+      }
+      return value as BuilderForm;
+    });
+  }
+
+  function applyParticipantStepAuthority(next: BuilderForm, recovery: ParticipantStepRecovery) {
+    for (const [target, revision] of recovery.savedRevisions) {
+      if (dirtyRevisions.current.get(target) === revision) dirtyRevisions.current.delete(target);
+    }
+    const remaining = new Set(dirtyRevisions.current.keys());
+    setPersistedAvailabilityInput({ status: next.status, opensAt: next.opensAt, closesAt: next.closesAt });
+    setAvailabilityNow(new Date().toISOString());
+    setForm((current) => mergeUnsavedBuilderEdits(next, current, remaining));
+    setDirty(remaining.size > 0);
+    if (remaining.size === 0 && !newQuestionDraftDirty && !routingDraftDirty) setAvailabilityAlert(null);
+    setParticipantStepRecovery(null);
+    router.refresh();
+  }
+
+  async function replayParticipantStep(recovery: ParticipantStepRecovery): Promise<boolean> {
+    try {
+      const next = await participantStepRequest(recovery, true);
+      applyParticipantStepAuthority(next, recovery);
+      toast("Participant step saved — confirmed from the completed request");
+      return true;
+    } catch (error) {
+      if (!formAvailabilityOutcomeUnknown(error)) {
+        setParticipantStepRecovery(null);
+        if (isAppError(error)) toast(error.message, { kind: "error" });
+        return false;
+      }
+      setParticipantStepRecovery(recovery);
+      toast(PARTICIPANT_STEP_RECOVERY_MESSAGE, { kind: "error" });
+      return false;
+    }
+  }
+
+  async function saveParticipantStep(section: BuilderSection) {
+    if (busy) return;
+    if (participantStepRecovery) {
+      toast(PARTICIPANT_STEP_RECOVERY_MESSAGE, { kind: "error" });
+      return;
+    }
+    const targets: BuilderDirtyTarget[] = [`section:${section.id}`, "step:participant"];
+    const recovery: ParticipantStepRecovery = {
+      operation: participantStepOperationSchema.parse({
+        operationId: crypto.randomUUID(),
+        expectedUpdatedAt: form.updatedAt,
+        sectionId: section.id,
+        participantRoles: normalizeParticipantStepRoles(form.participantRoles),
+        section: {
+          title: section.title,
+          pageHeading: section.pageHeading,
+          descriptionHtml: section.descriptionHtml,
+        },
+      }),
+      savedRevisions: targets.map((target) => [target, dirtyRevisions.current.get(target)] as const),
+    };
+    setBusy(true);
+    try {
+      try {
+        const next = await participantStepRequest(recovery, false);
+        applyParticipantStepAuthority(next, recovery);
+        toast("Participant step saved");
+      } catch (error) {
+        if (formAvailabilityOutcomeUnknown(error)) await replayParticipantStep(recovery);
+        else if (isAppError(error)) toast(error.message, { kind: "error" });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmParticipantStep() {
+    if (!participantStepRecovery || busy) return;
+    setBusy(true);
+    try {
+      await replayParticipantStep(participantStepRecovery);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveStep() {
     if (step === "abstract" || step === "participant") {
       const section = form.sections.find((candidate) => candidate.key === step);
       if (!section) return;
-      await run(async () => {
-        let current = form;
-        if (step === "participant") current = await patchForm({ participantRoles: withRequiredSpeakerRole(form.participantRoles) }, current);
-        return requestData(`/api/internal/forms/${form.id}/sections/${section.id}?eventId=${event.id}`, json("PATCH", {
-          expectedUpdatedAt: current.updatedAt,
-          patch: { title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml },
-        }));
-      }, `${step === "abstract" ? "Abstract" : "Participant"} step saved`, [
-        `section:${section.id}`,
-        ...(step === "participant" ? [`step:participant` as const] : []),
-      ]);
+      if (step === "participant") {
+        await saveParticipantStep(section);
+        return;
+      }
+      await run(() => requestData(`/api/internal/forms/${form.id}/sections/${section.id}?eventId=${event.id}`, json("PATCH", {
+        expectedUpdatedAt: form.updatedAt,
+        patch: { title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml },
+      })), "Abstract step saved", [`section:${section.id}`]);
       return;
     }
     const patch: FormPatch = step === "setup" ? {
@@ -424,7 +547,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function duplicateAsDraft() {
-    if (busy || duplicating) return;
+    if (busy || duplicating || participantStepRecovery) return;
     setDuplicating(true);
     try {
       const copy = await duplicateFormAsDraft(event.id, form.id);
@@ -502,6 +625,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   function requestAvailabilityChange() {
+    if (participantStepRecovery) {
+      toast(PARTICIPANT_STEP_RECOVERY_MESSAGE, { kind: "error" });
+      return;
+    }
     if (availabilityRecovery) {
       toast(formAvailabilityRecoveryMessage(availabilityRecovery.action), { kind: "error" });
       return;
@@ -518,7 +645,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function confirmAvailabilityChange() {
-    if (!pendingAvailabilityAction || availabilityRecovery || busy) return;
+    if (!pendingAvailabilityAction || availabilityRecovery || participantStepRecovery || busy) return;
     const action = pendingAvailabilityAction;
     const recovery = { action, expectedUpdatedAt: form.updatedAt } satisfies FormAvailabilityRecovery;
     setBusy(true);
@@ -550,20 +677,21 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     <header className="builder-header"><div className="builder-title"><Link className="icon-button" aria-label="Back to forms" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unsaved changes" : "All changes saved"}</i></span></div></div><div className="builder-actions">
       {availability === "live" && <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</Button>}
       <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
-      <Button disabled={busy} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
-      <Button variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"} disabled={busy || availabilityRecovery !== null} onClick={requestAvailabilityChange}><Rocket size={16} /> {persistedAvailabilityInput.status === "open" ? "Close" : "Open form"}</Button>
+      <Button disabled={busy || participantStepRecovery !== null} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> {busy ? "Saving…" : "Save"}</Button>
+      <Button variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"} disabled={busy || availabilityRecovery !== null || participantStepRecovery !== null} onClick={requestAvailabilityChange}><Rocket size={16} /> {persistedAvailabilityInput.status === "open" ? "Close" : "Open form"}</Button>
     </div></header>
     <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every save pins a new immutable version.</small></div></aside>
       <div className="builder-canvas">
         {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
+        {participantStepRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Participant save is unconfirmed</b><span>{PARTICIPANT_STEP_RECOVERY_MESSAGE}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void confirmParticipantStep()}>{busy ? "Confirming…" : "Confirm participant save"}</Button></div>}
         {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
-        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
+        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating || participantStepRecovery !== null} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
-        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
+        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><Button disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> Save step</Button><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
@@ -592,7 +720,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       body={availabilityActionCopy?.body ?? "Review this availability change before continuing."}
       confirmLabel={availabilityActionCopy?.confirmLabel ?? "Confirm"}
       variant={pendingAvailabilityAction === "open" ? "primary" : "destructive"}
-      confirmDisabled={availabilityRecovery !== null}
+      confirmDisabled={availabilityRecovery !== null || participantStepRecovery !== null}
       onConfirm={confirmAvailabilityChange}
       onCancel={() => setPendingAvailabilityAction(null)}
     />

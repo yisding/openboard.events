@@ -9,7 +9,7 @@ import {
   reviewVisibilitySchema,
   visibilityRuleSchema,
 } from "@/shared/contracts";
-import { db } from "@/db/client";
+import { withTx } from "@/db/client";
 import { deleteFieldIn, updateFieldIn } from "@/features/forms/server/builder-mutations";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { defineHandler } from "@/shared/server/handler";
@@ -35,7 +35,7 @@ const update = defineHandler({
   input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
   handler: async ({ eventId, input, params }) => {
     const route = paramsSchema.parse(params);
-    return updateFieldIn(db, eventIdSchema.parse(eventId), route.formId, route.fieldId, input.patch, input.expectedUpdatedAt);
+    return withTx((tx) => updateFieldIn(tx, eventIdSchema.parse(eventId), route.formId, route.fieldId, input.patch, input.expectedUpdatedAt));
   },
 });
 
@@ -44,7 +44,7 @@ const remove = defineHandler({
   input: z.object({ expectedUpdatedAt: z.iso.datetime() }),
   handler: async ({ eventId, input, params }) => {
     const route = paramsSchema.parse(params);
-    return deleteFieldIn(db, eventIdSchema.parse(eventId), route.formId, route.fieldId, input.expectedUpdatedAt);
+    return withTx((tx) => deleteFieldIn(tx, eventIdSchema.parse(eventId), route.formId, route.fieldId, input.expectedUpdatedAt));
   },
 });
 
