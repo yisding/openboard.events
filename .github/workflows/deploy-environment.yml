@@ -110,6 +110,9 @@ jobs:
       - name: Apply migrations with the direct Neon URL
         if: steps.freshness.outputs.current == 'true'
         run: pnpm db:migrate
+      - name: Ensure staging-only R2 lifecycle expiration
+        if: steps.freshness.outputs.current == 'true'
+        run: pnpm r2:lifecycle:ensure "$DEPLOY_ENV"
       - name: Deploy web before jobs
         if: steps.freshness.outputs.current == 'true'
         run: pnpm deploy:web:${{ inputs.environment }}

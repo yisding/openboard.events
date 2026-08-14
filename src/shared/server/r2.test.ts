@@ -5,12 +5,15 @@ import {
   KIND_POLICY,
   UPLOAD_MAX_SIZE_MB,
   assertUploadAllowed,
+  buildLegacyStagingKey,
   buildObjectKey,
   buildStagingKey,
+  classifyAssetObjectKey,
   decideFileAccess,
   fileExtension,
   isPublicKind,
   publicFileHeaders,
+  parseStagingKey,
   rejectionForSize,
   resolvePolicy,
   sanitizeFilename,
@@ -173,10 +176,39 @@ describe("object key scheme", () => {
     const parts = { eventId: EVENT_ID, kind: "headshot" as const, fileId: "abc", filename: "me.png" };
     const staging = buildStagingKey(parts);
     const published = buildObjectKey(parts);
-    expect(staging).toBe(`evt_${EVENT_ID}/staging/headshot/abc/me.png`);
+    expect(staging).toBe(`staging/evt_${EVENT_ID}/headshot/abc/me.png`);
     expect(published).toBe(`evt_${EVENT_ID}/headshot/abc/me.png`);
     expect(staging).not.toBe(published);
-    expect(buildStagingKey({ ...parts, filename: "../../etc/passwd" })).toBe(`evt_${EVENT_ID}/staging/headshot/abc/passwd`);
+    expect(buildStagingKey({ ...parts, filename: "../../etc/passwd" })).toBe(`staging/evt_${EVENT_ID}/headshot/abc/passwd`);
+  });
+
+  it("versions both staging layouts and rejects near-miss keys", () => {
+    const parts = { eventId: EVENT_ID, kind: "headshot" as const, fileId: "abc", filename: "me.png" };
+    expect(parseStagingKey(buildLegacyStagingKey(parts))).toEqual({
+      version: 1,
+      eventId: EVENT_ID,
+      kind: "headshot",
+      fileId: "abc",
+      filename: "me.png",
+    });
+    expect(parseStagingKey(buildStagingKey(parts))).toEqual({
+      version: 2,
+      eventId: EVENT_ID,
+      kind: "headshot",
+      fileId: "abc",
+      filename: "me.png",
+    });
+    expect(parseStagingKey(`archive/evt_${EVENT_ID}/headshot/abc/me.png`)).toBeNull();
+    expect(parseStagingKey(`staging/evt_${EVENT_ID}/unknown/abc/me.png`)).toBeNull();
+    expect(parseStagingKey(`staging/evt_${EVENT_ID}/headshot/abc/nested/me.png`)).toBeNull();
+  });
+
+  it("lets finalization recognize both staging versions while downloads require the published key", () => {
+    const parts = { eventId: EVENT_ID, kind: "headshot" as const, fileId: "abc", filename: "me.png" };
+    expect(classifyAssetObjectKey(buildLegacyStagingKey(parts), parts)).toBe("staging-v1");
+    expect(classifyAssetObjectKey(buildStagingKey(parts), parts)).toBe("staging-v2");
+    expect(classifyAssetObjectKey(buildObjectKey(parts), parts)).toBe("published");
+    expect(classifyAssetObjectKey(`staging/evt_${EVENT_ID}/headshot/other/me.png`, parts)).toBe("invalid");
   });
 });
 

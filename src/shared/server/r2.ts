@@ -167,14 +167,91 @@ export function buildObjectKey(input: { eventId: EventId; kind: FileKind; fileId
   return `evt_${input.eventId}/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
 }
 
+export type StagingKeyVersion = 1 | 2;
+export type ParsedStagingKey = {
+  version: StagingKeyVersion;
+  eventId: string;
+  kind: FileKind;
+  fileId: string;
+  filename: string;
+};
+
+const FILE_KINDS = new Set<FileKind>(Object.keys(KIND_POLICY) as FileKind[]);
+
+function stagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }, version: StagingKeyVersion): string {
+  const suffix = `${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
+  return version === 2
+    ? `staging/evt_${input.eventId}/${suffix}`
+    : `evt_${input.eventId}/staging/${suffix}`;
+}
+
 /**
  * The presigned PUT is only ever signed for this key. A presigned URL stays usable
  * until it expires — including after finalize — so the bytes the browser writes and
  * the bytes we publish must never share a key, or a second PUT could replace a
- * validated object that `/f/{fileId}` serves as immutable.
+ * validated object that `/f/{fileId}` serves as immutable. Version 2 starts with a
+ * bucket-root `staging/` segment so one lifecycle rule can expire only pending data.
  */
 export function buildStagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }): string {
-  return `evt_${input.eventId}/staging/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
+  return stagingKey(input, 2);
+}
+
+/** Version 1 remains readable only during the staged-key migration window. */
+export function buildLegacyStagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }): string {
+  return stagingKey(input, 1);
+}
+
+/**
+ * Parses both layouts without accepting near-misses. Keeping the version in the
+ * result makes migration inventory and eventual compatibility removal explicit.
+ */
+export function parseStagingKey(key: string): ParsedStagingKey | null {
+  const segments = key.split("/");
+  if (segments.length !== 5) return null;
+
+  let version: StagingKeyVersion;
+  let eventSegment: string;
+  let kindSegment: string;
+  let fileId: string;
+  let filename: string;
+  if (segments[0] === "staging") {
+    version = 2;
+    [eventSegment, kindSegment, fileId, filename] = segments.slice(1) as [string, string, string, string];
+  } else if (segments[1] === "staging") {
+    version = 1;
+    [eventSegment, , kindSegment, fileId, filename] = segments as [string, string, string, string, string];
+  } else {
+    return null;
+  }
+
+  if (!eventSegment.startsWith("evt_") || eventSegment.length === 4) return null;
+  if (!FILE_KINDS.has(kindSegment as FileKind) || !fileId || !filename) return null;
+  return {
+    version,
+    eventId: eventSegment.slice(4),
+    kind: kindSegment as FileKind,
+    fileId,
+    filename,
+  };
+}
+
+export type AssetObjectKeyState = "published" | "staging-v1" | "staging-v2" | "invalid";
+
+/** One classification owns the finalizer, readiness checks, and download gate. */
+export function classifyAssetObjectKey(
+  key: string,
+  asset: { eventId: EventId; kind: FileKind; fileId: string; filename: string },
+): AssetObjectKeyState {
+  if (key === buildObjectKey(asset)) return "published";
+  const parsed = parseStagingKey(key);
+  if (
+    !parsed
+    || parsed.eventId !== asset.eventId
+    || parsed.kind !== asset.kind
+    || parsed.fileId !== asset.fileId
+    || parsed.filename !== sanitizeFilename(asset.filename)
+  ) return "invalid";
+  return parsed.version === 2 ? "staging-v2" : "staging-v1";
 }
 
 function startsWith(bytes: Uint8Array, signature: readonly number[]): boolean {
@@ -405,8 +482,17 @@ export async function finalizeUpload(fileId: string): Promise<FinalizeResult> {
 
   const eventId = asset.eventId as EventId;
   const publishedKey = buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename });
+  const keyState = classifyAssetObjectKey(asset.r2Key, {
+    eventId,
+    kind: asset.kind,
+    fileId: id,
+    filename: asset.filename,
+  });
   // Already published: the row's key is the immutable one, so finalize is a no-op.
-  if (asset.r2Key === publishedKey) return { status: "ready" };
+  if (keyState === "published") return { status: "ready" };
+  if (keyState === "invalid") {
+    throw new AppError("INTERNAL", "Upload storage key does not match its file record");
+  }
 
   const stagingKey = asset.r2Key;
   const bucket = filesBucket();
@@ -505,7 +591,12 @@ export async function describeFile(fileId: string): Promise<FileDescriptor | nul
     sizeBytes: asset.sizeBytes,
     uploadedByUserId: asset.uploadedByUserId,
     uploadedByContactId: asset.uploadedByContactId,
-    published: asset.r2Key === buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename }),
+    published: classifyAssetObjectKey(asset.r2Key, {
+      eventId,
+      kind: asset.kind,
+      fileId: id,
+      filename: asset.filename,
+    }) === "published",
   };
 }
 
@@ -562,7 +653,12 @@ export async function getDownloadUrl(eventId: EventId, fileId: string, requester
   // A row still on its staging key never passed finalize, so its bytes were never
   // size-checked or sniffed. Handing out a URL for them would serve exactly what
   // the module promises never to serve.
-  if (asset.r2Key !== buildObjectKey({ eventId, kind: asset.kind, fileId: id, filename: asset.filename })) {
+  if (classifyAssetObjectKey(asset.r2Key, {
+    eventId,
+    kind: asset.kind,
+    fileId: id,
+    filename: asset.filename,
+  }) !== "published") {
     throw new AppError("NOT_FOUND", "File is not ready yet");
   }
 
@@ -700,7 +796,6 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
 // the current r2_key of any file_assets row.
 // ---------------------------------------------------------------------------
 
-const STAGING_SEGMENT = "/staging/";
 const LIST_TIMEOUT_MS = 20_000;
 /** Bounds one cron tick to ~5,000 listed objects — a budget, not a promise of completeness. */
 const ORPHAN_SWEEP_MAX_PAGES = 5;
@@ -804,7 +899,7 @@ export async function sweepOrphanStagingObjectsIn(
     pages += 1;
     for (const object of page.objects) {
       scanned += 1;
-      if (object.key.includes(STAGING_SEGMENT) && object.lastModified.getTime() < cutoffMs) candidates.push(object.key);
+      if (parseStagingKey(object.key) && object.lastModified.getTime() < cutoffMs) candidates.push(object.key);
     }
     token = page.nextToken ?? undefined;
   } while (token && pages < ORPHAN_SWEEP_MAX_PAGES);
