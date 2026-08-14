@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 import { listResourcePages } from "@/features/portal/resources";
 import { ResourcePagesAdminView } from "@/features/portal/resources/components/resource-pages-admin-view";
 import { eventIdSchema } from "@/shared/contracts";

@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { EventAccessDTO } from "@/shared/contracts";
 import { Brand } from "@/shared/ui/brand";
 import { Button, EmptyState } from "@/shared/ui/ui-kit";
-import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { SignOutButton } from "@/features/auth/index.client";
 import { EventLifecycleGroups } from "./event-lifecycle-groups";
 
 /** The real, server-backed `/events` list — `listEvents()` rows, no demo store. */

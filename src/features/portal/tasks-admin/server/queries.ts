@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events, forms } from "@/db/schema";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 import {
   eventIdSchema,
   taskAssignmentDtoSchema,

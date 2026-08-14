@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { EventsView } from "./events-view";
 
-vi.mock("@/features/auth/components/sign-out-button", () => ({
+vi.mock("@/features/auth/index.client", () => ({
   SignOutButton: () => <button type="button">Sign out</button>,
 }));
 
