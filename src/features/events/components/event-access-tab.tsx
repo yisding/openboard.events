@@ -147,7 +147,18 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       void requestOverview().then(applyOverview).catch(() => undefined);
     } catch (caught) {
       if (isDefinitiveEventAccessError(caught)) {
-        toast(caught.message, { kind: "error" });
+        setPendingRemove(null);
+        try {
+          applyOverview(await requestOverview());
+          toast(caught.message, { kind: "error" });
+        } catch {
+          const message = appendGuidance(
+            caught.message,
+            "Event access could not be refreshed; reload before trying another access change.",
+          );
+          setError(message);
+          toast(message, { kind: "error" });
+        }
       } else {
         setPendingRemove(null);
         setRecovery({ action: "remove", member: removed, replayRejected: false });

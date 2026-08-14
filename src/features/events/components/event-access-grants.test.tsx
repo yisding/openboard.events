@@ -457,6 +457,37 @@ describe("Event Settings access grants", () => {
     );
   });
 
+  it("refreshes stale removal controls after a definitive rejection", async () => {
+    const ownerNow: EventAccessOverviewDTO = {
+      ...removalOverview,
+      members: removalOverview.members.map((member) => member.userId === formerMemberId
+        ? { ...member, role: "owner", canRemove: false }
+        : member),
+    };
+    apiMock
+      .mockResolvedValueOnce(removalOverview)
+      .mockRejectedValueOnce(new AppError("VALIDATION", "Event owner access cannot be removed here"))
+      .mockResolvedValueOnce(ownerNow);
+    await renderAccess();
+
+    const formerRow = [...container.querySelectorAll("article")]
+      .find((row) => row.textContent?.includes("Former Organizer"));
+    await act(async () => formerRow?.querySelector<HTMLButtonElement>("button")?.click());
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .findLast((button) => button.textContent?.includes("Remove event access"))?.click());
+    await settle();
+
+    expect(apiMock.mock.calls[2]?.[0]).toBe(`events/${eventId}/access`);
+    expect(container.textContent).toContain("Transfer ownership before removing");
+    expect(buttonNamed("Remove event access")).toBeUndefined();
+    expect(buttonNamed("Grant access")?.disabled).toBe(false);
+    expect(container.textContent).not.toContain("Event access change unconfirmed");
+    expect(toastMock).toHaveBeenLastCalledWith(
+      "Event owner access cannot be removed here",
+      { kind: "error" },
+    );
+  });
+
   it("releases navigation into a truthful unavailable state after a definitive overview denial", async () => {
     apiMock
       .mockResolvedValueOnce(overview)
