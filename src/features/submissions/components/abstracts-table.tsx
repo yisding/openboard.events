@@ -4,7 +4,7 @@ import { Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { formatCode } from "@/features/submissions/index.client";
-import type { SubmissionFilters } from "@/features/submissions";
+import type { SubmissionFilters, SubmissionView } from "@/features/submissions";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { DataTable, nullsLast, type DataTableProps } from "@/shared/ui/app/data-table";
@@ -17,16 +17,33 @@ import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
  * alongside the rows, computed from the same filter — a tab that disagrees with
  * the table under it is the bug this shape exists to prevent.
  */
-const TABS: Array<{ id: SubmissionStatus | "all"; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "accepted", label: "Accepted" },
-  { id: "accept_queue", label: "Accept queue" },
-  { id: "pending", label: "Pending" },
-  { id: "decline_queue", label: "Decline queue" },
-  { id: "declined", label: "Declined" },
-  { id: "withdrawn", label: "Withdrawn" },
-  { id: "draft", label: "Drafts" },
-];
+export function abstractWorkflowTabs(counts: Record<SubmissionStatus | "all", number>) {
+  return [
+    { id: "needs_decision", label: "Needs decision", count: counts.pending },
+    {
+      id: "ready_to_notify",
+      label: "Ready to notify",
+      count: counts.accept_queue + counts.decline_queue,
+      acceptCount: counts.accept_queue,
+      declineCount: counts.decline_queue,
+    },
+    { id: "decided", label: "Decided", count: counts.accepted + counts.declined + counts.withdrawn },
+    { id: "all", label: "All", count: counts.all },
+  ] satisfies Array<{
+    id: SubmissionView;
+    label: string;
+    count: number;
+    acceptCount?: number;
+    declineCount?: number;
+  }>;
+}
+
+const EXACT_STATUSES_BY_VIEW: Record<SubmissionView, SubmissionStatus[]> = {
+  needs_decision: [],
+  ready_to_notify: ["accept_queue", "decline_queue"],
+  decided: ["accepted", "declined", "withdrawn"],
+  all: ["draft"],
+};
 
 const SORTING_BY_QUERY: Record<SubmissionFilters["sort"], SortingState[number]> = {
   newest: { id: "submitted", desc: true },
@@ -52,6 +69,7 @@ function submissionSortFromTable(state: SortingState): SubmissionFilters["sort"]
 export function AbstractsTable({
   rows,
   counts,
+  view,
   status,
   search,
   timezone,
@@ -72,6 +90,7 @@ export function AbstractsTable({
 }: {
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
+  view: SubmissionView;
   status: SubmissionStatus | "all";
   search: string;
   timezone: string;
@@ -82,7 +101,7 @@ export function AbstractsTable({
   page: number;
   pageSize: number;
   sort: SubmissionFilters["sort"];
-  onFilter: (next: { status?: SubmissionStatus | "all"; search?: string }) => void;
+  onFilter: (next: { view?: SubmissionView; status?: SubmissionStatus | "all"; search?: string }) => void;
   onPageChange: (page: number) => void;
   onSortChange: (sort: SubmissionFilters["sort"]) => void;
   /** Organizer-only bulk decisions; reviewers get the same readable rows without checkboxes. */
@@ -96,6 +115,9 @@ export function AbstractsTable({
 }) {
   const [draftSearch, setDraftSearch] = useState(search);
   useEffect(() => setDraftSearch(search), [search]);
+  const workflowTabs = abstractWorkflowTabs(counts);
+  const activeWorkflow = workflowTabs.find((tab) => tab.id === view);
+  const exactStatuses = EXACT_STATUSES_BY_VIEW[view];
 
   const columns = useMemo<Array<ColumnDef<SubmissionListRow, unknown>>>(() => [
     {
@@ -184,20 +206,36 @@ export function AbstractsTable({
 
   return (
     <>
-      <div className="abstract-status-tabs" role="group" aria-label="Filter abstracts by status">
-        {TABS.map((tab) => (
+      <div className="abstract-status-tabs" role="group" aria-label="Filter abstracts by workflow">
+        {workflowTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            aria-label={`${tab.label}, ${counts[tab.id]} ${counts[tab.id] === 1 ? "abstract" : "abstracts"}`}
-            aria-pressed={status === tab.id}
-            className={status === tab.id ? "active" : ""}
-            onClick={() => onFilter({ status: tab.id })}
+            aria-label={`${tab.label}, ${tab.count} ${tab.count === 1 ? "abstract" : "abstracts"}${tab.id === "ready_to_notify" ? `, ${tab.acceptCount} accept, ${tab.declineCount} decline` : ""}`}
+            aria-pressed={view === tab.id}
+            className={view === tab.id ? "active" : ""}
+            onClick={() => onFilter({ view: tab.id, status: "all" })}
           >
-            {tab.label} <span aria-hidden="true">{counts[tab.id]}</span>
+            <b>{tab.label}</b> <span aria-hidden="true">{tab.count}</span>
+            {tab.id === "ready_to_notify" && <small aria-hidden="true"><i>{tab.acceptCount} accept</i><i>{tab.declineCount} decline</i></small>}
           </button>
         ))}
       </div>
+      {exactStatuses.length > 0 && (
+        <div className="abstract-exact-status-filter" role="group" aria-label="Filter current workflow by exact status">
+          <span>Exact status</span>
+          <div>
+            <button type="button" className={status === "all" ? "active" : ""} aria-pressed={status === "all"} onClick={() => onFilter({ view, status: "all" })}>
+              All {activeWorkflow?.label.toLowerCase() ?? "statuses"}
+            </button>
+            {exactStatuses.map((exactStatus) => (
+              <button key={exactStatus} type="button" className={status === exactStatus ? "active" : ""} aria-pressed={status === exactStatus} onClick={() => onFilter({ status: exactStatus })}>
+                <StatusBadge value={exactStatus} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <DataTable
         columns={columns}

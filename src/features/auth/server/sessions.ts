@@ -2,7 +2,6 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminSessions } from "@/db/schema";
 import type { UserId } from "@/shared/contracts";
-import { AppError } from "@/shared/lib/errors";
 
 /**
  * M44 — admin session views over M42's revocable session store
@@ -42,9 +41,13 @@ export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId): Promi
 }
 export const listAdminSessions = (userId: UserId): Promise<AdminSessionSummary[]> => listAdminSessionsIn(db, userId);
 
-/** Scoped by `userId` so a caller can only ever revoke their own session id, never someone else's by guessing it. */
+/**
+ * Scoped by `userId` so a caller can only ever revoke their own session id,
+ * never someone else's by guessing it. Absence is deliberately a successful
+ * no-op: a browser can safely replay the exact DELETE after losing the first
+ * response, without learning whether another user's guessed session id exists.
+ */
 export async function revokeAdminSessionByIdIn(dbOrTx: DbOrTx, userId: UserId, sessionId: string): Promise<void> {
-  const revoked = await dbOrTx.delete(adminSessions).where(and(eq(adminSessions.id, sessionId), eq(adminSessions.userId, userId))).returning();
-  if (revoked.length === 0) throw new AppError("NOT_FOUND", "That session was not found");
+  await dbOrTx.delete(adminSessions).where(and(eq(adminSessions.id, sessionId), eq(adminSessions.userId, userId)));
 }
 export const revokeAdminSessionById = (userId: UserId, sessionId: string): Promise<void> => revokeAdminSessionByIdIn(db, userId, sessionId);

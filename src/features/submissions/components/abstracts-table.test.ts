@@ -1,9 +1,10 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { SubmissionView } from "@/features/submissions";
 import { contactIdSchema, submissionIdSchema, trackIdSchema } from "@/shared/contracts";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
-import { AbstractsTable } from "./abstracts-table";
+import { AbstractsTable, abstractWorkflowTabs } from "./abstracts-table";
 
 Object.assign(globalThis, { React });
 
@@ -39,21 +40,22 @@ const ROW: SubmissionListRow = {
 };
 
 const COUNTS: Record<SubmissionStatus | "all", number> = {
-  all: 1,
-  accepted: 0,
-  accept_queue: 0,
+  all: 7,
+  accepted: 1,
+  accept_queue: 2,
   pending: 1,
-  decline_queue: 0,
-  declined: 0,
-  withdrawn: 0,
+  decline_queue: 1,
+  declined: 1,
+  withdrawn: 1,
   draft: 0,
 };
 
-function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all" = "all"): string {
+function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all" = "all", view: SubmissionView = "all"): string {
   return renderToStaticMarkup(
     React.createElement(AbstractsTable, {
       rows,
       counts: COUNTS,
+      view,
       status,
       search: "",
       timezone: "America/Los_Angeles",
@@ -70,17 +72,33 @@ function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all"
   );
 }
 
-describe("AbstractsTable status filter accessibility", () => {
-  it("exposes the selected status and gives each tab a complete accessible name without offscreen overflow", () => {
-    const html = renderTable([ROW], "pending");
+describe("AbstractsTable workflow navigation", () => {
+  it("shows four workflow views, both notification directions, and a secondary exact-status filter", () => {
+    const html = renderTable([ROW], "accept_queue", "ready_to_notify");
 
-    expect(html).toContain('role="group" aria-label="Filter abstracts by status"');
-    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-    expect(html).toMatch(/aria-label="Pending, 1 abstract" aria-pressed="true"[^>]*class="active"[^>]*>Pending <span aria-hidden="true">1<\/span>/);
-    expect(html).toContain('aria-label="Accepted, 0 abstracts"');
+    expect(html).toContain('role="group" aria-label="Filter abstracts by workflow"');
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Needs decision, 1 abstract" aria-pressed="false"');
+    expect(html).toContain('aria-label="Ready to notify, 3 abstracts, 2 accept, 1 decline" aria-pressed="true"');
+    expect(html).toContain("2 accept</i><i>1 decline");
+    expect(html).toContain('role="group" aria-label="Filter current workflow by exact status"');
+    expect(html).toContain("All ready to notify");
+    expect(html).toContain('data-status="accept_queue"');
+    expect(html).toContain('data-status="decline_queue"');
     const statusTabsHtml = html.match(/^<div class="abstract-status-tabs"[\s\S]*?<\/div>/)?.[0];
     expect(statusTabsHtml).toBeDefined();
     expect(statusTabsHtml).not.toContain('class="sr-only"');
+  });
+
+  it("derives honest totals for each workflow without replacing exact row statuses", () => {
+    expect(abstractWorkflowTabs(COUNTS).map(({ id, count }) => [id, count])).toEqual([
+      ["needs_decision", 1],
+      ["ready_to_notify", 3],
+      ["decided", 3],
+      ["all", 7],
+    ]);
+    expect(renderTable([ROW])).toContain('data-status="pending"');
+    expect(renderTable([ROW], "all", "all")).toContain('data-status="draft"');
   });
 });
 

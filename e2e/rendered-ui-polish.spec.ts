@@ -37,6 +37,102 @@ test.describe("rendered UI polish", () => {
   });
 });
 
+test.describe("landing hero responsiveness", () => {
+  test("keeps the product preview centered and fully visible across phone and tablet widths", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="landing">
+        <section class="hero container">
+          <div class="hero-copy">
+            <div class="eyebrow">Built for ambitious event teams</div>
+            <h1>Every speaker. Every session. <span>One calm command center.</span></h1>
+            <p>One beautifully focused workspace.</p>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="preview-window"></div>
+            <div class="floating-card floating-card-one">Schedule published</div>
+            <div class="floating-card floating-card-two">Live sync</div>
+          </div>
+        </section>
+      </main>
+    </body></html>`);
+
+    const measurements = new Map<number, { previewWidth: number }>();
+    for (const width of [320, 375, 480, 600, 680, 768, 769]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await page.locator(".preview-window").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          previewWidth: box.width,
+          centerDelta: Math.abs(box.left + box.width / 2 - window.innerWidth / 2),
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.left).toBeGreaterThanOrEqual(0);
+      expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth);
+      expect(layout.centerDelta).toBeLessThanOrEqual(0.5);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+      measurements.set(width, { previewWidth: layout.previewWidth });
+    }
+
+    expect(measurements.get(320)?.previewWidth).toBeGreaterThanOrEqual(280);
+    expect(measurements.get(768)?.previewWidth).toBeGreaterThanOrEqual(600);
+    expect((measurements.get(768)?.previewWidth ?? 0) / (measurements.get(769)?.previewWidth ?? 1))
+      .toBeGreaterThanOrEqual(0.8);
+  });
+});
+
+test.describe("public event phone navigation", () => {
+  test("keeps the event identity and every destination readable without a clipped tab row", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="public-event">
+        <header class="public-event-header">
+          <div class="public-event-container">
+            <a class="public-event-logo" href="#" aria-label="AI Engineer Sandbox — NYC agenda">
+              <span class="public-event-name">AI Engineer Sandbox — NYC</span>
+            </a>
+            <nav aria-label="Event navigation">
+              <a href="#">Sessions</a>
+              <a href="#">Agenda</a>
+              <a href="#">My schedule</a>
+              <a class="active" href="#">Speakers</a>
+              <a href="#">Gallery</a>
+            </nav>
+            <a class="button public-cta" href="#">Speaker portal</a>
+          </div>
+        </header>
+      </main>
+    </body></html>`);
+
+    for (const width of [320, 360, 480]) {
+      await page.setViewportSize({ width, height: 700 });
+      const layout = await page.locator(".public-event-header").evaluate((header) => {
+        const logoName = header.querySelector(".public-event-name");
+        const nav = header.querySelector("nav");
+        if (!logoName || !nav) throw new Error("Public event header fixture is incomplete");
+        const navBox = nav.getBoundingClientRect();
+        const linkBoxes = [...nav.querySelectorAll("a")].map((link) => link.getBoundingClientRect());
+        return {
+          nameFits: logoName.scrollWidth <= logoName.clientWidth && logoName.scrollHeight <= logoName.clientHeight,
+          navFits: nav.scrollWidth <= nav.clientWidth
+            && linkBoxes.every((box) => box.left >= navBox.left - 0.5 && box.right <= navBox.right + 0.5),
+          touchTargets: linkBoxes.every((box) => box.height >= 44),
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.nameFits).toBe(true);
+      expect(layout.navFits).toBe(true);
+      expect(layout.touchTargets).toBe(true);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("self-service auth readability", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 320, height: 700 } });
