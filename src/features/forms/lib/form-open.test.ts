@@ -128,6 +128,17 @@ describe("formAvailabilityActionCopy", () => {
     expect(copy.body).toContain("in-progress drafts will not be able to submit");
   });
 
+  it("does not claim scheduled or ended forms are currently accepting submissions", () => {
+    expect(formAvailabilityActionCopy("close", { opensAt: "2026-08-13T20:00:00.000Z", closesAt: null }, now)).toMatchObject({
+      title: "Cancel this scheduled opening?",
+      confirmLabel: "Cancel scheduled opening",
+    });
+    expect(formAvailabilityActionCopy("close", { opensAt: null, closesAt: now }, now)).toMatchObject({
+      title: "Set this ended form to closed?",
+      confirmLabel: "Set form to closed",
+    });
+  });
+
   it("does not imply a past closing time will accept submissions", () => {
     expect(formAvailabilityActionCopy("open", { opensAt: null, closesAt: now }, now)).toMatchObject({
       title: "Set this ended form to open?",

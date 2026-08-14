@@ -106,10 +106,12 @@ describe("form builder accessibility", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
     expect(source).toContain('className="builder-edit-actions" role="group" aria-label="Form editing actions"');
-    expect(source).toContain('id="publish-form-version" aria-label="Publish a new immutable form version"');
+    expect(source).toContain('id="publish-form-version" aria-label="Publish the current step as a new immutable form version"');
+    expect(source).toContain('onClick={() => void saveStep()}');
     expect(source).toContain('className="builder-lifecycle-actions" role="group" aria-label="Form availability"');
     expect(source).toContain('<CircleStop size={16} />');
-    expect(source).toContain('"Stop accepting submissions" : "Open form"');
+    expect(source).toContain("const availabilityActionLabel = formAvailabilityActionLabel(");
+    expect(source).toContain("<span className=\"builder-action-label\">{availabilityActionLabel}</span>");
     expect(source).toContain('href="#publish-form-version"');
     expect(source).toContain("Every publish creates a new immutable version.");
     expect(source).not.toContain("Save step</Button>");

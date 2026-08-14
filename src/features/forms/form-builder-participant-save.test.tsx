@@ -4,8 +4,8 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { formIdSchema, sectionIdSchema } from "@/shared/contracts";
-import type { BuilderEvent, BuilderForm } from "./builder-types";
+import { fieldIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
+import type { BuilderEvent, BuilderField, BuilderForm } from "./builder-types";
 import { FormBuilder, PARTICIPANT_STEP_RECOVERY_MESSAGE } from "./form-builder";
 
 const navigationMock = vi.hoisted(() => ({ search: "step=participant", push: vi.fn(), refresh: vi.fn() }));
@@ -39,6 +39,22 @@ const event: BuilderEvent = {
   submissionCapPerUser: 3,
 };
 const participantSectionId = sectionIdSchema.parse("a2000000-0000-4000-8000-000000000001");
+const participantQuestion: BuilderField = {
+  id: fieldIdSchema.parse("a2000000-0000-4000-8000-000000000002"),
+  sectionId: participantSectionId,
+  key: "bio",
+  label: "Speaker bio",
+  fieldType: "textarea",
+  required: false,
+  locked: false,
+  maxChars: 500,
+  helpText: "",
+  options: [],
+  visibility: null,
+  mapsTo: null,
+  reviewVisibility: "content",
+  sortOrder: 0,
+};
 
 function form(overrides: Partial<BuilderForm> = {}): BuilderForm {
   return {
@@ -225,6 +241,35 @@ describe("participant-step save recovery", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(requestBodies()[0]?.participantRoles).toEqual(saved.participantRoles);
+    expect(container.textContent).toContain("Version 2");
+  });
+
+  it("publishes the whole Participant step while a question remains selected", async () => {
+    const initial = form({
+      sections: [{ ...participantSection(), fields: [participantQuestion] }],
+    });
+    const saved = form({
+      currentVersion: 2,
+      updatedAt: "2026-08-13T12:01:00.000Z",
+      sections: [{ ...participantSection(initial), pageHeading: "People" }],
+    });
+    fetchMock.mockResolvedValueOnce(response({ data: saved }));
+    await act(async () => root.render(<FormBuilder event={event} initialForm={initial} />));
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".field-row-main")?.click());
+    expect(container.textContent).toContain("Speaker bio");
+    await act(async () => edit(inputWithValue("Participants"), "People"));
+    await act(async () => buttonNamed("Publish version")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`/participant-step?eventId=${event.id}`);
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain(`/fields/${participantQuestion.id}`);
+    expect(requestBodies()[0]?.section).toEqual({
+      title: "Participant details",
+      pageHeading: "People",
+      descriptionHtml: "<p>Tell us about each speaker.</p>",
+    });
     expect(container.textContent).toContain("Version 2");
   });
 

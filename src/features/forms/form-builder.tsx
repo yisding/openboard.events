@@ -49,7 +49,7 @@ import { Button, Field, Modal, Select, StatusBadge, Switch } from "@/shared/ui/u
 import { useToast } from "@/shared/ui/toast";
 import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
-import { formAvailability, formAvailabilityActionCopy, type FormAvailabilityAction } from "./lib/form-open";
+import { formAvailability, formAvailabilityActionCopy, formAvailabilityActionLabel, type FormAvailabilityAction } from "./lib/form-open";
 // M13b: the visibility editor, live preview, and routing panel are that
 // module's — this file only mounts them at the right point in the wizard.
 import { BuilderPreview as LiveBuilderPreview } from "./components/builder/builder-preview";
@@ -227,6 +227,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const { runGuarded, allowNextNavigation } = useGuardedAction();
   const selectedField = useMemo(() => form.sections.flatMap((section) => section.fields).find((field) => field.id === selected?.fieldId) ?? null, [form.sections, selected]);
   const availability = formAvailability(persistedAvailabilityInput, availabilityNow);
+  const availabilityActionLabel = formAvailabilityActionLabel(persistedAvailabilityInput.status, availability);
   // M13b's live preview compiles a snapshot from the in-memory (possibly
   // unsaved) draft, so a conditional field visibly appears/disappears as the
   // organizer edits it — no save round trip. Falls back to the mock preview
@@ -681,19 +682,19 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         <div className="builder-edit-actions" role="group" aria-label="Form editing actions">
           {availability === "live" && <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</Button>}
           <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
-          <Button id="publish-form-version" aria-label="Publish a new immutable form version" title="Publish a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void (selectedField ? saveField(selectedField) : saveStep())}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
+          <Button id="publish-form-version" aria-label="Publish the current step as a new immutable form version" title="Publish the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
         </div>
         <div className="builder-lifecycle-actions" role="group" aria-label="Form availability">
           <span>Availability</span>
           <Button
-            aria-label={persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}
-            title={persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}
+            aria-label={availabilityActionLabel}
+            title={availabilityActionLabel}
             variant={persistedAvailabilityInput.status === "open" ? "secondary" : "primary"}
             disabled={busy || availabilityRecovery !== null || participantStepRecovery !== null}
             onClick={requestAvailabilityChange}
           >
             {persistedAvailabilityInput.status === "open" ? <CircleStop size={16} /> : <Rocket size={16} />}
-            <span className="builder-action-label">{persistedAvailabilityInput.status === "open" ? "Stop accepting submissions" : "Open form"}</span>
+            <span className="builder-action-label">{availabilityActionLabel}</span>
           </Button>
         </div>
       </div>
