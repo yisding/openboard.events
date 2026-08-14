@@ -144,6 +144,8 @@ test.describe("self-service signup to first value", () => {
     // the individual 30–60 second UI/delivery limits below as the failure
     // signals; the suite-wide budget only needs to cover their cumulative work.
     test.setTimeout(300_000);
+    page.setDefaultTimeout(30_000);
+    page.setDefaultNavigationTimeout(30_000);
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     const password = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
     const personName = `E2E Self-service ${stamp}`;
@@ -485,6 +487,8 @@ test.describe("self-service signup to first value", () => {
     await test.step("a speaker verifies and submits through the returned CFP", async () => {
       const publicContext = await browser.newContext();
       const publicPage = await publicContext.newPage();
+      publicPage.setDefaultTimeout(30_000);
+      publicPage.setDefaultNavigationTimeout(30_000);
       try {
         const response = await publicPage.goto(publicLink);
         expect(response?.status(), `${publicLink} should be public`).toBe(200);
@@ -529,7 +533,9 @@ test.describe("self-service signup to first value", () => {
         submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
         expect(submissionCode).toMatch(/^SESS-\d+$/);
       } finally {
-        await publicContext.close();
+        // Preserve the failed interaction as the primary error if Playwright
+        // has already ended the test; teardown should never mask its locator.
+        await publicContext.close().catch(() => undefined);
       }
     });
 

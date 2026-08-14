@@ -137,6 +137,7 @@ const PARTICIPANT_ROLE_LABELS: Record<SecondaryParticipantRole, string> = {
 };
 
 export const CFP_PORTAL_REDIRECT_MS = 10_000;
+export const CFP_REQUEST_TIMEOUT_MS = 30_000;
 
 export function schedulePortalRedirect(
   enabled: boolean,
@@ -149,35 +150,55 @@ export function schedulePortalRedirect(
   return () => (cancel ?? ((timerId) => window.clearTimeout(timerId)))(timer);
 }
 
-export async function cfpRequest(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
-  let response: Response;
+export async function cfpRequest(
+  path: string,
+  body: unknown,
+  method: "POST" | "PATCH" = "POST",
+  timeoutMs = CFP_REQUEST_TIMEOUT_MS,
+): Promise<RequestResult> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  } catch {
-    return { ok: false, data: {}, message: "Could not reach the server", retryable: true };
-  }
-  const payload = await response.json().catch(() => null) as {
-    data?: Record<string, unknown>;
-    error?: {
-      code?: string;
-      message?: string;
-      data?: Record<string, unknown> & { fieldErrors?: Record<string, string> };
-      fieldErrors?: Record<string, string>;
-    };
-  } | null;
-  if (!response.ok || !payload?.data) {
+    const response = await fetch(path, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null) as {
+      data?: Record<string, unknown>;
+      error?: {
+        code?: string;
+        message?: string;
+        data?: Record<string, unknown> & { fieldErrors?: Record<string, string> };
+        fieldErrors?: Record<string, string>;
+      };
+    } | null;
+    if (!response.ok || !payload?.data) {
+      return {
+        ok: false,
+        data: {},
+        message: payload?.error?.message ?? "We couldn’t complete that request. Try again.",
+        ...(payload?.error?.code ? { code: payload.error.code } : {}),
+        ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
+        ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
+        ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+      };
+    }
+    return { ok: true, data: payload.data, message: "" };
+  } catch (error) {
     return {
       ok: false,
       data: {},
-      message: payload?.error?.message ?? "We couldn’t complete that request. Try again.",
-      ...(payload?.error?.code ? { code: payload.error.code } : {}),
-      ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
-      ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
-      ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
-      retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+      message: error instanceof Error && error.name === "AbortError"
+        ? "That request took too long. Check your connection and try again."
+        : "Could not reach the server",
+      retryable: true,
     };
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
-  return { ok: true, data: payload.data, message: "" };
 }
 
 export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
