@@ -32,6 +32,7 @@ scratch_root="${WORKER_SMOKE_TMP_ROOT:-${HOME:?HOME is required}/Code}"
 mkdir -p "$scratch_root"
 scratch_dir="$(mktemp -d "$scratch_root/openboard-worker-smoke.XXXXXX")"
 log_file="$scratch_dir/workerd.log"
+r2_log_file="$scratch_dir/r2-seed.log"
 env_file="$scratch_dir/smoke.env"
 state_dir="$scratch_dir/state"
 worker_pid=""
@@ -52,9 +53,46 @@ EMAIL_MODE=log
 EMAIL_FALLBACK_UI=1
 SESSION_SECRET=worker-smoke-session-secret-at-least-32-bytes
 AIRTABLE_CRON=0
+NEXT_INC_CACHE_R2_PREFIX=open-next-cache
+NEXT_PRIVATE_DEBUG_CACHE=1
 R2_BUCKET_NAME=sb-files-dev
 EOF
 
+# Seed one prerender entry into the exact local R2 state the application Worker
+# will use. `populateCache local` starts a separate ephemeral Worker, so it does
+# not prove that this artifact can read its configured R2 binding. Writing the
+# same content-addressed key as OpenNext lets the request below exercise the
+# production R2IncrementalCache implementation without remote credentials.
+cache_file="$(find .open-next/cache -type f -path '*/kitchen-sink/rich.cache' -print -quit)"
+if [[ -z "$cache_file" ]]; then
+  echo "worker artifact smoke requires the /kitchen-sink/rich prerender cache entry" >&2
+  exit 2
+fi
+build_id="$(basename "$(dirname "$(dirname "$cache_file")")")"
+cache_hash="$(node --input-type=module -e '
+  import { createHash } from "node:crypto";
+  process.stdout.write(createHash("sha256").update("/kitchen-sink/rich").digest("hex"));
+')"
+cache_object="sb-files-dev/open-next-cache/$build_id/$cache_hash.cache"
+pnpm exec wrangler r2 object put "$cache_object" \
+  --config wrangler.jsonc \
+  --local \
+  --persist-to "$state_dir" \
+  --file "$cache_file" \
+  --force \
+  >"$r2_log_file" 2>&1
+
+# RichTextEditor is client-only and dynamically imported. Locate its emitted
+# ProseMirror-bearing chunk from the built artifact so this check remains tied
+# to module content rather than an unstable webpack id.
+lazy_chunk="$(grep -El -m1 'ProseMirror|prosemirror' .open-next/assets/_next/static/chunks/*.js 2>/dev/null | head -1 || true)"
+if [[ -z "$lazy_chunk" ]]; then
+  echo "worker artifact smoke could not find the lazy rich-text editor chunk" >&2
+  exit 2
+fi
+lazy_chunk_path="/${lazy_chunk#.open-next/assets/}"
+
+started_at_ms="$(node -p 'Date.now()')"
 pnpm exec wrangler dev \
   --config wrangler.jsonc \
   --local \
@@ -69,14 +107,18 @@ worker_pid=$!
 
 base_url="http://127.0.0.1:$port"
 ready=0
-for _attempt in $(seq 1 60); do
+first_dynamic_ttfb=""
+for attempt in $(seq 1 60); do
   if ! kill -0 "$worker_pid" 2>/dev/null; then
     echo "workerd exited before it became ready" >&2
     tail -80 "$log_file" >&2
     exit 1
   fi
-  if curl --silent --output /dev/null --max-time 2 "$base_url/" 2>/dev/null; then
+  readiness="$(curl --silent --output /dev/null --write-out '%{http_code}\t%{time_starttransfer}' --max-time 2 "$base_url/" 2>/dev/null || true)"
+  if [[ "${readiness%%$'\t'*}" == "200" ]]; then
     ready=1
+    first_dynamic_ttfb="${readiness#*$'\t'}"
+    ready_attempts="$attempt"
     break
   fi
   sleep 0.5
@@ -87,6 +129,7 @@ if (( ready == 0 )); then
   tail -80 "$log_file" >&2
   exit 1
 fi
+cold_start_ms=$(( $(node -p 'Date.now()') - started_at_ms ))
 
 probe() {
   local path="$1"
@@ -118,12 +161,38 @@ probe_redirect() {
   echo "ok    GET $path -> $status -> $expected_location"
 }
 
-# These routes span the root page, two separate auth page entries, middleware,
-# and an API route. Health intentionally returns 503 because this isolated
-# smoke supplies no database; reaching that application response proves the
-# route module loaded. Runtime-integrity failures are rejected from the log
-# below even if Next turns one into an otherwise ambiguous HTTP 500.
+probe_cache_hit() {
+  local path="$1"
+  local headers="$scratch_dir/cache-headers"
+  local body="$scratch_dir/cache-body"
+  local status
+  status="$(curl --silent --show-error --dump-header "$headers" --output "$body" --write-out '%{http_code}' --max-time 15 "$base_url$path")" || status="000"
+  if [[ "$status" != "200" ]]; then
+    echo "worker artifact smoke failed: GET $path returned $status; expected 200" >&2
+    tail -80 "$log_file" >&2
+    exit 1
+  fi
+  if ! grep -Eiq '^x-nextjs-cache:[[:space:]]*HIT' "$headers"; then
+    echo "worker artifact smoke failed: GET $path did not report an R2 cache HIT" >&2
+    cat "$headers" >&2
+    tail -80 "$log_file" >&2
+    exit 1
+  fi
+  if ! grep -Fq 'Rich primitives' "$body"; then
+    echo "worker artifact smoke failed: cached GET $path returned the wrong body" >&2
+    exit 1
+  fi
+  echo "ok    GET $path -> 200 (R2 cache HIT)"
+}
+
+# These routes span a dynamic server component, static prerender served from
+# R2, two separate auth page entries, middleware, an auth API route, a regular
+# API route, and a lazy client chunk. Health intentionally returns 503 because
+# this isolated smoke supplies no database; reaching that application response
+# proves the route module loaded. Runtime-integrity failures are rejected from
+# the log below even if Next turns one into an otherwise ambiguous HTTP 500.
 probe "/" "200"
+probe_cache_hit "/kitchen-sink/rich"
 probe "/login" "200"
 
 # The canonical-host redirect in next.config.ts must survive the OpenNext
@@ -146,7 +215,9 @@ echo "ok    GET /login (Host: www.openboard.events) -> 308 -> https://openboard.
 # artifact renders.
 probe "/signup" "200"
 probe "/events" "200|302|307"
+probe "/api/auth/get-session" "200"
 probe "/api/health" "503"
+probe "$lazy_chunk_path" "200"
 
 sleep 1
 if grep -Ein \
@@ -156,4 +227,14 @@ if grep -Ein \
   exit 1
 fi
 
+echo "Worker cold-start metrics: ready_ms=$cold_start_ms first_dynamic_ttfb_s=$first_dynamic_ttfb attempts=$ready_attempts failures=0"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "### Local workerd cold start"
+    echo
+    echo "| ready ms | first dynamic TTFB s | attempts | failures |"
+    echo "| ---: | ---: | ---: | ---: |"
+    echo "| $cold_start_ms | $first_dynamic_ttfb | $ready_attempts | 0 |"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 echo "worker artifact smoke passed under local workerd"
