@@ -22,17 +22,22 @@ password mirroring, and test-only cookie-minting endpoint are gone;
 through the real password endpoint. Review also uncovered and closed the E2E
 reset path that wiped Better Auth credentials without recreating them.
 
-The guardrail foundation is now in place. PR #351 added a TypeScript-AST
-feature graph with exact debt and cycle ratchets; PR #352 added a full migration
-journal versus Drizzle metadata comparison, an explicit SQL-only ledger, and a
+The guardrail workstream is complete. PR #351 added a TypeScript-AST feature
+graph with exact debt and cycle ratchets; PR #352 added a full migration journal
+versus Drizzle metadata comparison, an explicit SQL-only ledger, and a
 complete-schema integration fixture; and PR #356 replaced syntax-sensitive
 repository greps with AST policies while retaining literal configuration and
-CSS checks. Their current measurements are 43 feature dependency directions,
-55 direct cross-feature imports, one seven-feature strongly connected group,
-zero server-to-UI/route imports, 83 tables, 747 modeled columns, 33 enums, and
-35 migrations. The remaining work in this guardrail phase is to drive the
-import and cycle baselines to zero through dependency inversion rather than
-merely re-exporting the same coupling from public barrels.
+CSS checks. PRs #359, #361, #362, #363, #365, and #368 published narrow runtime
+contracts and reduced the direct-import ledger from 55 entries to zero. PR #369
+extracted shared delivery and sealed-payload infrastructure, PR #371 established
+event-contact ownership, and PR #372 introduced the CFP composition service;
+together they reduced the seven-feature strongly connected group to none.
+
+The resulting measurements are 42 feature dependency directions, zero direct
+cross-feature implementation imports, zero cyclic groups, zero server-to-UI or
+route imports, 83 tables, 748 modeled columns, 33 enums, and 36 migrations. CI
+now ratchets each zero-debt architecture baseline and the migration/query-schema
+comparison.
 
 ## Sequencing and workstreams
 
@@ -59,6 +64,9 @@ Exit criteria:
 - A clean database produced by migrations and the TypeScript query schema pass
   an automated drift report with an explicit allowlist for SQL-only constructs.
 - No syntax-sensitive architectural rule depends solely on regular expressions.
+
+Status: complete in PRs #351, #352, #356, #359, #361, #362, #363, #365,
+#368, #369, #371, and #372.
 
 ### 2. Remove per-event submission serialization
 
@@ -227,8 +235,8 @@ Exit criteria:
 ## Proposed pull-request order
 
 1. Fallback-auth retirement (completed in PR #345).
-2. Import/schema/invariant guardrails (foundation merged in PRs #351, #352,
-   and #356; dependency cleanup remains).
+2. Import/schema/invariant guardrails (completed in PRs #351, #352, #356,
+   #359, #361, #362, #363, #365, #368, #369, #371, and #372).
 3. Submission concurrency redesign.
 4. Worker artifact compatibility hardening.
 5. Shared outbox engine, then private scheduled invocation.
