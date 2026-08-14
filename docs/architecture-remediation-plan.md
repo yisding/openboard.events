@@ -50,6 +50,17 @@ request that waited across the close boundary, and the public API ordered pages
 by the formerly monotonic code. The final implementation uses wall-clock form
 availability and creation-tuple pagination with the existing code cursor token.
 
+The Worker-artifact workstream is complete in PR #386. Removing the only custom
+server-chunking override was tested rather than assumed: Next defaults produced
+75 chunks / 758 handler inputs / 3,329.11 KiB gzip and exceeded the Workers Free
+limit, while the retained numeric-chunk override produced 257 chunks / 940
+inputs / roughly 2,570 KiB gzip. The supported Next/OpenNext/Wrangler/date
+matrix and removal gate are now explicit. CI boots the built artifact under
+workerd across dynamic, static/R2, API, auth, redirect, and lazy-client paths;
+records artifact and cold-start metrics; and rejects missing emitted chunks.
+Deploys repeat the size contract before mutation, and production now has an
+explicit `needs: preview` dependency on the same commit's complete canary.
+
 ## Sequencing and workstreams
 
 ### 1. Establish architectural and schema guardrails
@@ -120,6 +131,10 @@ Exit criteria:
 - The built artifact is booted and probed in CI and after preview deployment.
 - Version upgrades have a documented compatibility test instead of relying on
   `next build` alone.
+
+Status: complete in PR #386. The custom override remains intentionally because
+the measured Next default exceeds the compressed Worker limit; its exact
+removal conditions and reproduction are documented with the supported matrix.
 
 ### 4. Unify client data consistency
 
@@ -251,7 +266,7 @@ Exit criteria:
 2. Import/schema/invariant guardrails (completed in PRs #351, #352, #356,
    #359, #361, #362, #363, #365, #368, #369, #371, and #372).
 3. Submission concurrency redesign (completed in PRs #374 and #381).
-4. Worker artifact compatibility hardening.
+4. Worker artifact compatibility hardening (completed in PR #386).
 5. Shared outbox engine, then private scheduled invocation.
 6. Client consistency and public-cache invalidation, feature by feature.
 7. Identity link model and staged backfill.
