@@ -54,9 +54,15 @@ Production deploy run `31835677697` promoted merge commit `2c0bf6f0` and complet
 checkpoint at `2026-08-14T20:30:12.909Z` with the same zero counts. Both checkpoints began more
 than 15 minutes before completion, exhausting every pre-existing presigned PUT URL before the
 legacy parser, migration implementation, scheduler, and deployment gate were removed. The private
-job name now resolves to a no-op for one ordered deployment so an old jobs Worker cannot fail while
-web and jobs are replaced. Its adapter and checkpoint table are removed in the following contract
-release, after this scheduler-free release reaches production.
+job name resolved to a no-op for one ordered deployment so an old jobs Worker could not fail while
+web and jobs were replaced. After that scheduler-free release reached production, the runtime
+adapter was removed.
+
+The completed `r2_staging_migration_state` table and the database heartbeat constraint's
+`r2-migration` value remain as inert rollback tombstones. Current code cannot invoke or name the
+job, but Cloudflare retains older Worker versions and the rollback runbook guarantees those builds
+can run against today's additive schema. Do not drop or narrow these database contracts while a
+retained rollback target references them.
 
 ## What to actually provision, today
 

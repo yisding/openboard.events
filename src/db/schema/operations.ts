@@ -32,8 +32,9 @@ export const scheduledJobHeartbeats = pgTable("scheduled_job_heartbeats", {
 ]);
 
 /**
- * Retained for one deployment after migration scheduling stops. The following
- * contract release drops this checkpoint once no old jobs Worker can call it.
+ * Rollback tombstone. Current code never queries or writes this completed
+ * checkpoint, but retained Worker versions still do. Keep the physical and
+ * modeled table so a code-only rollback remains safe.
  */
 export const r2StagingMigrationState = pgTable("r2_staging_migration_state", {
   singleton: boolean("singleton").primaryKey().default(true),
