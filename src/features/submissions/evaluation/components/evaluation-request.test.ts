@@ -5,13 +5,22 @@ import { normalizeReviewerEmail } from "./reviewer-invite-dialog";
 
 describe("evaluationRequest", () => {
   it("preserves HTTP errors and normalizes transport and malformed responses", async () => {
-    const refused = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Round is closed" } }), { status: 409 }));
+    const refused = vi.fn(async () => new Response(JSON.stringify({ error: { code: "CONFLICT", message: "Round is closed" } }), { status: 409 }));
     const offline = vi.fn(async () => { throw new TypeError("offline"); });
     const malformed = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
 
-    await expect(evaluationRequest("/evaluation", { method: "PUT" }, "Could not save", refused)).resolves.toEqual({ ok: false, kind: "response", message: "Round is closed" });
+    await expect(evaluationRequest("/evaluation", { method: "PUT" }, "Could not save", refused)).resolves.toEqual({
+      ok: false,
+      kind: "response",
+      message: "Round is closed",
+      code: "CONFLICT",
+    });
     await expect(evaluationRequest("/evaluation", { method: "PUT" }, "Could not save", offline)).resolves.toEqual({ ok: false, kind: "transport", message: "Could not save" });
-    await expect(evaluationRequest("/evaluation", { method: "PUT" }, "Could not save", malformed)).resolves.toEqual({ ok: false, kind: "response", message: "Could not save" });
+    await expect(evaluationRequest("/evaluation", { method: "PUT" }, "Could not save", malformed)).resolves.toEqual({
+      ok: false,
+      kind: "response",
+      message: "Could not save",
+    });
   });
 
   it("returns parsed data only for a successful response", async () => {

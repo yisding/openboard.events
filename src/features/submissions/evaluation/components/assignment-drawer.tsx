@@ -8,6 +8,7 @@ import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
@@ -34,6 +35,7 @@ function responseLoadFailure(response: Response, payload: AssignmentLoadPayload 
 }
 
 export function canSubmitAssignments({
+  locked,
   loaded,
   hasLoadError,
   busy,
@@ -42,6 +44,7 @@ export function canSubmitAssignments({
   mode,
   currentAssignmentCount,
 }: {
+  locked: boolean;
   loaded: boolean;
   hasLoadError: boolean;
   busy: boolean;
@@ -50,7 +53,7 @@ export function canSubmitAssignments({
   mode: AssignmentMode;
   currentAssignmentCount: number;
 }) {
-  if (!loaded || hasLoadError || busy || reviewerCount === 0) return false;
+  if (locked || !loaded || hasLoadError || busy || reviewerCount === 0) return false;
   if (selectedCount > 0) return true;
   return mode === "replace" && currentAssignmentCount > 0;
 }
@@ -105,8 +108,12 @@ export function AssignmentDrawer({
   const router = useRouter();
   const { toast } = useToast();
   const targetKey = `${eventId}:${plan.id}`;
+  const loadKey = `${targetKey}:${plan.updatedAt}:${plan.trackIds?.join(",") ?? "all"}`;
+  const reviewerMembershipKey = plan.reviewers.map((reviewer) => reviewer.userId).sort().join(",");
   const currentTargetRef = useRef(targetKey);
   currentTargetRef.current = targetKey;
+  const currentLoadRef = useRef(loadKey);
+  currentLoadRef.current = loadKey;
   const [submissions, setSubmissions] = useState<AssignableSubmission[] | null>(null);
   const [loadedTarget, setLoadedTarget] = useState<string | null>(null);
   const [loadFailure, setLoadFailure] = useState<AssignmentLoadFailure | null>(null);
@@ -118,9 +125,24 @@ export function AssignmentDrawer({
   const [mode, setMode] = useState<AssignmentMode>("add");
   const [busy, setBusy] = useState(false);
   const [confirmEmptyReplace, setConfirmEmptyReplace] = useState(false);
+  const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
+  const assignmentLock = assignmentLockReason(plan, new Date(assignmentNowMs));
+  const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
   const dirty = assignmentDraftChanged({ reviewerIds, submissionIds: selected, mode });
   useUnsavedWorkGuard(dirty);
   const { runGuarded } = useGuardedAction();
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const refreshLock = () => {
+      const nowMs = Date.now();
+      setAssignmentNowMs(nowMs);
+      const delay = nextAssignmentLockRefreshMs([{ status: plan.status, closesAt: plan.closesAt }], nowMs);
+      if (delay !== null) timer = window.setTimeout(refreshLock, delay);
+    };
+    refreshLock();
+    return () => { if (timer !== null) window.clearTimeout(timer); };
+  }, [plan.closesAt, plan.status]);
 
   function requestClose() {
     requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose });
@@ -140,24 +162,51 @@ export function AssignmentDrawer({
   }, [targetKey]);
 
   useEffect(() => {
+    // Reviewer assignment writes do not revise the plan row. A focus refresh
+    // can therefore change this roster while loadKey stays stable; never keep
+    // an invisible, removed reviewer selected in the outgoing request.
+    setReviewerIds((current) => keepShownAssignmentSelection(
+      current,
+      reviewerMembershipKey === "" ? [] : reviewerMembershipKey.split(","),
+    ));
+  }, [reviewerMembershipKey]);
+
+  useEffect(() => {
+    if (assignmentLock) {
+      setSubmissions(null);
+      setLoadedTarget(null);
+      setLoadFailure(null);
+      setRetrying(false);
+      return;
+    }
     let cancelled = false;
-    const loadTarget = targetKey;
+    const loadTarget = loadKey;
+    setSubmissions(null);
+    setLoadedTarget(null);
     setLoadFailure(null);
+    setConfirmEmptyReplace(false);
     fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as AssignmentLoadPayload | null;
-        if (cancelled || currentTargetRef.current !== loadTarget) return;
+        if (cancelled || currentLoadRef.current !== loadTarget) return;
         if (!response.ok || !payload?.data) {
           setSubmissions(null);
           setLoadFailure(responseLoadFailure(response, payload));
         } else {
           setLoadFailure(null);
           setSubmissions(payload.data.submissions);
+          setSelected((current) => keepShownAssignmentSelection(
+            current,
+            payload.data?.submissions.map((submission) => submission.submissionId) ?? [],
+          ));
+          setTrackFilter((current) => current === "" || payload.data?.submissions.some((submission) => submission.trackId === current)
+            ? current
+            : "");
           setLoadedTarget(loadTarget);
         }
       })
       .catch(() => {
-        if (!cancelled && currentTargetRef.current === loadTarget) {
+        if (!cancelled && currentLoadRef.current === loadTarget) {
           setSubmissions(null);
           setLoadFailure({
             message: "Could not load this round's submissions. Check your connection and try again.",
@@ -166,10 +215,10 @@ export function AssignmentDrawer({
         }
       })
       .finally(() => {
-        if (!cancelled && currentTargetRef.current === loadTarget) setRetrying(false);
+        if (!cancelled && currentLoadRef.current === loadTarget) setRetrying(false);
       });
     return () => { cancelled = true; };
-  }, [eventId, plan.id, targetKey, loadEpoch]);
+  }, [assignmentLock, eventId, plan.id, loadKey, loadEpoch]);
 
   function retryLoad() {
     if (!loadFailure?.retryable || retrying) return;
@@ -197,9 +246,10 @@ export function AssignmentDrawer({
 
   const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
   const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
-  const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
-  const controlsDisabled = !assignmentsLoaded || Boolean(loadFailure) || busy;
+  const assignmentsLoaded = submissions !== null && loadedTarget === loadKey;
+  const controlsDisabled = assignmentLock !== null || !assignmentsLoaded || Boolean(loadFailure) || busy;
   const canAssign = canSubmitAssignments({
+    locked: assignmentLock !== null,
     loaded: assignmentsLoaded,
     hasLoadError: Boolean(loadFailure),
     busy,
@@ -210,7 +260,11 @@ export function AssignmentDrawer({
   });
 
   async function saveAssignments() {
-    if (!submissions || loadFailure || loadedTarget !== targetKey) {
+    if (assignmentGuidance) {
+      toast(assignmentGuidance, { kind: "error" });
+      return false;
+    }
+    if (!submissions || loadFailure || loadedTarget !== loadKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return false;
     }
@@ -243,7 +297,7 @@ export function AssignmentDrawer({
   }
 
   async function assign() {
-    if (!submissions || loadFailure || loadedTarget !== targetKey) {
+    if (!submissions || loadFailure || loadedTarget !== loadKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return;
     }
@@ -278,6 +332,7 @@ export function AssignmentDrawer({
     <>
       <Drawer open onClose={requestClose} title={`Assign work · ${plan.name}`}>
         <div className="form-stack drawer-body">
+        {assignmentGuidance && <p className="portal-note" role="alert">Assignments are locked. {assignmentGuidance}</p>}
         {plan.reviewers.length === 0
           ? <p className="portal-note">Add reviewers to this round before assigning work to them.</p>
           : (

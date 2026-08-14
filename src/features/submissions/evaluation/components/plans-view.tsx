@@ -11,6 +11,7 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { OrganizationInvitationDTO } from "@/shared/contracts";
+import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { PlanDTO } from "../types";
 import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
@@ -83,23 +84,42 @@ export function PlansView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [editing, setEditing] = useState<PlanDTO | null>(null);
+  const [editingPlanId, setEditingPlanId] = useState<PlanDTO["id"] | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PlanDTO | null>(null);
-  const [assigning, setAssigning] = useState<PlanDTO | null>(null);
+  const [assigningPlanId, setAssigningPlanId] = useState<PlanDTO["id"] | null>(null);
   const [inviting, setInviting] = useState(false);
   const [reminderDialog, setReminderDialog] = useState<ReminderDialogState | null>(null);
   const reminderTargetRef = useRef<string | null>(null);
   const previewRequestRef = useRef(0);
   const sendRequestRef = useRef(0);
   const sendingReminderRef = useRef(false);
+  const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
+  const assigning = assigningPlanId === null
+    ? null
+    : plans.find((plan) => plan.id === assigningPlanId) ?? null;
+  const editing = editingPlanId === null
+    ? null
+    : plans.find((plan) => plan.id === editingPlanId) ?? null;
 
   useEffect(() => {
     const refreshProgress = () => router.refresh();
     window.addEventListener("focus", refreshProgress);
     return () => window.removeEventListener("focus", refreshProgress);
   }, [router]);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const refreshLocks = () => {
+      const nowMs = Date.now();
+      setAssignmentNowMs(nowMs);
+      const delay = nextAssignmentLockRefreshMs(plans, nowMs);
+      if (delay !== null) timer = window.setTimeout(refreshLocks, delay);
+    };
+    refreshLocks();
+    return () => { if (timer !== null) window.clearTimeout(timer); };
+  }, [plans]);
 
   const trackName = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
   const nextRound = plans.reduce((highest, plan) => Math.max(highest, plan.round), 0) + 1;
@@ -311,19 +331,26 @@ export function PlansView({
       id: "actions",
       header: "",
       enableSorting: false,
-      cell: ({ row }) => (
-        <span className="row-actions">
-          <Button size="sm" variant="secondary" onClick={() => setAssigning(row.original)}>Assign</Button>
+      cell: ({ row }) => {
+        const lock = assignmentLockReason(row.original, new Date(assignmentNowMs));
+        return <span className="row-actions">
+          {lock
+            ? <span className="assignment-locked-action">
+                <Button size="sm" variant="secondary" disabled>Assign</Button>
+                <small>{lock === "closed" ? "Reopen to assign" : "Extend to assign"}</small>
+                <span className="sr-only">{assignmentLockGuidance(lock)}</span>
+              </span>
+            : <Button size="sm" variant="secondary" onClick={() => setAssigningPlanId(row.original.id)}>Assign</Button>}
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => openReminderPreflight(row.original)}>Remind</Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditingPlanId(row.original.id)}>Edit</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
-        </span>
-      ),
+        </span>;
+      },
     },
-  // The row callbacks read current component state; the columns only need to be
-  // rebuilt when the vocabulary or the busy flag changes.
+  // The row callbacks read current component state; the columns rebuild for
+  // vocabulary, busy state, and the precise close-deadline transition.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [trackName, busy, timezone]);
+  ], [trackName, busy, timezone, assignmentNowMs]);
 
   return (
     <div className="page">
@@ -362,11 +389,11 @@ export function PlansView({
           members={members}
           nextRound={nextRound}
           timezone={timezone}
-          onClose={() => { setCreating(false); setEditing(null); }}
+          onClose={() => { setCreating(false); setEditingPlanId(null); }}
         />
       )}
 
-      {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigning(null)} />}
+      {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigningPlanId(null)} />}
       {inviting && <ReviewerInviteDialog eventId={eventId} initialPendingInvitations={pendingReviewerInvitations} timezone={timezone} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog

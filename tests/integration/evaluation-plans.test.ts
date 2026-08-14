@@ -53,12 +53,13 @@ const untracked = submissionIdSchema.parse("b2000000-0000-4000-8000-000000000033
 
 let pglite: PGlite;
 let db: DbOrTx;
+let runEvaluationTransaction: <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
 
 const planInput = (overrides: Record<string, unknown> = {}) =>
   planInputSchema.parse({ name: "Round 1", round: 1, scaleMin: 1, scaleMax: 5, ...overrides });
 
 async function seedPlan(overrides: Record<string, unknown> = {}): Promise<PlanId> {
-  const { planId } = await savePlanIn(db, eventId, planInput(overrides));
+  const { planId } = await savePlanIn(runEvaluationTransaction, eventId, planInput(overrides));
   return planId;
 }
 
@@ -81,7 +82,9 @@ describe("evaluation plans and reviewer routing", () => {
     await pglite.exec(migration1);
     await pglite.exec(migration4);
     await pglite.exec(migration26);
-    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+    const database = drizzle(pglite, { schema });
+    db = database as unknown as DbOrTx;
+    runEvaluationTransaction = (work) => database.transaction((tx) => work(tx as unknown as DbOrTx));
 
     for (const [id, slug] of [[eventId, "eval-event"], [otherEventId, "eval-other"]] as const) {
       await pglite.query(
@@ -168,13 +171,13 @@ describe("evaluation plans and reviewer routing", () => {
       scaleMax: 5,
     });
 
-    await savePlanIn(db, eventId, legacyUpdate);
+    await savePlanIn(runEvaluationTransaction, eventId, legacyUpdate);
     expect(await getPlanIn(db, eventId, planId)).toMatchObject({
       name: "Renamed by an old tab",
       showPeerScores: true,
     });
 
-    await savePlanIn(db, eventId, { ...legacyUpdate, showPeerScores: false });
+    await savePlanIn(runEvaluationTransaction, eventId, { ...legacyUpdate, showPeerScores: false });
     expect((await getPlanIn(db, eventId, planId)).showPeerScores).toBe(false);
   });
 
@@ -187,12 +190,12 @@ describe("evaluation plans and reviewer routing", () => {
       criteria: [{ label: "Relevance", weight: 2 }, { label: "Clarity", weight: 1 }],
     });
 
-    await expect(savePlanIn(db, eventId, input)).resolves.toEqual({ planId: stablePlanId });
+    await expect(savePlanIn(runEvaluationTransaction, eventId, input)).resolves.toEqual({ planId: stablePlanId });
     const before = await pglite.query<{ id: string; label: string }>(
       "SELECT id, label FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order",
       [stablePlanId],
     );
-    await expect(savePlanIn(db, eventId, input)).resolves.toEqual({ planId: stablePlanId });
+    await expect(savePlanIn(runEvaluationTransaction, eventId, input)).resolves.toEqual({ planId: stablePlanId });
 
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM evaluation_plans WHERE id=$1", [stablePlanId]);
     const after = await pglite.query<{ id: string; label: string }>(
@@ -206,10 +209,10 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("prefers an open round, then the lowest, as the active one", async () => {
     const roundOne = await seedPlan({ name: "Round 1", round: 1, status: "closed" });
-    const roundTwo = await savePlanIn(db, eventId, planInput({ name: "Round 2", round: 2 }));
+    const roundTwo = await savePlanIn(runEvaluationTransaction, eventId, planInput({ name: "Round 2", round: 2 }));
     expect((await getActivePlanIn(db, eventId))?.id).toBe(roundTwo.planId);
 
-    await savePlanIn(db, eventId, planInput({ planId: roundOne, name: "Round 1", round: 1, status: "open" }));
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId: roundOne, name: "Round 1", round: 1, status: "open" }));
     expect((await getActivePlanIn(db, eventId))?.id).toBe(roundOne);
   });
 
@@ -218,7 +221,7 @@ describe("evaluation plans and reviewer routing", () => {
     const before = await getActivePlanIn(db, eventId);
     const criterionId = before?.criteria[0]?.id;
 
-    await savePlanIn(db, eventId, planInput({
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
       planId,
       name: "Round 1 revised",
       criteria: [{ id: criterionId, label: "Relevance to the track", weight: 2 }, { label: "Delivery", weight: 1 }],
@@ -232,14 +235,14 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("rejects a criterion id owned by another plan without changing either plan", async () => {
     const first = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
-    const second = await savePlanIn(db, eventId, planInput({
+    const second = await savePlanIn(runEvaluationTransaction, eventId, planInput({
       name: "Round 2",
       round: 2,
       criteria: [{ label: "Delivery", weight: 1 }],
     }));
     const secondBefore = await getPlanIn(db, eventId, second.planId);
 
-    const error = await savePlanIn(db, eventId, planInput({
+    const error = await savePlanIn(runEvaluationTransaction, eventId, planInput({
       planId: first,
       name: "Hijacked",
       criteria: [{ id: secondBefore.criteria[0]?.id, label: "Renamed from elsewhere", weight: 4 }],
@@ -253,7 +256,7 @@ describe("evaluation plans and reviewer routing", () => {
   it("rejects duplicate criterion ids as validation instead of a database error", async () => {
     const planId = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
     const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
-    const error = await savePlanIn(db, eventId, planInput({
+    const error = await savePlanIn(runEvaluationTransaction, eventId, planInput({
       planId,
       criteria: [
         { id: criterion?.id, label: "Relevance", weight: 1 },
@@ -266,27 +269,27 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("reports a duplicate round name as a field error, not a crash", async () => {
     await seedPlan();
-    const error = await savePlanIn(db, eventId, planInput()).catch((thrown: unknown) => thrown);
+    const error = await savePlanIn(runEvaluationTransaction, eventId, planInput()).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("VALIDATION");
     expect(isAppError(error) && (error.details as { fieldErrors: Record<string, string> }).fieldErrors.name).toBeTruthy();
   });
 
   it("refuses a track that belongs to another event", async () => {
-    const error = await savePlanIn(db, eventId, planInput({ trackIds: [foreignTrack] })).catch((thrown: unknown) => thrown);
+    const error = await savePlanIn(runEvaluationTransaction, eventId, planInput({ trackIds: [foreignTrack] })).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("VALIDATION");
   });
 
   it("rejects an edit that raced another organizer", async () => {
     const planId = await seedPlan();
     const stale = new Date(Date.now() - 60_000).toISOString();
-    const error = await savePlanIn(db, eventId, planInput({ planId, name: "Renamed" }), stale)
+    const error = await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, name: "Renamed" }), stale)
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("STALE_WRITE");
   });
 
   it("sizes each reviewer's slice by the effective scope rule", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: [platforms] },
       { userId: grace, trackIds: null },
     ]);
@@ -301,9 +304,108 @@ describe("evaluation plans and reviewer routing", () => {
     expect(plan?.progress).toEqual({ scored: 1, total: 3 });
   });
 
+  it.each(["manual", "deadline"] as const)(
+    "keeps reviewer routing and completed work unchanged after a %s close",
+    async (closure) => {
+      const planId = await seedPlan();
+      await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: [platforms] }]);
+      await giveReview(planId, platformsTalk, ada, 4);
+
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, ...lockedInput }));
+
+      const graph = async () => ({
+        reviewers: (await pglite.query(
+          "SELECT user_id, track_ids FROM reviewer_assignments WHERE plan_id=$1 ORDER BY user_id",
+          [planId],
+        )).rows,
+        assignments: (await pglite.query(
+          "SELECT submission_id, reviewer_user_id, status FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+          [planId],
+        )).rows,
+        reviews: (await pglite.query(
+          "SELECT submission_id, reviewer_user_id, overall_score::float8 AS overall_score FROM reviews WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+          [planId],
+        )).rows,
+      });
+      const before = await graph();
+
+      for (const attempted of [
+        [{ userId: ada, trackIds: [platforms] }, { userId: grace, trackIds: null }],
+        [],
+        [{ userId: ada, trackIds: [agents] }],
+      ]) {
+        const error = await assignReviewersIn(runEvaluationTransaction, eventId, planId, attempted)
+          .catch((thrown: unknown) => thrown);
+        expect(isAppError(error) && error.code).toBe("CONFLICT");
+        expect(await graph()).toEqual(before);
+      }
+
+      const rescope = await savePlanIn(runEvaluationTransaction, eventId, planInput({
+        planId,
+        ...lockedInput,
+        trackIds: [agents],
+      })).catch((thrown: unknown) => thrown);
+      expect(isAppError(rescope) && rescope.code).toBe("CONFLICT");
+      expect(await graph()).toEqual(before);
+      expect((await getPlanIn(db, eventId, planId)).trackIds).toBeNull();
+
+      const writableInput = closure === "manual"
+        ? { status: "open" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, ...writableInput }));
+      await expect(assignReviewersIn(runEvaluationTransaction, eventId, planId, [
+        { userId: ada, trackIds: [agents] },
+        { userId: grace, trackIds: null },
+      ])).resolves.toBeUndefined();
+      expect((await getPlanIn(db, eventId, planId)).reviewers.map((reviewer) => reviewer.userId).sort())
+        .toEqual([ada, grace].sort());
+    },
+  );
+
+  it.each(["manual", "deadline"] as const)(
+    "treats reordered track ids as the same scope after a %s close",
+    async (closure) => {
+      const planId = await seedPlan({ trackIds: [platforms, agents] });
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, ...lockedInput, trackIds: [platforms, agents] }));
+
+      await expect(savePlanIn(runEvaluationTransaction, eventId, planInput({
+        planId,
+        ...lockedInput,
+        name: "Round 1 clarified",
+        trackIds: [agents, platforms, agents],
+      }))).resolves.toEqual({ planId });
+
+      expect(await getPlanIn(db, eventId, planId)).toMatchObject({
+        name: "Round 1 clarified",
+        trackIds: [platforms, agents],
+      });
+    },
+  );
+
+  it("allows reviewer routing to be prepared before the round opens", async () => {
+    const planId = await seedPlan({
+      opensAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      closesAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+    });
+
+    await expect(assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: [platforms] }]))
+      .resolves.toBeUndefined();
+    expect((await getPlanIn(db, eventId, planId)).reviewers[0]).toMatchObject({
+      userId: ada,
+      trackIds: [platforms],
+      assigned: 1,
+    });
+  });
+
   it("narrows the round's own scope to its tracks", async () => {
     const planId = await seedPlan({ trackIds: [agents] });
-    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
     const [plan] = await listPlansIn(db, eventId);
     // An open assignment cannot widen the round: the untracked proposal is out
     // of scope the moment the plan names a track.
@@ -313,7 +415,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("refuses to route submissions to someone who is not a member", async () => {
     const planId = await seedPlan();
-    const error = await assignReviewersIn(db, eventId, planId, [{ userId: stranger, trackIds: null }])
+    const error = await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: stranger, trackIds: null }])
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("VALIDATION");
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM reviewer_assignments");
@@ -322,12 +424,12 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("leaves every assignment unchanged when one incoming reviewer is invalid", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: [platforms] },
       { userId: grace, trackIds: null },
     ]);
 
-    const error = await assignReviewersIn(db, eventId, planId, [
+    const error = await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: [agents] },
       { userId: stranger, trackIds: null },
     ]).catch((thrown: unknown) => thrown);
@@ -342,8 +444,8 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("rejects duplicate reviewer ids before changing assignments", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
-    const error = await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
+    const error = await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: ada, trackIds: [agents] },
     ]).catch((thrown: unknown) => thrown);
@@ -353,10 +455,10 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("drops a reviewer's routing without dropping their scores", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
     await giveReview(planId, platformsTalk, grace, 5);
 
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [agents] }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: [agents] }]);
     const [plan] = await listPlansIn(db, eventId);
     expect(plan?.reviewers.map((reviewer) => reviewer.userId)).toEqual([ada]);
     expect(plan?.reviewers[0]?.trackIds).toEqual([agents]);
@@ -384,7 +486,7 @@ describe("evaluation plans and reviewer routing", () => {
     await giveReview(planId, platformsTalk, ada, 3);
     await giveReview(planId, agentsTalk, ada, 5);
 
-    await savePlanIn(db, eventId, planInput({ planId, trackIds: [agents] }));
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, trackIds: [agents] }));
     expect((await getPlanIn(db, eventId, planId)).progress).toEqual({ scored: 1, total: 1 });
 
     await pglite.query("UPDATE submissions SET status = 'withdrawn' WHERE id = $1", [agentsTalk]);
@@ -399,7 +501,7 @@ describe("evaluation plans and reviewer routing", () => {
     expect(isAppError(error) && error.code).toBe("CONFLICT");
     expect(isAppError(error) && error.message).toContain("1 review");
 
-    const empty = await savePlanIn(db, eventId, planInput({ name: "Round 2", round: 2 }));
+    const empty = await savePlanIn(runEvaluationTransaction, eventId, planInput({ name: "Round 2", round: 2 }));
     await deletePlanIn(db, eventId, empty.planId);
     expect((await listPlansIn(db, eventId)).map((plan) => plan.id)).toEqual([planId]);
   });
@@ -415,7 +517,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("will not touch a plan through another event's id", async () => {
     const planId = await seedPlan();
-    const renamed = await savePlanIn(db, otherEventId, planInput({ planId, name: "Hijacked" }))
+    const renamed = await savePlanIn(runEvaluationTransaction, otherEventId, planInput({ planId, name: "Hijacked" }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(renamed) && renamed.code).toBe("NOT_FOUND");
     const removed = await deletePlanIn(db, otherEventId, planId).catch((thrown: unknown) => thrown);
@@ -425,7 +527,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("shows the Abstracts table the active round's rating, not a mean of every round", async () => {
     const roundOne = await seedPlan({ name: "Round 1", round: 1 });
-    const roundTwo = await savePlanIn(db, eventId, planInput({ name: "Round 2", round: 2 }));
+    const roundTwo = await savePlanIn(runEvaluationTransaction, eventId, planInput({ name: "Round 2", round: 2 }));
     await giveReview(roundOne, platformsTalk, ada, 2);
     await giveReview(roundTwo.planId, platformsTalk, ada, 5);
 

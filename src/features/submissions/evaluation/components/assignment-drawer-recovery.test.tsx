@@ -64,6 +64,20 @@ function submission(suffix: string, title: string): AssignableSubmission {
 
 const PLAN_A = plan("000000000010", "Round A");
 const PLAN_B = plan("000000000020", "Round B");
+const SECOND_REVIEWER = {
+  userId: "c4200000-0000-4000-8001-000000000099" as PlanDTO["reviewers"][number]["userId"],
+  name: "Second reviewer",
+  email: "second@example.com",
+  trackIds: null,
+  assigned: 0,
+  completed: 0,
+  recused: 0,
+  outstanding: 0,
+  scored: 0,
+} satisfies PlanDTO["reviewers"][number];
+const PLAN_A_WITH_TWO_REVIEWERS = { ...PLAN_A, reviewers: [...PLAN_A.reviewers, SECOND_REVIEWER] };
+const CLOSED_PLAN = { ...plan("000000000030", "Closed round"), status: "closed" as const };
+const EXPIRED_PLAN = { ...plan("000000000040", "Expired round"), closesAt: "2000-01-01T00:00:00.000Z" };
 const SUBMISSION_A = submission("000000000011", "Proposal from round A");
 const SUBMISSION_B = submission("000000000021", "Proposal from round B");
 
@@ -113,10 +127,118 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe("evaluation assignment drawer loading recovery", () => {
+  it.each([
+    [CLOSED_PLAN, "Reopen this round before changing reviewer assignments."],
+    [EXPIRED_PLAN, "Extend this round’s close date before changing reviewer assignments."],
+  ])("does not load or unlock a terminal round", async (lockedPlan, guidance) => {
+    await renderDrawer(lockedPlan);
+
+    expect(container.textContent).toContain(`Assignments are locked. ${guidance}`);
+    expect(reviewerCheckbox(`${lockedPlan.name} reviewer`)?.matches(":disabled")).toBe(true);
+    expect(buttonNamed("Assign 0")?.disabled).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("disables an already-loaded assignment draft as soon as the round closes", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(PLAN_A);
+
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await renderDrawer({ ...PLAN_A, status: "closed" });
+
+    expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(reviewerCheckbox("Round A reviewer")?.checked).toBe(true);
+    expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads candidates for a refreshed scope and keeps only still-eligible selections", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A, SUBMISSION_B] } }));
+    await renderDrawer(PLAN_A);
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 2")?.disabled).toBe(false);
+
+    let resolveRefresh!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => { resolveRefresh = resolve; }));
+    await renderDrawer({
+      ...PLAN_A,
+      trackIds: ["c4200000-0000-4000-8004-000000000099" as NonNullable<PlanDTO["trackIds"]>[number]],
+      updatedAt: "2026-08-13T13:00:00.000Z",
+    });
+
+    expect(container.textContent).toContain("Loading this round’s submissions…");
+    expect(buttonNamed("Assign 2")?.disabled).toBe(true);
+
+    resolveRefresh(Response.json({ data: { submissions: [SUBMISSION_B] } }));
+    await settle();
+
+    expect(container.textContent).not.toContain(SUBMISSION_A.title);
+    expect(container.textContent).toContain(SUBMISSION_B.title);
+    expect(container.textContent).toContain("1 submission selected from 1 shown.");
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a removed reviewer from the draft before submitting the refreshed roster", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(PLAN_A_WITH_TWO_REVIEWERS);
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => reviewerCheckbox("Second reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { assigned: 1, removed: 0 } }));
+    await renderDrawer({ ...PLAN_A_WITH_TWO_REVIEWERS, reviewers: [SECOND_REVIEWER] });
+
+    expect(reviewerCheckbox("Round A reviewer")).toBeUndefined();
+    expect(reviewerCheckbox("Second reviewer")?.checked).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await act(async () => buttonNamed("Assign 1")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const request = fetchMock.mock.calls[1]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      reviewerUserIds: [SECOND_REVIEWER.userId],
+      submissionIds: [SUBMISSION_A.submissionId],
+      mode: "add",
+    });
+  });
+
+  it("locks an open drawer at its close deadline without waiting for another render", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const timedPlan = { ...PLAN_A, closesAt: "2026-08-14T12:00:01.000Z" };
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(timedPlan);
+
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_100);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(container.textContent).toContain("Assignments are locked. Extend this round’s close date before changing reviewer assignments.");
+    expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("recovers a transport failure in place and unlocks the loaded round", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("offline"));
     await renderDrawer(PLAN_A);

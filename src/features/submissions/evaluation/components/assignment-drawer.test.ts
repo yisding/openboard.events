@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { nextAssignmentLockRefreshMs } from "../assignment-writability";
 import { assignmentDraftChanged, canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
 
 const ready = {
+  locked: false,
   loaded: true,
   hasLoadError: false,
   busy: false,
@@ -13,6 +15,14 @@ const ready = {
 };
 
 describe("assignment drawer submission safety", () => {
+  it("schedules the exact close transition and safely revisits distant deadlines", () => {
+    const now = Date.parse("2026-08-14T12:00:00.000Z");
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2026-08-14T12:00:01.000Z" }], now)).toBe(1_025);
+    expect(nextAssignmentLockRefreshMs([{ status: "closed", closesAt: "2026-08-14T12:00:01.000Z" }], now)).toBeNull();
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2026-08-14T11:59:59.000Z" }], now)).toBeNull();
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2027-08-14T12:00:00.000Z" }], now)).toBe(2_147_483_647);
+  });
+
   it("keeps assignment checkboxes compact inside full-row labels", () => {
     const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
 
@@ -31,6 +41,11 @@ describe("assignment drawer submission safety", () => {
   it("never submits before candidates load or after loading fails", () => {
     expect(canSubmitAssignments({ ...ready, loaded: false })).toBe(false);
     expect(canSubmitAssignments({ ...ready, hasLoadError: true })).toBe(false);
+  });
+
+  it("locks submission immediately when the round prop becomes unwritable", () => {
+    expect(canSubmitAssignments(ready)).toBe(true);
+    expect(canSubmitAssignments({ ...ready, locked: true })).toBe(false);
   });
 
   it("requires reviewers and a submission when adding work", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CriterionKind } from "@/shared/contracts";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -9,6 +9,7 @@ import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/m
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
 import { evaluationFailureMessage, evaluationRequest, type EvaluationRequestResult } from "./evaluation-request";
@@ -110,17 +111,92 @@ function draftFrom(plan: PlanDTO): PlanDraft {
   };
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function sameReviewerAssignments(
+  left: readonly PlanDraft["reviewers"][number][],
+  right: readonly PlanDraft["reviewers"][number][],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightByUser = new Map(right.map((reviewer) => [reviewer.userId, reviewer.trackIds]));
+  return left.every((reviewer) => {
+    const otherTracks = rightByUser.get(reviewer.userId);
+    return otherTracks !== undefined && sameStringSet(reviewer.trackIds, otherTracks);
+  });
+}
+
+function sameCriteriaDrafts(left: readonly CriterionDraft[], right: readonly CriterionDraft[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * Rebase a mounted editor after router.refresh supplies a newer authoritative
+ * plan. Fields the organizer has not touched follow the server; local edits
+ * stay local and are now protected by the fresh optimistic revision.
+ */
+function rebaseDraft(
+  current: PlanDraft,
+  previous: PlanDraft,
+  latest: PlanDraft,
+): PlanDraft {
+  return {
+    name: current.name === previous.name ? latest.name : current.name,
+    round: current.round === previous.round ? latest.round : current.round,
+    scaleMin: current.scaleMin === previous.scaleMin ? latest.scaleMin : current.scaleMin,
+    scaleMax: current.scaleMax === previous.scaleMax ? latest.scaleMax : current.scaleMax,
+    status: current.status === previous.status ? latest.status : current.status,
+    trackIds: sameStringSet(current.trackIds, previous.trackIds) ? latest.trackIds : current.trackIds,
+    opensAt: current.opensAt === previous.opensAt ? latest.opensAt : current.opensAt,
+    closesAt: current.closesAt === previous.closesAt ? latest.closesAt : current.closesAt,
+    anonymizeAuthors: current.anonymizeAuthors === previous.anonymizeAuthors
+      ? latest.anonymizeAuthors
+      : current.anonymizeAuthors,
+    showPeerScores: current.showPeerScores === previous.showPeerScores
+      ? latest.showPeerScores
+      : current.showPeerScores,
+    criteria: sameCriteriaDrafts(current.criteria, previous.criteria) ? latest.criteria : current.criteria,
+    reviewers: sameReviewerAssignments(current.reviewers, previous.reviewers) ? latest.reviewers : current.reviewers,
+  };
+}
+
+function assignmentWindowBlockers(
+  window: Pick<PlanDTO, "status" | "closesAt">,
+  now: Date,
+): number {
+  return Number(window.status !== "open")
+    + Number(window.closesAt !== null && new Date(window.closesAt).getTime() <= now.getTime());
+}
+
+/** Recovery can require both reopening and extending a round. Let either
+ * deliberate edit remove one blocker, but never let an ordinary edit move
+ * unsaved assignments toward a terminal window. */
+function canStageReviewerRecovery(
+  current: Pick<PlanDTO, "status" | "closesAt">,
+  next: Pick<PlanDTO, "status" | "closesAt">,
+  now: Date,
+  recoveryLoaded: boolean,
+): boolean {
+  return recoveryLoaded && assignmentWindowBlockers(next, now) < assignmentWindowBlockers(current, now);
+}
+
 /** A `<Select multiple>` of tracks, where selecting nothing means every track. */
 function TrackScope({
   tracks,
   value,
   onChange,
   label,
+  disabled = false,
 }: {
   tracks: TrackOption[];
   value: string[];
   onChange: (next: string[]) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <Field label={label} hint="Select none for every track">
@@ -128,6 +204,7 @@ function TrackScope({
         multiple
         value={value}
         size={Math.min(tracks.length, 4)}
+        disabled={disabled}
         onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}
       >
         {tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
@@ -138,7 +215,13 @@ function TrackScope({
 
 export type PlanReviewerSaveResult =
   | { ok: true; planId: string }
-  | { ok: false; kind: "response" | "transport"; message: string; pendingReviewerPlanId: string | null };
+  | {
+      ok: false;
+      kind: "response" | "transport";
+      message: string;
+      code?: string;
+      pendingReviewerPlanId: string | null;
+    };
 
 /** Two-stage round saves can be retried safely: once the round write succeeds,
  * its id is retained and later attempts run only the reviewer replacement. */
@@ -150,12 +233,12 @@ export async function completePlanAndReviewerSave(
   const planResult = pendingReviewerPlanId
     ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
     : await savePlan();
-  if (!planResult.ok) return { ok: false, kind: planResult.kind, message: planResult.message, pendingReviewerPlanId: null };
+  if (!planResult.ok) return { ...planResult, pendingReviewerPlanId: null };
 
   const reviewerResult = await saveReviewers(planResult.data.planId);
   return reviewerResult.ok
     ? { ok: true, planId: planResult.data.planId }
-    : { ok: false, kind: reviewerResult.kind, message: reviewerResult.message, pendingReviewerPlanId: planResult.data.planId };
+    : { ...reviewerResult, pendingReviewerPlanId: planResult.data.planId };
 }
 
 export function PlanEditor({
@@ -179,36 +262,159 @@ export function PlanEditor({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [baseline] = useState<PlanDraft>(() => plan ? draftFrom(plan) : emptyDraft(nextRound));
+  const [baseline, setBaseline] = useState<PlanDraft>(() => plan ? draftFrom(plan) : emptyDraft(nextRound));
   const [draft, setDraft] = useState<PlanDraft>(baseline);
   const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
+  const [persistedPlanId, setPersistedPlanId] = useState<string | null>(plan?.id ?? null);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(plan?.updatedAt);
+  const [loadedLatestPlan, setLoadedLatestPlan] = useState<PlanDTO | null>(null);
+  const [windowEditRevision, setWindowEditRevision] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadingLatest, setLoadingLatest] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
+  const [reviewerLockConflict, setReviewerLockConflict] = useState(false);
+  const [reviewerRecoveryLoaded, setReviewerRecoveryLoaded] = useState(false);
+  const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
+  const baselineRef = useRef(baseline);
+  baselineRef.current = baseline;
+  const expectedUpdatedAtRef = useRef(expectedUpdatedAt);
+  expectedUpdatedAtRef.current = expectedUpdatedAt;
   const { runGuarded } = useGuardedAction();
+  const authoritativePlan = loadedLatestPlan && (!plan || new Date(loadedLatestPlan.updatedAt) >= new Date(plan.updatedAt))
+    ? loadedLatestPlan
+    : plan;
+  const assignmentWindow = !authoritativePlan || windowEditRevision === authoritativePlan.updatedAt
+    ? draft
+    : authoritativePlan;
   const dirty = pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline);
+  const reviewerAssignmentsChanged = !sameReviewerAssignments(draft.reviewers, baseline.reviewers);
+  const trackScopeChanged = !sameStringSet(draft.trackIds, baseline.trackIds);
+  const assignmentEditsChanged = reviewerAssignmentsChanged || trackScopeChanged;
+  const assignmentLock = assignmentLockReason(assignmentWindow, new Date(assignmentNowMs));
+  const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
+  const reviewerRecoveryRequired = pendingReviewerPlanId !== null
+    && (reviewerLockConflict || assignmentLock !== null);
+  const assignmentSaveBlocked = assignmentEditsChanged && assignmentLock !== null;
 
   useUnsavedWorkGuard(dirty);
 
+  useEffect(() => {
+    if (!plan) return;
+    const currentRevision = expectedUpdatedAtRef.current;
+    if (currentRevision && new Date(plan.updatedAt) <= new Date(currentRevision)) return;
+
+    const latest = draftFrom(plan);
+    const previous = baselineRef.current;
+    setDraft((current) => rebaseDraft(current, previous, latest));
+    setBaseline(latest);
+    setExpectedUpdatedAt(plan.updatedAt);
+    setWindowEditRevision((revision) => revision === null ? null : plan.updatedAt);
+  }, [plan]);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const refreshLock = () => {
+      const nowMs = Date.now();
+      setAssignmentNowMs(nowMs);
+      const delay = nextAssignmentLockRefreshMs([{ status: assignmentWindow.status, closesAt: assignmentWindow.closesAt }], nowMs);
+      if (delay !== null) timer = window.setTimeout(refreshLock, delay);
+    };
+    refreshLock();
+    return () => { if (timer !== null) window.clearTimeout(timer); };
+  }, [assignmentWindow.closesAt, assignmentWindow.status]);
+
   const patch = (next: Partial<PlanDraft>) => setDraft((current) => ({ ...current, ...next }));
 
+  function refuseTerminalAssignmentEdits(): void {
+    toast("Save assignment changes while the round is open, then close it in a separate edit", { kind: "error" });
+  }
+
+  function changeStatus(status: PlanDTO["status"]): void {
+    const nextWindow = { status, closesAt: assignmentWindow.closesAt };
+    const now = new Date(assignmentNowMs);
+    if (
+      assignmentEditsChanged
+      && assignmentLockReason(nextWindow, now)
+      && !canStageReviewerRecovery(assignmentWindow, nextWindow, now, reviewerRecoveryLoaded)
+    ) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
+    setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
+    patch(nextWindow);
+  }
+
+  function changeClosesAt(closesAt: string | null): void {
+    const nextWindow = { status: assignmentWindow.status, closesAt };
+    const now = new Date(assignmentNowMs);
+    if (
+      assignmentEditsChanged
+      && assignmentLockReason(nextWindow, now)
+      && !canStageReviewerRecovery(assignmentWindow, nextWindow, now, reviewerRecoveryLoaded)
+    ) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
+    setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
+    patch(nextWindow);
+  }
+
   function closeEditor() {
-    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: onClose });
+    requestGuardedEditorClose({ busy: saving || loadingLatest, dirty, runGuarded, close: onClose });
+  }
+
+  async function loadLatestRound() {
+    if (!pendingReviewerPlanId || loadingLatest) return;
+    setLoadingLatest(true);
+    try {
+      const result = await evaluationRequest<{ plans: PlanDTO[] }>(
+        `/api/internal/evaluation/${eventId}/plans`,
+        { method: "GET" },
+        "The latest round could not be loaded",
+      );
+      if (!result.ok) {
+        toast(evaluationFailureMessage(result), { kind: "error" });
+        return;
+      }
+      const latest = result.data.plans.find((candidate) => candidate.id === pendingReviewerPlanId);
+      if (!latest) {
+        toast("This round no longer exists", { kind: "error" });
+        return;
+      }
+      const latestBaseline = draftFrom(latest);
+      setBaseline(latestBaseline);
+      setDraft((current) => ({ ...latestBaseline, reviewers: current.reviewers }));
+      setPersistedPlanId(latest.id);
+      setExpectedUpdatedAt(latest.updatedAt);
+      setLoadedLatestPlan(latest);
+      setWindowEditRevision(null);
+      setPendingReviewerPlanId(null);
+      setReviewerLockConflict(false);
+      setReviewerRecoveryLoaded(true);
+    } finally {
+      setLoadingLatest(false);
+    }
   }
 
   async function save() {
+    if (assignmentEditsChanged && assignmentLockReason(assignmentWindow)) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
+    setReviewerRecoveryLoaded(false);
     setSaving(true);
     try {
       const body = {
-        ...(!plan ? { planId: createPlanId } : {}),
+        ...(!persistedPlanId ? { planId: createPlanId } : {}),
         name: draft.name,
         round: draft.round,
         scaleMin: draft.scaleMin,
         scaleMax: draft.scaleMax,
-        status: draft.status,
+        status: assignmentWindow.status,
         // Empty means every track, which the server stores as NULL.
         trackIds: draft.trackIds.length === 0 ? null : draft.trackIds,
         opensAt: draft.opensAt,
-        closesAt: draft.closesAt,
+        closesAt: assignmentWindow.closesAt,
         anonymizeAuthors: draft.anonymizeAuthors,
         showPeerScores: draft.showPeerScores,
         criteria: draft.criteria.map((criterion) => ({
@@ -218,38 +424,41 @@ export function PlanEditor({
           kind: criterion.kind,
           required: criterion.required,
           options: criterion.kind === "select"
-            ? parseOptions(criterion.optionsText, plan?.criteria.find((entry) => entry.id === criterion.id)?.options ?? [])
+            ? parseOptions(criterion.optionsText, authoritativePlan?.criteria.find((entry) => entry.id === criterion.id)?.options ?? [])
             : [],
         })),
         // Optimistic concurrency, so a second organizer's edit is a conflict
         // the first one sees rather than an overwrite they never learn about.
-        ...(plan ? { expectedUpdatedAt: plan.updatedAt } : {}),
+        ...(persistedPlanId ? { expectedUpdatedAt } : {}),
       };
       const result = await completePlanAndReviewerSave(
         pendingReviewerPlanId,
         () => evaluationRequest<{ planId: string }>(
-          plan ? `/api/internal/evaluation/${eventId}/plans/${plan.id}` : `/api/internal/evaluation/${eventId}/plans`,
-          { method: plan ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          persistedPlanId ? `/api/internal/evaluation/${eventId}/plans/${persistedPlanId}` : `/api/internal/evaluation/${eventId}/plans`,
+          { method: persistedPlanId ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
           "That round did not save",
         ),
-        (savedPlanId) => evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            reviewers: draft.reviewers.map((reviewer) => ({
-              userId: reviewer.userId,
-              trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
-            })),
-          }),
-        }, "The round saved, but its reviewers did not"),
+        (savedPlanId) => reviewerAssignmentsChanged
+          ? evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                reviewers: draft.reviewers.map((reviewer) => ({
+                  userId: reviewer.userId,
+                  trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
+                })),
+              }),
+            }, "The round saved, but its reviewers did not")
+          : Promise.resolve({ ok: true as const, data: {} }),
       );
       if (!result.ok) {
         setPendingReviewerPlanId(result.pendingReviewerPlanId);
+        setReviewerLockConflict(Boolean(result.pendingReviewerPlanId && result.code === "CONFLICT"));
         toast(evaluationFailureMessage(result), { kind: "error" });
         if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
-      toast(plan ? `${draft.name} updated` : `${draft.name} created`);
+      toast(persistedPlanId ? `${draft.name} updated` : `${draft.name} created`);
       onClose();
       router.refresh();
     } catch {
@@ -267,11 +476,25 @@ export function PlanEditor({
   }));
 
   return (
-    <Drawer open onClose={closeEditor} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
+    <Drawer open onClose={closeEditor} title={persistedPlanId ? `Edit ${plan?.name ?? draft.name}` : "New evaluation plan"}>
       <div className="form-stack drawer-body">
         {pendingReviewerPlanId && (
-          <p className="portal-note" role="alert">
-            <b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.
+          <div className="portal-note" role="alert">
+            {reviewerRecoveryRequired ? (
+              <>
+                <p><b>Round details are saved, but assignments are now locked.</b> Load the latest round, then reopen it or extend its close date before saving your preserved reviewer changes.</p>
+                <Button size="sm" variant="secondary" disabled={loadingLatest} onClick={loadLatestRound}>
+                  {loadingLatest ? "Loading latest…" : "Load latest round"}
+                </Button>
+              </>
+            ) : (
+              <p><b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.</p>
+            )}
+          </div>
+        )}
+        {reviewerRecoveryLoaded && (
+          <p className="portal-note" role="status">
+            <b>Latest round loaded.</b> Your reviewer changes are preserved. {assignmentGuidance ?? "Save again to apply them."}
           </p>
         )}
         <fieldset disabled={pendingReviewerPlanId !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "contents" }}>
@@ -291,14 +514,23 @@ export function PlanEditor({
           </Field>
         </div>
 
-        <TrackScope label="Track scope" tracks={tracks} value={draft.trackIds} onChange={(trackIds) => patch({ trackIds })} />
+        <TrackScope
+          label="Track scope"
+          tracks={tracks}
+          value={draft.trackIds}
+          disabled={assignmentLock !== null}
+          onChange={(trackIds) => patch({ trackIds })}
+        />
+        {assignmentGuidance && (
+          <p className="portal-note" role="status">Track and reviewer assignments are locked. {assignmentGuidance}</p>
+        )}
 
         <div className="evaluation-field-row evaluation-window-row">
           <Field label="Opens" hint="Reviewers cannot open assigned proposals before this">
             <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
           <Field label="Closes" hint="Saving stops at this moment; prior work stays readable">
-            <DateTimePicker value={draft.closesAt} onChange={(closesAt) => patch({ closesAt })} tz={timezone} />
+            <DateTimePicker value={assignmentWindow.closesAt} onChange={changeClosesAt} tz={timezone} />
           </Field>
         </div>
 
@@ -327,7 +559,7 @@ export function PlanEditor({
         </div>
 
         <Field label="Status">
-          <Select value={draft.status} onChange={(event) => patch({ status: event.target.value === "closed" ? "closed" : "open" })}>
+          <Select value={assignmentWindow.status} onChange={(event) => changeStatus(event.target.value === "closed" ? "closed" : "open")}>
             <option value="open">Open — reviewers can score</option>
             <option value="closed">Closed — scores are final</option>
           </Select>
@@ -406,38 +638,41 @@ export function PlanEditor({
 
         <section>
           <h3>Reviewers</h3>
-          {members.length === 0 ? (
-            <p className="portal-note">This event has no members to assign yet.</p>
-          ) : members.map((member) => {
-            const assignment = draft.reviewers.find((reviewer) => reviewer.userId === member.userId);
-            return (
-              <div key={member.userId} className="reviewer-assignment">
-                <label>
-                  <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
-                  <b>{member.name || member.email}</b> <small>{member.role}</small>
-                </label>
-                {assignment && (
-                  <TrackScope
-                    label={`Tracks for ${member.name || member.email}`}
-                    tracks={tracks}
-                    value={assignment.trackIds}
-                    onChange={(trackIds) => patch({
-                      reviewers: draft.reviewers.map((reviewer) => reviewer.userId === member.userId ? { ...reviewer, trackIds } : reviewer),
-                    })}
-                  />
-                )}
-              </div>
-            );
-          })}
+          <fieldset disabled={saving || assignmentLock !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+            <legend className="sr-only">Reviewer assignments</legend>
+            {members.length === 0 ? (
+              <p className="portal-note">This event has no members to assign yet.</p>
+            ) : members.map((member) => {
+              const assignment = draft.reviewers.find((reviewer) => reviewer.userId === member.userId);
+              return (
+                <div key={member.userId} className="reviewer-assignment">
+                  <label>
+                    <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
+                    <b>{member.name || member.email}</b> <small>{member.role}</small>
+                  </label>
+                  {assignment && (
+                    <TrackScope
+                      label={`Tracks for ${member.name || member.email}`}
+                      tracks={tracks}
+                      value={assignment.trackIds}
+                      onChange={(trackIds) => patch({
+                        reviewers: draft.reviewers.map((reviewer) => reviewer.userId === member.userId ? { ...reviewer, trackIds } : reviewer),
+                      })}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </fieldset>
         </section>
 
         <p className="portal-note">
           Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Abstracts by rating and move the survivors.
         </p>
         <div className="drawer-actions">
-          <Button variant="secondary" disabled={saving} onClick={closeEditor}>Cancel</Button>
-          <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
-            {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
+          <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>
+          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || draft.name.trim() === ""} onClick={save}>
+            {saving ? "Saving…" : reviewerRecoveryRequired ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
           </Button>
         </div>
       </div>

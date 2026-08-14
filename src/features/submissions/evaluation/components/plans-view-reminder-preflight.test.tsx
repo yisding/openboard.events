@@ -41,6 +41,8 @@ function plan(suffix: string, name: string): PlanDTO {
 
 const PLAN_A = plan("000000000010", "Round A");
 const PLAN_B = plan("000000000020", "Round B");
+const CLOSED_PLAN = { ...plan("000000000030", "Closed round"), status: "closed" as const };
+const EXPIRED_PLAN = { ...plan("000000000040", "Expired round"), closesAt: "2000-01-01T00:00:00.000Z" };
 const ADA = {
   reviewerUserId: "c4200000-0000-4000-8001-000000000011",
   name: "Ada Lovelace",
@@ -92,6 +94,11 @@ function rowButton(round: string, name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
+function editorStatusSelect(): HTMLSelectElement | undefined {
+  return [...container.querySelectorAll<HTMLSelectElement>("select")]
+    .find((select) => [...select.options].some((option) => option.textContent?.includes("scores are final")));
+}
+
 beforeEach(() => {
   routerMock.refresh.mockReset();
   toastMock.mockReset();
@@ -114,11 +121,71 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe("evaluation reminder exact-recipient preflight", () => {
+  it("keeps assignment entry points closed with specific recovery guidance", async () => {
+    await renderPlans([CLOSED_PLAN, EXPIRED_PLAN, PLAN_A]);
+
+    expect(rowButton("Closed round", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Closed round", "Assign")?.closest("tr")?.textContent).toContain("Reopen to assign");
+    expect(rowButton("Expired round", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Expired round", "Assign")?.closest("tr")?.textContent).toContain("Extend to assign");
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an open assignment drawer synchronized with refreshed round props", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [] } }));
+    await renderPlans([PLAN_A]);
+    await act(async () => rowButton("Round A", "Assign")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("Assign work · Round A");
+    await renderPlans([{ ...PLAN_A, status: "closed" }]);
+
+    expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives an open editor's assignment lock from refreshed close and extend props", async () => {
+    await renderPlans([PLAN_A]);
+    await act(async () => rowButton("Round A", "Edit")?.click());
+    await settle();
+    expect(container.textContent).toContain("Edit Round A");
+    expect(container.textContent).not.toContain("Track and reviewer assignments are locked.");
+
+    await renderPlans([{ ...PLAN_A, status: "closed", updatedAt: "2026-08-13T13:00:00.000Z" }]);
+    expect(container.textContent).toContain("Track and reviewer assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(editorStatusSelect()?.value).toBe("closed");
+
+    await renderPlans([{ ...PLAN_A, status: "open", updatedAt: "2026-08-13T14:00:00.000Z" }]);
+    expect(container.textContent).toContain("Edit Round A");
+    expect(container.textContent).not.toContain("Track and reviewer assignments are locked.");
+    expect(editorStatusSelect()?.value).toBe("open");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("locks the assignment entry point when its deadline passes on screen", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const timedPlan = { ...PLAN_A, closesAt: "2026-08-14T12:00:01.000Z" };
+    await renderPlans([timedPlan]);
+
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(1_100);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Round A", "Assign")?.closest("tr")?.textContent).toContain("Extend to assign");
+  });
+
   it("previews exact recipients before one explicit, double-click-safe send", async () => {
     let resolvePreview!: (response: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => { resolvePreview = resolve; }));
