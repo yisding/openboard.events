@@ -57,6 +57,7 @@ export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId">;
 /** Submission persistence port wired by the top-level CFP composition feature. */
 export type CfpSubmissionCommands = {
   createSubmissionIn: (tx: TxDb, eventId: EventId, input: CreateSubmissionInput) => Promise<CreateSubmissionResult>;
+  lockSubmissionLimitScopeIn: (tx: TxDb, eventId: EventId, formId: FormId, contactId: ContactId) => Promise<void>;
   saveDraftAnswers: (
     eventId: EventId,
     contactId: ContactId,
@@ -118,7 +119,7 @@ function assertParticipantRolePolicy(
 
 export async function submitCfpForm(
   input: SubmitInput,
-  commands: Pick<CfpSubmissionCommands, "createSubmissionIn">,
+  commands: Pick<CfpSubmissionCommands, "createSubmissionIn" | "lockSubmissionLimitScopeIn">,
 ): Promise<CreateSubmissionResult> {
   if (input.draftSubmissionId) {
     // A committed draft is the idempotency record. Bind it to all three owners
@@ -243,6 +244,10 @@ export async function submitCfpForm(
       SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
     `);
     if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
+    // Phase-one rollout: establish the scoped lock order while every instance
+    // still shares the legacy event mutex. The follow-up can remove only the
+    // broad lock once this compatible version has reached all writers.
+    await commands.lockSubmissionLimitScopeIn(tx, input.eventId, input.formId, input.contactId);
 
     if (input.draftSubmissionId) {
       // Serialize against createSubmissionIn's event lock before participant

@@ -23,6 +23,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // M51 added `contacts.workflow_status`; `getOrCreateContact`'s unqualified
 // `.returning()` (used for the submitter contact) now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0037_submission_limit_guards.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
@@ -85,6 +86,7 @@ describe("createSubmission", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSubmissionGuards);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -134,6 +136,31 @@ describe("createSubmission", () => {
     expect(new Set(codes).size).toBe(10);
     expect(codes).toEqual([...codes].sort((a, b) => a - b));
     expect((codes.at(-1) ?? 0) - (codes[0] ?? 0)).toBe(9);
+  });
+
+  it("serializes concurrent cap decisions on one durable speaker/form guard", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("UPDATE forms SET submission_limit=1 WHERE id=$1", [openForm]);
+    try {
+      const settled = await Promise.allSettled([
+        createSubmission(eventId, cfpInput({ fields: { title: "First concurrent talk" } })),
+        createSubmission(eventId, cfpInput({ fields: { title: "Second concurrent talk" } })),
+      ]);
+      const fulfilled = settled.filter((result) => result.status === "fulfilled");
+      const rejected = settled.filter((result) => result.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected.some((result) => result.status === "rejected" && isAppError(result.reason) && result.reason.code === "LIMIT_REACHED")).toBe(true);
+      expect(await countRows("submissions", "status='pending'")).toBe(1);
+      expect(await countRows(
+        "submission_limit_guards",
+        `event_id='${eventId}' AND form_id='${openForm}' AND contact_id='${speaker}'`,
+      )).toBe(1);
+    } finally {
+      await pglite.query("UPDATE forms SET submission_limit=NULL WHERE id=$1", [openForm]);
+    }
   });
 
   it("creates a CFP submission with exactly one confirmation email", async () => {

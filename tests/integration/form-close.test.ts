@@ -23,6 +23,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // used by `createSubmission`/`upsertDraft` for the submitter) has an
 // unqualified `.returning()` that now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0037_submission_limit_guards.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("f0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000002");
@@ -79,6 +80,7 @@ beforeAll(async () => {
   await pglite.exec(migration1);
   await pglite.exec(migrationReviewOps);
   await pglite.exec(migrationRoster);
+  await pglite.exec(migrationSubmissionGuards);
   testDb = createTestDb(pglite);
 
   await pglite.query(

@@ -260,6 +260,13 @@
       "when": 1786683300000,
       "tag": "0036_api_key_creation_receipts",
       "breakpoints": false
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786688400000,
+      "tag": "0037_submission_limit_guards",
+      "breakpoints": false
     }
   ]
 }

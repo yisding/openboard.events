@@ -5,10 +5,11 @@ import {
   type SaveDraftInput,
   type SubmitInput,
 } from "@/features/forms/index.cfp";
-import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions/index.cfp";
+import { createSubmissionIn, lockSubmissionLimitScopeIn, saveDraftAnswers } from "@/features/submissions/index.cfp";
 
 const submissionCommands = {
   createSubmissionIn,
+  lockSubmissionLimitScopeIn,
   saveDraftAnswers,
 } satisfies CfpSubmissionCommands;
 
@@ -22,4 +23,3 @@ export function saveCfpDraft(input: SaveDraftInput) {
 }
 
 export type { ParticipantInput, SaveDraftInput, SubmitInput } from "@/features/forms/index.cfp";
-
