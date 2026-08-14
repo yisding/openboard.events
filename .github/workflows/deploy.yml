@@ -16,9 +16,9 @@ on:
 
 jobs:
   targets:
-    # A merge to main deploys preview and nothing else. Production stays a
-    # manual dispatch until PRODUCTION_DEPLOY_ENABLED=1, and even then it
-    # trails preview rather than deploying beside it.
+    # A merge to main deploys preview and nothing else, leaving a soak window.
+    # A production dispatch always replays the same commit through preview
+    # first, so production cannot bypass the canary's smoke and browser proof.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -30,15 +30,12 @@ jobs:
         id: pick
         env:
           DISPATCH_ENV: ${{ inputs.environment }}
-          PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
         run: |
-          if [[ -n "$DISPATCH_ENV" ]]; then
-            environments="[\"$DISPATCH_ENV\"]"
-          elif [[ "$PRODUCTION_DEPLOY_ENABLED" == "1" ]]; then
-            environments='["preview","production"]'
-          else
-            environments='["preview"]'
-          fi
+          case "$DISPATCH_ENV" in
+            production) environments='["preview","production"]' ;;
+            preview|"") environments='["preview"]' ;;
+            *) echo "::error::unknown deployment environment $DISPATCH_ENV"; exit 2 ;;
+          esac
 
           # Never empty: an empty matrix vector fails the run rather than
           # skipping it, and the job-level `if` already discards failed CI.
@@ -48,8 +45,8 @@ jobs:
   deploy:
     needs: targets
     strategy:
-      # Sequential so production deploys only behind a preview that survived
-      # its own migration, deploy, and smoke test.
+      # Sequential so production deploys only behind the same commit in preview
+      # after its migration, deploy, smoke test, and browser journey.
       max-parallel: 1
       fail-fast: true
       matrix:

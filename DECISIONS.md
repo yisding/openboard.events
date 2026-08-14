@@ -57,11 +57,11 @@ protocol.
 - GitHub Actions owns ordered deployment: direct Neon migration → web Worker → jobs Worker →
   strict post-deploy smoke, through protected `preview` and `production` environments.
   Cloudflare's Git integration stays disabled.
-- A successful `main` CI run deploys `preview` automatically. Production is gated behind
-  `PRODUCTION_DEPLOY_ENABLED=1` and runs as a second sequential leg after a preview that passed
-  its own migration, deploy, and smoke — a manual `workflow_dispatch` deploys exactly the
-  environment chosen and never adds a leg. The `preview` GitHub environment must have no
-  required reviewer, or every merge queues an approval instead of deploying.
+- A successful `main` CI run deploys `preview` automatically and never promotes production,
+  preserving a soak window. Production is a protected manual `workflow_dispatch`; choosing it
+  always replays the same commit through a sequential preview migration, deploy, smoke, and
+  browser canary first. The `preview` GitHub environment must have no required reviewer, or every
+  merge queues an approval instead of deploying.
 - The jobs Worker holds only `APP_BASE_URL` and `CRON_SECRET`. Deploys require the exact
   matching web origin through `scripts/deploy-cloudflare.sh` — no guessed `workers.dev`
   hostname is committed — and the `global_fetch_strictly_public` compatibility flag stays set so

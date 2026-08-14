@@ -128,6 +128,10 @@ pnpm release:check       # full credential-free CI and artifact gate
 bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
 ```
 
+The pinned Next/OpenNext/Wrangler matrix, custom chunking removal gate, artifact
+probe coverage, and dependency-upgrade canary procedure are documented in the
+[Worker artifact compatibility contract](worker-artifact-contract.md).
+
 The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
 `agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
 `rendered-ui-polish`, `responsive-action-groups`, `review-operations`, `self-service-onboarding`,
@@ -166,10 +170,10 @@ Worker; treat production invocations accordingly.
 
 `.github/workflows/ci.yml` runs the credential-free validation set on every PR.
 `.github/workflows/deploy.yml` runs migration → web → jobs → smoke through protected GitHub
-environments. A merge to `main` deploys `preview` automatically once its CI run succeeds;
-`production` is a manual `workflow_dispatch` until the repository variable
-`PRODUCTION_DEPLOY_ENABLED=1` adds it as a second, sequential leg behind a preview that passed
-its own smoke test. Full provisioning steps
+environments. A merge to `main` deploys `preview` automatically once its CI run succeeds.
+`production` is a manual `workflow_dispatch` that always replays the same commit through a
+second, sequential preview leg before the protected production leg, so it cannot bypass the
+preview smoke and browser canary. Full provisioning steps
 (Neon, R2, Resend, Cloudflare, GitHub environments) are in
 [`docs/provisioning.md`](provisioning.md); operational runbooks (backup/restore, rollback,
 Neon PITR rehearsal, R2 lifecycle, alerting) are in [`docs/runbooks/`](runbooks).
