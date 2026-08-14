@@ -31,6 +31,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   variant = "destructive",
   confirmDisabled = false,
+  cancelDisabled = false,
   wide = false,
   onConfirm,
   onCancel,
@@ -42,6 +43,7 @@ export function ConfirmDialog({
   cancelLabel?: string;
   variant?: "destructive" | "stale" | "primary";
   confirmDisabled?: boolean;
+  cancelDisabled?: boolean;
   wide?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
@@ -61,12 +63,13 @@ export function ConfirmDialog({
   return (
     <Modal
       open={open}
-      onClose={busy ? () => undefined : onCancel}
+      onClose={busy || cancelDisabled ? () => undefined : onCancel}
       title={title}
       wide={wide}
+      dismissible={!busy && !cancelDisabled}
       footer={
         <>
-          <Button variant="secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
+          <Button variant="secondary" onClick={onCancel} disabled={busy || cancelDisabled}>{cancelLabel}</Button>
           <Button variant={variant === "destructive" ? "danger" : "primary"} onClick={confirm} disabled={busy || confirmDisabled}>
             {busy ? "Working…" : confirmLabel ?? (variant === "stale" ? "Reload" : "Confirm")}
           </Button>

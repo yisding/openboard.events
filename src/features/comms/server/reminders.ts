@@ -279,7 +279,26 @@ export async function sendReminderNowIn(
   contactId: ContactId,
   submissionId: SubmissionId | null,
   now: number = Date.now(),
+  attemptId?: string,
 ): Promise<{ enqueued: boolean }> {
+  const minuteBucket = Math.floor(now / 60_000);
+  const idempotencyKey = attemptId
+    ? idem.taskReminderManualAttempt(eventId, taskId, contactId, submissionId, attemptId)
+    : idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket);
+
+  // A stable-attempt replay is an acknowledgement of the durable outbox row,
+  // even if the assignment became complete after the organizer's first
+  // response was lost. `communication_logs` is both the activity log and the
+  // outbox, so this read has no second write boundary to reconcile.
+  if (attemptId) {
+    const [existing] = rowsOf<{ exists: boolean }>(await dbOrTx.execute(sql`
+      SELECT true AS exists FROM communication_logs
+      WHERE idempotency_key = ${idempotencyKey}
+      LIMIT 1
+    `));
+    if (existing) return { enqueued: true };
+  }
+
   const [assignment] = rowsOf<{ completed: boolean }>(await dbOrTx.execute(sql`
     SELECT completed FROM task_assignments_v
     WHERE event_id = ${eventId} AND task_id = ${taskId} AND contact_id = ${contactId}
@@ -288,13 +307,13 @@ export async function sendReminderNowIn(
   `));
   if (!assignment || assignment.completed) return { enqueued: false };
   // The `:manual:` segment keeps a deliberate nudge from colliding with a
-  // scanned rung; the minute bucket makes a double-click idempotent.
-  const minuteBucket = Math.floor(now / 60_000);
+  // scanned rung. New clients supply a durable attempt id; rollout-era clients
+  // retain the minute-bucket double-click fallback.
   await enqueueEmail(asOutboxWriter(dbOrTx), {
     eventId,
     templateKey: "task_reminder",
     contactId,
-    idempotencyKey: idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket),
+    idempotencyKey,
     refs: { taskId, ...(submissionId ? { submissionId } : {}) },
   });
   return { enqueued: true };
@@ -306,8 +325,9 @@ export async function sendReminderNow(
   taskId: TaskId,
   contactId: ContactId,
   submissionId: SubmissionId | null,
+  attemptId?: string,
 ): Promise<{ enqueued: boolean }> {
-  return sendReminderNowIn(db, eventId, taskId, contactId, submissionId);
+  return sendReminderNowIn(db, eventId, taskId, contactId, submissionId, Date.now(), attemptId);
 }
 
 /**

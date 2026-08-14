@@ -2,6 +2,19 @@ import { z } from "zod";
 import { commStatusSchema, templateKeySchema, type TemplateKey } from "./enums";
 import { commLogIdSchema, contactIdSchema, sessionIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
 
+/**
+ * One organizer-confirmed targeted reminder. `attemptId` is optional while
+ * older clients roll forward; new clients retain it across an ambiguous
+ * response so a retry identifies the same durable outbox row.
+ */
+export const sendReminderNowInputSchema = z.object({
+  taskId: taskIdSchema,
+  contactId: contactIdSchema,
+  submissionId: submissionIdSchema.nullable().default(null),
+  attemptId: z.uuid().optional(),
+});
+export type SendReminderNowInput = z.infer<typeof sendReminderNowInputSchema>;
+
 export const commLogRowSchema = z.object({
   id: commLogIdSchema,
   contactId: contactIdSchema.nullable(),

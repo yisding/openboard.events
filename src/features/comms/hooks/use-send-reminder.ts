@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { openAssignmentRowSchema } from "../schemas";
-import type { ContactId, EventId, SubmissionId, TaskId } from "@/shared/contracts";
+import type { ContactId, EventId, SendReminderNowInput } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { qk } from "@/shared/lib/query-keys";
 
@@ -20,7 +20,7 @@ export function useOpenAssignments(eventId: EventId, contactId: ContactId | null
 
 export function useSendReminderNow(eventId: EventId) {
   return useMutation({
-    mutationFn: (input: { taskId: TaskId; contactId: ContactId; submissionId: SubmissionId | null }) =>
+    mutationFn: (input: SendReminderNowInput) =>
       api(`comms/${eventId}/send-reminder`, sendReminderResponseSchema, { method: "POST", body: input }),
   });
 }
