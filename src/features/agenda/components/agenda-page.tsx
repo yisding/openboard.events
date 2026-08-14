@@ -1,15 +1,16 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Eye } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ScheduledSessionDTO } from "@/shared/contracts";
+import type { AcceptedForSchedulingRow, ScheduledSessionDTO } from "@/shared/contracts";
+import type { QuerySeed } from "@/shared/lib/query-client";
+import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { detectConflicts, toScheduledSession } from "../conflicts";
+import { useAcceptedForAgenda, useAnnounceBundle } from "../hooks/use-agenda-supporting-data";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
-import type { AnnounceBundle } from "../server/announce";
 import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
@@ -27,26 +28,25 @@ import WeekView from "./week-view";
  *
  * The static imports above are the point: M30 and M31 own the *contents* of
  * `day-view.tsx` and the four grouped views, and never need to edit this file to
- * ship them. Every view receives the same `AgendaViewProps` — the full session
- * set including unscheduled rows, the server's conflict list, and the
+ * ship them. Every view receives the same `AgendaViewProps` — the live session
+ * set including unscheduled rows, conflicts derived from that set, and the
  * vocabulary — so a view that wants a subset filters it in one line rather than
  * asking this module for a new prop.
  */
-export type AgendaPageProps = Omit<AgendaViewProps, "onEdit"> & {
+export type AgendaPageProps = Omit<AgendaViewProps, "onEdit" | "sessions" | "conflicts" | "accepted"> & {
   eventSlug: string;
   view: AgendaView;
-  /** M60 — null when nothing is published yet; the trigger renders nothing until then. */
-  announceBundle?: AnnounceBundle | null;
+  querySeeds: readonly QuerySeed[];
 };
 
-export function AgendaPage(props: AgendaPageProps) {
-  // Its own client, matching the dashboard's pattern: the app has no global
-  // provider, and the agenda's cache has no reason to outlive this route.
-  const [client] = useState(() => new QueryClient());
-  return <QueryClientProvider client={client}><AgendaPageInner {...props} /></QueryClientProvider>;
+const EMPTY_SESSIONS: ScheduledSessionDTO[] = [];
+const EMPTY_ACCEPTED: AcceptedForSchedulingRow[] = [];
+
+export function AgendaPage({ querySeeds, ...props }: AgendaPageProps) {
+  return <QueryBoundary seeds={querySeeds}><AgendaPageInner {...props} /></QueryBoundary>;
 }
 
-function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: AgendaPageProps) {
+function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "querySeeds">) {
   const router = useRouter();
   const params = useSearchParams();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,10 +65,11 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     setActiveGridDay(next);
   }, [props.day, eventDays]);
 
-  // Server-rendered rows seed the cache, so the first paint costs no request and
-  // a save still has one key to invalidate.
-  const sessionsQuery = useSessions(props.eventId, props.sessions);
-  const sessions: ScheduledSessionDTO[] = sessionsQuery.data ?? props.sessions;
+  const sessionsQuery = useSessions(props.eventId);
+  const acceptedQuery = useAcceptedForAgenda(props.eventId);
+  const announceQuery = useAnnounceBundle(props.eventId);
+  const sessions = sessionsQuery.data ?? EMPTY_SESSIONS;
+  const accepted = acceptedQuery.data ?? EMPTY_ACCEPTED;
   const liveConflicts = useMemo(() => detectConflicts(sessions
     .map(toScheduledSession)
     .filter((session): session is NonNullable<typeof session> => session !== null)), [sessions]);
@@ -126,6 +127,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     ...props,
     sessions: visible,
     conflicts: liveConflicts,
+    accepted,
     day: view === "day" ? activeGridDay : props.day ?? null,
     onEdit: setEditingId,
   };
@@ -138,7 +140,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         description="Build the schedule, resolve conflicts, and publish with confidence."
         actions={(
           <>
-            <AnnounceBundleTrigger bundle={announceBundle} />
+            <AnnounceBundleTrigger bundle={announceQuery.data ?? null} />
             <a className="button button-secondary" href={`/e/${eventSlug}/schedule`} target="_blank" rel="noreferrer">
               <Eye size={16} aria-hidden /> Public preview
             </a>
@@ -164,7 +166,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         : (
           <div className="agenda-workspace">
             {view === "day"
-              ? <ReadyToPromoteTray eventId={props.eventId} accepted={props.accepted} />
+              ? <ReadyToPromoteTray eventId={props.eventId} accepted={accepted} />
               : <UnscheduledTray {...viewProps} />}
             <section className="day-grid">
               {view === "day" && <DayView {...viewProps} />}

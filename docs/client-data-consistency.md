@@ -29,7 +29,7 @@ they do not also pass a second `initialData` copy through the component tree.
 | Surface | First paint | Live owner | Mutation policy | Status |
 |---|---|---|---|---|
 | Communications | Server reads hydrate feature keys | TanStack Query | Exact write, rollback, or log-prefix invalidation | Migrated |
-| Agenda | Server props seed query `initialData` | TanStack Query plus route refresh | Narrow invalidation still duplicates refresh | Next |
+| Agenda | Server reads seed sessions, accepted abstracts, and announcement keys | TanStack Query; conflicts derive from cached sessions | Exact cross-panel invalidation, optimistic move rollback | Migrated |
 | Dashboard | Server prop seeds one polling query | TanStack Query | Read-only | Pending hydration conversion |
 | Forms, CRM, evaluation, speakers, tasks | Server Components/props | Route refresh and local state | Feature-specific | Pending inventory/migration |
 

@@ -7,6 +7,10 @@
  */
 export { detectConflicts, toScheduledSession } from "./conflicts";
 export type { Conflict, ScheduledSession } from "./conflicts";
+export { agendaKeys } from "./hooks/keys";
+export { announceBundleSchema } from "./schemas";
+export type { AnnounceBundle, AnnounceSpeakerLink } from "./schemas";
+export { getAnnounceBundle, getAnnounceBundleIn } from "./server/announce";
 
 // M54 — the pure placement planner and its server composition.
 export {

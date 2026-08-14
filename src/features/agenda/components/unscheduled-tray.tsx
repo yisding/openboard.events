@@ -2,7 +2,6 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, GripVertical, Wand2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_BULK_AGENDA_PROMOTIONS, type AcceptedForSchedulingRow, type BulkAgendaPromotionResult, type EventId, type SubmissionId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
@@ -45,8 +44,8 @@ function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
   );
   const allSelected = promotable.length > 0 && selectedRows.length === Math.min(promotable.length, MAX_BULK_AGENDA_PROMOTIONS);
 
-  // A successful or unconfirmed batch refreshes the accepted server prop once.
-  // Drop rows that the refreshed truth says are now sessions, while preserving
+  // A successful or unconfirmed batch refreshes the accepted cache once. Drop
+  // rows that the refreshed truth says are now sessions, while preserving
   // every still-promotable rejection for a corrected retry.
   useEffect(() => {
     const available = new Set(promotable.map((row) => String(row.submissionId)));
@@ -179,7 +178,6 @@ export function ReadyToPromoteTray({ eventId, accepted }: {
  * separate Ready to promote queue beside it.
  */
 export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tracks, formats, speakers, onEdit }: AgendaViewProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
   const drafts = useMemo(() => unscheduled(sessions), [sessions]);
@@ -223,7 +221,6 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
         onClose={() => {
           setAutoPlaceOpen(false);
           void queryClient.invalidateQueries({ queryKey: agendaKeys.allSessions(eventId) });
-          router.refresh();
         }}
       />
     </aside>

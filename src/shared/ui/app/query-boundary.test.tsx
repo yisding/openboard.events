@@ -14,7 +14,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 function Probe({ queryFn }: { queryFn: () => Promise<string> }) {
-  const query = useQuery({ queryKey: ["feature", "event", "list"], queryFn });
+  const query = useQuery({ queryKey: ["feature", "event", "list"], queryFn, staleTime: Infinity });
   return <span>{query.data ?? "loading"}</span>;
 }
 
@@ -59,6 +59,30 @@ describe("QueryBoundary", () => {
 
     expect(parent.getQueryData(["feature", "event", "list"])).toBe("server");
     expect(container.textContent).toBe("server");
+    expect(queryFn).not.toHaveBeenCalled();
+  });
+
+  it("reconciles newer server seeds after a soft navigation", async () => {
+    const queryFn = vi.fn(async () => "network");
+    const parent = createQueryClient();
+    const updatedAt = Date.now();
+    const renderSeed = (data: string, updatedAt: number) => (
+      <QueryClientProvider client={parent}>
+        <QueryBoundary seeds={[
+          { queryKey: ["feature", "event", "list"], data, updatedAt },
+        ]}><Probe queryFn={queryFn} /></QueryBoundary>
+      </QueryClientProvider>
+    );
+
+    await act(async () => root.render(renderSeed("first", updatedAt)));
+    await act(async () => root.render(renderSeed("second", updatedAt + 1)));
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(parent.getQueryData(["feature", "event", "list"])).toBe("second");
+        expect(container.textContent).toBe("second");
+      });
+    });
     expect(queryFn).not.toHaveBeenCalled();
   });
 });

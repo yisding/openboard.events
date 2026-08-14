@@ -56,7 +56,8 @@ describe("agenda bulk promotion UI", () => {
     const route = readFileSync(new URL("../../../app/api/internal/agenda/promote/bulk/route.ts", import.meta.url), "utf8");
 
     expect(hook).toContain("const promoteBatch = useMutation({");
-    expect(hook).toContain("onSettled: settle");
+    expect(hook).toContain("onSettled: refreshPromotion");
+    expect(hook).not.toContain("router.refresh()");
     expect(route).toContain(".min(1).max(MAX_BULK_AGENDA_PROMOTIONS)");
     expect(route).toContain("new Set(value.submissionIds).size !== value.submissionIds.length");
     expect(route).toContain("auth: agendaAuth()");

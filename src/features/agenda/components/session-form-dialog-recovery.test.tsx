@@ -6,16 +6,15 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema } from "@/shared/contracts";
+import { agendaKeys } from "../hooks/keys";
 import { SessionFormDialog } from "./session-form-dialog";
 
-const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
 const runGuardedMock = vi.hoisted(() => vi.fn((action: () => void) => action()));
 const quickAddMock = vi.hoisted(() => ({
   add: vi.fn<() => Promise<{ contactId: string; name: string }>>(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock("@/shared/ui/app/unsaved-work-guard", () => ({
   useUnsavedWorkGuard: () => undefined,
@@ -94,7 +93,6 @@ function Harness() {
 }
 
 beforeEach(() => {
-  routerMock.refresh.mockReset();
   toastMock.mockReset();
   runGuardedMock.mockClear();
   quickAddMock.add.mockReset();
@@ -124,6 +122,7 @@ afterEach(async () => {
 
 describe("manual session creation recovery", () => {
   it("locks and replays an ambiguous create exactly, then uses a new id while keeping a definitive error editable", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     let rejectCreate!: (error: unknown) => void;
     fetchMock
       .mockReturnValueOnce(new Promise<Response>((_resolve, reject) => { rejectCreate = reject; }))
@@ -176,7 +175,9 @@ describe("manual session creation recovery", () => {
     expect(title.closest("fieldset")?.disabled).toBe(true);
     expect(title.value).toBe("Opening keynote");
     expect(buttonNamed("Retry creation")).toBeDefined();
-    expect(routerMock.refresh).toHaveBeenCalledOnce();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: agendaKeys.allSessions(eventId) });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: agendaKeys.announceBundle(eventId) });
+    expect(invalidate).toHaveBeenCalledTimes(2);
     const firstBody = String(fetchMock.mock.calls[0]?.[1]?.body);
     expect(JSON.parse(firstBody)).toMatchObject({ creationId: firstCreationId, title: "Opening keynote" });
 
@@ -185,7 +186,7 @@ describe("manual session creation recovery", () => {
 
     expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(firstBody);
     expect(buttonNamed("Open session dialog")).toBeDefined();
-    expect(routerMock.refresh).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(4);
     expect(toastMock).toHaveBeenCalledWith("Session created");
 
     await act(async () => buttonNamed("Open session dialog")?.click());

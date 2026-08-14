@@ -18,9 +18,9 @@ import type { SpeakerOption } from "./server/queries";
  * that wants only the placed ones filters in one line. Pre-filtering here would
  * mean M30 and M31 each asking this module for a different prop.
  *
- * `conflicts` is server-authoritative — the output of `detectConflicts` over
- * `getSchedulableSessions` — so the Conflicts tab's badge, the grid's red
- * borders and the List view's warning chips can never disagree.
+ * `conflicts` is derived once from the live session cache so the Conflicts
+ * tab's badge, the grid's red borders and the List view's warning chips cannot
+ * disagree after a mutation.
  */
 export type AgendaViewProps = {
   eventId: EventId;
@@ -33,7 +33,7 @@ export type AgendaViewProps = {
   formats: SessionFormatDTO[];
   /** Contact id + display name for every speaker the dialog can attach. */
   speakers: SpeakerOption[];
-  /** Accepted abstracts, with `alreadyPromoted` already computed server-side. */
+  /** Accepted abstracts, with `alreadyPromoted` refreshed through the agenda cache. */
   accepted: AcceptedForSchedulingRow[];
   day?: string | null;
   /** Opens the session dialog; the toolbar and every view share one dialog instance. */

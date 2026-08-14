@@ -33,7 +33,7 @@ export function sortConflicts(conflicts: readonly ConflictDTO[]): ConflictDTO[] 
 
 /**
  * ./M31-agenda-views.md's Conflicts tab: a pure renderer of the
- * server-authoritative `conflicts` array (`../index.client.ts`'s doc comment —
+ * session-cache-derived `conflicts` array (`../index.client.ts`'s doc comment —
  * the same array feeds the toolbar badge and the grid's red borders). This
  * module never calls `detectConflicts` itself and never queries the database.
  */
