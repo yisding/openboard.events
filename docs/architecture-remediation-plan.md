@@ -14,12 +14,13 @@ of record, R2 stores uploads and the incremental cache, and feature directories
 own most domain behavior. This is a sound deployment shape, but several local
 choices now create global coupling or operational ceilings.
 
-Fallback admin authentication is being retired separately in PR #345. That work
-makes Better Auth the only admin identity and credential provider while keeping
-speaker portal OTP/magic-link auth separate. It removes the provider switch,
-stateless admin JWT, password mirroring, and test-only cookie-minting endpoint;
-erases and constrains the retired `users.password_hash` store; and moves browser
-automation onto the real password endpoint.
+Fallback admin authentication was retired in merged PR #345. Better Auth is now
+the only admin identity and credential provider while speaker portal
+OTP/magic-link auth remains separate. The provider switch, stateless admin JWT,
+password mirroring, and test-only cookie-minting endpoint are gone;
+`users.password_hash` is erased and constrained; and browser automation signs in
+through the real password endpoint. Review also uncovered and closed the E2E
+reset path that wiped Better Auth credentials without recreating them.
 
 ## Sequencing and workstreams
 
@@ -213,7 +214,7 @@ Exit criteria:
 
 ## Proposed pull-request order
 
-1. Fallback-auth retirement (PR #345).
+1. Fallback-auth retirement (completed in PR #345).
 2. Import/schema/invariant guardrails.
 3. Submission concurrency redesign.
 4. Worker artifact compatibility hardening.
