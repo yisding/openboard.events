@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GOLDEN_SNAPSHOT } from "@/shared/fixtures/form-snapshot";
 import {
   CFP_PORTAL_REDIRECT_MS,
+  CFP_REQUEST_TIMEOUT_MS,
   CfpStaleRecovery,
   CfpSubmitFailureNotice,
   abortCfpSubmit,
   beginCfpSubmit,
   cfpAutosaveDisposition,
+  cfpCodeRequestRecovery,
   cfpRequest,
   cfpFlowSteps,
   cfpProgressLabel,
@@ -36,7 +38,10 @@ import {
 } from "./components/cfp-steps";
 
 beforeEach(() => vi.stubGlobal("React", React));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 const fieldId = (key: string) => {
   const field = GOLDEN_SNAPSHOT.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === key);
@@ -168,7 +173,43 @@ describe("CFP success redirect", () => {
   });
 });
 
-describe("CFP stale form recovery", () => {
+describe("CFP request and stale form recovery", () => {
+  it("turns a stalled request into a retryable customer-facing result", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>((_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
+    })));
+
+    const pending = cfpRequest("/api/internal/auth/portal/request", {}, "POST", CFP_REQUEST_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(CFP_REQUEST_TIMEOUT_MS);
+
+    const result = await pending;
+    expect(result).toMatchObject({
+      ok: false,
+      message: "That request took too long. Check your connection and try again.",
+      retryable: true,
+      outcomeUnknown: true,
+    });
+    expect(cfpCodeRequestRecovery(result)).toEqual({
+      acceptCode: true,
+      message: "We couldn’t confirm whether the code was sent. If it arrives, enter it below; otherwise resend in a moment.",
+      kind: "status",
+    });
+  });
+
+  it("keeps code entry closed after a definite OTP rejection", () => {
+    expect(cfpCodeRequestRecovery({
+      ok: false,
+      data: {},
+      message: "Check your inbox, or try again in a few minutes",
+      retryable: false,
+    })).toEqual({
+      acceptCode: false,
+      message: "Check your inbox, or try again in a few minutes",
+      kind: "error",
+    });
+  });
+
   it("provides actionable recovery when an error response has no message", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({}, { status: 500 })));
 
