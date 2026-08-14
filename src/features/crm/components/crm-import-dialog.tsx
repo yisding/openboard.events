@@ -3,7 +3,7 @@
 import { Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseCsv } from "@/features/portal/server/speaker-csv";
+import { parseCsv } from "@/features/portal/index.csv";
 import {
   CRM_CSV_FIELDS,
   importCrmContactsCsvResultSchema,

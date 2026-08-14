@@ -1,6 +1,6 @@
 import { sql, type SQLWrapper } from "drizzle-orm";
 import { db } from "@/db/client";
-import { signSpeakerShareToken } from "@/features/portal/server/share";
+import { signSpeakerShareToken } from "@/features/portal/index.share";
 import { contactIdSchema, eventIdSchema, type EventId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";

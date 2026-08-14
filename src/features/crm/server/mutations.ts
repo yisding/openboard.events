@@ -15,7 +15,7 @@ import {
   users,
 } from "@/db/schema";
 import { getEventOrganizationIn } from "@/features/organizations";
-import { getOrCreateContact, updateContactFields, type ContactPatch } from "@/features/portal/server/contacts";
+import { getOrCreateContact, updateContactFields, type ContactPatch } from "@/features/portal/index.contacts";
 import {
   crmCustomFieldDtoSchema,
   crmNoteDtoSchema,

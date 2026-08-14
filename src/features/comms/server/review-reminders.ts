@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts } from "@/db/schema";
-import { getOrCreateContact, updateContactFields } from "@/features/portal/server/contacts";
+import { getOrCreateContact, updateContactFields } from "@/features/portal/index.contacts";
 import { idem, type ContactId, type EventId, type PlanId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { enqueueEmail } from "@/shared/server/enqueue-email";

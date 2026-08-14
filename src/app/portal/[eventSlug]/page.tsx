@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getMySessions } from "@/features/agenda";
 import { getMyTaskSummary, listMySubmissions, listMyTasks, markAcceptanceSeen, requirePortalContext } from "@/features/portal";
-import { signSpeakerShareToken } from "@/features/portal/server/share";
+import { signSpeakerShareToken } from "@/features/portal/index.share";
 import { PortalHomeWidgets } from "@/features/portal/components/home/portal-home-widgets";
 
 export const metadata: Metadata = { title: "Speaker portal" };
