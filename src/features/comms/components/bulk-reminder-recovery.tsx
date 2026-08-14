@@ -37,6 +37,7 @@ const bulkReminderDocumentId = crypto.randomUUID();
 
 export type BulkReminderRecoveryController = {
   blocked: boolean;
+  confirmedButUnsynced: boolean;
   recovery: BulkReminderRecovery | null;
   sending: boolean;
   unreadable: boolean;
@@ -75,6 +76,7 @@ export function useBulkReminderRecovery({
   const recoveryRef = useRef<BulkReminderRecovery | null>(null);
   const [sending, setSending] = useState(false);
   const [unreadable, setUnreadable] = useState(false);
+  const [confirmedButUnsynced, setConfirmedButUnsynced] = useState(false);
   useUnsavedWorkGuard(recovery !== null, { blocking: true });
 
   const ownsOriginatingSelection = useCallback((value: BulkReminderRecovery) => (
@@ -153,6 +155,7 @@ export function useBulkReminderRecovery({
           const parsed = bulkReminderRecoverySchema.safeParse(JSON.parse(event.newValue));
           if (parsed.success && parsed.data.eventId === eventId) {
             updateRecovery(parsed.data);
+            if (parsed.data.resolution) setConfirmedButUnsynced(false);
             setUnreadable(false);
             return;
           }
@@ -180,9 +183,30 @@ export function useBulkReminderRecovery({
     } else if (resolved.resolution?.kind === "error") {
       toast(resolved.resolution.message, { kind: "error" });
     }
+    setConfirmedButUnsynced(false);
     updateRecovery(null);
     return true;
   }, [ownsResolvedSelection, toast, updateRecovery]);
+
+  const persistConfirmed = useCallback((
+    attempt: BulkReminderRecovery,
+    resolved: BulkReminderRecovery,
+  ): boolean => {
+    const storage = bulkReminderRecoveryStorage();
+    if (storage && persistBulkReminderRecovery(storage, resolved)) {
+      setConfirmedButUnsynced(false);
+      updateRecovery(resolved);
+      return true;
+    }
+    // `setItem` is atomic: quota/security failures leave the smaller
+    // unresolved marker intact. Never clear it merely because a server
+    // response arrived; it is the durable proof that Retry must reuse this
+    // exact attempt id and target set.
+    setConfirmedButUnsynced(true);
+    updateRecovery(attempt);
+    toast("The reminder outcome was confirmed, but browser recovery could not save it. Check this exact attempt again; no new attempt can start.", { kind: "error" });
+    return false;
+  }, [toast, updateRecovery]);
 
   const send = useCallback(async (attempt: BulkReminderRecovery): Promise<boolean> => {
     if (attempt.resolution) return complete(attempt);
@@ -194,9 +218,7 @@ export function useBulkReminderRecovery({
         { method: "POST", body: { targets: attempt.targets, attemptId: attempt.attemptId } },
       );
       const resolved = withBulkReminderResolution(attempt, { kind: "result", result });
-      const storage = bulkReminderRecoveryStorage();
-      if (storage) persistBulkReminderRecovery(storage, resolved);
-      updateRecovery(resolved);
+      if (!persistConfirmed(attempt, resolved)) return false;
       return complete(resolved);
     } catch (caught) {
       if (isUnknownOutcome(caught)) {
@@ -206,14 +228,12 @@ export function useBulkReminderRecovery({
       }
       const message = isAppError(caught) ? caught.message : "Could not queue reminders";
       const resolved = withBulkReminderResolution(attempt, { kind: "error", message: message.slice(0, 500) });
-      const storage = bulkReminderRecoveryStorage();
-      if (storage) persistBulkReminderRecovery(storage, resolved);
-      updateRecovery(resolved);
+      if (!persistConfirmed(attempt, resolved)) return false;
       return complete(resolved);
     } finally {
       setSending(false);
     }
-  }, [complete, eventId, toast, updateRecovery]);
+  }, [complete, eventId, persistConfirmed, toast, updateRecovery]);
 
   const start = useCallback(async (targets: readonly BulkReminderTarget[]): Promise<boolean> => {
     const locked = await withBulkReminderRecoveryLock(eventId, bulkReminderRecoveryLockManager(), async () => {
@@ -303,6 +323,7 @@ export function useBulkReminderRecovery({
 
   return {
     blocked: recovery !== null || unreadable,
+    confirmedButUnsynced,
     recovery,
     sending,
     unreadable,
@@ -314,7 +335,7 @@ export function useBulkReminderRecovery({
 }
 
 export function BulkReminderRecoveryDialog({ controller }: { controller: BulkReminderRecoveryController }) {
-  const { recovery, sending, unreadable } = controller;
+  const { confirmedButUnsynced, recovery, sending, unreadable } = controller;
   if (unreadable && !recovery) {
     return (
       <div className="notify-bar" role="alert">
@@ -331,11 +352,15 @@ export function BulkReminderRecoveryDialog({ controller }: { controller: BulkRem
     <ConfirmDialog
       open={recovery !== null}
       variant="primary"
-      title={resolved ? "Reminder result confirmed" : sending ? "Sending reminders…" : "Reminder outcome unconfirmed"}
+      title={resolved
+        ? "Reminder result confirmed"
+        : confirmedButUnsynced ? "Reminder result needs browser sync" : sending ? "Sending reminders…" : "Reminder outcome unconfirmed"}
       body={resolved
         ? "The server result is saved. Finish browser cleanup to acknowledge it and continue."
-        : `This exact ${recovery?.targets.length ?? 0}-assignment batch is saved. Retry reminders safely checks every target and fills only reminders that did not commit.`}
-      confirmLabel={resolved ? "Finish cleanup" : "Retry reminders"}
+        : confirmedButUnsynced
+          ? "The server confirmed this exact batch, but browser recovery could not save the result. Check reminder status safely reuses the same attempt and cannot create a new batch."
+          : `This exact ${recovery?.targets.length ?? 0}-assignment batch is saved. Retry reminders safely checks every target and fills only reminders that did not commit.`}
+      confirmLabel={resolved ? "Finish cleanup" : confirmedButUnsynced ? "Check reminder status" : "Retry reminders"}
       confirmDisabled={sending}
       cancelDisabled
       onConfirm={resolved ? controller.finishCleanup : controller.retry}

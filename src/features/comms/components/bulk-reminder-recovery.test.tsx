@@ -195,6 +195,53 @@ describe("bulk reminder recovery", () => {
     );
   });
 
+  it("keeps the unresolved marker locked when the confirmed result cannot be persisted, then checks the exact attempt", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ data: acknowledgedResult }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const nativeSetItem = window.localStorage.setItem.bind(window.localStorage);
+    let unresolvedValue: string | null = null;
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation((key, value) => {
+      const parsed = JSON.parse(value) as { resolution?: unknown };
+      if (parsed.resolution) throw new DOMException("quota exceeded", "QuotaExceededError");
+      unresolvedValue = value;
+      nativeSetItem(key, value);
+    });
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const firstBody = fetchMock.mock.calls[0]?.[1]?.body;
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(window.localStorage.getItem(key)).toBe(unresolvedValue);
+    expect(JSON.parse(window.localStorage.getItem(key) as string)).not.toHaveProperty("resolution");
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 selected");
+    expect(buttonNamed("Start batch")?.disabled).toBe(true);
+    expect(buttonNamed("Check reminder status")).toBeDefined();
+    expect(buttonNamed("Retry reminders")).toBeUndefined();
+    expect(toastMock).toHaveBeenCalledWith(
+      "The reminder outcome was confirmed, but browser recovery could not save it. Check this exact attempt again; no new attempt can start.",
+      { kind: "error" },
+    );
+
+    setItem.mockImplementation(nativeSetItem);
+    await act(async () => buttonNamed("Check reminder status")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(firstBody);
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(acknowledged).toHaveBeenCalledWith(acknowledgedResult);
+    expect(container.textContent).toContain("0 selected");
+    expect(window.localStorage.getItem(key)).toBeNull();
+    expect(buttonNamed("Check reminder status")).toBeUndefined();
+  });
+
   it("fails safely without a POST when browser recovery storage cannot be acquired", async () => {
     const fetchMock = vi.mocked(fetch);
     vi.spyOn(window, "localStorage", "get").mockImplementation(() => {

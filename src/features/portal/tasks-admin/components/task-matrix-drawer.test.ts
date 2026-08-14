@@ -29,6 +29,7 @@ const TASK: AdminTaskDTO = {
 
 const REMINDER_RECOVERY: BulkReminderRecoveryController = {
   blocked: false,
+  confirmedButUnsynced: false,
   recovery: null,
   sending: false,
   unreadable: false,
