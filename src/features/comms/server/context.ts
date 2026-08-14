@@ -8,9 +8,9 @@ import { issueOrganizationInvitationTokenIn } from "@/features/organizations";
 import { isTransactionalTemplate, organizationInvitationIdSchema, tokenIdSchema, type ContactId, type EventId, type TemplateKey, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
+import { escapeHtml } from "@/shared/lib/html";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { isEmailAllowed } from "@/shared/server/email-allowlist";
-import { escapeHtml } from "./render";
 import { signUnsubscribeToken } from "./unsubscribe";
 
 export type OutboxRow = typeof communicationLogs.$inferSelect;

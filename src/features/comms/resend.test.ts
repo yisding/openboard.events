@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendViaResend } from "./server/resend";
+import { sendViaResend } from "@/shared/server/email-provider";
 
 const message = {
   apiKey: "re_secret",

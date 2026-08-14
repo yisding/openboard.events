@@ -1,7 +1,8 @@
 import { parseTag } from "xss";
 import { TEMPLATE_VAR_SCHEMAS, type TemplateKey, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { emailLayout, type EmailLayoutMeta } from "./layout";
+import { escapeHtml } from "@/shared/lib/html";
+import { emailLayout, type EmailLayoutMeta } from "@/shared/server/email-layout";
 import { DEFAULT_TEMPLATES } from "./templates";
 
 const TOKEN = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/gu;
@@ -49,10 +50,6 @@ const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
     "invite.organization_name", "invite.inviter_name", "invite.role", "invite.action_url", "invite.expires_at",
   ],
 };
-
-export function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-}
 
 function decodeEntities(value: string): string {
   return value.replaceAll("&nbsp;", " ").replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code)));
