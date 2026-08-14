@@ -2143,6 +2143,12 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
      untouched, same mechanic as note 2 above. Inline links inside a sentence
      stay exempt (WCAG 2.5.8's inline exception); see design-system.md T7. */
   .button, .button-sm, .button-lg { min-height: 44px; }
+  /* Password fields already reach the mobile input floor, but their nested
+     reveal control used to remain a 34px desktop target. Let the shared
+     signup/login/reset affordance occupy the field's full 44px height while
+     reserving enough text space beside it. */
+  .auth-password-input input { padding-right: 54px; }
+  .auth-password-toggle { right: 0; width: 44px; height: 44px; border-radius: 0 8px 8px 0; }
   /* Same class of miss as the button sweep above, on the three surfaces that
      were never rendered in a browser: the itinerary toolbar pills (34px), the
      builder rail's step tabs (40px, and a horizontal tab strip at this width)

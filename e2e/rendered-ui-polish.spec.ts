@@ -121,6 +121,47 @@ test.describe("guided onboarding responsiveness", () => {
   });
 });
 
+test.describe("mobile auth touch targets", () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("gives the password reveal control the full field-height hit area", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:24px">
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="auth-password-input">
+            <input id="password" type="password">
+            <button class="auth-password-toggle" type="button" aria-label="Show password"></button>
+          </div>
+        </div>
+      </main>
+    </body></html>`);
+
+    const metrics = await page.locator(".auth-password-input").evaluate((element) => {
+      const input = element.querySelector("input");
+      const button = element.querySelector("button");
+      if (!input || !button) throw new Error("Password fixture is incomplete");
+      const inputBox = input.getBoundingClientRect();
+      const buttonBox = button.getBoundingClientRect();
+      return {
+        inputHeight: inputBox.height,
+        buttonWidth: buttonBox.width,
+        buttonHeight: buttonBox.height,
+        verticalCenterDelta: Math.abs((inputBox.top + inputBox.bottom - buttonBox.top - buttonBox.bottom) / 2),
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+
+    expect(metrics.inputHeight).toBeGreaterThanOrEqual(44);
+    expect(metrics.buttonWidth).toBeGreaterThanOrEqual(44);
+    expect(metrics.buttonHeight).toBeGreaterThanOrEqual(44);
+    expect(metrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewportWidth);
+  });
+});
+
 test.describe("shared primitives inside feature hosts", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 1280, height: 900 } });

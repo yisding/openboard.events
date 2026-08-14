@@ -154,6 +154,25 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("link", { name: "Create your workspace", exact: true })).toBeVisible();
       await page.getByRole("link", { name: "Create your workspace", exact: true }).click();
       await expect(page).toHaveURL(/\/signup$/);
+      const desktopViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      const passwordMetrics = await page.locator(".auth-password-input").evaluate((element) => {
+        const input = element.querySelector("input");
+        const toggle = element.querySelector("button");
+        if (!input || !toggle) throw new Error("Signup password control is incomplete");
+        const inputBox = input.getBoundingClientRect();
+        const toggleBox = toggle.getBoundingClientRect();
+        return {
+          toggleWidth: toggleBox.width,
+          toggleHeight: toggleBox.height,
+          verticalCenterDelta: Math.abs((inputBox.top + inputBox.bottom - toggleBox.top - toggleBox.bottom) / 2),
+        };
+      });
+      expect(passwordMetrics.toggleWidth).toBeGreaterThanOrEqual(44);
+      expect(passwordMetrics.toggleHeight).toBeGreaterThanOrEqual(44);
+      expect(passwordMetrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
+
       await page.getByLabel("Your name").fill(personName);
       await page.getByLabel("Organization name").fill(organizationName);
       await page.getByLabel("Email address").fill(SIGNUP_EMAIL);
@@ -174,7 +193,6 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("link", { name: "Start again with the correct address" }))
         .toHaveAttribute("href", "/signup?next=%2Forganizations");
 
-      const desktopViewport = page.viewportSize();
       await page.setViewportSize({ width: 320, height: 700 });
       const inboxCopy = page.getByText(SIGNUP_EMAIL, { exact: true }).locator("..");
       const mobileReadability = await inboxCopy.evaluate((element) => {
