@@ -467,10 +467,14 @@ export async function sendReminderNow(
  * roll back reminders already accepted for other speakers. A durable attempt
  * makes that partial boundary recoverable: one batch read classifies all
  * already-committed keys, one batch read classifies only missing assignments,
- * and each remaining insert is one statement. The 20-target contract therefore
- * uses at most 22 persistence subrequests, leaving 28 under Workers' ceiling
- * for session authorization and route work. The post-response nudge remains
- * best-effort; if it exhausts the invocation budget, the cron owns delivery.
+ * and each remaining insert is one statement. Missing targets that are no
+ * longer open get one final batched status read: an overlapping exact request
+ * may have inserted and then completed the assignment between the first two
+ * snapshots. A row that commits after this final read linearizes after this
+ * request and is recovered by the next exact retry. The 20-target contract
+ * still uses at most 22 persistence subrequests (a closed-target recheck
+ * replaces at least one insert), leaving 28 under Workers' ceiling for auth
+ * and route work. A nudge that exhausts the remainder yields to the cron.
  */
 export async function sendRemindersNowIn(
   dbOrTx: DbOrTx,
@@ -497,6 +501,12 @@ export async function sendRemindersNowIn(
   const openTargets = attemptId
     ? await loadOpenReminderTargetsIn(dbOrTx, eventId, missingTargets)
     : null;
+  const closedMissingTargets = attemptId
+    ? missingTargets.filter((target) => !openTargets?.has(reminderTargetKey(target)))
+    : [];
+  const statusAfterClosedSnapshot = attemptId && closedMissingTargets.length > 0
+    ? await loadManualReminderAttemptStatusesIn(dbOrTx, eventId, closedMissingTargets, attemptId)
+    : null;
   for (const target of targets) {
     // The batch id is intentionally shared: `taskReminderManualAttempt` also
     // includes the target coordinates, so a partial retry recovers each
@@ -510,7 +520,7 @@ export async function sendRemindersNowIn(
         eventId,
         target,
         attemptId,
-        statusByAttemptKey?.get(attemptKey) ?? null,
+        statusByAttemptKey?.get(attemptKey) ?? statusAfterClosedSnapshot?.get(attemptKey) ?? null,
         openTargets?.has(reminderTargetKey(target)) ?? false,
       )
       : await sendReminderNowIn(
