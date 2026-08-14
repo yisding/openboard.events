@@ -239,6 +239,13 @@
       "when": 1786670400000,
       "tag": "0033_retire_fallback_auth",
       "breakpoints": false
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786672924248,
+      "tag": "0034_public_schedule_revision",
+      "breakpoints": false
     }
   ]
 }

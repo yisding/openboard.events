@@ -18,6 +18,7 @@ export const PUBLISHED_SCHEDULE_FIXTURE = publishedScheduleDtoSchema.parse({
   days: ["2026-09-15"],
   sessions: [{
     id: "00000000-0000-4000-8000-000000000601",
+    scheduleRevision: 1,
     slug: "agents",
     title: "Agents",
     descriptionHtml: "<p>Agents</p>",

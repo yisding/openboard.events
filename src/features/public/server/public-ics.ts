@@ -47,7 +47,7 @@ function renderPublicScheduleIcs(
 
   const events: IcsEvent[] = selected.map((session) => ({
     uid: icsUid(session.id, "public", organizerDomain),
-    sequence: 0,
+    sequence: session.scheduleRevision,
     method: null,
     startsAt: new Date(session.startsAt),
     endsAt: new Date(session.endsAt),

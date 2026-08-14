@@ -68,6 +68,7 @@ function speakerName(firstName: string, lastName: string): string {
 
 type ScheduleSessionRow = {
   id: string;
+  schedule_revision: number;
   slug: string;
   title: string;
   description_html: string | null;
@@ -92,7 +93,7 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
   if (!event) return null;
 
   const result = await dbOrTx.execute<ScheduleSessionRow>(sql`
-    SELECT v.id, v.slug, v.title, v.description_html,
+    SELECT v.id, v.schedule_revision, v.slug, v.title, v.description_html,
            v.starts_at, COALESCE(v.ends_at, v.starts_at) AS ends_at,
            v.track_id, v.track_name, v.track_color,
            v.room_id, v.room_name,
@@ -121,6 +122,7 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
 
   const sessions = (result.rows ?? []).map((row) => ({
     id: row.id,
+    scheduleRevision: Number(row.schedule_revision),
     slug: row.slug,
     title: row.title,
     descriptionHtml: row.description_html,
