@@ -423,7 +423,9 @@ describe("review operations", () => {
    * order, with the loser re-reading the plan's latest status/deadline.
    *
    * Capture the exact SQL Drizzle emits and have PGlite plan it, so removing
-   * or misplacing the locking read is still a behavioral regression here.
+   * or misplacing the locking read is still a behavioral regression here. The
+   * SQL assertion also protects clock_timestamp(): transaction-start time can
+   * remain pre-deadline for the whole wait and would reopen the same race.
    */
   it("serializes reviewer and queue writes with a concurrent round close", async () => {
     const dialect = new PgDialect();
@@ -457,6 +459,8 @@ describe("review operations", () => {
 
     for (const statement of statements) {
       expect(statement.sql).toMatch(/for update/iu);
+      expect(statement.sql).toMatch(/clock_timestamp\(\)/iu);
+      expect(statement.sql).not.toMatch(/current_timestamp/iu);
       const inlined = statement.sql.replace(/\$(\d+)/gu, (_match, index: string) => {
         const value = String(statement.params[Number(index) - 1]).replaceAll("'", "''");
         return `'${value}'`;

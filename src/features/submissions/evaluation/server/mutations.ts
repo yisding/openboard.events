@@ -311,7 +311,7 @@ export async function savePlanIn(
             evaluation_plans.track_ids IS NOT DISTINCT FROM EXCLUDED.track_ids
             OR (
               EXCLUDED.status = 'open'
-              AND (EXCLUDED.closes_at IS NULL OR EXCLUDED.closes_at > CURRENT_TIMESTAMP)
+              AND (EXCLUDED.closes_at IS NULL OR EXCLUDED.closes_at > clock_timestamp())
             )
           )
         RETURNING id
@@ -387,7 +387,7 @@ export async function savePlanIn(
              NOT (track_ids IS NOT DISTINCT FROM ${uuidArraySql(trackIds)})
                AND NOT (
                  ${input.status}::plan_status = 'open'
-                 AND (${input.closesAt}::timestamptz IS NULL OR ${input.closesAt}::timestamptz > CURRENT_TIMESTAMP)
+                 AND (${input.closesAt}::timestamptz IS NULL OR ${input.closesAt}::timestamptz > clock_timestamp())
                ) AS scope_locked
       FROM evaluation_plans WHERE id = ${input.planId}
     `);
@@ -458,11 +458,13 @@ export async function assignReviewersIn(
   const result = await dbOrTx.execute<{ plan_found: number; writable: boolean | null; matched: number }>(sql`
     WITH plan AS (
       SELECT id,
-             status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
+             status = 'open' AND (closes_at IS NULL OR closes_at > clock_timestamp()) AS writable
       FROM evaluation_plans WHERE id = ${planId} AND event_id = ${eventId}
       -- Serialize this writability decision with savePlanIn. Without the row
       -- lock, a close can commit after this statement reads open but before
       -- its assignment CTEs write, admitting work after the round closed.
+      -- clock_timestamp(), unlike the transaction-start timestamp, also
+      -- observes a deadline that elapsed while this statement waited here.
       FOR UPDATE
     ),
     incoming AS (
@@ -569,10 +571,11 @@ export async function assignSubmissionsIn(
   const result = await dbOrTx.execute<{ plan_found: number; writable: boolean | null; reviewers: number; submissions: number; assigned: number; removed: number }>(sql`
     WITH plan AS (
       SELECT id, event_id,
-             status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
+             status = 'open' AND (closes_at IS NULL OR closes_at > clock_timestamp()) AS writable
       FROM evaluation_plans WHERE id = ${input.planId} AND event_id = ${eventId}
       -- The queue mutation and a concurrent close must observe one another in
-      -- commit order; the loser rechecks this row after the lock is released.
+      -- commit order; the loser rechecks this row and the actual wall clock
+      -- after the lock is released.
       FOR UPDATE
     ),
     reviewers AS (

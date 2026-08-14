@@ -26,6 +26,8 @@ const EVENT_ID = "c4300000-0000-4000-8000-000000000001";
 const PLAN_ID = "c4300000-0000-4000-8000-000000000010" as PlanDTO["id"];
 const REVIEWER_ID = "c4300000-0000-4000-8001-000000000011" as PlanDTO["reviewers"][number]["userId"];
 const SECOND_REVIEWER_ID = "c4300000-0000-4000-8001-000000000012";
+const CRITERION_ID = "c4300000-0000-4000-8002-000000000013" as PlanDTO["criteria"][number]["id"];
+const OPTION_ID = "recommend-stable";
 
 function plan(status: PlanDTO["status"]): PlanDTO {
   return {
@@ -187,9 +189,28 @@ describe("evaluation plan assignment locking", () => {
   });
 
   it("preserves reviewer edits and loads the latest round after closure between save stages", async () => {
+    const initial = {
+      ...plan("open"),
+      criteria: [{
+        id: CRITERION_ID,
+        label: "Recommendation",
+        weight: 1,
+        sortOrder: 0,
+        kind: "select" as const,
+        required: true,
+        options: [{ id: OPTION_ID, label: "Strong accept", score: 5 }],
+        minValue: null,
+        maxValue: null,
+      }],
+    };
     const latest = {
-      ...plan("closed"),
+      ...initial,
+      status: "closed" as const,
       updatedAt: "2026-08-13T13:00:00.000Z",
+      criteria: initial.criteria.map((criterion) => ({
+        ...criterion,
+        options: [{ id: OPTION_ID, label: "Recommend", score: 5 }],
+      })),
     };
     fetchMock
       .mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }))
@@ -202,7 +223,7 @@ describe("evaluation plan assignment locking", () => {
       .mockResolvedValueOnce(Response.json({ data: { plans: [latest] } }))
       .mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }))
       .mockResolvedValueOnce(Response.json({ data: {} }));
-    await renderEditor(plan("open"));
+    await renderEditor(initial);
 
     await act(async () => reviewerCheckbox("Grace Hopper")?.click());
     await act(async () => buttonNamed("Save round")?.click());
@@ -239,6 +260,10 @@ describe("evaluation plan assignment locking", () => {
     expect(retryPlanBody).toMatchObject({
       status: "open",
       expectedUpdatedAt: latest.updatedAt,
+      criteria: [{
+        id: CRITERION_ID,
+        options: [{ id: OPTION_ID, label: "Recommend", score: 5 }],
+      }],
     });
     const retryReviewersBody = JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body)) as {
       reviewers: Array<{ userId: string }>;

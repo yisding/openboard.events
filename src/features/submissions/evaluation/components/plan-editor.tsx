@@ -213,6 +213,7 @@ export function PlanEditor({
   const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
   const [persistedPlanId, setPersistedPlanId] = useState<string | null>(plan?.id ?? null);
   const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(plan?.updatedAt);
+  const [criteriaAuthority, setCriteriaAuthority] = useState<PlanDTO["criteria"]>(() => plan?.criteria ?? []);
   const [saving, setSaving] = useState(false);
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
@@ -290,6 +291,7 @@ export function PlanEditor({
       setDraft((current) => ({ ...latestBaseline, reviewers: current.reviewers }));
       setPersistedPlanId(latest.id);
       setExpectedUpdatedAt(latest.updatedAt);
+      setCriteriaAuthority(latest.criteria);
       setPendingReviewerPlanId(null);
       setReviewerLockConflict(false);
       setReviewerRecoveryLoaded(true);
@@ -326,7 +328,7 @@ export function PlanEditor({
           kind: criterion.kind,
           required: criterion.required,
           options: criterion.kind === "select"
-            ? parseOptions(criterion.optionsText, plan?.criteria.find((entry) => entry.id === criterion.id)?.options ?? [])
+            ? parseOptions(criterion.optionsText, criteriaAuthority.find((entry) => entry.id === criterion.id)?.options ?? [])
             : [],
         })),
         // Optimistic concurrency, so a second organizer's edit is a conflict
