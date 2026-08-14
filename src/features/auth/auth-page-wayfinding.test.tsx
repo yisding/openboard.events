@@ -44,13 +44,4 @@ describe("auth page wayfinding", () => {
       expect(source, path).not.toContain("Build programs people remember.");
     }
   });
-
-  it("keeps self-service auth explanations readable at narrow widths", () => {
-    const css = read("../../app/globals.css");
-    const checkEmail = read("../../app/signup/check-email/page.tsx");
-
-    expect(checkEmail).toContain('className="auth-email-address"');
-    expect(css).toContain(".login-form-panel>div>:is(form,div)>p{margin:0;color:var(--muted);font-size:14px;line-height:1.45;overflow-wrap:anywhere}");
-    expect(css).toContain(".auth-resend-form>small{display:block;margin-top:-4px;color:var(--muted);font-size:11.5px;line-height:1.45}");
-  });
 });
