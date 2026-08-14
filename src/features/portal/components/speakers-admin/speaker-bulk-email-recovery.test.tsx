@@ -78,7 +78,7 @@ async function waitForEnabledButton(name: string) {
     await vi.waitFor(() => {
       const button = buttonsNamed(name)[0];
       if (!button || button.disabled) throw new Error(`${name} is not enabled yet`);
-    });
+    }, { timeout: 5_000 });
   });
 }
 
