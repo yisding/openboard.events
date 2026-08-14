@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import {
   getOutstandingTasksViewIn,
   getSpeakerDetailIn,
+  getSpeakerFilterCountsIn,
   listContactsIn,
 } from "@/features/portal/server/admin-speakers";
 import {
@@ -185,6 +186,23 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
   }
 
   describe("listContacts", () => {
+    it("counts combinable roster chips without leaking another event", async () => {
+      await expect(getSpeakerFilterCountsIn(db, eventId)).resolves.toEqual({
+        all: 4,
+        accepted: 3,
+        missingEither: 2,
+        missingBio: 1,
+        missingHeadshot: 2,
+      });
+      await expect(getSpeakerFilterCountsIn(db, eventId, { q: "Ada" })).resolves.toEqual({
+        all: 1,
+        accepted: 1,
+        missingEither: 1,
+        missingBio: 0,
+        missingHeadshot: 1,
+      });
+    });
+
     it("matches missing_assets_v for missing=either — Ada (no headshot) and Grace (neither) qualify, Morgan and the never-submitted contact do not", async () => {
       const { rows, total } = await listContactsIn(db, eventId, { missing: "either" });
       const ids = rows.map((row) => row.contactId).sort();

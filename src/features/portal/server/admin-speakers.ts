@@ -102,6 +102,14 @@ export type ContactFilters = {
   pageSize?: number;
 };
 
+export type SpeakerFilterCounts = {
+  all: number;
+  accepted: number;
+  missingEither: number;
+  missingBio: number;
+  missingHeadshot: number;
+};
+
 export type SpeakerOptionRow = { contactId: ContactId; name: string };
 
 /**
@@ -282,6 +290,46 @@ export async function listContactsIn(
 
 export function listContacts(eventId: EventId, filters: ContactFilters = {}): Promise<{ rows: ContactListRow[]; total: number }> {
   return listContactsIn(db, eventId, filters);
+}
+
+/** Counts for the roster's combinable filter chips under the current search. */
+export async function getSpeakerFilterCountsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  filters: Pick<ContactFilters, "q" | "confirmation"> = {},
+): Promise<SpeakerFilterCounts> {
+  const where = sql.join(contactFilterClauses(eventId, filters), sql` AND `);
+  const result = await dbOrTx.execute<{
+    all: number | string;
+    accepted: number | string;
+    missingEither: number | string;
+    missingBio: number | string;
+    missingHeadshot: number | string;
+  }>(sql`
+    SELECT
+      count(*)::int AS all,
+      count(*) FILTER (WHERE asv.contact_id IS NOT NULL)::int AS accepted,
+      count(*) FILTER (WHERE ma.missing_bio IS TRUE OR ma.missing_headshot IS TRUE)::int AS "missingEither",
+      count(*) FILTER (WHERE ma.missing_bio IS TRUE)::int AS "missingBio",
+      count(*) FILTER (WHERE ma.missing_headshot IS TRUE)::int AS "missingHeadshot"
+    ${CONTACT_JOINS}
+    WHERE ${where}
+  `);
+  const row = (result.rows ?? [])[0];
+  return {
+    all: Number(row?.all ?? 0),
+    accepted: Number(row?.accepted ?? 0),
+    missingEither: Number(row?.missingEither ?? 0),
+    missingBio: Number(row?.missingBio ?? 0),
+    missingHeadshot: Number(row?.missingHeadshot ?? 0),
+  };
+}
+
+export function getSpeakerFilterCounts(
+  eventId: EventId,
+  filters: Pick<ContactFilters, "q" | "confirmation"> = {},
+): Promise<SpeakerFilterCounts> {
+  return getSpeakerFilterCountsIn(db, eventId, filters);
 }
 
 export type SpeakerDetailDTO = {

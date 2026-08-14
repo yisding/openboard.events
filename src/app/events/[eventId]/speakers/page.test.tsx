@@ -6,9 +6,10 @@ import Page from "./page";
 
 Object.assign(globalThis, { React });
 
-const { requireAdminMock, listContactsMock } = vi.hoisted(() => ({
+const { requireAdminMock, listContactsMock, getSpeakerFilterCountsMock } = vi.hoisted(() => ({
   requireAdminMock: vi.fn(),
   listContactsMock: vi.fn(),
+  getSpeakerFilterCountsMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -17,7 +18,10 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 vi.mock("@/features/auth", () => ({ requireAdmin: requireAdminMock }));
-vi.mock("@/features/portal", () => ({ listContacts: listContactsMock }));
+vi.mock("@/features/portal", () => ({
+  getSpeakerFilterCounts: getSpeakerFilterCountsMock,
+  listContacts: listContactsMock,
+}));
 vi.mock("@/features/portal/components/speakers-admin/speakers-admin-view", () => ({
   SpeakersAdminView: () => null,
 }));
@@ -43,6 +47,7 @@ describe("speaker roster page guard", () => {
   beforeEach(() => {
     requireAdminMock.mockReset();
     listContactsMock.mockReset().mockResolvedValue({ rows: [], total: 0 });
+    getSpeakerFilterCountsMock.mockReset().mockResolvedValue({ all: 0, accepted: 0, missingEither: 0, missingBio: 0, missingHeadshot: 0 });
   });
 
   // A soft navigation from `/review` re-renders this page without re-running
@@ -61,5 +66,6 @@ describe("speaker roster page guard", () => {
 
     await expect(render()).resolves.toBeTruthy();
     expect(listContactsMock).toHaveBeenCalledWith(eventId, expect.objectContaining({ sort: "name" }));
+    expect(getSpeakerFilterCountsMock).toHaveBeenCalledWith(eventId, {});
   });
 });

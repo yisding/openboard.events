@@ -44,7 +44,7 @@ export function SubmissionReviewHistory({
       <p className="muted">Every meaningful score save is retained here, including prior values after an edit.</p>
       {error && <p role="alert" className="form-error">{error}</p>}
       {!error && entries === null && <p className="muted">Loading review history…</p>}
-      {!error && entries?.length === 0 && <p className="muted">No scores have been saved for this proposal.</p>}
+      {!error && entries?.length === 0 && <p className="muted">No scores have been saved for this submission.</p>}
       {!error && entries && entries.length > 0 && (
         <ol className="review-history-list">
           {entries.map((entry) => (

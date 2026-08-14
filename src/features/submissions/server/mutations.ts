@@ -274,7 +274,7 @@ async function manualCreationReplay(
   }).from(submissions).where(eq(submissions.id, requestedSubmissionId)).limit(1);
   if (!replay) return null;
   if (replay.eventId !== eventId || replay.source !== "manual") {
-    throw new AppError("CONFLICT", "That abstract creation request was already used");
+    throw new AppError("CONFLICT", "That submission creation request was already used");
   }
   return {
     submissionId: requestedSubmissionId,
@@ -328,7 +328,7 @@ export async function createSubmissionIn(
   // reconciled after INSERT's primary-key conflict below.
   if (input.requestedSubmissionId) {
     if (input.source !== "manual") {
-      throw new AppError("VALIDATION", "Only organizer-created abstracts can supply a creation request ID");
+      throw new AppError("VALIDATION", "Only organizer-created submissions can supply a creation request ID");
     }
     const replay = await manualCreationReplay(tx, eventId, input.requestedSubmissionId);
     if (replay) return replay;

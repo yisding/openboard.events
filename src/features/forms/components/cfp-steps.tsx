@@ -24,7 +24,7 @@ type CfpFlowStep = Exclude<Step, "done">;
 
 const CFP_PROGRESS_LABELS: Record<CfpFlowStep, string> = {
   account: "Account",
-  submission: "Proposal",
+  submission: "Submission",
   speaker: "Speaker",
   review: "Review",
 };
@@ -124,7 +124,7 @@ export function stepFieldErrors(
 
 export function cfpStepHeading(snapshot: FormSnapshot, step: Exclude<Step, "done">): string {
   if (step === "account") return "Verify your email";
-  if (step === "review") return "Review your proposal";
+  if (step === "review") return "Review your submission";
   const key = step === "submission" ? "abstract" : "participant";
   const section = snapshot.sections.find((candidate) => candidate.key === key);
   return section?.pageHeading || section?.title || (step === "submission" ? "Submission" : "Participant");
@@ -687,10 +687,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   if (step === "done" && result) {
     return (
       <section ref={stepRegion} className="cfp-step cfp-step--compact">
-        <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your proposal is in</h2>
+        <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your submission is in</h2>
         {form.successHtml?.trim()
           ? <RichTextView html={form.successHtml} />
-          : <p>Your proposal was submitted successfully. Keep the reference code below for your records.</p>}
+          : <p>Your submission was received successfully. Keep the reference code below for your records.</p>}
         <p>Reference <b>SESS-{result.code}</b></p>
         {form.autoRedirectToPortal && <p role="status">Opening your speaker portal in 10 seconds…</p>}
         <a className="button button-primary" href={portalHref}>Open your speaker portal</a>
@@ -785,7 +785,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           {enabledSecondaryRoles.map((role) => (
             <button key={role} type="button" className="add-cospeaker" onClick={() => addParticipant(role)}>
               <b>Add a {PARTICIPANT_ROLE_LABELS[role]}</b>
-              <span>Include another person on this proposal.</span>
+              <span>Include another person on this submission.</span>
             </button>
           ))}
           <div className="cfp-actions">
@@ -822,7 +822,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <div className="cfp-actions">
             <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit submission"}</Button>
           </div>
         </form>
       )}

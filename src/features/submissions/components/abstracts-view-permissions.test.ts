@@ -89,7 +89,7 @@ describe("AbstractsView permissions", () => {
 
     expect(html).toContain("Send 1 decision email");
     expect(html).toContain("Export CSV");
-    expect(html).toContain("Add abstract");
+    expect(html).toContain("Add submission");
     expect(html).toContain('aria-label="Select every row on this page"');
     expect(html).toContain('aria-label="Select SESS-101, Agents in production"');
   });
@@ -98,7 +98,7 @@ describe("AbstractsView permissions", () => {
     const html = renderView(false);
 
     expect(html).not.toContain("Send 1 decision email");
-    expect(html).not.toContain("Add abstract");
+    expect(html).not.toContain("Add submission");
     expect(html).not.toContain('aria-label="Select every row on this page"');
     expect(html).not.toContain('aria-label="Select SESS-101, Agents in production"');
     expect(html).not.toContain('type="checkbox"');

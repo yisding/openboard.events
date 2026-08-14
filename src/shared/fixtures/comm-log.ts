@@ -7,7 +7,7 @@ export const COMM_LOG_FIXTURE = commLogRowSchema.parse({
   recipientName: "Ada Lovelace",
   templateKey: "submission_received",
   status: "sent",
-  subjectRendered: "We received your proposal",
+  subjectRendered: "We received your submission",
   providerMessageId: "resend-message-1",
   error: null,
   icsUid: null,
@@ -20,7 +20,7 @@ export const COMM_LOG_FIXTURE = commLogRowSchema.parse({
 
 export const COMM_LOG_DETAIL_FIXTURE = commLogDetailSchema.parse({
   ...COMM_LOG_FIXTURE,
-  bodyRenderedHtml: "<p>We received your proposal.</p>",
+  bodyRenderedHtml: "<p>We received your submission.</p>",
   idempotencyKey: "submission-received:00000000-0000-4000-8000-000000000501",
   attempts: 1,
 });

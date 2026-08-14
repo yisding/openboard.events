@@ -164,12 +164,12 @@ export function AbstractsView({
     <div className="page">
       <PageHeader
         eyebrow="PROGRAM"
-        title="Abstracts"
-        description="Every proposal for this event, with its status, track and rating."
+        title="Submissions"
+        description="Every submission for this event, with its status, track and rating."
         actions={
           <>
             <a className="button button-secondary" href={exportHref} download>Export CSV</a>
-            {canEdit && <Button onClick={() => setAdding(true)}><Plus size={16} /> Add abstract</Button>}
+            {canEdit && <Button onClick={() => setAdding(true)}><Plus size={16} /> Add submission</Button>}
           </>
         }
       />

@@ -64,7 +64,7 @@ export function NotificationsStep({ form, onChange }: {
                 maxLength={255}
                 value={form.confirmationSubject}
                 onChange={(current) => onChange({ confirmationSubject: current.target.value })}
-                placeholder="We received your proposal"
+                placeholder="We received your submission"
               />
             </Field>
             <Field label="Body">

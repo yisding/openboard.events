@@ -31,8 +31,8 @@ export function abstractSelectionScope({
 
   return {
     countLabel: allMatching
-      ? `${selectedCount} matching ${selectedCount === 1 ? "abstract" : "abstracts"} selected`
-      : `${selectedCount} ${selectedCount === 1 ? "abstract" : "abstracts"} selected on this page`,
+      ? `${selectedCount} matching ${selectedCount === 1 ? "submission" : "submissions"} selected`
+      : `${selectedCount} ${selectedCount === 1 ? "submission" : "submissions"} selected on this page`,
     allMatching,
     selectAllMatchingCount: canSelectAllMatching ? filteredTotal : null,
   };

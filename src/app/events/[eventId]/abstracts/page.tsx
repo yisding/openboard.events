@@ -8,7 +8,7 @@ import { AbstractsView } from "@/features/submissions/components/abstracts-view"
 import { getStatusCounts, getSubmissionVocabulary, listSubmissions, parseSubmissionFiltersForPage } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 
-export const metadata: Metadata = { title: "Abstracts" };
+export const metadata: Metadata = { title: "Submissions" };
 export const dynamic = "force-dynamic";
 
 export default async function Page({

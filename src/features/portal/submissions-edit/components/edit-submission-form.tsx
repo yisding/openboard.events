@@ -106,7 +106,7 @@ export function EditSubmissionForm({
     <article className="portal-submission-edit">
       <Link className="portal-back" href={detailHref}><ArrowLeft size={14} /> {formatCode(submission.code)}</Link>
       <header className="portal-page-header">
-        <h1>Edit your proposal</h1>
+        <h1>Edit your submission</h1>
         <p>{submission.title}</p>
       </header>
       <div ref={formPanelRef} className="portal-panel">

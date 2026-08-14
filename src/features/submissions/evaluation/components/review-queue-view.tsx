@@ -7,6 +7,7 @@ import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, Subm
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
@@ -126,6 +127,7 @@ export function ReviewQueueView({
   >(null);
 
   const active = useMemo(() => rows.find((row) => row.submissionId === activeId), [rows, activeId]);
+  const activeIndex = rows.findIndex((row) => row.submissionId === activeId);
   const specs = useMemo(() => plan ? specsOf(plan) : [], [plan]);
   const scale = useMemo(
     () => plan ? Array.from({ length: plan.scaleMax - plan.scaleMin + 1 }, (_, index) => plan.scaleMin + index) : [],
@@ -193,10 +195,10 @@ export function ReviewQueueView({
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { data?: SubmissionDetailDTO; error?: { message?: string } } | null;
         if (cancelled) return;
-        if (!response.ok || !payload?.data) setDetailError(payload?.error?.message ?? "Could not load this proposal");
+        if (!response.ok || !payload?.data) setDetailError(payload?.error?.message ?? "Could not load this submission");
         else setDetail(payload.data);
       })
-      .catch(() => { if (!cancelled) setDetailError("Could not load this proposal"); });
+      .catch(() => { if (!cancelled) setDetailError("Could not load this submission"); });
     // A reviewer moving quickly down the list must not have a late response for
     // one they have passed replace what they are reading now.
     return () => { cancelled = true; };
@@ -412,11 +414,18 @@ export function ReviewQueueView({
                       && ` · round average ${active.avgRating.toFixed(1)} from ${active.nScores}`}
                   </p>
                 </div>
+                <FlowNavControls
+                  index={activeIndex}
+                  total={rows.length}
+                  itemLabel={active.title}
+                  onPrev={activeIndex > 0 ? () => requestOpen(rows[activeIndex - 1]?.submissionId ?? active.submissionId) : undefined}
+                  onNext={activeIndex >= 0 && activeIndex < rows.length - 1 ? () => requestOpen(rows[activeIndex + 1]?.submissionId ?? active.submissionId) : undefined}
+                />
               </header>
 
               <div className="review-detail-body">
                 {detailError && <p className="portal-note" role="alert">{detailError}</p>}
-                {!detail && !detailError && <p className="portal-note">Loading the proposal…</p>}
+                {!detail && !detailError && <p className="portal-note">Loading the submission…</p>}
                 {detail && (
                   <section className="submitted-answers">
                     <h2>What the speaker submitted</h2>
@@ -555,7 +564,7 @@ export function ReviewQueueView({
                   </Button>
                 )}
 
-                <small className="keyboard-hint">Press {plan.scaleMin}–{plan.scaleMax} to score, n for the next proposal.</small>
+                <small className="keyboard-hint">Press {plan.scaleMin}–{plan.scaleMax} to score, n for the next submission.</small>
               </aside>
             </article>
           )}
@@ -564,7 +573,7 @@ export function ReviewQueueView({
       <ConfirmDialog
         open={pendingNavigation !== null}
         title="Discard this unsaved review?"
-        body="Your unsaved score, notes, or recusal reason will be lost if you leave this proposal."
+        body="Your unsaved score, notes, or recusal reason will be lost if you leave this submission."
         confirmLabel="Discard and continue"
         onConfirm={discardAndNavigate}
         onCancel={() => setPendingNavigation(null)}

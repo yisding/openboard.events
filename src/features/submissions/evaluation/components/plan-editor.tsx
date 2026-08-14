@@ -526,7 +526,7 @@ export function PlanEditor({
         )}
 
         <div className="evaluation-field-row evaluation-window-row">
-          <Field label="Opens" hint="Reviewers cannot open assigned proposals before this">
+          <Field label="Opens" hint="Reviewers cannot open assigned submissions before this">
             <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
           <Field label="Closes" hint="Saving stops at this moment; prior work stays readable">
@@ -537,7 +537,7 @@ export function PlanEditor({
         <div className="inline-setting">
           <div>
             <b>Blind review</b>
-            <small>Hide author, co-authors and every answer not marked as proposal content in the form builder.</small>
+            <small>Hide author, co-authors and every answer not marked as submission content in the form builder.</small>
           </div>
           <Switch
             label="Blind review"
@@ -667,7 +667,7 @@ export function PlanEditor({
         </section>
 
         <p className="portal-note">
-          Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Abstracts by rating and move the survivors.
+          Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Submissions by rating and move the survivors.
         </p>
         <div className="drawer-actions">
           <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>

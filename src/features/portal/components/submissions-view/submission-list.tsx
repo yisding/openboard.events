@@ -26,7 +26,7 @@ export function SubmissionList({
     return (
       <EmptyState
         icon={<FileText size={20} />}
-        title="No proposals yet"
+        title="No submissions yet"
         description="Anything you submit through a call for speakers shows up here, along with its status."
       />
     );
