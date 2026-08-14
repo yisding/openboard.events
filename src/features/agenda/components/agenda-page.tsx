@@ -18,7 +18,7 @@ import { ListView } from "./list-view";
 import RoomView from "./room-view";
 import { SessionFormDialog } from "./session-form-dialog";
 import TrackView from "./track-view";
-import { ReadyToPromoteTray } from "./unscheduled-tray";
+import { ReadyToPromoteTray, UnscheduledTray } from "./unscheduled-tray";
 import WeekView from "./week-view";
 
 /**
@@ -158,7 +158,9 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
         ? <ListView {...viewProps} />
         : (
           <div className="agenda-workspace">
-            <ReadyToPromoteTray eventId={props.eventId} accepted={props.accepted} />
+            {view === "day"
+              ? <ReadyToPromoteTray eventId={props.eventId} accepted={props.accepted} />
+              : <UnscheduledTray {...viewProps} />}
             <section className="day-grid">
               {view === "day" && <DayView {...viewProps} />}
               {view === "week" && <WeekView {...viewProps} />}
