@@ -212,6 +212,21 @@ test.describe("self-service signup to first value", () => {
     });
 
     await test.step("create the first event and tracks", async () => {
+      const desktopViewport = page.viewportSize();
+      await page.setViewportSize({ width: 600, height: 800 });
+      const progress = page.getByRole("list", { name: "Setup progress" });
+      for (const label of ["Event details", "Tracks", "First form", "Share"]) {
+        await expect(progress.getByText(label, { exact: true })).toBeVisible();
+      }
+      const progressLayout = await progress.evaluate((element) => ({
+        right: element.getBoundingClientRect().right,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      }));
+      expect(progressLayout.right).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      expect(progressLayout.scrollWidth).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
+
       await eventNameInput(page).fill(eventName);
       await eventTimezoneInput(page).selectOption(ONBOARDING_TIMEZONE);
       await expect(eventTimezoneInput(page)).toHaveValue(ONBOARDING_TIMEZONE);
