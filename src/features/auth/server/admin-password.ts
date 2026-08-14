@@ -4,22 +4,21 @@ import { fromBase64Url, randomBytes, safeEqual, toBase64Url } from "./crypto";
 /**
  * M42 AC 1 — Better Auth's custom password-hashing hooks.
  *
- * Two schemes live side by side in `admin_accounts.password`:
+ * Two schemes can live side by side in `admin_accounts.password` during the
+ * credential migration window:
  *
- * - `pbkdf2-sha256$<iterations>$<salt>$<hash>` — the **legacy** M06a fallback
- *   scheme, written by `fallback-session.ts#hashPassword` and copied verbatim
- *   into `admin_accounts` by `drizzle/0009_product_auth.sql`. Every organizer
- *   who existed before M42 has one of these. No forced resets: they verify,
- *   and `needsRehash` marks them for replacement.
+ * - `pbkdf2-sha256$<iterations>$<salt>$<hash>` — the **legacy** scheme copied
+ *   verbatim from the retired `users.password_hash` store by
+ *   `drizzle/0009_product_auth.sql`. Existing organizers are upgraded without
+ *   a forced reset: the hash verifies and `needsRehash` marks it for replacement.
  * - `pbkdf2-sha256-v2$<iterations>$<salt>$<hash>` — the **current** scheme,
  *   written on every new password and on the first successful sign-in with a
  *   legacy hash (`better-auth.ts`'s post-sign-in hook).
  *
  * The work factor is deliberately unchanged at 100,000 iterations. Cloudflare
- * Workers' WebCrypto is the constraint here, not preference: the fallback
- * scheme picked that number because it is what the deployed Worker verified
- * against, and raising it is a separate, measured change — not something to
- * smuggle into an auth-provider swap. What v2 does change is the salt (16 →
+ * Workers' WebCrypto is the constraint here, not preference: existing hashes
+ * use that number, and raising it is a separate, measured change. What v2 does
+ * change is the salt (16 →
  * 32 bytes) and, more importantly, the *location*: the credential moves out of
  * `users.password_hash`, which every repository module can read, into
  * `admin_accounts`, which only the auth provider touches.
@@ -87,8 +86,4 @@ export function needsRehash(hash: string): boolean {
   const parsed = encodedSchema.safeParse(hash.split("$"));
   if (!parsed.success) return false;
   return parsed.data[0] === LEGACY_SCHEME;
-}
-
-export function isLegacyScheme(hash: string): boolean {
-  return hash.startsWith(`${LEGACY_SCHEME}$`);
 }

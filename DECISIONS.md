@@ -15,19 +15,16 @@ Every screen reads and writes Postgres through the server layer. The early crede
 browser demo (a localStorage store) was deleted on 2026-08-12; production adapters remain
 isolated behind server interfaces, and there is no fixture fallback at runtime.
 
-## Admin auth: Better Auth, with the fallback provider kept warm
+## Admin auth: Better Auth only
 
-- `ADMIN_AUTH_PROVIDER=better-auth` is the shipping admin/organizer auth on both deployed
-  environments (`wrangler.jsonc`), with revocable sessions in `admin_sessions` and Google
-  enabled as a social provider. Google-only sign-in was rejected as insufficient for a product:
-  it locks out non-Google organizers and still needs reset/verification/revocation.
-- The jose/PBKDF2 implementation survives as the `fallback` provider and as the local default.
-  Passwords are mirrored both ways (`upsertCredentialAccount` on provisioning,
-  `mirrorCredentialToFallback` on reset/signup), and legacy `pbkdf2-sha256$…` hashes rehash on
-  first login, so the current password works on either provider with no forced resets.
-- One caveat before relying on a provider revert: the fallback cookie is a stateless 7-day JWT
-  with no server record, so a password reset performed under `better-auth` cannot invalidate a
-  fallback cookie issued before a switch. Rotate `SESSION_SECRET` if that matters.
+- Better Auth is the sole admin/organizer identity and credential provider, with revocable
+  sessions in `admin_sessions`, email/password, verification/reset, and Google social login.
+  Google-only sign-in was rejected because it locks out non-Google organizers and still needs
+  reset/verification/revocation.
+- The jose/PBKDF2 fallback provider, its `ob_admin` cookie, provider switch, password mirror,
+  and test-only login route were retired in migration 0033. Historical
+  `pbkdf2-sha256$…` values already copied into `admin_accounts` by migration 0009 still verify
+  and rehash on first login; `users.password_hash` is erased and constrained to NULL.
 - Do not combine Better Auth's `cookieCache` with `secondaryStorage` (a known bug treats an
   expired cache as logout). `requireAdmin(eventId, role?)` stays the frozen,
   implementation-neutral contract. Portal speaker OTP/magic-link auth is a separate system and
@@ -69,8 +66,8 @@ protocol.
   matching web origin through `scripts/deploy-cloudflare.sh` — no guessed `workers.dev`
   hostname is committed — and the `global_fetch_strictly_public` compatibility flag stays set so
   the jobs Worker can fetch its sibling on the same zone (Cloudflare error 1042 otherwise).
-- Runtime variables are validated fail-closed; production cannot enable `TEST_AUTH`, the
-  fallback delivery UI, `EMAIL_MODE=log`, or an email allowlist.
+- Runtime variables are validated fail-closed; retired auth settings are rejected, and
+  production cannot enable the fallback delivery UI, `EMAIL_MODE=log`, or an email allowlist.
 
 ## R2 key scheme and lifecycle
 

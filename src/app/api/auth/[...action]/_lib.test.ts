@@ -12,7 +12,6 @@ const dormant = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: secret,
-  ADMIN_AUTH_PROVIDER: "better-auth",
   GOOGLE_CLIENT_ID: "google-client-id",
   GOOGLE_CLIENT_SECRET: "google-client-secret",
 });
@@ -152,7 +151,6 @@ describe("Google signup handoff", () => {
       new NextRequest("http://localhost:3000/api/auth/callback/google?code=test", {
         headers: { cookie: `${OAUTH_SIGNUP_INTENT_COOKIE}=encrypted` },
       }),
-      true,
       async () => new Response(null, { status: 302, headers: { location: "/organizations" } }),
       dormant,
     );

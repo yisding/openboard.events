@@ -27,25 +27,24 @@ describe("LoginForm", () => {
 
   it("renders the unknown-Google recovery without losing the intended destination", () => {
     navigation.searchParams = new URLSearchParams("error=signup_disabled&next=%2Forganizations");
-    const html = renderToStaticMarkup(<LoginForm googleEnabled signupEnabled />);
+    const html = renderToStaticMarkup(<LoginForm googleEnabled />);
 
     expect(html).toContain("We couldn’t find an Openboard account for that Google address");
     expect(html).toContain("Create your workspace</a> to continue");
     expect(html).toContain('href="/signup?next=%2Forganizations"');
   });
 
-  it("shows Google sign-in only when the runtime provider is configured", () => {
-    const enabled = renderToStaticMarkup(<LoginForm googleEnabled signupEnabled />);
+  it("shows Google sign-in only when OAuth is configured", () => {
+    const enabled = renderToStaticMarkup(<LoginForm googleEnabled />);
     const disabled = renderToStaticMarkup(<LoginForm />);
 
     expect(enabled).toContain("Continue with Google");
     expect(enabled).toContain('type="button"');
     expect(disabled).not.toContain("Continue with Google");
-    expect(disabled).not.toContain("Create your workspace");
   });
 
   it("offers signup and password recovery without losing the requested workspace", () => {
-    const html = renderToStaticMarkup(<LoginForm signupEnabled />);
+    const html = renderToStaticMarkup(<LoginForm />);
 
     expect(html).toContain('href="/signup?next=%2Forganizations"');
     expect(html).toContain('href="/login/forgot?next=%2Forganizations"');

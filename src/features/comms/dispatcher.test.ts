@@ -87,6 +87,8 @@ const productionSendEnv = parseEnv({
   DEPLOYMENT_ID: "dispatcher-test-production",
   RESEND_WEBHOOK_SECRET: "w".repeat(32),
   SPEAKER_SHARE_SECRET: "p".repeat(32),
+  GOOGLE_CLIENT_ID: "google-client-id",
+  GOOGLE_CLIENT_SECRET: "google-client-secret",
 });
 
 describe("communications outbox dispatcher", () => {

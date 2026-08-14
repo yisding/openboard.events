@@ -4,28 +4,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * `/api/auth/[...action]` is hand-rolled and never passes through
  * `defineHandler`, so it does not inherit that chokepoint's origin check the
- * way every other state-changing route does. On the fallback provider — the
- * default, and what deployed environments run — `sign-in` mints the `ob_admin`
- * JWT cookie straight from the request body. `SameSite=Lax` stops a forged
- * cross-site post from *sending* that cookie, not from *storing* it, so a
- * cross-origin form post would hand the organizer's browser the attacker's
- * session and everything uploaded next would land in the attacker's workspace.
+ * way every other state-changing route does. Keep the application origin gate
+ * in front of Better Auth so a future provider upgrade cannot silently weaken
+ * login-CSRF protection.
  */
 
-const authenticateAdmin = vi.fn(async () => ({ userId: "00000000-0000-4000-8000-000000000001", email: "organizer@example.com", name: "Organizer" }));
+const handler = vi.fn(async () => new Response(JSON.stringify({ user: { id: "admin" } }), {
+  status: 200,
+  headers: {
+    "content-type": "application/json",
+    "set-cookie": "openboard_admin.session_token=signed-session; Path=/; HttpOnly; SameSite=Lax",
+  },
+}));
 
 vi.mock("@/shared/lib/env", () => ({
-  getEnv: () => ({ ADMIN_AUTH_PROVIDER: "fallback", APP_ENV: "local" }),
+  getEnv: () => ({ APP_ENV: "local" }),
 }));
 
 vi.mock("@/features/auth", () => ({
-  ADMIN_COOKIE: "ob_admin",
-  adminCookieOptions: () => ({ path: "/", httpOnly: true, sameSite: "lax" as const }),
-  authenticateAdmin: (...args: unknown[]) => authenticateAdmin(...(args as [])),
-  signAdminToken: vi.fn(async () => "signed-admin-token"),
   throttleAdminLogin: vi.fn(async () => "attempt-key"),
   clearAdminLoginThrottle: vi.fn(async () => undefined),
   nudgeAdminAuthEmailOutbox: vi.fn(),
+}));
+
+vi.mock("@/features/auth/server/better-auth", () => ({
+  getAdminAuth: () => ({ handler }),
 }));
 
 const { POST } = await import("@/app/api/auth/[...action]/route");
@@ -43,7 +46,7 @@ const post = (action: string[], body: unknown, headers: Record<string, string>) 
 const credentials = { email: "attacker@evil.example", password: "a long enough password" };
 
 describe("POST /api/auth/[...action] origin check", () => {
-  beforeEach(() => authenticateAdmin.mockClear());
+  beforeEach(() => handler.mockClear());
 
   it("rejects a cross-origin sign-in before minting the admin cookie", async () => {
     const response = await post(["sign-in"], credentials, { origin: "https://evil.example" });
@@ -53,7 +56,7 @@ describe("POST /api/auth/[...action] origin check", () => {
       error: { code: "FORBIDDEN", message: "Cross-origin request rejected" },
     });
     expect(response.headers.getSetCookie()).toEqual([]);
-    expect(authenticateAdmin).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("rejects a cross-origin forced sign-out", async () => {
@@ -68,13 +71,13 @@ describe("POST /api/auth/[...action] origin check", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ data: { signedIn: true } });
-    expect(response.headers.getSetCookie().join(";")).toContain("ob_admin=signed-admin-token");
+    expect(response.headers.getSetCookie().join(";")).toContain("openboard_admin.session_token=signed-session");
   });
 
   it("still serves a header-less non-browser caller such as the deploy smoke script", async () => {
     const response = await post(["sign-in"], credentials, {});
 
     expect(response.status).toBe(200);
-    expect(authenticateAdmin).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,11 +18,9 @@ export default async function LoginPage({
   const query = await searchParams;
   if (await getAdminSession()) redirect(authenticatedAuthDestination(query.next));
   const env = getEnv();
-  const googleEnabled = env.ADMIN_AUTH_PROVIDER === "better-auth"
-    && Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
-  const signupEnabled = env.ADMIN_AUTH_PROVIDER === "better-auth";
+  const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
   return <main className="login-page">
     <AuthBrandPanel />
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading sign-in…</p>}><LoginForm googleEnabled={googleEnabled} signupEnabled={signupEnabled} /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<p>Loading sign-in…</p>}><LoginForm googleEnabled={googleEnabled} /></Suspense></div></section>
   </main>;
 }

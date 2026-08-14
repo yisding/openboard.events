@@ -104,22 +104,10 @@ const envSchema = z.object({
   // M39 is deferred and has no production implementation. A deployed flag
   // must not make a missing integration look like successful scheduled work.
   AIRTABLE_CRON: z.literal("0").default("0"),
-  /**
-   * M42 — which implementation backs `requireAdmin`.
-   *
-   * `fallback` (the default, and what every deployed environment runs today) is
-   * M06a's jose/PBKDF2 stateless cookie. `better-auth` is the M42
-   * implementation: Better Auth over the Drizzle adapter, with revocable
-   * server-side sessions in `admin_sessions`.
-   *
-   * Defaulting to `fallback` is the guardrail DECISIONS.md ("Product auth
-   * direction") states in as many words: the fallback remains the shipping auth
-   * until a deployed Better Auth round-trip is proven on the preview. Flipping
-   * this variable is that proof's first step, and it is reversible without a
-   * deploy — the two providers read disjoint storage, so a session minted under
-   * either one survives the switch being flipped back.
-   */
-  ADMIN_AUTH_PROVIDER: z.enum(["fallback", "better-auth"]).default("fallback"),
+  // Retired settings stay explicit for one release so stale deployment or
+  // local configuration fails closed instead of silently implying a switch
+  // that no longer exists.
+  ADMIN_AUTH_PROVIDER: z.never().optional(),
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
   // Reviewed customer terms live outside the repository until their drafts in
@@ -139,7 +127,7 @@ const envSchema = z.object({
    * is configured per origin and a preview may need to differ.
    */
   BETTER_AUTH_URL: optionalString,
-  TEST_AUTH: z.enum(["1"]).optional(),
+  TEST_AUTH: z.never().optional(),
   NEXT_PUBLIC_BUILD_SHA: optionalString,
   DEPLOYMENT_ID: optionalLegalVersion,
 }).superRefine((env, context) => {
@@ -171,26 +159,19 @@ const envSchema = z.object({
       context.addIssue({ code: "custom", path: ["CRON_SECRET"], message: "must be at least 32 characters" });
     }
   }
-  // M42 — fail closed rather than half-configured. Better Auth signs its
-  // session cookies with SESSION_SECRET and needs an origin to build callbacks
-  // from; Google is optional (email+password alone is a complete sign-in path)
-  // but a half-supplied client id/secret pair is always a mistake.
-  if (env.ADMIN_AUTH_PROVIDER === "better-auth") {
-    if (!env.SESSION_SECRET) {
-      context.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "is required when ADMIN_AUTH_PROVIDER=better-auth" });
+  // Better Auth is the only admin provider and needs an origin to build
+  // callbacks from. SESSION_SECRET is part of the deployed required set above.
+  if (env.BETTER_AUTH_URL) {
+    const parsed = z.url().safeParse(env.BETTER_AUTH_URL);
+    if (!parsed.success || new URL(parsed.data).origin !== env.BETTER_AUTH_URL) {
+      context.addIssue({ code: "custom", path: ["BETTER_AUTH_URL"], message: "must be an origin with no path or trailing slash" });
     }
-    if (env.BETTER_AUTH_URL) {
-      const parsed = z.url().safeParse(env.BETTER_AUTH_URL);
-      if (!parsed.success || new URL(parsed.data).origin !== env.BETTER_AUTH_URL) {
-        context.addIssue({ code: "custom", path: ["BETTER_AUTH_URL"], message: "must be an origin with no path or trailing slash" });
-      }
-    }
-    if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_ID) {
-      context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_ID"], message: `is required for Google sign-in in ${env.APP_ENV}` });
-    }
-    if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_SECRET) {
-      context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: `is required for Google sign-in in ${env.APP_ENV}` });
-    }
+  }
+  if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_ID) {
+    context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_ID"], message: `is required for Google sign-in in ${env.APP_ENV}` });
+  }
+  if (env.APP_ENV !== "local" && !env.GOOGLE_CLIENT_SECRET) {
+    context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: `is required for Google sign-in in ${env.APP_ENV}` });
   }
   if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
     context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_SECRET"], message: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together" });
@@ -247,7 +228,6 @@ const envSchema = z.object({
   if (env.APP_ENV === "production") {
     if (env.EMAIL_MODE !== "send") context.addIssue({ code: "custom", path: ["EMAIL_MODE"], message: "must be send in production" });
     if (env.EMAIL_FALLBACK_UI !== "0") context.addIssue({ code: "custom", path: ["EMAIL_FALLBACK_UI"], message: "must be 0 in production" });
-    if (env.TEST_AUTH) context.addIssue({ code: "custom", path: ["TEST_AUTH"], message: "must be unset in production" });
     if (!env.RESEND_API_KEY) context.addIssue({ code: "custom", path: ["RESEND_API_KEY"], message: "is required in production" });
     if (!env.EMAIL_FROM) context.addIssue({ code: "custom", path: ["EMAIL_FROM"], message: "is required in production" });
     if (env.EMAIL_ALLOWLIST) context.addIssue({ code: "custom", path: ["EMAIL_ALLOWLIST"], message: "must be unset in production" });

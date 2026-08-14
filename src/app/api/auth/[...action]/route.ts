@@ -3,12 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
 import {
-  ADMIN_COOKIE,
-  adminCookieOptions,
-  authenticateAdmin,
   clearAdminLoginThrottle,
   nudgeAdminAuthEmailOutbox,
-  signAdminToken,
   throttleAdminLogin,
 } from "@/features/auth";
 import { isAppError, toHttp } from "@/shared/lib/errors";
@@ -20,16 +16,12 @@ import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialS
 /**
  * Admin auth endpoints.
  *
- * This was a single-segment `[action]` route while admin auth was the
- * jose/PBKDF2 fallback, which only ever needed `sign-in` and `sign-out`. M42
- * widened it to a catch-all because Better Auth's surface is multi-segment
+ * This is a catch-all because Better Auth's surface is multi-segment
  * (`/sign-in/email`, `/callback/google`, `/get-session`, `/reset-password/…`),
  * and Next.js will not accept `[action]` and `[...action]` side by side.
  *
- * The two legacy paths keep their exact request and response shapes on both
- * providers — `POST /api/auth/sign-in` with `{email, password}` answering
- * `{data:{signedIn:true}}` — so `LoginForm`, the e2e specs and the deployed
- * smoke script are unaffected by which provider is switched on.
+ * The stable application paths keep their original request and response
+ * shapes while delegating to Better Auth in-process.
  */
 
 const signInSchema = z.object({ email: z.email(), password: z.string().min(8).max(256) });
@@ -194,16 +186,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   const { action } = await context.params;
   const path = action.join("/");
   const env = getEnv();
-  const betterAuth = env.ADMIN_AUTH_PROVIDER === "better-auth";
 
   try {
-    // Every POST here either mints or clears an admin session cookie. The
-    // fallback provider's `sign-in` branch below writes `ob_admin` straight
-    // from the request body, and `SameSite=Lax` stops a cross-site form post's
-    // cookie from being *sent*, not from being *stored* — so a forged login
-    // would silently swap the organizer into the attacker's workspace. Reject
-    // login CSRF once, before any branch reads a credential. Better Auth
-    // validates origin itself, so this is harmlessly redundant on that path.
+    // Every POST here can mutate authentication state. Keep the application
+    // origin check in front of Better Auth's own validation as defense in depth.
     assertSameOrigin(request);
   } catch (error) {
     if (isAppError(error)) {
@@ -213,30 +199,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   if (path === "sign-out") {
-    if (betterAuth) return betterAuthSignOut(request);
-    const response = NextResponse.json({ data: { signedOut: true } });
-    response.cookies.set(ADMIN_COOKIE, "", { ...adminCookieOptions(), maxAge: 0 });
-    return response;
+    return betterAuthSignOut(request);
   }
 
   if (path === "sign-in") {
     const input = signInSchema.safeParse(await request.json().catch(() => null));
     if (!input.success) return unauthorized();
-    // The application-layer throttle runs on both providers — see
-    // `throttleAdminLogin`. On the fallback it is applied inside
-    // `authenticateAdmin`; here it has to be applied around the delegation.
     let attemptKey: string | undefined;
     try {
-      if (betterAuth) attemptKey = await throttleAdminLogin(input.data.email, clientIp(request));
-      const identity = betterAuth ? null : await authenticateAdmin(input.data.email, input.data.password, clientIp(request));
-      if (betterAuth) {
-        const response = await betterAuthSignIn(request, input.data);
-        if ((response.status === 200 || response.status === 403) && attemptKey) await clearAdminLoginThrottle(attemptKey);
-        return response;
-      }
-      if (!identity) return unauthorized();
-      const response = NextResponse.json({ data: { signedIn: true } });
-      response.cookies.set(ADMIN_COOKIE, await signAdminToken(identity), adminCookieOptions());
+      attemptKey = await throttleAdminLogin(input.data.email, clientIp(request));
+      const response = await betterAuthSignIn(request, input.data);
+      if ((response.status === 200 || response.status === 403) && attemptKey) await clearAdminLoginThrottle(attemptKey);
       return response;
     } catch (error) {
       const limited = rateLimited(error);
@@ -245,10 +218,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     }
   }
 
-  if (betterAuth && THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);
-  if (betterAuth && path === "sign-up/google") return beginGoogleSignup(request, env, betterAuthHandler);
-  if (betterAuth && path === "sign-in/social") return handleSocialSignIn(request, env, betterAuthHandler);
-  if (betterAuth && path === "confirm-email") return confirmAdminEmail(request, {
+  if (THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);
+  if (path === "sign-up/google") return beginGoogleSignup(request, env, betterAuthHandler);
+  if (path === "sign-in/social") return handleSocialSignIn(request, env, betterAuthHandler);
+  if (path === "confirm-email") return confirmAdminEmail(request, {
     handler: betterAuthHandler,
     limit: () => checkRateLimit(db, {
       key: `auth-email:confirm-email:ip:${clientIp(request)}`,
@@ -256,14 +229,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
       windowMs: 10 * 60 * 1000,
     }),
   });
-  if (betterAuth && PUBLIC_EMAIL_PATHS.has(path)) return rateLimitedPublicEmailPost(request, path);
-  if (betterAuth) return betterAuthHandler(request);
-  return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
+  if (PUBLIC_EMAIL_PATHS.has(path)) return rateLimitedPublicEmailPost(request, path);
+  return betterAuthHandler(request);
 }
 
 export async function GET(request: NextRequest) {
-  // Only Better Auth serves GETs here — the OAuth callback, `get-session`, and
-  // the email-verification link. The fallback has no GET surface at all.
   const env = getEnv();
-  return handleAdminAuthGet(request, env.ADMIN_AUTH_PROVIDER === "better-auth", betterAuthHandler, env);
+  return handleAdminAuthGet(request, betterAuthHandler, env);
 }

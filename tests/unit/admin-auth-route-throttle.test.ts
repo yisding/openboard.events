@@ -25,14 +25,10 @@ const nudgeAdminAuthEmailOutbox = vi.fn((waitUntil: unknown) => { void waitUntil
 const handler = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }));
 
 vi.mock("@/shared/lib/env", () => ({
-  getEnv: () => ({ ADMIN_AUTH_PROVIDER: "better-auth", APP_ENV: "local" }),
+  getEnv: () => ({ APP_ENV: "local" }),
 }));
 
 vi.mock("@/features/auth", () => ({
-  ADMIN_COOKIE: "ob_admin",
-  adminCookieOptions: () => ({ path: "/" }),
-  authenticateAdmin: vi.fn(async () => null),
-  signAdminToken: vi.fn(async () => "token"),
   throttleAdminLogin: (...args: unknown[]) => throttleAdminLogin(...(args as [])),
   clearAdminLoginThrottle: (...args: unknown[]) => clearAdminLoginThrottle(...(args as [])),
   nudgeAdminAuthEmailOutbox: (...args: unknown[]) => nudgeAdminAuthEmailOutbox(...(args as [unknown])),
@@ -80,7 +76,7 @@ describe("POST /api/auth/[...action] throttling", () => {
     // does not re-shape the response.
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
-    // A successful sign-in clears the counter, same as the legacy path.
+    // A successful sign-in clears the application-level counter.
     expect(clearAdminLoginThrottle).toHaveBeenCalledWith("attempt-key");
   });
 
@@ -95,7 +91,7 @@ describe("POST /api/auth/[...action] throttling", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("still throttles the legacy /sign-in shape", async () => {
+  it("still throttles the stable /sign-in shape", async () => {
     await post(["sign-in"], { email: "organizer@example.com", password: "a long enough password" });
     expect(throttleAdminLogin).toHaveBeenCalledTimes(1);
   });

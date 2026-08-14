@@ -11,7 +11,7 @@ const getAdminSession = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/features/auth", () => ({ getAdminSession }));
 vi.mock("@/shared/lib/env", () => ({
-  getEnv: () => ({ ADMIN_AUTH_PROVIDER: "better-auth" }),
+  getEnv: () => ({}),
 }));
 vi.mock("@/features/auth/components/login-form", () => ({
   LoginForm: () => <div>login form</div>,

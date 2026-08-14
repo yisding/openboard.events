@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { withTx, type TxDb } from "@/db/client";
 import { eventMembers, events, selfServiceSignups, users } from "@/db/schema";
-import { hashPassword, upsertCredentialAccount } from "@/features/auth";
+import { hashAdminPassword, upsertAdminCredentialAccount } from "@/features/auth";
 import { eventIdSchema, type EventId, type MemberRole, type UserId } from "@/shared/contracts";
 
 const ORGANIZER_EMAIL = "organizer@openboard.dev";
@@ -24,22 +24,20 @@ async function upsertAdmin(
   eventId: EventId,
   input: { email: string; name: string; password: string; role: MemberRole },
 ) {
-  const passwordHash = await hashPassword(input.password);
+  const passwordHash = await hashAdminPassword(input.password);
   const [user] = await tx.insert(users)
     // This operator-only recovery path is the authority that establishes the
-    // fixed seeded accounts. Mark them verified explicitly so the secure
-    // fallback provider can distinguish them from an unverified web signup.
+    // fixed seeded accounts. Mark them verified explicitly so they do not need
+    // the self-service mailbox-confirmation journey.
     .values({
       email: input.email,
       name: input.name,
-      passwordHash,
       emailVerified: true,
     })
     .onConflictDoUpdate({
       target: users.email,
       set: {
         name: input.name,
-        passwordHash,
         emailVerified: true,
         updatedAt: new Date(),
       },
@@ -49,9 +47,7 @@ async function upsertAdmin(
   // 0029's database trigger treats every unknown new identity as public by
   // default. This operator-only recovery command is the explicit exception.
   await tx.delete(selfServiceSignups).where(eq(selfServiceSignups.userId, user.id));
-  // M42 — mirror the credential into `admin_accounts` so a bootstrapped
-  // account can sign in under either auth provider (credential-account.ts).
-  await upsertCredentialAccount(tx, user.id as UserId, passwordHash);
+  await upsertAdminCredentialAccount(tx, user.id as UserId, passwordHash);
   await tx.insert(eventMembers)
     .values({ userId: user.id, eventId, role: input.role })
     .onConflictDoUpdate({

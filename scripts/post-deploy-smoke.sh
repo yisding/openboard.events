@@ -335,10 +335,9 @@ else
   fi
 fi
 
-# 1b. Both deployed environments advertise self-service signup, so Better
-# Auth's non-mutating session endpoint must be mounted. The fallback provider
-# returns 404 here; checking this catches a deployment that renders `/signup`
-# but cannot accept the form before a smoke test creates any customer data.
+# 1b. Better Auth's non-mutating session endpoint must be mounted. This catches
+# a deployment that renders `/signup` but cannot accept the form before a smoke
+# test creates any customer data.
 if expect_status "$base_url/api/auth/get-session" 200 "self-service auth is mounted"; then
   pass "/api/auth/get-session"
 fi
@@ -445,8 +444,7 @@ if (( production )); then
   fi
 fi
 
-# 9. The test-login route must not exist in production. It 404s unless
-#    TEST_AUTH=1 at build time; this is what proves the production build lacks it.
+# 9. The retired test-login route must not exist in production.
 if (( production )); then
   status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 -X POST \
     -H 'content-type: application/json' -d '{"email":"organizer@openboard.dev"}' \
