@@ -20,10 +20,10 @@ import type { AssignmentInput, PlanWrite, ReviewInput, ReviewerAssignmentInput }
  * Evaluation's writes.
  *
  * Most are a single SQL statement, so a data-modifying CTE gets an all-or-nothing
- * guarantee over `neon-http`. Reviewer and queue replacement are the exception:
- * they deliberately lock their plan in one statement, then mutate from a fresh
- * post-wait snapshot in a second statement inside one transaction. The writes
- * are also self-guarding —
+ * guarantee over `neon-http`. Plan graph saves, reviewer replacement, and queue
+ * replacement are the exceptions: they deliberately lock their plan in one
+ * statement, then mutate from a fresh post-wait snapshot in a second statement
+ * inside one transaction. The writes are also self-guarding —
  * `submitReview`'s assignment, status and window checks live in its `WHERE`, not
  * in a preceding read — so a round that closes mid-request cannot let one more
  * score through.
@@ -54,8 +54,17 @@ function normalizeTracks(trackIds: readonly TrackId[] | null): TrackId[] | null 
     : [...new Set(trackIds)].sort() as TrackId[];
 }
 
-/** One transaction is required because assignment writers lock, then mutate. */
-export type AssignmentTransaction = <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
+/** One transaction is required wherever evaluation graph writers lock, then mutate. */
+export type EvaluationTransaction = <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
+
+async function lockExistingEventPlan(tx: DbOrTx, eventId: EventId, planId: PlanId | null): Promise<void> {
+  if (!planId) return;
+  await tx.execute(sql`
+    SELECT id FROM evaluation_plans
+    WHERE id = ${planId} AND event_id = ${eventId}
+    FOR UPDATE
+  `);
+}
 
 async function lockWritableAssignmentPlan(tx: DbOrTx, eventId: EventId, planId: PlanId): Promise<void> {
   const result = await tx.execute<{ writable: boolean }>(sql`
@@ -266,7 +275,7 @@ function assertCriteriaWithinScale(input: PlanWrite): void {
  * submissions that fell out with it: the queue's authority is the assignment
  * row, so scope that is not enforced here is not enforced anywhere.
  */
-export async function savePlanIn(
+async function savePlanInTransaction(
   dbOrTx: DbOrTx,
   eventId: EventId,
   input: PlanWrite,
@@ -298,6 +307,10 @@ export async function savePlanIn(
   // server-derived ids represent new criteria and therefore are not expected
   // to be present in the plan yet.
   const claimedIds = input.criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
+  // If this is an update or committed-create replay, acquire the plan lock in
+  // its own statement. The upsert/descoped statement must start afterwards:
+  // PostgreSQL keeps a stale statement snapshot when FOR UPDATE itself waits.
+  await lockExistingEventPlan(dbOrTx, eventId, input.planId);
   await assertCriteriaInPlan(dbOrTx, eventId, input.planId, claimedIds);
   await assertScoringShapeEditable(dbOrTx, eventId, input);
 
@@ -408,7 +421,14 @@ export async function savePlanIn(
       SELECT event_id,
              (${expectedUpdatedAt ?? null}::timestamptz IS NULL
                OR date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz)) AS version_matches,
-             NOT (track_ids IS NOT DISTINCT FROM ${uuidArraySql(trackIds)})
+             NOT (
+               (track_ids IS NULL AND ${uuidArraySql(trackIds)} IS NULL)
+               OR (
+                 track_ids IS NOT NULL AND ${uuidArraySql(trackIds)} IS NOT NULL
+                 AND track_ids <@ ${uuidArraySql(trackIds)}
+                 AND track_ids @> ${uuidArraySql(trackIds)}
+               )
+             )
                AND NOT (
                  ${input.status}::plan_status = 'open'
                  AND (${input.closesAt}::timestamptz IS NULL OR ${input.closesAt}::timestamptz > clock_timestamp())
@@ -421,6 +441,15 @@ export async function savePlanIn(
     throw new AppError("STALE_WRITE", "Someone else changed this round while you were editing it");
   }
   return { planId: planId as PlanId };
+}
+
+export function savePlanIn(
+  inTransaction: EvaluationTransaction,
+  eventId: EventId,
+  input: PlanWrite,
+  expectedUpdatedAt?: string,
+): Promise<{ planId: PlanId }> {
+  return inTransaction((tx) => savePlanInTransaction(tx, eventId, input, expectedUpdatedAt));
 }
 
 /**
@@ -464,7 +493,7 @@ export async function deletePlanIn(dbOrTx: DbOrTx, eventId: EventId, planId: Pla
  * record of a decision rather than a piece of work.
  */
 export async function assignReviewersIn(
-  inTransaction: AssignmentTransaction,
+  inTransaction: EvaluationTransaction,
   eventId: EventId,
   planId: PlanId,
   assignments: readonly ReviewerAssignmentInput[],
@@ -583,7 +612,7 @@ export async function assignReviewersIn(
  * reviewer who is not on the round or a submission that is not in it.
  */
 export async function assignSubmissionsIn(
-  inTransaction: AssignmentTransaction,
+  inTransaction: EvaluationTransaction,
   eventId: EventId,
   input: AssignmentInput,
 ): Promise<{ assigned: number; removed: number }> {
@@ -860,7 +889,7 @@ async function scoringRefusal(
 }
 
 export const savePlan = (eventId: EventId, input: PlanWrite, expectedUpdatedAt?: string) =>
-  savePlanIn(db, eventId, input, expectedUpdatedAt);
+  savePlanIn((work) => withTx(work), eventId, input, expectedUpdatedAt);
 export const deletePlan = (eventId: EventId, planId: PlanId) => deletePlanIn(db, eventId, planId);
 export const assignReviewers = (eventId: EventId, planId: PlanId, assignments: readonly ReviewerAssignmentInput[]) =>
   assignReviewersIn((work) => withTx(work), eventId, planId, assignments);

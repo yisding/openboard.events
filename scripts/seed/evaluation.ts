@@ -112,7 +112,7 @@ async function seedRound1(ctx: SeedCtx, cast: Cast): Promise<void> {
     return;
   }
 
-  await savePlanIn(tx, eventId, planInputSchema.parse({
+  await savePlanIn((work) => work(tx), eventId, planInputSchema.parse({
     planId,
     name: "Round 1",
     round: 1,
@@ -281,7 +281,7 @@ async function seedRound2(ctx: SeedCtx, cast: Cast): Promise<void> {
 
   const opensAt = new Date(ctx.now.getTime() - 24 * 60 * 60 * 1000);
   const closesAt = new Date(ctx.now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  await savePlanIn(tx, eventId, planInputSchema.parse({
+  await savePlanIn((work) => work(tx), eventId, planInputSchema.parse({
     planId: round2Id,
     name: "Round 2 · Blind shortlist",
     round: 2,

@@ -75,10 +75,11 @@ export type DbOrTx = typeof db | TxDb;
  * Organization membership role changes and removals likewise keep the access
  * mutation and its audit evidence atomic
  * (`src/features/organizations/server/membership.ts`).
- * Evaluation reviewer-set and explicit-queue replacements also use a
- * transaction: they acquire the plan-row lock in one statement, then run the
- * snapshot-dependent replacement in a fresh statement so concurrent writers
- * cannot leak stale reviewer or queue rows into the final set.
+ * Evaluation plan saves, reviewer-set replacements, and explicit-queue
+ * replacements also use a transaction: they acquire the plan-row lock in one
+ * statement, then run the snapshot-dependent graph change in a fresh statement
+ * so concurrent writers cannot leak stale reviewer or queue rows into the final
+ * set or survive a narrowing round scope.
  * The single-speaker portal invite likewise commits its token rotation,
  * credential-bearing outbox row, and organizer pipeline status together; a
  * failed status write must not make an already-queued invitation look unsent.
