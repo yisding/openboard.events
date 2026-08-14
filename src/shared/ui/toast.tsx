@@ -7,10 +7,11 @@ export type ToastKind = "success" | "error";
 export type ToastAction = { label: string; onClick: () => void };
 export type ToastOptions = { kind?: ToastKind; durationMs?: number; action?: ToastAction };
 type ToastContextValue = { toast: (message: string, options?: ToastOptions) => void };
-type ToastState = { message: string; kind: ToastKind; action?: ToastAction };
+type ToastState = { id: number; message: string; kind: ToastKind; action?: ToastAction };
 const ToastContext = createContext<ToastContextValue | null>(null);
+const MAX_VISIBLE_TOASTS = 3;
 
-export function ToastMessage({ message, kind, action, onDismiss }: ToastState & { onDismiss: () => void }) {
+export function ToastMessage({ message, kind, action, onDismiss }: Omit<ToastState, "id"> & { onDismiss: () => void }) {
   const error = kind === "error";
   return (
     <div className="toast" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true">
@@ -20,33 +21,59 @@ export function ToastMessage({ message, kind, action, onDismiss }: ToastState & 
       {error ? <AlertCircle size={18} aria-hidden /> : <CheckCircle2 size={18} aria-hidden />}
       <span>{message}</span>
       {action && <button type="button" className="toast-action" onClick={() => { onDismiss(); action.onClick(); }}>{action.label}</button>}
-      <button type="button" className="toast-dismiss" aria-label="Dismiss" onClick={onDismiss}><X size={16} /></button>
+      <button type="button" className="toast-dismiss" aria-label={`Dismiss “${message}”`} onClick={onDismiss}><X size={16} /></button>
     </div>
   );
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [current, setCurrent] = useState<ToastState | null>(null);
-  const timerRef = useRef<number | null>(null);
-  const dismiss = useCallback(() => {
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = null;
-    setCurrent(null);
+  const [toasts, setToasts] = useState<ToastState[]>([]);
+  const toastsRef = useRef<ToastState[]>([]);
+  const nextIdRef = useRef(0);
+  const timersRef = useRef(new Map<number, number>());
+  const dismiss = useCallback((id: number) => {
+    const timer = timersRef.current.get(id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    timersRef.current.delete(id);
+    const next = toastsRef.current.filter((item) => item.id !== id);
+    toastsRef.current = next;
+    setToasts(next);
   }, []);
   const toast = useCallback((message: string, options: ToastOptions = {}) => {
     const kind = options.kind ?? "success";
-    setCurrent({ message, kind, ...(options.action ? { action: options.action } : {}) });
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    const timer = window.setTimeout(() => {
-      if (timerRef.current !== timer) return;
-      timerRef.current = null;
-      setCurrent(null);
-    }, options.durationMs ?? (kind === "error" ? 6000 : 3200));
-    timerRef.current = timer;
+    const id = nextIdRef.current += 1;
+    const next = [...toastsRef.current, { id, message, kind, ...(options.action ? { action: options.action } : {}) }];
+    const evicted = next.slice(0, -MAX_VISIBLE_TOASTS);
+    for (const item of evicted) {
+      const timer = timersRef.current.get(item.id);
+      if (timer !== undefined) window.clearTimeout(timer);
+      timersRef.current.delete(item.id);
+    }
+    toastsRef.current = next.slice(-MAX_VISIBLE_TOASTS);
+    setToasts(toastsRef.current);
+    // Errors carry information a person may need to recover from a failed
+    // mutation, so they never disappear while being read. Success remains
+    // transient and may opt into a custom duration.
+    if (kind === "success") {
+      const timer = window.setTimeout(() => dismiss(id), options.durationMs ?? 3200);
+      timersRef.current.set(id, timer);
+    }
+  }, [dismiss]);
+  useEffect(() => () => {
+    for (const timer of timersRef.current.values()) window.clearTimeout(timer);
+    timersRef.current.clear();
   }, []);
-  useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
   const value = useMemo(() => ({ toast }), [toast]);
-  return <ToastContext.Provider value={value}>{children}{current && <ToastMessage {...current} onDismiss={dismiss} />}</ToastContext.Provider>;
+  return (
+    <ToastContext.Provider value={value}>
+      {children}
+      {toasts.length > 0 && (
+        <div className="toast-stack">
+          {toasts.map(({ id, ...item }) => <ToastMessage key={id} {...item} onDismiss={() => dismiss(id)} />)}
+        </div>
+      )}
+    </ToastContext.Provider>
+  );
 }
 
 export function useToast() {
