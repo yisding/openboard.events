@@ -554,6 +554,19 @@ describe("organization tenancy (M43)", () => {
         // Removing organization membership intentionally leaves event access,
         // and Event Settings remains able to show and revoke that former member.
         await removeOrganizationMemberIn(db, DEFAULT_ORGANIZATION_ID, reviewerUserId);
+        await expect(listManageableEventAccessForMemberIn(
+          db,
+          DEFAULT_ORGANIZATION_ID,
+          organizerUserId,
+          reviewerUserId,
+        )).resolves.toEqual([]);
+        await expect(getEventAccessOverviewIn(db, legacyEventA, organizerUserId)).resolves.toMatchObject({
+          members: expect.arrayContaining([expect.objectContaining({
+            userId: reviewerUserId,
+            role: "organizer",
+            organizationMember: false,
+          })]),
+        });
         expect(await listEventAccessMembersIn(db, legacyEventA, organizerUserId)).toContainEqual(expect.objectContaining({
           userId: reviewerUserId,
           role: "organizer",
