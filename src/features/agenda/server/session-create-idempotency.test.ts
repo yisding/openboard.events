@@ -61,6 +61,37 @@ describe("retry-safe manual session creation", () => {
     status: "published" as const,
   };
 
+  it("installs the durable receipt tombstone constraints and lookup index", async () => {
+    const table = await pg.query<{ name: string | null }>(
+      "SELECT to_regclass('session_creation_receipts')::text AS name",
+    );
+    expect(table.rows[0]?.name).toBe("session_creation_receipts");
+
+    const constraints = await pg.query<{ name: string; type: string; definition: string }>(`
+      SELECT conname AS name, contype AS type, pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+      WHERE conrelid = 'session_creation_receipts'::regclass
+      ORDER BY conname
+    `);
+    const foreignKeys = constraints.rows.filter((constraint) => constraint.type === "f");
+    expect(foreignKeys).toHaveLength(1);
+    expect(foreignKeys[0]?.definition).toMatch(/FOREIGN KEY \(event_id\) REFERENCES events\(id\) ON DELETE CASCADE/u);
+    expect(constraints.rows.some((constraint) => constraint.definition.includes("REFERENCES sessions"))).toBe(false);
+    const fingerprintCheck = constraints.rows.find(
+      (constraint) => constraint.name === "session_creation_receipts_payload_fingerprint_ck",
+    );
+    expect(fingerprintCheck?.definition).toMatch(/^CHECK /u);
+    expect(fingerprintCheck?.definition).toContain("btrim(payload_fingerprint) <> ''::text");
+
+    const indexes = await pg.query<{ name: string; definition: string }>(`
+      SELECT indexname AS name, indexdef AS definition
+      FROM pg_indexes
+      WHERE tablename = 'session_creation_receipts'
+    `);
+    expect(indexes.rows.find((index) => index.name === "session_creation_receipts_event_idx")?.definition)
+      .toMatch(/\(event_id\)$/u);
+  });
+
   it("returns one canonical graph and one outbox row per speaker when the same attempt is replayed", async () => {
     expect(createSessionInputSchema.safeParse({ ...input, creationId: undefined }).success).toBe(false);
     expect(createSessionInputSchema.safeParse(input).success).toBe(true);
