@@ -30,6 +30,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm architecture:check
+      - run: pnpm schema:check
       - run: pnpm invariants
       # Fail closed when a production dependency has a known advisory at any
       # severity; reviewed transitive fixes are pinned in pnpm-workspace.yaml.

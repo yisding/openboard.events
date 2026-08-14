@@ -1,13 +1,7 @@
-import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SUBMISSION_STATUSES, canTransition } from "@/shared/contracts";
-
-const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
-// M50 is additive on top of the base schema; applying it keeps this fixture
-// aligned with the columns the repository modules now read.
-const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+import { applyProductMigrations } from "../../scripts/lib/product-migrations";
 
 let db: PGlite;
 
@@ -22,10 +16,8 @@ async function insertContact(id: string, eventId: string, email: string, confirm
 describe("database invariants", () => {
   beforeAll(async () => {
     db = new PGlite();
-    await db.exec(migration0);
-    await db.exec(migration1);
-db.exec(migrationReviewOps);
-  }, 30_000);
+    await applyProductMigrations(db);
+  }, 120_000);
 
   afterAll(async () => {
     await db.close();
