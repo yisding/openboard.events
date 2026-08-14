@@ -18,6 +18,8 @@ describe("PublicSpeakersList", () => {
 
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Principal Engineer");
+    expect(html).toContain('aria-label="Search speakers, companies, or topics"');
+    expect(html).toContain('placeholder="Search name, company, or topic"');
   });
 
   it("expands the deep-linked speaker's row into bio + session detail", () => {
