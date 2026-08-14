@@ -286,23 +286,7 @@ export async function scanReminders(): Promise<JobStats> {
   return scanRemindersIn(db);
 }
 
-export function sendReminderNowIn(
-  tx: TxDb,
-  eventId: EventId,
-  taskId: TaskId,
-  contactId: ContactId,
-  submissionId: SubmissionId | null,
-  now: number,
-  attemptId: string,
-): Promise<SendReminderNowResult>;
-export function sendReminderNowIn(
-  dbOrTx: DbOrTx,
-  eventId: EventId,
-  taskId: TaskId,
-  contactId: ContactId,
-  submissionId: SubmissionId | null,
-  now?: number,
-): Promise<SendReminderNowResult>;
+/** Rollout-era minute-bucket send; durable-attempt writers use the Tx-only helper below. */
 export async function sendReminderNowIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -310,26 +294,9 @@ export async function sendReminderNowIn(
   contactId: ContactId,
   submissionId: SubmissionId | null,
   now: number = Date.now(),
-  attemptId?: string,
 ): Promise<SendReminderNowResult> {
   const minuteBucket = Math.floor(now / 60_000);
-  const idempotencyKey = attemptId
-    ? idem.taskReminderManualAttempt(eventId, taskId, contactId, submissionId, attemptId)
-    : idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket);
-
-  // Stable attempts must arrive on a caller-owned transaction. The task row is
-  // the shared mutex with all completion writers; after waiting for it, both
-  // the exact-attempt lookup and assignment authority are fresh statements.
-  if (attemptId) {
-    await lockTaskAssignmentsIn(dbOrTx as TxDb, eventId, taskId);
-    const [existing] = rowsOf<{ status: CommStatus }>(await dbOrTx.execute(sql`
-      SELECT status FROM communication_logs
-      WHERE idempotency_key = ${idempotencyKey}
-      LIMIT 1
-    `));
-    if (existing) return { enqueued: existing.status === "queued", attemptStatus: existing.status };
-  }
-
+  const idempotencyKey = idem.taskReminderManual(eventId, taskId, contactId, submissionId, minuteBucket);
   const [assignment] = rowsOf<{ completed: boolean }>(await dbOrTx.execute(sql`
     SELECT completed FROM task_assignments_v
     WHERE event_id = ${eventId} AND task_id = ${taskId} AND contact_id = ${contactId}
@@ -337,21 +304,6 @@ export async function sendReminderNowIn(
     LIMIT 1
   `));
   if (!assignment || assignment.completed) return { enqueued: false };
-  // The `:manual:` segment keeps a deliberate nudge from colliding with a
-  // scanned rung. New clients supply a durable attempt id; rollout-era clients
-  // retain the minute-bucket double-click fallback.
-  if (attemptId) {
-    // The preceding read normally proves this key is missing. A racing exact
-    // retry can still insert it before this statement, so use a no-op upsert
-    // and return the row's serialized status instead of falsely claiming a
-    // fresh queued outcome after `ON CONFLICT DO NOTHING` inserted nothing.
-    const status = await upsertManualReminderAttemptIn(
-      dbOrTx, eventId, taskId, contactId, submissionId, idempotencyKey,
-    );
-    return status === "queued"
-      ? { enqueued: true }
-      : { enqueued: false, attemptStatus: status };
-  }
   await enqueueEmail(asOutboxWriter(dbOrTx), {
     eventId,
     templateKey: "task_reminder",
@@ -360,6 +312,38 @@ export async function sendReminderNowIn(
     refs: { taskId, ...(submissionId ? { submissionId } : {}) },
   });
   return { enqueued: true };
+}
+
+/** A stable-attempt writer can only accept a caller-owned transaction. */
+export async function sendStableReminderAttemptIn(
+  tx: TxDb,
+  eventId: EventId,
+  taskId: TaskId,
+  contactId: ContactId,
+  submissionId: SubmissionId | null,
+  attemptId: string,
+): Promise<SendReminderNowResult> {
+  const idempotencyKey = idem.taskReminderManualAttempt(eventId, taskId, contactId, submissionId, attemptId);
+  await lockTaskAssignmentsIn(tx, eventId, taskId);
+  const [existing] = rowsOf<{ status: CommStatus }>(await tx.execute(sql`
+    SELECT status FROM communication_logs
+    WHERE idempotency_key = ${idempotencyKey}
+    LIMIT 1
+  `));
+  if (existing) return { enqueued: existing.status === "queued", attemptStatus: existing.status };
+  const [assignment] = rowsOf<{ completed: boolean }>(await tx.execute(sql`
+    SELECT completed FROM task_assignments_v
+    WHERE event_id = ${eventId} AND task_id = ${taskId} AND contact_id = ${contactId}
+      AND submission_id IS NOT DISTINCT FROM ${submissionId}
+    LIMIT 1
+  `));
+  if (!assignment || assignment.completed) return { enqueued: false };
+  const status = await upsertManualReminderAttemptIn(
+    tx, eventId, taskId, contactId, submissionId, idempotencyKey,
+  );
+  return status === "queued"
+    ? { enqueued: true }
+    : { enqueued: false, attemptStatus: status };
 }
 
 type ReminderTarget = {
@@ -420,7 +404,7 @@ export async function sendReminderNow(
   attemptId?: string,
 ): Promise<SendReminderNowResult> {
   return attemptId
-    ? withTx((tx) => sendReminderNowIn(tx, eventId, taskId, contactId, submissionId, Date.now(), attemptId))
+    ? withTx((tx) => sendStableReminderAttemptIn(tx, eventId, taskId, contactId, submissionId, attemptId))
     : sendReminderNowIn(db, eventId, taskId, contactId, submissionId, Date.now());
 }
 
@@ -469,13 +453,12 @@ export async function sendRemindersNowIn(
     const result = attemptId && attemptKey
       ? prefetchedStatus
         ? { enqueued: prefetchedStatus === "queued", attemptStatus: prefetchedStatus }
-        : await targetTransaction((tx) => sendReminderNowIn(
+        : await targetTransaction((tx) => sendStableReminderAttemptIn(
           tx,
           eventId,
           target.taskId,
           target.contactId,
           target.submissionId,
-          now,
           attemptId,
         ))
       : await sendReminderNowIn(

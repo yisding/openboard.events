@@ -19,6 +19,7 @@ import {
   scanRemindersIn,
   sendReminderNowIn,
   sendRemindersNowIn,
+  sendStableReminderAttemptIn,
   type ReminderTargetTransaction,
 } from "./server/reminders";
 import { seedDefaultTemplates } from "./server/templates";
@@ -442,14 +443,12 @@ describe("reminder + assignment scan", () => {
     });
 
     it("replays one durable attempt after a minute without duplicating its outbox/log row", async () => {
-      const firstRequestAt = 1_770_000_000_000;
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt,
         reminderAttemptId,
       )).toEqual({ enqueued: true });
 
@@ -459,13 +458,12 @@ describe("reminder + assignment scan", () => {
         "INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')",
         [eventId, taskId, speakerId],
       );
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt + 121_000,
         reminderAttemptId,
       )).toEqual({ enqueued: true, attemptStatus: "queued" });
 
@@ -473,13 +471,12 @@ describe("reminder + assignment scan", () => {
         "UPDATE communication_logs SET status='sent', sent_at=now() WHERE idempotency_key=$1",
         [idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, reminderAttemptId)],
       );
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt + 181_000,
         reminderAttemptId,
       )).toEqual({ enqueued: false, attemptStatus: "sent" });
 
@@ -493,9 +490,8 @@ describe("reminder + assignment scan", () => {
     });
 
     it("queues a second deliberate reminder under a distinct attempt", async () => {
-      const now = 1_770_000_000_000;
-      await sendReminderNowIn(tx, eventId, taskId, speakerId, null, now, reminderAttemptId);
-      await sendReminderNowIn(tx, eventId, taskId, speakerId, null, now, secondReminderAttemptId);
+      await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, reminderAttemptId);
+      await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, secondReminderAttemptId);
 
       const rows = await logs("task_reminder");
       expect(rows).toHaveLength(2);
@@ -514,7 +510,7 @@ describe("reminder + assignment scan", () => {
 
     it("refuses a completed or absent assignment", async () => {
       await pglite.query("INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')", [eventId, taskId, speakerId]);
-      expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, null, Date.now(), reminderAttemptId)).toEqual({ enqueued: false });
+      expect(await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, reminderAttemptId)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, secondTaskId, speakerId, null)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, submissionId as SubmissionId)).toEqual({ enqueued: false });
       expect(await logs("task_reminder")).toHaveLength(0);
@@ -741,12 +737,12 @@ describe("reminder + assignment scan", () => {
       );
       const held = deferred();
       const release = deferred();
-      const original = transactionHoldingAfterFirstStatement(tx, held, release)((inner) => sendReminderNowIn(
-        inner, eventId, taskId, speakerId, null, 1_770_000_000_000, bulkReminderAttemptId,
+      const original = transactionHoldingAfterFirstStatement(tx, held, release)((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
       ));
       await held.promise;
-      const replay = pgliteTargetTransactions(tx).run((inner) => sendReminderNowIn(
-        inner, eventId, taskId, speakerId, null, 1_770_000_181_000, bulkReminderAttemptId,
+      const replay = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
       ));
       release.resolve();
 
@@ -755,8 +751,8 @@ describe("reminder + assignment scan", () => {
       await pgliteTargetTransactions(tx).run((inner) => completeTaskManualIn(
         inner, eventId, speakerId, taskId, null,
       ));
-      expect(await pgliteTargetTransactions(tx).run((inner) => sendReminderNowIn(
-        inner, eventId, taskId, speakerId, null, 1_770_000_241_000, bulkReminderAttemptId,
+      expect(await pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
       ))).toEqual({ enqueued: true, attemptStatus: "queued" });
       expect(await logs("task_reminder")).toEqual([
         expect.objectContaining({ idempotency_key: idempotencyKey, status: "queued" }),
@@ -770,11 +766,11 @@ describe("reminder + assignment scan", () => {
         inner, eventId, speakerId, taskId, null,
       ));
       await held.promise;
-      const original = pgliteTargetTransactions(tx).run((inner) => sendReminderNowIn(
-        inner, eventId, taskId, speakerId, null, 1_770_000_000_000, bulkReminderAttemptId,
+      const original = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
       ));
-      const retry = pgliteTargetTransactions(tx).run((inner) => sendReminderNowIn(
-        inner, eventId, taskId, speakerId, null, 1_770_000_181_000, bulkReminderAttemptId,
+      const retry = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
       ));
       release.resolve();
 
