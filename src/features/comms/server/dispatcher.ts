@@ -8,8 +8,15 @@ import { applyCalendarInvite, buildContext, isAdminAuthTemplate, SkipEmail, type
 import { prepareInviteIn, type PreparedInvite } from "./invites";
 import { renderTemplateContent } from "./render";
 import { sendViaResend, type EmailMessage } from "@/shared/server/email-provider";
+import {
+  compareOutboxRows,
+  drainOutbox,
+  outboxErrorMessage,
+  type OutboxDispatchStats,
+  type OutboxFailureTransition,
+} from "@/shared/server/outbox-engine";
 
-export type OutboxStats = JobStats & { claimed: number; sent: number; skipped: number; failed: number; retried: number };
+export type OutboxStats = OutboxDispatchStats;
 type Sender = (message: EmailMessage) => Promise<string>;
 type InvitePreparer = (
   dbOrTx: DbOrTx,
@@ -18,25 +25,17 @@ type InvitePreparer = (
   options: { downloadUrl?: string },
 ) => Promise<PreparedInvite | null>;
 
-function emptyStats(): OutboxStats {
-  return { claimed: 0, sent: 0, skipped: 0, failed: 0, retried: 0 };
-}
-
-async function claimRows(dbOrTx: DbOrTx, requestedBudget: number): Promise<OutboxRow[]> {
-  const budget = Number.isFinite(requestedBudget) ? Math.min(Math.max(Math.trunc(requestedBudget), 1), 50) : 50;
+async function claimRows(dbOrTx: DbOrTx, budget: number): Promise<OutboxRow[]> {
   const candidates = dbOrTx.select({ id: communicationLogs.id }).from(communicationLogs).where(and(
     eq(communicationLogs.status, "queued"),
     lte(communicationLogs.nextAttemptAt, sql`now()`),
     or(isNull(communicationLogs.lockedUntil), lt(communicationLogs.lockedUntil, sql`now()`)),
   )).orderBy(asc(communicationLogs.createdAt), asc(communicationLogs.id)).limit(budget).for("update", { skipLocked: true });
-  return dbOrTx.update(communicationLogs).set({
+  const rows = await dbOrTx.update(communicationLogs).set({
     lockedUntil: sql`now() + interval '3 minutes'`,
     attempts: sql`${communicationLogs.attempts} + 1`,
   }).where(inArray(communicationLogs.id, candidates)).returning();
-}
-
-function errorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+  return rows.sort(compareOutboxRows);
 }
 
 function base64(value: string): string {
@@ -73,27 +72,29 @@ async function markSkipped(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Prom
 }
 
 function isTerminalFailure(row: OutboxRow, error: unknown): boolean {
-  if (row.attempts >= 6) return true;
   if (isAppError(error) && error.code === "TEMPLATE_VAR_MISSING") return true;
   // A sealed one-shot credential that will not open never opens on a retry
   // either — fail it now rather than six times. Same rule for M42's admin
   // links as for a portal login payload.
   if ((row.templateKey === "portal_login" || isAdminAuthTemplate(row.templateKey)) && isAppError(error) && error.code === "VALIDATION") return true;
   if ((row.templateKey === "schedule_assigned" || row.templateKey === "schedule_changed") && isAppError(error) && error.code === "VALIDATION") return true;
-  const message = errorMessage(error);
-  return message.includes("email template was not found") || message.includes("email sending is not configured");
+  return outboxErrorMessage(error).includes("email template was not found");
 }
 
-async function markFailure(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<"failed" | "retried"> {
-  const terminal = isTerminalFailure(row, error);
-  const delayMinutes = Math.min(2 ** row.attempts, 60);
+async function markFailure(
+  dbOrTx: DbOrTx,
+  row: OutboxRow,
+  transition: OutboxFailureTransition,
+): Promise<void> {
+  const terminal = transition.outcome === "failed";
   await dbOrTx.update(communicationLogs).set({
     status: terminal ? "failed" : "queued",
-    error: errorMessage(error),
+    error: transition.errorMessage,
     lockedUntil: null,
-    ...(terminal ? { secretPayloadCiphertext: null } : { nextAttemptAt: sql`now() + ${delayMinutes} * interval '1 minute'` }),
+    ...(terminal
+      ? { secretPayloadCiphertext: null }
+      : { nextAttemptAt: sql`now() + ${transition.retryDelayMinutes} * interval '1 minute'` }),
   }).where(eq(communicationLogs.id, row.id));
-  return terminal ? "failed" : "retried";
 }
 
 async function processRow(
@@ -183,24 +184,22 @@ export async function dispatchOutboxIn(
   const env = options?.env ?? getEnv();
   const sender = options?.sender ?? ((message: EmailMessage) => sendViaResend(message));
   const prepare = options?.invitePreparer ?? prepareInviteIn;
-  const rows = await claimRows(dbOrTx, budget);
-  const stats = emptyStats();
-  stats.claimed = rows.length;
-  for (const row of rows) {
-    try {
-      const outcome = await processRow(dbOrTx, row, env, sender, prepare);
-      stats[outcome] += 1;
-    } catch (error) {
-      if (error instanceof SkipEmail) {
+  return drainOutbox({
+    requestedBudget: budget,
+    claim: (claimBudget) => claimRows(dbOrTx, claimBudget),
+    deliver: async (row) => {
+      try {
+        return await processRow(dbOrTx, row, env, sender, prepare);
+      } catch (error) {
+        if (!(error instanceof SkipEmail)) throw error;
         await markSkipped(dbOrTx, row, error.message);
-        stats.skipped += 1;
-        continue;
+        return "skipped";
       }
-      const outcome = await markFailure(dbOrTx, row, error);
-      stats[outcome] += 1;
-    }
-  }
-  return stats;
+    },
+    deliveryKey: (row) => row.contactId,
+    isTerminalError: isTerminalFailure,
+    transitionFailure: (row, transition) => markFailure(dbOrTx, row, transition),
+  });
 }
 
 export async function dispatchOutbox(budget = 50): Promise<JobStats> {

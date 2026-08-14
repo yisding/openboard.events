@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminAuthEmailOutbox } from "@/db/schema";
-import { organizationInvitationIdSchema, type JobStats, type TemplateKey, type UserId } from "@/shared/contracts";
+import { organizationInvitationIdSchema, type TemplateKey, type UserId } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
@@ -11,12 +11,19 @@ import { escapeHtml } from "@/shared/lib/html";
 import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload, type AdminLinkPayload } from "@/shared/server/admin-link-payload";
 import { emailLayout } from "@/shared/server/email-layout";
 import { sendViaResend, type EmailMessage } from "@/shared/server/email-provider";
+import {
+  compareOutboxRows,
+  drainOutbox,
+  outboxErrorMessage,
+  type OutboxDispatchStats,
+  type OutboxFailureTransition,
+} from "@/shared/server/outbox-engine";
 import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
 
 export type AdminAuthTemplateKey = Extract<TemplateKey, "admin_password_reset" | "admin_email_verification">;
 type OutboxRow = typeof adminAuthEmailOutbox.$inferSelect;
 type Sender = (message: EmailMessage) => Promise<string>;
-export type AdminAuthOutboxStats = JobStats & { claimed: number; sent: number; skipped: number; failed: number; retried: number };
+export type AdminAuthOutboxStats = OutboxDispatchStats;
 
 const TEMPLATES: Record<AdminAuthTemplateKey, {
   subject: string;
@@ -180,39 +187,33 @@ export async function retargetSignupVerificationEmailIn(
   return updated;
 }
 
-function emptyStats(): AdminAuthOutboxStats {
-  return { claimed: 0, sent: 0, skipped: 0, failed: 0, retried: 0 };
-}
-
-async function claimRows(dbOrTx: DbOrTx, requestedBudget: number): Promise<OutboxRow[]> {
-  const budget = Number.isFinite(requestedBudget) ? Math.min(Math.max(Math.trunc(requestedBudget), 1), 50) : 50;
+async function claimRows(dbOrTx: DbOrTx, budget: number): Promise<OutboxRow[]> {
   const candidates = dbOrTx.select({ id: adminAuthEmailOutbox.id }).from(adminAuthEmailOutbox).where(and(
     eq(adminAuthEmailOutbox.status, "queued"),
     lte(adminAuthEmailOutbox.nextAttemptAt, sql`now()`),
     or(isNull(adminAuthEmailOutbox.lockedUntil), lt(adminAuthEmailOutbox.lockedUntil, sql`now()`)),
   )).orderBy(asc(adminAuthEmailOutbox.createdAt), asc(adminAuthEmailOutbox.id)).limit(budget).for("update", { skipLocked: true });
-  return dbOrTx.update(adminAuthEmailOutbox).set({
+  const rows = await dbOrTx.update(adminAuthEmailOutbox).set({
     lockedUntil: sql`now() + interval '3 minutes'`,
     attempts: sql`${adminAuthEmailOutbox.attempts} + 1`,
   }).where(inArray(adminAuthEmailOutbox.id, candidates)).returning();
+  return rows.sort(compareOutboxRows);
 }
 
-function errorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
-}
-
-function terminal(row: OutboxRow, error: unknown): boolean {
-  if (row.attempts >= 6) return true;
+function terminal(_row: OutboxRow, error: unknown): boolean {
   if (isAppError(error) && error.code === "VALIDATION") return true;
-  return errorMessage(error).includes("email sending is not configured");
+  return false;
 }
 
-async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<"failed" | "retried"> {
-  const isTerminal = terminal(row, error);
-  const delayMinutes = Math.min(2 ** row.attempts, 60);
+async function failRow(
+  dbOrTx: DbOrTx,
+  row: OutboxRow,
+  transition: OutboxFailureTransition,
+): Promise<void> {
+  const isTerminal = transition.outcome === "failed";
   await dbOrTx.update(adminAuthEmailOutbox).set({
     status: isTerminal ? "failed" : "queued",
-    error: errorMessage(error),
+    error: transition.errorMessage,
     lockedUntil: null,
     ...(isTerminal
       // A rotated SESSION_SECRET and a malformed payload both surface as a
@@ -220,9 +221,8 @@ async function failRow(dbOrTx: DbOrTx, row: OutboxRow, error: unknown): Promise<
       // an operator with the previous key can diagnose/requeue the row; sent,
       // skipped, and allowlist-rejected rows still erase it immediately.
       ? {}
-      : { nextAttemptAt: sql`now() + ${delayMinutes} * interval '1 minute'` }),
+      : { nextAttemptAt: sql`now() + ${transition.retryDelayMinutes} * interval '1 minute'` }),
   }).where(eq(adminAuthEmailOutbox.id, row.id));
-  return isTerminal ? "failed" : "retried";
 }
 
 async function skipRow(
@@ -327,19 +327,14 @@ export async function dispatchAdminAuthEmailOutboxIn(
 ): Promise<AdminAuthOutboxStats> {
   const env = options?.env ?? getEnv();
   const sender = options?.sender ?? ((message: EmailMessage) => sendViaResend(message));
-  const rows = await claimRows(dbOrTx, budget);
-  const stats = emptyStats();
-  stats.claimed = rows.length;
-  for (const row of rows) {
-    try {
-      const outcome = await deliver(dbOrTx, row, env, sender);
-      stats[outcome] += 1;
-    } catch (error) {
-      const outcome = await failRow(dbOrTx, row, error);
-      stats[outcome] += 1;
-    }
-  }
-  return stats;
+  return drainOutbox({
+    requestedBudget: budget,
+    claim: (claimBudget) => claimRows(dbOrTx, claimBudget),
+    deliver: (row) => deliver(dbOrTx, row, env, sender),
+    deliveryKey: (row) => row.recipientEmail,
+    isTerminalError: terminal,
+    transitionFailure: (row, transition) => failRow(dbOrTx, row, transition),
+  });
 }
 
 export function dispatchAdminAuthEmailOutbox(budget = 50): Promise<AdminAuthOutboxStats> {
@@ -403,7 +398,7 @@ export function recordAdminAuthEmailSuppression(args: { providerMessageId: strin
 /** Best-effort latency polish; the scheduled outbox job remains the guarantee. */
 export function nudgeAdminAuthEmailOutbox(waitUntil: (promise: Promise<unknown>) => void): void {
   const drain = dispatchAdminAuthEmailOutbox(10).catch((error: unknown) => {
-    log({ level: "warn", msg: `admin auth outbox nudge failed: ${errorMessage(error)}`, requestId: "-", feature: "auth" });
+    log({ level: "warn", msg: `admin auth outbox nudge failed: ${outboxErrorMessage(error)}`, requestId: "-", feature: "auth" });
   });
   try {
     waitUntil(drain);
