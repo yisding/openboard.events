@@ -61,6 +61,17 @@ records artifact and cold-start metrics; and rejects missing emitted chunks.
 Deploys repeat the size contract before mutation, and production now has an
 explicit `needs: preview` dependency on the same commit's complete canary.
 
+The scheduled-delivery workstream is complete in PRs #389, #396, and #403.
+Both email outboxes now use one claim/deliver/retry engine with bounded
+recipient-lane concurrency, `SKIP LOCKED` claims, shared retry accounting, and
+documented queue-age thresholds. The jobs Worker invokes a closed named
+entrypoint over an account-scoped Service Binding and holds no application
+variables or secrets. Preview recorded three consecutive healthy RPC ticks
+before removal; the removal release then proved both the internal namespace and
+the retired `/api/jobs/*` namespace return `404` publicly. `CRON_SECRET` was
+deleted from both preview Workers, and the resulting secret-change jobs version
+completed another RPC tick successfully.
+
 ## Sequencing and workstreams
 
 ### 1. Establish architectural and schema guardrails
@@ -177,6 +188,12 @@ Exit criteria:
 - Multiple consumers safely drain one queue, and throughput/backlog age have
   alerts and load-test thresholds.
 
+Status: complete in PRs #389, #396, and #403. The two table-specific adapters
+remain intentionally separate, but one tested engine owns their lifecycle.
+Preview proved the private transport before the public adapter was removed and
+again after both preview `CRON_SECRET` bindings were deleted. Delete any retired
+production bindings only after the matching release is promoted there.
+
 ### 6. Clarify identity ownership
 
 Write an identity map for product users, event contacts, and organization CRM
@@ -267,7 +284,8 @@ Exit criteria:
    #359, #361, #362, #363, #365, #368, #369, #371, and #372).
 3. Submission concurrency redesign (completed in PRs #374 and #381).
 4. Worker artifact compatibility hardening (completed in PR #386).
-5. Shared outbox engine, then private scheduled invocation.
+5. Shared outbox engine and private scheduled invocation (completed in PRs
+   #389, #396, and #403).
 6. Client consistency and public-cache invalidation, feature by feature.
 7. Identity link model and staged backfill.
 8. R2 key migration and lifecycle enablement.
