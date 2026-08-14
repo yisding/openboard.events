@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmailTemplateRow } from "@/features/comms";
+import { sanitizeTemplateBody } from "@/features/comms/template-body";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { RichTextEditor, type RichTextEditorHandle } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useSaveTemplate, useTemplates } from "../hooks/use-templates";
 import { useTemplatePreview } from "../hooks/use-template-preview";
 import { MessagePreview } from "./message-preview";
 import { templateVariablePaths } from "./sample-vars";
+import { templateBodyForMode, type TemplateBodyMode } from "./template-body-mode";
 import { unknownTokensClientSide } from "./validate-client";
 
 function humanizeKey(key: TemplateKey): string {
@@ -20,16 +23,7 @@ function humanizeKey(key: TemplateKey): string {
 type FocusTarget = "subject" | "body";
 const PREVIEW_DEBOUNCE_MS = 400;
 
-/**
- * Templates tab (step 3). The body field is a plain `<textarea>`, not
- * `<RichTextEditor>` — deliberately, per this module's documented fallback
- * (work order "If blocked": "ship the textarea variant — the value contract
- * is identical"). TipTap's `RichTextEditor` exposes no cursor API to a
- * parent, so the chip picker's "insert `{{path}}` at the cursor" behavior is
- * unreachable through it; a `<textarea>` gives that for free via
- * `selectionStart`/`selectionEnd`, and the stored value is still sanitized
- * HTML server-side either way.
- */
+/** Templates tab (step 3), with visual editing by default and explicit source mode. */
 export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initialData: EmailTemplateRow[] }) {
   const { toast } = useToast();
   const query = useTemplates(eventId, initialData);
@@ -40,13 +34,15 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
   const selected = templates.find((row) => row.key === selectedKey);
 
   const [subject, setSubject] = useState(selected?.subject ?? "");
-  const [bodyHtml, setBodyHtml] = useState(selected?.bodyHtml ?? "");
+  const [bodyHtml, setBodyHtml] = useState(() => templateBodyForMode(selected?.bodyHtml ?? "", "rich"));
   const [enabled, setEnabled] = useState(selected?.enabled ?? true);
+  const [bodyMode, setBodyMode] = useState<TemplateBodyMode>("rich");
   const [dirty, setDirty] = useState(false);
   const [staleConflict, setStaleConflict] = useState(false);
   const [focusTarget, setFocusTarget] = useState<FocusTarget>("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const richBodyRef = useRef<RichTextEditorHandle>(null);
   useUnsavedWorkGuard(dirty);
   const { runGuarded } = useGuardedAction();
 
@@ -54,8 +50,9 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
     const row = templates.find((item) => item.key === key);
     setSelectedKey(key);
     setSubject(row?.subject ?? "");
-    setBodyHtml(row?.bodyHtml ?? "");
+    setBodyHtml(templateBodyForMode(row?.bodyHtml ?? "", "rich"));
     setEnabled(row?.enabled ?? true);
+    setBodyMode("rich");
     setDirty(false);
     setStaleConflict(false);
   }
@@ -90,6 +87,10 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
       const next = `${subject.slice(0, start)}${token}${subject.slice(end)}`;
       setSubject(next);
       requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(start + token.length, start + token.length); });
+    } else if (bodyMode === "rich") {
+      if (!richBodyRef.current?.insertAtCursor(token)) {
+        setBodyHtml((current) => `${current}${token}`);
+      }
     } else {
       const el = bodyRef.current;
       const start = el?.selectionStart ?? bodyHtml.length;
@@ -97,6 +98,17 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
       const next = `${bodyHtml.slice(0, start)}${token}${bodyHtml.slice(end)}`;
       setBodyHtml(next);
       requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(start + token.length, start + token.length); });
+    }
+  }
+
+  function changeBodyMode(nextMode: TemplateBodyMode) {
+    setFocusTarget("body");
+    setBodyMode(nextMode);
+    if (nextMode !== "rich") return;
+    const sanitized = templateBodyForMode(bodyHtml, nextMode);
+    if (sanitized !== bodyHtml) {
+      setBodyHtml(sanitized);
+      setDirty(true);
     }
   }
 
@@ -117,7 +129,11 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
   async function reload() {
     const fresh = await query.refetch();
     const row = fresh.data?.find((item) => item.key === selectedKey);
-    if (row) { setSubject(row.subject); setBodyHtml(row.bodyHtml); setEnabled(row.enabled); }
+    if (row) {
+      setSubject(row.subject);
+      setBodyHtml(templateBodyForMode(row.bodyHtml, bodyMode));
+      setEnabled(row.enabled);
+    }
     setDirty(false);
     setStaleConflict(false);
   }
@@ -161,13 +177,23 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
                 onChange={(event) => { setSubject(event.target.value); setDirty(true); }}
               />
             </Field>
-            <Field label="Email body" hint="Plain HTML; tags like <p>, <strong>, <a href> survive sanitization on save.">
-              <textarea
-                ref={bodyRef}
-                value={bodyHtml}
-                onFocus={() => setFocusTarget("body")}
-                onChange={(event) => { setBodyHtml(event.target.value); setDirty(true); }}
-              />
+            <Field label="Email body" group>
+              <div className="rich-text-mode-toggle" role="group" aria-label="Email body editing mode">
+                <button type="button" aria-pressed={bodyMode === "rich"} className={bodyMode === "rich" ? "active" : ""} onClick={() => changeBodyMode("rich")}>Rich text</button>
+                <button type="button" aria-pressed={bodyMode === "html"} className={bodyMode === "html" ? "active" : ""} onClick={() => changeBodyMode("html")}>HTML</button>
+              </div>
+              {bodyMode === "rich"
+                ? <div onFocusCapture={() => setFocusTarget("body")}><RichTextEditor ref={richBodyRef} ariaLabel="Email body" value={bodyHtml} onChange={(html) => { setBodyHtml(html); setDirty(true); }} sanitizeHtml={sanitizeTemplateBody} placeholder="Write the email…" /></div>
+                : <textarea
+                    ref={bodyRef}
+                    className="html-source-editor"
+                    aria-label="Email body HTML source"
+                    spellCheck={false}
+                    value={bodyHtml}
+                    onFocus={() => setFocusTarget("body")}
+                    onChange={(event) => { setBodyHtml(event.target.value); setDirty(true); }}
+                  />}
+              <p className="field-note">{bodyMode === "rich" ? "Format the message without writing HTML." : "Source mode. Supported tags are sanitized when you return to rich text and again on save."}</p>
             </Field>
             <div className="template-vars">
               {variablePaths.map((path) => <button key={path} type="button" onClick={() => insertToken(path)}>{`{{${path}}}`}</button>)}

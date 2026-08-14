@@ -14,7 +14,7 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { sanitize } from "@/shared/lib/sanitize";
+import { sanitizeTemplateBody } from "@/features/comms/template-body";
 import { validateTemplateBody } from "./render";
 import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {
@@ -85,7 +85,7 @@ export async function listTemplates(eventId: EventId): Promise<EmailTemplateRow[
  * production is a P0, so a bad token is rejected here — server-side, not just
  * a disabled button — before it ever reaches `email_templates`.
  *
- * `sanitize()` then runs on the body regardless of what the client already did
+ * `sanitizeTemplateBody()` then runs on the body regardless of what the client already did
  * to it (resolution #2): organizer-authored HTML lands in judges' inboxes, and
  * this is the one write path that HTML must never skip.
  *
@@ -105,7 +105,7 @@ export async function saveTemplateIn(dbOrTx: DbOrTx, eventId: EventId, key: Temp
       { unknownTokens: validation.unknownTokens },
     );
   }
-  const cleanBody = sanitize(input.bodyHtml);
+  const cleanBody = sanitizeTemplateBody(input.bodyHtml);
   const expected = new Date(input.expectedUpdatedAt);
   if (Number.isNaN(expected.getTime())) throw new AppError("VALIDATION", "expectedUpdatedAt must be an ISO timestamp");
   const [updated] = await dbOrTx.update(emailTemplates)

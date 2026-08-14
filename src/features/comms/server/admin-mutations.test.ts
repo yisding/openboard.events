@@ -146,6 +146,20 @@ describe("comms admin mutations", () => {
       expect(result.rows[0]?.body_html).not.toContain("<script>");
     });
 
+    it("preserves supported merge-token links when a template is saved", async () => {
+      const existing = (await listTemplatesIn(tx, eventId)).find((row) => row.key === "task_reminder");
+      if (!existing) throw new Error("seed missing task_reminder");
+      const saved = await saveTemplateIn(tx, eventId, "task_reminder", {
+        subject: "Reminder: {{task.name}}",
+        bodyHtml: '<p><a href="{{portal.magic_link}}">Open portal</a> or <a href="{{unsubscribe.url}}">unsubscribe</a>.</p>',
+        enabled: true,
+        expectedUpdatedAt: existing.updatedAt,
+      });
+
+      expect(saved.bodyHtml).toContain('href="{{portal.magic_link}}"');
+      expect(saved.bodyHtml).toContain('href="{{unsubscribe.url}}"');
+    });
+
     it("rejects a save against a stale expectedUpdatedAt with 409 STALE_WRITE", async () => {
       await expectAppError(
         saveTemplateIn(tx, eventId, "task_assigned", {
