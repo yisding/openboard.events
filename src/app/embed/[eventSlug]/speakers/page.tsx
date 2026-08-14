@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PublicSpeakersList } from "@/features/public/public-speakers-list";
-import { getOrCreateSpeakerListConfig } from "@/features/public/server/embed-config-queries";
+import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSpeakers } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
@@ -21,7 +21,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     eventSlug,
     active: "speakers",
     disabledLabel: "speakers list",
-    getConfig: getOrCreateSpeakerListConfig,
+    getConfig: (eventId) => getPublicEmbedConfig(eventId, "speaker_list"),
     getContent: getPublishedSpeakers,
     renderContent: (speakers, context) => <PublicSpeakersList {...context} speakers={speakers} embed />,
   });

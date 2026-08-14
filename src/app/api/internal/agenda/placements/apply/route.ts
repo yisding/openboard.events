@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { agendaAuth, applyPlacements } from "@/features/agenda";
 import { applyPlacementsInputSchema, eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
-import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { nudgeAfterEnqueue } from "../../nudge";
 
 export const dynamic = "force-dynamic";

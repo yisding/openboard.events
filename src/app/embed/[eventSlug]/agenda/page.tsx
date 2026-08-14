@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { PublicAgenda } from "@/features/public/public-agenda";
 import { PublicBuildMarker } from "@/features/public/public-build-marker";
-import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
+import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSchedule } from "@/features/public/server/public-queries";
 import { getEnv } from "@/shared/lib/env";
 import { renderEmbedSurface } from "../embed-page";
@@ -23,7 +23,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     eventSlug,
     active: "agenda",
     disabledLabel: "agenda",
-    getConfig: (eventId) => getOrCreateEmbedConfig(eventId, "agenda"),
+    getConfig: (eventId) => getPublicEmbedConfig(eventId, "agenda"),
     getContent: getPublishedSchedule,
     renderContent: (schedule, context) => <PublicAgenda {...context} schedule={schedule} embed />,
   });

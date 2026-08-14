@@ -11,6 +11,7 @@ import {
   type EmbedConfigDTO,
   type EventId,
 } from "../embed-config-types";
+import { cachePublicRead } from "./cache";
 
 /**
  * Embed kill-switch + appearance + filter reads/writes over the `embeds`
@@ -39,6 +40,16 @@ function toDto(row: typeof embeds.$inferSelect): EmbedConfigDTO {
   });
 }
 
+export type PublicEmbedConfig = Pick<EmbedConfigDTO, "enabled" | "style" | "filters">;
+
+function toPublicConfig(row: typeof embeds.$inferSelect | null): PublicEmbedConfig {
+  return {
+    enabled: row?.enabled ?? true,
+    style: embedStyleSchema.parse(row?.style ?? {}),
+    filters: embedFiltersSchema.parse(row?.filters ?? {}),
+  };
+}
+
 async function findRow(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType) {
   // `ORDER BY created_at LIMIT 1` — the earliest row wins if the benign
   // check-then-insert race below ever produces a duplicate for the pair.
@@ -59,6 +70,32 @@ async function findRow(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalE
 export async function isEmbedEnabledIn(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType): Promise<boolean> {
   const row = await findRow(dbOrTx, eventId, contentType);
   return row?.enabled ?? true;
+}
+
+/**
+ * Public rendering is read-only. A missing row means the documented enabled,
+ * default-style state; the speaker-list compatibility read inherits the old
+ * gallery row until the admin screen materializes its canonical replacement.
+ */
+export async function getPublicEmbedConfigIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contentType: CanonicalEmbedContentType,
+): Promise<PublicEmbedConfig> {
+  const canonical = await findRow(dbOrTx, eventId, contentType);
+  if (canonical || contentType !== "speaker_list") return toPublicConfig(canonical);
+  return toPublicConfig(await findRow(dbOrTx, eventId, "speaker_gallery"));
+}
+
+export function getPublicEmbedConfig(
+  eventId: EventId,
+  contentType: CanonicalEmbedContentType,
+): Promise<PublicEmbedConfig> {
+  return cachePublicRead(
+    eventId,
+    `embed:${contentType}`,
+    () => getPublicEmbedConfigIn(db, eventId, contentType),
+  );
 }
 
 /**
@@ -119,7 +156,11 @@ export const getOrCreateSpeakerListConfig = (eventId: EventId): Promise<EmbedCon
 /** All five canonical configs for the admin panel, creating any that are missing. */
 export async function listEmbedConfigsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmbedConfigDTO[]> {
   const configs: EmbedConfigDTO[] = [];
-  for (const contentType of CANONICAL_EMBED_TYPES) configs.push(await getOrCreateEmbedConfigIn(dbOrTx, eventId, contentType));
+  for (const contentType of CANONICAL_EMBED_TYPES) {
+    configs.push(contentType === "speaker_list"
+      ? await getOrCreateSpeakerListConfigIn(dbOrTx, eventId)
+      : await getOrCreateEmbedConfigIn(dbOrTx, eventId, contentType));
+  }
   return configs;
 }
 export const listEmbedConfigs = (eventId: EventId): Promise<EmbedConfigDTO[]> => listEmbedConfigsIn(db, eventId);

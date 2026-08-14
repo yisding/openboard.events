@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { getSpeakerRosterExtras, updateSpeakerProfile } from "@/features/portal";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { contactIdSchema, eventIdSchema, updateSpeakerProfileInputSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
@@ -30,10 +31,11 @@ const get = defineHandler({
 const patch = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: updateSpeakerProfileInputSchema,
-  handler: async ({ eventId, input, params }) => {
+  handler: async ({ eventId, input, params, requestId }) => {
     const { contactId } = routeParams.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
     await updateSpeakerProfile(scopedEventId, contactId, input);
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     const extras = await getSpeakerRosterExtras(scopedEventId, contactId);
     if (!extras) throw new AppError("NOT_FOUND", "Speaker not found");
     return extras;

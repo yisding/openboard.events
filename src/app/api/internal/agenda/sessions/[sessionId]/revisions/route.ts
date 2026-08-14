@@ -3,7 +3,7 @@ import { z } from "zod";
 import { agendaAuth, listSessionContentRevisions, restoreSessionContent } from "@/features/agenda";
 import { eventIdSchema, sessionIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
-import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 
 export const dynamic = "force-dynamic";
 

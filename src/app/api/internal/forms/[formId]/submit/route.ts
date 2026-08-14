@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { submitCfpForm } from "@/features/cfp";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, participantRoleSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { clientIp } from "@/shared/server/rate-limit";
@@ -42,26 +43,31 @@ const submit = defineHandler({
     windowMs: 10 * 60 * 1000,
     key: ({ request, params, session }) => `submit:${params.formId}:${session?.actorId ?? clientIp(request)}`,
   },
-  handler: async ({ eventId, input, params, session }) => submitCfpForm({
-    eventId: eventIdSchema.parse(eventId),
-    formId: formIdSchema.parse(params.formId),
-    contactId: contactIdSchema.parse(session?.actorId),
-    formVersion: input.formVersion,
-    ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
-    answers: input.answers,
-    ...(input.participants
-      ? {
-        participants: input.participants.map((participant) => ({
-          clientId: participant.clientId,
-          email: participant.email,
-          role: participant.role,
-          isPrimary: participant.isPrimary,
-          sortOrder: participant.sortOrder,
-          ...(participant.answers ? { answers: participant.answers } : {}),
-        })),
-      }
-      : {}),
-  }),
+  handler: async ({ eventId, input, params, session, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const result = await submitCfpForm({
+      eventId: scopedEventId,
+      formId: formIdSchema.parse(params.formId),
+      contactId: contactIdSchema.parse(session?.actorId),
+      formVersion: input.formVersion,
+      ...(input.draftSubmissionId ? { draftSubmissionId: input.draftSubmissionId } : {}),
+      answers: input.answers,
+      ...(input.participants
+        ? {
+          participants: input.participants.map((participant) => ({
+            clientId: participant.clientId,
+            email: participant.email,
+            role: participant.role,
+            isPrimary: participant.isPrimary,
+            sortOrder: participant.sortOrder,
+            ...(participant.answers ? { answers: participant.answers } : {}),
+          })),
+        }
+        : {}),
+    });
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    return result;
+  },
 });
 
 export async function POST(request: NextRequest, route: { params: Promise<{ formId: string }> }): Promise<Response> {
