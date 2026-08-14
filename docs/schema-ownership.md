@@ -11,7 +11,7 @@ Run the drift gate with:
 pnpm schema:check
 ```
 
-The gate creates a clean in-memory Postgres database, applies all 34 entries in
+The gate creates a clean in-memory Postgres database, applies all 35 entries in
 `drizzle/meta/_journal.json`, and compares the result with Drizzle's runtime
 metadata. It checks:
 
