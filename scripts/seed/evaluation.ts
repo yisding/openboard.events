@@ -130,7 +130,7 @@ async function seedRound1(ctx: SeedCtx, cast: Cast): Promise<void> {
   }));
 
   const reviewerTrackIds = REVIEWER_TRACKS.map((key) => ctx.id("track", key) as TrackId);
-  await assignReviewersIn(tx, eventId, planId, [
+  await assignReviewersIn((work) => work(tx), eventId, planId, [
     { userId: reviewerId, trackIds: reviewerTrackIds },
     { userId: organizerId, trackIds: null },
     ...(secondReviewerId ? [{ userId: secondReviewerId, trackIds: null }] : []),
@@ -155,20 +155,20 @@ async function seedRound1(ctx: SeedCtx, cast: Cast): Promise<void> {
   // explicit assignment. Seeding both keeps the demo's routing story and gives
   // the reviewer an actual worklist.
   const inScopeIds = inScope.map((row) => row.id as SubmissionId);
-  await assignSubmissionsIn(tx, eventId, {
+  await assignSubmissionsIn((work) => work(tx), eventId, {
     planId,
     reviewerUserIds: [reviewerId],
     submissionIds: inScopeIds,
     mode: "replace",
   });
-  await assignSubmissionsIn(tx, eventId, {
+  await assignSubmissionsIn((work) => work(tx), eventId, {
     planId,
     reviewerUserIds: [organizerId],
     submissionIds: everySubmission,
     mode: "replace",
   });
   if (secondReviewerId) {
-    await assignSubmissionsIn(tx, eventId, {
+    await assignSubmissionsIn((work) => work(tx), eventId, {
       planId,
       reviewerUserIds: [secondReviewerId],
       submissionIds: inScopeIds,
@@ -352,7 +352,7 @@ async function fillRound2(ctx: SeedCtx, cast: Cast, round2Id: PlanId, toppingUp:
     ...seated.map((row) => ({ userId: row.user_id as UserId, trackIds: (row.track_ids ?? null) as TrackId[] | null })),
     ...newcomers.map((userId) => ({ userId, trackIds: null })),
   ];
-  await assignReviewersIn(tx, eventId, round2Id, pool);
+  await assignReviewersIn((work) => work(tx), eventId, round2Id, pool);
 
   // The shortlist, read through the round's own track scope so a narrowed round
   // cannot be handed work `assignSubmissions` would refuse.
@@ -377,7 +377,7 @@ async function fillRound2(ctx: SeedCtx, cast: Cast, round2Id: PlanId, toppingUp:
     .map((member) => member.userId)
     .filter((userId) => (queued.get(userId) ?? 0) === 0 || newcomers.includes(userId));
   if (empties.length > 0 && shortlist.length > 0) {
-    await assignSubmissionsIn(tx, eventId, {
+    await assignSubmissionsIn((work) => work(tx), eventId, {
       planId: round2Id,
       reviewerUserIds: empties,
       submissionIds: shortlist,

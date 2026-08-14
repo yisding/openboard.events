@@ -53,6 +53,7 @@ const untracked = submissionIdSchema.parse("b2000000-0000-4000-8000-000000000033
 
 let pglite: PGlite;
 let db: DbOrTx;
+let runAssignmentTransaction: <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
 
 const planInput = (overrides: Record<string, unknown> = {}) =>
   planInputSchema.parse({ name: "Round 1", round: 1, scaleMin: 1, scaleMax: 5, ...overrides });
@@ -81,7 +82,9 @@ describe("evaluation plans and reviewer routing", () => {
     await pglite.exec(migration1);
     await pglite.exec(migration4);
     await pglite.exec(migration26);
-    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+    const database = drizzle(pglite, { schema });
+    db = database as unknown as DbOrTx;
+    runAssignmentTransaction = (work) => database.transaction((tx) => work(tx as unknown as DbOrTx));
 
     for (const [id, slug] of [[eventId, "eval-event"], [otherEventId, "eval-other"]] as const) {
       await pglite.query(
@@ -286,7 +289,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("sizes each reviewer's slice by the effective scope rule", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [
       { userId: ada, trackIds: [platforms] },
       { userId: grace, trackIds: null },
     ]);
@@ -305,7 +308,7 @@ describe("evaluation plans and reviewer routing", () => {
     "keeps reviewer routing and completed work unchanged after a %s close",
     async (closure) => {
       const planId = await seedPlan();
-      await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [platforms] }]);
+      await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: ada, trackIds: [platforms] }]);
       await giveReview(planId, platformsTalk, ada, 4);
 
       const lockedInput = closure === "manual"
@@ -334,7 +337,7 @@ describe("evaluation plans and reviewer routing", () => {
         [],
         [{ userId: ada, trackIds: [agents] }],
       ]) {
-        const error = await assignReviewersIn(db, eventId, planId, attempted)
+        const error = await assignReviewersIn(runAssignmentTransaction, eventId, planId, attempted)
           .catch((thrown: unknown) => thrown);
         expect(isAppError(error) && error.code).toBe("CONFLICT");
         expect(await graph()).toEqual(before);
@@ -353,12 +356,35 @@ describe("evaluation plans and reviewer routing", () => {
         ? { status: "open" as const, closesAt: null }
         : { status: "open" as const, closesAt: new Date(Date.now() + 60 * 60_000).toISOString() };
       await savePlanIn(db, eventId, planInput({ planId, ...writableInput }));
-      await expect(assignReviewersIn(db, eventId, planId, [
+      await expect(assignReviewersIn(runAssignmentTransaction, eventId, planId, [
         { userId: ada, trackIds: [agents] },
         { userId: grace, trackIds: null },
       ])).resolves.toBeUndefined();
       expect((await getPlanIn(db, eventId, planId)).reviewers.map((reviewer) => reviewer.userId).sort())
         .toEqual([ada, grace].sort());
+    },
+  );
+
+  it.each(["manual", "deadline"] as const)(
+    "treats reordered track ids as the same scope after a %s close",
+    async (closure) => {
+      const planId = await seedPlan({ trackIds: [platforms, agents] });
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(db, eventId, planInput({ planId, ...lockedInput, trackIds: [platforms, agents] }));
+
+      await expect(savePlanIn(db, eventId, planInput({
+        planId,
+        ...lockedInput,
+        name: "Round 1 clarified",
+        trackIds: [agents, platforms, agents],
+      }))).resolves.toEqual({ planId });
+
+      expect(await getPlanIn(db, eventId, planId)).toMatchObject({
+        name: "Round 1 clarified",
+        trackIds: [platforms, agents],
+      });
     },
   );
 
@@ -368,7 +394,7 @@ describe("evaluation plans and reviewer routing", () => {
       closesAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
     });
 
-    await expect(assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [platforms] }]))
+    await expect(assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: ada, trackIds: [platforms] }]))
       .resolves.toBeUndefined();
     expect((await getPlanIn(db, eventId, planId)).reviewers[0]).toMatchObject({
       userId: ada,
@@ -379,7 +405,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("narrows the round's own scope to its tracks", async () => {
     const planId = await seedPlan({ trackIds: [agents] });
-    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
     const [plan] = await listPlansIn(db, eventId);
     // An open assignment cannot widen the round: the untracked proposal is out
     // of scope the moment the plan names a track.
@@ -389,7 +415,7 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("refuses to route submissions to someone who is not a member", async () => {
     const planId = await seedPlan();
-    const error = await assignReviewersIn(db, eventId, planId, [{ userId: stranger, trackIds: null }])
+    const error = await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: stranger, trackIds: null }])
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("VALIDATION");
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM reviewer_assignments");
@@ -398,12 +424,12 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("leaves every assignment unchanged when one incoming reviewer is invalid", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [
       { userId: ada, trackIds: [platforms] },
       { userId: grace, trackIds: null },
     ]);
 
-    const error = await assignReviewersIn(db, eventId, planId, [
+    const error = await assignReviewersIn(runAssignmentTransaction, eventId, planId, [
       { userId: ada, trackIds: [agents] },
       { userId: stranger, trackIds: null },
     ]).catch((thrown: unknown) => thrown);
@@ -418,8 +444,8 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("rejects duplicate reviewer ids before changing assignments", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
-    const error = await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
+    const error = await assignReviewersIn(runAssignmentTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: ada, trackIds: [agents] },
     ]).catch((thrown: unknown) => thrown);
@@ -429,10 +455,10 @@ describe("evaluation plans and reviewer routing", () => {
 
   it("drops a reviewer's routing without dropping their scores", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
     await giveReview(planId, platformsTalk, grace, 5);
 
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [agents] }]);
+    await assignReviewersIn(runAssignmentTransaction, eventId, planId, [{ userId: ada, trackIds: [agents] }]);
     const [plan] = await listPlansIn(db, eventId);
     expect(plan?.reviewers.map((reviewer) => reviewer.userId)).toEqual([ada]);
     expect(plan?.reviewers[0]?.trackIds).toEqual([agents]);

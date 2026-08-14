@@ -64,6 +64,18 @@ function submission(suffix: string, title: string): AssignableSubmission {
 
 const PLAN_A = plan("000000000010", "Round A");
 const PLAN_B = plan("000000000020", "Round B");
+const SECOND_REVIEWER = {
+  userId: "c4200000-0000-4000-8001-000000000099" as PlanDTO["reviewers"][number]["userId"],
+  name: "Second reviewer",
+  email: "second@example.com",
+  trackIds: null,
+  assigned: 0,
+  completed: 0,
+  recused: 0,
+  outstanding: 0,
+  scored: 0,
+} satisfies PlanDTO["reviewers"][number];
+const PLAN_A_WITH_TWO_REVIEWERS = { ...PLAN_A, reviewers: [...PLAN_A.reviewers, SECOND_REVIEWER] };
 const CLOSED_PLAN = { ...plan("000000000030", "Closed round"), status: "closed" as const };
 const EXPIRED_PLAN = { ...plan("000000000040", "Expired round"), closesAt: "2000-01-01T00:00:00.000Z" };
 const SUBMISSION_A = submission("000000000011", "Proposal from round A");
@@ -175,6 +187,33 @@ describe("evaluation assignment drawer loading recovery", () => {
     expect(container.textContent).toContain("1 submission selected from 1 shown.");
     expect(buttonNamed("Assign 1")?.disabled).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a removed reviewer from the draft before submitting the refreshed roster", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(PLAN_A_WITH_TWO_REVIEWERS);
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => reviewerCheckbox("Second reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { assigned: 1, removed: 0 } }));
+    await renderDrawer({ ...PLAN_A_WITH_TWO_REVIEWERS, reviewers: [SECOND_REVIEWER] });
+
+    expect(reviewerCheckbox("Round A reviewer")).toBeUndefined();
+    expect(reviewerCheckbox("Second reviewer")?.checked).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await act(async () => buttonNamed("Assign 1")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const request = fetchMock.mock.calls[1]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      reviewerUserIds: [SECOND_REVIEWER.userId],
+      submissionIds: [SUBMISSION_A.submissionId],
+      mode: "add",
+    });
   });
 
   it("locks an open drawer at its close deadline without waiting for another render", async () => {

@@ -109,6 +109,7 @@ export function AssignmentDrawer({
   const { toast } = useToast();
   const targetKey = `${eventId}:${plan.id}`;
   const loadKey = `${targetKey}:${plan.updatedAt}:${plan.trackIds?.join(",") ?? "all"}`;
+  const reviewerMembershipKey = plan.reviewers.map((reviewer) => reviewer.userId).sort().join(",");
   const currentTargetRef = useRef(targetKey);
   currentTargetRef.current = targetKey;
   const currentLoadRef = useRef(loadKey);
@@ -159,6 +160,16 @@ export function AssignmentDrawer({
     setBusy(false);
     setConfirmEmptyReplace(false);
   }, [targetKey]);
+
+  useEffect(() => {
+    // Reviewer assignment writes do not revise the plan row. A focus refresh
+    // can therefore change this roster while loadKey stays stable; never keep
+    // an invisible, removed reviewer selected in the outgoing request.
+    setReviewerIds((current) => keepShownAssignmentSelection(
+      current,
+      reviewerMembershipKey === "" ? [] : reviewerMembershipKey.split(","),
+    ));
+  }, [reviewerMembershipKey]);
 
   useEffect(() => {
     if (assignmentLock) {
