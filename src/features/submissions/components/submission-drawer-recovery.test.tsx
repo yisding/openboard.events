@@ -215,6 +215,6 @@ describe("submission detail drawer recovery", () => {
       expectedRowVersion: 2,
       patch: { title: "Re-applied edit" },
     });
-    expect(toastMock).toHaveBeenCalledWith("Abstract saved");
+    expect(toastMock).toHaveBeenCalledWith("Submission saved");
   });
 });

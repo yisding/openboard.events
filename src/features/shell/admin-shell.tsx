@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { notFound, usePathname } from "next/navigation";
-import { BarChart3, BookOpen, CalendarDays, ClipboardCheck, ExternalLink, FileText, FolderOpen, LayoutDashboard, Mail, Menu, PanelTop, Settings, Users, X } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, ExternalLink, FileText, FolderOpen, Inbox, LayoutDashboard, ListChecks, Mail, Menu, PanelTop, Settings, Star, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brand } from "@/shared/ui/brand";
@@ -39,13 +39,13 @@ const COUNT_KEY_BY_HREF: Record<string, keyof AdminShellCounts> = {
 
 const navigation: NavigationGroup[] = [
   { label: "Overview", items: [{ label: "Dashboard", href: "dashboard", icon: LayoutDashboard }] },
-  { label: "Program", items: [{ label: "Forms", href: "forms", icon: FileText }, { label: "Abstracts", href: "abstracts", icon: ClipboardCheck }, { label: "Evaluation", href: "evaluation", icon: BarChart3 }, { label: "Agenda", href: "agenda", icon: CalendarDays }] },
-  { label: "People", items: [{ label: "Speakers", href: "speakers", icon: Users }, { label: "Tasks", href: "tasks", icon: ClipboardCheck }, { label: "Files", href: "files", icon: FolderOpen }] },
+  { label: "Program", items: [{ label: "Forms", href: "forms", icon: FileText }, { label: "Submissions", href: "abstracts", icon: Inbox }, { label: "Evaluation", href: "evaluation", icon: BarChart3 }, { label: "Agenda", href: "agenda", icon: CalendarDays }] },
+  { label: "People", items: [{ label: "Speakers", href: "speakers", icon: Users }, { label: "Tasks", href: "tasks", icon: ListChecks }, { label: "Files", href: "files", icon: FolderOpen }] },
   { label: "Engage", items: [{ label: "Communications", href: "communications", icon: Mail }, { label: "Resources", href: "resources", icon: BookOpen }, { label: "Embeds", href: "embeds", icon: PanelTop }] },
 ];
 
 const reviewerNavigation: NavigationGroup[] = [
-  { label: "Review", items: [{ label: "Review queue", href: "review", icon: ClipboardCheck }] },
+  { label: "Review", items: [{ label: "Review queue", href: "review", icon: Star }] },
 ];
 
 /**
@@ -146,7 +146,7 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ca
     <aside ref={sidebarRef} id="admin-navigation" className={`admin-sidebar ${open ? "open" : ""}`} aria-hidden={mobileNavigation.sidebarHidden || undefined} inert={mobileNavigation.sidebarHidden || undefined}>
       <div className="sidebar-brand"><Brand /><button ref={closeButtonRef} type="button" className="mobile-close" aria-label="Close navigation" onClick={closeMenu}><X size={18} /></button></div>
       <Hint id="shell:event-switcher" title="Your events live here" body="Switch to another event — or jump back to the full list — without losing your place." placement="right" block className="hint-on-switcher"><EventSwitcher eventId={eventId} initialEvent={{ name: event.shortName, detail: `/${event.slug}` }} canCreateEvent={canCreateEvent} nowIso={nowIso} /></Hint>
-      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; const link = <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={closeMenu}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; return item.href === "forms" ? <Hint key={item.href} id="shell:program-forms" title="Start in Forms" body="Your call for speakers begins as a form. Submissions land in Abstracts, ready to review." placement="right" block className="hint-on-nav">{link}</Hint> : link; })}</div>)}</nav>
+      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; const link = <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={closeMenu}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; return item.href === "forms" ? <Hint key={item.href} id="shell:program-forms" title="Start in Forms" body="Your call for speakers begins as a form. Completed entries land in Submissions, ready to review." placement="right" block className="hint-on-nav">{link}</Hint> : link; })}</div>)}</nav>
       <div className="sidebar-bottom"><Hint id="shell:public-preview" title="See what attendees see" body="Opens your public event page in a new tab — a quick gut check after any change." placement="right" block className="hint-on-nav"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link></Hint>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
     </aside>
     {open && <button type="button" tabIndex={-1} aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}

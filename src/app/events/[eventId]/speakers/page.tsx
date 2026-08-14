@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/features/auth";
-import { listContacts, type ContactFilters } from "@/features/portal";
+import { getSpeakerFilterCounts, listContacts, type ContactFilters } from "@/features/portal";
 import { SpeakersAdminView } from "@/features/portal/components/speakers-admin/speakers-admin-view";
 import { parseSpeakerMissing } from "@/features/portal/speaker-deep-links";
 import { contactIdSchema, eventIdSchema, SPEAKERS_DEEPLINK_PARAMS } from "@/shared/contracts";
@@ -65,13 +65,20 @@ export default async function Page({
     pageSize: 25,
   };
 
-  const { rows, total } = await listContacts(eventId, filters);
+  const [{ rows, total }, filterCounts] = await Promise.all([
+    listContacts(eventId, filters),
+    getSpeakerFilterCounts(eventId, {
+      ...(filters.q ? { q: filters.q } : {}),
+      ...(filters.confirmation ? { confirmation: filters.confirmation } : {}),
+    }),
+  ]);
 
   return (
     <SpeakersAdminView
       eventId={eventId}
       rows={rows}
       total={total}
+      filterCounts={filterCounts}
       page={filters.page ?? 1}
       pageSize={filters.pageSize ?? 25}
       q={filters.q ?? ""}

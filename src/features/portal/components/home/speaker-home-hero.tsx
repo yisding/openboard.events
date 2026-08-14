@@ -53,7 +53,7 @@ export function SpeakerHomeHero({
     return (
       <section className="portal-hero">
         <span className="portal-hero-eyebrow"><CalendarClock size={14} /> Draft in progress</span>
-        <h2>You were still working on &ldquo;{submission.title || "your proposal"}&rdquo;</h2>
+        <h2>You were still working on &ldquo;{submission.title || "your submission"}&rdquo;</h2>
         <p>
           {daysLeft === null
             ? "Pick up right where you left off."

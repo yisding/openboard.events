@@ -62,7 +62,7 @@ describe("CFP validation routing", () => {
   });
 
   it("uses concise, customer-facing progress labels", () => {
-    expect(cfpFlowSteps(true).map(cfpProgressLabel)).toEqual(["Account", "Proposal", "Speaker", "Review"]);
+    expect(cfpFlowSteps(true).map(cfpProgressLabel)).toEqual(["Account", "Submission", "Speaker", "Review"]);
   });
 
   it("returns participant errors to the speaker step", () => {
@@ -139,7 +139,7 @@ describe("CFP validation routing", () => {
 
   it("uses the organizer-configured heading for each form step", () => {
     expect(cfpStepHeading(GOLDEN_SNAPSHOT, "submission")).toBe(GOLDEN_SNAPSHOT.sections.find((section) => section.key === "abstract")?.pageHeading);
-    expect(cfpStepHeading(GOLDEN_SNAPSHOT, "review")).toBe("Review your proposal");
+    expect(cfpStepHeading(GOLDEN_SNAPSHOT, "review")).toBe("Review your submission");
   });
 });
 
@@ -220,7 +220,7 @@ describe("CFP stale form recovery", () => {
     expect(staleHtml).not.toContain("<input");
     expect(staleHtml).not.toContain("<textarea");
     expect(staleHtml).not.toContain("Back");
-    expect(staleHtml).not.toContain("Submit proposal");
+    expect(staleHtml).not.toContain(">Submit<");
     expect(staleHtml).not.toContain("Retry now");
   });
 

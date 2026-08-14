@@ -14,7 +14,7 @@ export function FormClosedNotice({ detailHref }: { detailHref: string }) {
       <div className="portal-panel">
         <h1>Submissions are closed</h1>
         <p className="portal-note">
-          This call for speakers is no longer accepting new or updated submissions, so this proposal can&rsquo;t be
+          This call for speakers is no longer accepting new or updated submissions, so this submission can&rsquo;t be
           edited here anymore. Your last saved answers are still on file — reach out to the organizers if something
           needs to change.
         </p>

@@ -5,12 +5,12 @@ import { abstractAllMatchingHref, abstractSelectionScope } from "./abstract-matc
 describe("abstract all-matching selection", () => {
   it("offers the complete bounded match set only after the whole page is selected", () => {
     expect(abstractSelectionScope({ selectedCount: 24, pageRowCount: 25, filteredTotal: 87 })).toEqual({
-      countLabel: "24 abstracts selected on this page",
+      countLabel: "24 submissions selected on this page",
       allMatching: false,
       selectAllMatchingCount: null,
     });
     expect(abstractSelectionScope({ selectedCount: 25, pageRowCount: 25, filteredTotal: 87 })).toEqual({
-      countLabel: "25 abstracts selected on this page",
+      countLabel: "25 submissions selected on this page",
       allMatching: false,
       selectAllMatchingCount: 87,
     });
@@ -18,12 +18,12 @@ describe("abstract all-matching selection", () => {
 
   it("describes a freshly rendered complete set as matching, not merely page-local", () => {
     expect(abstractSelectionScope({ selectedCount: 87, pageRowCount: 87, filteredTotal: 87 })).toEqual({
-      countLabel: "87 matching abstracts selected",
+      countLabel: "87 matching submissions selected",
       allMatching: true,
       selectAllMatchingCount: null,
     });
     expect(abstractSelectionScope({ selectedCount: 1, pageRowCount: 1, filteredTotal: 1 }).countLabel)
-      .toBe("1 matching abstract selected");
+      .toBe("1 matching submission selected");
   });
 
   it("stays page-local above the transition cap, including if matches grow during navigation", () => {
@@ -32,7 +32,7 @@ describe("abstract all-matching selection", () => {
       pageRowCount: BULK_DECISION_LIMIT,
       filteredTotal: BULK_DECISION_LIMIT + 1,
     })).toEqual({
-      countLabel: `${BULK_DECISION_LIMIT} abstracts selected on this page`,
+      countLabel: `${BULK_DECISION_LIMIT} submissions selected on this page`,
       allMatching: false,
       selectAllMatchingCount: null,
     });

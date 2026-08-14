@@ -227,7 +227,7 @@ export function SubmissionDrawer({
     loadPurpose.current = loadState.purpose;
     setLoadState({ status: "loading", purpose: loadState.purpose });
     if (loadState.purpose === "stale") {
-      setSaveFeedback({ kind: "status", message: "This abstract changed since you opened it. Loading the latest version…" });
+      setSaveFeedback({ kind: "status", message: "This submission changed since you opened it. Loading the latest version…" });
     }
     setReloadToken((token) => token + 1);
   }
@@ -258,7 +258,7 @@ export function SubmissionDrawer({
         // The reload has to be explicit — `router.refresh()` alone leaves this
         // drawer holding the same fields and the same row version, so every
         // retry would keep conflicting until it was closed and reopened.
-        setSaveFeedback({ kind: "status", message: "This abstract changed since you opened it. Loading the latest version…" });
+        setSaveFeedback({ kind: "status", message: "This submission changed since you opened it. Loading the latest version…" });
         loadPurpose.current = "stale";
         setLoadState({ status: "loading", purpose: "stale" });
         setReloadToken((token) => token + 1);
@@ -275,7 +275,7 @@ export function SubmissionDrawer({
       // header reads `detail` — without this a saved title goes on showing the
       // old one for as long as the drawer stays open.
       setDetail((current) => current && { ...current, title: values.title });
-      toast("Abstract saved");
+      toast("Submission saved");
       router.refresh();
     } finally {
       // Same rule as above, for the same reason: if the drawer has moved on,

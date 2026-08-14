@@ -118,6 +118,9 @@ export function AbstractsTable({
   const workflowTabs = abstractWorkflowTabs(counts);
   const activeWorkflow = workflowTabs.find((tab) => tab.id === view);
   const exactStatuses = EXACT_STATUSES_BY_VIEW[view];
+  const exactStatusAllLabel = view === "all"
+    ? "All submissions"
+    : `All ${activeWorkflow?.label.toLowerCase() ?? "statuses"}`;
 
   const columns = useMemo<Array<ColumnDef<SubmissionListRow, unknown>>>(() => [
     {
@@ -206,12 +209,12 @@ export function AbstractsTable({
 
   return (
     <>
-      <div className="abstract-status-tabs" role="group" aria-label="Filter abstracts by workflow">
+      <div className="abstract-status-tabs" role="group" aria-label="Filter submissions by workflow">
         {workflowTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            aria-label={`${tab.label}, ${tab.count} ${tab.count === 1 ? "abstract" : "abstracts"}${tab.id === "ready_to_notify" ? `, ${tab.acceptCount} accept, ${tab.declineCount} decline` : ""}`}
+            aria-label={`${tab.label}, ${tab.count} ${tab.count === 1 ? "submission" : "submissions"}${tab.id === "ready_to_notify" ? `, ${tab.acceptCount} accept, ${tab.declineCount} decline` : ""}`}
             aria-pressed={view === tab.id}
             className={view === tab.id ? "active" : ""}
             onClick={() => onFilter({ view: tab.id, status: "all" })}
@@ -226,7 +229,7 @@ export function AbstractsTable({
           <span>Exact status</span>
           <div>
             <button type="button" className={status === "all" ? "active" : ""} aria-pressed={status === "all"} onClick={() => onFilter({ view, status: "all" })}>
-              All {activeWorkflow?.label.toLowerCase() ?? "statuses"}
+              {exactStatusAllLabel}
             </button>
             {exactStatuses.map((exactStatus) => (
               <button key={exactStatus} type="button" className={status === exactStatus ? "active" : ""} aria-pressed={status === exactStatus} onClick={() => onFilter({ status: exactStatus })}>
@@ -263,14 +266,14 @@ export function AbstractsTable({
               value={draftSearch}
               onChange={(event) => setDraftSearch(event.target.value)}
               placeholder="Search code, title or speaker"
-              aria-label="Search abstracts"
+              aria-label="Search submissions"
             />
           </form>
         }
         empty={
           <EmptyState
             icon={<Inbox size={20} />}
-            title={search ? "Nothing matches that search" : "No abstracts yet"}
+            title={search ? "Nothing matches that search" : "No submissions yet"}
             description={search
               ? `${total} submission${total === 1 ? "" : "s"} exist in total — clear the search to see them.`
               : "Submissions appear here as speakers complete the CFP form."}

@@ -203,9 +203,9 @@ describe("evaluation reminder exact-recipient preflight", () => {
 
     expect(container.textContent).toContain("2 reviewers will be reminded");
     expect(container.textContent).toContain("Ada Lovelace · ada@example.com");
-    expect(container.textContent).toContain("2 outstanding proposals");
+    expect(container.textContent).toContain("2 outstanding submissions");
     expect(container.textContent).toContain("Grace Hopper · grace@example.com");
-    expect(container.textContent).toContain("1 outstanding proposal");
+    expect(container.textContent).toContain("1 outstanding submission");
     expect(buttonNamed("Send reminders")?.disabled).toBe(false);
     expect(fetchMock).toHaveBeenCalledOnce();
 

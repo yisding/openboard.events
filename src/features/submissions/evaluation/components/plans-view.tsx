@@ -457,7 +457,7 @@ function ReminderPreflight({
       {preview.map((recipient) => (
         <li key={recipient.reviewerUserId}>
           <b>{recipient.name || recipient.email}</b>{recipient.name ? ` · ${recipient.email}` : ""}
-          <small>{recipient.outstanding} outstanding proposal{recipient.outstanding === 1 ? "" : "s"}</small>
+          <small>{recipient.outstanding} outstanding submission{recipient.outstanding === 1 ? "" : "s"}</small>
         </li>
       ))}
     </ul>

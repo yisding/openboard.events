@@ -69,11 +69,11 @@ export function SubmissionDetail({
 
       {editable ? (
         <Link className="button button-primary" href={`/portal/${encodeURIComponent(eventSlug)}/submissions/${encodeURIComponent(submission.submissionId)}/edit`}>
-          Edit your proposal
+          Edit your submission
         </Link>
       ) : (
         <p className="portal-note">
-          Need a change? Reply to any message from the organizers — proposals are read-only here.
+          Need a change? Reply to any message from the organizers — submissions are read-only here.
         </p>
       )}
     </article>

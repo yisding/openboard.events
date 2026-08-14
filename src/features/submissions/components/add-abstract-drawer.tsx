@@ -140,8 +140,8 @@ export function AddAbstractDrawer({
           setRequestId(crypto.randomUUID());
         }
         setError(outcomeUnknown
-          ? "Creation could not be confirmed. Retry the unchanged abstract to recover the result."
-          : payload?.error?.message ?? "That abstract could not be created");
+          ? "Creation could not be confirmed. Retry the unchanged submission to recover the result."
+          : payload?.error?.message ?? "That submission could not be created");
         return;
       }
       toast(`${formatCode(payload.data.code)} created`);
@@ -167,14 +167,14 @@ export function AddAbstractDrawer({
     <Modal
       open={open}
       onClose={requestClose}
-      title="Add an abstract"
-      description="Create a proposal on behalf of a speaker. It gets the next SESS number and sends nobody an email."
+      title="Add a submission"
+      description="Create a submission on behalf of a speaker. It gets the next SESS number and sends nobody an email."
       wide
       footer={
         <>
           <Button variant="secondary" disabled={busy} onClick={requestClose}>Cancel</Button>
           <Button disabled={busy || values.title.trim().length === 0} onClick={create}>
-            {busy ? recoveryRequired ? "Retrying…" : "Creating…" : recoveryRequired ? "Retry abstract creation" : "Create abstract"}
+            {busy ? recoveryRequired ? "Retrying…" : "Creating…" : recoveryRequired ? "Retry submission creation" : "Create submission"}
           </Button>
         </>
       }
