@@ -10,8 +10,8 @@ import {
   loadBulkSendRecovery,
   persistBulkSendRecovery,
   type BulkSendRecoverySnapshot,
-} from "@/features/comms/bulk-send-recovery";
-import { bulkSendPreviewFingerprint } from "@/features/comms/bulk-send-attempt";
+} from "@/features/comms/index.bulk-send-recovery";
+import { bulkSendPreviewFingerprint } from "@/features/comms/index.bulk-send-attempt";
 import { organizationIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";

@@ -3,8 +3,8 @@
 import { Layers, Mail, Plus, Sparkles, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
-import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,

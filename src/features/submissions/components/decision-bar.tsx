@@ -9,7 +9,7 @@ import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { MessagePreview } from "@/features/comms/components/message-preview";
+import { MessagePreview } from "@/features/comms/index.client";
 
 type DecisionSelection = Pick<SubmissionListRow, "submissionId" | "status">;
 type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Response>;

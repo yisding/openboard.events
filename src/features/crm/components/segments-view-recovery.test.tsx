@@ -9,8 +9,8 @@ import {
   bulkSendRecoveryStorageKey,
   persistBulkSendRecovery,
   type BulkSendRecoverySnapshot,
-} from "@/features/comms/bulk-send-recovery";
-import { bulkSendPreviewFingerprint } from "@/features/comms/bulk-send-attempt";
+} from "@/features/comms/index.bulk-send-recovery";
+import { bulkSendPreviewFingerprint } from "@/features/comms/index.bulk-send-attempt";
 import {
   crmSegmentDtoSchema,
   organizationContactIdSchema,
