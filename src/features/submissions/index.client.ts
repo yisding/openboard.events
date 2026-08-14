@@ -5,3 +5,5 @@
  * fails — which is how this file came to exist.
  */
 export { formatCode, toPortalStatus } from "./server/guards";
+export { submissionViewForStatus } from "./workflow";
+export type { SubmissionView } from "./workflow";

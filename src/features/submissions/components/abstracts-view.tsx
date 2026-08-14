@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import type { SubmissionFilters, SubmissionVocabulary } from "@/features/submissions";
+import { submissionViewForStatus, type SubmissionView } from "@/features/submissions/index.client";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
@@ -23,6 +24,7 @@ export function AbstractsView({
   eventId,
   rows,
   counts,
+  view,
   status,
   search,
   timezone,
@@ -39,6 +41,7 @@ export function AbstractsView({
   eventId: string;
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
+  view: SubmissionView;
   status: SubmissionStatus | "all";
   search: string;
   timezone: string;
@@ -93,9 +96,19 @@ export function AbstractsView({
     router.replace(`?${query.toString()}`, { scroll: false });
   }, [params, router]);
 
-  const onFilter = useCallback((next: { status?: SubmissionStatus | "all"; search?: string }) => {
+  const onFilter = useCallback((next: { view?: SubmissionView; status?: SubmissionStatus | "all"; search?: string }) => {
     const query = new URLSearchParams(params.toString());
-    if (next.status !== undefined) query.set("status", next.status);
+    if (next.view !== undefined) {
+      if (next.view === "all") query.delete("view");
+      else query.set("view", next.view);
+    }
+    if (next.status !== undefined) {
+      if (next.status === "all") query.delete("status");
+      else {
+        query.set("status", next.status);
+        query.set("view", submissionViewForStatus(next.status));
+      }
+    }
     if (next.search !== undefined) {
       if (next.search) query.set("search", next.search);
       else query.delete("search");
@@ -124,7 +137,12 @@ export function AbstractsView({
   // Same filters, same search, same sort as the table on screen — the export
   // route walks every page server-side, so the query string it needs is
   // exactly the one already in the address bar.
-  const exportHref = `/api/internal/submissions/${eventId}/export.csv?${params.toString()}`;
+  const exportHref = useMemo(() => {
+    const query = new URLSearchParams(params.toString());
+    if (view === "all") query.delete("view"); else query.set("view", view);
+    if (status === "all") query.delete("status"); else query.set("status", status);
+    return `/api/internal/submissions/${eventId}/export.csv?${query.toString()}`;
+  }, [eventId, params, status, view]);
 
   // M57 — flow through the current server page with the keyboard: the ids
   // are this page's rows in the order the table is showing them, so
@@ -150,7 +168,7 @@ export function AbstractsView({
         description="Every proposal for this event, with its status, track and rating."
         actions={
           <>
-            <a className="button button-secondary" href={exportHref} download>Export .CSV</a>
+            <a className="button button-secondary" href={exportHref} download>Export CSV</a>
             {canEdit && <Button onClick={() => setAdding(true)}><Plus size={16} /> Add abstract</Button>}
           </>
         }
@@ -158,6 +176,7 @@ export function AbstractsView({
       <AbstractsTable
         rows={rows}
         counts={counts}
+        view={view}
         status={status}
         search={search}
         timezone={timezone}

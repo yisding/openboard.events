@@ -2,6 +2,11 @@ import { z } from "zod";
 import { LIMITS, formatIdSchema, submissionStatusSchema, tagIdSchema, trackIdSchema } from "@/shared/contracts";
 import { parsePageQuery, type PageQuery } from "@/shared/lib/page-query";
 import { BULK_DECISION_LIMIT } from "../bulk-decision-limit";
+import { SUBMISSION_VIEWS, submissionViewForStatus } from "../workflow";
+
+export const submissionViewSchema = z.enum(SUBMISSION_VIEWS);
+export { submissionViewForStatus } from "../workflow";
+export type { SubmissionView } from "../workflow";
 
 /**
  * What the Abstracts table can be narrowed by. Parsed rather than trusted: these
@@ -11,6 +16,7 @@ import { BULK_DECISION_LIMIT } from "../bulk-decision-limit";
  * has an All tab and "no filter" and "the All tab" must mean the same thing.
  */
 export const submissionFiltersSchema = z.object({
+  view: submissionViewSchema.default("all"),
   status: z.union([submissionStatusSchema, z.literal("all")]).default("all"),
   search: z.string().trim().max(200).default(""),
   trackId: trackIdSchema.nullable().default(null),
@@ -54,7 +60,13 @@ export type SubmissionFilters = z.infer<typeof submissionFiltersSchema>;
  * the `status` tab the organizer is standing on.
  */
 export function parseSubmissionFiltersForPage(query: PageQuery): SubmissionFilters {
-  return parsePageQuery(submissionFiltersSchema, query);
+  const filters = parsePageQuery(submissionFiltersSchema, query);
+  // Exact-status URLs predate the workflow views. Keep the exact filter and
+  // activate its containing view, including when a stale link supplies a
+  // conflicting view; the row chip still shows the precise status.
+  return filters.status === "all"
+    ? filters
+    : { ...filters, view: submissionViewForStatus(filters.status) };
 }
 
 /**

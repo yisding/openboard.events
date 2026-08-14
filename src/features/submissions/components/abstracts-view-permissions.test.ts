@@ -1,13 +1,15 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, submissionIdSchema, trackIdSchema } from "@/shared/contracts";
 import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import { AbstractsView } from "./abstracts-view";
 
+const navigationMock = vi.hoisted(() => ({ search: "" }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigationMock.search),
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -58,12 +60,13 @@ const COUNTS: Record<SubmissionStatus | "all", number> = {
   draft: 0,
 };
 
-function renderView(canEdit: boolean): string {
+function renderView(canEdit: boolean, filter: { view?: "all" | "needs_decision" | "ready_to_notify" | "decided"; status?: SubmissionStatus | "all" } = {}): string {
   return renderToStaticMarkup(React.createElement(AbstractsView, {
     eventId: eventIdSchema.parse(id("04")),
     rows: [ROW],
     counts: COUNTS,
-    status: "all",
+    view: filter.view ?? "all",
+    status: filter.status ?? "all",
     search: "",
     timezone: "America/Los_Angeles",
     total: 1,
@@ -79,10 +82,13 @@ function renderView(canEdit: boolean): string {
 }
 
 describe("AbstractsView permissions", () => {
+  beforeEach(() => { navigationMock.search = ""; });
+
   it("keeps organizer decision controls and row selection available", () => {
     const html = renderView(true);
 
-    expect(html).toContain("Notify 1");
+    expect(html).toContain("Send 1 decision email");
+    expect(html).toContain("Export CSV");
     expect(html).toContain("Add abstract");
     expect(html).toContain('aria-label="Select every row on this page"');
     expect(html).toContain('aria-label="Select SESS-101, Agents in production"');
@@ -91,10 +97,18 @@ describe("AbstractsView permissions", () => {
   it("renders reviewers a read-only table without organizer decision controls or selection", () => {
     const html = renderView(false);
 
-    expect(html).not.toContain("Notify 1");
+    expect(html).not.toContain("Send 1 decision email");
     expect(html).not.toContain("Add abstract");
     expect(html).not.toContain('aria-label="Select every row on this page"');
     expect(html).not.toContain('aria-label="Select SESS-101, Agents in production"');
     expect(html).not.toContain('type="checkbox"');
+  });
+
+  it("exports the normalized filters that produced the visible table", () => {
+    navigationMock.search = "view=needs_decision&status=declined";
+    const html = renderView(true, { view: "decided", status: "declined" });
+
+    expect(html).toContain("export.csv?view=decided&amp;status=declined");
+    expect(html).not.toContain("export.csv?view=needs_decision");
   });
 });
