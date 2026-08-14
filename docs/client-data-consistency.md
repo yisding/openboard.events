@@ -30,7 +30,7 @@ they do not also pass a second `initialData` copy through the component tree.
 |---|---|---|---|---|
 | Communications | Server reads hydrate feature keys | TanStack Query | Exact write, rollback, or log-prefix invalidation | Migrated |
 | Agenda | Server reads seed sessions, accepted abstracts, and announcement keys | TanStack Query; conflicts derive from cached sessions | Exact cross-panel invalidation, optimistic move rollback | Migrated |
-| Dashboard | Server prop seeds one polling query | TanStack Query | Read-only | Pending hydration conversion |
+| Dashboard | Server read hydrates the overview key | TanStack Query with 30-second polling | Read-only | Migrated |
 | Forms, CRM, evaluation, speakers, tasks | Server Components/props | Route refresh and local state | Feature-specific | Pending inventory/migration |
 
 The ledger is updated in each feature migration. The workstream is complete only
