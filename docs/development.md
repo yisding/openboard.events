@@ -7,7 +7,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 ## Status
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
-  typecheck, lint, invariant greps, the full Vitest suite (2,365 cases across two shards as of
+  typecheck, lint, invariant greps, the full Vitest suite (2,371 cases across two shards as of
   2026-08-13), the Next.js build, and the Worker artifact gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
@@ -130,8 +130,9 @@ The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup
 `speaker-content-ops`, `typography-hierarchy`) are written to run against
 a deployed target plus the `sb-test` Neon branch, not against `localhost` fixtures — set
 `E2E_BASE_URL`, `NEON_TEST_URL`, `E2E_ADMIN_PASSWORD`, and `E2E_REVIEWER_PASSWORD` first. The
-passwords must match the accounts created by `pnpm admin:bootstrap`. The deploy workflow runs the
-self-service journey against the freshly
+Playwright global setup wipes and seeds the test database, then recreates the seeded Better Auth
+credentials with those two 12+-character passwords via `pnpm admin:bootstrap`. The deploy
+workflow runs the self-service journey against the freshly
 deployed preview on every merge to `main`.
 
 ## Deploying

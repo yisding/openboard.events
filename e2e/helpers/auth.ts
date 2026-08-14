@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { expect, type APIRequestContext, type Cookie, type Page } from "@playwright/test";
 import { PORTAL_COOKIE_PREFIX } from "../../src/features/auth/cookies";
+import { seededAdminPassword } from "./admin-credentials";
 import { USERS } from "./seeded";
 
 /**
@@ -16,15 +17,7 @@ import { USERS } from "./seeded";
  */
 export async function loginAsAdmin(target: Page | APIRequestContext, email: string = USERS.organizer): Promise<void> {
   const request = "request" in target ? target.request : target;
-  const password = email === USERS.reviewer
-    ? process.env.E2E_REVIEWER_PASSWORD ?? process.env.BOOTSTRAP_REVIEWER_PASSWORD
-    : process.env.E2E_ADMIN_PASSWORD ?? process.env.BOOTSTRAP_ADMIN_PASSWORD;
-  if (!password) {
-    throw new Error(
-      `Missing E2E password for ${email}. Set E2E_ADMIN_PASSWORD and E2E_REVIEWER_PASSWORD `
-      + "to the credentials provisioned by pnpm admin:bootstrap.",
-    );
-  }
+  const password = seededAdminPassword(email === USERS.reviewer ? "reviewer" : "organizer");
   const response = await request.post("/api/auth/sign-in", { data: { email, password } });
   if (!response.ok()) {
     const explanation = await response.json()
