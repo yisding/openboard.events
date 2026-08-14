@@ -25,6 +25,16 @@ export type FormAvailabilityActionCopy = {
   confirmLabel: string;
 };
 
+export function formAvailabilityActionLabel(
+  storedStatus: FormOpenStatus,
+  availability: FormAvailability,
+): string {
+  if (storedStatus !== "open") return "Open form";
+  if (availability === "scheduled") return "Cancel scheduled opening";
+  if (availability === "ended") return "Set form to closed";
+  return "Stop accepting submissions";
+}
+
 export function formOpenState(
   form: { status: FormOpenStatus; opensAt: string | null; closesAt: string | null },
   nowIso: string,
@@ -75,15 +85,29 @@ export function formAvailabilityActionCopy(
   form: { opensAt: string | null; closesAt: string | null },
   nowIso: string,
 ): FormAvailabilityActionCopy {
+  const availability = formAvailability({ status: "open", ...form }, nowIso);
   if (action === "close") {
+    if (availability === "scheduled") {
+      return {
+        title: "Cancel this scheduled opening?",
+        body: "This keeps the public form unavailable and cancels its scheduled opening. You can reopen or reschedule it later.",
+        confirmLabel: "Cancel scheduled opening",
+      };
+    }
+    if (availability === "ended") {
+      return {
+        title: "Set this ended form to closed?",
+        body: "The closing time has already passed, so the form is not accepting submissions. This records it as closed until you reopen it.",
+        confirmLabel: "Set form to closed",
+      };
+    }
     return {
-      title: "Close this form now?",
+      title: "Stop accepting submissions now?",
       body: "This immediately stops new submissions. People with in-progress drafts will not be able to submit them until you reopen the form.",
-      confirmLabel: "Close form",
+      confirmLabel: "Stop accepting submissions",
     };
   }
 
-  const availability = formAvailability({ status: "open", ...form }, nowIso);
   if (availability === "scheduled") {
     return {
       title: "Schedule this form to open?",

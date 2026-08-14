@@ -37,19 +37,23 @@ test.describe("abstracts-decide", () => {
         const total = [...expected.values()].reduce((sum, n) => sum + n, 0);
         expect(total, "the seeded event must have submissions to count").toBeGreaterThan(0);
 
-        const filters = page.getByRole("group", { name: "Filter abstracts by status" });
+        const filters = page.getByRole("group", { name: "Filter abstracts by workflow" });
         const labelled = async (label: string) => {
           const button = filters.getByRole("button", { name: new RegExp(`^${label}\\b`) });
-          return Number(await button.locator('[aria-hidden="true"]').innerText());
+          return Number(await button.locator('[aria-hidden="true"]').first().innerText());
         };
+        const pending = expected.get("pending") ?? 0;
+        const acceptQueue = expected.get("accept_queue") ?? 0;
+        const declineQueue = expected.get("decline_queue") ?? 0;
+        const ready = acceptQueue + declineQueue;
+        const decided = (expected.get("accepted") ?? 0) + (expected.get("declined") ?? 0) + (expected.get("withdrawn") ?? 0);
         expect(await labelled("All")).toBe(total);
-        expect(await labelled("Accepted")).toBe(expected.get("accepted") ?? 0);
-        expect(await labelled("Accept queue")).toBe(expected.get("accept_queue") ?? 0);
-        expect(await labelled("Pending")).toBe(expected.get("pending") ?? 0);
-        expect(await labelled("Decline queue")).toBe(expected.get("decline_queue") ?? 0);
-        expect(await labelled("Declined")).toBe(expected.get("declined") ?? 0);
-        expect(await labelled("Withdrawn")).toBe(expected.get("withdrawn") ?? 0);
-        expect(await labelled("Drafts")).toBe(expected.get("draft") ?? 0);
+        expect(await labelled("Needs decision")).toBe(pending);
+        expect(await labelled("Ready to notify")).toBe(ready);
+        expect(await labelled("Decided")).toBe(decided);
+        await expect(filters.getByRole("button", { name: /^Ready to notify\b/ })).toHaveAccessibleName(
+          `Ready to notify, ${ready} ${ready === 1 ? "abstract" : "abstracts"}, ${acceptQueue} accept, ${declineQueue} decline`,
+        );
       });
 
       await test.step("the detail drawer's Answers tab shows the pinned snapshot's labels", async () => {
@@ -114,7 +118,7 @@ test.describe("abstracts-decide", () => {
 
       await test.step("notify stamps the Notified column and flips both to Accepted", async () => {
         await page.goto(`${ABSTRACTS}?status=accept_queue`);
-        await page.getByRole("button", { name: /^notify \d+$/i }).click();
+        await page.getByRole("button", { name: /^send \d+ decision emails?$/i }).click();
         await page.getByRole("button", { name: /queue decision emails/i }).click();
 
         for (const title of TO_ACCEPT) {

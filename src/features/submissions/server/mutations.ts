@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
-import { contacts, emailTemplates, events, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { contacts, emailTemplates, events, forms, submissionAnswers, submissionLimitGuards, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
   acceptedForSchedulingRowSchema,
@@ -28,7 +28,9 @@ import {
   secondaryParticipantRoleSchema,
 } from "@/features/forms/index.submission";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
+import { randomInt } from "@/shared/lib/crypto";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone } from "@/shared/lib/time";
 import { renderTemplateContent } from "@/features/comms/index.render";
@@ -48,22 +50,62 @@ export { formatCode } from "./guards";
  * three different ways.
  */
 
-/**
- * The one code allocator. It runs inside the caller's transaction — hence the
- * `tx` first argument — because the sequence bump and the insert that uses it
- * have to be atomic, or two simultaneous submits get the same code and the
- * `UNIQUE (event_id, code)` index rejects one of them at random.
- */
-export async function nextSubmissionCode(tx: TxDb, eventId: EventId): Promise<number> {
-  const result = await tx.execute<{ submission_seq: number }>(sql`
-    UPDATE events SET submission_seq = submission_seq + 1 WHERE id = ${eventId} RETURNING submission_seq
-  `);
-  const code = (result.rows ?? [])[0]?.submission_seq;
-  if (code === undefined) throw new AppError("NOT_FOUND", "Event not found");
-  return Number(code);
+const PUBLIC_CODE_MIN = 100_000_000;
+const PUBLIC_CODE_SPACE = 900_000_000;
+const CODE_ALLOCATION_ATTEMPTS = 8;
+
+type CodeAllocationOptions = {
+  codeGenerator?: () => number;
+  limitScopeAlreadyLocked?: boolean;
+};
+
+function generateSubmissionCode(): number {
+  return PUBLIC_CODE_MIN + randomInt(PUBLIC_CODE_SPACE);
+}
+
+function candidateCode(generate: () => number): number {
+  const code = generate();
+  if (!Number.isSafeInteger(code) || code <= 0 || code > 2_147_483_647) {
+    throw new AppError("INTERNAL", "Submission code generator returned an invalid code");
+  }
+  return code;
 }
 
 type FormRow = { id: string; kind: SubmissionKind; sendConfirmation: boolean; submissionLimit: number | null };
+
+/**
+ * Acquire the smallest lock that can protect one speaker's per-form cap.
+ *
+ * The insert handles the first submit for a scope: a concurrent insert waits
+ * on the composite primary key, then the SELECT takes the same durable row
+ * lock. The previous release established this lock order across every writer,
+ * so final submit no longer needs to lock the shared event row.
+ */
+export async function lockSubmissionLimitScopeIn(
+  tx: TxDb,
+  eventId: EventId,
+  formId: FormId,
+  contactId: ContactId,
+): Promise<void> {
+  const startedAt = performance.now();
+  await tx.insert(submissionLimitGuards)
+    .values({ eventId, formId, contactId })
+    .onConflictDoNothing();
+  const locked = await tx.execute<{ event_id: string }>(sql`
+    SELECT event_id FROM submission_limit_guards
+    WHERE event_id = ${eventId} AND form_id = ${formId} AND contact_id = ${contactId}
+    FOR UPDATE
+  `);
+  if (!(locked.rows ?? [])[0]) throw new AppError("INTERNAL", "Could not protect the submission limit");
+  log({
+    level: "debug",
+    msg: "submission.limit_guard_acquired",
+    requestId: "-",
+    feature: "submissions",
+    eventId,
+    durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+  });
+}
 
 async function loadForm(tx: TxDb, eventId: EventId, formId: FormId): Promise<FormRow> {
   const [form] = await tx
@@ -102,6 +144,14 @@ async function assertUnderLimit(
       AND status NOT IN ('draft', 'withdrawn')
   `);
   const used = Number((result.rows ?? [])[0]?.count ?? 0);
+  log({
+    level: "debug",
+    msg: "submission.limit_decision",
+    requestId: "-",
+    feature: "submissions",
+    eventId,
+    code: `scope=${used < limit ? "allow" : "deny"};used=${used};limit=${limit}`,
+  });
   if (used >= limit) {
     throw new AppError("LIMIT_REACHED", `You have reached the limit of ${limit} submissions for this form`);
   }
@@ -154,9 +204,9 @@ async function insertAnswers(
   answers: CleanAnswers,
   participantIds: ReadonlyMap<string, string> = new Map(),
 ): Promise<void> {
-  // One statement, not one per answer. This runs inside the transaction holding
-  // the event row's FOR UPDATE lock, over a per-transaction WebSocket pool, so
-  // every extra round trip here is time no other submit on this event can use.
+  // One statement, not one per answer. This runs over a per-transaction
+  // WebSocket pool, so avoiding a row-at-a-time loop keeps the scoped cap lock
+  // short for another submit by this speaker without blocking other speakers.
   // A single INSERT cannot touch one conflict target twice, which the old
   // row-at-a-time loop tolerated. Nothing here has to collapse duplicates:
   // CleanAnswers is branded, and its schema already rejects a repeated
@@ -211,69 +261,104 @@ function submissionColumns(input: CreateSubmissionInput) {
   };
 }
 
-export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: CreateSubmissionInput): Promise<CreateSubmissionResult> {
+async function manualCreationReplay(
+  tx: TxDb,
+  eventId: EventId,
+  requestedSubmissionId: SubmissionId,
+): Promise<CreateSubmissionResult | null> {
+  const [replay] = await tx.select({
+    eventId: submissions.eventId,
+    code: submissions.code,
+    status: submissions.status,
+    source: submissions.source,
+  }).from(submissions).where(eq(submissions.id, requestedSubmissionId)).limit(1);
+  if (!replay) return null;
+  if (replay.eventId !== eventId || replay.source !== "manual") {
+    throw new AppError("CONFLICT", "That abstract creation request was already used");
+  }
+  return {
+    submissionId: requestedSubmissionId,
+    code: replay.code,
+    status: replay.status,
+    promotedFromDraft: false,
+  };
+}
+
+async function committedDraftReplay(
+  tx: TxDb,
+  eventId: EventId,
+  draftSubmissionId: SubmissionId,
+): Promise<CreateSubmissionResult | null> {
+  const [submitted] = await tx.select({
+    id: submissions.id,
+    code: submissions.code,
+    status: submissions.status,
+  }).from(submissions).where(and(
+    eq(submissions.id, draftSubmissionId),
+    eq(submissions.eventId, eventId),
+    sql`${submissions.status} <> 'draft'`,
+  )).limit(1);
+  return submitted ? {
+    submissionId: submitted.id as SubmissionId,
+    code: submitted.code,
+    status: submitted.status,
+    promotedFromDraft: true,
+  } : null;
+}
+
+export async function createSubmissionIn(
+  tx: TxDb,
+  eventId: EventId,
+  input: CreateSubmissionInput,
+  options: CodeAllocationOptions = {},
+): Promise<CreateSubmissionResult> {
   assertOnePrimary(input.participants);
   const status: SubmissionStatus = input.initialStatus ?? "pending";
 
-  // Serializes submits per event, which is what closes the two-tab race on the
-  // limit check and on the code sequence.
-  const [event] = await tx.execute<{ id: string; submission_cap_per_user: number }>(sql`
-    SELECT id, submission_cap_per_user FROM events WHERE id = ${eventId} FOR UPDATE
-  `).then((result) => result.rows ?? []);
+  // Availability and the default cap are snapshot reads. The event row is not
+  // a mutex: independent speakers must be able to submit concurrently.
+  const [event] = await tx.select({
+    id: events.id,
+    submissionCapPerUser: events.submissionCapPerUser,
+  }).from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new AppError("NOT_FOUND", "Event not found");
 
   // Organizer-created abstracts have no speaker draft to promote, so their
-  // client-generated row id is the replay key. The event lock above serializes
-  // concurrent retries; a committed first attempt is returned before another
-  // code, participant set, or tag set can be allocated.
+  // client-generated row id is the replay key. A concurrent first attempt is
+  // reconciled after INSERT's primary-key conflict below.
   if (input.requestedSubmissionId) {
     if (input.source !== "manual") {
       throw new AppError("VALIDATION", "Only organizer-created abstracts can supply a creation request ID");
     }
-    const replay = (await tx.execute<{ event_id: string; code: number; status: SubmissionStatus; source: string }>(sql`
-      SELECT event_id, code, status, source
-      FROM submissions
-      WHERE id = ${input.requestedSubmissionId}
-      FOR UPDATE
-    `)).rows?.[0];
-    if (replay) {
-      if (replay.event_id !== eventId || replay.source !== "manual") {
-        throw new AppError("CONFLICT", "That abstract creation request was already used");
-      }
-      return {
-        submissionId: input.requestedSubmissionId,
-        code: Number(replay.code),
-        status: replay.status,
-        promotedFromDraft: false,
-      };
-    }
+    const replay = await manualCreationReplay(tx, eventId, input.requestedSubmissionId);
+    if (replay) return replay;
   }
 
   // Idempotency precedes mutable deadline and limit gates. A response can be
   // lost after commit; retrying that exact draft must return the committed row,
   // even if the form closed or the first submit consumed the final slot.
   if (input.draftSubmissionId) {
-    const alreadySubmitted = (await tx.execute<{ id: string; code: number; status: SubmissionStatus }>(sql`
-      SELECT id, code, status FROM submissions
-      WHERE id = ${input.draftSubmissionId} AND event_id = ${eventId} AND status <> 'draft'
-      FOR UPDATE
-    `)).rows?.[0];
-    if (alreadySubmitted) {
-      return {
-        submissionId: alreadySubmitted.id as SubmissionId,
-        code: Number(alreadySubmitted.code),
-        status: alreadySubmitted.status,
-        promotedFromDraft: true,
-      };
-    }
+    const replay = await committedDraftReplay(tx, eventId, input.draftSubmissionId);
+    if (replay) return replay;
   }
 
   let form: FormRow | null = null;
   if (input.formId) {
     form = await loadForm(tx, eventId, input.formId);
-    if (input.enforce?.deadline !== false) await assertFormOpen(tx, input.formId);
     if (input.enforce?.limit !== false && input.submitterContactId) {
-      await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, Number(event.submission_cap_per_user));
+      if (!options.limitScopeAlreadyLocked) {
+        await lockSubmissionLimitScopeIn(tx, eventId, input.formId, input.submitterContactId);
+      }
+      // The initial replay read can race an in-flight promotion. The scoped
+      // lock establishes a fresh decision point before mutable gates.
+      if (input.draftSubmissionId) {
+        const replay = await committedDraftReplay(tx, eventId, input.draftSubmissionId);
+        if (replay) return replay;
+      }
+      if (input.enforce?.deadline !== false) await assertFormOpen(tx, input.formId);
+      await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, event.submissionCapPerUser);
+    } else if (input.enforce?.deadline !== false) {
+      await assertFormOpen(tx, input.formId);
     }
   }
   // A form-backed submission inherits the form's configured kind. Keeping an
@@ -321,22 +406,43 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
       updatedAt: new Date(),
     }).where(eq(submissions.id, submissionId));
   } else {
-    code = await nextSubmissionCode(tx, eventId);
-    const [inserted] = await tx.insert(submissions).values({
-      ...(input.requestedSubmissionId ? { id: input.requestedSubmissionId } : {}),
-      eventId,
-      formId: input.formId,
-      formVersion: input.formVersion,
-      code,
-      kind,
-      status,
-      source: input.source,
-      submitterContactId: input.submitterContactId,
-      ...(status === "draft" ? {} : { submittedAt: new Date() }),
-      ...columns,
-    }).returning({ id: submissions.id });
-    if (!inserted) throw new AppError("INTERNAL", "Could not create the submission");
-    submissionId = inserted.id;
+    const generateCode = options.codeGenerator ?? generateSubmissionCode;
+    let insertedId: string | null = null;
+    code = 0;
+    for (let attempt = 1; attempt <= CODE_ALLOCATION_ATTEMPTS; attempt += 1) {
+      code = candidateCode(generateCode);
+      const [inserted] = await tx.insert(submissions).values({
+        ...(input.requestedSubmissionId ? { id: input.requestedSubmissionId } : {}),
+        eventId,
+        formId: input.formId,
+        formVersion: input.formVersion,
+        code,
+        kind,
+        status,
+        source: input.source,
+        submitterContactId: input.submitterContactId,
+        ...(status === "draft" ? {} : { submittedAt: new Date() }),
+        ...columns,
+      }).onConflictDoNothing().returning({ id: submissions.id });
+      if (inserted) {
+        insertedId = inserted.id;
+        break;
+      }
+      if (input.requestedSubmissionId) {
+        const replay = await manualCreationReplay(tx, eventId, input.requestedSubmissionId);
+        if (replay) return replay;
+      }
+      log({
+        level: "debug",
+        msg: "submission.code_collision",
+        requestId: "-",
+        feature: "submissions",
+        eventId,
+        code: `attempt=${attempt}`,
+      });
+    }
+    if (!insertedId) throw new AppError("INTERNAL", "Could not allocate a unique submission code");
+    submissionId = insertedId;
   }
 
   const participantIds = await writeParticipants(tx, eventId, submissionId, input);
@@ -360,8 +466,72 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
   return { submissionId: submissionId as SubmissionId, code, status, promotedFromDraft };
 }
 
-export function createSubmission(eventId: EventId, input: CreateSubmissionInput): Promise<CreateSubmissionResult> {
-  return withTx((tx) => createSubmissionIn(tx, eventId, input));
+export function createSubmission(
+  eventId: EventId,
+  input: CreateSubmissionInput,
+  options: CodeAllocationOptions = {},
+): Promise<CreateSubmissionResult> {
+  return withTx((tx) => createSubmissionIn(tx, eventId, input, options));
+}
+
+type DraftState = {
+  submissionId: SubmissionId;
+  code: number;
+  answers: Record<string, AnswerValue>;
+  participants: Array<Pick<DraftParticipantInput, "clientId" | "email" | "role" | "isPrimary" | "sortOrder"> & { answers: Record<string, AnswerValue> }>;
+};
+
+async function resumeDraftIn(
+  tx: TxDb,
+  eventId: EventId,
+  formVersion: number,
+  kind: SubmissionKind,
+  existing: { id: string; code: number },
+): Promise<DraftState> {
+  await tx.update(submissions)
+    .set({ formVersion, kind, updatedAt: new Date() })
+    .where(eq(submissions.id, existing.id));
+  const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
+    .from(submissionAnswers)
+    .where(and(eq(submissionAnswers.submissionId, existing.id), isNull(submissionAnswers.participantId)));
+  const participantRows = await tx.select({
+    id: submissionParticipants.id,
+    email: contacts.email,
+    role: submissionParticipants.role,
+    isPrimary: submissionParticipants.isPrimary,
+    sortOrder: submissionParticipants.sortOrder,
+  })
+    .from(submissionParticipants)
+    .innerJoin(contacts, and(eq(contacts.id, submissionParticipants.contactId), eq(contacts.eventId, submissionParticipants.eventId)))
+    .where(and(eq(submissionParticipants.submissionId, existing.id), eq(submissionParticipants.eventId, eventId), eq(submissionParticipants.isPrimary, false)))
+    .orderBy(submissionParticipants.sortOrder);
+  const participantAnswerRows = await tx.select({
+    participantId: submissionAnswers.participantId,
+    fieldId: submissionAnswers.fieldId,
+    value: submissionAnswers.value,
+  })
+    .from(submissionAnswers)
+    .where(eq(submissionAnswers.submissionId, existing.id));
+  const answersByParticipant = new Map<string, Record<string, AnswerValue>>();
+  for (const row of participantAnswerRows) {
+    if (!row.participantId) continue;
+    const answers = answersByParticipant.get(row.participantId) ?? {};
+    answers[row.fieldId] = answerValueSchema.parse(row.value);
+    answersByParticipant.set(row.participantId, answers);
+  }
+  return {
+    submissionId: existing.id as SubmissionId,
+    code: Number(existing.code),
+    answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
+    participants: participantRows.map((row) => ({
+      clientId: row.id,
+      email: row.email,
+      role: secondaryParticipantRoleSchema.parse(row.role),
+      isPrimary: false as const,
+      sortOrder: row.sortOrder,
+      answers: answersByParticipant.get(row.id) ?? {},
+    })),
+  };
 }
 
 /**
@@ -374,12 +544,8 @@ export async function upsertDraft(
   contactId: ContactId,
   formId: FormId,
   formVersion: number,
-): Promise<{
-  submissionId: SubmissionId;
-  code: number;
-  answers: Record<string, AnswerValue>;
-  participants: Array<Pick<DraftParticipantInput, "clientId" | "email" | "role" | "isPrimary" | "sortOrder"> & { answers: Record<string, AnswerValue> }>;
-}> {
+  options: Pick<CodeAllocationOptions, "codeGenerator"> = {},
+): Promise<DraftState> {
   return withTx(async (tx) => {
     // The form_id foreign key proves the form exists, not that it belongs to
     // this event — without this a caller could start a draft against another
@@ -396,79 +562,55 @@ export async function upsertDraft(
       FOR UPDATE
     `)).rows?.[0];
 
-    if (existing) {
-      await tx.update(submissions)
-        .set({ formVersion, kind: form.kind, updatedAt: new Date() })
-        .where(eq(submissions.id, existing.id));
-      const rows = await tx.select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
-        .from(submissionAnswers)
-        .where(and(eq(submissionAnswers.submissionId, existing.id), isNull(submissionAnswers.participantId)));
-      const participantRows = await tx.select({
-        id: submissionParticipants.id,
-        email: contacts.email,
-        role: submissionParticipants.role,
-        isPrimary: submissionParticipants.isPrimary,
-        sortOrder: submissionParticipants.sortOrder,
-      })
-        .from(submissionParticipants)
-        .innerJoin(contacts, and(eq(contacts.id, submissionParticipants.contactId), eq(contacts.eventId, submissionParticipants.eventId)))
-        .where(and(eq(submissionParticipants.submissionId, existing.id), eq(submissionParticipants.eventId, eventId), eq(submissionParticipants.isPrimary, false)))
-        .orderBy(submissionParticipants.sortOrder);
-      const participantAnswerRows = await tx.select({
-        participantId: submissionAnswers.participantId,
-        fieldId: submissionAnswers.fieldId,
-        value: submissionAnswers.value,
-      })
-        .from(submissionAnswers)
-        .where(eq(submissionAnswers.submissionId, existing.id));
-      const answersByParticipant = new Map<string, Record<string, AnswerValue>>();
-      for (const row of participantAnswerRows) {
-        if (!row.participantId) continue;
-        const answers = answersByParticipant.get(row.participantId) ?? {};
-        answers[row.fieldId] = answerValueSchema.parse(row.value);
-        answersByParticipant.set(row.participantId, answers);
-      }
-      return {
-        submissionId: existing.id as SubmissionId,
-        code: Number(existing.code),
-        answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
-        participants: participantRows.map((row) => ({
-          clientId: row.id,
-          email: row.email,
-          role: secondaryParticipantRoleSchema.parse(row.role),
-          isPrimary: false as const,
-          sortOrder: row.sortOrder,
-          answers: answersByParticipant.get(row.id) ?? {},
-        })),
-      };
-    }
+    if (existing) return resumeDraftIn(tx, eventId, formVersion, form.kind, existing);
 
     // FOR UPDATE cannot lock a row that does not exist, so two first-time calls
-    // both reach here. The partial unique index is what actually decides;
-    // ON CONFLICT turns the loser into a read instead of a duplicate-key error.
-    const code = await nextSubmissionCode(tx, eventId);
-    const upserted = (await tx.execute<{ id: string; code: number }>(sql`
-      INSERT INTO submissions (event_id, form_id, form_version, code, kind, status, source, submitter_contact_id, title)
-      VALUES (${eventId}, ${formId}, ${formVersion}, ${code}, ${form.kind}, 'draft', 'cfp', ${contactId}, '')
-      ON CONFLICT (event_id, form_id, submitter_contact_id) WHERE status = 'draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL
-      DO UPDATE SET form_version = EXCLUDED.form_version, kind = EXCLUDED.kind, updated_at = now()
-      RETURNING id, code
-    `)).rows?.[0];
-    const inserted = upserted ? { id: upserted.id, code: Number(upserted.code) } : undefined;
-    if (!inserted) throw new AppError("INTERNAL", "Could not start the draft");
+    // both reach here. The partial draft index decides same-scope races, while
+    // the event/code index decides random-code collisions. Broad DO NOTHING
+    // keeps either conflict recoverable inside this transaction.
+    const generateCode = options.codeGenerator ?? generateSubmissionCode;
+    for (let attempt = 1; attempt <= CODE_ALLOCATION_ATTEMPTS; attempt += 1) {
+      const code = candidateCode(generateCode);
+      const [inserted] = await tx.insert(submissions).values({
+        eventId,
+        formId,
+        formVersion,
+        code,
+        kind: form.kind,
+        status: "draft",
+        source: "cfp",
+        submitterContactId: contactId,
+        title: "",
+      }).onConflictDoNothing().returning({ id: submissions.id, code: submissions.code });
+      if (inserted) {
+        await tx.insert(submissionParticipants).values({
+          eventId,
+          submissionId: inserted.id,
+          contactId,
+          role: "speaker",
+          isPrimary: true,
+          sortOrder: 0,
+        }).onConflictDoNothing();
+        return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {}, participants: [] };
+      }
 
-    await tx.insert(submissionParticipants).values({
-      eventId,
-      submissionId: inserted.id,
-      contactId,
-      role: "speaker",
-      isPrimary: true,
-      sortOrder: 0,
-    }).onConflictDoNothing();
-
-    // The losing racer's allocated code is simply unused; a gap in the sequence
-    // costs nothing, a duplicate submission costs a speaker their proposal.
-    return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {}, participants: [] };
+      const winner = (await tx.execute<{ id: string; code: number }>(sql`
+        SELECT id, code FROM submissions
+        WHERE event_id = ${eventId} AND form_id = ${formId}
+          AND submitter_contact_id = ${contactId} AND status = 'draft'
+        FOR UPDATE
+      `)).rows?.[0];
+      if (winner) return resumeDraftIn(tx, eventId, formVersion, form.kind, winner);
+      log({
+        level: "debug",
+        msg: "submission.code_collision",
+        requestId: "-",
+        feature: "submissions",
+        eventId,
+        code: `attempt=${attempt}`,
+      });
+    }
+    throw new AppError("INTERNAL", "Could not allocate a unique submission code");
   });
 }
 

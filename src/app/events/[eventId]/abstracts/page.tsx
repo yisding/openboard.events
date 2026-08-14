@@ -47,7 +47,7 @@ export default async function Page({
   const [list, counts, unfiltered, vocabulary, speakers] = await Promise.all([
     listSubmissions(eventId, filters),
     getStatusCounts(eventId, { search: filters.search, trackId: filters.trackId, tagId: filters.tagId, pageSize: filters.pageSize, sort: filters.sort }),
-    // Notify finalizes both queues for the whole event, so the number on its
+    // Sending decision emails finalizes both queues for the whole event, so the number on its
     // button has to be the whole event's — a search must not make it look like
     // fewer speakers are about to be emailed than actually are.
     getStatusCounts(eventId, { search: "", trackId: null, tagId: null, pageSize: filters.pageSize, sort: filters.sort }),
@@ -62,6 +62,7 @@ export default async function Page({
       eventId={eventId}
       rows={list.rows}
       counts={counts}
+      view={filters.view}
       status={filters.status}
       search={filters.search}
       total={unfiltered.all}

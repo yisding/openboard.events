@@ -5,12 +5,15 @@ import {
   type SaveDraftInput,
   type SubmitInput,
 } from "@/features/forms/index.cfp";
-import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions/index.cfp";
+import { createSubmissionIn, lockSubmissionLimitScopeIn, saveDraftAnswers } from "@/features/submissions/index.cfp";
 
-const submissionCommands = {
-  createSubmissionIn,
+const submissionCommands: CfpSubmissionCommands = {
+  createSubmissionIn: (tx, eventId, input) => (
+    createSubmissionIn(tx, eventId, input, { limitScopeAlreadyLocked: true })
+  ),
+  lockSubmissionLimitScopeIn,
   saveDraftAnswers,
-} satisfies CfpSubmissionCommands;
+};
 
 /** Application service composing form preparation with submission persistence. */
 export function submitCfpForm(input: SubmitInput) {
@@ -22,4 +25,3 @@ export function saveCfpDraft(input: SaveDraftInput) {
 }
 
 export type { ParticipantInput, SaveDraftInput, SubmitInput } from "@/features/forms/index.cfp";
-

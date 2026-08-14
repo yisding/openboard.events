@@ -5,7 +5,7 @@ export {
   createSubmissionIn,
   formatCode,
   getAcceptedForScheduling,
-  nextSubmissionCode,
+  lockSubmissionLimitScopeIn,
   notifyQueues,
   previewNotifyQueues,
   previewNotifyQueuesIn,
@@ -17,8 +17,8 @@ export {
   withdraw,
 } from "./server/mutations";
 export { assertTransition, toPortalStatus } from "./server/guards";
-export type { SubmissionFieldPatch, SubmissionFilters } from "./server/filters";
-export { parseSubmissionFiltersForPage, submissionFieldPatchSchema, submissionFiltersSchema } from "./server/filters";
+export type { SubmissionFieldPatch, SubmissionFilters, SubmissionView } from "./server/filters";
+export { parseSubmissionFiltersForPage, submissionFieldPatchSchema, submissionFiltersSchema, submissionViewForStatus, submissionViewSchema } from "./server/filters";
 export * from "./evaluation/index";
 export type { SubmissionStatusHistoryEntry, SubmissionVocabulary } from "./server/queries";
 export {

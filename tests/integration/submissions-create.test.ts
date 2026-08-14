@@ -23,6 +23,8 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // M51 added `contacts.workflow_status`; `getOrCreateContact`'s unqualified
 // `.returning()` (used for the submitter contact) now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0037_submission_limit_guards.sql", import.meta.url), "utf8");
+const migrationFormOpenWallClock = readFileSync(new URL("../../drizzle/0038_form_open_wall_clock.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
@@ -55,7 +57,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { createSubmission, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
+const { createSubmission, upsertDraft } = await import("@/features/submissions");
 
 const noAnswers = cleanAnswersSchema.parse([]);
 
@@ -85,6 +87,8 @@ describe("createSubmission", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSubmissionGuards);
+    await pglite.exec(migrationFormOpenWallClock);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -123,18 +127,98 @@ describe("createSubmission", () => {
     await pglite.close();
   });
 
-  it("allocates sequential codes with no gaps or duplicates", async () => {
-    const codes = await testDb.transaction(async (handle) => {
-      const allocated: number[] = [];
-      for (let index = 0; index < 10; index += 1) {
-        allocated.push(await nextSubmissionCode(handle as unknown as TxDb, eventId));
-      }
-      return allocated;
+  it("retries random code collisions for both final submissions and drafts", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const collisionCode = 123_456_789;
+    await pglite.query(
+      "INSERT INTO submissions(event_id,code,status,source,title) VALUES($1,$2,'pending','manual','Existing code')",
+      [eventId, collisionCode],
+    );
+
+    const finalCodes = [collisionCode, 234_567_891];
+    const created = await createSubmission(
+      eventId,
+      cfpInput({ sendConfirmation: false }),
+      { codeGenerator: () => finalCodes.shift() ?? collisionCode },
+    );
+    expect(created.code).toBe(234_567_891);
+
+    await pglite.query("DELETE FROM submissions WHERE id=$1", [created.submissionId]);
+    const draftCodes = [collisionCode, 345_678_912];
+    const draft = await upsertDraft(eventId, speaker, openForm, 1, {
+      codeGenerator: () => draftCodes.shift() ?? collisionCode,
     });
-    expect(new Set(codes).size).toBe(10);
-    expect(codes).toEqual([...codes].sort((a, b) => a - b));
-    expect((codes.at(-1) ?? 0) - (codes[0] ?? 0)).toBe(9);
+    expect(draft.code).toBe(345_678_912);
+    expect((await pglite.query<{ submission_seq: number }>(
+      "SELECT submission_seq FROM events WHERE id=$1",
+      [eventId],
+    )).rows[0]?.submission_seq).toBe(0);
   });
+
+  it("serializes concurrent cap decisions on one durable speaker/form guard", async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("UPDATE forms SET submission_limit=1 WHERE id=$1", [openForm]);
+    try {
+      const settled = await Promise.allSettled([
+        createSubmission(eventId, cfpInput({ fields: { title: "First concurrent talk" } })),
+        createSubmission(eventId, cfpInput({ fields: { title: "Second concurrent talk" } })),
+      ]);
+      const fulfilled = settled.filter((result) => result.status === "fulfilled");
+      const rejected = settled.filter((result) => result.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected.some((result) => result.status === "rejected" && isAppError(result.reason) && result.reason.code === "LIMIT_REACHED")).toBe(true);
+      expect(await countRows("submissions", "status='pending'")).toBe(1);
+      expect(await countRows(
+        "submission_limit_guards",
+        `event_id='${eventId}' AND form_id='${openForm}' AND contact_id='${speaker}'`,
+      )).toBe(1);
+    } finally {
+      await pglite.query("UPDATE forms SET submission_limit=NULL WHERE id=$1", [openForm]);
+    }
+  });
+
+  it("accepts 50 unrelated speakers concurrently without duplicate codes or touching the event counter", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const contacts = Array.from({ length: 50 }, (_, index) => contactIdSchema.parse(
+      `e1000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    ));
+    for (const [index, contactId] of contacts.entries()) {
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,$3,'Concurrent','Speaker') ON CONFLICT DO NOTHING",
+        [contactId, eventId, `concurrent-${index}@example.com`],
+      );
+    }
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const before = (await pglite.query<{ submission_seq: number }>(
+        "SELECT submission_seq FROM events WHERE id=$1",
+        [eventId],
+      )).rows[0]?.submission_seq;
+      const results = await Promise.all(contacts.map((contactId, index) => createSubmission(eventId, cfpInput({
+        submitterContactId: contactId,
+        sendConfirmation: false,
+        fields: { title: `Concurrent talk ${index}` },
+        participants: [{ contactId, role: "speaker", isPrimary: true, sortOrder: 0 }],
+      }))));
+
+      expect(results).toHaveLength(50);
+      expect(new Set(results.map((result) => result.code)).size).toBe(50);
+      expect(results.every((result) => result.code >= 100_000_000)).toBe(true);
+      expect(await countRows("submissions", "status='pending'")).toBe(50);
+      expect((await pglite.query<{ submission_seq: number }>(
+        "SELECT submission_seq FROM events WHERE id=$1",
+        [eventId],
+      )).rows[0]?.submission_seq).toBe(before);
+    } finally {
+      logSpy.mockRestore();
+      await pglite.query("DELETE FROM submissions");
+      await pglite.query("DELETE FROM contacts WHERE email LIKE 'concurrent-%@example.com'");
+    }
+  }, 30_000);
 
   it("creates a CFP submission with exactly one confirmation email", async () => {
     await pglite.query("DELETE FROM submissions");
@@ -271,8 +355,10 @@ describe("createSubmission", () => {
       tagIds: [manualTag],
     });
 
-    const first = await createSubmission(eventId, input);
-    const retry = await createSubmission(eventId, input);
+    const [first, retry] = await Promise.all([
+      createSubmission(eventId, input),
+      createSubmission(eventId, input),
+    ]);
 
     expect(retry).toEqual(first);
     expect(first.submissionId).toBe(manualRequest);
@@ -435,8 +521,8 @@ describe("createSubmission", () => {
     expect(rows.rows[0]?.form_version).toBe(2);
   });
 
-  // Answers are written in one multi-row statement inside the event-row lock,
-  // so these cover what batching changed rather than what it kept.
+  // Answers are written in one multi-row statement inside the transaction, so
+  // these cover what batching changed rather than what it kept.
   describe("answer writing", () => {
     async function answersFor(submissionId: string) {
       const rows = await pglite.query<{ field_id: string; participant_id: string | null; value: unknown }>(

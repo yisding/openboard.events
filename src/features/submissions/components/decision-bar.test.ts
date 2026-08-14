@@ -192,6 +192,19 @@ describe("completeBulkDecision", () => {
 });
 
 describe("DecisionBar selection scope", () => {
+  it("names the consequence and count of the decision-email action", () => {
+    const html = renderToStaticMarkup(React.createElement(DecisionBar, {
+      eventId: "event-1",
+      selected: [],
+      pendingNotify: 3,
+      onDone: () => undefined,
+    }));
+
+    expect(html).toContain("3 decision emails are ready to send");
+    expect(html).toContain("Send 3 decision emails");
+    expect(html).not.toContain("Notify 3");
+  });
+
   it("renders a keyboard-operable escalation for the bounded matching set", () => {
     const selected = [{ submissionId: ids.pending }] as SubmissionListRow[];
     const html = renderToStaticMarkup(React.createElement(DecisionBar, {

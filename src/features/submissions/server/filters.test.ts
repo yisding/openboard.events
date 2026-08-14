@@ -22,7 +22,7 @@ describe("submissionFiltersSchema", () => {
   });
 
   it("defaults to the first page of 25 when neither is given", () => {
-    expect(submissionFiltersSchema.parse({})).toMatchObject({ status: "all", search: "", page: 1, pageSize: 25 });
+    expect(submissionFiltersSchema.parse({})).toMatchObject({ view: "all", status: "all", search: "", page: 1, pageSize: 25 });
   });
 
   it("still refuses a page size past the cap, a zero page and a non-number", () => {
@@ -47,7 +47,14 @@ describe("submissionFiltersSchema", () => {
 describe("parseSubmissionFiltersForPage", () => {
   it("reads the filters a good URL carries", () => {
     expect(parseSubmissionFiltersForPage({ status: "pending", search: "agents", page: "3", sort: "title" }))
-      .toMatchObject({ status: "pending", search: "agents", page: 3, sort: "title" });
+      .toMatchObject({ view: "needs_decision", status: "pending", search: "agents", page: 3, sort: "title" });
+  });
+
+  it("keeps old exact-status links and activates their containing workflow view", () => {
+    expect(parseSubmissionFiltersForPage({ status: "accept_queue" })).toMatchObject({ view: "ready_to_notify", status: "accept_queue" });
+    expect(parseSubmissionFiltersForPage({ view: "needs_decision", status: "declined" })).toMatchObject({ view: "decided", status: "declined" });
+    expect(parseSubmissionFiltersForPage({ status: "withdrawn" })).toMatchObject({ view: "decided", status: "withdrawn" });
+    expect(parseSubmissionFiltersForPage({ status: "draft" })).toMatchObject({ view: "all", status: "draft" });
   });
 
   it("treats an empty value as absent instead of 500ing on it", () => {

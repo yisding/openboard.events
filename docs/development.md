@@ -22,7 +22,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
-- Snapshot counts (re-run the commands in **Testing** for current numbers): 35 migrations in
+- Snapshot counts (re-run the commands in **Testing** for current numbers): 37 migrations in
   [`drizzle/`](../drizzle), 13 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
   the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
 

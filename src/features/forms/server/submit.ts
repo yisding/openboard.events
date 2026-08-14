@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
@@ -57,6 +57,7 @@ export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId">;
 /** Submission persistence port wired by the top-level CFP composition feature. */
 export type CfpSubmissionCommands = {
   createSubmissionIn: (tx: TxDb, eventId: EventId, input: CreateSubmissionInput) => Promise<CreateSubmissionResult>;
+  lockSubmissionLimitScopeIn: (tx: TxDb, eventId: EventId, formId: FormId, contactId: ContactId) => Promise<void>;
   saveDraftAnswers: (
     eventId: EventId,
     contactId: ContactId,
@@ -118,7 +119,7 @@ function assertParticipantRolePolicy(
 
 export async function submitCfpForm(
   input: SubmitInput,
-  commands: Pick<CfpSubmissionCommands, "createSubmissionIn">,
+  commands: Pick<CfpSubmissionCommands, "createSubmissionIn" | "lockSubmissionLimitScopeIn">,
 ): Promise<CreateSubmissionResult> {
   if (input.draftSubmissionId) {
     // A committed draft is the idempotency record. Bind it to all three owners
@@ -236,19 +237,16 @@ export async function submitCfpForm(
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   return withTx(async (tx) => {
-    // Every CFP submit takes the event lock before it can lock/create contacts.
-    // createSubmissionIn reuses this lock; keeping one order for draft-backed
-    // and fresh submits prevents event↔contact deadlocks under mixed traffic.
-    const lockedEvent = await tx.execute<{ id: string }>(sql`
-      SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
-    `);
-    if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
+    // Lock this speaker/form invariant before draft or contact rows. Every CFP
+    // final-submit path uses this order, while unrelated speakers acquire
+    // different rows and proceed independently.
+    await commands.lockSubmissionLimitScopeIn(tx, input.eventId, input.formId, input.contactId);
 
     if (input.draftSubmissionId) {
-      // Serialize against createSubmissionIn's event lock before participant
-      // side effects. A lost-response retry must return the committed result
-      // without applying a changed payload, and a caller cannot borrow another
-      // speaker's submitted UUID as an idempotency key.
+      // Recheck after the scope lock before participant side effects. A
+      // lost-response retry must return the committed result without applying
+      // a changed payload, and a caller cannot borrow another speaker's
+      // submitted UUID as an idempotency key.
       const [draft] = await tx.select({
         id: submissions.id,
         formId: submissions.formId,

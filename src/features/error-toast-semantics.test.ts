@@ -64,8 +64,8 @@ function hasErrorKind(call: ts.CallExpression): boolean {
 describe("audited mutation failure toasts", () => {
   it("uses assertive error semantics for every named failure path", () => {
     for (const [path, expectedFailures] of [
-      ["./auth/components/sessions-panel.tsx", 2],
-      ["./dashboard/components/ApiKeysPanel.tsx", 3],
+      ["./auth/components/sessions-panel.tsx", 8],
+      ["./dashboard/components/ApiKeysPanel.tsx", 5],
       ["./forms/components/builder/routing-rules-panel.tsx", 4],
       ["./organizations/components/team-panel.tsx", 12],
       ["./portal/resources/components/resource-page-editor.tsx", 4],

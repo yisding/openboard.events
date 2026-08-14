@@ -80,7 +80,7 @@ export function PublicSpeakersList({
           <>
             <label className="speaker-search">
               <Search size={18} />
-              <input aria-label="Search speakers, companies, or topics" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search speakers, companies, or topics" />
+              <input aria-label="Search speakers, companies, or topics" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, company, or topic" />
               {search && <button type="button" aria-label="Clear speaker search" onClick={() => setSearch("")}><X size={15} /></button>}
             </label>
             <ul className="speakers-list">

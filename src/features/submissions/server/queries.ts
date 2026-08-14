@@ -42,7 +42,12 @@ function whereClause(
 ) {
   const clauses = [sql`s.event_id = ${eventId}`];
   if (submissionId) clauses.push(sql`s.id = ${submissionId}`);
-  if (includeStatus && filters.status !== "all") clauses.push(sql`s.status = ${filters.status}`);
+  if (includeStatus) {
+    if (filters.view === "needs_decision") clauses.push(sql`s.status = 'pending'`);
+    if (filters.view === "ready_to_notify") clauses.push(sql`s.status IN ('accept_queue', 'decline_queue')`);
+    if (filters.view === "decided") clauses.push(sql`s.status IN ('accepted', 'declined', 'withdrawn')`);
+    if (filters.status !== "all") clauses.push(sql`s.status = ${filters.status}`);
+  }
   if (filters.trackId) clauses.push(sql`s.track_id = ${filters.trackId}`);
   if (filters.tagId) {
     clauses.push(sql`EXISTS (SELECT 1 FROM submission_tags st WHERE st.submission_id = s.id AND st.tag_id = ${filters.tagId})`);
@@ -81,7 +86,7 @@ type ListRowShape = Omit<SubmissionListRow, "speakers" | "tags"> & {
 };
 
 const ALL_FILTERS: SubmissionFilters = {
-  status: "all", search: "", trackId: null, tagId: null, page: 1, pageSize: 1, sort: "newest",
+  view: "all", status: "all", search: "", trackId: null, tagId: null, page: 1, pageSize: 1, sort: "newest",
 };
 
 async function selectRows(
@@ -187,9 +192,9 @@ export async function listSubmissionsIn(
 export async function getStatusCountsIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
-  filters: Omit<SubmissionFilters, "status" | "page">,
+  filters: Omit<SubmissionFilters, "view" | "status" | "page">,
 ): Promise<Record<SubmissionStatus | "all", number>> {
-  const where = whereClause(eventId, { ...filters, status: "all" }, false);
+  const where = whereClause(eventId, { ...filters, view: "all", status: "all" }, false);
   const result = await dbOrTx.execute<{ status: SubmissionStatus; n: number }>(sql`
     SELECT s.status, count(*)::int AS n FROM submissions s WHERE ${where} GROUP BY s.status
   `);
@@ -351,7 +356,7 @@ export function listSubmissions(eventId: EventId, filters: SubmissionFilters) {
   return listSubmissionsIn(db, eventId, filters);
 }
 
-export function getStatusCounts(eventId: EventId, filters: Omit<SubmissionFilters, "status" | "page">) {
+export function getStatusCounts(eventId: EventId, filters: Omit<SubmissionFilters, "view" | "status" | "page">) {
   return getStatusCountsIn(db, eventId, filters);
 }
 

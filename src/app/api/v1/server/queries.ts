@@ -50,7 +50,9 @@ type SubmissionQueryRow = {
 /**
  * Drafts are excluded unconditionally (`s.status <> 'draft'`), independent of
  * whatever `status` the caller passed — the draft-leak guard applies even
- * when no filter is given, per the work order.
+ * when no filter is given, per the work order. The public code remains the
+ * cursor token for compatibility, but resolves to the durable creation tuple;
+ * randomized codes have no ordering semantics.
  */
 export async function listPublicSubmissionsIn(
   dbOrTx: DbOrTx,
@@ -81,8 +83,12 @@ export async function listPublicSubmissionsIn(
     ) r ON TRUE
     WHERE s.event_id = ${eventId} AND s.status <> 'draft'
       ${filters.status ? sql`AND s.status = ${filters.status}` : sql``}
-      ${filters.cursorCode !== null ? sql`AND s.code > ${filters.cursorCode}` : sql``}
-    ORDER BY s.code ASC
+      ${filters.cursorCode !== null ? sql`AND (s.created_at, s.id) > (
+        SELECT cursor_row.created_at, cursor_row.id
+        FROM submissions cursor_row
+        WHERE cursor_row.event_id = ${eventId} AND cursor_row.code = ${filters.cursorCode}
+      )` : sql``}
+    ORDER BY s.created_at ASC, s.id ASC
     LIMIT ${filters.limit + 1}
   `);
 

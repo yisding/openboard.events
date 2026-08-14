@@ -19,6 +19,8 @@ describe("PublicSpeakerGallery", () => {
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("Analytical Engines");
     expect(html).toContain('aria-label="View profile for Ada Lovelace"');
+    expect(html).toContain('aria-label="Search speakers, companies, or topics"');
+    expect(html).toContain('placeholder="Search name, company, or topic"');
     expect(html).not.toContain('role="button"');
   });
 

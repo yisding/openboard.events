@@ -114,9 +114,10 @@ Each row: `{ code, title, status, kind, track, tags, submitterEmail, speakers, s
   `declined`, `withdrawn`). `?status=draft` is rejected with `400 VALIDATION` and lists the allowed
   values in `error.message` — there is no way to ask this endpoint for drafts.
 - `?limit=` defaults to 50 and is **clamped** to 200, never rejected, for an over-large value.
-- `?cursor=` is the numeric submission code to page past — always take it from `.meta.nextCursor`
-  rather than from a row's `code` field, which is the display form (`SESS-42`) and is rejected as
-  a cursor. `.meta.nextCursor` is `null` once there is nothing more to page through:
+- `?cursor=` is the numeric token identifying the last row of the previous creation-ordered page —
+  always take it from `.meta.nextCursor` rather than comparing codes or using a row's display-form
+  `code` (`SESS-42`), which is rejected as a cursor. Public codes are intentionally non-sequential.
+  `.meta.nextCursor` is `null` once there is nothing more to page through:
 
   ```bash
   PAGE1=$(curl -s -H "Authorization: Bearer $KEY" "$APP_BASE_URL/api/v1/events/$SLUG/submissions?limit=1")

@@ -231,7 +231,7 @@ test.describe("public-widgets-parity (M53)", () => {
       const assertClean = expectNoConsoleErrors(page);
       await waitForVisible(page, SURFACES.speakers, "Ada Lovelace");
 
-      await page.getByPlaceholder("Search speakers, companies, or topics").fill(KEYNOTE.title);
+      await page.getByRole("textbox", { name: "Search speakers, companies, or topics" }).fill(KEYNOTE.title);
       await expect(page.locator(".speakers-list li")).toHaveCount(1);
       const row = page.locator(".speakers-list li", { hasText: "Ada Lovelace" });
       await row.getByRole("button").click();
@@ -264,7 +264,7 @@ test.describe("public-widgets-parity (M53)", () => {
         expect(hasImage + hasInitials, "each gallery card needs a headshot or an initials fallback").toBeGreaterThan(0);
       }
 
-      await page.getByPlaceholder("Search speakers, companies, or topics").fill(KEYNOTE.title);
+      await page.getByRole("textbox", { name: "Search speakers, companies, or topics" }).fill(KEYNOTE.title);
       await expect(cards).toHaveCount(1);
       await cards.first().getByRole("button", { name: /view profile for/i }).click();
       await expect(page.locator(".speaker-detail")).toBeVisible();
