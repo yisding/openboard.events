@@ -1,10 +1,12 @@
+import { existsSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import RootError from "@/app/error";
 import GlobalError from "@/app/global-error";
 import PublicEventError from "@/app/e/[eventSlug]/error";
-import PortalError from "@/app/portal/[eventSlug]/error";
+import EmbedError from "@/app/embed/[eventSlug]/error";
+import PortalError from "@/app/portal/error";
 import SubmitError from "@/app/submit/[eventSlug]/error";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/submit/openboard-summit/form" }));
@@ -38,9 +40,21 @@ describe("public error boundaries", () => {
     const portal = renderToStaticMarkup(<PortalError {...props} />);
     const event = renderToStaticMarkup(<PublicEventError {...props} />);
 
+    expect(existsSync(new URL("../../../app/portal/[eventSlug]/error.tsx", import.meta.url))).toBe(false);
     expect(portal).toContain("The speaker portal didn&#x27;t load");
     expect(portal).toContain("profile, submissions, and completed tasks are still safe");
+    expect(portal).toContain('href="/e/openboard-summit/agenda"');
     expect(event).toContain("This event page didn&#x27;t load");
     expect(event).toContain("published program is temporarily unavailable");
+    expect(event).toContain('href="/e/openboard-summit/agenda"');
+  });
+
+  it("lets a failed embed retry in place or escape to the full event", () => {
+    const html = renderToStaticMarkup(<EmbedError {...props} />);
+
+    expect(html).toContain("This embedded program didn&#x27;t load");
+    expect(html).toContain("Try again");
+    expect(html).toContain('href="/e/openboard-summit/agenda"');
+    expect(html).toContain('target="_top"');
   });
 });

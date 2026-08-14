@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { PublicRouteErrorState } from "@/shared/ui/app/public-route-error-state";
 
+/** Parent-segment boundary: catches failures in the event portal layout itself. */
 export default function PortalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const eventSlug = usePathname().split("/")[2];
   return (

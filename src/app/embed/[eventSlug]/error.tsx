@@ -3,15 +3,16 @@
 import { usePathname } from "next/navigation";
 import { PublicRouteErrorState } from "@/shared/ui/app/public-route-error-state";
 
-export default function PublicEventError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function EmbedError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const eventSlug = usePathname().split("/")[2];
   return (
     <PublicRouteErrorState
-      title="This event page didn't load"
-      description="This part of the published program is temporarily unavailable. Try again, or return to the event agenda."
+      title="This embedded program didn't load"
+      description="The event program is temporarily unavailable. Try again here, or open the full event agenda."
       reset={reset}
       backHref={eventSlug ? `/e/${encodeURIComponent(eventSlug)}/agenda` : "/"}
-      backLabel="View the event agenda"
+      backLabel="Open the full event"
+      backTarget="_top"
     />
   );
 }
