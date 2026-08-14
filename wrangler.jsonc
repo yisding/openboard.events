@@ -2,6 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sb-web-local",
   "main": "custom-worker.ts",
+  // OpenNext emits a valid but only partially minified Worker. Wrangler's
+  // supported final pass removes roughly 5 MiB raw / 255 KiB gzip from the
+  // exact same local artifact and leaves comfortable Free-plan headroom.
+  "minify": true,
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   // Committed config is authoritative for plaintext vars. Wrangler preserves
