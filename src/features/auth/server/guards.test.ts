@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { eventIdSchema, organizationIdSchema } from "@/shared/contracts";
-import { adminAuth, apiKeyAuth, cronAuth, organizationAuth, portalAuth, publicAuth } from "./guards";
+import { adminAuth, apiKeyAuth, organizationAuth, portalAuth, publicAuth } from "./guards";
 import { requireAdmin, requireOrganizationAdmin } from "./admin";
 
 vi.mock("./admin", () => ({
@@ -23,13 +23,11 @@ vi.mock("./admin", () => ({
 /**
  * `defineHandler`'s origin check (PLAN P3-SEC) trusts `csrfExempt` on the
  * guard function itself. Pinned here so a refactor of any guard cannot
- * silently drop (or add) the flag without a failing test — the two
- * non-cookie guards (cron shared-secret, api-key bearer token) stay exempt,
- * every cookie-session guard stays checked.
+ * silently drop (or add) the flag without a failing test — the API-key bearer
+ * token stays exempt and every cookie-session guard stays checked.
  */
 describe("guard csrfExempt flags", () => {
   it("marks the non-browser-credential guards exempt", () => {
-    expect(cronAuth().csrfExempt).toBe(true);
     expect(apiKeyAuth().csrfExempt).toBe(true);
   });
 

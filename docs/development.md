@@ -49,9 +49,8 @@ Two Cloudflare Workers, one Next.js repository:
   `JobsEntrypoint` used by the scheduler.
 - **`workers/jobs`** — a dumb cron dispatcher with no database or provider credentials. Its
   `WEB_JOBS` Service Binding invokes `sb-web` privately on a minute-modulo schedule (outbox drain,
-  reminders, cleanup). `APP_BASE_URL`, `CRON_SECRET`, and the explicit
-  `JOB_TRANSPORT=public-compat` mode remain for one compatibility release only, so operators can
-  select the old route before dispatch while rolling back to an older web Worker.
+  reminders, cleanup). It has no application variables, secrets, public callback, or fallback
+  transport; deploy matching web and jobs versions as a pair.
 
 Inside `src`:
 

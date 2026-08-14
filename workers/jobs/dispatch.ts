@@ -1,17 +1,9 @@
 import type { JobName } from "../../src/shared/contracts/jobs";
-import {
-  JOB_REQUEST_TIMEOUT_MS,
-  privateJobRequest,
-  type JobService,
-} from "../job-service";
+import { JOB_REQUEST_TIMEOUT_MS, type JobService } from "../job-service";
 
 export interface Env {
-  APP_BASE_URL: string;
-  CRON_SECRET: string;
-  JOB_TRANSPORT: "rpc" | "public-compat";
   WEB_JOBS: JobService;
 }
-export type JobFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type JobRpc = (job: JobName) => Promise<Response>;
 
 // A tick may dispatch two 50-row outboxes in bounded recipient lanes, so this
@@ -50,28 +42,23 @@ export function jobsForScheduledTime(scheduledTime: number): JobName[] {
 export async function dispatchJob(
   env: Env,
   job: JobName,
-  options?: { rpc?: JobRpc; fetcher?: JobFetcher },
+  options?: { rpc?: JobRpc },
 ): Promise<void> {
   const startedAt = Date.now();
   let response: Response;
-  const transport = env.JOB_TRANSPORT;
   try {
-    if (transport === "public-compat") {
-      response = await (options?.fetcher ?? fetch)(privateJobRequest(env, job));
-    } else {
-      response = await runRpcWithDeadline(
-        options?.rpc ?? ((name) => env.WEB_JOBS.runJob(name)),
-        job,
-      );
-      if (!(response instanceof Response)) throw new Error("job RPC returned an invalid response");
-    }
+    response = await runRpcWithDeadline(
+      options?.rpc ?? ((name) => env.WEB_JOBS.runJob(name)),
+      job,
+    );
+    if (!(response instanceof Response)) throw new Error("job RPC returned an invalid response");
   } catch (error) {
     console.error(JSON.stringify({
       level: "error",
       msg: "scheduled.job_request_failed",
       job,
       ok: false,
-      transport,
+      transport: "rpc",
       error: error instanceof Error ? error.message : "unknown request failure",
       durationMs: Date.now() - startedAt,
     }));
@@ -79,14 +66,14 @@ export async function dispatchJob(
   }
 
   if (!response.ok) {
-    // The authenticated web route records the raw failure through captureError.
+    // The private web runner records the raw failure through captureError.
     // Keep this dispatcher's log privacy-safe and correlated by job/status only.
     console.error(JSON.stringify({
       level: "error",
       msg: "scheduled.job_failed",
       job,
       ok: false,
-      transport,
+      transport: "rpc",
       status: response.status,
       durationMs: Date.now() - startedAt,
     }));
@@ -98,7 +85,7 @@ export async function dispatchJob(
     msg: "scheduled.job_complete",
     job,
     ok: true,
-    transport,
+    transport: "rpc",
     status: response.status,
     durationMs: Date.now() - startedAt,
   }));
@@ -108,7 +95,7 @@ export async function dispatchJob(
 export async function runScheduledJobs(
   env: Env,
   jobs: readonly JobName[],
-  options?: { rpc?: JobRpc; fetcher?: JobFetcher },
+  options?: { rpc?: JobRpc },
 ): Promise<void> {
   const results = await Promise.allSettled(jobs.map((job) => dispatchJob(env, job, options)));
   const failed = jobs.filter((_job, index) => results[index]?.status === "rejected");

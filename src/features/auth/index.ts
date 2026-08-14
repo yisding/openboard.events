@@ -22,7 +22,7 @@ export {
   sendAdminAuthEmail,
   sendAdminAuthEmailIn,
 } from "./server/admin-mail";
-export { adminAuth, apiKeyAuth, authenticatedAuth, cronAuth, organizationAuth, portalAuth, publicAuth } from "./server/guards";
+export { adminAuth, apiKeyAuth, authenticatedAuth, organizationAuth, portalAuth, publicAuth } from "./server/guards";
 // M43 — organization-scoped guards. `requireAdmin`/`authorizeAdmin` above are
 // unchanged; these compose the same identity, the same role ladder and the
 // same UNAUTHORIZED/FORBIDDEN split over `organization_members`.

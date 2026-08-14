@@ -79,7 +79,6 @@ const productionSendEnv = parseEnv({
   APP_ENV: "production",
   APP_BASE_URL: "https://events.example.com",
   DATABASE_URL: "postgres://user:pass@db.example.com/openboard",
-  CRON_SECRET: "c".repeat(32),
   R2_ACCOUNT_ID: "account",
   R2_ACCESS_KEY_ID: "access",
   R2_SECRET_ACCESS_KEY: "secret",

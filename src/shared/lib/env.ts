@@ -42,7 +42,6 @@ const optionalLegalUrl = z.preprocess(
 export const WEB_DEPLOY_SECRET_NAMES = [
   "DATABASE_URL",
   "SESSION_SECRET",
-  "CRON_SECRET",
   "R2_ACCESS_KEY_ID",
   "R2_SECRET_ACCESS_KEY",
   "RESEND_API_KEY",
@@ -90,7 +89,6 @@ const envSchema = z.object({
   // Customer-facing billing stays absent until a real provider exists.
   // `scaffold` is an explicit local-only switch for manual seam testing.
   BILLING_MODE: z.enum(["disabled", "scaffold"]).default("disabled"),
-  CRON_SECRET: optionalString,
   R2_ACCOUNT_ID: optionalString,
   R2_ACCESS_KEY_ID: optionalString,
   R2_SECRET_ACCESS_KEY: optionalString,
@@ -140,7 +138,6 @@ const envSchema = z.object({
     const required = [
       "DATABASE_URL",
       "SESSION_SECRET",
-      "CRON_SECRET",
       "R2_ACCOUNT_ID",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
@@ -154,9 +151,6 @@ const envSchema = z.object({
     }
     if (env.SESSION_SECRET && env.SESSION_SECRET.length < 32) {
       context.addIssue({ code: "custom", path: ["SESSION_SECRET"], message: "must be at least 32 characters" });
-    }
-    if (env.CRON_SECRET && env.CRON_SECRET.length < 32) {
-      context.addIssue({ code: "custom", path: ["CRON_SECRET"], message: "must be at least 32 characters" });
     }
   }
   // Better Auth is the only admin provider and needs an origin to build

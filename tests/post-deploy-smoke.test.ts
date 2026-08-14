@@ -74,6 +74,7 @@ case "$url" in
     fi
     ;;
   */api/auth/get-session) payload='null' ;;
+  */worker-jobs/*|*/api/jobs/*) status=404 ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     extra=$'Content-Security-Policy: frame-ancestors *\\r\\n'
@@ -108,6 +109,8 @@ printf '%s' "$status"
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("ok    /api/auth/get-session");
+    expect(result.stdout).toContain("ok    /worker-jobs/* is absent from the public entrypoint");
+    expect(result.stdout).toContain("ok    /api/jobs/* is retired");
     expect(result.stdout).toContain("ok    /e/ai-engineer-sandbox-event/schedule");
     expect(result.stdout).not.toContain("FAIL  public schedule renders");
     expect(readFileSync(join(state, "health"), "utf8").trim()).toBe("2");
@@ -155,6 +158,7 @@ case "$url" in
     printf -v payload '{"ok":true,"sha":"same-build","deployment":"%s","errors":{"ok":true},"jobs":{"ok":true},"ms":1}' "$health_deployment"
     ;;
   */api/auth/get-session) payload='null' ;;
+  */worker-jobs/*|*/api/jobs/*) status=404 ;;
   */api/v1/events/*/schedule) payload='{"data":[]}' ;;
   */embed/*/agenda)
     record embed

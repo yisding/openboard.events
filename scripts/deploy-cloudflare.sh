@@ -6,6 +6,16 @@ target_env="${2:?usage: deploy-cloudflare.sh web|jobs preview|production}"
 
 [[ "$service" == "web" || "$service" == "jobs" ]] || { echo "service must be web or jobs" >&2; exit 2; }
 [[ "$target_env" == "preview" || "$target_env" == "production" ]] || { echo "environment must be preview or production" >&2; exit 2; }
+
+if [[ "$service" == "jobs" ]]; then
+  [[ "${ALLOW_MISSING_DEPLOY_SECRETS:-0}" != "1" ]] || {
+    echo "ALLOW_MISSING_DEPLOY_SECRETS is only valid for the first web Worker bootstrap" >&2
+    exit 2
+  }
+  pnpm deploy:preflight jobs "$target_env"
+  exec wrangler deploy --config workers/jobs/wrangler.jsonc --env "$target_env"
+fi
+
 : "${APP_BASE_URL:?APP_BASE_URL must be the exact deployed web origin}"
 [[ "$APP_BASE_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { echo "APP_BASE_URL must be an https origin with no path or trailing slash" >&2; exit 2; }
 
@@ -27,10 +37,6 @@ if [[ "${ALLOW_MISSING_DEPLOY_SECRETS:-0}" == "1" ]]; then
   echo "WARNING: skipping the remote secret inventory check for an explicit first-deploy bootstrap" >&2
 else
   pnpm deploy:preflight "$service" "$target_env"
-fi
-
-if [[ "$service" == "jobs" ]]; then
-  exec wrangler deploy --config workers/jobs/wrangler.jsonc --env "$target_env" --var "APP_BASE_URL:$APP_BASE_URL"
 fi
 
 : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required by the web runtime}"

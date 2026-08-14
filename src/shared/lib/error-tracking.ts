@@ -6,7 +6,7 @@ export type ErrorCaptureContext = OperationalErrorContext;
 
 /**
  * The single seam between the AppError/logger boundary and an error-tracking
- * provider (PLAN P3-OPS). `defineHandler`'s catch block and the job routes'
+ * provider (PLAN P3-OPS). `defineHandler`'s catch block and the private job adapter's
  * catch block both call this for every INTERNAL-coded failure — a raw,
  * unmapped `error`, before it becomes the generic "Unexpected server error"
  * the caller sees — so every production 500 and every failed cron tick is

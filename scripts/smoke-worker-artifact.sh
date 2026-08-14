@@ -185,6 +185,19 @@ probe_cache_hit() {
   echo "ok    GET $path -> 200 (R2 cache HIT)"
 }
 
+probe_private_job_denial() {
+  local path="$1"
+  local status
+  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 \
+    --request POST --header 'x-openboard-private-job: JobsEntrypoint' "$base_url$path")" || status="000"
+  if [[ "$status" != "404" ]]; then
+    echo "worker artifact smoke failed: public POST $path returned $status; expected 404" >&2
+    tail -80 "$log_file" >&2
+    exit 1
+  fi
+  echo "ok    public POST $path -> 404"
+}
+
 # These routes span a dynamic server component, static prerender served from
 # R2, two separate auth page entries, middleware, an auth API route, a regular
 # API route, and a lazy client chunk. Health intentionally returns 503 because
@@ -217,6 +230,7 @@ probe "/signup" "200"
 probe "/events" "200|302|307"
 probe "/api/auth/get-session" "200"
 probe "/api/health" "503"
+probe_private_job_denial "/worker-jobs/outbox"
 probe "$lazy_chunk_path" "200"
 
 sleep 1
