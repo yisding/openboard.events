@@ -133,18 +133,11 @@ async function cloudflareRequest<T>(
   return payload.result;
 }
 
-async function resolveZoneId(apiToken: string): Promise<string> {
-  const configured = process.env.CLOUDFLARE_ZONE_ID;
-  if (configured) return configured;
-  const zones = await cloudflareRequest<Array<{ id?: string; name?: string }>>(
-    apiToken,
-    `zones?name=${encodeURIComponent(DMARC_ZONE_NAME)}&status=active`,
-  );
-  const matching = zones.filter((zone) => zone.name === DMARC_ZONE_NAME && zone.id);
-  if (matching.length !== 1 || !matching[0]?.id) {
-    throw new Error(`could not resolve one active Cloudflare zone named ${DMARC_ZONE_NAME}`);
+export function validateZoneId(zoneId: string | undefined): string {
+  if (!zoneId || !/^[a-f0-9]{32}$/u.test(zoneId)) {
+    throw new Error("CLOUDFLARE_ZONE_ID must be a 32-character lowercase hexadecimal zone ID");
   }
-  return matching[0].id;
+  return zoneId;
 }
 
 async function readStatus(apiToken: string, zoneId: string): Promise<CloudflareDmarcStatus> {
@@ -179,9 +172,9 @@ async function main(): Promise<void> {
   if (operation !== "status" && operation !== "enable-reporting") {
     throw new Error("usage: manage-dmarc.ts status|enable-reporting");
   }
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-  if (!apiToken) throw new Error("CLOUDFLARE_API_TOKEN is required");
-  const zoneId = await resolveZoneId(apiToken);
+  const apiToken = process.env.CLOUDFLARE_DMARC_API_TOKEN;
+  if (!apiToken) throw new Error("CLOUDFLARE_DMARC_API_TOKEN is required");
+  const zoneId = validateZoneId(process.env.CLOUDFLARE_ZONE_ID);
   let status = await readStatus(apiToken, zoneId);
   let changed = false;
 

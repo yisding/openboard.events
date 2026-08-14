@@ -129,7 +129,7 @@ bucket mix-up fails closed.
   cleanup cron), not a substitute for it. That doc also records a real key-scheme finding
   (M07-owned follow-up) that limits what a single static rule can cover today.
 
-## 5. Create the Cloudflare deployment token
+## 5. Create the Cloudflare automation tokens
 
 - [ ] Create a least-privilege Cloudflare API token that can deploy Workers and use the
   required R2 bindings in this account.
@@ -137,6 +137,10 @@ bucket mix-up fails closed.
   currently repository-scoped in GitHub; move it to both protected environments before
   production and then remove the repository-scoped copy.
 - [x] Save the account ID as `CLOUDFLARE_ACCOUNT_ID`.
+- [ ] Create a separate API token scoped only to the `openboard.events` zone with
+  **Email Security DMARC Reports Read** and **Email Security DMARC Reports Write**. Do not add
+  Zone Read: the workflow uses an explicit zone ID. Save it only as the production-environment
+  secret `CLOUDFLARE_DMARC_API_TOKEN`; never reuse the deployment token for DMARC operations.
 - [ ] Confirm Cloudflare's repository/Git integration is disabled.
 
 ## 6. Bootstrap preview
@@ -245,6 +249,7 @@ that order.
   | GitHub environment secret | Preview value | Production value |
   |---|---|---|
   | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
+  | `CLOUDFLARE_DMARC_API_TOKEN` | unset | zone-scoped DMARC Read/Write token |
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
   | `E2E_RESEND_API_KEY` | optional preview-only, read-capable Resend key for the sent-email delivery probe | unset |
@@ -257,6 +262,7 @@ that order.
   | GitHub environment variable | Preview | Production |
   |---|---|---|
   | `APP_BASE_URL` | exact preview origin | exact production origin |
+  | `CLOUDFLARE_ZONE_ID` | unset | `openboard.events` zone ID |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `E2E_SIGNUP_EMAIL` | optional dedicated address included in preview's exact email allowlist | unset |
 
