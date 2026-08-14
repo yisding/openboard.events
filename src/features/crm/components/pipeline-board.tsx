@@ -12,13 +12,18 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Kanban, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
 import {
   CRM_PIPELINE_STAGES,
+  crmPipelineIdSchema,
   crmPipelineEntryDtoSchema,
   directoryPageDtoSchema,
+  eventIdSchema,
+  type CreateCrmPipelineEntryInput,
   type CrmPipelineEntryDTO,
+  type CrmPipelineId,
   type CrmPipelineStage,
   type OrganizationContactId,
   type OrganizationContactSummaryDTO,
@@ -28,11 +33,21 @@ import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/u
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { CrmNav } from "./crm-nav";
 
 const STAGE_LABEL: Record<CrmPipelineStage, string> = { open: "Open", won: "Won", lost: "Lost" };
+const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this prospect was added. Its details are locked so Retry addition can safely recover the same attempt. You can also close and check the pipeline.";
 
 type ContactLite = { id: OrganizationContactId; name: string; email: string; company: string | null };
+type AddProspectAttempt = {
+  body: CreateCrmPipelineEntryInput & { id: CrmPipelineId };
+  contact: OrganizationContactSummaryDTO;
+};
+
+export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
+  return !isAppError(error) || error.code === "INTERNAL";
+}
 
 function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; onMove: (stage: CrmPipelineStage) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry } });
@@ -86,6 +101,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   onClose: () => void;
   onCreated: (entry: CrmPipelineEntryDTO, contact: OrganizationContactSummaryDTO) => void;
 }) {
+  const router = useRouter();
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationContactSummaryDTO[]>([]);
@@ -94,9 +110,21 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   const [notes, setNotes] = useState("");
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [recovery, setRecovery] = useState<AddProspectAttempt | null>(null);
+  const createRequestId = useRef(createStableCreateRequestId());
 
   function reset() {
-    setQuery(""); setResults([]); setPicked(null); setTargetEventId(""); setNotes("");
+    setQuery(""); setResults([]); setPicked(null); setTargetEventId(""); setNotes(""); setError(""); setRecovery(null);
+    createRequestId.current.reset();
+  }
+
+  function requestClose() {
+    if (busy) return;
+    const shouldCheckPipeline = recovery !== null;
+    reset();
+    onClose();
+    if (shouldCheckPipeline) router.refresh();
   }
 
   async function search() {
@@ -111,19 +139,41 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   }
 
   async function create() {
-    if (!picked || busy) return;
+    if ((!picked && !recovery) || busy) return;
+    const contact = recovery?.contact ?? picked;
+    if (!contact) return;
+    const attempt: AddProspectAttempt = recovery ?? {
+      body: {
+        id: crmPipelineIdSchema.parse(createRequestId.current.begin()),
+        organizationContactId: contact.id,
+        targetEventId: targetEventId ? eventIdSchema.parse(targetEventId) : undefined,
+        notes: notes || undefined,
+      },
+      contact,
+    };
     setBusy(true);
+    setError("");
     try {
       const entry = await api(`organizations/${organizationId}/crm/pipeline`, crmPipelineEntryDtoSchema, {
         method: "POST",
-        body: { organizationContactId: picked.id, targetEventId: targetEventId || undefined, notes: notes || undefined },
+        body: attempt.body,
       });
-      onCreated(entry, picked);
+      onCreated(entry, attempt.contact);
       toast("Added to the pipeline");
       reset();
       onClose();
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "Could not add that prospect");
+      const outcomeUnknown = pipelineCreateOutcomeUnknown(caught);
+      if (outcomeUnknown) setRecovery(attempt);
+      else {
+        setRecovery(null);
+        createRequestId.current.reset();
+      }
+      const message = outcomeUnknown
+        ? CREATE_RECOVERY_MESSAGE
+        : isAppError(caught) ? caught.message : "Could not add that prospect";
+      setError(message);
+      toast(message, { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -132,46 +182,51 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   return (
     <Modal
       open={open}
-      onClose={() => { reset(); onClose(); }}
+      onClose={requestClose}
       title="Add a prospect"
       description="Search the directory for who you're sourcing, then optionally name the event you have in mind."
       footer={<>
-        <Button variant="secondary" onClick={() => { reset(); onClose(); }} disabled={busy}>Cancel</Button>
-        <Button disabled={!picked || busy} onClick={() => void create()}>{busy ? "Adding…" : "Add to pipeline"}</Button>
+        <Button variant="secondary" onClick={requestClose} disabled={busy}>{recovery ? "Close and check pipeline" : "Cancel"}</Button>
+        <Button disabled={(!picked && !recovery) || busy} onClick={() => void create()}>
+          {busy ? recovery ? "Retrying…" : "Adding…" : recovery ? "Retry addition" : "Add to pipeline"}
+        </Button>
       </>}
     >
-      <div className="form-stack">
-        {!picked ? (
-          <>
-            <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void search(); }}>
-              <Search size={16} />
-              <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
-            </form>
-            {searching && <p className="long-copy">Searching…</p>}
-            {!searching && results.map((row) => (
-              <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => setPicked(row)}>
-                <span className="speaker-card-copy" style={{ gridColumn: "1/3" }}><b>{`${row.firstName} ${row.lastName}`.trim() || row.email}</b><span>{row.email}</span></span>
-              </button>
-            ))}
-          </>
-        ) : (
-          <>
-            <div className="notify-bar">
-              <div><p><b>{`${picked.firstName} ${picked.lastName}`.trim() || picked.email}</b><small>{picked.email}</small></p></div>
-              <button type="button" onClick={() => setPicked(null)} style={{ border: 0, background: "transparent", color: "var(--muted)", fontSize: "var(--text-xs)" }}>Change</button>
-            </div>
-            <Field label="Target event" hint="Optional.">
-              <Select value={targetEventId} onChange={(event) => setTargetEventId(event.target.value)}>
-                <option value="">No specific event yet</option>
-                {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Notes" hint="Optional.">
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
-            </Field>
-          </>
-        )}
-      </div>
+      {error && <p className="portal-note" role="alert">{error}</p>}
+      <fieldset disabled={busy || recovery !== null} style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}>
+        <div className="form-stack">
+          {!picked ? (
+            <>
+              <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void search(); }}>
+                <Search size={16} />
+                <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
+              </form>
+              {searching && <p className="long-copy">Searching…</p>}
+              {!searching && results.map((row) => (
+                <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => setPicked(row)}>
+                  <span className="speaker-card-copy" style={{ gridColumn: "1/3" }}><b>{`${row.firstName} ${row.lastName}`.trim() || row.email}</b><span>{row.email}</span></span>
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="notify-bar">
+                <div><p><b>{`${picked.firstName} ${picked.lastName}`.trim() || picked.email}</b><small>{picked.email}</small></p></div>
+                <button type="button" onClick={() => setPicked(null)} style={{ border: 0, background: "transparent", color: "var(--muted)", fontSize: "var(--text-xs)" }}>Change</button>
+              </div>
+              <Field label="Target event" hint="Optional.">
+                <Select value={targetEventId} onChange={(event) => setTargetEventId(event.target.value)}>
+                  <option value="">No specific event yet</option>
+                  {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Notes" hint="Optional.">
+                <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
+              </Field>
+            </>
+          )}
+        </div>
+      </fieldset>
     </Modal>
   );
 }
@@ -201,6 +256,12 @@ export function PipelineBoard({
   const [addOpen, setAddOpen] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const eventNameById = Object.fromEntries(events.map((event) => [event.id, event.name]));
+
+  // A recovery close refreshes the server component. Fold that authority into
+  // the still-mounted board so a committed response-loss attempt becomes
+  // visible without a hard reload.
+  useEffect(() => setEntries(initialEntries), [initialEntries]);
+  useEffect(() => setContacts(contactsById), [contactsById]);
 
   async function move(entryId: string, stage: CrmPipelineStage) {
     const previous = entries;
@@ -262,7 +323,7 @@ export function PipelineBoard({
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onCreated={(entry, contact) => {
-          setEntries((rows) => [entry, ...rows]);
+          setEntries((rows) => [entry, ...rows.filter((row) => row.id !== entry.id)]);
           setContacts((current) => ({ ...current, [contact.id]: { id: contact.id, name: `${contact.firstName} ${contact.lastName}`.trim() || contact.email, email: contact.email, company: contact.company } }));
         }}
       />

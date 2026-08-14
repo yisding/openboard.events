@@ -10,6 +10,7 @@ import { getCrmMergeAuditIn, mergeOrganizationContactsIn, previewCrmMergeIn, rec
 import {
   createCrmNoteIn,
   createCrmPipelineEntryIn,
+  createCrmPipelineEntryWithPostCommitActivityIn,
   createCrmTagIn,
   createOrganizationContactIn,
   createOrganizationContactWithPostCommitActivityIn,
@@ -25,7 +26,7 @@ import {
   listOrganizationContactsIn,
   resolveCrmSegmentIn,
 } from "@/features/crm/server/queries";
-import { crmNoteIdSchema, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
+import { crmNoteIdSchema, crmPipelineIdSchema, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
 /**
@@ -59,6 +60,8 @@ function createTestDb(client: PGlite) {
 }
 let database: ReturnType<typeof createTestDb>;
 let postCommitDb: Parameters<typeof createOrganizationContactWithPostCommitActivityIn>[0];
+let pipelinePostCommitDb: Parameters<typeof createCrmPipelineEntryWithPostCommitActivityIn>[0];
+let runPipelineTransaction: Parameters<typeof createCrmPipelineEntryWithPostCommitActivityIn>[1];
 
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
@@ -69,6 +72,8 @@ describe("organization-level speaker CRM (M55)", () => {
     database = createTestDb(pglite);
     db = database as unknown as DbOrTx;
     postCommitDb = database as unknown as Parameters<typeof createOrganizationContactWithPostCommitActivityIn>[0];
+    pipelinePostCommitDb = database as unknown as Parameters<typeof createCrmPipelineEntryWithPostCommitActivityIn>[0];
+    runPipelineTransaction = async (work) => database.transaction((tx) => work(tx as unknown as TxDb));
 
     await pglite.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Org A','org-a'),($2,'Org B','org-b')", [orgA, orgB]);
     for (const [id, name, slug, orgId] of [
@@ -210,6 +215,111 @@ describe("organization-level speaker CRM (M55)", () => {
         (SELECT count(*)::int FROM organization_contact_activity WHERE organization_contact_id=$2 AND kind='note_added') AS activities
     `, [noteId, contactId])).rows;
     expect(counts).toEqual({ notes: 1, activities: 1 });
+  });
+
+  it("atomically creates a replay-safe prospect and records activity only for the original attempt", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, {
+      email: "atomic.pipeline@example.com",
+      firstName: "Atomic",
+      lastName: "Prospect",
+    });
+    const pipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e1");
+    const input = { id: pipelineId, organizationContactId: contactId, targetEventId: eventA1, notes: "Meet after keynote" };
+
+    await pglite.exec(`
+      CREATE FUNCTION fail_initial_pipeline_history() RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced initial-pipeline-history failure';
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_initial_pipeline_history
+      BEFORE INSERT ON organization_contact_pipeline_history
+      FOR EACH ROW EXECUTE FUNCTION fail_initial_pipeline_history();
+    `);
+    try {
+      await expect(createCrmPipelineEntryWithPostCommitActivityIn(
+        pipelinePostCommitDb,
+        runPipelineTransaction,
+        orgA,
+        input,
+      )).rejects.toThrow();
+      expect((await pglite.query<{ pipeline: number; history: number; activity: number }>(`
+        SELECT
+          (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=$1) AS pipeline,
+          (SELECT count(*)::int FROM organization_contact_pipeline_history WHERE pipeline_id=$1) AS history,
+          (SELECT count(*)::int FROM organization_contact_activity WHERE metadata->>'pipelineId'=$1::text) AS activity
+      `, [pipelineId])).rows).toEqual([{ pipeline: 0, history: 0, activity: 0 }]);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_initial_pipeline_history ON organization_contact_pipeline_history; DROP FUNCTION fail_initial_pipeline_history();");
+    }
+
+    const created = await createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      input,
+    );
+    const replay = await createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      input,
+    );
+    expect(replay).toEqual(created);
+    expect((await pglite.query<{ pipeline: number; history: number; activity: number }>(`
+      SELECT
+        (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=$1) AS pipeline,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history WHERE pipeline_id=$1) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity WHERE metadata->>'pipelineId'=$1::text) AS activity
+    `, [pipelineId])).rows).toEqual([{ pipeline: 1, history: 1, activity: 1 }]);
+
+    await expect(createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      { ...input, notes: "A different prospect attempt" },
+    )).rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
+    expect((await pglite.query<{ notes: string; history: number; activity: number }>(`
+      SELECT p.notes,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history h WHERE h.pipeline_id=p.id) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity a WHERE a.metadata->>'pipelineId'=p.id::text) AS activity
+      FROM organization_contact_pipeline p WHERE p.id=$1
+    `, [pipelineId])).rows).toEqual([{ notes: input.notes, history: 1, activity: 1 }]);
+  });
+
+  it("keeps a committed prospect authoritative when its post-commit activity fails", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, { email: "pipeline.activity.failure@example.com" });
+    const pipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e2");
+    await pglite.exec(`
+      CREATE FUNCTION fail_pipeline_created_activity() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.kind = 'pipeline_created' THEN
+          RAISE EXCEPTION 'forced pipeline activity failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_pipeline_created_activity
+      BEFORE INSERT ON organization_contact_activity
+      FOR EACH ROW EXECUTE FUNCTION fail_pipeline_created_activity();
+    `);
+    try {
+      const created = await createCrmPipelineEntryWithPostCommitActivityIn(
+        pipelinePostCommitDb,
+        runPipelineTransaction,
+        orgA,
+        { id: pipelineId, organizationContactId: contactId },
+      );
+      expect(created.id).toBe(pipelineId);
+      expect((await pglite.query<{ pipeline: number; history: number; activity: number }>(`
+        SELECT
+          (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=$1) AS pipeline,
+          (SELECT count(*)::int FROM organization_contact_pipeline_history WHERE pipeline_id=$1) AS history,
+          (SELECT count(*)::int FROM organization_contact_activity WHERE metadata->>'pipelineId'=$1::text) AS activity
+      `, [pipelineId])).rows).toEqual([{ pipeline: 1, history: 1, activity: 0 }]);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_pipeline_created_activity ON organization_contact_activity; DROP FUNCTION fail_pipeline_created_activity();");
+    }
   });
 
   it("imports a mixed CSV: creates new rows, matches existing ones, and dedupes within the file", async () => {

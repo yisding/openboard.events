@@ -78,6 +78,9 @@ export type DbOrTx = typeof db | TxDb;
  * The single-speaker portal invite likewise commits its token rotation,
  * credential-bearing outbox row, and organizer pipeline status together; a
  * failed status write must not make an already-queued invitation look unsent.
+ * CRM sourcing-pipeline creation likewise commits the new prospect row and
+ * its initial open-stage history together before attempting best-effort
+ * activity (`createCrmPipelineEntryWithPostCommitActivityIn`).
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {
