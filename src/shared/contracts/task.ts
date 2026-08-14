@@ -13,6 +13,7 @@ export const taskDtoSchema = z.object({
   dueAt: z.iso.datetime().nullable(),
   isActive: z.boolean(),
   createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
 }).superRefine((task, context) => {
   const valid = task.completionMode === "manual"
     ? task.formId === null && task.fileRequestId === null

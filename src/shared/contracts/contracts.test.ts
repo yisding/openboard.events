@@ -81,6 +81,7 @@ describe("frozen contracts", () => {
       dueAt: null,
       isActive: true,
       createdAt: "2026-08-08T18:00:00.000Z",
+      updatedAt: "2026-08-08T18:00:00.000Z",
     };
     expect(taskDtoSchema.safeParse(task).success).toBe(false);
     expect(taskDtoSchema.safeParse({ ...task, formId: "00000000-0000-4000-8000-000000000702" }).success).toBe(true);

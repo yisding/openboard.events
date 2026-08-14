@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { eventIdSchema, taskIdSchema } from "@/shared/contracts";
 import { db } from "@/db/client";
 import { getTaskCompletionMatrixIn, getTaskIn, tasksAdminAuth } from "@/features/portal/tasks-admin/server/queries";
-import { deleteTaskIn, saveTaskInputSchema, saveTaskIn } from "@/features/portal/tasks-admin/server/mutations";
+import { deleteTaskIn, saveTaskIn, updateTaskInputSchema } from "@/features/portal/tasks-admin/server/mutations";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -28,10 +28,11 @@ const update = defineHandler({
   auth: tasksAdminAuth({ role: "organizer" }),
   // The route's `id` segment is authoritative — whatever `id` (if any) rides
   // along in the body is overwritten below rather than trusted.
-  input: saveTaskInputSchema,
+  input: updateTaskInputSchema,
   handler: async ({ eventId, input, params }) => {
     const { id } = routeParams.parse(params);
-    return saveTaskIn(db, eventIdSchema.parse(eventId), { ...input, id });
+    const { expectedUpdatedAt, ...task } = input;
+    return saveTaskIn(db, eventIdSchema.parse(eventId), { ...task, id }, { expectedUpdatedAt });
   },
 });
 

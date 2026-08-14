@@ -39,6 +39,7 @@ type TaskRow = {
   due_at: string | null;
   is_active: boolean;
   created_at: string;
+  updated_at: string;
 };
 
 /**
@@ -59,6 +60,7 @@ function toTaskDto(row: TaskRow): TaskDTO {
     dueAt: row.due_at ? new Date(row.due_at).toISOString() : null,
     isActive: row.is_active,
     createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   });
 }
 
@@ -86,7 +88,7 @@ export async function listTasksIn(dbOrTx: DbOrTx, eventId: EventId, filters: Tas
   const search = filters.search?.trim() || null;
   const result = await dbOrTx.execute<TaskRow & { completed_count: number; open_count: number; overdue_count: number }>(sql`
     SELECT t.id, t.name, t.description_html, t.target_type, t.completion_mode, t.form_id, t.file_request_id,
-           t.due_at, t.is_active, t.created_at,
+           t.due_at, t.is_active, t.created_at, t.updated_at,
            count(v.contact_id) FILTER (WHERE v.completed) AS completed_count,
            count(v.contact_id) FILTER (WHERE NOT v.completed) AS open_count,
            count(v.contact_id) FILTER (WHERE v.overdue) AS overdue_count
@@ -123,7 +125,7 @@ export async function getTaskTabCountsIn(dbOrTx: DbOrTx, eventId: EventId): Prom
 
 export async function getTaskIn(dbOrTx: DbOrTx, eventId: EventId, taskId: TaskId): Promise<TaskDTO | null> {
   const result = await dbOrTx.execute<TaskRow>(sql`
-    SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, created_at
+    SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, created_at, updated_at
     FROM portal_tasks WHERE id = ${taskId} AND event_id = ${eventId}
   `);
   const row = (result.rows ?? [])[0];
