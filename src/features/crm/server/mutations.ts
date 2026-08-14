@@ -381,15 +381,25 @@ function toCrmPipelineEntryDto(row: typeof organizationContactPipeline.$inferSel
   });
 }
 
+function crmPipelineCreationPayload(input: CreateCrmPipelineEntryInput) {
+  return {
+    organizationContactId: input.organizationContactId,
+    targetEventId: input.targetEventId ?? null,
+    notes: input.notes ?? null,
+  };
+}
+
 function sameCrmPipelineCreatePayload(
   row: typeof organizationContactPipeline.$inferSelect,
   organizationId: OrganizationId,
   input: CreateCrmPipelineEntryInput,
 ): boolean {
+  const original = row.creationPayload;
+  const replay = crmPipelineCreationPayload(input);
   return row.organizationId === organizationId
-    && row.organizationContactId === input.organizationContactId
-    && row.targetEventId === (input.targetEventId ?? null)
-    && row.notes === (input.notes ?? null);
+    && original.organizationContactId === replay.organizationContactId
+    && original.targetEventId === replay.targetEventId
+    && original.notes === replay.notes;
 }
 
 async function existingCrmPipelineCreateAttemptIn(
@@ -429,6 +439,7 @@ async function createCrmPipelineEntryAttemptIn(
     organizationId,
     organizationContactId: input.organizationContactId,
     targetEventId: input.targetEventId ?? null,
+    creationPayload: crmPipelineCreationPayload(input),
     notes: input.notes ?? null,
   }).onConflictDoNothing({ target: organizationContactPipeline.id }).returning();
   if (!row) {

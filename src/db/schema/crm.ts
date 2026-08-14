@@ -205,6 +205,15 @@ export const organizationContactPipeline = pgTable("organization_contact_pipelin
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   organizationContactId: uuid("organization_contact_id").notNull(),
   targetEventId: uuid("target_event_id").references(() => events.id, { onDelete: "set null" }),
+  // Captured once at insert time and protected by migration 0035's trigger.
+  // Unlike the live fields above, this survives contact merge/recovery and
+  // target-event deletion so a frozen response-loss retry can still prove it
+  // is the original create request.
+  creationPayload: jsonb("creation_payload").$type<{
+    organizationContactId: string;
+    targetEventId: string | null;
+    notes: string | null;
+  }>().notNull(),
   stage: crmPipelineStageEnum("stage").notNull().default("open"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

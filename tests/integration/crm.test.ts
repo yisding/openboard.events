@@ -45,11 +45,13 @@ const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_t
 const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 const migrationCrmMergeRecovery = readFileSync(new URL("../../drizzle/0017_crm_merge_recovery.sql", import.meta.url), "utf8");
+const migrationCrmPipelineCreationPayload = readFileSync(new URL("../../drizzle/0035_crm_pipeline_creation_payload.sql", import.meta.url), "utf8");
 
 const orgA = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000001");
 const orgB = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000002");
 const eventA1 = eventIdSchema.parse("c55a0000-0000-4000-8000-0000000000a1");
 const eventA2 = eventIdSchema.parse("c55a0000-0000-4000-8000-0000000000a2");
+const eventA3 = eventIdSchema.parse("c55a0000-0000-4000-8000-0000000000a3");
 const eventB1 = eventIdSchema.parse("c55a0000-0000-4000-8000-0000000000b1");
 const actorUserId = userIdSchema.parse("c55a0000-0000-4000-8000-0000000000f1");
 
@@ -66,7 +68,7 @@ let runPipelineTransaction: Parameters<typeof createCrmPipelineEntryWithPostComm
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
-    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery]) {
+    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery, migrationCrmPipelineCreationPayload]) {
       await pglite.exec(migration);
     }
     database = createTestDb(pglite);
@@ -79,6 +81,7 @@ describe("organization-level speaker CRM (M55)", () => {
     for (const [id, name, slug, orgId] of [
       [eventA1, "Event A1", "crm-event-a1", orgA],
       [eventA2, "Event A2", "crm-event-a2", orgA],
+      [eventA3, "Event A3", "crm-event-a3", orgA],
       [eventB1, "Event B1", "crm-event-b1", orgB],
     ] as const) {
       await pglite.query(
@@ -217,7 +220,7 @@ describe("organization-level speaker CRM (M55)", () => {
     expect(counts).toEqual({ notes: 1, activities: 1 });
   });
 
-  it("atomically creates a replay-safe prospect and records activity only for the original attempt", async () => {
+  it("atomically creates a prospect and replays its immutable request after the contact is merged", async () => {
     const contactId = await createOrganizationContactIn(db, orgA, {
       email: "atomic.pipeline@example.com",
       firstName: "Atomic",
@@ -271,13 +274,59 @@ describe("organization-level speaker CRM (M55)", () => {
         (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=$1) AS pipeline,
         (SELECT count(*)::int FROM organization_contact_pipeline_history WHERE pipeline_id=$1) AS history,
         (SELECT count(*)::int FROM organization_contact_activity WHERE metadata->>'pipelineId'=$1::text) AS activity
-    `, [pipelineId])).rows).toEqual([{ pipeline: 1, history: 1, activity: 1 }]);
+      `, [pipelineId])).rows).toEqual([{ pipeline: 1, history: 1, activity: 1 }]);
+
+    const primaryContactId = await createOrganizationContactIn(db, orgA, {
+      email: "atomic.pipeline.primary@example.com",
+      firstName: "Canonical",
+      lastName: "Prospect",
+    });
+    await database.transaction((tx) => mergeOrganizationContactsIn(
+      tx as unknown as TxDb,
+      orgA,
+      { primaryContactId, mergedContactId: contactId, fieldResolutions: {} },
+      actorUserId,
+    ));
+
+    // The frozen request still names the losing contact. Replay identity comes
+    // from the immutable creation payload, while the returned DTO reflects the
+    // current canonical pipeline row after merge.
+    const replayAfterMerge = await createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      input,
+    );
+    expect(replayAfterMerge).toEqual({ ...created, organizationContactId: primaryContactId });
+    expect((await pglite.query<{
+      organization_contact_id: string;
+      creation_payload: { organizationContactId: string; targetEventId: string | null; notes: string | null };
+      pipeline: number;
+      history: number;
+      activity: number;
+    }>(`
+      SELECT p.organization_contact_id, p.creation_payload,
+        (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=p.id) AS pipeline,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history h WHERE h.pipeline_id=p.id) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity a WHERE a.metadata->>'pipelineId'=p.id::text) AS activity
+      FROM organization_contact_pipeline p WHERE p.id=$1
+    `, [pipelineId])).rows).toEqual([{
+      organization_contact_id: primaryContactId,
+      creation_payload: {
+        organizationContactId: contactId,
+        targetEventId: eventA1,
+        notes: input.notes,
+      },
+      pipeline: 1,
+      history: 1,
+      activity: 1,
+    }]);
 
     await expect(createCrmPipelineEntryWithPostCommitActivityIn(
       pipelinePostCommitDb,
       runPipelineTransaction,
       orgA,
-      { ...input, notes: "A different prospect attempt" },
+      { ...input, organizationContactId: primaryContactId },
     )).rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
     expect((await pglite.query<{ notes: string; history: number; activity: number }>(`
       SELECT p.notes,
@@ -285,6 +334,85 @@ describe("organization-level speaker CRM (M55)", () => {
         (SELECT count(*)::int FROM organization_contact_activity a WHERE a.metadata->>'pipelineId'=p.id::text) AS activity
       FROM organization_contact_pipeline p WHERE p.id=$1
     `, [pipelineId])).rows).toEqual([{ notes: input.notes, history: 1, activity: 1 }]);
+  });
+
+  it("replays an immutable prospect request after its target event is deleted", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, { email: "deleted.target.pipeline@example.com" });
+    const pipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e3");
+    const input = { id: pipelineId, organizationContactId: contactId, targetEventId: eventA3, notes: "Target the fall event" };
+    const created = await createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      input,
+    );
+
+    // Simulate a lost HTTP response followed by a lifecycle change before the
+    // organizer chooses Retry addition.
+    await pglite.query("DELETE FROM events WHERE id=$1", [eventA3]);
+    const replay = await createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      input,
+    );
+    expect(replay).toEqual({ ...created, targetEventId: null });
+    expect((await pglite.query<{
+      target_event_id: string | null;
+      creation_payload: { organizationContactId: string; targetEventId: string | null; notes: string | null };
+      pipeline: number;
+      history: number;
+      activity: number;
+    }>(`
+      SELECT p.target_event_id, p.creation_payload,
+        (SELECT count(*)::int FROM organization_contact_pipeline WHERE id=p.id) AS pipeline,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history h WHERE h.pipeline_id=p.id) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity a WHERE a.metadata->>'pipelineId'=p.id::text) AS activity
+      FROM organization_contact_pipeline p WHERE p.id=$1
+    `, [pipelineId])).rows).toEqual([{
+      target_event_id: null,
+      creation_payload: {
+        organizationContactId: contactId,
+        targetEventId: eventA3,
+        notes: input.notes,
+      },
+      pipeline: 1,
+      history: 1,
+      activity: 1,
+    }]);
+
+    await expect(createCrmPipelineEntryWithPostCommitActivityIn(
+      pipelinePostCommitDb,
+      runPipelineTransaction,
+      orgA,
+      { ...input, targetEventId: eventA2 },
+    )).rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
+  });
+
+  it("captures and protects creation payloads for rolling-deploy inserts", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, { email: "pipeline.rollout@example.com" });
+    const pipelineId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e4");
+
+    // This is the statement shape an older application instance issues after
+    // the migration is live: it does not know creation_payload exists.
+    await pglite.query(`
+      INSERT INTO organization_contact_pipeline(id, organization_id, organization_contact_id, target_event_id, notes)
+      VALUES($1, $2, $3, $4, 'Captured by migration trigger')
+    `, [pipelineId, orgA, contactId, eventA2]);
+    expect((await pglite.query<{ creation_payload: unknown }>(
+      "SELECT creation_payload FROM organization_contact_pipeline WHERE id=$1",
+      [pipelineId],
+    )).rows).toEqual([{ creation_payload: {
+      organizationContactId: contactId,
+      targetEventId: eventA2,
+      notes: "Captured by migration trigger",
+    } }]);
+
+    await expect(pglite.query(
+      "UPDATE organization_contact_pipeline SET creation_payload=$2::jsonb WHERE id=$1",
+      [pipelineId, JSON.stringify({ organizationContactId: contactId, targetEventId: null, notes: null })],
+    )).rejects.toThrow();
+    await pglite.query("DELETE FROM organization_contact_pipeline WHERE id=$1", [pipelineId]);
   });
 
   it("keeps a committed prospect authoritative when its post-commit activity fails", async () => {
