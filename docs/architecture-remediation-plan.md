@@ -35,9 +35,20 @@ together they reduced the seven-feature strongly connected group to none.
 
 The resulting measurements are 42 feature dependency directions, zero direct
 cross-feature implementation imports, zero cyclic groups, zero server-to-UI or
-route imports, 83 tables, 748 modeled columns, 33 enums, and 36 migrations. CI
+route imports, 85 tables, 756 modeled columns, 33 enums, and 40 migrations. CI
 now ratchets each zero-debt architecture baseline and the migration/query-schema
 comparison.
+
+The submission-concurrency workstream is complete. PR #374 introduced the
+durable `(event, form, contact)` cap guard while retaining the event lock for a
+mixed-version rollout. PR #381 removed that broad lock, replaced the event
+counter with collision-retrying Web Crypto public codes, and added a source
+invariant preventing either final-submit owner from reintroducing the event-row
+mutex. Its 50-speaker and cap-one race tests preserve snapshots and replay
+semantics. The same review found two coupled assumptions: `now()` could accept a
+request that waited across the close boundary, and the public API ordered pages
+by the formerly monotonic code. The final implementation uses wall-clock form
+availability and creation-tuple pagination with the existing code cursor token.
 
 ## Sequencing and workstreams
 
@@ -71,11 +82,11 @@ Status: complete in PRs #351, #352, #356, #359, #361, #362, #363, #365,
 ### 2. Remove per-event submission serialization
 
 Split the final-submit transaction into independent invariants. Read event/form
-availability at the transaction timestamp without locking the event row. Replace
+availability at the wall-clock decision point without locking the event row. Replace
 the event-wide sequential proposal-code counter with collision-resistant public
 codes, or allocate code blocks outside the request transaction if sequential
 codes remain a product requirement. Enforce per-speaker caps with a row scoped to
-the event and participant, so unrelated speakers never contend on one lock.
+the event, form, and participant, so unrelated speakers never contend on one lock.
 Preserve receipt-based idempotency and the immutable submitted snapshot.
 
 Ship this behind a schema-compatible write path, compare old and new decisions in
@@ -87,6 +98,8 @@ Exit criteria:
   request count, duplicate codes, cap violations, or post-deadline acceptance.
 - Lock telemetry shows no event-row lock on the final-submit path.
 - Replay, close-boundary, and same-speaker cap races have database-backed tests.
+
+Status: complete in PRs #374 and #381.
 
 ### 3. Make the Worker artifact a supported build product
 
@@ -237,7 +250,7 @@ Exit criteria:
 1. Fallback-auth retirement (completed in PR #345).
 2. Import/schema/invariant guardrails (completed in PRs #351, #352, #356,
    #359, #361, #362, #363, #365, #368, #369, #371, and #372).
-3. Submission concurrency redesign.
+3. Submission concurrency redesign (completed in PRs #374 and #381).
 4. Worker artifact compatibility hardening.
 5. Shared outbox engine, then private scheduled invocation.
 6. Client consistency and public-cache invalidation, feature by feature.
