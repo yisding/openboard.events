@@ -70,10 +70,12 @@ const agents = trackIdSchema.parse("c5000000-0000-4000-8000-000000000011");
 const ada = userIdSchema.parse("c5000000-0000-4000-8000-000000000020");
 const grace = userIdSchema.parse("c5000000-0000-4000-8000-000000000021");
 const organizer = userIdSchema.parse("c5000000-0000-4000-8000-000000000022");
+const ambiguousReviewer = userIdSchema.parse("c5000000-0000-4000-8000-000000000023");
 
 const author = "c5000000-0000-4000-8000-000000000040";
 const coAuthor = "c5000000-0000-4000-8000-000000000041";
 const adaContact = "c5000000-0000-4000-8000-000000000042";
+const ambiguousReviewerContact = "c5000000-0000-4000-8000-000000000043";
 
 const one = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000030");
 const two = submissionIdSchema.parse("c5000000-0000-4000-8000-000000000031");
@@ -1102,6 +1104,18 @@ describe("review operations", () => {
       { template_key: "review_reminder", email: "ada@example.com", first_name: "Ada", last_name: "Lovelace", status: "queued" },
       { template_key: "review_reminder", email: "grace@example.com", first_name: "Grace", last_name: "Hopper", status: "queued" },
     ]);
+    const links = await pglite.query<{ user_id: string; email: string; source: string }>(
+      `SELECT identity.user_id, contact.email, identity.source
+       FROM user_contact_links identity
+       JOIN contacts contact ON contact.id=identity.contact_id AND contact.event_id=identity.event_id
+       WHERE identity.event_id=$1 AND identity.user_id IN ($2,$3)
+       ORDER BY contact.email`,
+      [eventId, ada, grace],
+    );
+    expect(links.rows).toEqual([
+      { user_id: ada, email: "ada@example.com", source: "reminder" },
+      { user_id: grace, email: "grace@example.com", source: "reminder" },
+    ]);
 
     // Replaying the same organizer-confirmed attempt is idempotent; the window
     // still governs whether any attempt is allowed.
@@ -1139,12 +1153,51 @@ describe("review operations", () => {
     expect(review).toMatchObject({ round: "Round 1", outstanding: "2" });
     expect(review.closes_at).toContain("2026");
 
+    // Linking an admin reviewer never bypasses the event contact's consent.
+    await pglite.query("UPDATE contacts SET unsubscribed_at=now() WHERE id=$1 AND event_id=$2", [adaContact, eventId]);
+    await expect(buildContext(queued as OutboxRow, db, mailEnv)).rejects.toThrow(/contact unsubscribed/u);
+    await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1 AND event_id=$2", [adaContact, eventId]);
+
     // And the precondition that keeps a nagging email off a finished queue:
     // once nothing is outstanding the row is skipped at render time, not sent
     // with a zero in it.
     await submitReviewIn(db, eventId, planId, two, ada, verdict({ overallScore: 4 }), AT_OPEN);
     await submitReviewIn(db, eventId, planId, three, ada, verdict({ overallScore: 4 }), AT_OPEN);
     await expect(buildContext(queued as OutboxRow, db, mailEnv)).rejects.toThrow(/nothing outstanding/u);
+  });
+
+  it("quarantines an ambiguous reviewer identity instead of enqueueing to another user's contact", async () => {
+    await pglite.query(
+      "INSERT INTO users(id,email,name) VALUES($1,'ambiguous.reviewer@example.com','Ambiguous Reviewer')",
+      [ambiguousReviewer],
+    );
+    await pglite.query(
+      "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'reviewer')",
+      [ambiguousReviewer, eventId],
+    );
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'ambiguous.reviewer@example.com','Wrong','Owner')",
+      [ambiguousReviewerContact, eventId],
+    );
+    await pglite.query(
+      "INSERT INTO user_contact_links(user_id,event_id,contact_id,source) VALUES($1,$2,$3,'operator')",
+      [organizer, eventId, ambiguousReviewerContact],
+    );
+    const planId = await seedPlan({ opensAt: AT_OPEN.toISOString(), closesAt: AT_CLOSE.toISOString() });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ambiguousReviewer, trackIds: null }]);
+
+    await expect(sendReviewRemindersIn(
+      db,
+      eventId,
+      planId,
+      [ambiguousReviewer],
+      REMINDER_ATTEMPT_A,
+      AT_OPEN.getTime(),
+    )).resolves.toEqual({ enqueued: 0, skipped: 1 });
+    expect((await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM communication_logs WHERE event_id=$1 AND idempotency_key=$2",
+      [eventId, idem.reviewReminder(eventId, planId, ambiguousReviewer, REMINDER_ATTEMPT_A)],
+    )).rows).toEqual([{ count: 0 }]);
   });
 
   it("deduplicates a manual reminder attempt across minute boundaries while allowing a new attempt", async () => {

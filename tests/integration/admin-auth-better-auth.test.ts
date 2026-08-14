@@ -53,8 +53,9 @@ const M42_MIGRATION = "0009_product_auth";
 // (`provisionOrganizationForNewUserIn`) has `organizations`/
 // `organization_members`/`organization_invitations` to write to once
 // self-serve signup is exercised below.
-const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
+const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0013_speaker_crm", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
 const REVIEWER_INVITATION_MIGRATION = "0029_event_reviewer_invitations";
+const IDENTITY_LINK_MIGRATION = "0041_stable_user_contact_links";
 const RETIREMENT_MIGRATION = "0033_retire_fallback_auth";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
@@ -149,6 +150,7 @@ describe("M42 admin auth on Better Auth", () => {
       [newerUnverifiedUser, newerSignupOrganization],
     );
     await apply(REVIEWER_INVITATION_MIGRATION);
+    await apply(IDENTITY_LINK_MIGRATION);
     await apply(RETIREMENT_MIGRATION);
 
     // These accounts have no passwords and exist only as authorization

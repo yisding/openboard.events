@@ -47,6 +47,7 @@ const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", 
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 const migrationCrmMergeRecovery = readFileSync(new URL("../../drizzle/0017_crm_merge_recovery.sql", import.meta.url), "utf8");
 const migrationCrmPipelineCreationPayload = readFileSync(new URL("../../drizzle/0035_crm_pipeline_creation_payload.sql", import.meta.url), "utf8");
+const migrationIdentityLinks = readFileSync(new URL("../../drizzle/0041_stable_user_contact_links.sql", import.meta.url), "utf8");
 
 const orgA = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000001");
 const orgB = organizationIdSchema.parse("c55a0000-0000-4000-8000-000000000002");
@@ -69,7 +70,7 @@ let runPipelineTransaction: Parameters<typeof createCrmPipelineEntryWithPostComm
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
-    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery, migrationCrmPipelineCreationPayload]) {
+    for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery, migrationCrmPipelineCreationPayload, migrationIdentityLinks]) {
       await pglite.exec(migration);
     }
     database = createTestDb(pglite);
@@ -621,7 +622,15 @@ describe("organization-level speaker CRM (M55)", () => {
       bodyHtml: "<p>met at a conference</p>",
     }, actorUserId);
     const pipelineEntry = await createCrmPipelineEntryIn(db, orgA, { organizationContactId: duplicateId, targetEventId: eventA1 });
-    await pushOrganizationContactToEventIn(db, orgA, duplicateId, eventA1);
+    const pushedDuplicate = await pushOrganizationContactToEventIn(db, orgA, duplicateId, eventA1);
+    await pglite.query(
+      "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'organizer') ON CONFLICT DO NOTHING",
+      [actorUserId, eventA1],
+    );
+    await pglite.query(
+      "INSERT INTO user_contact_links(user_id,event_id,contact_id,source) VALUES($1,$2,$3,'operator')",
+      [actorUserId, eventA1, pushedDuplicate.contactId],
+    );
 
     const preview = await previewCrmMergeIn(db, orgA, { primaryContactId: primaryId, mergedContactId: duplicateId });
     expect(preview.referenceCounts).toEqual({ eventLinks: 1, tags: 1, notes: 1, activity: expect.any(Number), pipelineEntries: 1 });
@@ -643,6 +652,10 @@ describe("organization-level speaker CRM (M55)", () => {
     expect(history?.tags.some((t) => t.id === tag.id)).toBe(true);
     expect(history?.notes.length).toBeGreaterThanOrEqual(1);
     expect(history?.events.some((e) => e.eventId === eventA1)).toBe(true);
+    expect((await pglite.query<{ contact_id: string }>(
+      "SELECT contact_id FROM user_contact_links WHERE user_id=$1 AND event_id=$2",
+      [actorUserId, eventA1],
+    )).rows).toEqual([{ contact_id: pushedDuplicate.contactId }]);
     const [pipelineRow] = (await pglite.query<{ organization_contact_id: string }>(
       "SELECT organization_contact_id FROM organization_contact_pipeline WHERE id=$1", [pipelineEntry.id],
     )).rows;
