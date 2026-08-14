@@ -487,12 +487,17 @@ test.describe("public CFP phone layout", () => {
       });
       return {
         labelsFit: measurements.every(({ item, label }) => label.left >= item.left && label.right <= item.right),
+        minCellWidth: Math.min(...measurements.map(({ item }) => item.width)),
         minLabelGap,
         documentScrollWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
       };
     });
     expect(layout.labelsFit).toBe(true);
+    // Archivo renders "Submission" at roughly 68px on the deployed app. The
+    // inline fixture can fall back to a narrower system font, so preserve the
+    // production-sized cell explicitly as well as checking current labels.
+    expect(layout.minCellWidth).toBeGreaterThanOrEqual(68);
     expect(layout.minLabelGap).toBeGreaterThanOrEqual(4);
     expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
   });

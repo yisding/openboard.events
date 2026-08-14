@@ -1934,7 +1934,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      insets leave at 320px. Use one 12px page gutter rather than stacking the
      container's 20px gutter with another inner inset. */
   main.cfp-container{width:calc(100% - 24px);padding-inline:0}
-  main.cfp-container .cfp-step{padding:16px}
+  main.cfp-container .cfp-step{padding:16px 8px}
 
   .public-form-welcome .welcome-facts{grid-template-columns:1fr}
 }
