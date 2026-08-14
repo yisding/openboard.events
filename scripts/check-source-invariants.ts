@@ -186,18 +186,99 @@ function unwrapExpression(node: ts.Expression): ts.Expression {
   return node;
 }
 
-function emailTableName(node: ts.Expression | undefined): string | null {
+function identityTableReference(
+  node: ts.Expression | undefined,
+  tableAliases: ReadonlyMap<string, string>,
+  schemaNamespaces: ReadonlySet<string>,
+): string | null {
+  if (!node) return null;
+  const expression = unwrapExpression(node);
+  if (ts.isIdentifier(expression)) return tableAliases.get(expression.text) ?? null;
+  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    const name = accessName(expression);
+    if (name && IDENTITY_TABLE_NAMES.has(name) && ts.isIdentifier(expression.expression) && schemaNamespaces.has(expression.expression.text)) {
+      return name;
+    }
+  }
+  if (
+    ts.isCallExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && (expression.expression.text === "alias" || expression.expression.text === "aliasedTable")
+  ) {
+    return identityTableReference(expression.arguments[0], tableAliases, schemaNamespaces);
+  }
+  return null;
+}
+
+function identityEmailTable(
+  node: ts.Expression | undefined,
+  tableAliases: ReadonlyMap<string, string>,
+  schemaNamespaces: ReadonlySet<string>,
+): string | null {
   if (!node) return null;
   const expression = unwrapExpression(node);
   if (
     (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
     && accessName(expression) === "email"
-    && ts.isIdentifier(expression.expression)
-    && IDENTITY_TABLE_NAMES.has(expression.expression.text)
   ) {
-    return expression.expression.text;
+    return identityTableReference(expression.expression, tableAliases, schemaNamespaces);
   }
   return null;
+}
+
+function identityTableSymbols(source: ts.SourceFile): {
+  schemaNamespaces: Set<string>;
+  tableAliases: Map<string, string>;
+} {
+  const schemaNamespaces = new Set<string>();
+  const tableAliases = new Map<string, string>([...IDENTITY_TABLE_NAMES].map((name) => [name, name]));
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings) continue;
+    const specifier = moduleSpecifier(statement);
+    if (!specifier?.startsWith("@/db/schema")) continue;
+    if (ts.isNamespaceImport(statement.importClause.namedBindings)) {
+      schemaNamespaces.add(statement.importClause.namedBindings.name.text);
+      continue;
+    }
+    for (const element of statement.importClause.namedBindings.elements) {
+      const imported = element.propertyName?.text ?? element.name.text;
+      if (IDENTITY_TABLE_NAMES.has(imported)) tableAliases.set(element.name.text, imported);
+    }
+  }
+
+  // Drizzle aliases are conventionally module-level declarations. Resolve to
+  // a fixed point so `const reviewers = aliasedTable(accounts, ...)` retains
+  // the canonical `users` identity even when `accounts` is itself an import or
+  // assignment alias.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          const canonical = identityTableReference(declaration.initializer, tableAliases, schemaNamespaces);
+          if (canonical && tableAliases.get(declaration.name.text) !== canonical) {
+            tableAliases.set(declaration.name.text, canonical);
+            changed = true;
+          }
+          continue;
+        }
+        if (!ts.isObjectBindingPattern(declaration.name) || !declaration.initializer) continue;
+        const initializer = unwrapExpression(declaration.initializer);
+        if (!ts.isIdentifier(initializer) || !schemaNamespaces.has(initializer.text)) continue;
+        for (const element of declaration.name.elements) {
+          const imported = element.propertyName ? propertyName(element.propertyName) : ts.isIdentifier(element.name) ? element.name.text : null;
+          if (!imported || !IDENTITY_TABLE_NAMES.has(imported) || !ts.isIdentifier(element.name)) continue;
+          if (tableAliases.get(element.name.text) !== imported) {
+            tableAliases.set(element.name.text, imported);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return { schemaNamespaces, tableAliases };
 }
 
 function shorthandInitializer(node: ts.ShorthandPropertyAssignment): ts.Expression | undefined {
@@ -236,6 +317,7 @@ function inspectFile(absolutePath: string): Violation[] {
     true,
     path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+  const { schemaNamespaces, tableAliases } = identityTableSymbols(source);
   const violations: Violation[] = [];
   let queryInvalidation: ts.CallExpression | null = null;
   let routeRefresh: ts.CallExpression | null = null;
@@ -324,9 +406,10 @@ function inspectFile(absolutePath: string): Violation[] {
         && path !== IDENTITY_RESOLUTION_FILE
         && ts.isIdentifier(node.expression)
         && node.expression.text === "eq"
-        && emailTableName(node.arguments[0]) !== null
-        && emailTableName(node.arguments[1]) !== null
-        && emailTableName(node.arguments[0]) !== emailTableName(node.arguments[1])
+        && identityEmailTable(node.arguments[0], tableAliases, schemaNamespaces) !== null
+        && identityEmailTable(node.arguments[1], tableAliases, schemaNamespaces) !== null
+        && identityEmailTable(node.arguments[0], tableAliases, schemaNamespaces)
+          !== identityEmailTable(node.arguments[1], tableAliases, schemaNamespaces)
       ) {
         report(node, "identity-email-join", "cross-identity email comparisons belong in the event-contact identity resolver");
       }
