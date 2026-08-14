@@ -5,6 +5,7 @@ export {
   createSubmissionIn,
   formatCode,
   getAcceptedForScheduling,
+  lockSubmissionLimitScopeIn,
   nextSubmissionCode,
   notifyQueues,
   previewNotifyQueues,

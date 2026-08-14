@@ -23,6 +23,23 @@ export const submissions = pgTable("submissions", {
   uniqueIndex("submissions_one_draft_per_contact_form_uq").on(table.eventId, table.formId, table.submitterContactId).where(sql`status='draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL`),
 ]);
 
+/**
+ * A deliberately sparse mutex for the submission cap invariant. Final submits
+ * lock one (event, form, submitter) row, so speakers submitting to unrelated
+ * forms never queue behind each other. Rows are created lazily and disappear
+ * with their owning event-scoped form/contact.
+ */
+export const submissionLimitGuards = pgTable("submission_limit_guards", {
+  eventId: uuid("event_id").notNull(),
+  formId: uuid("form_id").notNull(),
+  contactId: uuid("contact_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.eventId, table.formId, table.contactId] }),
+  foreignKey({ columns: [table.formId, table.eventId], foreignColumns: [forms.id, forms.eventId] }).onDelete("cascade"),
+  foreignKey({ columns: [table.contactId, table.eventId], foreignColumns: [contacts.id, contacts.eventId] }).onDelete("cascade"),
+]);
+
 /** Immutable proposal-state transitions, including attributed decision reversals. */
 export const submissionStatusRevisions = pgTable("submission_status_revisions", {
   id: uuid("id").defaultRandom().primaryKey(),

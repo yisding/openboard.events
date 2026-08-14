@@ -23,6 +23,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // M51 added `contacts.workflow_status`; `getOrCreateContact`'s unqualified
 // `.returning()` (used for the submitter contact) now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
+const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0036_submission_limit_guards.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");
@@ -55,7 +56,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { createSubmission, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
+const { createSubmission, lockSubmissionLimitScopeIn, nextSubmissionCode, upsertDraft } = await import("@/features/submissions");
 
 const noAnswers = cleanAnswersSchema.parse([]);
 
@@ -85,6 +86,7 @@ describe("createSubmission", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRoster);
+    await pglite.exec(migrationSubmissionGuards);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -134,6 +136,20 @@ describe("createSubmission", () => {
     expect(new Set(codes).size).toBe(10);
     expect(codes).toEqual([...codes].sort((a, b) => a - b));
     expect((codes.at(-1) ?? 0) - (codes[0] ?? 0)).toBe(9);
+  });
+
+  it("reuses one durable limit guard for a speaker's form scope", async () => {
+    await testDb.transaction(async (handle) => {
+      const transaction = handle as unknown as TxDb;
+      await lockSubmissionLimitScopeIn(transaction, eventId, openForm, speaker);
+      await lockSubmissionLimitScopeIn(transaction, eventId, openForm, speaker);
+    });
+
+    const rows = await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM submission_limit_guards WHERE event_id=$1 AND form_id=$2 AND contact_id=$3",
+      [eventId, openForm, speaker],
+    );
+    expect(rows.rows[0]?.count).toBe(1);
   });
 
   it("creates a CFP submission with exactly one confirmation email", async () => {

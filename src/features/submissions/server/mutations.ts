@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
-import { contacts, emailTemplates, events, forms, submissionAnswers, submissionParticipants, submissionTags, submissions } from "@/db/schema";
+import { contacts, emailTemplates, events, forms, submissionAnswers, submissionLimitGuards, submissionParticipants, submissionTags, submissions } from "@/db/schema";
 import {
   LIMITS,
   acceptedForSchedulingRowSchema,
@@ -29,6 +29,7 @@ import {
 } from "@/features/forms/index.submission";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone } from "@/shared/lib/time";
 import { renderTemplateContent } from "@/features/comms/index.render";
@@ -64,6 +65,40 @@ export async function nextSubmissionCode(tx: TxDb, eventId: EventId): Promise<nu
 }
 
 type FormRow = { id: string; kind: SubmissionKind; sendConfirmation: boolean; submissionLimit: number | null };
+
+/**
+ * Acquire the smallest lock that can protect one speaker's per-form cap.
+ *
+ * The insert handles the first submit for a scope: a concurrent insert waits
+ * on the composite primary key, then the SELECT takes the same durable row
+ * lock. Phase one intentionally acquires this alongside the event lock so a
+ * later deployment can remove the broad lock without racing older instances.
+ */
+export async function lockSubmissionLimitScopeIn(
+  tx: TxDb,
+  eventId: EventId,
+  formId: FormId,
+  contactId: ContactId,
+): Promise<void> {
+  const startedAt = performance.now();
+  await tx.insert(submissionLimitGuards)
+    .values({ eventId, formId, contactId })
+    .onConflictDoNothing();
+  const locked = await tx.execute<{ event_id: string }>(sql`
+    SELECT event_id FROM submission_limit_guards
+    WHERE event_id = ${eventId} AND form_id = ${formId} AND contact_id = ${contactId}
+    FOR UPDATE
+  `);
+  if (!(locked.rows ?? [])[0]) throw new AppError("INTERNAL", "Could not protect the submission limit");
+  log({
+    level: "debug",
+    msg: "submission.limit_guard_acquired",
+    requestId: "-",
+    feature: "submissions",
+    eventId,
+    durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+  });
+}
 
 async function loadForm(tx: TxDb, eventId: EventId, formId: FormId): Promise<FormRow> {
   const [form] = await tx
@@ -102,6 +137,17 @@ async function assertUnderLimit(
       AND status NOT IN ('draft', 'withdrawn')
   `);
   const used = Number((result.rows ?? [])[0]?.count ?? 0);
+  // During the compatibility deployment both locks protect this exact
+  // decision. Recording their common result gives the rollout an explicit
+  // shadow-comparison signal before the event lock is removed.
+  log({
+    level: "debug",
+    msg: "submission.limit_decision_compared",
+    requestId: "-",
+    feature: "submissions",
+    eventId,
+    code: `event=${used < limit ? "allow" : "deny"};scope=${used < limit ? "allow" : "deny"};used=${used};limit=${limit}`,
+  });
   if (used >= limit) {
     throw new AppError("LIMIT_REACHED", `You have reached the limit of ${limit} submissions for this form`);
   }
@@ -273,6 +319,7 @@ export async function createSubmissionIn(tx: TxDb, eventId: EventId, input: Crea
     form = await loadForm(tx, eventId, input.formId);
     if (input.enforce?.deadline !== false) await assertFormOpen(tx, input.formId);
     if (input.enforce?.limit !== false && input.submitterContactId) {
+      await lockSubmissionLimitScopeIn(tx, eventId, input.formId, input.submitterContactId);
       await assertUnderLimit(tx, eventId, input.formId, input.submitterContactId, form.submissionLimit, Number(event.submission_cap_per_user));
     }
   }
