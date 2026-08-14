@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { expect, test, type Locator } from "@playwright/test";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 
@@ -78,6 +80,44 @@ test.describe("self-service auth readability", () => {
       return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
     });
     expect(invalidCopyRatio).toBeGreaterThanOrEqual(1.4);
+  });
+});
+
+test.describe("guided onboarding responsiveness", () => {
+  test.use({ viewport: { width: 600, height: 800 } });
+
+  test("keeps every setup step named at tablet width without horizontal overflow", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:32px 16px">
+        <div class="panel settings-section onboarding-wizard" style="margin:auto">
+          <ol class="cfp-progress onboarding-progress" aria-label="Setup progress">
+            <li class="active"><span>1</span><b>Event details</b></li>
+            <li><span>2</span><b>Tracks</b></li>
+            <li><span>3</span><b>First form</b></li>
+            <li><span>4</span><b>Share</b></li>
+          </ol>
+        </div>
+      </main>
+    </body></html>`, { waitUntil: "networkidle" });
+
+    const progress = page.getByRole("list", { name: "Setup progress" });
+    const labels = progress.locator("b");
+    await expect(labels).toHaveCount(4);
+    for (const label of await labels.all()) await expect(label).toBeVisible();
+
+    const layout = await progress.evaluate((element) => {
+      const progressBox = element.getBoundingClientRect();
+      const labelBoxes = [...element.querySelectorAll("b")].map((label) => label.getBoundingClientRect());
+      return {
+        labelsFit: labelBoxes.every((box) => box.left >= progressBox.left && box.right <= progressBox.right),
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.labelsFit).toBe(true);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
   });
 });
 
