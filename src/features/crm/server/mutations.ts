@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import {
   contacts,
@@ -502,33 +502,66 @@ export async function createCrmPipelineEntryWithPostCommitActivityIn(
 export const createCrmPipelineEntry = (organizationId: OrganizationId, input: CreateCrmPipelineEntryInput): Promise<CrmPipelineEntryDTO> =>
   createCrmPipelineEntryWithPostCommitActivityIn(db, withTx, organizationId, input);
 
-/** AC: "Move a prospect through open/won/lost states and verify timestamped
- * history." Guarded `UPDATE … WHERE stage <> $newStage` so a repeat call
- * (double-click, retry) is a no-op rather than a spurious history row — the
- * `from_stage IS DISTINCT FROM to_stage` CHECK on the history table backs
- * this at the schema level too. */
-export async function transitionCrmPipelineIn(dbOrTx: DbOrTx, organizationId: OrganizationId, pipelineId: CrmPipelineId, input: TransitionCrmPipelineInput, actorUserId: UserId | null): Promise<CrmPipelineEntryDTO> {
-  const [current] = await dbOrTx.select().from(organizationContactPipeline)
-    .where(and(eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.id, pipelineId))).limit(1);
-  if (!current) throw new AppError("NOT_FOUND", "Pipeline entry not found");
-  if (current.stage === input.stage) {
-    return crmPipelineEntryDtoSchema.parse({
-      id: current.id, organizationContactId: current.organizationContactId, targetEventId: current.targetEventId, stage: current.stage,
-      notes: current.notes, createdAt: current.createdAt.toISOString(), updatedAt: current.updatedAt.toISOString(),
+/**
+ * Move one prospect together with both records that make the move explainable.
+ *
+ * The row lock gives this transaction one current source stage. New clients
+ * additionally prove which stage/version they observed, so retrying an older
+ * move cannot overwrite a colleague's later move. The target-stage check comes
+ * first: a response-loss retry of a committed request is already complete and
+ * returns the canonical row without duplicating history or activity. Older
+ * clients omit both observed fields and retain their previous target-state
+ * idempotency, now with all three writes committed atomically.
+ */
+export async function transitionCrmPipelineIn(
+  inTransaction: CrmPipelineTransaction,
+  organizationId: OrganizationId,
+  pipelineId: CrmPipelineId,
+  input: TransitionCrmPipelineInput,
+  actorUserId: UserId | null,
+): Promise<CrmPipelineEntryDTO> {
+  return inTransaction(async (tx) => {
+    const [current] = await tx.select().from(organizationContactPipeline)
+      .where(and(eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.id, pipelineId)))
+      .limit(1)
+      .for("update");
+    if (!current) throw new AppError("NOT_FOUND", "Pipeline entry not found");
+
+    // Replay precedes the caller-observation gate. A committed Open -> Won
+    // request is still a success when its original response was lost.
+    if (current.stage === input.stage) return toCrmPipelineEntryDto(current);
+
+    if (input.expectedFrom !== undefined && input.expectedUpdatedAt !== undefined) {
+      const versionMatches = current.updatedAt.getTime() === new Date(input.expectedUpdatedAt).getTime();
+      if (current.stage !== input.expectedFrom || !versionMatches) {
+        throw new AppError("STALE_WRITE", "This prospect moved after you loaded it. Refresh the pipeline and try again.");
+      }
+    }
+
+    const predicates = [
+      eq(organizationContactPipeline.id, pipelineId),
+      eq(organizationContactPipeline.organizationId, organizationId),
+      eq(organizationContactPipeline.stage, current.stage),
+    ];
+    if (input.expectedUpdatedAt !== undefined) {
+      predicates.push(sql`date_trunc('milliseconds', ${organizationContactPipeline.updatedAt}) = date_trunc('milliseconds', ${input.expectedUpdatedAt}::timestamptz)`);
+    }
+    const [updated] = await tx.update(organizationContactPipeline)
+      .set({ stage: input.stage, updatedAt: new Date() })
+      .where(and(...predicates))
+      .returning();
+    if (!updated) throw new AppError("STALE_WRITE", "This prospect moved after you loaded it. Refresh the pipeline and try again.");
+
+    await tx.insert(organizationContactPipelineHistory).values({
+      organizationId, pipelineId, fromStage: current.stage, toStage: input.stage, actorUserId: actorUserId ?? null,
     });
-  }
-  const [updated] = await dbOrTx.update(organizationContactPipeline).set({ stage: input.stage, updatedAt: new Date() })
-    .where(and(eq(organizationContactPipeline.id, pipelineId), eq(organizationContactPipeline.organizationId, organizationId), eq(organizationContactPipeline.stage, current.stage)))
-    .returning();
-  if (!updated) throw new AppError("CONFLICT", "This pipeline entry changed under you; reload and try again");
-  await dbOrTx.insert(organizationContactPipelineHistory).values({
-    organizationId, pipelineId, fromStage: current.stage, toStage: input.stage, actorUserId: actorUserId ?? null,
-  });
-  await recordActivityIn(dbOrTx, organizationId, organizationContactIdSchema.parse(updated.organizationContactId), "pipeline_stage_changed", actorUserId, { pipelineId, from: current.stage, to: input.stage });
-  return crmPipelineEntryDtoSchema.parse({
-    id: updated.id, organizationContactId: updated.organizationContactId, targetEventId: updated.targetEventId, stage: updated.stage,
-    notes: updated.notes, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString(),
+    await recordActivityIn(tx, organizationId, organizationContactIdSchema.parse(updated.organizationContactId), "pipeline_stage_changed", actorUserId, {
+      pipelineId,
+      from: current.stage,
+      to: input.stage,
+    });
+    return toCrmPipelineEntryDto(updated);
   });
 }
 export const transitionCrmPipeline = (organizationId: OrganizationId, pipelineId: CrmPipelineId, input: TransitionCrmPipelineInput, actorUserId: UserId | null): Promise<CrmPipelineEntryDTO> =>
-  transitionCrmPipelineIn(db, organizationId, pipelineId, input, actorUserId);
+  transitionCrmPipelineIn(withTx, organizationId, pipelineId, input, actorUserId);

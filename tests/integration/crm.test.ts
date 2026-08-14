@@ -337,6 +337,115 @@ describe("organization-level speaker CRM (M55)", () => {
     `, [pipelineId])).rows).toEqual([{ notes: input.notes, history: 1, activity: 1 }]);
   });
 
+  it("atomically transitions a prospect, replays once, and refuses a stale move over a later stage", async () => {
+    const contactId = await createOrganizationContactIn(db, orgA, {
+      email: "atomic.pipeline.transition@example.com",
+      firstName: "Atomic",
+      lastName: "Mover",
+    });
+    const entry = await createCrmPipelineEntryIn(db, orgA, {
+      organizationContactId: contactId,
+      notes: "Transition atomically",
+    });
+    const wonRequest = {
+      stage: "won" as const,
+      expectedFrom: "open" as const,
+      expectedUpdatedAt: entry.updatedAt,
+    };
+
+    await pglite.exec(`
+      CREATE FUNCTION fail_pipeline_won_history() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.from_stage = 'open' AND NEW.to_stage = 'won' THEN
+          RAISE EXCEPTION 'forced pipeline transition history failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_pipeline_won_history
+      BEFORE INSERT ON organization_contact_pipeline_history
+      FOR EACH ROW EXECUTE FUNCTION fail_pipeline_won_history();
+    `);
+    try {
+      await expect(transitionCrmPipelineIn(
+        runPipelineTransaction,
+        orgA,
+        entry.id,
+        wonRequest,
+        actorUserId,
+      )).rejects.toThrow();
+      expect((await pglite.query<{ stage: string; history: number; activity: number }>(`
+        SELECT p.stage,
+          (SELECT count(*)::int FROM organization_contact_pipeline_history h
+            WHERE h.pipeline_id=p.id AND h.from_stage='open' AND h.to_stage='won') AS history,
+          (SELECT count(*)::int FROM organization_contact_activity a
+            WHERE a.kind='pipeline_stage_changed' AND a.metadata->>'pipelineId'=p.id::text) AS activity
+        FROM organization_contact_pipeline p WHERE p.id=$1
+      `, [entry.id])).rows).toEqual([{ stage: "open", history: 0, activity: 0 }]);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_pipeline_won_history ON organization_contact_pipeline_history; DROP FUNCTION fail_pipeline_won_history();");
+    }
+
+    const won = await transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, wonRequest, actorUserId);
+    const replay = await transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, wonRequest, actorUserId);
+    expect(replay).toEqual(won);
+    expect((await pglite.query<{ stage: string; history: number; activity: number }>(`
+      SELECT p.stage,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history h
+          WHERE h.pipeline_id=p.id AND h.from_stage IS NOT NULL) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity a
+          WHERE a.kind='pipeline_stage_changed' AND a.metadata->>'pipelineId'=p.id::text) AS activity
+      FROM organization_contact_pipeline p WHERE p.id=$1
+    `, [entry.id])).rows).toEqual([{ stage: "won", history: 1, activity: 1 }]);
+
+    const lost = await transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, {
+      stage: "lost",
+      expectedFrom: "won",
+      expectedUpdatedAt: won.updatedAt,
+    }, actorUserId);
+    await expect(transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, wonRequest, actorUserId))
+      .rejects.toSatisfy((error) => isAppError(error) && error.code === "STALE_WRITE");
+    expect((await pglite.query<{ stage: string; history: number; activity: number }>(`
+      SELECT p.stage,
+        (SELECT count(*)::int FROM organization_contact_pipeline_history h
+          WHERE h.pipeline_id=p.id AND h.from_stage IS NOT NULL) AS history,
+        (SELECT count(*)::int FROM organization_contact_activity a
+          WHERE a.kind='pipeline_stage_changed' AND a.metadata->>'pipelineId'=p.id::text) AS activity
+      FROM organization_contact_pipeline p WHERE p.id=$1
+    `, [entry.id])).rows).toEqual([{ stage: "lost", history: 2, activity: 2 }]);
+
+    await pglite.exec(`
+      CREATE FUNCTION fail_pipeline_transition_activity() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.kind = 'pipeline_stage_changed' THEN
+          RAISE EXCEPTION 'forced pipeline transition activity failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_pipeline_transition_activity
+      BEFORE INSERT ON organization_contact_activity
+      FOR EACH ROW EXECUTE FUNCTION fail_pipeline_transition_activity();
+    `);
+    try {
+      await expect(transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, {
+        stage: "open",
+        expectedFrom: "lost",
+        expectedUpdatedAt: lost.updatedAt,
+      }, actorUserId)).rejects.toThrow();
+      expect((await pglite.query<{ stage: string; history: number; activity: number }>(`
+        SELECT p.stage,
+          (SELECT count(*)::int FROM organization_contact_pipeline_history h
+            WHERE h.pipeline_id=p.id AND h.from_stage IS NOT NULL) AS history,
+          (SELECT count(*)::int FROM organization_contact_activity a
+            WHERE a.kind='pipeline_stage_changed' AND a.metadata->>'pipelineId'=p.id::text) AS activity
+        FROM organization_contact_pipeline p WHERE p.id=$1
+      `, [entry.id])).rows).toEqual([{ stage: "lost", history: 2, activity: 2 }]);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_pipeline_transition_activity ON organization_contact_activity; DROP FUNCTION fail_pipeline_transition_activity();");
+    }
+  });
+
   it("orders pipeline rows deterministically when update timestamps tie", async () => {
     const firstContactId = await createOrganizationContactIn(db, orgB, { email: "pipeline.tie.first@example.com" });
     const secondContactId = await createOrganizationContactIn(db, orgB, { email: "pipeline.tie.second@example.com" });
@@ -607,11 +716,11 @@ describe("organization-level speaker CRM (M55)", () => {
     const entry = await createCrmPipelineEntryIn(db, orgA, { organizationContactId: bob, targetEventId: eventA1, notes: "warm intro" });
     expect(entry.stage).toBe("open");
 
-    const won = await transitionCrmPipelineIn(db, orgA, entry.id, { stage: "won" }, actorUserId);
+    const won = await transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, { stage: "won" }, actorUserId);
     expect(won.stage).toBe("won");
 
     // Re-applying the same stage is a no-op, not a spurious history row.
-    await transitionCrmPipelineIn(db, orgA, entry.id, { stage: "won" }, actorUserId);
+    await transitionCrmPipelineIn(runPipelineTransaction, orgA, entry.id, { stage: "won" }, actorUserId);
 
     const history = await getCrmPipelineHistoryIn(db, orgA, entry.id);
     expect(history.map((h) => h.toStage)).toEqual(["open", "won"]);
