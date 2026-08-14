@@ -118,7 +118,7 @@ describe("form builder accessibility", () => {
     expect(source).toContain("Every publish creates a new immutable version.");
     expect(source).not.toContain("Save step</Button>");
     expect(css).toContain(".builder-lifecycle-actions{padding-left:12px");
-    const tabletRules = css.slice(css.indexOf("@media(max-width:1024px){.cfp-welcome"), css.indexOf("@media(max-width:768px){.builder-wrap"));
+    const tabletRules = css.slice(css.indexOf("@media(max-width:1280px){.builder-title"), css.indexOf("@media(max-width:1024px){.cfp-welcome"));
     expect(tabletRules).toContain(".builder-action-label{display:none}");
     expect(tabletRules).toContain(".builder-edit-actions>.button,.builder-lifecycle-actions>.button{width:36px");
   });
