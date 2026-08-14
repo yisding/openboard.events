@@ -5,8 +5,8 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   // Committed config is authoritative for plaintext vars. Wrangler preserves
-  // encrypted secrets independently, while removing retired bindings (for
-  // example preview's former TEST_AUTH flag) on the next deployment.
+  // encrypted secrets independently, while removing retired bindings on the
+  // next deployment.
   "keep_vars": false,
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "observability": { "enabled": true },
@@ -31,7 +31,6 @@
       "name": "sb-web-preview",
       "vars": {
         "APP_ENV": "preview",
-        "ADMIN_AUTH_PROVIDER": "better-auth",
         "BETTER_AUTH_URL": "https://sb-web-preview.yi-ding.workers.dev",
         "BILLING_MODE": "disabled",
         // Preview sends for real now that mail.openboard.events is verified, but
@@ -71,7 +70,6 @@
       ],
       "vars": {
         "APP_ENV": "production",
-        "ADMIN_AUTH_PROVIDER": "better-auth",
         "BETTER_AUTH_URL": "https://openboard.events",
         "BILLING_MODE": "disabled",
         "EMAIL_MODE": "send",

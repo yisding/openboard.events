@@ -32,7 +32,7 @@ describe("authentication destination continuity", () => {
   });
 
   it("keeps an invitation available while password recovery begins", () => {
-    const html = renderToStaticMarkup(<ForgotPasswordForm enabled />);
+    const html = renderToStaticMarkup(<ForgotPasswordForm />);
 
     expect(html).toContain('href="/login?next=%2Fjoin%3Ftoken%3Dinvite-123"');
   });

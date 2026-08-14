@@ -28,7 +28,6 @@ const env = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-  ADMIN_AUTH_PROVIDER: "better-auth",
   GOOGLE_CLIENT_ID: "test-google-client-id",
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
 });
@@ -270,7 +269,6 @@ describe("Google OAuth signup", () => {
       APP_ENV: "local",
       APP_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-      ADMIN_AUTH_PROVIDER: "better-auth",
       GOOGLE_CLIENT_ID: "test-google-client-id",
       GOOGLE_CLIENT_SECRET: "test-google-client-secret",
       LEGAL_TERMS_URL: "https://openboard.example/terms",
@@ -293,7 +291,6 @@ describe("Google OAuth signup", () => {
       APP_ENV: "local",
       APP_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-      ADMIN_AUTH_PROVIDER: "better-auth",
       GOOGLE_CLIENT_ID: "test-google-client-id",
       GOOGLE_CLIENT_SECRET: "test-google-client-secret",
       LEGAL_TERMS_URL: "https://openboard.example/terms",

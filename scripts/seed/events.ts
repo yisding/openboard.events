@@ -129,10 +129,9 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     }).onConflictDoUpdate({ target: tags.id, set: { name: tag, updatedAt: new Date() } });
   }
 
-  // Identity here, credentials in `pnpm admin:bootstrap`. password_hash stays
-  // null so a seeded database can never be signed into until somebody
-  // deliberately sets a password — a seed that ships a working login is a seed
-  // that ships a backdoor.
+  // Identity here, credentials in `pnpm admin:bootstrap`. A seeded database can
+  // never be signed into until somebody deliberately creates a Better Auth
+  // credential — a seed that ships a working login is a seed that ships a backdoor.
   for (const admin of ADMINS) {
     const [user] = await tx.insert(users)
       .values({ id: ctx.id("user", admin.key), email: admin.email, name: admin.name })

@@ -72,13 +72,9 @@ export function emailConfirmationLandingUrl(rawUrl: string): URL {
 
 export async function handleAdminAuthGet(
   request: NextRequest,
-  betterAuthEnabled: boolean,
   handler: BetterAuthRequestHandler,
   env?: Pick<RuntimeEnv, "APP_ENV">,
 ): Promise<Response> {
-  if (!betterAuthEnabled) {
-    return NextResponse.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
-  }
   if (new URL(request.url).pathname.endsWith("/api/auth/verify-email")) {
     return NextResponse.redirect(emailConfirmationLandingUrl(request.url));
   }

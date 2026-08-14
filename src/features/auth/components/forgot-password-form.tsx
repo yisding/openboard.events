@@ -43,7 +43,7 @@ export function PasswordResetConfirmation({
  * our system…"). Anything that varied by outcome would turn a public form into
  * an account-enumeration oracle.
  */
-export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
+export function ForgotPasswordForm() {
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"), "");
   const loginHref = authPathWithNext("/login", next);
@@ -79,15 +79,6 @@ export function ForgotPasswordForm({ enabled }: { enabled: boolean }) {
     } finally {
       setPending(false);
     }
-  }
-
-  if (!enabled) {
-    return <div>
-      <span className="metric-icon accent"><Mail size={20} /></span>
-      <h1>Ask your organizer</h1>
-      <p>Self-service password reset is not switched on for this workspace. An owner or organizer on your team can set a new password for you.</p>
-      <p><Link href={loginHref}>Back to sign in</Link></p>
-    </div>;
   }
 
   if (sent) {

@@ -50,7 +50,7 @@ APP_ENV=local
 APP_BASE_URL=http://127.0.0.1:$port
 EMAIL_MODE=log
 EMAIL_FALLBACK_UI=1
-ADMIN_AUTH_PROVIDER=fallback
+SESSION_SECRET=worker-smoke-session-secret-at-least-32-bytes
 AIRTABLE_CRON=0
 R2_BUCKET_NAME=sb-files-dev
 EOF
@@ -139,13 +139,12 @@ if [[ "$www_status" != "308" || "$www_redirect_url" != "https://openboard.events
   exit 1
 fi
 echo "ok    GET /login (Host: www.openboard.events) -> 308 -> https://openboard.events/login"
-# This production-mode artifact smoke deliberately exercises the fallback
-# provider. The signup entry still has to load cleanly, but it must route users
-# to sign-in instead of presenting an account form backed by a disabled API.
-# `/events` is an authenticated surface in every environment (the credential-free
-# local demo that once rendered it signed-out is gone), so the probe below allows
-# both the sign-in redirect and whatever this database-less artifact renders.
-probe_redirect "/signup" "/login"
+# Better Auth is the only provider, so signup must remain available in every
+# environment. `/events` is an authenticated surface in every environment (the
+# credential-free local demo that once rendered it signed-out is gone), so the
+# probe below allows both the sign-in redirect and whatever this database-less
+# artifact renders.
+probe "/signup" "200"
 probe "/events" "200|302|307"
 probe "/api/health" "503"
 

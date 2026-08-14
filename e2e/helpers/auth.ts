@@ -5,9 +5,9 @@ import { PORTAL_COOKIE_PREFIX } from "../../src/features/auth/cookies";
 import { USERS } from "./seeded";
 
 /**
- * Admin sign-in for specs running against a controlled fallback-auth target.
- * `/api/test/login` 404s unless `TEST_AUTH=1` and deliberately cannot mint a
- * Better Auth session, so deployed preview and production do not expose it.
+ * Admin sign-in through the same Better Auth password endpoint the product UI
+ * uses. The credentials stay in the runner environment; there is no deployed
+ * test-only session-minting route.
  *
  * Accepts either a `Page` (the browser gets the cookie) or a bare
  * `APIRequestContext` (a separate cookie jar, for the arrange/assert calls a
@@ -16,19 +16,23 @@ import { USERS } from "./seeded";
  */
 export async function loginAsAdmin(target: Page | APIRequestContext, email: string = USERS.organizer): Promise<void> {
   const request = "request" in target ? target.request : target;
-  const response = await request.post("/api/test/login", { data: { email } });
+  const password = email === USERS.reviewer
+    ? process.env.E2E_REVIEWER_PASSWORD ?? process.env.BOOTSTRAP_REVIEWER_PASSWORD
+    : process.env.E2E_ADMIN_PASSWORD ?? process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error(
+      `Missing E2E password for ${email}. Set E2E_ADMIN_PASSWORD and E2E_REVIEWER_PASSWORD `
+      + "to the credentials provisioned by pnpm admin:bootstrap.",
+    );
+  }
+  const response = await request.post("/api/auth/sign-in", { data: { email, password } });
   if (!response.ok()) {
-    // The route's own sentence when it has one — it is the only thing that can
-    // tell "TEST_AUTH is not in this build" apart from "this build runs an auth
-    // provider that ignores the cookie this route mints", and the two need
-    // opposite fixes. Guessing between them cost a whole triage pass once.
     const explanation = await response.json()
       .then((body: { error?: { message?: string } }) => body.error?.message ?? "")
       .catch(() => "");
     throw new Error(
-      `/api/test/login returned ${response.status()} for ${email}. `
-      + (explanation
-        || "Run admin E2E against a seeded fallback-auth target with TEST_AUTH=1."),
+      `/api/auth/sign-in returned ${response.status()} for ${email}. `
+      + (explanation || "Verify the E2E password matches the bootstrapped account."),
     );
   }
 }

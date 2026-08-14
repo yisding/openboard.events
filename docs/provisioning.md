@@ -332,7 +332,7 @@ stores only the credentials and direct database URL needed by the deployment wor
   are ready.
 - [ ] Bootstrap `sb-web`, then set its runtime secrets exactly as for preview, using the
   production values plus `RESEND_API_KEY`.
-- [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, no `TEST_AUTH`, and no
+- [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, and no
   `EMAIL_ALLOWLIST`.
 - [ ] Create `sb-jobs` with the production `CRON_SECRET` attached on its first deploy, using
   the same `--secrets-file` pattern as preview with `--env production`.
