@@ -103,4 +103,31 @@ describe("shared outbox engine", () => {
       { outcome: "failed", errorMessage: "invalid template" },
     );
   });
+
+  it("settles every independent lane before surfacing a transition failure", async () => {
+    const delivered: number[] = [];
+    const draining = drainOutbox({
+      requestedBudget: 4,
+      claim: async () => [
+        { id: 1, attempts: 1 },
+        { id: 2, attempts: 1 },
+        { id: 3, attempts: 1 },
+        { id: 4, attempts: 1 },
+      ],
+      concurrency: 2,
+      deliver: async (row) => {
+        delivered.push(row.id);
+        if (row.id === 1) throw new Error("provider unavailable");
+        return "sent";
+      },
+      deliveryKey: (row) => String(row.id),
+      isTerminalError: () => false,
+      transitionFailure: async (row) => {
+        if (row.id === 1) throw new Error("transition database unavailable");
+      },
+    });
+
+    await expect(draining).rejects.toThrow("transition database unavailable");
+    expect(delivered.sort((left, right) => left - right)).toEqual([1, 2, 3, 4]);
+  });
 });

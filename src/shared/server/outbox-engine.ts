@@ -80,15 +80,25 @@ async function mapWithConcurrency<Item, Result>(
   const results = new Array<Result>(items.length);
   const indexedItems = items.map((item, index) => ({ item, index }));
   let nextIndex = 0;
+  let firstError: unknown;
+  let failed = false;
   const worker = async () => {
     while (true) {
       const entry = indexedItems[nextIndex];
       if (!entry) return;
       nextIndex += 1;
-      results[entry.index] = await operation(entry.item);
+      try {
+        results[entry.index] = await operation(entry.item);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
     }
   };
   await Promise.all(Array.from({ length: concurrency }, worker));
+  if (failed) throw firstError;
   return results;
 }
 
