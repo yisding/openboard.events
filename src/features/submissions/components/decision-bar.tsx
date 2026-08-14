@@ -171,7 +171,7 @@ export async function completeBulkDecision({
 
 /**
  * Bulk decisions. Queueing and notifying are deliberately two actions: an
- * organizer builds a queue over a morning and sends once, and a Notify that
+ * organizer builds a queue over a morning and sends once, and an email send that
  * fired on every click would mail speakers a decision the team was still
  * arguing about.
  */
@@ -252,7 +252,7 @@ export function DecisionBar({
         error?: { message?: string };
       } | null;
       if (!response.ok || !payload?.data) {
-        toast(payload?.error?.message ?? "Notify did not go through", { kind: "error" });
+        toast(payload?.error?.message ?? "Decision emails were not sent", { kind: "error" });
         setPreview(null);
         setPreviewError("The queue may have changed. Review a fresh preview before retrying.");
         return;
@@ -288,9 +288,9 @@ export function DecisionBar({
         <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
         <Button variant="secondary" disabled={busy} onClick={() => move("decline_queue")}>Move to decline queue</Button>
       </>}
-      {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision{pendingNotify === 1 ? "" : "s"} queued and not yet sent</span> } : {})}
+      {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision email{pendingNotify === 1 ? " is" : "s are"} ready to send</span> } : {})}
       {...(pendingNotify > 0 ? {
-        trailing: <Button disabled={busy || previewing} onClick={() => void openNotifyPreflight()}>{busy ? "Queuing…" : previewing ? "Preparing…" : `Notify ${pendingNotify}`}</Button>,
+        trailing: <Button disabled={busy || previewing} onClick={() => void openNotifyPreflight()}>{busy ? "Queuing…" : previewing ? "Preparing…" : `Send ${pendingNotify} decision email${pendingNotify === 1 ? "" : "s"}`}</Button>,
       } : {})}
     />
     <ConfirmDialog

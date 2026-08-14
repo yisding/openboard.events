@@ -26,6 +26,7 @@ const accepted = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000030"
 const pending = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000031");
 const draft = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000032");
 const elsewhere = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000033");
+const withdrawn = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000034");
 
 const filters = (overrides: Partial<SubmissionFilters> = {}): SubmissionFilters =>
   submissionFiltersSchema.parse(overrides);
@@ -92,6 +93,11 @@ describe("abstracts queries", () => {
       [draft, eventId, formId, speaker],
     );
     await pglite.query(
+      `INSERT INTO submissions(id,event_id,form_id,form_version,code,status,source,title,submitter_contact_id,submitted_at)
+       VALUES($1,$2,$3,1,104,'withdrawn','cfp','Archived proposal',$4, now() - interval '3 days')`,
+      [withdrawn, eventId, formId, speaker],
+    );
+    await pglite.query(
       "INSERT INTO submissions(id,event_id,code,status,source,title) VALUES($1,$2,201,'pending','manual','Another event entirely')",
       [elsewhere, otherEventId],
     );
@@ -114,8 +120,8 @@ describe("abstracts queries", () => {
 
   it("lists this event's submissions and never another's", async () => {
     const result = await listSubmissionsIn(db, eventId, filters());
-    expect(result.total).toBe(3);
-    expect(result.rows.map((row) => row.code).sort()).toEqual([101, 102, 103]);
+    expect(result.total).toBe(4);
+    expect(result.rows.map((row) => row.code).sort()).toEqual([101, 102, 103, 104]);
     expect(result.rows.map((row) => row.title)).not.toContain("Another event entirely");
   });
 
@@ -158,13 +164,20 @@ describe("abstracts queries", () => {
     expect((await listSubmissionsIn(db, eventId, filters({ tagId }))).total).toBe(1);
   });
 
+  it("filters by the four organizer workflow views while preserving exact statuses", async () => {
+    expect((await listSubmissionsIn(db, eventId, filters({ view: "needs_decision" }))).rows.map((row) => row.status)).toEqual(["pending"]);
+    expect((await listSubmissionsIn(db, eventId, filters({ view: "ready_to_notify" }))).rows).toHaveLength(0);
+    expect((await listSubmissionsIn(db, eventId, filters({ view: "decided" }))).rows.map((row) => row.status).sort()).toEqual(["accepted", "withdrawn"]);
+    expect((await listSubmissionsIn(db, eventId, filters({ view: "all" }))).total).toBe(4);
+  });
+
   it("counts every tab from the same filter the rows use", async () => {
     const counts = await getStatusCountsIn(db, eventId, { search: "", trackId: null, tagId: null, pageSize: 25, sort: "newest" });
-    expect(counts.all).toBe(3);
+    expect(counts.all).toBe(4);
     expect(counts.accepted).toBe(1);
     expect(counts.pending).toBe(1);
     expect(counts.draft).toBe(1);
-    expect(counts.withdrawn).toBe(0);
+    expect(counts.withdrawn).toBe(1);
 
     // A search narrows the tabs too — otherwise the tab says 3 and the table
     // shows 1, and an organizer has to reload to find out which one lied.
@@ -177,21 +190,22 @@ describe("abstracts queries", () => {
     const first = await listSubmissionsIn(db, eventId, filters({ pageSize: 2, page: 1 }));
     const second = await listSubmissionsIn(db, eventId, filters({ pageSize: 2, page: 2 }));
     expect(first.rows).toHaveLength(2);
-    expect(second.rows).toHaveLength(1);
-    expect(second.total).toBe(3);
+    expect(second.rows).toHaveLength(2);
+    expect(second.total).toBe(4);
   });
 
   it("applies the requested global order before taking a server page", async () => {
     const first = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 1 }));
     const second = await listSubmissionsIn(db, eventId, filters({ sort: "code_desc", pageSize: 2, page: 2 }));
-    expect(first.rows.map((row) => row.code)).toEqual([103, 102]);
-    expect(second.rows.map((row) => row.code)).toEqual([101]);
+    expect(first.rows.map((row) => row.code)).toEqual([104, 103]);
+    expect(second.rows.map((row) => row.code)).toEqual([102, 101]);
 
     const titleDescending = await listSubmissionsIn(db, eventId, filters({ sort: "title_desc" }));
     expect(titleDescending.rows.map((row) => row.title)).toEqual([
       "Half-written idea",
       "Evals in production",
       "Caching at the edge",
+      "Archived proposal",
     ]);
   });
 
@@ -225,13 +239,13 @@ describe("abstracts queries", () => {
     // way to page back to them.
     const result = await listSubmissionsIn(db, eventId, filters({ page: 9, pageSize: 2 }));
     expect(result.rows).toHaveLength(0);
-    expect(result.total).toBe(3);
+    expect(result.total).toBe(4);
   });
 
   it("sorts newest first by default, with drafts last", async () => {
     const rows = (await listSubmissionsIn(db, eventId, filters())).rows;
     // A draft has no submitted_at and belongs behind everything submitted.
-    expect(rows.map((row) => row.code)).toEqual([102, 101, 103]);
+    expect(rows.map((row) => row.code)).toEqual([102, 101, 104, 103]);
   });
 
   it("returns the drawer with its pinned snapshot and participants", async () => {
