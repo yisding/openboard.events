@@ -102,4 +102,19 @@ describe("AST source invariants", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("[reviewer-route]");
   });
+
+  it("rejects an event-row lock on either final-submit owner", () => {
+    const root = fixture({
+      "src/features/forms/server/submit.ts": `
+        export async function submit(tx, eventId) {
+          return tx.execute(sql\`SELECT id FROM events WHERE id = \${eventId} FOR UPDATE\`);
+        }
+      `,
+      "src/features/submissions/server/mutations.ts": "export const safe = sql`SELECT id FROM events`;",
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("[submission-event-lock]");
+  });
 });

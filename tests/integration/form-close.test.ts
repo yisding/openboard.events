@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
@@ -24,6 +25,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // unqualified `.returning()` that now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0037_submission_limit_guards.sql", import.meta.url), "utf8");
+const migrationFormOpenWallClock = readFileSync(new URL("../../drizzle/0038_form_open_wall_clock.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("f0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("f0000000-0000-4000-8000-000000000002");
@@ -58,7 +60,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { createSubmission, updateSubmissionFromCfp, upsertDraft, saveDraftAnswers } = await import("@/features/submissions");
+const { createSubmission, createSubmissionIn, updateSubmissionFromCfp, upsertDraft, saveDraftAnswers } = await import("@/features/submissions");
 
 function cfpInput(overrides: Partial<CreateSubmissionInput> = {}): CreateSubmissionInput {
   return {
@@ -81,6 +83,7 @@ beforeAll(async () => {
   await pglite.exec(migrationReviewOps);
   await pglite.exec(migrationRoster);
   await pglite.exec(migrationSubmissionGuards);
+  await pglite.exec(migrationFormOpenWallClock);
   testDb = createTestDb(pglite);
 
   await pglite.query(
@@ -136,6 +139,30 @@ afterAll(async () => {
 describe("form-close guard: the four write paths that must agree with is_form_open()", () => {
   it("createSubmission on a closed form -> FORM_CLOSED", async () => {
     const error = await createSubmission(eventId, cfpInput()).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
+  });
+
+  it("createSubmission at the exact close boundary -> FORM_CLOSED", async () => {
+    const error = await createSubmission(eventId, cfpInput({ formId: boundaryForm }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
+  });
+
+  it("does not accept after the deadline when the transaction began while the form was open", async () => {
+    let error: unknown;
+    await testDb.transaction(async (handle) => {
+      await handle.execute(sql`
+        UPDATE forms
+        SET closes_at = clock_timestamp() + interval '25 milliseconds'
+        WHERE id = ${boundaryForm}
+      `);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      error = await createSubmissionIn(
+        handle as unknown as TxDb,
+        eventId,
+        cfpInput({ formId: boundaryForm, sendConfirmation: false }),
+      ).catch((thrown: unknown) => thrown);
+    });
     expect(isAppError(error) && error.code).toBe("FORM_CLOSED");
   });
 

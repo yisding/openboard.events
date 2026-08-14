@@ -4,6 +4,10 @@ import ts from "typescript";
 
 const REPO_ROOT = resolve(process.env.SOURCE_INVARIANT_ROOT ?? process.cwd());
 const SOURCE_ROOT = resolve(REPO_ROOT, "src");
+const FINAL_SUBMIT_FILES = new Set([
+  "src/features/forms/server/submit.ts",
+  "src/features/submissions/server/mutations.ts",
+]);
 
 type Violation = {
   line: number;
@@ -117,6 +121,13 @@ function accessName(node: ts.Node): string | null {
     return node.argumentExpression.text;
   }
   return null;
+}
+
+function taggedTemplateText(node: ts.TaggedTemplateExpression): string {
+  if (ts.isNoSubstitutionTemplateLiteral(node.template)) return node.template.text;
+  return node.template.head.text + node.template.templateSpans
+    .map((span) => span.literal.text)
+    .join("");
 }
 
 function isProcessReference(node: ts.Expression): boolean {
@@ -248,6 +259,18 @@ function inspectFile(absolutePath: string): Violation[] {
       && literalValues(node.initializer).includes("edge")
     ) {
       report(node, "edge-runtime", "the application does not support the Next.js edge runtime");
+    }
+
+    if (
+      FINAL_SUBMIT_FILES.has(path)
+      && ts.isTaggedTemplateExpression(node)
+      && ts.isIdentifier(node.tag)
+      && node.tag.text === "sql"
+    ) {
+      const statement = taggedTemplateText(node).replace(/\s+/gu, " ").toUpperCase();
+      if (/\b(?:FROM|UPDATE) EVENTS\b/u.test(statement) && statement.includes("FOR UPDATE")) {
+        report(node, "submission-event-lock", "final submit must not lock the shared event row");
+      }
     }
 
     if (

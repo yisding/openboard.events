@@ -23,6 +23,7 @@ const ACCEPTED = "b0000000-0000-4000-8000-000000000030";
 const PENDING = "b0000000-0000-4000-8000-000000000031";
 const DRAFT = "b0000000-0000-4000-8000-000000000032";
 const OTHER_EVENT_SUBMISSION = "b0000000-0000-4000-8000-000000000033";
+const CREATED_DURING_PAGING = "b0000000-0000-4000-8000-000000000034";
 const CONTACT_TASK = "b0000000-0000-4000-8000-000000000040";
 const DONE_TASK = "b0000000-0000-4000-8000-000000000041";
 
@@ -53,13 +54,13 @@ describe("api/v1 keyed-route queries", () => {
     );
 
     await pglite.query(
-      `INSERT INTO submissions(id,event_id,code,status,source,title,track_id,submitted_at,notified_at)
-       VALUES($1,$2,101,'accepted','cfp','Caching at the edge',$3, now() - interval '2 days', now() - interval '1 day')`,
+      `INSERT INTO submissions(id,event_id,code,status,source,title,track_id,submitted_at,notified_at,created_at)
+       VALUES($1,$2,900000001,'accepted','cfp','Caching at the edge',$3, now() - interval '2 days', now() - interval '1 day', now() - interval '2 days')`,
       [ACCEPTED, EVENT, TRACK],
     );
     await pglite.query(
-      `INSERT INTO submissions(id,event_id,code,status,source,title,submitted_at)
-       VALUES($1,$2,102,'pending','cfp','Evals in production', now() - interval '1 day')`,
+      `INSERT INTO submissions(id,event_id,code,status,source,title,submitted_at,created_at)
+       VALUES($1,$2,100000001,'pending','cfp','Evals in production', now() - interval '1 day', now() - interval '1 day')`,
       [PENDING, EVENT],
     );
     await pglite.query(
@@ -115,7 +116,7 @@ describe("api/v1 keyed-route queries", () => {
     it("shapes the DTO: formatted code, speakers, tags, track, submitter, notifiedAt", async () => {
       const { rows } = await listPublicSubmissionsIn(db, EVENT, { status: "accepted", limit: 50, cursorCode: null });
       expect(rows).toEqual([expect.objectContaining({
-        code: "SESS-101",
+        code: "SESS-900000001",
         title: "Caching at the edge",
         status: "accepted",
         track: "Platforms",
@@ -126,16 +127,29 @@ describe("api/v1 keyed-route queries", () => {
       })]);
     });
 
-    it("paginates by code cursor and reports nextCursor only when more rows remain", async () => {
+    it("uses the code cursor to paginate by creation order when codes are non-sequential", async () => {
       const first = await listPublicSubmissionsIn(db, EVENT, { limit: 1, cursorCode: null });
       expect(first.rows).toHaveLength(1);
-      expect(first.rows[0]?.code).toBe("SESS-101");
-      expect(first.nextCursor).toBe("101");
+      expect(first.rows[0]?.code).toBe("SESS-900000001");
+      expect(first.nextCursor).toBe("900000001");
+
+      // A new random code can be numerically below or above either page. Its
+      // durable creation position, not that number, decides where it appears.
+      await pglite.query(
+        `INSERT INTO submissions(id,event_id,code,status,source,title,submitted_at)
+         VALUES($1,$2,500000001,'pending','cfp','Created during paging', now())`,
+        [CREATED_DURING_PAGING, EVENT],
+      );
 
       const second = await listPublicSubmissionsIn(db, EVENT, { limit: 1, cursorCode: Number(first.nextCursor) });
       expect(second.rows).toHaveLength(1);
-      expect(second.rows[0]?.code).toBe("SESS-102");
-      expect(second.nextCursor).toBeNull();
+      expect(second.rows[0]?.code).toBe("SESS-100000001");
+      expect(second.nextCursor).toBe("100000001");
+
+      const third = await listPublicSubmissionsIn(db, EVENT, { limit: 1, cursorCode: Number(second.nextCursor) });
+      expect(third.rows).toHaveLength(1);
+      expect(third.rows[0]?.code).toBe("SESS-500000001");
+      expect(third.nextCursor).toBeNull();
     });
   });
 

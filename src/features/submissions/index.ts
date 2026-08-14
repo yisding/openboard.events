@@ -6,7 +6,6 @@ export {
   formatCode,
   getAcceptedForScheduling,
   lockSubmissionLimitScopeIn,
-  nextSubmissionCode,
   notifyQueues,
   previewNotifyQueues,
   previewNotifyQueuesIn,
