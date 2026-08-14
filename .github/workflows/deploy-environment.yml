@@ -127,6 +127,11 @@ jobs:
             smoke_args+=(--production)
           fi
           bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"
+      - name: Prove hostile sign-in bursts stay controlled
+        if: >-
+          steps.freshness.outputs.current == 'true' &&
+          inputs.environment == 'preview'
+        run: pnpm probe:auth-capacity "$APP_BASE_URL"
       - name: Select the self-service journey credential path
         if: >-
           steps.freshness.outputs.current == 'true' &&

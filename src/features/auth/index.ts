@@ -3,6 +3,7 @@ export { authorizeAdmin, getAdminSession, requireAdmin, requiredRoleForEventPath
 export { clearAdminLoginThrottle, revokeAdminSessions, throttleAdminLogin } from "./server/admin";
 export { hashAdminPassword, needsRehash, verifyAdminPassword } from "./server/admin-password";
 export { upsertAdminCredentialAccount } from "./server/credential-account";
+export { withCredentialVerificationBudget } from "./server/credential-capacity";
 export type { PortalSession } from "./server/portal";
 export { logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, verifyPortalLogin } from "./server/portal";
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";

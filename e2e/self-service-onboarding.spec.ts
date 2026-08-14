@@ -26,22 +26,35 @@ async function waitForPublicContent(
   timeoutMs: number,
 ): Promise<void> {
   await expect.poll(async () => {
-    const results = await Promise.all(paths.map(async (path) => {
+    // Alias coverage is a consistency proof, not a load test. Bound fan-out so
+    // one poll does not ask a fresh Worker isolate to render eight cache misses
+    // simultaneously and turn the canary itself into the source of 1102/503s.
+    // Three workers with two-second request deadlines still check all eight
+    // schedule aliases inside the ten-second mutation budget.
+    const results: Array<string | null> = new Array(paths.length).fill(null);
+    let nextPath = 0;
+    const checkNext = async (): Promise<void> => {
+      const index = nextPath;
+      nextPath += 1;
+      const path = paths[index];
+      if (path === undefined) return;
       try {
-        const response = await request.get(path, { timeout: Math.min(timeoutMs, 5_000) });
+        const response = await request.get(path, { timeout: Math.min(timeoutMs, 2_000) });
         const body = await response.text();
         // React inserts empty comments between adjacent server-rendered text
         // chunks (for example `This <!-- -->agenda<!-- --> is...`). Compare
         // the rendered text rather than treating those hydration markers as
         // user-visible content.
         const renderedText = body.replaceAll("<!-- -->", "");
-        return response.status() === 200 && renderedText.includes(expected) ? null : `${path} (${response.status()})`;
+        results[index] = response.status() === 200 && renderedText.includes(expected) ? null : `${path} (${response.status()})`;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const failure = /tim(?:e|ed)\s*out/iu.test(message) ? "request timed out" : message;
-        return `${path} (${failure})`;
+        results[index] = `${path} (${failure})`;
       }
-    }));
+      await checkNext();
+    };
+    await Promise.all(Array.from({ length: Math.min(3, paths.length) }, checkNext));
     return results.filter((result): result is string => result !== null);
   }, {
     message: `every public alias should contain ${JSON.stringify(expected)}`,
@@ -270,8 +283,12 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible({ timeout: 30_000 });
       const onboardingViewport = page.viewportSize();
       await page.setViewportSize({ width: 320, height: 700 });
-      expect((await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height)
-        .toBeGreaterThanOrEqual(44);
+      await expect.poll(async () => (
+        (await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height ?? 0
+      ), {
+        message: "the mobile disclosure hit target should survive deploy-time CSS propagation",
+        timeout: 30_000,
+      }).toBeGreaterThanOrEqual(44);
       if (onboardingViewport) await page.setViewportSize(onboardingViewport);
     });
 

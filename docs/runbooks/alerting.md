@@ -74,6 +74,7 @@ the workflow run.
 |---|---|---|
 | `pnpm worker:size` compressed bundle | warn `> 2.5 MiB`, fail `> 3 MiB` | `scripts/check-worker-size.sh`, already a CI gate (`.github/workflows/ci.yml`'s `artifacts` job) — listed here only so it appears in one place alongside the runtime thresholds, not duplicated as a new check. |
 | Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s `Smoke test the deployed web worker` step (followed, on preview only, by the self-service signup journey) — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
+| Hostile sign-in burst | any non-`401`/`429`, fewer than 11 controlled `429`s out of 12, or p95 `> 5 s` | Preview deploy's `Prove hostile sign-in bursts stay controlled` step; inspect `auth.credential_*`, `auth.password_verification`, and the Cloudflare invocation outcome as described in `sign-in-capacity.md`. |
 | Jobs Cron Trigger invocation | failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The private web runner owns raw error capture; dispatcher logs stay metadata-only. |
 
 ## R2 / storage

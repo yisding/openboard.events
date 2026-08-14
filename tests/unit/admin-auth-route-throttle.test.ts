@@ -23,6 +23,7 @@ const clearAdminLoginThrottle = vi.fn(async () => undefined);
 const checkRateLimit = vi.fn(async (database: unknown, args: unknown) => { void database; void args; });
 const nudgeAdminAuthEmailOutbox = vi.fn((waitUntil: unknown) => { void waitUntil; });
 const handler = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }));
+const log = vi.fn();
 
 vi.mock("@/shared/lib/env", () => ({
   getEnv: () => ({ APP_ENV: "local" }),
@@ -32,10 +33,16 @@ vi.mock("@/features/auth", () => ({
   throttleAdminLogin: (...args: unknown[]) => throttleAdminLogin(...(args as [])),
   clearAdminLoginThrottle: (...args: unknown[]) => clearAdminLoginThrottle(...(args as [])),
   nudgeAdminAuthEmailOutbox: (...args: unknown[]) => nudgeAdminAuthEmailOutbox(...(args as [unknown])),
+  withCredentialVerificationBudget: async (work: () => Promise<unknown>) => work(),
 }));
 
 vi.mock("@/shared/server/rate-limit", () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...(args as [unknown, unknown])),
+  clientIp: (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown",
+}));
+
+vi.mock("@/shared/lib/log", () => ({
+  log: (...args: unknown[]) => log(...args),
 }));
 
 vi.mock("@/features/auth/server/better-auth", () => ({
@@ -59,8 +66,10 @@ describe("POST /api/auth/[...action] throttling", () => {
     throttleAdminLogin.mockClear();
     clearAdminLoginThrottle.mockClear();
     checkRateLimit.mockClear();
+    checkRateLimit.mockImplementation(async (database: unknown, args: unknown) => { void database; void args; });
     nudgeAdminAuthEmailOutbox.mockClear();
     handler.mockClear();
+    log.mockClear();
     handler.mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }));
   });
 
@@ -71,6 +80,10 @@ describe("POST /api/auth/[...action] throttling", () => {
 
     expect(throttleAdminLogin).toHaveBeenCalledTimes(1);
     expect(throttleAdminLogin).toHaveBeenCalledWith("organizer@example.com", "203.0.113.7");
+    expect(checkRateLimit.mock.calls.map((call) => call[1])).toEqual([
+      { key: "auth-signin-burst:ip:203.0.113.7", limit: 1, windowMs: 1_000 },
+      { key: "auth-signin-burst:account:organizer@example.com", limit: 3, windowMs: 1_000 },
+    ]);
     expect(handler).toHaveBeenCalledTimes(1);
     // The native contract is preserved — the throttle wraps the endpoint, it
     // does not re-shape the response.
@@ -91,9 +104,54 @@ describe("POST /api/auth/[...action] throttling", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("sheds a distributed burst before the durable throttle or verifier", async () => {
+    checkRateLimit.mockImplementationOnce(async () => {
+      const { AppError } = await import("@/shared/lib/errors");
+      throw new AppError("RATE_LIMITED", "Too many requests. Please try again shortly.");
+    });
+
+    const response = await post(["sign-in", "email"], {
+      email: "missing@example.com",
+      password: "a long enough password",
+    });
+
+    expect(response.status).toBe(429);
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(throttleAdminLogin).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      msg: "auth.credential_throttle",
+      code: "ip_limited",
+    }));
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "RATE_LIMITED", message: "Too many sign-in attempts. Try again shortly." },
+    });
+  });
+
+  it("sheds a distributed account-key burst without checking account existence", async () => {
+    checkRateLimit.mockImplementation(async (_database: unknown, args: unknown) => {
+      if ((args as { key?: string }).key?.includes(":account:")) {
+        const { AppError } = await import("@/shared/lib/errors");
+        throw new AppError("RATE_LIMITED", "Too many requests. Please try again shortly.");
+      }
+    });
+
+    const response = await post(["sign-in", "email"], {
+      email: "any-supplied-key@example.com",
+      password: "a long enough password",
+    });
+
+    expect(response.status).toBe(429);
+    expect(checkRateLimit).toHaveBeenCalledTimes(2);
+    expect(throttleAdminLogin).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ code: "account_limited" }));
+  });
+
   it("still throttles the stable /sign-in shape", async () => {
     await post(["sign-in"], { email: "organizer@example.com", password: "a long enough password" });
     expect(throttleAdminLogin).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledTimes(2);
   });
 
   it("forwards a non-credential endpoint untouched", async () => {
