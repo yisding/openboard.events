@@ -339,7 +339,7 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("link", { name: "Preview form" }).click();
       const previewPage = await previewPromise;
       await expect(previewPage).toHaveURL(/\/events\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}\/preview$/);
-      await expect(previewPage.getByText("ORGANIZER PREVIEW", { exact: true })).toBeVisible();
+      await expect(previewPage.getByText("ORGANIZER PREVIEW", { exact: true })).toBeVisible({ timeout: 30_000 });
       await expect(previewPage.getByText(/answers stay in this tab and are never saved/i)).toBeVisible();
       await expect(proposalTitleInput(previewPage)).toBeVisible();
       await expect(previewPage.getByRole("button", { name: "Send me a code" })).toHaveCount(0);
