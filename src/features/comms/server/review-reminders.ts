@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts } from "@/db/schema";
-import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
+import { linkUserContactIn, updateContactFields } from "@/features/event-contacts";
 import { idem, type ContactId, type EventId, type PlanId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
@@ -50,10 +50,11 @@ async function ensureReviewerContact(
   dbOrTx: DbOrTx,
   eventId: EventId,
   target: ReviewReminderTarget & { contactId: string | null },
-): Promise<ContactId> {
-  if (target.contactId) return target.contactId as ContactId;
+): Promise<ContactId | null> {
+  const resolution = await linkUserContactIn(dbOrTx, eventId, target.reviewerUserId, "reminder");
+  if (resolution.status !== "linked") return null;
 
-  const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), eventId, target.email);
+  const contactId = resolution.contactId;
   const [contact] = await dbOrTx.select({ firstName: contacts.firstName, lastName: contacts.lastName })
     .from(contacts)
     .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
@@ -69,9 +70,10 @@ async function ensureReviewerContact(
  * Reviewers on a round with work still to finish, and the event contact each
  * one's mail would go to.
  *
- * Reviewers are `users`; the outbox addresses `contacts`. The join is by email
- * inside this event, so a reviewer who is also a speaker keeps one contact row
- * and one communication log rather than acquiring a shadow identity.
+ * Reviewers are `users`; the outbox addresses `contacts`. Stable links are the
+ * authority. An unlinked reviewer has no contact at read time;
+ * `ensureReviewerContact` must write the durable relationship before any
+ * reminder is enqueued.
  */
 export async function listOutstandingReviewersIn(
   dbOrTx: DbOrTx,
@@ -79,16 +81,20 @@ export async function listOutstandingReviewersIn(
   planId: PlanId,
 ): Promise<Array<ReviewReminderTarget & { contactId: string | null }>> {
   const result = await dbOrTx.execute<OutstandingRow>(sql`
-    SELECT u.id AS reviewer_user_id, u.name, u.email, c.id AS contact_id,
+    SELECT u.id AS reviewer_user_id, u.name, u.email,
+           linked_contact.id AS contact_id,
            count(*)::int AS outstanding
     FROM review_assignments ra
     JOIN users u ON u.id = ra.reviewer_user_id
-    LEFT JOIN contacts c ON c.event_id = ra.event_id AND lower(c.email) = lower(u.email)
+    LEFT JOIN user_contact_links identity
+      ON identity.event_id = ra.event_id AND identity.user_id = ra.reviewer_user_id
+    LEFT JOIN contacts linked_contact
+      ON linked_contact.event_id = identity.event_id AND linked_contact.id = identity.contact_id
     LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
       AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
     WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
       AND ra.status = 'assigned' AND r.id IS NULL
-    GROUP BY u.id, u.name, u.email, c.id
+    GROUP BY u.id, u.name, u.email, linked_contact.id
     ORDER BY lower(u.name), u.email
   `);
   return (result.rows ?? []).map((row) => ({
@@ -136,6 +142,7 @@ export async function sendReviewRemindersIn(
     .filter((target) => wanted === null || wanted.has(target.reviewerUserId));
 
   let enqueued = 0;
+  let skipped = 0;
   const remindedUserIds: UserId[] = [];
   for (const target of targets) {
     // Existing event members are valid reviewers even when they have never
@@ -143,6 +150,10 @@ export async function sendReviewRemindersIn(
     // contact for suppression, rendering, and delivery history, so provision
     // that identity just in time through the canonical contact writers.
     const contactId = await ensureReviewerContact(dbOrTx, eventId, target);
+    if (!contactId) {
+      skipped += 1;
+      continue;
+    }
     await enqueueEmail(asOutboxWriter(dbOrTx), {
       eventId,
       templateKey: "review_reminder",
@@ -163,7 +174,7 @@ export async function sendReviewRemindersIn(
         )}]`})
     `);
   }
-  return { enqueued, skipped: 0 };
+  return { enqueued, skipped };
 }
 
 export const listOutstandingReviewers = (eventId: EventId, planId: PlanId) =>

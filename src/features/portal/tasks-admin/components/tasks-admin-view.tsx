@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { CalendarClock, CheckCircle2, FileText, MoreHorizontal, Plus, Search, Upload, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "@/features/comms/index.client";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, ProgressBar, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import type { TaskDTO } from "@/shared/contracts";
+import type { EventId, TaskDTO } from "@/shared/contracts";
 import type { AdminTaskDTO, FileRequestDTO, FormOption, TaskTabCounts } from "../server/queries";
 import { FileRequestsView } from "./file-requests-view";
 import { TaskEditor } from "./task-editor";
@@ -93,7 +94,13 @@ export function TasksAdminView({
   // now (a search or tab change while the drawer is open never leaves it
   // pointing at a row that has scrolled out of the visible list).
   const [matrixTaskId, setMatrixTaskId] = useState<string | null>(null);
+  const [reminderAcknowledgement, setReminderAcknowledgement] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<AdminTaskDTO | null>(null);
+  const reminderRecovery = useBulkReminderRecovery({
+    eventId: eventId as EventId,
+    surface: "task-matrix",
+    onAcknowledged: () => setReminderAcknowledgement((current) => current + 1),
+  });
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -106,7 +113,12 @@ export function TasksAdminView({
   }, [tasks, tab, search]);
 
   const taskIds = useMemo<string[]>(() => filtered.map((task) => task.id), [filtered]);
-  useFlowKeyboardNav({ ids: taskIds, activeId: matrixTaskId, onNavigate: setMatrixTaskId, onClose: () => setMatrixTaskId(null) });
+  useFlowKeyboardNav({
+    ids: taskIds,
+    activeId: matrixTaskId,
+    onNavigate: (id) => { if (!reminderRecovery.blocked) setMatrixTaskId(id); },
+    onClose: () => { if (!reminderRecovery.blocked) setMatrixTaskId(null); },
+  });
   const matrixIndex = matrixTaskId ? taskIds.indexOf(matrixTaskId) : -1;
   const matrixTask = matrixIndex !== -1 ? filtered[matrixIndex] : undefined;
 
@@ -266,15 +278,19 @@ export function TasksAdminView({
           eventId={eventId}
           task={matrixTask}
           timezone={timezone}
-          onClose={() => setMatrixTaskId(null)}
+          onClose={() => { if (!reminderRecovery.blocked) setMatrixTaskId(null); }}
+          reminderRecovery={reminderRecovery}
+          reminderAcknowledgement={reminderAcknowledgement}
           nav={{
             index: matrixIndex,
             total: taskIds.length,
-            ...(taskIds[matrixIndex - 1] ? { onPrev: () => setMatrixTaskId(taskIds[matrixIndex - 1] as string) } : {}),
-            ...(taskIds[matrixIndex + 1] ? { onNext: () => setMatrixTaskId(taskIds[matrixIndex + 1] as string) } : {}),
+            ...(taskIds[matrixIndex - 1] && !reminderRecovery.blocked ? { onPrev: () => setMatrixTaskId(taskIds[matrixIndex - 1] as string) } : {}),
+            ...(taskIds[matrixIndex + 1] && !reminderRecovery.blocked ? { onNext: () => setMatrixTaskId(taskIds[matrixIndex + 1] as string) } : {}),
           }}
         />
       )}
+
+      <BulkReminderRecoveryDialog controller={reminderRecovery} />
 
       <ConfirmDialog
         open={pendingDelete !== null}
