@@ -10,7 +10,7 @@ import { composeCrmBulkEmailIn } from "@/features/crm/server/bulk-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { composeBulkSpeakerEmailIn } from "./server/speaker-bulk";
 import { seedDefaultTemplates } from "./server/templates";
-import type { EmailMessage } from "./server/resend";
+import type { EmailMessage } from "@/shared/server/email-provider";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -97,15 +97,16 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     const result = await composeBulkSpeakerEmailIn(tx, eventId, {
       contactIds: [ada, grace],
       subject: "Hi {{speaker.first_name}}",
-      bodyHtml: "<p>See you at {{event.name}}, {{speaker.first_name}} {{speaker.last_name}}.</p>",
+      bodyHtml: "<p>See you at {{event.name}}, {{speaker.first_name}} {{speaker.last_name}} ({{event.timezone}}).</p>",
       mode: "preview",
       previewContactId: ada,
     });
     expect(result.queued).toBe(0);
     expect(result.skipped).toBe(0);
     expect(result.preview).toMatchObject({ recipientEmail: "ada@example.com", recipientName: "Ada Lovelace", subject: "Hi Ada" });
-    expect(result.preview?.bodyHtml).toContain("See you at AI Engineer, Ada Lovelace.");
-    expect(result.preview?.bodyText).toContain("See you at AI Engineer, Ada Lovelace.");
+    expect(result.preview?.bodyHtml).toContain("See you at AI Engineer, Ada Lovelace (PDT).");
+    expect(result.preview?.bodyHtml).not.toContain("America/Los_Angeles");
+    expect(result.preview?.bodyText).toContain("See you at AI Engineer, Ada Lovelace (PDT).");
     const rows = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM communication_logs");
     expect(rows.rows[0]?.n).toBe(0);
   });

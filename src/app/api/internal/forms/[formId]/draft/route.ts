@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { saveCfpDraft } from "@/features/forms/server/submit";
-import { secondaryParticipantRoleSchema } from "@/features/forms/participant-roles";
+import { saveCfpDraft } from "@/features/cfp";
+import { secondaryParticipantRoleSchema } from "@/features/forms/index.submission";
 import { upsertDraft } from "@/features/submissions";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";

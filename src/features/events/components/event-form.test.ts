@@ -26,6 +26,8 @@ describe("EventForm accessibility", () => {
     expect(html).toContain('id="event-slug-help"');
     expect(html).toContain('id="event-starts-at"');
     expect(html).toContain('id="event-ends-at"');
+    expect(html).toMatch(/<option value="America\/Los_Angeles" selected="">[^<]*Los Angeles<\/option>/);
+    expect(html).not.toContain('>America/Los_Angeles</option>');
     expect(html).toContain('type="submit"');
   });
 

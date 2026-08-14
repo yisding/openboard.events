@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
-import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -168,7 +168,7 @@ export function DirectoryView({
       id: "source",
       header: "Source",
       accessorKey: "source",
-      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: 11, textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
+      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)", textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
     },
     {
       id: "lastActivityAt",

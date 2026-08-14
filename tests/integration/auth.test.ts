@@ -5,10 +5,10 @@ import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { authenticateAdmin, authorizeAdmin, hashPassword, requiredRoleForEventPath, signAdminToken, verifyAdminToken, verifyPassword } from "@/features/auth";
+import { authorizeAdmin, requiredRoleForEventPath, throttleAdminLogin } from "@/features/auth";
 import { authenticateApiKey } from "@/features/auth/server/guards";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
-import { sha256 } from "@/features/auth/server/crypto";
+import { sha256 } from "@/shared/lib/crypto";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -21,7 +21,6 @@ const eventA = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
 const organizerId = userIdSchema.parse("a0000000-0000-4000-8000-000000000003");
 const reviewerId = userIdSchema.parse("a0000000-0000-4000-8000-000000000004");
-const secret = "test-session-secret-that-is-at-least-32-bytes";
 
 describe("admin authentication", () => {
   let pglite: PGlite;
@@ -58,47 +57,11 @@ describe("admin authentication", () => {
     expect(requiredRoleForEventPath(eventA, `/events/${eventA}/settings`)).toBe("organizer");
   });
 
-  it("hashes passwords with PBKDF2 and rejects the wrong password", async () => {
-    const encoded = await hashPassword("correct horse battery staple", new Uint8Array(16).fill(7));
-    expect(encoded).toMatch(/^pbkdf2-sha256\$100000\$/u);
-    await expect(verifyPassword("correct horse battery staple", encoded)).resolves.toBe(true);
-    await expect(verifyPassword("wrong password", encoded)).resolves.toBe(false);
-  });
-
-  it("signs expiring HS256 sessions and rejects tampering", async () => {
-    const identity = { userId: organizerId, email: "organizer@example.com", name: "Organizer" };
-    const token = await signAdminToken(identity, secret);
-    await expect(verifyAdminToken(token, secret)).resolves.toEqual(identity);
-    const parts = token.split(".");
-    const signature = parts[2];
-    if (!parts[0] || !parts[1] || !signature) throw new Error("expected compact JWT");
-    const tampered = `${parts[0]}.${parts[1]}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
-    await expect(verifyAdminToken(tampered, secret)).resolves.toBeNull();
-  });
-
-  it("refuses fallback sign-in until the account has verified its email", async () => {
-    const password = "fallback-verification-test";
-    const passwordHash = await hashPassword(password, new Uint8Array(16).fill(9));
-    await pglite.query(
-      "UPDATE users SET password_hash=$1,email_verified=false WHERE id=$2",
-      [passwordHash, organizerId],
-    );
-
-    await expect(authenticateAdmin("organizer@example.com", password, "192.0.2.20", tx)).resolves.toBeNull();
-
-    await pglite.query("UPDATE users SET email_verified=true WHERE id=$1", [organizerId]);
-    await expect(authenticateAdmin("organizer@example.com", password, "192.0.2.20", tx)).resolves.toMatchObject({
-      userId: organizerId,
-      email: "organizer@example.com",
-    });
-  });
-
-  it("rate-limits unknown admin credentials without storing the email", async () => {
-    const invalidCredential = ["invalid", "credential"].join("-");
+  it("rate-limits admin sign-in attempts without storing the email", async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await expect(authenticateAdmin("missing@example.com", invalidCredential, "192.0.2.10", tx)).resolves.toBeNull();
+      await expect(throttleAdminLogin("missing@example.com", "192.0.2.10", tx)).resolves.toBeTruthy();
     }
-    await expect(authenticateAdmin("missing@example.com", invalidCredential, "192.0.2.10", tx)).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    await expect(throttleAdminLogin("missing@example.com", "192.0.2.10", tx)).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const attempts = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM admin_login_attempts");
     expect(attempts.rows).toHaveLength(1);
     expect(attempts.rows[0]?.key_hash).not.toContain("missing@example.com");

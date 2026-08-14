@@ -29,7 +29,7 @@ describe("agenda Day view room recovery", () => {
 
   it("does not promise a drag destination until a room exists", () => {
     expect(dayView).toContain("canPlace={rooms.length > 0}");
-    expect(tray).toContain('canPlace ? "Drag onto the grid to place." : "Add a room before placing sessions."');
+    expect(tray).toContain('canPlace ? "Drag onto the grid, or open a session to place it precisely." : "Add a room, then open a session to place it."');
     expect(tray).toContain('canPlace ? "Drag into a room to place." : "Add a room, then place these timed sessions."');
   });
 });

@@ -232,6 +232,27 @@
       "when": 1786665419000,
       "tag": "0032_participant_step_receipts",
       "breakpoints": false
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786670400000,
+      "tag": "0033_retire_fallback_auth",
+      "breakpoints": false
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786672924248,
+      "tag": "0034_public_schedule_revision",
+      "breakpoints": false
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786674000000,
+      "tag": "0035_crm_pipeline_creation_payload",
+      "breakpoints": false
     }
   ]
 }

@@ -3,7 +3,7 @@
 import { Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseCsv } from "@/features/portal/server/speaker-csv";
+import { parseCsv } from "@/features/portal/index.csv";
 import { SPEAKER_CSV_FIELDS, type ImportSpeakersCsvResult, type SpeakerCsvColumnMapping, type SpeakerCsvField } from "@/shared/contracts";
 import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";

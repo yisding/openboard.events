@@ -1,10 +1,8 @@
-export type { AdminSession } from "./server/admin";
-export { authenticateAdmin, authorizeAdmin, getAdminSession, requireAdmin, requiredRoleForEventPath, roleSatisfies } from "./server/admin";
-// M42 — provider-agnostic additions. `requireAdmin(eventId, role?)` itself is
-// unchanged in signature and semantics; these sit beside it.
+export type { AdminIdentity, AdminSession } from "./server/admin";
+export { authorizeAdmin, getAdminSession, requireAdmin, requiredRoleForEventPath, roleSatisfies } from "./server/admin";
 export { clearAdminLoginThrottle, revokeAdminSessions, throttleAdminLogin } from "./server/admin";
 export { hashAdminPassword, needsRehash, verifyAdminPassword } from "./server/admin-password";
-export { upsertCredentialAccount } from "./server/credential-account";
+export { upsertAdminCredentialAccount } from "./server/credential-account";
 export type { PortalSession } from "./server/portal";
 export { logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, verifyPortalLogin } from "./server/portal";
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";
@@ -30,7 +28,6 @@ export { adminAuth, apiKeyAuth, authenticatedAuth, cronAuth, organizationAuth, p
 // same UNAUTHORIZED/FORBIDDEN split over `organization_members`.
 export type { OrganizationSession } from "./server/admin";
 export { authorizeOrganization, requireOrganizationAdmin } from "./server/admin";
-export { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, adminCookieOptions, hashPassword, signAdminToken, verifyAdminToken, verifyPassword } from "./server/fallback-session";
 // M44 — self-service admin session views over M42's revocable session store.
 export type { AdminSessionSummary } from "./server/sessions";
 export { listAdminSessions, listAdminSessionsIn, revokeAdminSessionById, revokeAdminSessionByIdIn } from "./server/sessions";

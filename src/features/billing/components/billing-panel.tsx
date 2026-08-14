@@ -106,7 +106,7 @@ export function BillingPanel({
             <strong>{candidate.name}</strong>
             <p style={{ margin: "4px 0 12px", color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
             {isCurrent
-              ? <StatusBadge value="current plan" />
+              ? <StatusBadge value="current_plan" />
               : canManage
                 ? <Button size="sm" variant="secondary" onClick={() => void choosePlan(candidate)} disabled={pendingPlanId !== null}>
                     {pendingPlanId === candidate.id ? "Starting…" : "Choose plan"}

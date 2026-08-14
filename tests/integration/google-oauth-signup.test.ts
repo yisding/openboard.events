@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { userLegalAcceptances, users } from "@/db/schema";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
 import { OAUTH_SIGNUP_INTENT_COOKIE, sealOAuthSignupIntent } from "@/features/auth/server/oauth-signup-intent";
-import { toBase64Url } from "@/features/auth/server/crypto";
+import { toBase64Url } from "@/shared/lib/crypto";
 import { parseEnv } from "@/shared/lib/env";
 
 /**
@@ -28,7 +28,6 @@ const env = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-  ADMIN_AUTH_PROVIDER: "better-auth",
   GOOGLE_CLIENT_ID: "test-google-client-id",
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
 });
@@ -270,7 +269,6 @@ describe("Google OAuth signup", () => {
       APP_ENV: "local",
       APP_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-      ADMIN_AUTH_PROVIDER: "better-auth",
       GOOGLE_CLIENT_ID: "test-google-client-id",
       GOOGLE_CLIENT_SECRET: "test-google-client-secret",
       LEGAL_TERMS_URL: "https://openboard.example/terms",
@@ -293,7 +291,6 @@ describe("Google OAuth signup", () => {
       APP_ENV: "local",
       APP_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-      ADMIN_AUTH_PROVIDER: "better-auth",
       GOOGLE_CLIENT_ID: "test-google-client-id",
       GOOGLE_CLIENT_SECRET: "test-google-client-secret",
       LEGAL_TERMS_URL: "https://openboard.example/terms",

@@ -51,4 +51,7 @@ export const speakerBulkMessages = pgTable("speaker_bulk_messages", {
   subject: text("subject").notNull(),
   bodyHtml: text("body_html").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [index("speaker_bulk_messages_event_idx").on(table.eventId, table.createdAt)]);
+}, (table) => [
+  index("speaker_bulk_messages_event_idx")
+    .on(table.eventId, table.createdAt.desc().nullsFirst()),
+]);

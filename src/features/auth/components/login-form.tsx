@@ -11,7 +11,6 @@ import { GoogleMark } from "./google-mark";
 
 type LoginFormProps = {
   googleEnabled?: boolean;
-  signupEnabled?: boolean;
 };
 
 export function googleSignInErrorMessage(code: string | null): string {
@@ -21,7 +20,7 @@ export function googleSignInErrorMessage(code: string | null): string {
     : "Google sign-in did not finish. Try again or continue with email.";
 }
 
-export function LoginForm({ googleEnabled = false, signupEnabled = false }: LoginFormProps) {
+export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedNext = searchParams.get("next");
@@ -147,6 +146,6 @@ export function LoginForm({ googleEnabled = false, signupEnabled = false }: Logi
     {/* The only route into M42's reset flow. `/login/reset` is where the
         emailed link lands; `/login/forgot` is what causes it to be sent. */}
     <p><Link href={forgotPasswordHref}>Forgot your password?</Link></p>
-    {signupEnabled && <p>New to Openboard? <Link href={signupHref}>Create your workspace</Link></p>}
+    <p>New to Openboard? <Link href={signupHref}>Create your workspace</Link></p>
   </form>;
 }

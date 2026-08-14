@@ -19,7 +19,7 @@ import {
   type UpdateSpeakerProfileInput,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { getOrCreateContact, updateContactFields, type ContactPatch } from "./contacts";
+import { getOrCreateContact, updateContactFields, type ContactPatch } from "@/features/event-contacts";
 import { parseCsv, readSpeakerCsvRows } from "./speaker-csv";
 
 /**

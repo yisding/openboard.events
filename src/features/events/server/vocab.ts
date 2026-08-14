@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx } from "@/db/client";
 import { isConstraintViolation } from "@/db/errors";
-import { embeds, rooms, sessionFormats, tags, tracks } from "@/db/schema";
+import { embeds, rooms, sessionFormats, sessions, tags, tracks } from "@/db/schema";
 import {
   roomDtoSchema,
   sessionFormatDtoSchema,
@@ -171,15 +171,39 @@ async function updateRow(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: 
       return row;
     }
     case "rooms": {
-      const [row] = await dbOrTx.update(rooms)
-        .set({
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
-          updatedAt: now,
-        })
-        .where(and(eq(rooms.id, id), eq(rooms.eventId, eventId)))
-        .returning();
-      return row;
+      const nextName = input.name === undefined ? sql`room.name` : sql`${input.name}`;
+      const nextCapacity = input.capacity === undefined ? sql`room.capacity` : sql`${input.capacity}`;
+      const result = await dbOrTx.execute<{ id: string; name: string; capacity: number | null; sortOrder: number }>(sql`
+        WITH prior AS MATERIALIZED (
+          SELECT id, name FROM rooms
+          WHERE id = ${id} AND event_id = ${eventId}
+          FOR UPDATE
+        ), room_update AS (
+          UPDATE rooms AS room SET
+            name = ${nextName},
+            capacity = ${nextCapacity},
+            updated_at = ${now}
+          FROM prior
+          WHERE room.id = prior.id AND room.event_id = ${eventId}
+          RETURNING room.id, room.name, room.capacity, room.sort_order, prior.name AS prior_name
+        ), revision_bumps AS (
+          UPDATE ${sessions} AS session SET
+            schedule_revision = session.schedule_revision + 1,
+            updated_at = greatest(session.updated_at + interval '1 millisecond', clock_timestamp())
+          FROM room_update
+          WHERE room_update.name IS DISTINCT FROM room_update.prior_name
+            AND session.event_id = ${eventId}
+            AND session.room_id = room_update.id
+            AND session.status::text = 'published'
+            AND session.starts_at IS NOT NULL
+          RETURNING session.id
+        )
+        SELECT room_update.id, room_update.name, room_update.capacity,
+               room_update.sort_order AS "sortOrder"
+        FROM room_update
+        CROSS JOIN (SELECT count(*) FROM revision_bumps) AS applied
+      `);
+      return (result.rows ?? [])[0];
     }
     case "formats": {
       const [row] = await dbOrTx.update(sessionFormats)
@@ -276,7 +300,35 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
       sql`(${embeds.filters} -> ${filterKey}) @> jsonb_build_array(${id}::text)`,
     ));
   }
-  await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
+  if (kind === "rooms") {
+    // Clear the assignment ourselves before deleting the room so the FK's
+    // ON DELETE SET NULL has no second write to perform. Published, scheduled
+    // sessions advance exactly once because LOCATION changed; drafts retain
+    // the existing no-public-revision behavior.
+    await dbOrTx.execute(sql`
+      WITH target AS MATERIALIZED (
+        SELECT id FROM ${rooms}
+        WHERE ${rooms.id} = ${id} AND ${rooms.eventId} = ${eventId}
+        FOR UPDATE
+      ), cleared AS (
+        UPDATE ${sessions} AS session SET
+          room_id = NULL,
+          schedule_revision = session.schedule_revision + CASE
+            WHEN session.status::text = 'published' AND session.starts_at IS NOT NULL THEN 1 ELSE 0 END,
+          updated_at = greatest(session.updated_at + interval '1 millisecond', clock_timestamp())
+        FROM target
+        WHERE session.event_id = ${eventId} AND session.room_id = target.id
+        RETURNING session.id
+      ), cleared_count AS (
+        SELECT count(*) FROM cleared
+      )
+      DELETE FROM ${rooms} AS room
+      USING target, cleared_count
+      WHERE room.id = target.id AND room.event_id = ${eventId}
+    `);
+  } else {
+    await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
+  }
 }
 export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => withTx((tx) => deleteVocabItemIn(tx, eventId, kind, id));
 

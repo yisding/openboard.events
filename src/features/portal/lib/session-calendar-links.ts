@@ -1,4 +1,4 @@
-import { googleCalendarUrl, outlookCalendarUrl } from "@/features/comms/ics";
+import { googleCalendarUrl, outlookCalendarUrl } from "@/features/comms/index.calendar";
 import type { MySessionDTO } from "@/shared/contracts";
 
 /**

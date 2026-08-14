@@ -6,7 +6,7 @@ import type { HandlerGuard, RouteParams } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { getAdminIdentity, requireAdmin, requireOrganizationAdmin } from "./admin";
-import { safeEqual, sha256 } from "./crypto";
+import { safeEqual, sha256 } from "@/shared/lib/crypto";
 import { requirePortalByEventId } from "./portal";
 
 /**

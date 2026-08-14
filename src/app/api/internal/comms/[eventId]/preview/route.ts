@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { renderTemplateContent } from "@/features/comms";
-import { SAMPLE_VARS } from "@/features/comms/components/sample-vars";
+import { SAMPLE_VARS } from "@/features/comms/index.templates";
 import { templateKeySchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 

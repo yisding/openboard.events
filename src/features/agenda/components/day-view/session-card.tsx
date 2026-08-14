@@ -2,6 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { AlertTriangle } from "lucide-react";
 import { useMemo, type CSSProperties } from "react";
 import type { ScheduledSessionDTO, TrackDTO } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
@@ -11,6 +12,10 @@ import { ResizeHandles } from "./resize-handles";
 
 function initialsOf(name: string): string {
   return name.trim().split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+}
+
+export function isCompactSession(durationMinutes: number): boolean {
+  return durationMinutes <= 45;
 }
 
 /**
@@ -29,6 +34,8 @@ export function SessionCard({
   roomIndex,
   startRow,
   endRow,
+  durationMinutes,
+  lane,
   track,
   speakerNames,
   timezone,
@@ -38,6 +45,8 @@ export function SessionCard({
   roomIndex: number;
   startRow: number;
   endRow: number;
+  durationMinutes: number;
+  lane: { index: number; count: number };
   track: TrackDTO | null;
   speakerNames: string[];
   timezone: string;
@@ -54,6 +63,7 @@ export function SessionCard({
     if (hits.length === 0) return null;
     return hits.some((conflict) => conflict.severity === "error") ? "error" : "warning";
   }, [conflicts, session.id]);
+  const compact = isCompactSession(durationMinutes);
 
   // Mirrors `<ColorChip>`'s alpha-suffix pattern: the track's own hex colour,
   // never a feature-local palette, so this card looks identical to the same
@@ -66,9 +76,17 @@ export function SessionCard({
     gridRow: `${startRow} / ${endRow}`,
     // +1 for 1-based grid lines, +1 again for the time-label column at index 1.
     gridColumn: roomIndex + 2,
+    left: lane.count > 1 ? `${(lane.index * 100) / lane.count}%` : undefined,
+    width: lane.count > 1 ? `calc(${100 / lane.count}% - 8px)` : undefined,
+    justifySelf: lane.count > 1 ? "start" : undefined,
     transform: transform ? CSS.Translate.toString(transform) : undefined,
     touchAction: "none",
     ...trackStyle,
+    ...(severity === "error"
+      ? { borderTopColor: "var(--red)", borderRightColor: "var(--red)", borderBottomColor: "var(--red)" }
+      : severity === "warning"
+        ? { borderTopColor: "var(--amber)", borderRightColor: "var(--amber)", borderBottomColor: "var(--amber)" }
+        : {}),
   };
 
   return (
@@ -78,21 +96,30 @@ export function SessionCard({
       className={cn(
         "dv-session-card",
         severity && `dv-session-card--${severity}`,
+        compact && "dv-session-card--compact",
+        durationMinutes < 30 && "dv-session-card--single-line",
         isDragging && "dv-session-card--dragging",
       )}
-      aria-label={`${session.title}, drag to reschedule`}
+      aria-label={`${session.title}${severity ? ", has a scheduling conflict" : ""}, drag to reschedule`}
+      title={speakerNames.length > 0 ? `${session.title} · ${speakerNames.join(", ")}` : session.title}
       onDoubleClick={() => onEdit?.(String(session.id))}
       {...attributes}
       {...listeners}
     >
       <ResizeHandles session={session} />
-      <b>{session.title}</b>
-      <span className="dv-session-card-time">
-        <TzTime instant={session.startsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} />
-        {" – "}
-        <TzTime instant={session.endsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} />
-      </span>
-      {speakerNames.length > 0 && (
+      {severity && <AlertTriangle className="dv-session-card-conflict-icon" size={13} aria-hidden="true" />}
+      {compact ? <div className="dv-session-card-compact-line">
+        <span className="dv-session-card-time"><TzTime instant={session.startsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} zoneDisplay="context" /></span>
+        <b>{session.title}</b>
+      </div> : <>
+        <b>{session.title}</b>
+        <span className="dv-session-card-time">
+          <TzTime instant={session.startsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} zoneDisplay="context" />
+          {" – "}
+          <TzTime instant={session.endsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} zoneDisplay="context" />
+        </span>
+      </>}
+      {!compact && speakerNames.length > 0 && (
         <span className="dv-session-card-speakers">{speakerNames.map(initialsOf).join(" ")}</span>
       )}
     </div>

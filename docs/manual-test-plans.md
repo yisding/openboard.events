@@ -64,25 +64,10 @@ BOOTSTRAP_REVIEWER_PASSWORD=<12+ chars> \
 pnpm admin:bootstrap
 ```
 
-Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, `EMAIL_FALLBACK_UI=1`,
-`TEST_AUTH=1`, `ADMIN_AUTH_PROVIDER=fallback` — unless a plan says otherwise. Those five are what
-make OTPs visible in the browser and email inspectable without Resend.
-
-**Two plans do say otherwise.** `ADMIN_AUTH_PROVIDER` selects between two admin auth
-implementations with disjoint session storage, and some surfaces exist under only one of them:
-
-| Surface | `fallback` | `better-auth` |
-|---|---|---|
-| Sign in / sign out | ✅ | ✅ |
-| `POST /api/test/login` (the `TEST_AUTH` backdoor) | ✅ | ❌ `409`, by design |
-| `/login/forgot` → reset | ❌ the page says so plainly — there is no reset endpoint | ✅ |
-| `/account/sessions`, revoke, revoke-all | ❌ the cookie is a stateless JWT with no `admin_sessions` row | ✅ |
-| `/signup` (`POST /api/auth/sign-up/email`) | ❌ | ✅ |
-
-So **MTP-02 §2 and MTP-13 step 1 require `ADMIN_AUTH_PROVIDER=better-auth` and a restart**; every
-other plan runs on `fallback`. Switching is safe mid-campaign: passwords are mirrored both ways, so
-the password you bootstrapped works on either provider. Switching *back* after a reset does not
-invalidate a fallback cookie issued before the switch — rotate `SESSION_SECRET` if that matters.
+Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, and
+`EMAIL_FALLBACK_UI=1`. Those settings make speaker OTPs and outbound email inspectable without
+Resend. Admin authentication always uses Better Auth; there is no provider switch or test-only
+session endpoint.
 
 **File uploads** presign against real R2. Either fill `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME=sb-files-dev`, or run those steps on Env C. CORS is only
@@ -207,10 +192,10 @@ by keyboard, not merely by counting tags.
 ([#116](https://github.com/yisding/symmetrical-happiness/issues/116))
 
 Admin scheduling, review windows, task deadlines, and speaker unavailability now use the shared
-`DateTimePicker`, with the event timezone named at entry. `src/features/native-date-controls.test.ts`
-guards against new raw `date`/`datetime-local` controls on admin surfaces. The public form renderer's
-deliberate **Date** question remains a native date control; it represents a calendar date rather than
-an instant and therefore has no timezone conversion.
+`DateTimePicker`, with the event timezone named at entry. `tests/unit/source-invariants.test.ts`
+guards against new raw `date`/`datetime-local` controls on every surface. The public form renderer's
+deliberate **Date** question uses `CalendarDatePicker`; it represents a calendar date rather than an
+instant and therefore has no timezone conversion.
 
 ---
 
@@ -856,12 +841,6 @@ pipeline on every merge to `main`.
 
 **Environments:** A, **C for the throttle** · **Duration:** ~40 min
 
-This plan runs in two halves under **two different values of `ADMIN_AUTH_PROVIDER`** (see §0.2's
-table). Do not try to run it as one pass — half the steps are unreachable under either provider
-alone, and a tester who does not know that will file the absences as bugs.
-
-### §1 Under `ADMIN_AUTH_PROVIDER=fallback` (the default)
-
 | # | Action | Expected result |
 |---|---|---|
 | 1 | Visit an event URL signed out | Redirect to `/login`, return path preserved |
@@ -871,39 +850,22 @@ alone, and a tester who does not know that will file the absences as bugs.
 | 5 | Sign in as the reviewer | Only **Review queue** in the nav; role reads **Reviewer** |
 | 6 | Reviewer hand-types `/events/<eventId>/settings` | Denied |
 | 7 | Reviewer hand-types the other event's dashboard | Denied — scoping is per-event membership |
-| 8 | Open `/login/forgot` | The page states plainly that reset is unavailable on this provider. It does **not** show a form that promises an email nothing will send |
-| 9 | `POST /api/test/login` with `TEST_AUTH=1` | `200` and an admin cookie |
-| 10 | `TEST_AUTH=0`, restart, repeat | `404` |
-| 11 | *(C)* Six paced wrong-password attempts | Five `401`s then `429 RATE_LIMITED` |
-
-### §2 Under `ADMIN_AUTH_PROVIDER=better-auth`
-
-**Precondition:** set `ADMIN_AUTH_PROVIDER=better-auth` in `.dev.vars` and restart `pnpm dev`. Your
-bootstrapped password still works — passwords are mirrored between the providers. Sign in again
-before step 12; the fallback cookie from §1 is not read by this provider.
-
-| # | Action | Expected result |
-|---|---|---|
-| 12 | `/login/forgot` with the organizer's address | A form, and a confirmation identical whether or not the address exists |
-| 13 | Drain the outbox; read the log | A reset message with a working `/login/reset?token=…` link. The token is redacted in the log's stored copy |
-| 14 | Use the link; set a new password; reuse the link | Reset succeeds; the link is single-use |
-| 15 | Sign in with new, then old password | New works; old rejected |
-| 16 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time — these are real `admin_sessions` rows |
-| 17 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation, not just a cleared cookie |
-| 18 | **Sign out everywhere** | Every session including the current one ends |
-| 19 | `POST /api/test/login` with `TEST_AUTH=1` still set | `409` naming the provider mismatch — it refuses rather than minting a cookie the next request ignores |
-| 20 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
-| 21 | Switch back to `fallback`, restart, and sign in with the password set in step 14 | Works — the reset was mirrored back |
+| 8 | `/login/forgot` with the organizer's address | A form, and a confirmation identical whether or not the address exists |
+| 9 | Drain the outbox; read the log | A reset message with a working `/login/reset?token=…` link. The token is redacted in the log's stored copy |
+| 10 | Use the link; set a new password; reuse the link | Reset succeeds; the link is single-use |
+| 11 | Sign in with new, then old password | New works; old rejected |
+| 12 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time — these are real `admin_sessions` rows |
+| 13 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation, not just a cleared cookie |
+| 14 | **Sign out everywhere** | Every session including the current one ends |
+| 15 | *(C)* Six paced wrong-password attempts | Five `401`s then `429 RATE_LIMITED` |
+| 16 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
+| 17 | `POST /api/test/login` | `404`; the retired session-minting backdoor does not exist |
 
 **Design checks.** §0.7 on `/login`, `/login/forgot`, `/login/reset`, `/account/sessions`. D4 matters
-most here: an auth error that is vague is a support ticket, and step 8's "unavailable" message is
-only good if it says *why* and what to do.
+most here: an auth error that is vague is a support ticket.
 
 **Known gaps.** Unpaced attempts on Env C hit Cloudflare 1102/503 before the app throttle answers —
-pace step 11 (~1 s) or the result is inconclusive. Step 21's revert has one sharp edge: the
-fallback's cookie is a stateless 7-day JWT with no server record, so a reset performed under
-`better-auth` cannot invalidate a fallback cookie issued *before* the switch. Rotate `SESSION_SECRET`
-if you are testing that boundary.
+pace step 15 (~1 s) or the result is inconclusive.
 
 ---
 
@@ -1021,10 +983,8 @@ a production-mode render is a P0.
 
 **Environments:** A · **Duration:** ~60 min
 
-**Precondition:** step 1 needs `ADMIN_AUTH_PROVIDER=better-auth` and a restart — `/signup` posts to
-`POST /api/auth/sign-up/email`, which is a Better Auth endpoint and answers `404` under `fallback`
-(§0.2). Steps 2 onward work on either provider; if you would rather not switch, start from step 2
-using an organization you already belong to and note that self-serve signup went untested.
+`/signup` uses Better Auth's email-signup endpoint in every environment. Configure Google only if
+you also want to exercise the optional social-signup path.
 
 Billing is outside the deployed launch scope while only the stub provider exists. Steps 17–18
 require an explicit local `BILLING_MODE=scaffold`; preview and production validation reject that

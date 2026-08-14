@@ -2,9 +2,10 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Wand2 } from "lucide-react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { Button } from "@/shared/ui/ui-kit";
 import type { NameLookup } from "../../store";
 
 /**
@@ -66,24 +67,31 @@ export function UnscheduledPanel({
   sessions,
   lookup,
   canPlace,
+  onAutoPlace,
   onEdit,
 }: {
   sessions: ScheduledSessionDTO[];
   lookup: NameLookup;
   canPlace: boolean;
+  onAutoPlace: () => void;
   onEdit?: (id: string) => void;
 }) {
   return (
     <aside className="dv-unscheduled-panel">
       <header>
-        <h3>Unscheduled</h3>
-        <span>{sessions.length}</span>
+        <div>
+          <h3>Unscheduled</h3>
+          <span>{sessions.length}</span>
+        </div>
+        <Button variant="secondary" size="sm" disabled={sessions.length === 0} onClick={onAutoPlace}>
+          <Wand2 size={14} aria-hidden /> Auto-place
+        </Button>
       </header>
       {sessions.length === 0
         ? <p className="dash">Everything is placed.</p>
         : (
           <>
-            <p className="dv-unscheduled-hint">{canPlace ? "Drag onto the grid to place." : "Add a room before placing sessions."}</p>
+            <p className="dv-unscheduled-hint">{canPlace ? "Drag onto the grid, or open a session to place it precisely." : "Add a room, then open a session to place it."}</p>
             {sessions.map((session) => <TrayCard key={String(session.id)} session={session} lookup={lookup} type="unscheduled" {...(onEdit ? { onEdit } : {})} />)}
           </>
         )}

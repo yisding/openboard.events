@@ -34,8 +34,8 @@ function TaskCard({ task, eventSlug, timezone }: { task: MyTaskDTO; eventSlug: s
       <span className={`portal-task-icon ${task.completionMode}`}>{MODE_ICON[task.completionMode]}</span>
       <div>
         <div className="portal-task-meta">
-          <StatusBadge value={task.completed ? "Complete" : task.completionMode.replace("_", " ")} />
-          {task.overdue && <StatusBadge value="Overdue" />}
+          <StatusBadge value={task.completed ? "complete" : task.completionMode} />
+          {task.overdue && <StatusBadge value="overdue" />}
           {task.dueAt && !task.completed && (
             <span className="due-label">Due <TzTime instant={task.dueAt} tz={timezone} style="date" /></span>
           )}

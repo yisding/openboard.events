@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { safeEqual } from "@/features/auth/server/crypto";
+import { safeEqual } from "@/shared/lib/crypto";
 import type { SuppressionReason } from "@/shared/contracts";
 
 /**

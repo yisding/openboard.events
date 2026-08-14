@@ -302,7 +302,8 @@ export const resolveCrmSegment = (organizationId: OrganizationId, filter: CrmSeg
 export async function listCrmPipelineIn(dbOrTx: DbOrTx, organizationId: OrganizationId, stage?: CrmPipelineStage) {
   const predicates = [eq(organizationContactPipeline.organizationId, organizationId)];
   if (stage) predicates.push(eq(organizationContactPipeline.stage, stage));
-  const rows = await dbOrTx.select().from(organizationContactPipeline).where(and(...predicates)).orderBy(desc(organizationContactPipeline.updatedAt));
+  const rows = await dbOrTx.select().from(organizationContactPipeline).where(and(...predicates))
+    .orderBy(desc(organizationContactPipeline.updatedAt), asc(organizationContactPipeline.id));
   return rows.map((row) => crmPipelineEntryDtoSchema.parse({
     id: row.id, organizationContactId: row.organizationContactId, targetEventId: row.targetEventId, stage: row.stage,
     notes: row.notes, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),

@@ -154,6 +154,25 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("link", { name: "Create your workspace", exact: true })).toBeVisible();
       await page.getByRole("link", { name: "Create your workspace", exact: true }).click();
       await expect(page).toHaveURL(/\/signup$/);
+      const desktopViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      const passwordMetrics = await page.locator(".auth-password-input").evaluate((element) => {
+        const input = element.querySelector("input");
+        const toggle = element.querySelector("button");
+        if (!input || !toggle) throw new Error("Signup password control is incomplete");
+        const inputBox = input.getBoundingClientRect();
+        const toggleBox = toggle.getBoundingClientRect();
+        return {
+          toggleWidth: toggleBox.width,
+          toggleHeight: toggleBox.height,
+          verticalCenterDelta: Math.abs((inputBox.top + inputBox.bottom - toggleBox.top - toggleBox.bottom) / 2),
+        };
+      });
+      expect(passwordMetrics.toggleWidth).toBeGreaterThanOrEqual(44);
+      expect(passwordMetrics.toggleHeight).toBeGreaterThanOrEqual(44);
+      expect(passwordMetrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
+
       await page.getByLabel("Your name").fill(personName);
       await page.getByLabel("Organization name").fill(organizationName);
       await page.getByLabel("Email address").fill(SIGNUP_EMAIL);
@@ -173,6 +192,20 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByLabel("Email address")).toHaveAttribute("readonly", "");
       await expect(page.getByRole("link", { name: "Start again with the correct address" }))
         .toHaveAttribute("href", "/signup?next=%2Forganizations");
+
+      await page.setViewportSize({ width: 320, height: 700 });
+      const inboxCopy = page.getByText(SIGNUP_EMAIL, { exact: true }).locator("..");
+      const mobileReadability = await inboxCopy.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+          scrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(mobileReadability.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+      expect(mobileReadability.scrollWidth).toBeLessThanOrEqual(mobileReadability.viewportWidth);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
 
       if (E2E_FALLBACK_ACTIVATION) {
         const fallback = page.getByRole("link", { name: "Confirm email and continue" });
@@ -194,12 +227,34 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
+      const onboardingViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      expect((await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height)
+        .toBeGreaterThanOrEqual(44);
+      if (onboardingViewport) await page.setViewportSize(onboardingViewport);
     });
 
     await test.step("create the first event and tracks", async () => {
+      const desktopViewport = page.viewportSize();
+      await page.setViewportSize({ width: 600, height: 800 });
+      const progress = page.getByRole("list", { name: "Setup progress" });
+      for (const label of ["Event details", "Tracks", "First form", "Share"]) {
+        await expect(progress.getByText(label, { exact: true })).toBeVisible();
+      }
+      const progressLayout = await progress.evaluate((element) => ({
+        right: element.getBoundingClientRect().right,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      }));
+      expect(progressLayout.right).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      expect(progressLayout.scrollWidth).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
+
       await eventNameInput(page).fill(eventName);
       await eventTimezoneInput(page).selectOption(ONBOARDING_TIMEZONE);
       await expect(eventTimezoneInput(page)).toHaveValue(ONBOARDING_TIMEZONE);
+      await expect(eventTimezoneInput(page).locator("option:checked")).toHaveText(/Los Angeles$/);
+      await expect(eventTimezoneInput(page).locator("option:checked")).not.toHaveText(ONBOARDING_TIMEZONE);
       await chooseEventDateTime(page, "Starts", 30, "09:00");
       await chooseEventDateTime(page, "Ends", 31, "17:00");
       const createPayloads: unknown[] = [];
@@ -284,6 +339,23 @@ test.describe("self-service signup to first value", () => {
     let publicLink = "";
     await test.step("publish the first form and capture its public link", async () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
+      const onboardingViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      const publishRow = page.getByText("Publish immediately so the link is shareable right away", { exact: true });
+      const publishMetrics = await publishRow.evaluate((element) => {
+        const input = element.querySelector("input");
+        if (!input) throw new Error("Onboarding publish control is incomplete");
+        const rowBox = element.getBoundingClientRect();
+        const inputBox = input.getBoundingClientRect();
+        return {
+          height: rowBox.height,
+          verticalCenterDelta: Math.abs((rowBox.top + rowBox.bottom - inputBox.top - inputBox.bottom) / 2),
+        };
+      });
+      expect(publishMetrics.height).toBeGreaterThanOrEqual(44);
+      expect(publishMetrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+      if (onboardingViewport) await page.setViewportSize(onboardingViewport);
+
       await page.getByLabel("Form name").fill(formName);
       await expect(page.getByRole("checkbox", { name: /publish immediately/i })).toBeChecked();
       await expect(page.getByLabel("CFP deadline")).toHaveValue("four_weeks");
@@ -295,6 +367,25 @@ test.describe("self-service signup to first value", () => {
       await publication.getByRole("button", { name: "Create and publish form" }).click();
 
       await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible({ timeout: 30_000 });
+      const completionViewport = page.viewportSize();
+      const completionActions = page.locator(".onboarding-done .cfp-actions");
+      await page.setViewportSize({ width: 500, height: 800 });
+      const tabletActions = await completionActions.evaluate((element) => {
+        const footerBox = element.getBoundingClientRect();
+        const actionBoxes = [...element.children].map((action) => action.getBoundingClientRect());
+        return {
+          actionsFit: actionBoxes.every((box) => box.left >= footerBox.left && box.right <= footerBox.right),
+          distinctRows: new Set(actionBoxes.map((box) => Math.round(box.top))).size,
+        };
+      });
+      expect(tabletActions.actionsFit).toBe(true);
+      expect(tabletActions.distinctRows).toBe(2);
+      await page.setViewportSize({ width: 320, height: 700 });
+      const phoneActionRows = await completionActions.locator(":scope > *").evaluateAll((actions) =>
+        new Set(actions.map((action) => Math.round(action.getBoundingClientRect().top))).size);
+      expect(phoneActionRows).toBe(4);
+      if (completionViewport) await page.setViewportSize(completionViewport);
+
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
@@ -351,6 +442,34 @@ test.describe("self-service signup to first value", () => {
       await expect(liveFormPage).toHaveURL(publicLink);
       await expect(liveFormPage.getByRole("heading", { name: "Verify your email", level: 2 })).toBeVisible();
       await expect(liveFormPage.getByRole("button", { name: "Send me a code" })).toBeVisible();
+      const liveFormViewport = liveFormPage.viewportSize();
+      await liveFormPage.setViewportSize({ width: 320, height: 700 });
+      const progress = liveFormPage.getByRole("list", { name: "Submission progress" });
+      await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+      const progressLayout = await progress.evaluate((element) => {
+        const items = [...element.querySelectorAll(":scope > li")];
+        const measurements = items.map((item) => {
+          const label = item.querySelector("b");
+          if (!label) throw new Error("Progress item is missing its label");
+          return { item: item.getBoundingClientRect(), label: label.getBoundingClientRect() };
+        });
+        let minLabelGap = Number.POSITIVE_INFINITY;
+        measurements.forEach((measurement, index) => {
+          if (index === 0) return;
+          const previous = measurements.at(index - 1);
+          if (previous) minLabelGap = Math.min(minLabelGap, measurement.label.left - previous.label.right);
+        });
+        return {
+          labelsFit: measurements.every(({ item, label }) => label.left >= item.left && label.right <= item.right),
+          minLabelGap,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(progressLayout.labelsFit).toBe(true);
+      expect(progressLayout.minLabelGap).toBeGreaterThanOrEqual(4);
+      expect(progressLayout.scrollWidth).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      if (liveFormViewport) await liveFormPage.setViewportSize(liveFormViewport);
       await liveFormPage.close();
     });
 

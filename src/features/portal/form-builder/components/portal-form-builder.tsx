@@ -19,7 +19,7 @@ import type { BuilderEvent, BuilderField, BuilderForm, FormPatch } from "@/featu
 // `sendConfirmation`/`confirmationSubject`/`confirmationBodyHtml`, plain
 // `forms` columns shared by CFP and portal forms (M24 §4) — so it is reused
 // here verbatim rather than rebuilt.
-import { NotificationsStep } from "@/features/forms/components/builder/notifications-step";
+import { NotificationsStep } from "@/features/forms/index.client";
 import { COMMITTED_FIELD_TYPES } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";

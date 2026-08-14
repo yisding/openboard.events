@@ -17,7 +17,7 @@ import { parseEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
-import type { EmailMessage } from "./server/resend";
+import type { EmailMessage } from "@/shared/server/email-provider";
 import { recordSuppressionIn } from "./server/suppression";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
@@ -87,6 +87,8 @@ const productionSendEnv = parseEnv({
   DEPLOYMENT_ID: "dispatcher-test-production",
   RESEND_WEBHOOK_SECRET: "w".repeat(32),
   SPEAKER_SHARE_SECRET: "p".repeat(32),
+  GOOGLE_CLIENT_ID: "google-client-id",
+  GOOGLE_CLIENT_SECRET: "google-client-secret",
 });
 
 describe("communications outbox dispatcher", () => {
@@ -288,6 +290,8 @@ describe("communications outbox dispatcher", () => {
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:schedule-link`, refs: { sessionId } });
     await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
     const stored = await pglite.query<{ body: string; ics_uid: string }>("SELECT body_rendered_html AS body,ics_uid FROM communication_logs");
+    expect(stored.rows[0]?.body).toContain("Sep 15, 2026, 11:00 AM–11:30 AM PDT");
+    expect(stored.rows[0]?.body).not.toContain("America/Los_Angeles");
     expect(stored.rows[0]?.body).toMatch(new RegExp(`/cal/[^/?\"&]+/${sessionId}`));
     expect(stored.rows[0]?.body).not.toContain(`/cal/${sessionId}?token=`);
     expect(stored.rows[0]?.ics_uid).toContain(`sess-${sessionId}-spk-${contactId}@`);

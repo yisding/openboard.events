@@ -7,11 +7,11 @@ import { emailConfirmationLandingUrl } from "@/app/api/auth/[...action]/_lib";
 import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { adminAccounts, adminAuthEmailOutbox, adminSessions, adminVerifications, eventMembers, organizationMembers, organizationOnboardingMilestones, selfServiceSignups, userLegalAcceptances, users } from "@/db/schema";
-import { authorizeAdmin, hashPassword, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies, verifyPassword } from "@/features/auth";
-import { ADMIN_COOKIE, ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
+import { authorizeAdmin, openPlatformAdminLinkPayload, requiredRoleForEventPath, roleSatisfies } from "@/features/auth";
+import { ADMIN_SESSION_COOKIES, hasAdminSessionCookie } from "@/features/auth/cookies";
 import { SIGNUP_ORGANIZATION_HEADER, SIGNUP_VERIFICATION_CALLBACK } from "@/features/auth/signup-context";
 import { hashAdminPassword, needsRehash, verifyAdminPassword } from "@/features/auth/server/admin-password";
-import { upsertCredentialAccount } from "@/features/auth/server/credential-account";
+import { upsertAdminCredentialAccount } from "@/features/auth/server/credential-account";
 import { buildAdminAuth } from "@/features/auth/server/better-auth";
 import { getAdminAuthFallbackLinkIn } from "@/features/auth/server/admin-mail";
 import {
@@ -33,7 +33,7 @@ import { eventIdSchema, userIdSchema } from "@/shared/contracts";
  * `admin_sessions`, the hash is upgraded in place, and deleting the row locks
  * the session out. What it cannot prove is the *deployed* half — the Worker
  * bundle, the Google callback against Google, cookies over a real origin —
- * which is exactly what DECISIONS.md keeps the fallback shipping for.
+ * which is covered by the Worker artifact and deployed smoke gates.
  */
 
 /**
@@ -55,6 +55,7 @@ const M42_MIGRATION = "0009_product_auth";
 // self-serve signup is exercised below.
 const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management", "0012_billing_scaffold", "0022_admin_auth_email_outbox", "0023_onboarding_milestones", "0024_user_legal_acceptances", "0025_platform_invitation_email"];
 const REVIEWER_INVITATION_MIGRATION = "0029_event_reviewer_invitations";
+const RETIREMENT_MIGRATION = "0033_retire_fallback_auth";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -67,6 +68,7 @@ const provisionedReviewerUser = userIdSchema.parse("b0000000-0000-4000-8000-0000
 const newerSignupOrganization = "b0000000-0000-4000-8000-000000000017";
 
 const LEGACY_PASSWORD = "legacy organizer passphrase";
+const LEGACY_PASSWORD_HASH = "pbkdf2-sha256$100000$BwcHBwcHBwcHBwcHBwcHBw$4cQkC1q9NtMjFEdxmOGRooKmih9jdi9une7MnrasDhc";
 const MODERN_PASSWORD = "modern organizer passphrase";
 const RESET_PASSWORD = "freshly reset organizer passphrase";
 const LEGAL_REQUEST = {
@@ -79,7 +81,6 @@ const env = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
-  ADMIN_AUTH_PROVIDER: "better-auth",
   GOOGLE_CLIENT_ID: "test-google-client-id",
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
   LEGAL_TERMS_URL: "https://openboard.example/terms",
@@ -103,11 +104,11 @@ describe("M42 admin auth on Better Auth", () => {
       [eventA, eventB],
     );
     // Seeded exactly the way the pre-M42 world creates accounts: a
-    // `users.password_hash` written by the fallback's own hasher, and nothing
-    // in `admin_accounts` beyond what 0009's backfill puts there.
+    // A historical `users.password_hash` and nothing in `admin_accounts`
+    // beyond what 0009's backfill puts there.
     await pglite.query(
       "INSERT INTO users(id,email,name,password_hash) VALUES($1,'legacy@example.com','Legacy Organizer',$5),($2,'modern@example.com','Modern Organizer',NULL),($3,'reviewer@example.com','Reviewer',NULL),($4,'reset-legacy@example.com','Reset Legacy Organizer',$5)",
-      [legacyUser, modernUser, reviewerUser, resetLegacyUser, await hashPassword(LEGACY_PASSWORD)],
+      [legacyUser, modernUser, reviewerUser, resetLegacyUser, LEGACY_PASSWORD_HASH],
     );
     await pglite.query(
       "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$4,'organizer'),($2,$4,'owner'),($3,$4,'reviewer'),($3,$5,'owner')",
@@ -119,9 +120,8 @@ describe("M42 admin auth on Better Auth", () => {
     for (const name of POST_M42_MIGRATIONS) await apply(name);
 
     // A pre-self-service account may already have reset its password by the
-    // time 0029 deploys. Both credential copies then use the modern scheme.
+    // time 0029 deploys. Its Better Auth credential then uses the modern scheme.
     const resetHash = await hashAdminPassword(RESET_PASSWORD);
-    await pglite.query("UPDATE users SET password_hash=$1 WHERE id=$2", [resetHash, resetLegacyUser]);
     await pglite.query(
       "UPDATE admin_accounts SET password=$1,updated_at=now() WHERE user_id=$2 AND provider_id='credential'",
       [resetHash, resetLegacyUser],
@@ -130,11 +130,11 @@ describe("M42 admin auth on Better Auth", () => {
     // A self-service signup and an operator-provisioned reviewer can both be
     // newer unverified credentials. The signup's atomic organization outcome
     // is durable even when legal-policy variables are omitted; the operator
-    // account has no self-service evidence and must survive a fallback rollback.
+    // account has no self-service evidence and is trusted operator provisioning.
     const newerHash = await hashAdminPassword(MODERN_PASSWORD);
     await pglite.query(
-      "INSERT INTO users(id,email,name,password_hash) VALUES($1,'newer-unverified@example.com','Newer Unverified',$3),($2,'provisioned-reviewer@example.com','Provisioned Reviewer',$3)",
-      [newerUnverifiedUser, provisionedReviewerUser, newerHash],
+      "INSERT INTO users(id,email,name) VALUES($1,'newer-unverified@example.com','Newer Unverified'),($2,'provisioned-reviewer@example.com','Provisioned Reviewer')",
+      [newerUnverifiedUser, provisionedReviewerUser],
     );
     await pglite.query(
       "INSERT INTO admin_accounts(user_id,account_id,provider_id,password) VALUES($1::uuid,$1::text,'credential',$3),($2::uuid,$2::text,'credential',$3)",
@@ -149,6 +149,7 @@ describe("M42 admin auth on Better Auth", () => {
       [newerUnverifiedUser, newerSignupOrganization],
     );
     await apply(REVIEWER_INVITATION_MIGRATION);
+    await apply(RETIREMENT_MIGRATION);
 
     // These accounts have no passwords and exist only as authorization
     // fixtures, so activation is outside their test scope. The legacy password
@@ -200,7 +201,7 @@ describe("M42 admin auth on Better Auth", () => {
     await expect(verifyAdminPassword({ hash: legacyAccount?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
   });
 
-  it("keeps the fallback provider usable for established legacy credentials", async () => {
+  it("preserves verification provenance for established credentials", async () => {
     const verification = await database.select({ id: users.id, emailVerified: users.emailVerified })
       .from(users)
       .where(inArray(users.id, [legacyUser, resetLegacyUser, newerUnverifiedUser, provisionedReviewerUser]));
@@ -227,10 +228,6 @@ describe("M42 admin auth on Better Auth", () => {
     // learns a rehash happened.
     await expect(verifyAdminPassword({ hash: account?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
 
-    // And the legacy column is untouched, so flipping ADMIN_AUTH_PROVIDER back
-    // to `fallback` still signs this person in.
-    const [user] = await database.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, legacyUser)).limit(1);
-    await expect(verifyAdminPassword({ hash: user?.passwordHash ?? "", password: LEGACY_PASSWORD })).resolves.toBe(true);
   });
 
   it("signs in again after the rehash, and rejects the wrong password", async () => {
@@ -271,10 +268,9 @@ describe("M42 admin auth on Better Auth", () => {
     expect(after).toBeNull();
   });
 
-  it("keeps requireAdmin's authorization decisions identical to the fallback's (AC 2)", async () => {
-    // `authorizeAdmin` is the shared half both providers run: same membership
-    // lookup, same ranking, same FORBIDDEN. Only the identity source differs,
-    // so pinning it here pins both providers.
+  it("keeps requireAdmin's membership decisions independent of session resolution", async () => {
+    // `authorizeAdmin` remains the shared authorization half: membership
+    // lookup, ranking, and FORBIDDEN semantics do not depend on Better Auth.
     const legacy = { userId: legacyUser, email: "legacy@example.com", name: "Legacy Organizer" };
     const reviewer = { userId: reviewerUser, email: "reviewer@example.com", name: "Reviewer" };
 
@@ -307,19 +303,17 @@ describe("M42 admin auth on Better Auth", () => {
   });
 
   it("lets provisioning mint a credential account that Better Auth accepts", async () => {
-    // The path `bootstrap-admin.ts` takes: write `users.password_hash`, mirror
-    // it into `admin_accounts`. Without the
-    // mirror this account would be an orphan the moment the switch flipped.
+    // The path `bootstrap-admin.ts` takes: write the credential directly into
+    // Better Auth's account table.
     const passwordHash = await hashAdminPassword(MODERN_PASSWORD);
-    await database.update(users).set({ passwordHash }).where(eq(users.id, modernUser));
-    await upsertCredentialAccount(database, modernUser, passwordHash);
+    await upsertAdminCredentialAccount(database, modernUser, passwordHash);
 
     await expect(signIn("modern@example.com", MODERN_PASSWORD).then((r) => r.status)).resolves.toBe(200);
 
     // Re-running provisioning updates the one row rather than colliding on the
     // (provider_id, account_id) unique index.
     const rotated = await hashAdminPassword(`${MODERN_PASSWORD} rotated`);
-    await upsertCredentialAccount(database, modernUser, rotated);
+    await upsertAdminCredentialAccount(database, modernUser, rotated);
     const accounts = await database.select().from(adminAccounts)
       .where(and(eq(adminAccounts.userId, modernUser), eq(adminAccounts.providerId, "credential")));
     expect(accounts).toHaveLength(1);
@@ -737,8 +731,7 @@ describe("M42 admin auth on Better Auth", () => {
   });
 
   it("issues a session cookie the /events middleware gate recognises", async () => {
-    // The gate in `src/middleware.ts` matches cookie *names*, and it cannot
-    // read `ADMIN_AUTH_PROVIDER` from the edge — so the names in
+    // The gate in `src/middleware.ts` matches cookie *names*, so the names in
     // `ADMIN_SESSION_COOKIES` have to match what Better Auth really sets, or a
     // signed-in admin is redirected to /login, `LoginForm` replaces back to
     // /events, and the app loops. This asserts the real Set-Cookie header, not
@@ -747,18 +740,15 @@ describe("M42 admin auth on Better Auth", () => {
     const names = response.headers.getSetCookie().map((cookie) => cookie.split("=")[0] ?? "");
     expect(names.some((name) => ADMIN_SESSION_COOKIES.includes(name))).toBe(true);
     expect(hasAdminSessionCookie(names)).toBe(true);
-    // And the fallback's own cookie name still opens it, so flipping the
-    // provider back does not lock anybody out of the gate either.
-    expect(hasAdminSessionCookie([ADMIN_COOKIE])).toBe(true);
+    expect(hasAdminSessionCookie(["ob_admin"])).toBe(false);
     expect(hasAdminSessionCookie(["ob_portal_something"])).toBe(false);
   });
 
-  it("mirrors a reset password back to users.password_hash so the fallback stays usable", async () => {
+  it("resets the sole credential and revokes the old password", async () => {
     // Drive Better Auth's own reset endpoint the way a real reset link does:
     // the verification row is what `request-password-reset` writes, and the
     // token is what the emailed URL carries.
     const token = "m42-reset-token";
-    const before = (await database.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, legacyUser)).limit(1))[0]?.passwordHash ?? "";
     await database.insert(adminVerifications).values({
       identifier: `reset-password:${token}`,
       value: legacyUser,
@@ -778,20 +768,15 @@ describe("M42 admin auth on Better Auth", () => {
       .limit(1);
     await expect(verifyAdminPassword({ hash: account?.password ?? "", password: RESET_PASSWORD })).resolves.toBe(true);
 
-    const [user] = await database.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, legacyUser)).limit(1);
-    expect(user?.passwordHash).not.toBe(before);
-    // The whole point: flip `ADMIN_AUTH_PROVIDER` back to `fallback` and the
-    // *new* password works while the reset-away-from one does not. Before the
-    // mirror, this assertion was exactly inverted.
-    await expect(verifyPassword(RESET_PASSWORD, user?.passwordHash ?? "")).resolves.toBe(true);
-    await expect(verifyPassword(LEGACY_PASSWORD, user?.passwordHash ?? "")).resolves.toBe(false);
+    await expect(verifyAdminPassword({ hash: account?.password ?? "", password: LEGACY_PASSWORD })).resolves.toBe(false);
   });
 
-  it("mirrors a self-serve signup's password too, so the account is not fallback-only-locked-out", async () => {
-    const [stranger] = await database.select({ id: users.id, passwordHash: users.passwordHash })
+  it("stores a self-serve signup credential only in admin_accounts", async () => {
+    const [stranger] = await database.select({ id: users.id })
       .from(users).where(eq(users.email, "stranger@example.com")).limit(1);
-    expect(stranger?.passwordHash).toBeTruthy();
-    await expect(verifyPassword("a perfectly fine password", stranger?.passwordHash ?? "")).resolves.toBe(true);
+    const [account] = await database.select({ password: adminAccounts.password }).from(adminAccounts)
+      .where(and(eq(adminAccounts.userId, stranger?.id ?? ""), eq(adminAccounts.providerId, "credential")));
+    await expect(verifyAdminPassword({ hash: account?.password ?? "", password: "a perfectly fine password" })).resolves.toBe(true);
   });
 
   it("does not disturb the event_members rows it authorizes against", async () => {

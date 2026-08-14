@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db/client";
-import { formAvailability } from "@/features/forms/lib/form-open";
+import { formAvailability } from "@/features/forms/index.availability";
 import {
   SUBMISSION_STATUSES,
   eventIdSchema,

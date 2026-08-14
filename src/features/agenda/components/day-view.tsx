@@ -9,19 +9,23 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { LayoutGrid, MapPin } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { zonedInputToUtc } from "@/shared/lib/time";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import { toScheduledSession, detectConflicts } from "../conflicts";
 import { DayGridStateProvider, useDayGridActions } from "../hooks/use-day-grid-state";
 import { useMoveSession } from "../hooks/use-move-session";
+import { agendaKeys } from "../hooks/keys";
 import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledNeedingRoom, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { agendaDayDndContextId } from "./day-view/dnd-context-id";
 import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
 import { NeedsRoomPanel, UnscheduledPanel } from "./day-view/unscheduled-panel";
+import { AutoPlaceDialog } from "./auto-place-dialog";
 
 type DragData =
   | { type: "session" | "unscheduled"; session: ScheduledSessionDTO }
@@ -54,6 +58,9 @@ export default function DayView(props: AgendaViewProps) {
 }
 
 function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onEdit }: AgendaViewProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [autoPlaceOpen, setAutoPlaceOpen] = useState(false);
   const days = useMemo(
     () => eventDayKeys(event.startsAt, event.endsAt, event.timezone),
     [event.startsAt, event.endsAt, event.timezone],
@@ -170,7 +177,13 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
           <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragEnd={handleDragEnd}>
             <div className="dv-layout">
               <div className="dv-side-panels">
-                <UnscheduledPanel sessions={dayUnscheduled} lookup={lookup} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />
+                <UnscheduledPanel
+                  sessions={dayUnscheduled}
+                  lookup={lookup}
+                  canPlace={rooms.length > 0}
+                  onAutoPlace={() => setAutoPlaceOpen(true)}
+                  {...(onEdit ? { onEdit } : {})}
+                />
                 <NeedsRoomPanel sessions={needsRoom} lookup={lookup} timezone={event.timezone} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />
               </div>
               {rooms.length === 0
@@ -200,6 +213,16 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
             </div>
           </AgendaDayDndContext>
         )}
+      <AutoPlaceDialog
+        eventId={eventId}
+        timezone={event.timezone}
+        open={autoPlaceOpen}
+        onClose={() => {
+          setAutoPlaceOpen(false);
+          void queryClient.invalidateQueries({ queryKey: agendaKeys.allSessions(eventId) });
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

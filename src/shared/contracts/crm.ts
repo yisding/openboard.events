@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { crmActivityKindSchema, crmContactSourceSchema, crmPipelineStageSchema, speakerLogisticsFieldTypeSchema } from "./enums";
+import {
+  confirmationStatusSchema,
+  crmActivityKindSchema,
+  crmContactSourceSchema,
+  crmPipelineStageSchema,
+  sessionStatusSchema,
+  speakerLogisticsFieldTypeSchema,
+  speakerWorkflowStatusSchema,
+} from "./enums";
 import {
   contactIdSchema,
   crmActivityIdSchema,
@@ -171,9 +179,9 @@ export const crmEventLinkDtoSchema = z.object({
   eventName: z.string(),
   eventSlug: z.string(),
   contactId: contactIdSchema,
-  workflowStatus: z.string(),
-  confirmationStatus: z.string(),
-  sessions: z.array(z.object({ sessionId: sessionIdSchema, title: z.string(), status: z.string() })),
+  workflowStatus: speakerWorkflowStatusSchema,
+  confirmationStatus: confirmationStatusSchema,
+  sessions: z.array(z.object({ sessionId: sessionIdSchema, title: z.string(), status: sessionStatusSchema })),
   linkedAt: iso,
 });
 export type CrmEventLinkDTO = z.infer<typeof crmEventLinkDtoSchema>;
@@ -383,6 +391,9 @@ export const crmPipelineEntryDtoSchema = z.object({
 export type CrmPipelineEntryDTO = z.infer<typeof crmPipelineEntryDtoSchema>;
 
 export const createCrmPipelineEntryInputSchema = z.object({
+  // Optional for a rolling deployment: current clients always send one stable
+  // creation id, while an older tab can still create a server-id row.
+  id: crmPipelineIdSchema.optional(),
   organizationContactId: organizationContactIdSchema,
   targetEventId: eventIdSchema.nullable().optional(),
   notes: z.string().trim().max(2_000).optional(),

@@ -6,7 +6,7 @@ import { eventManagementHref } from "@/features/events/access";
 import { EventCard } from "./event-card";
 import { EventsView } from "./events-view";
 
-vi.mock("@/features/auth/components/sign-out-button", () => ({
+vi.mock("@/features/auth/index.client", () => ({
   SignOutButton: () => <button type="button">Sign out</button>,
 }));
 

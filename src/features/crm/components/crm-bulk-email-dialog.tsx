@@ -14,7 +14,7 @@ import {
   completeBulkSendAttempt,
   verifyBulkSendAttempt,
   type BulkSendAttempt,
-} from "@/features/comms/bulk-send-attempt";
+} from "@/features/comms/index.bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
   browserBulkSendRecoveryLockManager,
@@ -25,7 +25,7 @@ import {
   withBulkSendRecoveryLock,
   type BulkSendRecoveryBatchResult,
   type BulkSendRecoverySnapshot,
-} from "@/features/comms/bulk-send-recovery";
+} from "@/features/comms/index.bulk-send-recovery";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
@@ -411,7 +411,7 @@ export function CrmBulkEmailDialog({
             <ul className="crm-field-list">
               {sendResult.errors.map((entry) => {
                 const recipient = audience.find((row) => row.id === entry.organizationContactId);
-                return <li key={entry.organizationContactId} style={{ fontSize: 11, color: "var(--muted)" }}>
+                return <li key={entry.organizationContactId} style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
                   <b>{recipient?.name || recipient?.email || "Unknown recipient"}</b>{recipient?.email ? ` (${recipient.email})` : ""}: {entry.reason}
                 </li>;
               })}

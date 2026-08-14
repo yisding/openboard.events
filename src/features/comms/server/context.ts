@@ -8,9 +8,9 @@ import { issueOrganizationInvitationTokenIn } from "@/features/organizations";
 import { isTransactionalTemplate, organizationInvitationIdSchema, tokenIdSchema, type ContactId, type EventId, type TemplateKey, type TemplateVars } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { formatInZone } from "@/shared/lib/time";
+import { escapeHtml } from "@/shared/lib/html";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { isEmailAllowed } from "@/shared/server/email-allowlist";
-import { escapeHtml } from "./render";
 import { signUnsubscribeToken } from "./unsubscribe";
 
 export type OutboxRow = typeof communicationLogs.$inferSelect;
@@ -237,9 +237,9 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
   const common = {
     event: {
       name: base.eventName,
-      start_date: formatInZone(base.eventStartsAt, base.eventTimezone, "date"),
+      start_date: formatInZone(base.eventStartsAt, base.eventTimezone, { dateStyle: "long" }),
       location: base.eventLocation?.trim() || "Location to be announced",
-      timezone: base.eventTimezone,
+      timezone: zoneAbbreviation(base.eventStartsAt, base.eventTimezone),
     },
     speaker: {
       first_name: base.firstName.trim() || "there",
@@ -341,9 +341,9 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
       ...common,
       session: {
         title: session.title,
-        start_time_local: formatInZone(startsAt, base.eventTimezone, "dateTime"),
-        end_time_local: formatInZone(endsAt, base.eventTimezone, "time"),
-        timezone: base.eventTimezone,
+        start_time_local: formatInZone(startsAt, base.eventTimezone, { dateStyle: "medium", timeStyle: "short" }),
+        end_time_local: formatInZone(endsAt, base.eventTimezone, { timeStyle: "short" }),
+        timezone: zoneAbbreviation(startsAt, base.eventTimezone),
         room: session.room ?? "Room to be announced",
         track: session.track ?? "General",
       },

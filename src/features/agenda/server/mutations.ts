@@ -542,10 +542,11 @@ export async function saveSessionIn(
   // before-set already in hand and the validated input set, never a fresh
   // `session_speakers` re-read that could pick up a concurrent edit.
   const before = await dbOrTx.execute<{
-    status: SessionStatus; starts_at: string | Date | null; schedule_revision: number; row_version: number;
+    status: SessionStatus; starts_at: string | Date | null; ends_at: string | Date | null;
+    room_id: string | null; schedule_revision: number; row_version: number;
     title: string; description_html: string | null; speaker_ids: string[] | null;
   }>(sql`
-    SELECT s.status, s.starts_at, s.schedule_revision, s.row_version, s.title, s.description_html,
+    SELECT s.status, s.starts_at, s.ends_at, s.room_id, s.schedule_revision, s.row_version, s.title, s.description_html,
       (
         SELECT coalesce(array_agg(ss.contact_id), '{}')
         FROM session_speakers ss
@@ -588,7 +589,10 @@ export async function saveSessionIn(
            AND (status::text IS DISTINCT FROM 'published'
                 OR starts_at IS DISTINCT FROM ${input.startsAt}::timestamptz
                 OR ends_at IS DISTINCT FROM ${input.endsAt}::timestamptz
-                OR room_id IS DISTINCT FROM ${input.roomId}::uuid)
+                OR room_id IS DISTINCT FROM ${input.roomId}::uuid
+                OR (${input.startsAt}::timestamptz IS NOT NULL
+                    AND (title IS DISTINCT FROM ${input.title}
+                         OR description_html IS DISTINCT FROM ${descriptionHtml})))
           THEN 1 ELSE 0 END,
         updated_at = now()
       WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
@@ -646,12 +650,24 @@ export async function saveSessionIn(
   };
   const continuing = speakers.filter((contactId) => priorSpeakers.has(contactId));
   const added = speakers.filter((contactId) => !priorSpeakers.has(contactId));
-  await notifySchedule(
-    dbOrTx, eventId, sessionId,
-    { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
-    nextState,
-    continuing,
+  // Public feeds also advance their sequence for title/description changes,
+  // but the speaker-email policy remains schedule-only. Preserve that policy
+  // by calling the notifier only for the status/placement changes it already
+  // handled before public feeds began consuming the same revision.
+  const scheduleNoticeChanged = input.status === "published" && (
+    prior.status !== "published"
+    || iso(prior.starts_at) !== (input.startsAt === null ? null : new Date(input.startsAt).toISOString())
+    || iso(prior.ends_at) !== (input.endsAt === null ? null : new Date(input.endsAt).toISOString())
+    || prior.room_id !== input.roomId
   );
+  if (scheduleNoticeChanged) {
+    await notifySchedule(
+      dbOrTx, eventId, sessionId,
+      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
+      nextState,
+      continuing,
+    );
+  }
   await notifyAddedSpeakers(dbOrTx, eventId, sessionId, nextState, added);
   return toDto(row, speakers);
 }
@@ -689,7 +705,12 @@ export async function restoreSessionContentIn(
       UPDATE sessions SET
         title = new_revision.title,
         description_html = new_revision.description_html,
-        row_version = row_version + 1,
+        row_version = sessions.row_version + 1,
+        schedule_revision = sessions.schedule_revision + CASE
+          WHEN sessions.status::text = 'published' AND sessions.starts_at IS NOT NULL
+           AND (sessions.title IS DISTINCT FROM new_revision.title
+                OR sessions.description_html IS DISTINCT FROM new_revision.description_html)
+          THEN 1 ELSE 0 END,
         updated_at = now()
       FROM new_revision
       WHERE sessions.id = ${sessionId} AND sessions.event_id = ${eventId}

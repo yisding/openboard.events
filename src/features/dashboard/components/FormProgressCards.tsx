@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { FilePlus2 } from "lucide-react";
-import { SavedFormActions } from "@/features/forms/components/saved-form-actions";
+import { SavedFormActions } from "@/features/forms/index.client";
 import { StatusBadge } from "@/shared/ui/ui-kit";
 import { daysToEvent, formatInZone } from "@/shared/lib/time";
 import type { DashboardOverview } from "../index";

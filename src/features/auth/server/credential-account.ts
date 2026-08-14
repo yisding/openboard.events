@@ -3,31 +3,8 @@ import type { DbOrTx } from "@/db/client";
 import { adminAccounts } from "@/db/schema";
 import type { UserId } from "@/shared/contracts";
 
-/**
- * M42 — keep `admin_accounts` in step with `users.password_hash`.
- *
- * `drizzle/0009_product_auth.sql` backfilled a credential account for every
- * account that existed when M42 landed, but bootstrap provisioning did not
- * stop: `scripts/bootstrap-admin.ts` still mints an account by writing
- * `users.password_hash` directly. Without this, an organizer created after the
- * migration but before the provider switch would have no credential
- * row and would simply be unable to sign in the moment the switch flipped —
- * the "orphaned account" M42 AC 1 rules out.
- *
- * The bootstrap writer calls this, and both credentials stay valid: the fallback
- * reads `users.password_hash`, Better Auth reads `admin_accounts.password`, and
- * either provider can serve the same person. `accountId` is the user id, which
- * is what the backfill used, so a re-provision updates the row it already
- * created rather than colliding with it.
- *
- * This is only the *outbound* half. Passwords Better Auth writes itself — a
- * reset, a self-serve signup — never pass through here, so
- * `mirrorCredentialToFallback` (`better-auth.ts`) is the matching inbound copy.
- * "Either provider can serve the same person" is true only because both halves
- * exist; with just this one, a reset left the old password live on the
- * fallback and a Better Auth signup had no fallback credential at all.
- */
-export async function upsertCredentialAccount(
+/** Create or rotate the Better Auth credential owned by an operator bootstrap. */
+export async function upsertAdminCredentialAccount(
   dbOrTx: DbOrTx,
   userId: UserId,
   passwordHash: string,

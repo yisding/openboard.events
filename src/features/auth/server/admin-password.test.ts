@@ -1,26 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { hashPassword } from "./fallback-session";
-import { hashAdminPassword, isLegacyScheme, needsRehash, verifyAdminPassword } from "./admin-password";
+import { hashAdminPassword, needsRehash, verifyAdminPassword } from "./admin-password";
 
 /**
  * M42 AC 1 — the custom password-hashing hooks Better Auth signs in through.
  *
- * The pairing that matters is with `fallback-session.ts#hashPassword`: these
- * tests verify against hashes produced by the *actual* legacy writer, not
- * against a hand-written fixture that could drift from it.
+ * The fixed legacy vector preserves compatibility with credentials backfilled
+ * by migration 0009 while ensuring production code can no longer mint one.
  */
 describe("admin password hooks", () => {
   const password = "correct horse battery staple";
+  const legacy = "pbkdf2-sha256$100000$BwcHBwcHBwcHBwcHBwcHBw$L1U-q2ApcN8-qcNIEQqmbdBSgeOo_XF8vufu6pzUxWU";
 
-  it("verifies a legacy PBKDF2 hash produced by the fallback writer", async () => {
-    const legacy = await hashPassword(password);
-    expect(isLegacyScheme(legacy)).toBe(true);
+  it("verifies a legacy PBKDF2 migration vector", async () => {
     await expect(verifyAdminPassword({ hash: legacy, password })).resolves.toBe(true);
     await expect(verifyAdminPassword({ hash: legacy, password: "wrong password entirely" })).resolves.toBe(false);
   });
 
   it("marks a legacy hash for rehash and a current hash as settled", async () => {
-    const legacy = await hashPassword(password);
     const current = await hashAdminPassword(password);
     expect(needsRehash(legacy)).toBe(true);
     expect(needsRehash(current)).toBe(false);
@@ -48,14 +44,12 @@ describe("admin password hooks", () => {
   });
 
   it("refuses a legacy hash that claims a weakened iteration count", async () => {
-    const legacy = await hashPassword(password);
     const [, , salt, digest] = legacy.split("$");
     const downgraded = `pbkdf2-sha256$1000$${salt}$${digest}`;
     await expect(verifyAdminPassword({ hash: downgraded, password })).resolves.toBe(false);
   });
 
   it("does not let a v2 hash verify as legacy or the reverse", async () => {
-    const legacy = await hashPassword(password);
     const current = await hashAdminPassword(password);
     // Same password, same algorithm, different salts: swapping the scheme tag
     // must not produce a match, which is what makes `needsRehash` safe to act

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { expect, test, type Locator } from "@playwright/test";
 import { NO_TARGET, targetConfigured } from "./helpers/env";
 
@@ -35,6 +37,246 @@ test.describe("rendered UI polish", () => {
   });
 });
 
+test.describe("self-service auth readability", () => {
+  test.skip(!targetConfigured(), NO_TARGET);
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("wraps long signup addresses and gives explanatory copy readable rhythm", async ({ page }) => {
+    const email = "very.long.organizer.address+signup@example.com";
+    await page.goto(`/signup/check-email?email=${encodeURIComponent(email)}&next=%2Forganizations`);
+
+    const address = page.getByText(email, { exact: true });
+    const intro = address.locator("..");
+    await expect(intro).toBeVisible();
+    const layout = await intro.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return {
+        lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+        right: box.right,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+    expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+
+    const resendHint = page.getByText("A new link can only be sent to the address used to create this account.", { exact: true });
+    const hintStyle = await resendHint.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        color: style.color,
+        lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+      };
+    });
+    expect(hintStyle.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+    expect(hintStyle.color).toBe(await intro.evaluate((element) => getComputedStyle(element).color));
+
+    await page.goto("/signup/verified?error=invalid&next=%2Forganizations");
+    const invalidLinkCopy = page.getByText("The confirmation link may be expired or invalid. Enter your email and we will send a fresh one.", { exact: true });
+    const invalidCopyRatio = await invalidLinkCopy.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+    });
+    expect(invalidCopyRatio).toBeGreaterThanOrEqual(1.4);
+  });
+});
+
+test.describe("guided onboarding responsiveness", () => {
+  test.use({ viewport: { width: 600, height: 800 } });
+
+  test("keeps every setup step named at tablet width without horizontal overflow", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:32px 16px">
+        <div class="panel settings-section onboarding-wizard" style="margin:auto">
+          <ol class="cfp-progress onboarding-progress" aria-label="Setup progress">
+            <li class="active"><span>1</span><b>Event details</b></li>
+            <li><span>2</span><b>Tracks</b></li>
+            <li><span>3</span><b>First form</b></li>
+            <li><span>4</span><b>Share</b></li>
+          </ol>
+        </div>
+      </main>
+    </body></html>`, { waitUntil: "networkidle" });
+
+    const progress = page.getByRole("list", { name: "Setup progress" });
+    const labels = progress.locator("b");
+    await expect(labels).toHaveCount(4);
+    for (const label of await labels.all()) await expect(label).toBeVisible();
+
+    const layout = await progress.evaluate((element) => {
+      const progressBox = element.getBoundingClientRect();
+      const labelBoxes = [...element.querySelectorAll("b")].map((label) => label.getBoundingClientRect());
+      return {
+        labelsFit: labelBoxes.every((box) => box.left >= progressBox.left && box.right <= progressBox.right),
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.labelsFit).toBe(true);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  });
+
+  test("keeps the disclosure and publish row comfortably tappable on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:24px">
+        <div class="panel settings-section onboarding-wizard">
+          <details class="onboarding-advanced">
+            <summary>Customize public URL</summary>
+          </details>
+          <label class="onboarding-toggle">
+            <input type="checkbox" checked>
+            Publish immediately so the link is shareable right away
+          </label>
+        </div>
+      </main>
+    </body></html>`);
+
+    const disclosure = page.getByText("Customize public URL", { exact: true });
+    const publishRow = page.getByText("Publish immediately so the link is shareable right away", { exact: true });
+    await expect(disclosure).toBeVisible();
+    await expect(publishRow).toBeVisible();
+    expect((await disclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    expect((await publishRow.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+
+    const publishAlignment = await publishRow.evaluate((element) => {
+      const input = element.querySelector("input");
+      if (!input) throw new Error("Publish fixture is incomplete");
+      const rowBox = element.getBoundingClientRect();
+      const inputBox = input.getBoundingClientRect();
+      return Math.abs((rowBox.top + rowBox.bottom - inputBox.top - inputBox.bottom) / 2);
+    });
+    expect(publishAlignment).toBeLessThanOrEqual(1);
+  });
+
+  test("wraps completion actions before they overflow the tablet wizard", async ({ page }) => {
+    await page.setViewportSize({ width: 500, height: 800 });
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:32px 16px">
+        <div class="panel settings-section onboarding-wizard" style="margin:auto">
+          <div class="cfp-step onboarding-done">
+            <footer class="cfp-actions">
+              <a class="button button-secondary" href="#">Manage form</a>
+              <a class="button button-secondary" href="#">Preview form</a>
+              <a class="button button-secondary" href="#">Open live form</a>
+              <a class="button button-primary" href="#">Open dashboard</a>
+            </footer>
+          </div>
+        </div>
+      </main>
+    </body></html>`);
+
+    const footer = page.locator(".onboarding-done .cfp-actions");
+    const layout = await footer.evaluate((element) => {
+      const footerBox = element.getBoundingClientRect();
+      const actionBoxes = [...element.children].map((action) => action.getBoundingClientRect());
+      return {
+        actionsFit: actionBoxes.every((box) => box.left >= footerBox.left && box.right <= footerBox.right),
+        distinctRows: new Set(actionBoxes.map((box) => Math.round(box.top))).size,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.actionsFit).toBe(true);
+    expect(layout.distinctRows).toBe(2);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  });
+});
+
+test.describe("public CFP phone layout", () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("keeps every progress label readable inside its own step", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="cfp-container">
+        <section class="cfp-step cfp-step--compact">
+          <ol class="public-form-progress public-form-progress-4" aria-label="Submission progress">
+            <li class="active"><span aria-hidden="true">1</span><b>Account</b></li>
+            <li><span aria-hidden="true">2</span><b>Proposal</b></li>
+            <li><span aria-hidden="true">3</span><b>Speaker</b></li>
+            <li><span aria-hidden="true">4</span><b>Review</b></li>
+          </ol>
+        </section>
+      </main>
+    </body></html>`);
+
+    const progress = page.getByRole("list", { name: "Submission progress" });
+    await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+    const layout = await progress.evaluate((element) => {
+      const items = [...element.querySelectorAll(":scope > li")];
+      const measurements = items.map((item) => {
+        const label = item.querySelector("b");
+        if (!label) throw new Error("Progress item is missing its label");
+        return { item: item.getBoundingClientRect(), label: label.getBoundingClientRect() };
+      });
+      let minLabelGap = Number.POSITIVE_INFINITY;
+      measurements.forEach((measurement, index) => {
+        if (index === 0) return;
+        const previous = measurements.at(index - 1);
+        if (previous) minLabelGap = Math.min(minLabelGap, measurement.label.left - previous.label.right);
+      });
+      return {
+        labelsFit: measurements.every(({ item, label }) => label.left >= item.left && label.right <= item.right),
+        minLabelGap,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.labelsFit).toBe(true);
+    expect(layout.minLabelGap).toBeGreaterThanOrEqual(4);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  });
+});
+
+test.describe("mobile auth touch targets", () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("gives the password reveal control the full field-height hit area", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:24px">
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="auth-password-input">
+            <input id="password" type="password">
+            <button class="auth-password-toggle" type="button" aria-label="Show password"></button>
+          </div>
+        </div>
+      </main>
+    </body></html>`);
+
+    const metrics = await page.locator(".auth-password-input").evaluate((element) => {
+      const input = element.querySelector("input");
+      const button = element.querySelector("button");
+      if (!input || !button) throw new Error("Password fixture is incomplete");
+      const inputBox = input.getBoundingClientRect();
+      const buttonBox = button.getBoundingClientRect();
+      return {
+        inputHeight: inputBox.height,
+        buttonWidth: buttonBox.width,
+        buttonHeight: buttonBox.height,
+        verticalCenterDelta: Math.abs((inputBox.top + inputBox.bottom - buttonBox.top - buttonBox.bottom) / 2),
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+
+    expect(metrics.inputHeight).toBeGreaterThanOrEqual(44);
+    expect(metrics.buttonWidth).toBeGreaterThanOrEqual(44);
+    expect(metrics.buttonHeight).toBeGreaterThanOrEqual(44);
+    expect(metrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewportWidth);
+  });
+});
+
 test.describe("shared primitives inside feature hosts", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 1280, height: 900 } });
@@ -47,7 +289,7 @@ test.describe("shared primitives inside feature hosts", () => {
     await page.setContent(`<!doctype html><html><head>${styles}</head><body>
       <main>
         <table class="dashboard-recent"><tbody><tr><td>
-          <span class="status-badge status-open" id="hosted-badge"><i></i>open</span>
+          <span class="status-badge status-tone-success" id="hosted-badge"><i></i>Open</span>
         </td></tr></tbody></table>
         <div class="admin-task-progress">
           <div class="admin-task-progress-copy"><b>2/4</b><span>50%</span></div>

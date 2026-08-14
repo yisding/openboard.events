@@ -30,7 +30,6 @@ const logEnv = parseEnv({
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: SECRET,
-  ADMIN_AUTH_PROVIDER: "better-auth",
   EMAIL_MODE: "log",
   EMAIL_FALLBACK_UI: "1",
 });

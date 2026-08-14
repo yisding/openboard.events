@@ -12,11 +12,11 @@ import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import type { OnboardingStep } from "../progress-types";
-import { EVENT_TYPES, type EventType } from "@/features/events/schemas";
-import { formOpenState, type FormOpenReason } from "@/features/forms/lib/form-open";
+import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
+import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel } from "@/shared/lib/time";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
@@ -807,7 +807,7 @@ export function OnboardingWizard({
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
               <Select id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-                {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+                {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
               </Select>
             </Field>
           </div>

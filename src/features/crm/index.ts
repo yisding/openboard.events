@@ -4,7 +4,7 @@
  * `contacts` — see each module's header comment for how the boundary is
  * kept (a new `organization_contacts` identity, never a widened `contacts`
  * row; every contacts write still goes through
- * `getOrCreateContact`/`updateContactFields`).
+ * the event-contacts feature's normalized identity writers).
  */
 
 export {

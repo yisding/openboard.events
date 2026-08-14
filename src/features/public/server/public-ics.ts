@@ -1,6 +1,6 @@
 import type { DbOrTx } from "@/db/client";
-import { buildFeed, icsUid, type IcsEvent } from "@/features/comms/ics";
-import { stripHtml } from "@/features/comms/server/render";
+import { buildFeed, icsUid, type IcsEvent } from "@/features/comms/index.calendar";
+import { stripHtml } from "@/features/comms/index.render";
 import type { PublishedScheduleDTO } from "@/shared/contracts";
 import { emailFromAddress, getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { getPublishedSchedule, getPublishedScheduleIn } from "./public-queries";
@@ -47,7 +47,7 @@ function renderPublicScheduleIcs(
 
   const events: IcsEvent[] = selected.map((session) => ({
     uid: icsUid(session.id, "public", organizerDomain),
-    sequence: 0,
+    sequence: session.scheduleRevision,
     method: null,
     startsAt: new Date(session.startsAt),
     endsAt: new Date(session.endsAt),

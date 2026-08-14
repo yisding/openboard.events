@@ -9,7 +9,6 @@ const base = {
   APP_ENV: "local",
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: secret,
-  ADMIN_AUTH_PROVIDER: "better-auth",
 } as const;
 const reviewed = parseEnv({
   ...base,

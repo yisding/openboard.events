@@ -3,8 +3,8 @@
 import { Layers, Mail, Plus, Sparkles, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
-import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,
@@ -183,7 +183,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
         </Field>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Button size="sm" variant="secondary" onClick={() => void preview()} disabled={previewing}><Sparkles size={14} /> {previewing ? "Checking…" : "Preview match count"}</Button>
-          {previewTotal !== null && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{previewTotal} contact{previewTotal === 1 ? "" : "s"} match right now</span>}
+          {previewTotal !== null && <span style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>{previewTotal} contact{previewTotal === 1 ? "" : "s"} match right now</span>}
         </div>
       </div>
     </Modal>
@@ -356,7 +356,7 @@ export function SegmentsView({
             </header>
             {result && (
               <div className="crm-segment-preview">
-                {result.preview.length === 0 && <span style={{ color: "var(--muted)", fontSize: 11 }}>No contacts currently match this segment.</span>}
+                {result.preview.length === 0 && <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)" }}>No contacts currently match this segment.</span>}
                 {result.preview.map((row) => <span key={row.organizationContactId} className="chip">{row.name}</span>)}
                 {result.capped && <span className="chip">…and more (capped at 2,000)</span>}
               </div>

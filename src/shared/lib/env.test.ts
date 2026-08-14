@@ -30,7 +30,7 @@ describe("parseEnv", () => {
   });
 
   it("accepts the isolated preview contract", () => {
-    expect(parseEnv({ ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview", TEST_AUTH: "1" }).APP_ENV).toBe("preview");
+    expect(parseEnv({ ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview" }).APP_ENV).toBe("preview");
   });
 
   it("requires a stable identity for every deployed Worker instance", () => {
@@ -89,27 +89,20 @@ describe("parseEnv", () => {
       EMAIL_FALLBACK_UI: "0",
       EMAIL_FROM: "events@example.com",
     });
-    expect(env.TEST_AUTH).toBeUndefined();
+    expect(env.APP_ENV).toBe("production");
   });
 
-  it("rejects production test auth", () => {
-    expect(() => parseEnv({
-      ...deployed,
-      APP_ENV: "production",
-      R2_BUCKET_NAME: "sb-files",
-      EMAIL_MODE: "send",
-      EMAIL_FALLBACK_UI: "0",
-      EMAIL_FROM: "events@example.com",
-      TEST_AUTH: "1",
-    })).toThrow(/TEST_AUTH/);
+  it("rejects retired auth switches in every environment", () => {
+    expect(() => parseEnv({ TEST_AUTH: "1" })).toThrow(/TEST_AUTH/);
+    expect(() => parseEnv({ ADMIN_AUTH_PROVIDER: "fallback" })).toThrow(/ADMIN_AUTH_PROVIDER/);
+    expect(() => parseEnv({ ADMIN_AUTH_PROVIDER: "better-auth" })).toThrow(/ADMIN_AUTH_PROVIDER/);
   });
 
-  it("requires Google credentials whenever deployed Better Auth is enabled", () => {
+  it("requires Google credentials for every deployed admin auth environment", () => {
     const preview = {
       ...deployed,
       APP_ENV: "preview",
       R2_BUCKET_NAME: "sb-files-preview",
-      ADMIN_AUTH_PROVIDER: "better-auth",
     };
     expect(() => parseEnv(preview)).not.toThrow();
     expect(() => parseEnv({ ...preview, GOOGLE_CLIENT_ID: undefined })).toThrow(/GOOGLE_CLIENT_ID/);
@@ -168,6 +161,8 @@ describe("EMAIL_FROM", () => {
     RESEND_WEBHOOK_SECRET: "w".repeat(32),
     UNSUBSCRIBE_SECRET: "u".repeat(32),
     SPEAKER_SHARE_SECRET: "p".repeat(32),
+    GOOGLE_CLIENT_ID: "google-client-id",
+    GOOGLE_CLIENT_SECRET: "google-client-secret",
   };
 
   it("accepts a display name, which is how a From header should read", () => {

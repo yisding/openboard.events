@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { RoomDTO, ScheduledSessionDTO } from "@/shared/contracts";
 import type { NameLookup } from "../../store";
 import { SessionCard } from "./session-card";
+import { layoutSessionLanes } from "./session-lanes";
 import {
   gridRowCount,
   minutesFromDayStartInZone,
@@ -97,12 +98,29 @@ export function DayGrid({
     && session.endsAt !== null
     && session.roomId !== null
     && roomIds.has(String(session.roomId))), [sessions, roomIds]);
+  const lanes = useMemo(() => layoutSessionLanes(placed.map((session) => ({
+    id: String(session.id),
+    roomId: String(session.roomId),
+    startMinutes: minutesFromDayStartInZone(session.startsAt as string, day, timezone),
+    endMinutes: minutesFromDayStartInZone(session.endsAt as string, day, timezone),
+  }))), [day, placed, timezone]);
+  const roomLaneCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const session of placed) {
+      const roomId = String(session.roomId);
+      counts.set(roomId, Math.max(counts.get(roomId) ?? 1, lanes.get(String(session.id))?.count ?? 1));
+    }
+    return counts;
+  }, [lanes, placed]);
 
   return (
     <div
       className="dv-grid"
       style={{
-        gridTemplateColumns: `56px repeat(${Math.max(rooms.length, 1)}, minmax(160px, 1fr))`,
+        gridTemplateColumns: `56px ${rooms.map((room) => {
+          const laneCount = roomLaneCounts.get(String(room.id)) ?? 1;
+          return laneCount > 1 ? `minmax(${laneCount * 340}px, ${laneCount}fr)` : "minmax(160px, 1fr)";
+        }).join(" ") || "minmax(160px, 1fr)"}`,
         gridTemplateRows: `40px repeat(${rowCount}, ${SLOT_ROW_HEIGHT_PX}px)`,
       }}
     >
@@ -131,6 +149,7 @@ export function DayGrid({
         const endMinutes = minutesFromDayStartInZone(session.endsAt as string, day, timezone);
         const startRow = Math.max(1, minutesToGridRow(startMinutes, range.gridStartMinutes)) + 1;
         const endRow = Math.min(rowCount + 1, minutesToGridRow(endMinutes, range.gridStartMinutes)) + 1;
+        const lane = lanes.get(String(session.id)) ?? { index: 0, count: 1 };
         return (
           <SessionCard
             key={String(session.id)}
@@ -138,6 +157,8 @@ export function DayGrid({
             roomIndex={roomIndex}
             startRow={startRow}
             endRow={endRow}
+            durationMinutes={Math.max(SLOT_MINUTES, endMinutes - startMinutes)}
+            lane={lane}
             track={lookup.track(session.trackId)}
             speakerNames={lookup.speakers(session.speakerIds)}
             timezone={timezone}

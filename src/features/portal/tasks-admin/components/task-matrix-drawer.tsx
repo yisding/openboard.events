@@ -176,9 +176,9 @@ export function TaskMatrixDrawer({
                   </label>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <b style={{ display: "block", fontSize: 11.5 }}>{row.contactName}</b>
-                  {row.submissionCode !== null && <small style={{ display: "block", color: "var(--muted)", fontSize: 10 }}>#{row.submissionCode} {row.submissionTitle}</small>}
-                  <small style={{ display: "block", color: "var(--muted)", fontSize: 10, marginTop: 2 }}>
+                  <b style={{ display: "block", fontSize: "var(--text-xs)" }}>{row.contactName}</b>
+                  {row.submissionCode !== null && <small style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)" }}>#{row.submissionCode} {row.submissionTitle}</small>}
+                  <small style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)", marginTop: 2 }}>
                     {row.completed
                       ? <>{VIA_LABEL[row.completedVia ?? ""] ?? "Complete"} · <TzTime instant={row.completedAt} tz={timezone} style="date" /></>
                       : row.overdue ? "Overdue" : row.dueAt ? <>Due <TzTime instant={row.dueAt} tz={timezone} style="date" /></> : "No due date"}

@@ -5,10 +5,10 @@ import { organizationAuditLogEntryDtoSchema, type OrganizationAuditLogEntryDTO, 
 
 /**
  * M44 — a light, append-only audit trail over organization membership
- * actions. One `INSERT` per event. Most callers accept the small gap between a
- * domain mutation and this evidence row; invitation enqueue passes a real
- * transaction because its token rotation, outbox row, and audit event form one
- * consistency boundary.
+ * actions. One `INSERT` per event. Team membership role/removal and invitation
+ * enqueue pass real transactions because their domain mutation and this
+ * evidence row form one consistency boundary. Other callers accept the small
+ * gap between a domain mutation and this evidence row.
  */
 export async function recordOrganizationAuditEventIn(
   dbOrTx: DbOrTx,

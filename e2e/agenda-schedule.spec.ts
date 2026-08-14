@@ -74,6 +74,39 @@ test.describe("agenda-schedule", () => {
     });
   });
 
+  test.describe("mobile view navigation", () => {
+    test.use({ viewport: { width: 375, height: 900 } });
+
+    test("keeps every agenda view label readable in a contained scroller", async ({ page }) => {
+      await loginAsAdmin(page);
+      await page.goto(`${AGENDA}?view=day`);
+
+      const tabs = page.locator(".agenda-view-tabs [role='tab']");
+      await expect(tabs).toHaveCount(6);
+      for (const tab of await tabs.all()) {
+        await expect(tab).toBeVisible();
+        expect((await tab.innerText()).trim()).not.toEqual("");
+        expect(await tab.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(12);
+      }
+
+      const layout = await page.locator(".agenda-view-tabs").evaluate((element) => {
+        const maximumScroll = element.scrollWidth - element.clientWidth;
+        element.scrollLeft = element.scrollWidth;
+        return {
+          isScrollable: maximumScroll > 0,
+          overflowX: getComputedStyle(element).overflowX,
+          reachedEnd: Math.abs(element.scrollLeft - maximumScroll) <= 1,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.isScrollable).toBe(true);
+      expect(["auto", "scroll"]).toContain(layout.overflowX);
+      expect(layout.reachedEnd).toBe(true);
+      expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    });
+  });
+
   test.afterEach(async ({ request }) => {
     if (!targetConfigured()) return;
     await loginAsAdmin(request);
@@ -150,6 +183,10 @@ test.describe("agenda-schedule", () => {
   test.describe("the seeded conflict pair", () => {
     test("the seeded conflict pair is flagged and the back-to-back pair is not", async ({ page }) => {
       await loginAsAdmin(page);
+      const seededSessions = await apiData<SessionDTO[]>(page.request, `/api/internal/agenda/sessions?eventId=${EVENTS.main.id}`);
+      const roomConflictAnchor = seededSessions.find((session) => session.id === SESSIONS.conflictA1.id);
+      expect(roomConflictAnchor?.startsAt).toBeTruthy();
+      const conflictDay = eventDay(roomConflictAnchor?.startsAt ?? new Date().toISOString());
       await page.goto(`${AGENDA}?view=conflicts`);
 
       await test.step(`${SESSIONS.conflictA} and ${SESSIONS.conflictB} are flagged`, async () => {
@@ -164,6 +201,26 @@ test.describe("agenda-schedule", () => {
         const speakerPair = page.locator(".agenda-conflict-row", { hasText: SESSIONS.conflictB });
         await expect(speakerPair).toHaveCount(1);
         await expect(speakerPair).toContainText("Speaker conflict");
+      });
+
+      await test.step("same-room conflicts split into readable side-by-side lanes", async () => {
+        await page.goto(`${AGENDA}?view=day&day=${conflictDay}`);
+        const first = page.locator(".dv-session-card", { hasText: SESSIONS.conflictA1.title });
+        const second = page.locator(".dv-session-card", { hasText: SESSIONS.conflictA2.title });
+        await expect(first).toBeVisible();
+        await expect(second).toBeVisible();
+
+        const firstBox = await first.boundingBox();
+        const secondBox = await second.boundingBox();
+        expect(firstBox).not.toBeNull();
+        expect(secondBox).not.toBeNull();
+        expect(
+          (firstBox?.x ?? 0) + (firstBox?.width ?? 0) <= (secondBox?.x ?? 0)
+          || (secondBox?.x ?? 0) + (secondBox?.width ?? 0) <= (firstBox?.x ?? 0),
+        ).toBe(true);
+        for (const card of [first, second]) {
+          expect(await card.locator("b").evaluate((title) => title.scrollWidth <= title.clientWidth)).toBe(true);
+        }
       });
 
       await test.step("the seeded back-to-back pair is not flagged", async () => {
@@ -207,8 +264,22 @@ test.describe("agenda-schedule", () => {
 
       await page.goto(`${AGENDA}?view=list`);
       await expect(page.getByText(SESSIONS.publishedKeynote.title)).toBeVisible();
-      // The tray is the unscheduled rows' home; a session with no time must
-      // still be reachable, which is what the List view's `<Dash>` cells cover.
+      // Unscheduled rows stay reachable in List through their own table rows.
+      await expect(page.getByText(SESSIONS.draftUnscheduled.title)).toBeVisible();
+
+      await page.goto(`${AGENDA}?view=day`);
+      await expect(page.getByRole("heading", { name: "Unscheduled", exact: true })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Auto-place", exact: true })).toBeVisible();
+      await page.locator(".dv-unscheduled-card", { hasText: SESSIONS.draftUnscheduled.title })
+        .getByRole("button", { name: "Edit" })
+        .click();
+      await expect(page.getByRole("dialog", { name: "Edit session" })).toBeVisible();
+      await page.getByRole("dialog", { name: "Edit session" }).getByRole("button", { name: "Cancel" }).click();
+
+      // The Day view integrates this queue beside its grid; grouped views still
+      // need the shared tray because their lanes intentionally omit null times.
+      await page.goto(`${AGENDA}?view=week`);
+      await expect(page.getByRole("heading", { name: "Unscheduled", exact: true })).toHaveCount(1);
       await expect(page.getByText(SESSIONS.draftUnscheduled.title)).toBeVisible();
 
       assertClean();

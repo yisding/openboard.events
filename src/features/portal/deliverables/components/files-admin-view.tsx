@@ -29,10 +29,10 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function statusOf(row: DeliverableRowDTO): "Completed" | "Overdue" | "Open" {
-  if (row.completed) return "Completed";
-  if (row.overdue) return "Overdue";
-  return "Open";
+function statusOf(row: DeliverableRowDTO): "completed" | "overdue" | "open" {
+  if (row.completed) return "completed";
+  if (row.overdue) return "overdue";
+  return "open";
 }
 
 type DeliverableDetail = {
@@ -354,7 +354,7 @@ export function FilesAdminView({
       cell: ({ row }) => (
         <div>
           <b>{row.original.contactName}</b>
-          {row.original.submissionTitle && <span style={{ display: "block", color: "var(--muted)", fontSize: 10 }}>{row.original.submissionTitle}</span>}
+          {row.original.submissionTitle && <span style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)" }}>{row.original.submissionTitle}</span>}
         </div>
       ),
     },
@@ -422,7 +422,7 @@ export function FilesAdminView({
       </div>
 
       <section className="panel data-panel">
-        <div className="data-toolbar">
+        <div className="data-toolbar files-data-toolbar">
           <label className="table-search">
             <Search size={16} />
             <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />

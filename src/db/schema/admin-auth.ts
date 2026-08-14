@@ -107,7 +107,8 @@ export const userLegalAcceptances = pgTable("user_legal_acceptances", {
   acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   unique("user_legal_acceptances_user_versions_key").on(table.userId, table.termsVersion, table.privacyVersion),
-  index("user_legal_acceptances_user_time_idx").on(table.userId, table.acceptedAt.desc()),
+  index("user_legal_acceptances_user_time_idx")
+    .on(table.userId, table.acceptedAt.desc().nullsFirst()),
   check("user_legal_acceptances_terms_version_ck", sql`length(trim(${table.termsVersion})) BETWEEN 1 AND 80`),
   check("user_legal_acceptances_privacy_version_ck", sql`length(trim(${table.privacyVersion})) BETWEEN 1 AND 80`),
   check("user_legal_acceptances_source_ck", sql`${table.source} = 'signup'`),

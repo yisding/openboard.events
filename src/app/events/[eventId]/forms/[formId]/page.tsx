@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { eventIdSchema, formIdSchema } from "@/shared/contracts";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 import { getBuilderEvent, getFormForBuilder } from "@/features/forms";
 import { FormBuilder } from "@/features/forms/form-builder";
 

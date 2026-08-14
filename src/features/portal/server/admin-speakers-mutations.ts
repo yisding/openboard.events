@@ -4,7 +4,7 @@ import { db } from "@/db/client";
 import { LIMITS, plainTextLength, type ConfirmationStatus, type ContactId, type EventId, type FileId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
-import { updateContactFields } from "./contacts";
+import { updateContactFields } from "@/features/event-contacts";
 
 /**
  * The Speakers admin writes (M27). Both go through `updateContactFields`

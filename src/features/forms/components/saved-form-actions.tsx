@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Copy, ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formAvailability, type FormAvailability, type FormOpenStatus } from "@/features/forms/lib/form-open";
+import { formAvailability, type FormAvailability, type FormOpenStatus } from "../lib/form-open";
 import { copyText, type ClipboardWriter, type CopyFallback } from "@/shared/ui/app/copy-text";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";

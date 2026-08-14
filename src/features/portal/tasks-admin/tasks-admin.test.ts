@@ -16,6 +16,7 @@ import {
   saveFileRequestInputSchema,
   saveTaskIn,
   saveTaskInputSchema,
+  updateTaskInputSchema,
 } from "./server/mutations";
 import { getTaskCompletionMatrixIn, getTaskTabCountsIn, listTasksIn } from "./server/queries";
 
@@ -26,6 +27,7 @@ const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers
 const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("d5000000-0000-4000-8000-000000000001");
+const otherEventId = eventIdSchema.parse("d5000000-0000-4000-8000-000000000002");
 const ada = contactIdSchema.parse("d5000000-0000-4000-8000-000000000010");
 const grace = contactIdSchema.parse("d5000000-0000-4000-8000-000000000011");
 const talkOne = submissionIdSchema.parse("d5000000-0000-4000-8000-000000000020");
@@ -58,6 +60,10 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Task Admin Event','task-admin-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z','America/Los_Angeles')",
       [eventId],
+    );
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Other Task Event','other-task-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z','America/Los_Angeles')",
+      [otherEventId],
     );
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'ada@example.com','Ada','Lovelace')", [ada, eventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'grace@example.com','Grace','Hopper')", [grace, eventId]);
@@ -136,6 +142,7 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     }));
 
     expect(replayedTask).toMatchObject({ id: stableTaskId, name: "Original task", descriptionHtml: "<p>Original</p>", isActive: true });
+    expect(replayedTask.updatedAt).toBe(preservedTimestamp);
     expect(replayedRequest).toMatchObject({
       id: stableRequestId, title: "Original files", instructionsHtml: "<p>Original instructions</p>",
       acceptedExtensions: ["pdf"], maxSizeMb: 25,
@@ -196,7 +203,7 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     expect(await count("portal_tasks", `id = '${copyId}'`)).toBe(1);
     expect(await getTaskCompletionMatrixIn(db, eventId, copyId)).toEqual([]);
 
-    const activated = await saveTaskIn(db, eventId, taskInput({ ...copyInput, isActive: true }));
+    const activated = await saveTaskIn(db, eventId, taskInput({ ...copyInput, isActive: true }), { expectedUpdatedAt: copy.updatedAt });
     expect(activated.isActive).toBe(true);
     expect((await getTaskCompletionMatrixIn(db, eventId, copyId)).length).toBeGreaterThan(0);
   });
@@ -240,29 +247,31 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
   });
 
   it("mode-lock: rejects a shape change once the task has a completion, but allows editing copy", async () => {
-    const { id: taskId } = await saveTaskIn(db, eventId, taskInput({ name: "Mode lock task" }));
+    const created = await saveTaskIn(db, eventId, taskInput({ name: "Mode lock task" }));
+    const taskId = created.id;
     await pglite.query(
       "INSERT INTO task_completions(event_id,task_id,contact_id,submission_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
       [eventId, taskId, ada, talkOne],
     );
 
-    const changed = await saveTaskIn(db, eventId, taskInput({ id: taskId, name: "Mode lock task", targetType: "contact" }))
+    const changed = await saveTaskIn(db, eventId, taskInput({ id: taskId, name: "Mode lock task", targetType: "contact" }), { expectedUpdatedAt: created.updatedAt })
       .catch((thrown: unknown) => thrown);
     expect(isAppError(changed) && changed.code).toBe("FORM_LOCKED");
     expect(isAppError(changed) && changed.message).toContain("Create a new task");
 
     const untouched = await saveTaskIn(db, eventId, taskInput({
       id: taskId, name: "Mode lock task, renamed", descriptionHtml: "<p>Updated</p>", isActive: false,
-    }));
+    }), { expectedUpdatedAt: created.updatedAt });
     expect(untouched.name).toBe("Mode lock task, renamed");
     expect(untouched.isActive).toBe(false);
     expect(untouched.targetType).toBe("submission");
   });
 
   it("mode-lock does not block a shape-preserving save with no completions yet", async () => {
-    const { id: taskId } = await saveTaskIn(db, eventId, taskInput({ name: "No completions yet" }));
-    const saved = await saveTaskIn(db, eventId, taskInput({ id: taskId, name: "No completions yet", targetType: "contact" }));
+    const created = await saveTaskIn(db, eventId, taskInput({ name: "No completions yet" }));
+    const saved = await saveTaskIn(db, eventId, taskInput({ id: created.id, name: "No completions yet", targetType: "contact" }), { expectedUpdatedAt: created.updatedAt });
     expect(saved.targetType).toBe("contact");
+    expect(new Date(saved.updatedAt).getTime()).toBeGreaterThan(new Date(created.updatedAt).getTime());
   });
 
   it("the CHECK-mirroring schema rejects a mode/attachment mismatch before the DB ever sees it", () => {
@@ -272,6 +281,45 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     expect(badFileRequest.success).toBe(false);
   });
 
+  it("requires a concurrency token for updates without changing the POST contract", () => {
+    const body = { name: "X", targetType: "contact", completionMode: "manual", isActive: true };
+    expect(saveTaskInputSchema.safeParse(body).success).toBe(true);
+    expect(updateTaskInputSchema.safeParse(body).success).toBe(false);
+    expect(updateTaskInputSchema.safeParse({ ...body, expectedUpdatedAt: "2026-08-13T12:00:00.000Z" }).success).toBe(true);
+  });
+
+  it("rejects a stale full-form edit without reactivating another organizer's deactivated task", async () => {
+    const created = await saveTaskIn(db, eventId, taskInput({
+      name: "Two-writer task", dueAt: "2026-11-01", isActive: true,
+    }));
+    const oldVersion = "2020-01-02T03:04:05.000Z";
+    await pglite.query("UPDATE portal_tasks SET updated_at=$2 WHERE id=$1", [created.id, oldVersion]);
+
+    const deactivated = await saveTaskIn(db, eventId, taskInput({
+      id: created.id, name: "Two-writer task", dueAt: "2026-11-01", isActive: false,
+    }), { expectedUpdatedAt: oldVersion });
+    expect(deactivated.isActive).toBe(false);
+
+    const stale = await saveTaskIn(db, eventId, taskInput({
+      id: created.id, name: "Two-writer task", dueAt: "2026-11-10", isActive: true,
+    }), { expectedUpdatedAt: oldVersion }).catch((thrown: unknown) => thrown);
+    expect(isAppError(stale) && stale.code).toBe("STALE_WRITE");
+
+    const [current] = await listTasksIn(db, eventId, { search: "Two-writer task" });
+    expect(current).toMatchObject({ isActive: false, dueAt: endOfDayInTz("2026-11-01", "America/Los_Angeles").toISOString() });
+  });
+
+  it("keeps missing and cross-event update ids as NOT_FOUND", async () => {
+    const otherTask = await saveTaskIn(db, otherEventId, taskInput({ name: "Other event task" }));
+    const missingId = taskIdSchema.parse("d5000000-0000-4000-8000-000000000099");
+    for (const id of [otherTask.id, missingId]) {
+      const missing = await saveTaskIn(db, eventId, taskInput({ id, name: "Invisible task" }), {
+        expectedUpdatedAt: otherTask.updatedAt,
+      }).catch((thrown: unknown) => thrown);
+      expect(isAppError(missing) && missing.code).toBe("NOT_FOUND");
+    }
+  });
+
   it("converts a date-only due date through endOfDayInTz, never a naive Date parse", async () => {
     const saved = await saveTaskIn(db, eventId, taskInput({ name: "Deadline task", dueAt: "2026-11-01" }));
     expect(saved.dueAt).toBe(endOfDayInTz("2026-11-01", "America/Los_Angeles").toISOString());
@@ -279,7 +327,8 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
 
   it("RESTRICT: a file request in use by a task refuses to delete with a friendly message, not a raw constraint error", async () => {
     const { id: fileRequestId } = await saveFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({ title: "Slides", targetType: "submission" }));
-    const { id: taskId } = await saveTaskIn(db, eventId, taskInput({ name: "File request task", completionMode: "file_request", fileRequestId }));
+    const created = await saveTaskIn(db, eventId, taskInput({ name: "File request task", completionMode: "file_request", fileRequestId }));
+    const taskId = created.id;
 
     const blocked = await deleteFileRequestIn(db, eventId, fileRequestId).catch((thrown: unknown) => thrown);
     expect(isAppError(blocked) && blocked.code).toBe("CONFLICT");
@@ -287,7 +336,7 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
 
     // Revert to manual, then the delete succeeds — the RESTRICT constraint is
     // the backstop, this precheck is the friendly copy in front of it.
-    await saveTaskIn(db, eventId, taskInput({ id: taskId, name: "File request task", completionMode: "manual" }));
+    await saveTaskIn(db, eventId, taskInput({ id: taskId, name: "File request task", completionMode: "manual" }), { expectedUpdatedAt: created.updatedAt });
     await expect(deleteFileRequestIn(db, eventId, fileRequestId)).resolves.toBeUndefined();
   });
 

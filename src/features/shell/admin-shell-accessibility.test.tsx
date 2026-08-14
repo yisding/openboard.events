@@ -15,11 +15,11 @@ vi.mock("@/features/shell/components/command-palette", () => ({
   CommandPalette: () => <button type="button">Search</button>,
 }));
 
-vi.mock("@/features/events/components/event-switcher", () => ({
+vi.mock("@/features/events/index.client", () => ({
   EventSwitcher: () => <button type="button">Event</button>,
 }));
 
-vi.mock("@/features/auth/components/sign-out-button", () => ({
+vi.mock("@/features/auth/index.client", () => ({
   SignOutButton: () => <button type="button">Sign out</button>,
 }));
 

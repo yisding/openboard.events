@@ -19,6 +19,7 @@ const task = {
   dueAt: null,
   isActive: true,
   createdAt: "2026-08-11T00:00:00.000Z",
+  updatedAt: "2026-08-11T00:00:00.000Z",
   counts: { completed: 2, open: 3, overdue: 1 },
 } as AdminTaskDTO;
 

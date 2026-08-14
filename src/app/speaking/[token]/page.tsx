@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { getSpeakerShareData, verifySpeakerShareToken } from "@/features/portal/server/share";
+import { getSpeakerShareData, verifySpeakerShareToken } from "@/features/portal/index.share";
 import { SpeakerSharePage } from "@/features/portal/components/home/speaker-share-page";
 import { getEnv } from "@/shared/lib/env";
 

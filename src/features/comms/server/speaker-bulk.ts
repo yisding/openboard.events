@@ -14,7 +14,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { sanitize } from "@/shared/lib/sanitize";
-import { formatInZone } from "@/shared/lib/time";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { renderTemplateContent, validateTemplateBody } from "./render";
 
@@ -73,9 +73,9 @@ function varsFor(event: { name: string; slug: string; timezone: string; startsAt
   return {
     event: {
       name: event.name,
-      start_date: formatInZone(event.startsAt, event.timezone, "date"),
+      start_date: formatInZone(event.startsAt, event.timezone, { dateStyle: "long" }),
       location: event.location?.trim() || "Location to be announced",
-      timezone: event.timezone,
+      timezone: zoneAbbreviation(event.startsAt, event.timezone),
     },
     speaker: { first_name: row.firstName.trim() || "there", last_name: row.lastName.trim(), email: row.email },
     portal: { magic_link: `${env.APP_BASE_URL}/portal/${encodeURIComponent(event.slug)}` },

@@ -64,7 +64,6 @@ const env = parseEnv({
   APP_BASE_URL: "http://localhost:3000",
   SESSION_SECRET: "test-session-secret-that-is-at-least-32-bytes",
   UNSUBSCRIBE_SECRET: "test-unsubscribe-secret-at-least-32-bytes-long",
-  ADMIN_AUTH_PROVIDER: "better-auth",
   EMAIL_MODE: "log",
   EMAIL_FALLBACK_UI: "1",
 });
@@ -439,6 +438,51 @@ describe("M44 user management", () => {
   });
 
   describe("role management", () => {
+    it("rolls role changes and removals back when their audit evidence cannot persist", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Atomic Team Co", slug: "atomic-team-co" });
+      await setOrganizationMemberIn(db, org.id, organizerId, "organizer");
+      await setOrganizationMemberIn(db, org.id, reviewerId, "reviewer");
+      await pglite.exec(`
+        CREATE FUNCTION fail_team_membership_audit() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.action IN ('member.role_changed', 'member.removed') THEN
+            RAISE EXCEPTION 'forced team membership audit failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_team_membership_audit
+          BEFORE INSERT ON organization_audit_log
+          FOR EACH ROW EXECUTE FUNCTION fail_team_membership_audit();
+      `);
+      try {
+        await expect(testDb.transaction((tx) => changeOrganizationMemberRoleIn(
+          tx as unknown as TxDb,
+          org.id,
+          ownerId,
+          "owner",
+          reviewerId,
+          "organizer",
+        ))).rejects.toThrow();
+        await expect(getOrganizationMemberRoleIn(db, org.id, reviewerId)).resolves.toBe("reviewer");
+
+        await expect(testDb.transaction((tx) => removeOrganizationMemberAuditedIn(
+          tx as unknown as TxDb,
+          org.id,
+          ownerId,
+          "owner",
+          organizerId,
+        ))).rejects.toThrow();
+        await expect(getOrganizationMemberRoleIn(db, org.id, organizerId)).resolves.toBe("organizer");
+
+        const audits = await listOrganizationAuditLogIn(db, org.id);
+        expect(audits.filter((entry) => entry.action === "member.role_changed" || entry.action === "member.removed")).toEqual([]);
+      } finally {
+        await pglite.exec("DROP TRIGGER IF EXISTS fail_team_membership_audit ON organization_audit_log; DROP FUNCTION IF EXISTS fail_team_membership_audit();");
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
     it("lets an organizer change a non-owner role, but refuses an organizer granting or revoking ownership", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Role Co", slug: "role-co" });
       await setOrganizationMemberIn(db, org.id, organizerId, "organizer");

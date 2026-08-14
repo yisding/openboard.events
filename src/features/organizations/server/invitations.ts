@@ -18,8 +18,8 @@ import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { addDuration } from "@/shared/lib/time";
-import { randomBytes, sha256, toBase64Url } from "@/features/auth/server/crypto";
-import { sealPlatformAdminLinkPayload } from "@/features/auth/server/secret-payload";
+import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
+import { sealPlatformAdminLinkPayload } from "@/shared/server/admin-link-payload";
 import type { InviteEventReviewerInput, InviteOrganizationMemberInput } from "../schemas";
 import { recordOrganizationAuditEventIn } from "./audit";
 

@@ -5,6 +5,10 @@ async function weight(locator: Locator): Promise<number> {
   return locator.evaluate((element) => Number.parseInt(getComputedStyle(element).fontWeight, 10));
 }
 
+async function fontSize(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+}
+
 test.describe("typography hierarchy", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 1280, height: 900 } });
@@ -18,6 +22,9 @@ test.describe("typography hierarchy", () => {
     expect(await weight(page.getByRole("button", { name: "Show a 409" }))).toBe(550);
     expect(await weight(page.locator(".status-badge").first())).toBe(550);
     expect(await weight(page.locator(".data-table th").filter({ hasText: "Code" }))).toBe(550);
+    expect(await fontSize(page.locator(".status-badge").first())).toBeGreaterThanOrEqual(12);
+    expect(await fontSize(page.locator(".data-table th").filter({ hasText: "Code" }))).toBe(13);
+    expect(await fontSize(page.locator(".submission-title-cell b").first())).toBe(13);
     expect(await weight(page.locator(".submission-title-cell b").first())).toBe(600);
     expect(await weight(page.locator(".person-avatar").first())).toBe(700);
 
@@ -30,5 +37,11 @@ test.describe("typography hierarchy", () => {
 
     await page.goto("/portal/demo/verify?email=person%40example.com");
     expect(await weight(page.getByLabel("6-digit code"))).toBe(600);
+
+    await page.goto("/e/ai-engineer-sandbox-event/schedule");
+    const firstTime = page.locator(".schedule-time-group > time").first();
+    await expect(firstTime).toBeVisible();
+    expect(await fontSize(firstTime)).toBeGreaterThanOrEqual(12);
+    expect(await firstTime.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe("nowrap");
   });
 });

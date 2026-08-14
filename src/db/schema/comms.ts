@@ -27,10 +27,14 @@ export const communicationLogs = pgTable("communication_logs", {
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(), lockedUntil: timestamp("locked_until", { withTimezone: true }),
   submissionId: uuid("submission_id").references(() => submissions.id, { onDelete: "set null" }), sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "set null" }),
   taskId: uuid("task_id").references(() => portalTasks.id, { onDelete: "set null" }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), sentAt: timestamp("sent_at", { withTimezone: true }),
-}, (table) => [unique().on(table.id, table.eventId), index("communication_logs_contact_created_idx").on(table.eventId, table.contactId, table.createdAt)]);
+}, (table) => [
+  unique().on(table.id, table.eventId),
+  index("communication_logs_contact_created_idx")
+    .on(table.eventId, table.contactId, table.createdAt.desc().nullsFirst()),
+]);
 // P3-EMAIL: Resend bounce/complaint webhook target. Deliberately its own
 // table, one row per suppressed contact, rather than columns on `contacts` —
-// that table's writes go through `getOrCreateContact`/`updateContactFields`,
+// that table's writes go through the event-contacts feature's identity writers,
 // both of which use an unqualified `.returning()`/insert (every declared
 // column), so adding columns there breaks every PGlite fixture across every
 // feature that creates or edits a contact and has not also loaded this

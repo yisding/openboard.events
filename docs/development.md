@@ -7,22 +7,23 @@ what Openboard does and how to use it, start with the [README](../README.md).
 ## Status
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
-  typecheck, lint, invariant greps, the full Vitest suite (1,921 cases across two shards as of
-  2026-08-13), the Next.js build, and the Worker artifact gates.
+  typecheck, lint, architecture and schema drift checks, invariant checks, the full Vitest suite
+  (2,384 cases across two shards as of 2026-08-13), the Next.js build, and the Worker artifact
+  gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
   post-deploy smoke — and production deploys run through the same workflow behind a protected
   GitHub environment. `scripts/deploy-cloudflare.sh` remains available for a manual deploy from a
   workstation; it validates the exact origin and the remote secret inventory before it builds.
-- Both deployed environments run `ADMIN_AUTH_PROVIDER=better-auth` (revocable sessions, Google
-  sign-in). Preview uses the explicit `EMAIL_FALLBACK_UI` demo affordance, but does not expose the
-  fallback-only `TEST_AUTH` admin route. Production validation refuses both fallback flags and
-  `EMAIL_MODE=log`.
+- Admin/organizer authentication uses Better Auth in every environment (revocable sessions,
+  email/password, and optional Google sign-in). Preview uses the explicit
+  `EMAIL_FALLBACK_UI` delivery-demo affordance. Production validation refuses that affordance
+  and `EMAIL_MODE=log`.
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
-- Snapshot counts (re-run the commands in **Testing** for current numbers): 26 migrations in
-  [`drizzle/`](../drizzle), 10 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
+- Snapshot counts (re-run the commands in **Testing** for current numbers): 35 migrations in
+  [`drizzle/`](../drizzle), 13 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
   the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
 
 ## What's inside
@@ -81,9 +82,8 @@ pnpm dev                           # http://localhost:3000
 ```
 
 Then create the first admin/reviewer accounts with the one-shot bootstrap. It creates or updates
-the organizer and reviewer accounts, hashes both passwords with the runtime PBKDF2
-implementation, mirrors each hash into `admin_accounts` so the account works under either
-`ADMIN_AUTH_PROVIDER` (`fallback` or `better-auth`), and assigns real event memberships:
+the organizer and reviewer identities, writes each credential directly to Better Auth's
+`admin_accounts` table, and assigns real event memberships:
 
 ```bash
 export DATABASE_URL='postgresql://...'      # Neon-protocol URL; the script opens a Pool transaction
@@ -113,10 +113,13 @@ at a Neon-protocol endpoint; a plain local Postgres socket does not work out of 
 ```bash
 pnpm typecheck          # tsc --noEmit
 pnpm lint                # eslint --max-warnings=0
-pnpm invariants          # CI greps: single sanitizer/evaluator/dispatcher, no stray process.env, etc.
+pnpm architecture:check  # AST feature-boundary and cycle ratchet
+pnpm schema:check        # full migration journal vs Drizzle metadata and SQL-only ledger
+pnpm source:check        # AST imports, environment access, JSX, route roles, and storage seams
+pnpm invariants          # source AST plus literal configuration and CSS declaration checks
 pnpm audit:prod          # fail on any known production-dependency advisory
 pnpm test                # vitest: unit + PGlite integration suites
-pnpm e2e                 # Playwright — set E2E_BASE_URL to a deployed target to run against it
+pnpm e2e                 # Playwright — also set E2E_BASE_URL and the two E2E password variables
 pnpm check               # typecheck + lint + invariants + test + next build + worker build
 pnpm worker:size         # Workers Free compressed-size gate
 pnpm smoke:worker        # boots the built OpenNext artifact under local workerd
@@ -125,11 +128,15 @@ pnpm release:check       # full credential-free CI and artifact gate
 bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
 ```
 
-The ten specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
+The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
 `agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
-`review-operations`, `self-service-onboarding`, `speaker-content-ops`) are written to run against
+`rendered-ui-polish`, `responsive-action-groups`, `review-operations`, `self-service-onboarding`,
+`speaker-content-ops`, `typography-hierarchy`) are written to run against
 a deployed target plus the `sb-test` Neon branch, not against `localhost` fixtures — set
-`E2E_BASE_URL` and `NEON_TEST_URL` first. The deploy workflow runs them against the freshly
+`E2E_BASE_URL`, `NEON_TEST_URL`, `E2E_ADMIN_PASSWORD`, and `E2E_REVIEWER_PASSWORD` first. The
+Playwright global setup wipes and seeds the test database, then recreates the seeded Better Auth
+credentials with those two 12+-character passwords via `pnpm admin:bootstrap`. The deploy
+workflow runs the self-service journey against the freshly
 deployed preview on every merge to `main`.
 
 ## Deploying

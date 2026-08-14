@@ -6,7 +6,7 @@ import { AppError } from "@/shared/lib/errors";
 
 /**
  * M44 — admin session views over M42's revocable session store
- * (`admin_sessions`, written only under `ADMIN_AUTH_PROVIDER=better-auth`).
+ * (`admin_sessions`, written by Better Auth).
  * Self-service only: a signed-in identity sees and revokes their *own*
  * sessions. Deliberately not extended to "an owner revokes a teammate's
  * sessions" — `admin_sessions` is not organization-scoped (one person can

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, timeZoneOptionLabel, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -31,8 +31,31 @@ describe("event timezone API", () => {
     expect(formatInZone("2026-12-15T20:00:00.000Z", LA, "dateTime")).toMatch(/PST$/);
   });
 
+  it("presents canonical timezone values as readable selector labels", () => {
+    expect(timeZoneOptionLabel(LA)).toMatch(/Los Angeles$/);
+    expect(timeZoneOptionLabel(LA)).not.toContain("/");
+    expect(timeZoneOptionLabel("Europe/London")).toMatch(/London$/);
+    expect(timeZoneOptionLabel("Europe/London")).not.toContain("/");
+    expect(timeZoneOptionLabel("UTC")).toBe("UTC");
+    expect(timeZoneOptionLabel("Not_A_Real_Zone")).toBe("Not A Real Zone");
+  });
+
   it("accepts Intl style shortcuts without mixing component options", () => {
     expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { dateStyle: "medium" })).toBe("Oct 15, 2026");
+    expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { timeStyle: "short" })).toBe("12:00 PM");
+  });
+
+  it("keeps date-only component formats free of a dangling zone joiner", () => {
+    expect(formatInZone("2026-08-12T19:00:00.000Z", LA, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    })).toBe("Wednesday, August 12");
+    expect(formatInZone("2026-08-12T19:00:00.000Z", LA, {
+      month: "long",
+      day: "numeric",
+      timeZoneName: "short",
+    })).toBe("August 12 at PDT");
   });
 
   it("formats event ranges compactly with one shared zone label", () => {

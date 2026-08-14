@@ -30,9 +30,20 @@ describe("computeLiveHighlight", () => {
     expect(result.nextSessionId).toBeNull();
   });
 
-  it("returns nothing before the day starts, other than the first session being 'next'", () => {
+  it("marks the first session up next when it starts within the event-day window", () => {
     const result = computeLiveHighlight([A, B, C], new Date("2026-09-16T10:00:00Z"));
     expect(result.nowSessionIds.size).toBe(0);
+    expect(result.nextSessionId).toBe("a");
+  });
+
+  it("does not call a far-future session up next", () => {
+    const result = computeLiveHighlight([A], new Date("2026-08-12T17:00:00Z"));
+    expect(result.nowSessionIds.size).toBe(0);
+    expect(result.nextSessionId).toBeNull();
+  });
+
+  it("calls a session in two hours up next", () => {
+    const result = computeLiveHighlight([A], new Date("2026-09-16T15:00:00Z"));
     expect(result.nextSessionId).toBe("a");
   });
 

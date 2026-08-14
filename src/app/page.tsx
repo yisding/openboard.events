@@ -2,11 +2,9 @@ import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Sparkles } from "lucide-react";
 import { getAdminSession } from "@/features/auth";
 import { Brand } from "@/shared/ui/brand";
-import { getEnv } from "@/shared/lib/env";
 import { LandingMobileNav } from "./landing-mobile-nav";
 
-// Signup availability is a runtime Cloudflare binding. Do not freeze the
-// provider gate into the build-time prerendered homepage.
+// Session state is request-specific; do not freeze it into a prerender.
 export const dynamic = "force-dynamic";
 
 // `seedId("form", "form-a")` — scripts/seed/lib/ids.ts derives every seeded
@@ -22,19 +20,13 @@ const CFP_HREF = `/submit/ai-engineer-sandbox-event/${SEEDED_CFP_FORM_ID}`;
 const AGENDA_HREF = "/e/ai-engineer-sandbox-event/agenda";
 
 export default async function HomePage() {
-  // Evaluated per render rather than at module scope: `getEnv` reads the
-  // current request's Cloudflare env binding, which only exists inside a
-  // request's execution context.
-  const signupEnabled = getEnv().ADMIN_AUTH_PROVIDER === "better-auth";
   const signedIn = Boolean(await getAdminSession());
-  const workspaceHref = signedIn ? "/organizations" : signupEnabled ? "/signup" : "/login";
-  const workspaceNavLabel = signedIn || !signupEnabled ? "Open workspace" : "Create workspace";
-  const workspaceHeroLabel = signedIn || !signupEnabled ? "Open your workspace" : "Create your workspace";
+  const workspaceHref = signedIn ? "/organizations" : "/signup";
+  const workspaceNavLabel = signedIn ? "Open workspace" : "Create workspace";
+  const workspaceHeroLabel = signedIn ? "Open your workspace" : "Create your workspace";
   const workspaceProof = signedIn
     ? "Continue your event setup or pick up where your team left off"
-    : signupEnabled
-    ? "Go from signup to a live CFP in one guided setup"
-    : "Sign in to manage your event workspace";
+    : "Go from signup to a live CFP in one guided setup";
   return (
     <main className="landing">
       <nav className="landing-nav container">

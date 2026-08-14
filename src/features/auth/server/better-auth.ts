@@ -39,12 +39,7 @@ import { recordSignupLegalAcceptanceIn } from "./legal-consent";
 import { resolveSignupHookInput, signupProvisioningFromEmailBody, type SignupProvisioningInput } from "./signup-hook-input";
 
 /**
- * M42 — the Better Auth instance behind `requireAdmin`.
- *
- * Reachable only when `ADMIN_AUTH_PROVIDER=better-auth`; otherwise nothing in
- * this file is constructed and admin auth stays on the jose/PBKDF2 fallback
- * (`fallback-session.ts`). `admin.ts` is the only caller — the auth barrel's
- * exported surface, `requireAdmin(eventId, role?)` above all, is unchanged.
+ * The Better Auth instance behind every admin identity lookup.
  *
  * Deliberate configuration choices:
  *
@@ -167,10 +162,6 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
     }),
     advanced: {
       database: { generateId: false },
-      // The fallback's cookie is `ADMIN_COOKIE`; a distinct prefix means the
-      // two providers never read each other's cookie, so flipping
-      // ADMIN_AUTH_PROVIDER back is a clean revert rather than a corrupt-token
-      // error for everyone holding the other kind.
       cookiePrefix: "openboard_admin",
       useSecureCookies: env.APP_ENV !== "local",
     },
@@ -214,26 +205,9 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
         }, env);
       },
       resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
-      // Resetting a password ends every other session for that account. A
-      // reset is what somebody does when they believe their credential leaked.
-      //
-      // This revokes `admin_sessions` rows only. The fallback provider's
-      // cookie is a stateless jose JWT with no server record, so a reset
-      // performed while `ADMIN_AUTH_PROVIDER=better-auth` cannot end a
-      // fallback cookie minted before the switch — see
-      // `mirrorCredentialToFallback` below for the half of that problem that
-      // *is* fixable (the credential itself) and `revokeAdminSessions`'
-      // comment in `admin.ts` for why the other half is exactly what M42
-      // exists to close.
+      // A reset is what somebody does when they believe their credential
+      // leaked, so end every server-side session for the account.
       revokeSessionsOnPasswordReset: true,
-      // Every password Better Auth writes is mirrored back into
-      // `users.password_hash` — the reverse of what `upsertCredentialAccount`
-      // does for provisioning. Without it a reset left the *old* (possibly
-      // compromised) password authenticating on the fallback, and a password
-      // first set under Better Auth did not exist on the fallback at all.
-      onPasswordReset: async ({ user }) => {
-        await mirrorCredentialToFallback(database, user.id);
-      },
       password: {
         hash: hashAdminPassword,
         verify: verifyAdminPassword,
@@ -378,21 +352,6 @@ export function buildAdminAuth(env: RuntimeEnv, deps: AuthDeps = {}) {
           },
         },
       },
-      account: {
-        create: {
-          // The *other* moment Better Auth mints a password: a self-serve
-          // signup writes the credential account, not the user row, so
-          // `user.create.after` above fires too early to see it and
-          // `autoSignIn: false` means the post-`/sign-up/email` middleware has
-          // no session to read the user id from either. This hook is handed
-          // the row itself. OAuth accounts carry no password and are skipped
-          // inside `mirrorCredentialToFallback`.
-          after: async (account) => {
-            if (account.providerId !== "credential") return;
-            await mirrorCredentialToFallback(database, account.userId);
-          },
-        },
-      },
     },
   });
 }
@@ -463,53 +422,6 @@ function errorChainMessages(error: unknown): string {
 }
 
 /**
- * M42 — the *return* leg of the two-provider credential mirror.
- *
- * `upsertCredentialAccount` (credential-account.ts) copies a freshly
- * provisioned `users.password_hash` into `admin_accounts.password` so an
- * account minted on the fallback can sign in under Better Auth. This is the
- * same copy in the other direction, and without it ".dev.vars.example: flip it
- * back at any time — both credentials stay valid" was false in two concrete
- * ways:
- *
- * - **After a reset**, `admin_accounts.password` held the new hash while
- *   `users.password_hash` still held the old one. Flipping
- *   `ADMIN_AUTH_PROVIDER` back to `fallback` re-armed the very password the
- *   user had just reset away from — the one they believe leaked.
- * - **After a self-serve signup**, the password existed *only* in
- *   `admin_accounts`, so the same flip locked the account out entirely.
- *
- * `verifyPassword` in `fallback-session.ts` was widened to accept the v2
- * scheme this writes, which is what makes the mirrored value usable on the
- * fallback rather than merely present.
- *
- * Best-effort, like `rehashLegacyCredential`: a failed mirror must not fail
- * the reset or signup the user actually asked for. The cost of losing the race
- * is a stale fallback credential — the pre-fix status quo — not a broken
- * primary provider.
- *
- * Known residual, deliberately not papered over: `revokeSessionsOnPasswordReset`
- * deletes `admin_sessions` rows, and a fallback cookie is a stateless jose JWT
- * with no row to delete. A cookie minted under `fallback`, valid 7 days, still
- * resolves if the provider is flipped back inside that window regardless of
- * any reset performed in between. Rotating `SESSION_SECRET` is the only lever
- * that invalidates it, and that is a deployment action, not something this
- * function can do.
- */
-async function mirrorCredentialToFallback(database: typeof db, userId: string): Promise<void> {
-  try {
-    const [account] = await database.select({ password: adminAccounts.password })
-      .from(adminAccounts)
-      .where(and(eq(adminAccounts.userId, userId), eq(adminAccounts.providerId, "credential")))
-      .limit(1);
-    if (!account?.password) return;
-    await database.update(users).set({ passwordHash: account.password }).where(eq(users.id, userId));
-  } catch (error) {
-    log({ level: "warn", msg: `fallback credential mirror failed: ${error instanceof Error ? error.message : "unknown"}`, requestId: userId, feature: "auth" });
-  }
-}
-
-/**
  * M42 AC 1 — rehash-on-login.
  *
  * The only moment a legacy PBKDF2 hash can be replaced is immediately after it
@@ -543,11 +455,7 @@ export type AdminAuth = ReturnType<typeof buildAdminAuth>;
 
 let cached: { auth: AdminAuth; key: string } | undefined;
 
-/**
- * Built lazily and memoised per configuration. Nothing here runs — and none of
- * Better Auth is even imported at request time — while
- * `ADMIN_AUTH_PROVIDER=fallback`.
- */
+/** Built lazily and memoised per configuration. */
 export function getAdminAuth(env: RuntimeEnv = getEnv()): AdminAuth {
   const key = `${baseUrl(env)}|${env.SESSION_SECRET ?? ""}|${env.GOOGLE_CLIENT_ID ?? ""}|${env.APP_ENV}`;
   if (!cached || cached.key !== key) cached = { auth: buildAdminAuth(env), key };

@@ -3,7 +3,7 @@ import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
 import { fileIdSchema, LIMITS, plainTextLength, type ContactId, type EventId } from "@/shared/contracts";
 import { sanitize } from "@/shared/lib/sanitize";
-import { updateContactFields, type ContactPatch } from "../../server/contacts";
+import { updateContactFields, type ContactPatch } from "@/features/event-contacts";
 import { getSpeakerProfileIn, type SpeakerProfileDTO } from "./queries";
 
 /**

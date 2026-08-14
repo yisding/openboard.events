@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { and, count, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
-import { getOrCreateContact } from "@/features/portal";
+import { getOrCreateContact } from "@/features/event-contacts";
 import type { ContactId, EventId, UserId } from "@/shared/contracts";
 import { idem } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -11,7 +11,7 @@ import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { safeInternalPath } from "../safe-next";
 import { getAdminSession, requireAdmin } from "./admin";
 import { PORTAL_COOKIE_PREFIX } from "../cookies";
-import { randomBytes, sha256, toBase64Url } from "./crypto";
+import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
 import { sealPortalLoginPayload } from "./secret-payload";
 import { consumeToken, issuePortalToken } from "./tokens";
 

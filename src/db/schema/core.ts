@@ -6,11 +6,6 @@ export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull().default(""),
-  // The legacy PBKDF2 credential. M42 copied every non-null value into
-  // `admin_accounts.password` (drizzle/0009_product_auth.sql); this column stays
-  // so the jose/PBKDF2 fallback keeps working until the deployed Better Auth
-  // round-trip is proven.
-  passwordHash: text("password_hash"),
   // M42 — required by Better Auth's `user` model.
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),

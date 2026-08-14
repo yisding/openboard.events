@@ -23,7 +23,7 @@ describe("scanner-safe admin email confirmation", () => {
 
   it("does not invoke Better Auth when a scanner follows the emailed GET", async () => {
     const handler = vi.fn();
-    const response = await handleAdminAuthGet(new NextRequest(VERIFY_URL), true, handler);
+    const response = await handleAdminAuthGet(new NextRequest(VERIFY_URL), handler);
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain("/signup/confirm?");

@@ -5,7 +5,7 @@ import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, Form
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
-import { updateContactFields } from "../../server/contacts";
+import { updateContactFields } from "@/features/event-contacts";
 import { addFileCommentIn, listFileVersionsIn } from "../../server/deliverable-slot";
 
 /**

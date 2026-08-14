@@ -3,21 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
-const runtime = vi.hoisted(() => ({
-  authProvider: "better-auth" as "better-auth" | "fallback",
-}));
 const getAdminSession = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/auth", () => ({ getAdminSession }));
-vi.mock("@/shared/lib/env", () => ({
-  getEnv: () => ({ ADMIN_AUTH_PROVIDER: runtime.authProvider }),
-}));
 
 Object.assign(globalThis, { React });
 
 describe("public landing page", () => {
   beforeEach(() => {
-    runtime.authProvider = "better-auth";
     getAdminSession.mockReset().mockResolvedValue(null);
   });
 
@@ -28,16 +21,6 @@ describe("public landing page", () => {
     expect(html).toContain("Create your workspace");
     expect(html).toContain('href="/login"');
     expect(html).toContain("Sign in");
-  });
-
-  it("routes fallback deployments to sign-in instead of signup", async () => {
-    runtime.authProvider = "fallback";
-
-    const html = renderToStaticMarkup(await HomePage());
-
-    expect(html).toContain('href="/login"');
-    expect(html).toContain("Open your workspace");
-    expect(html).not.toContain('href="/signup"');
   });
 
   it("opens the workspace directly for an existing session", async () => {

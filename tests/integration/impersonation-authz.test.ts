@@ -4,8 +4,6 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { db as RepositoryDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { ADMIN_COOKIE } from "@/features/auth/cookies";
-import { signAdminToken } from "@/features/auth/server/fallback-session";
 import { contactIdSchema, eventIdSchema, userIdSchema } from "@/shared/contracts";
 
 /**
@@ -23,8 +21,6 @@ import { contactIdSchema, eventIdSchema, userIdSchema } from "@/shared/contracts
  * it, with only its identity source and database standing in.
  */
 
-const SECRET = "impersonation-authz-secret-that-is-at-least-32-bytes";
-
 const memberEvent = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const otherEvent = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
 const unknownEvent = eventIdSchema.parse("b0000000-0000-4000-8000-0000000000ff");
@@ -34,15 +30,19 @@ const unknownContact = contactIdSchema.parse("b0000000-0000-4000-8000-0000000000
 
 const identity = { userId: organizerUser, email: "organizer@example.com", name: "Organizer" };
 
-let adminCookie = "";
+let signedIn = true;
 let testDb: ReturnType<typeof drizzle>;
 
-// The identity source is the only half of `requireAdmin` that differs between
-// providers, and under `fallback` it is a signed cookie — so the cookie jar is
-// the seam, and the guard itself runs for real.
 vi.mock("next/headers", () => ({
-  cookies: async () => ({ get: (name: string) => (name === ADMIN_COOKIE && adminCookie ? { value: adminCookie } : undefined) }),
   headers: async () => new Headers(),
+}));
+
+vi.mock("@/features/auth/server/better-auth", () => ({
+  getAdminAuth: () => ({
+    api: {
+      getSession: async () => signedIn ? { user: { id: identity.userId, email: identity.email, name: identity.name } } : null,
+    },
+  }),
 }));
 
 vi.mock("@/db/client", async (importOriginal) => {
@@ -60,9 +60,6 @@ describe("createImpersonationLink authorization order", () => {
   let createImpersonationLink: typeof import("@/features/auth/server/portal")["createImpersonationLink"];
 
   beforeAll(async () => {
-    vi.stubEnv("SESSION_SECRET", SECRET);
-    vi.stubEnv("ADMIN_AUTH_PROVIDER", "fallback");
-
     pglite = new PGlite();
     await pglite.exec(readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8"));
     await pglite.query(
@@ -74,7 +71,6 @@ describe("createImpersonationLink authorization order", () => {
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [speaker, memberEvent]);
     testDb = drizzle(pglite, { schema });
 
-    adminCookie = await signAdminToken(identity, SECRET);
     ({ createImpersonationLink } = await import("@/features/auth/server/portal"));
   }, 60_000);
 
@@ -92,12 +88,11 @@ describe("createImpersonationLink authorization order", () => {
   });
 
   it("refuses an unauthenticated caller before anything else", async () => {
-    const signedIn = adminCookie;
-    adminCookie = "";
+    signedIn = false;
     try {
       await expect(createImpersonationLink(unknownEvent, speaker)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     } finally {
-      adminCookie = signedIn;
+      signedIn = true;
     }
   });
 

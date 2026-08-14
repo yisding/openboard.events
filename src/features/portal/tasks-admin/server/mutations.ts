@@ -56,10 +56,16 @@ export const saveTaskInputSchema = z.object({
   }
 });
 export type SaveTaskInput = z.infer<typeof saveTaskInputSchema>;
+// Collection POST keeps the stable-create contract above. Editing is a
+// separate full-replace contract: the caller must identify the version it saw.
+export const updateTaskInputSchema = saveTaskInputSchema.and(z.object({
+  expectedUpdatedAt: z.iso.datetime(),
+}));
 
 type TaskRow = {
   id: string; name: string; description_html: string; target_type: string; completion_mode: string;
-  form_id: string | null; file_request_id: string | null; due_at: string | null; is_active: boolean; created_at: string;
+  form_id: string | null; file_request_id: string | null; due_at: string | null; is_active: boolean;
+  created_at: string; updated_at: string;
 };
 
 function toTaskDto(row: TaskRow): TaskDTO {
@@ -74,14 +80,17 @@ function toTaskDto(row: TaskRow): TaskDTO {
     dueAt: row.due_at ? new Date(row.due_at).toISOString() : null,
     isActive: row.is_active,
     createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   });
 }
 
+const STALE_TASK_MESSAGE = "This task changed since you opened it";
+
 /**
- * Create or update a task in one statement — no `withTx`, this is not one of
- * the eight audited transactional paths (driver resolution #4). Everything
- * that can reject the write happens in reads *before* the statement, so the
- * statement itself is the only place a row is touched.
+ * Create and update each touch the row in one write statement — no `withTx`,
+ * this is not one of the eight audited transactional paths (driver resolution
+ * #4). The update statement carries the timestamp compare-and-swap itself, so
+ * a change after the validation reads still cannot be overwritten.
  *
  * **Mode-lock** (analysis trap #4): re-checked here on every call, not only in
  * the UI's disabled button, because a curl'd PATCH has no button to disable.
@@ -95,7 +104,7 @@ export async function saveTaskIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   input: SaveTaskInput,
-  options: { createIfMissing?: boolean } = {},
+  options: { createIfMissing?: boolean; expectedUpdatedAt?: string } = {},
 ): Promise<TaskDTO> {
   const timezone = await getEventTimezoneIn(dbOrTx, eventId);
   const formId = input.formId ?? null;
@@ -104,15 +113,22 @@ export async function saveTaskIn(
   if (input.id) {
     const existingResult = await dbOrTx.execute<TaskRow>(sql`
       SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id,
-             due_at, is_active, created_at
+             due_at, is_active, created_at, updated_at
       FROM portal_tasks WHERE id = ${input.id} AND event_id = ${eventId}
     `);
     const existing = (existingResult.rows ?? [])[0];
     // A collection-create id is an operation id, not an update target. A lost
     // response may be retried with stale/different form state; return the row
     // the first attempt committed without changing fields or updated_at.
-    if (existing && options.createIfMissing) return toTaskDto(existing);
-    if (!existing && !options.createIfMissing) throw new AppError("NOT_FOUND", "Task not found");
+    if (options.createIfMissing) {
+      if (existing) return toTaskDto(existing);
+    } else {
+      if (!existing) throw new AppError("NOT_FOUND", "Task not found");
+      if (!options.expectedUpdatedAt) throw new AppError("VALIDATION", "expectedUpdatedAt is required when updating a task");
+      if (new Date(existing.updated_at).getTime() !== new Date(options.expectedUpdatedAt).getTime()) {
+        throw new AppError("STALE_WRITE", STALE_TASK_MESSAGE);
+      }
+    }
 
     const shapeChanged = existing !== undefined && (existing.target_type !== input.targetType
       || existing.completion_mode !== input.completionMode
@@ -143,14 +159,31 @@ export async function saveTaskIn(
   const dueAt = input.dueAt ? endOfDayInTz(input.dueAt, timezone) : null;
   const descriptionHtml = sanitize(input.descriptionHtml ?? "");
   const idempotentCreate = options.createIfMissing === true && input.id !== undefined;
-  const conflictClause = idempotentCreate
-    ? sql`ON CONFLICT (id) DO NOTHING`
-    : sql`ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name, description_html = EXCLUDED.description_html,
-        target_type = EXCLUDED.target_type, completion_mode = EXCLUDED.completion_mode,
-        form_id = EXCLUDED.form_id, file_request_id = EXCLUDED.file_request_id,
-        due_at = EXCLUDED.due_at, is_active = EXCLUDED.is_active, updated_at = now()
-      WHERE portal_tasks.event_id = ${eventId}`;
+
+  if (input.id && !idempotentCreate) {
+    const updated = await dbOrTx.execute<TaskRow>(sql`
+      UPDATE portal_tasks
+      SET name = ${input.name}, description_html = ${descriptionHtml},
+          target_type = ${input.targetType}::task_target, completion_mode = ${input.completionMode}::task_mode,
+          form_id = ${formId}, file_request_id = ${fileRequestId}, due_at = ${dueAt}, is_active = ${input.isActive},
+          updated_at = greatest(now(), updated_at + interval '1 millisecond')
+      WHERE id = ${input.id} AND event_id = ${eventId}
+        AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${options.expectedUpdatedAt}::timestamptz)
+      RETURNING id, name, description_html, target_type, completion_mode, form_id, file_request_id,
+                due_at, is_active, created_at, updated_at
+    `);
+    const row = (updated.rows ?? [])[0];
+    if (row) return toTaskDto(row);
+
+    // The row may have been removed after the preflight read. Keep absence and
+    // cross-event ids as NOT_FOUND; only a still-present same-event row is a
+    // concurrent edit that deserves the recoverable 409 path.
+    const current = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM portal_tasks WHERE id = ${input.id} AND event_id = ${eventId}
+    `);
+    if ((current.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Task not found");
+    throw new AppError("STALE_WRITE", STALE_TASK_MESSAGE);
+  }
 
   const result = await dbOrTx.execute<TaskRow>(sql`
     INSERT INTO portal_tasks (id, event_id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, sort_order)
@@ -163,14 +196,15 @@ export async function saveTaskIn(
         (SELECT coalesce(max(sort_order) + 1, 0) FROM portal_tasks WHERE event_id = ${eventId})
       )
     )
-    ${conflictClause}
-    RETURNING id, name, description_html, target_type, completion_mode, form_id, file_request_id, due_at, is_active, created_at
+    ${idempotentCreate ? sql`ON CONFLICT (id) DO NOTHING` : sql.empty()}
+    RETURNING id, name, description_html, target_type, completion_mode, form_id, file_request_id,
+              due_at, is_active, created_at, updated_at
   `);
   let row = (result.rows ?? [])[0];
   if (!row && idempotentCreate) {
     const replay = await dbOrTx.execute<TaskRow>(sql`
       SELECT id, name, description_html, target_type, completion_mode, form_id, file_request_id,
-             due_at, is_active, created_at
+             due_at, is_active, created_at, updated_at
       FROM portal_tasks WHERE id = ${input.id} AND event_id = ${eventId}
     `);
     row = (replay.rows ?? [])[0];
@@ -318,7 +352,8 @@ export async function deleteFileRequestIn(dbOrTx: DbOrTx, eventId: EventId, id: 
   if ((result.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "File request not found");
 }
 
-export const saveTask = (eventId: EventId, input: SaveTaskInput) => saveTaskIn(db, eventId, input);
+export const saveTask = (eventId: EventId, input: SaveTaskInput, expectedUpdatedAt?: string) =>
+  saveTaskIn(db, eventId, input, expectedUpdatedAt ? { expectedUpdatedAt } : {});
 export const createTask = (eventId: EventId, input: SaveTaskInput) => createTaskIn(db, eventId, input);
 export const deleteTask = (eventId: EventId, taskId: TaskId) => deleteTaskIn(db, eventId, taskId);
 export const reopenCompletion = (eventId: EventId, taskId: TaskId, contactId: ContactId, submissionId: SubmissionId | null) =>

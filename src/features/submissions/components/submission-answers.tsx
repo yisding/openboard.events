@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnswerPanelData } from "@/shared/contracts";
-import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
+import { FormFieldRenderer } from "@/features/forms/index.client";
 
 /**
  * What the submitter actually typed, rendered against the *pinned* snapshot — a

@@ -1,8 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
-import { db, withTx } from "@/db/client";
+import { db, withTx, type TxDb } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
-import { getOrCreateContact, updateContactFields } from "@/features/portal";
-import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult, type DraftParticipantInput } from "@/features/submissions";
+import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -10,6 +9,9 @@ import {
   trackIdSchema,
   type CleanAnswers,
   type ContactId,
+  type CreateSubmissionInput,
+  type CreateSubmissionResult,
+  type DraftParticipantInput,
   type EventId,
   type FormId,
   type FormSnapshot,
@@ -51,6 +53,19 @@ export type SubmitInput = {
 };
 
 export type SaveDraftInput = Omit<SubmitInput, "draftSubmissionId">;
+
+/** Submission persistence port wired by the top-level CFP composition feature. */
+export type CfpSubmissionCommands = {
+  createSubmissionIn: (tx: TxDb, eventId: EventId, input: CreateSubmissionInput) => Promise<CreateSubmissionResult>;
+  saveDraftAnswers: (
+    eventId: EventId,
+    contactId: ContactId,
+    formId: FormId,
+    formVersion: number,
+    answers: CleanAnswers,
+    participants?: DraftParticipantInput[],
+  ) => Promise<{ submissionId: SubmissionId; saved: boolean }>;
+};
 
 /**
  * A mapped answer is a plain string until it is checked. Parsing rather than
@@ -101,7 +116,10 @@ function assertParticipantRolePolicy(
   }
 }
 
-export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissionResult> {
+export async function submitCfpForm(
+  input: SubmitInput,
+  commands: Pick<CfpSubmissionCommands, "createSubmissionIn">,
+): Promise<CreateSubmissionResult> {
   if (input.draftSubmissionId) {
     // A committed draft is the idempotency record. Bind it to all three owners
     // before consulting mutable form state, so a lost-response retry still
@@ -318,7 +336,7 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
       return { ...answer, participantId: contactId };
     }));
 
-    const created = await createSubmissionIn(tx, input.eventId, {
+    const created = await commands.createSubmissionIn(tx, input.eventId, {
       formId: input.formId,
       formVersion: rendered.version,
       source: "cfp",
@@ -344,7 +362,10 @@ export async function submitCfpForm(input: SubmitInput): Promise<CreateSubmissio
 }
 
 /** Persist incomplete, type-valid answers without enforcing required fields. */
-export async function saveCfpDraft(input: SaveDraftInput) {
+export async function saveCfpDraft(
+  input: SaveDraftInput,
+  commands: Pick<CfpSubmissionCommands, "saveDraftAnswers">,
+) {
   const [rendered, current, formRows] = await Promise.all([
     getPinnedSnapshot(input.eventId, input.formId, input.formVersion),
     getCurrentSnapshot(input.eventId, input.formId),
@@ -399,7 +420,7 @@ export async function saveCfpDraft(input: SaveDraftInput) {
     ...result.clean,
     ...(submittedDraftParticipants.length > 0 ? draftParticipants.flatMap((participant) => participant.answers) : []),
   ]);
-  return saveDraftAnswers(
+  return commands.saveDraftAnswers(
     input.eventId,
     input.contactId,
     input.formId,

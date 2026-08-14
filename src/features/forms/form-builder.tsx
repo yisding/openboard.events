@@ -766,7 +766,7 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
   const position = flattened.findIndex((candidate) => candidate.id === field.id);
   const earlier = flattened.slice(0, position);
   const lockedStructure = form.hasNonDraftSubmissions;
-  return <div className="inspector-content"><header><div><span className="inspector-kicker">QUESTION</span><h3>Edit field</h3></div>{field.locked && <StatusBadge value="Locked" />}</header><div className="form-stack">
+  return <div className="inspector-content"><header><div><span className="inspector-kicker">QUESTION</span><h3>Edit field</h3></div>{field.locked && <StatusBadge value="locked" />}</header><div className="form-stack">
     <Field label="Label"><input maxLength={255} value={field.label} onChange={(current) => onChange({ label: current.target.value })} /></Field>
     <Field label="Key" hint={field.locked || lockedStructure ? "Keys are immutable for this field." : "Used by integrations and stays stable when labels change."}><input disabled={field.locked || lockedStructure} value={field.key} onChange={(current) => onChange({ key: current.target.value })} /></Field>
     <Field label="Response type"><Select disabled={field.locked || lockedStructure} value={field.fieldType} onChange={(current) => onChange({ fieldType: current.target.value as FieldType })}>{addableTypes.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}</Select></Field>
