@@ -72,6 +72,9 @@ export type DbOrTx = typeof db | TxDb;
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).
+ * Organization membership role changes and removals likewise keep the access
+ * mutation and its audit evidence atomic
+ * (`src/features/organizations/server/membership.ts`).
  * The single-speaker portal invite likewise commits its token rotation,
  * credential-bearing outbox row, and organizer pipeline status together; a
  * failed status write must not make an already-queued invitation look unsent.

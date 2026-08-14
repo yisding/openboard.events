@@ -1,4 +1,4 @@
-import { db, type DbOrTx } from "@/db/client";
+import { type DbOrTx, withTx } from "@/db/client";
 import type { MemberRole, OrganizationId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { recordOrganizationAuditEventIn } from "./audit";
@@ -38,7 +38,7 @@ export async function changeOrganizationMemberRoleIn(
   return updated;
 }
 export const changeOrganizationMemberRole = (organizationId: OrganizationId, actorUserId: UserId, actorRole: MemberRole, targetUserId: UserId, role: MemberRole) =>
-  changeOrganizationMemberRoleIn(db, organizationId, actorUserId, actorRole, targetUserId, role);
+  withTx((tx) => changeOrganizationMemberRoleIn(tx, organizationId, actorUserId, actorRole, targetUserId, role));
 
 export async function removeOrganizationMemberAuditedIn(
   dbOrTx: DbOrTx,
@@ -54,4 +54,4 @@ export async function removeOrganizationMemberAuditedIn(
   await recordOrganizationAuditEventIn(dbOrTx, organizationId, actorUserId, "member.removed", targetUserId, { role: currentRole });
 }
 export const removeOrganizationMemberAudited = (organizationId: OrganizationId, actorUserId: UserId, actorRole: MemberRole, targetUserId: UserId) =>
-  removeOrganizationMemberAuditedIn(db, organizationId, actorUserId, actorRole, targetUserId);
+  withTx((tx) => removeOrganizationMemberAuditedIn(tx, organizationId, actorUserId, actorRole, targetUserId));

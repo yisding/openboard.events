@@ -22,7 +22,7 @@ describe("organization Team event access", () => {
     expect(panel).toContain('confirmLabel="Remove event access"');
     expect(panel).toContain("Their organization membership is unchanged.");
     expect(panel).toContain("if (eventAccessRequest.current !== request) return;");
-    expect(panel).toContain("if (!accessMember || eventAccessBusy) return;");
+    expect(panel).toContain("if (!accessMember || eventAccessBusy || !beginTeamWrite()) return;");
   });
 
   it("rechecks every authorization axis in the write itself", () => {

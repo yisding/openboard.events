@@ -1,13 +1,16 @@
 "use client";
 
-import { KeyRound, Mail, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, KeyRound, Mail, UserPlus, Users } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { z } from "zod";
 import {
+  eventAccessOverviewDtoSchema,
   organizationInvitationDtoSchema,
   manageableEventAccessDtoSchema,
   memberRoleSchema,
+  organizationDtoSchema,
   organizationMemberDtoSchema,
   eventIdSchema,
   type ManageableEventAccessDTO,
@@ -22,7 +25,7 @@ import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { type AppError, isAppError } from "@/shared/lib/errors";
 
 const ROLES: MemberRole[] = ["owner", "organizer", "reviewer"];
 
@@ -35,6 +38,30 @@ const revokedSchema = z.object({ revoked: z.boolean() });
 const removedSchema = z.object({ removed: z.boolean() });
 const eventAccessResultSchema = z.object({ eventId: eventIdSchema, role: memberRoleSchema });
 type AssignableEventRole = "organizer" | "reviewer";
+type TeamWriteRecovery =
+  | { action: "role"; member: OrganizationMemberDTO; requestedRole: MemberRole }
+  | { action: "remove"; member: OrganizationMemberDTO }
+  | { action: "invite"; email: string }
+  | { action: "revoke"; invitation: OrganizationInvitationDTO }
+  | { action: "event-role"; member: OrganizationMemberDTO; event: ManageableEventAccessDTO; requestedRole: AssignableEventRole }
+  | { action: "event-remove"; member: OrganizationMemberDTO; event: ManageableEventAccessDTO };
+
+const organizationMembershipSchema = organizationDtoSchema.extend({ role: memberRoleSchema });
+
+function recoveryDescription(recovery: TeamWriteRecovery): string {
+  switch (recovery.action) {
+    case "role": return `${recovery.member.email}'s organization role changed`;
+    case "remove": return `${recovery.member.email}'s organization access was removed`;
+    case "invite": return `an invitation was sent to ${recovery.email}`;
+    case "revoke": return `the invitation to ${recovery.invitation.email} was revoked`;
+    case "event-role": return `${recovery.member.email}'s access to ${recovery.event.eventName} changed`;
+    case "event-remove": return `${recovery.member.email}'s access to ${recovery.event.eventName} was removed`;
+  }
+}
+
+function isDefinitiveTeamWriteError(error: unknown): error is AppError {
+  return isAppError(error) && error.code !== "INTERNAL";
+}
 
 /**
  * M44 — role management UI over M43's `organization_members`, plus team
@@ -72,22 +99,138 @@ export function TeamPanel({
   const [eventAccessBusy, setEventAccessBusy] = useState<string | null>(null);
   const [eventAccessError, setEventAccessError] = useState("");
   const [pendingAccessRemoval, setPendingAccessRemoval] = useState<ManageableEventAccessDTO | null>(null);
+  const [teamWriteBusy, setTeamWriteBusy] = useState(false);
+  const [membershipRecovery, setMembershipRecovery] = useState<TeamWriteRecovery | null>(null);
+  const [authorityChangedRole, setAuthorityChangedRole] = useState<MemberRole | null>(null);
+  const [checkingTeam, setCheckingTeam] = useState(false);
   const eventAccessRequest = useRef(0);
+  const teamWriteInFlight = useRef(false);
 
   const canManage = currentRole === "owner" || currentRole === "organizer";
+  const teamWritesLocked = teamWriteBusy || membershipRecovery !== null || authorityChangedRole !== null;
+
+  const beginTeamWrite = useCallback((): boolean => {
+    if (teamWriteInFlight.current || membershipRecovery !== null || authorityChangedRole !== null) return false;
+    teamWriteInFlight.current = true;
+    setTeamWriteBusy(true);
+    return true;
+  }, [authorityChangedRole, membershipRecovery]);
+
+  const endTeamWrite = useCallback((): void => {
+    teamWriteInFlight.current = false;
+    setTeamWriteBusy(false);
+  }, []);
+
+  const recognizeSelfDemotion = useCallback(async (recovery: TeamWriteRecovery, error: unknown): Promise<boolean> => {
+    if (
+      recovery.action !== "role"
+      || recovery.member.userId !== currentUserId
+      || recovery.requestedRole !== "reviewer"
+      || !isAppError(error)
+      || error.code !== "FORBIDDEN"
+    ) return false;
+    try {
+      const organizations = await api("organizations", z.array(organizationMembershipSchema));
+      const current = organizations.find((organization) => organization.id === organizationId);
+      if (current?.role !== recovery.requestedRole) return false;
+      setMembers((rows) => rows.map((member) => member.userId === currentUserId
+        ? { ...member, role: current.role }
+        : member));
+      setMembershipRecovery(null);
+      setAuthorityChangedRole(current.role);
+      toast(`Your organization role is currently ${current.role}. Return to your organizations to continue with your current access.`);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [currentUserId, organizationId, toast]);
+
+  const reconcileMembership = useCallback(async (recovery: TeamWriteRecovery): Promise<boolean> => {
+    try {
+      const membersRequest = api(`organizations/${organizationId}/members`, z.array(organizationMemberDtoSchema));
+      if (recovery.action === "invite" || recovery.action === "revoke") {
+        const [latestMembers, latestInvitations] = await Promise.all([
+          membersRequest,
+          api(`organizations/${organizationId}/invitations`, z.array(organizationInvitationDtoSchema)),
+        ]);
+        setMembers(latestMembers);
+        setInvitations(latestInvitations);
+        setMembershipRecovery(null);
+        const email = recovery.action === "invite" ? recovery.email : recovery.invitation.email;
+        const current = latestInvitations.find((invitation) => invitation.email.toLowerCase() === email.toLowerCase());
+        if (current) {
+          setInviting(false);
+          toast(`Team checked: ${email} currently has a pending ${current.role} invitation.`);
+        } else {
+          toast(`Team checked: there is currently no pending invitation for ${email}.`);
+        }
+        return true;
+      }
+      if (recovery.action === "event-role" || recovery.action === "event-remove") {
+        const [latestMembers, accessOverview] = await Promise.all([
+          membersRequest,
+          api(`events/${recovery.event.eventId}/access`, eventAccessOverviewDtoSchema),
+        ]);
+        setMembers(latestMembers);
+        const authoritativeMember = accessOverview.members.find((member) => member.userId === recovery.member.userId);
+        const authoritativeRole = authoritativeMember?.role ?? null;
+        setEventAccess((rows) => rows.map((row) => row.eventId === recovery.event.eventId
+          ? { ...row, role: authoritativeRole }
+          : row));
+        setEventAccessDraft((draft) => ({
+          ...draft,
+          [recovery.event.eventId]: authoritativeRole === "reviewer" ? "reviewer" : "organizer",
+        }));
+        if (recovery.action === "event-remove") setPendingAccessRemoval(null);
+        setMembershipRecovery(null);
+        const access = authoritativeRole ? `${authoritativeRole} access` : "no access";
+        toast(`Team checked: ${recovery.member.email} currently has ${access} to ${recovery.event.eventName}.`);
+        return true;
+      }
+      const latest = await membersRequest;
+      setMembers(latest);
+      setMembershipRecovery(null);
+      const current = latest.find((member) => member.userId === recovery.member.userId);
+      toast(current
+        ? `Team checked: ${recovery.member.email} currently has the ${current.role} organization role.`
+        : `Team checked: ${recovery.member.email} is not currently an organization member.`);
+      return true;
+    } catch (error) {
+      if (await recognizeSelfDemotion(recovery, error)) return true;
+      setMembershipRecovery(recovery);
+      return false;
+    }
+  }, [organizationId, recognizeSelfDemotion, toast]);
+
+  async function checkTeam(): Promise<void> {
+    if (!membershipRecovery || checkingTeam) return;
+    setCheckingTeam(true);
+    try {
+      if (!await reconcileMembership(membershipRecovery)) {
+        toast("The team still couldn’t be checked. Restore your connection and try again.", { kind: "error" });
+      }
+    } finally {
+      setCheckingTeam(false);
+    }
+  }
 
   const changeRole = useCallback(async (member: OrganizationMemberDTO, role: MemberRole) => {
-    if (role === member.role) return;
-    const previous = members;
+    if (role === member.role || !beginTeamWrite()) return;
     setMembers((current) => current.map((row) => row.userId === member.userId ? { ...row, role } : row));
     try {
       await api(`organizations/${organizationId}/members/${member.userId}`, organizationMemberDtoSchema.pick({ userId: true, role: true }), { method: "PATCH", body: { role } });
       toast(`${member.email} is now ${role}`);
     } catch (caught) {
-      setMembers(previous);
-      toast(isAppError(caught) ? caught.message : "That role change failed", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        setMembers((current) => current.map((row) => row.userId === member.userId ? { ...row, role: member.role } : row));
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({ action: "role", member, requestedRole: role })) {
+        toast("That role change is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
+    } finally {
+      endTeamWrite();
     }
-  }, [members, organizationId, toast]);
+  }, [beginTeamWrite, endTeamWrite, organizationId, reconcileMembership, toast]);
 
   const openEventAccess = useCallback(async (member: OrganizationMemberDTO) => {
     const request = eventAccessRequest.current + 1;
@@ -122,7 +265,7 @@ export function TeamPanel({
   }
 
   async function saveEventAccess(row: ManageableEventAccessDTO) {
-    if (!accessMember || eventAccessBusy) return;
+    if (!accessMember || eventAccessBusy || !beginTeamWrite()) return;
     const requestedRole = eventAccessDraft[row.eventId] ?? "reviewer";
     setEventAccessBusy(row.eventId);
     try {
@@ -140,14 +283,24 @@ export function TeamPanel({
       }
       toast(`${accessMember.email} now has ${updated.role} access to ${row.eventName}`);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That event access change failed", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({
+        action: "event-role",
+        member: accessMember,
+        event: row,
+        requestedRole,
+      })) {
+        toast("That event access change is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
     } finally {
       setEventAccessBusy(null);
+      endTeamWrite();
     }
   }
 
   async function removeEventAccess() {
-    if (!accessMember || !pendingAccessRemoval || eventAccessBusy) return;
+    if (!accessMember || !pendingAccessRemoval || eventAccessBusy || !beginTeamWrite()) return;
     const row = pendingAccessRemoval;
     setEventAccessBusy(row.eventId);
     try {
@@ -164,14 +317,19 @@ export function TeamPanel({
       toast(`${accessMember.email} no longer has access to ${row.eventName}`);
       setPendingAccessRemoval(null);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That event access removal failed", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({ action: "event-remove", member: accessMember, event: row })) {
+        toast("That event access removal is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
     } finally {
       setEventAccessBusy(null);
+      endTeamWrite();
     }
   }
 
   async function confirmRemove() {
-    if (!pendingRemove) return;
+    if (!pendingRemove || !beginTeamWrite()) return;
     const removed = pendingRemove;
     setMembers((current) => current.filter((row) => row.userId !== removed.userId));
     setPendingRemove(null);
@@ -179,14 +337,22 @@ export function TeamPanel({
       await api(`organizations/${organizationId}/members/${removed.userId}`, removedSchema, { method: "DELETE" });
       toast(`${removed.email} removed from the organization`);
     } catch (caught) {
-      setMembers((current) => [...current, removed]);
-      toast(isAppError(caught) ? caught.message : "That removal failed", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        setMembers((current) => current.some((member) => member.userId === removed.userId)
+          ? current
+          : [...current, removed].sort((left, right) => left.email.localeCompare(right.email)));
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({ action: "remove", member: removed })) {
+        toast("That removal is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
+    } finally {
+      endTeamWrite();
     }
   }
 
   async function sendInvite() {
     const email = inviteEmail.trim();
-    if (!email || busy) return;
+    if (!email || busy || !beginTeamWrite()) return;
     setBusy(true);
     try {
       const created = await api(`organizations/${organizationId}/invitations`, z.object({ invitation: organizationInvitationDtoSchema, emailQueued: z.boolean() }), {
@@ -199,14 +365,19 @@ export function TeamPanel({
       setInviteEmail("");
       setInviteRole("organizer");
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That invitation did not send", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({ action: "invite", email })) {
+        toast("That invitation is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
     } finally {
       setBusy(false);
+      endTeamWrite();
     }
   }
 
   async function confirmRevoke() {
-    if (!pendingRevoke) return;
+    if (!pendingRevoke || !beginTeamWrite()) return;
     const revoked = pendingRevoke;
     setInvitations((current) => current.filter((row) => row.id !== revoked.id));
     setPendingRevoke(null);
@@ -214,8 +385,14 @@ export function TeamPanel({
       await api(`organizations/${organizationId}/invitations/${revoked.id}`, revokedSchema, { method: "DELETE" });
       toast(`Invitation to ${revoked.email} revoked`);
     } catch (caught) {
-      setInvitations((current) => [revoked, ...current]);
-      toast(isAppError(caught) ? caught.message : "That revoke failed", { kind: "error" });
+      if (isDefinitiveTeamWriteError(caught)) {
+        setInvitations((current) => [revoked, ...current]);
+        toast(caught.message, { kind: "error" });
+      } else if (!await reconcileMembership({ action: "revoke", invitation: revoked })) {
+        toast("That invitation revoke is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
+      }
+    } finally {
+      endTeamWrite();
     }
   }
 
@@ -227,7 +404,7 @@ export function TeamPanel({
       accessorKey: "role",
       meta: { className: "organization-member-role" },
       cell: ({ row }) => canManage
-        ? <Select aria-label={`Role for ${row.original.name || row.original.email}`} value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={row.original.userId === currentUserId && currentRole !== "owner"}>
+        ? <Select aria-label={`Role for ${row.original.name || row.original.email}`} value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={teamWritesLocked || (row.original.userId === currentUserId && currentRole !== "owner")}>
             {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
           </Select>
         : <StatusBadge value={row.original.role} />,
@@ -239,22 +416,47 @@ export function TeamPanel({
       cell: ({ row }) => canManage
         ? <div className="team-member-actions">
             {row.original.userId !== currentUserId && (
-              <Button variant="secondary" size="sm" onClick={() => void openEventAccess(row.original)}><KeyRound size={14} /> Event access</Button>
+              <Button variant="secondary" size="sm" onClick={() => void openEventAccess(row.original)} disabled={teamWritesLocked}><KeyRound size={14} /> Event access</Button>
             )}
-            <Button variant="danger" size="sm" onClick={() => setPendingRemove(row.original)} disabled={row.original.userId === currentUserId}>Remove</Button>
+            <Button variant="danger" size="sm" onClick={() => setPendingRemove(row.original)} disabled={teamWritesLocked || row.original.userId === currentUserId}>Remove</Button>
           </div>
         : null,
     },
-  ], [canManage, currentUserId, currentRole, changeRole, openEventAccess]);
+  ], [canManage, currentUserId, currentRole, changeRole, openEventAccess, teamWritesLocked]);
 
   const invitationColumns = useMemo<Array<ColumnDef<OrganizationInvitationDTO, unknown>>>(() => [
     { id: "email", header: "Invited", accessorKey: "email" },
     { id: "role", header: "Role", cell: ({ row }) => <StatusBadge value={row.original.role} /> },
     { id: "expiresAt", header: "Expires", cell: ({ row }) => new Date(row.original.expiresAt).toLocaleDateString() },
-    { id: "actions", header: "", cell: ({ row }) => canManage ? <Button variant="danger" size="sm" onClick={() => setPendingRevoke(row.original)}>Revoke</Button> : null },
-  ], [canManage]);
+    { id: "actions", header: "", cell: ({ row }) => canManage ? <Button variant="danger" size="sm" disabled={teamWritesLocked} onClick={() => setPendingRevoke(row.original)}>Revoke</Button> : null },
+  ], [canManage, teamWritesLocked]);
 
   return <>
+    {membershipRecovery && (
+      <div className="locked-banner" role="alert">
+        <AlertTriangle size={17} />
+        <div>
+          <b>Team access is unconfirmed</b>
+          <span>
+            We couldn&apos;t confirm whether {recoveryDescription(membershipRecovery)}.
+            Restore your connection, then check the team before making another access change.
+          </span>
+        </div>
+        <Button size="sm" variant="secondary" disabled={checkingTeam} onClick={() => void checkTeam()}>
+          {checkingTeam ? "Checking…" : "Check team"}
+        </Button>
+      </div>
+    )}
+    {authorityChangedRole && (
+      <div className="locked-banner" role="alert">
+        <AlertTriangle size={17} />
+        <div>
+          <b>Your Team access changed</b>
+          <span>Your organization role is now {authorityChangedRole}. Return to your organizations to continue with the access you currently have.</span>
+        </div>
+        <Link className="button button-secondary button-sm" href="/organizations">View organizations</Link>
+      </div>
+    )}
     <section className="panel settings-section organization-members-section">
       <header>
         <h2><Users size={16} /> Members</h2>
@@ -277,7 +479,7 @@ export function TeamPanel({
         columns={invitationColumns}
         data={invitations}
         getRowId={(invitation) => invitation.id}
-        toolbar={canManage ? <Button size="sm" onClick={() => setInviting(true)}><UserPlus size={15} /> Invite teammate</Button> : undefined}
+        toolbar={canManage ? <Button size="sm" disabled={teamWritesLocked} onClick={() => setInviting(true)}><UserPlus size={15} /> Invite teammate</Button> : undefined}
         empty={<EmptyState icon={<Mail size={20} />} title="No pending invitations" description="Invite a teammate to this workspace. Event owners grant access to specific events separately." />}
       />
     </section>
@@ -289,14 +491,14 @@ export function TeamPanel({
       description="They'll get an email with a link to join this workspace. This invitation does not grant access to any event."
       footer={<>
         <Button variant="secondary" onClick={() => setInviting(false)} disabled={busy}>Cancel</Button>
-        <Button onClick={() => void sendInvite()} disabled={busy || !inviteEmail.trim()}>{busy ? "Sending…" : "Send invitation"}</Button>
+        <Button onClick={() => void sendInvite()} disabled={teamWritesLocked || !inviteEmail.trim()}>{busy ? "Sending…" : "Send invitation"}</Button>
       </>}
     >
       <Field label="Email" required>
-        <input type="email" value={inviteEmail} placeholder="teammate@example.com" onChange={(event) => setInviteEmail(event.target.value)} autoFocus />
+        <input type="email" value={inviteEmail} placeholder="teammate@example.com" disabled={teamWritesLocked} onChange={(event) => setInviteEmail(event.target.value)} autoFocus />
       </Field>
       <Field label="Role" required>
-        <Select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as MemberRole)}>
+        <Select value={inviteRole} disabled={teamWritesLocked} onChange={(event) => setInviteRole(event.target.value as MemberRole)}>
           <option value="organizer">Organizer</option>
           <option value="reviewer">Reviewer</option>
         </Select>
@@ -325,7 +527,7 @@ export function TeamPanel({
         <div className="team-event-access-list">
           {eventAccess.map((row) => {
             const desired = eventAccessDraft[row.eventId] ?? "reviewer";
-            const accessOperationBusy = eventAccessBusy !== null;
+            const accessOperationBusy = eventAccessBusy !== null || teamWritesLocked;
             const savingThisRow = eventAccessBusy === row.eventId;
             return (
               <article key={row.eventId}>
