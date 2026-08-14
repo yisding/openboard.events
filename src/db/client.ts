@@ -93,6 +93,11 @@ export type DbOrTx = typeof db | TxDb;
  * transitions also lock the prospect and commit its stage, timestamped
  * history, and organizer-visible activity together (`transitionCrmPipelineIn`),
  * so a failed audit insert can never leave the board ahead of its history.
+ * Stable manual task reminders use one short transaction per missing target:
+ * each shares the portal-task row mutex with manual/form/file completion
+ * writers, then re-reads attempt and assignment authority before inserting.
+ * Manual completion now uses `withTx` so that mutex spans its guarded insert;
+ * form and file completion reuse their existing transactions.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {

@@ -4,7 +4,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DeliverableRowDTO, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
+import type { DeliverableRowDTO, EventId, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
+import { BulkReminderRecoveryDialog, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
 import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limit";
 import { DataTable } from "@/shared/ui/app/data-table";
@@ -227,7 +228,6 @@ export function FilesAdminView({
   useEffect(() => setDraftSearch(search), [search]);
   const [selected, setSelected] = useState<DeliverableRowDTO[]>([]);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
-  const [reminding, setReminding] = useState(false);
   const [active, setActive] = useState<DeliverableRowDTO | null>(null);
   const [exportJob, setExportJob] = useState<FileExportJobDTO | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -269,32 +269,29 @@ export function FilesAdminView({
   const [displayRows, setDisplayRows] = useState(rows);
   useEffect(() => setDisplayRows(rows), [rows]);
 
+  const reminderRecovery = useBulkReminderRecovery({
+    eventId: eventId as EventId,
+    surface: "files",
+    onAcknowledged: clearReminderSelection,
+    getSelectionFingerprint: () => {
+      const targets = deliverableBulkTargets(selected.filter((row) => !row.completed));
+      return targets.length > 0 ? bulkReminderTargetSetFingerprint(targets) : null;
+    },
+  });
+
+  function clearReminderSelection() {
+    setSelected([]);
+    setSelectionEpoch((epoch) => epoch + 1);
+  }
+
   async function bulkRemind(selection = selected) {
     const targets = selection.filter((row) => !row.completed);
     if (targets.length === 0) {
       toast("Nothing to remind — every selected row is already complete");
       return;
     }
-    setReminding(true);
-    try {
-      const response = await fetch(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          targets: deliverableBulkTargets(targets),
-        }),
-      }).catch(() => null);
-      const payload = await response?.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
-      if (!response?.ok || !payload?.data) {
-        toast("Could not send reminders — try again", { kind: "error" });
-        return;
-      }
-      toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} — the rest were already announced this cycle`);
-      setSelected([]);
-      setSelectionEpoch((epoch) => epoch + 1);
-    } finally {
-      setReminding(false);
-    }
+    const frozenTargets = deliverableBulkTargets(targets);
+    await reminderRecovery.start(frozenTargets);
   }
 
   /**
@@ -498,14 +495,14 @@ export function FilesAdminView({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={reminding || exporting}
+                    disabled={reminderRecovery.blocked || exporting}
                     onClick={selectAllRows}
                   >
                     Select all {totalRowCount} matching deliverables
                   </Button>
                 )}
-                <Button size="sm" variant="secondary" disabled={reminding} onClick={() => { void bulkRemind(selectedRows); }}>
-                  <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
+                <Button size="sm" variant="secondary" disabled={reminderRecovery.blocked} onClick={() => { void bulkRemind(selectedRows); }}>
+                  <Bell size={14} /> {reminderRecovery.sending ? "Reminding…" : "Send reminder"}
                 </Button>
                 <Select
                   aria-label="Group export by"
@@ -527,6 +524,8 @@ export function FilesAdminView({
           columnVisibilityKey={`files:${eventId}`}
         />
       </section>
+
+      <BulkReminderRecoveryDialog controller={reminderRecovery} />
 
       <DeliverableDrawer
         eventId={eventId}

@@ -1,6 +1,6 @@
 /**
- * One shared bound for every Files bulk action. The browser may offer an
- * all-filtered scope only while both reminder and export endpoints can accept
- * the complete set in one request.
+ * The Files table/export bound. Reminder sends use the smaller
+ * `BULK_REMINDER_TARGET_LIMIT`: unlike one export job insert, each reminder
+ * target intentionally retains an independent commit boundary.
  */
 export const DELIVERABLE_BULK_LIMIT = 200;

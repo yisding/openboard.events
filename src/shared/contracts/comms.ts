@@ -3,6 +3,14 @@ import { commStatusSchema, templateKeySchema, type TemplateKey } from "./enums";
 import { commLogIdSchema, contactIdSchema, sessionIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
 
 /**
+ * One bulk reminder request deliberately writes each missing target in its own
+ * statement so an exact retry can fill partial progress. Keep that fan-out
+ * comfortably below Cloudflare Workers' 50-subrequest ceiling after auth and
+ * the two batch authority reads.
+ */
+export const BULK_REMINDER_TARGET_LIMIT = 20;
+
+/**
  * One organizer-confirmed targeted reminder. `attemptId` is optional while
  * older clients roll forward; new clients retain it across an ambiguous
  * response so a retry identifies the same durable outbox row.
@@ -20,6 +28,43 @@ export const sendReminderNowResultSchema = z.object({
   attemptStatus: commStatusSchema.optional(),
 });
 export type SendReminderNowResult = z.infer<typeof sendReminderNowResultSchema>;
+
+/**
+ * One coordinate in an organizer bulk-reminder batch. A batch attempt id is
+ * shared by every target, while the outbox idempotency key also includes these
+ * coordinates, giving each assignment one durable attempt of its own.
+ */
+export const bulkReminderTargetSchema = z.object({
+  taskId: taskIdSchema,
+  contactId: contactIdSchema,
+  submissionId: submissionIdSchema.nullable(),
+});
+export type BulkReminderTarget = z.infer<typeof bulkReminderTargetSchema>;
+
+export const bulkReminderTargetResultSchema = bulkReminderTargetSchema.extend({
+  enqueued: z.boolean(),
+  /** Missing means the assignment was already complete or no longer exists. */
+  attemptStatus: commStatusSchema.optional(),
+});
+export type BulkReminderTargetResult = z.infer<typeof bulkReminderTargetResultSchema>;
+
+export const bulkReminderResultSchema = z.object({
+  enqueued: z.int().nonnegative(),
+  total: z.int().nonnegative(),
+  results: z.array(bulkReminderTargetResultSchema).max(BULK_REMINDER_TARGET_LIMIT),
+}).superRefine((value, context) => {
+  if (value.total !== value.results.length) {
+    context.addIssue({ code: "custom", path: ["total"], message: "Total must match target results" });
+  }
+  if (value.enqueued !== value.results.filter((result) => result.enqueued).length) {
+    context.addIssue({ code: "custom", path: ["enqueued"], message: "Enqueued must match target results" });
+  }
+  const keys = value.results.map((result) => `${result.taskId}:${result.contactId}:${result.submissionId ?? "-"}`);
+  if (new Set(keys).size !== keys.length) {
+    context.addIssue({ code: "custom", path: ["results"], message: "Target results must be unique" });
+  }
+});
+export type BulkReminderResult = z.infer<typeof bulkReminderResultSchema>;
 
 export const commLogRowSchema = z.object({
   id: commLogIdSchema,

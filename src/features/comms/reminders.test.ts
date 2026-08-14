@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   contactIdSchema,
   eventIdSchema,
   idem,
@@ -13,7 +14,14 @@ import {
   type SubmissionId,
 } from "@/shared/contracts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
-import { scanRemindersIn, sendReminderNowIn, sendRemindersNowIn } from "./server/reminders";
+import { completeTaskManualIn } from "@/features/portal/task-runtime/server/mutations";
+import {
+  scanRemindersIn,
+  sendReminderNowIn,
+  sendRemindersNowIn,
+  sendStableReminderAttemptIn,
+  type ReminderTargetTransaction,
+} from "./server/reminders";
 import { seedDefaultTemplates } from "./server/templates";
 import { nudgeOutbox } from "./server/triggers";
 
@@ -45,8 +53,71 @@ const taskId = taskIdSchema.parse("d0000000-0000-4000-8000-000000000040");
 const secondTaskId = taskIdSchema.parse("d0000000-0000-4000-8000-000000000041");
 const reminderAttemptId = "d0000000-0000-4000-8000-000000000050";
 const secondReminderAttemptId = "d0000000-0000-4000-8000-000000000051";
+const bulkReminderAttemptId = "d0000000-0000-4000-8000-000000000052";
+const secondBulkReminderAttemptId = "d0000000-0000-4000-8000-000000000053";
 
 type LogRow = { idempotency_key: string; status: string; error: string | null; task_id: string | null; submission_id: string | null; contact_id: string };
+
+function instrumentQueries(base: TxDb, afterExecute?: (executeCount: number) => Promise<void>) {
+  let queryCount = 0;
+  let executeCount = 0;
+  const instrumented = new Proxy(base as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (property !== "execute" && property !== "insert") return value.bind(target);
+      return (...args: unknown[]) => {
+        queryCount += 1;
+        const result = value.apply(target, args);
+        if (property === "execute") {
+          executeCount += 1;
+          if (afterExecute) {
+            const currentExecute = executeCount;
+            return Promise.resolve(result).then(async (resolved) => {
+              await afterExecute(currentExecute);
+              return resolved;
+            });
+          }
+        }
+        return result;
+      };
+    },
+  }) as TxDb;
+  return { db: instrumented, count: () => queryCount };
+}
+
+function pgliteTargetTransactions(database: TxDb) {
+  const transactional = database as unknown as {
+    transaction<T>(work: (inner: unknown) => Promise<T>): Promise<T>;
+  };
+  let transactionCount = 0;
+  const run: ReminderTargetTransaction = (work) => {
+    transactionCount += 1;
+    return transactional.transaction((inner) => work(inner as TxDb));
+  };
+  return { run, count: () => transactionCount };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
+
+function transactionHoldingAfterFirstStatement(database: TxDb, held: ReturnType<typeof deferred>, release: ReturnType<typeof deferred>) {
+  const transactional = database as unknown as {
+    transaction<T>(work: (inner: unknown) => Promise<T>): Promise<T>;
+  };
+  return <T>(work: (inner: TxDb) => Promise<T>) => transactional.transaction(async (inner) => {
+    const instrumented = instrumentQueries(inner as TxDb, async (executeCount) => {
+      if (executeCount === 1) {
+        held.resolve();
+        await release.promise;
+      }
+    });
+    return work(instrumented.db);
+  });
+}
 
 describe("reminder + assignment scan", () => {
   let pglite: PGlite;
@@ -372,14 +443,12 @@ describe("reminder + assignment scan", () => {
     });
 
     it("replays one durable attempt after a minute without duplicating its outbox/log row", async () => {
-      const firstRequestAt = 1_770_000_000_000;
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt,
         reminderAttemptId,
       )).toEqual({ enqueued: true });
 
@@ -389,13 +458,12 @@ describe("reminder + assignment scan", () => {
         "INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')",
         [eventId, taskId, speakerId],
       );
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt + 121_000,
         reminderAttemptId,
       )).toEqual({ enqueued: true, attemptStatus: "queued" });
 
@@ -403,13 +471,12 @@ describe("reminder + assignment scan", () => {
         "UPDATE communication_logs SET status='sent', sent_at=now() WHERE idempotency_key=$1",
         [idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, reminderAttemptId)],
       );
-      expect(await sendReminderNowIn(
+      expect(await sendStableReminderAttemptIn(
         tx,
         eventId,
         taskId,
         speakerId,
         null,
-        firstRequestAt + 181_000,
         reminderAttemptId,
       )).toEqual({ enqueued: false, attemptStatus: "sent" });
 
@@ -423,9 +490,8 @@ describe("reminder + assignment scan", () => {
     });
 
     it("queues a second deliberate reminder under a distinct attempt", async () => {
-      const now = 1_770_000_000_000;
-      await sendReminderNowIn(tx, eventId, taskId, speakerId, null, now, reminderAttemptId);
-      await sendReminderNowIn(tx, eventId, taskId, speakerId, null, now, secondReminderAttemptId);
+      await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, reminderAttemptId);
+      await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, secondReminderAttemptId);
 
       const rows = await logs("task_reminder");
       expect(rows).toHaveLength(2);
@@ -444,7 +510,7 @@ describe("reminder + assignment scan", () => {
 
     it("refuses a completed or absent assignment", async () => {
       await pglite.query("INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')", [eventId, taskId, speakerId]);
-      expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, null, Date.now(), reminderAttemptId)).toEqual({ enqueued: false });
+      expect(await sendStableReminderAttemptIn(tx, eventId, taskId, speakerId, null, reminderAttemptId)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, secondTaskId, speakerId, null)).toEqual({ enqueued: false });
       expect(await sendReminderNowIn(tx, eventId, taskId, speakerId, submissionId as SubmissionId)).toEqual({ enqueued: false });
       expect(await logs("task_reminder")).toHaveLength(0);
@@ -466,7 +532,14 @@ describe("reminder + assignment scan", () => {
         { taskId, contactId: speakerId, submissionId: null },
         { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
       ]);
-      expect(result).toEqual({ enqueued: 2, total: 2 });
+      expect(result).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
       expect(await logs("task_reminder")).toHaveLength(2);
     });
 
@@ -476,14 +549,234 @@ describe("reminder + assignment scan", () => {
         { taskId, contactId: speakerId, submissionId: null },
         { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
       ]);
-      expect(result).toEqual({ enqueued: 1, total: 2 });
+      expect(result).toEqual({
+        enqueued: 1,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: false },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
       const rows = await logs("task_reminder");
       expect(rows).toHaveLength(1);
       expect(rows[0]?.contact_id).toBe(coSpeakerId);
     });
 
     it("is the identity mapping over an empty selection", async () => {
-      expect(await sendRemindersNowIn(tx, eventId, [])).toEqual({ enqueued: 0, total: 0 });
+      expect(await sendRemindersNowIn(tx, eventId, [])).toEqual({ enqueued: 0, total: 0, results: [] });
+      expect(await logs("task_reminder")).toHaveLength(0);
+    });
+
+    it("recovers a partially committed batch after a minute and reports terminal target status", async () => {
+      const targets = [
+        { taskId, contactId: speakerId, submissionId: null },
+        { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
+      ] as const;
+      const firstRequestAt = 1_770_000_000_000;
+      await pglite.exec(`
+        CREATE FUNCTION fail_second_bulk_reminder() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.contact_id = '${coSpeakerId}' AND NEW.template_key = 'task_reminder' THEN
+            RAISE EXCEPTION 'forced second bulk reminder failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_second_bulk_reminder
+        BEFORE INSERT ON communication_logs
+        FOR EACH ROW EXECUTE FUNCTION fail_second_bulk_reminder();
+      `);
+
+      const firstTargetTransactions = pgliteTargetTransactions(tx);
+      await expect(sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt,
+        bulkReminderAttemptId,
+        firstTargetTransactions.run,
+      )).rejects.toThrow("Failed query");
+      expect(firstTargetTransactions.count()).toBe(2);
+      expect(await logs("task_reminder")).toEqual([
+        expect.objectContaining({
+          idempotency_key: idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+          contact_id: speakerId,
+        }),
+      ]);
+
+      await pglite.exec("DROP TRIGGER fail_second_bulk_reminder ON communication_logs; DROP FUNCTION fail_second_bulk_reminder();");
+      const partialRetryQueries = instrumentQueries(tx);
+      const partialRetryTransactions = pgliteTargetTransactions(tx);
+      const recovered = await sendRemindersNowIn(
+        partialRetryQueries.db,
+        eventId,
+        targets,
+        firstRequestAt + 181_000,
+        bulkReminderAttemptId,
+        partialRetryTransactions.run,
+      );
+      expect(recovered).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
+      // One HTTP status read plus one WebSocket transaction for the missing
+      // target. Statements inside that transaction are not Workers fetches.
+      expect(partialRetryQueries.count()).toBe(1);
+      expect(partialRetryTransactions.count()).toBe(1);
+      expect(new Set((await logs("task_reminder")).map((row) => row.idempotency_key))).toEqual(new Set([
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId),
+      ]));
+
+      await pglite.query(
+        "UPDATE communication_logs SET status='sent', sent_at=now() WHERE idempotency_key=$1",
+        [idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId)],
+      );
+      await pglite.query(
+        "UPDATE communication_logs SET status='failed', error='provider rejected' WHERE idempotency_key=$1",
+        [idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId)],
+      );
+
+      // A deliberate later batch gives every still-open target a second row.
+      const secondBatchTransactions = pgliteTargetTransactions(tx);
+      expect(await sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt + 221_000,
+        secondBulkReminderAttemptId,
+        secondBatchTransactions.run,
+      )).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
+      expect(secondBatchTransactions.count()).toBe(2);
+      expect(new Set((await logs("task_reminder")).map((row) => row.idempotency_key))).toEqual(new Set([
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, secondBulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, secondBulkReminderAttemptId),
+      ]));
+
+      // Completion after the first request must not hide its durable outcome.
+      await pglite.query(
+        "INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')",
+        [eventId, taskId, speakerId],
+      );
+      expect(await sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt + 241_000,
+        bulkReminderAttemptId,
+        pgliteTargetTransactions(tx).run,
+      )).toEqual({
+        enqueued: 0,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: false, attemptStatus: "sent" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: false, attemptStatus: "failed" },
+        ],
+      });
+      expect(await logs("task_reminder")).toHaveLength(4);
+    });
+
+    it("stays within the Worker budget at the enforced maximum and replays in one query", async () => {
+      const ids = Array.from({ length: BULK_REMINDER_TARGET_LIMIT }, (_, index) => taskIdSchema.parse(
+        `d0000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+      ));
+      for (const id of ids) await insertTask(id);
+      const targets = ids.map((id) => ({ taskId: id, contactId: speakerId, submissionId: null }));
+      const firstQueries = instrumentQueries(tx);
+      const firstTargetTransactions = pgliteTargetTransactions(tx);
+
+      const first = await sendRemindersNowIn(
+        firstQueries.db,
+        eventId,
+        targets,
+        1_770_000_000_000,
+        bulkReminderAttemptId,
+        firstTargetTransactions.run,
+      );
+
+      expect(first).toMatchObject({ enqueued: BULK_REMINDER_TARGET_LIMIT, total: BULK_REMINDER_TARGET_LIMIT });
+      expect(await logs("task_reminder")).toHaveLength(BULK_REMINDER_TARGET_LIMIT);
+      // One HTTP status snapshot + one WebSocket transaction per target: 21.
+      // SQL statements inside each transaction are not Workers subrequests.
+      expect(firstQueries.count()).toBe(1);
+      expect(firstTargetTransactions.count()).toBe(BULK_REMINDER_TARGET_LIMIT);
+
+      const replayQueries = instrumentQueries(tx);
+      const replayTargetTransactions = pgliteTargetTransactions(tx);
+      const replay = await sendRemindersNowIn(
+        replayQueries.db,
+        eventId,
+        targets,
+        1_770_000_181_000,
+        bulkReminderAttemptId,
+        replayTargetTransactions.run,
+      );
+      expect(replay).toEqual(first);
+      expect(replayQueries.count()).toBe(1);
+      expect(replayTargetTransactions.count()).toBe(0);
+      expect(await logs("task_reminder")).toHaveLength(BULK_REMINDER_TARGET_LIMIT);
+    });
+
+    it("serializes an original stable attempt before its exact replay and completion", async () => {
+      const target = { taskId, contactId: speakerId, submissionId: null } as const;
+      const idempotencyKey = idem.taskReminderManualAttempt(
+        eventId, target.taskId, target.contactId, target.submissionId, bulkReminderAttemptId,
+      );
+      const held = deferred();
+      const release = deferred();
+      const original = transactionHoldingAfterFirstStatement(tx, held, release)((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
+      ));
+      await held.promise;
+      const replay = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
+      ));
+      release.resolve();
+
+      expect(await original).toEqual({ enqueued: true });
+      expect(await replay).toEqual({ enqueued: true, attemptStatus: "queued" });
+      await pgliteTargetTransactions(tx).run((inner) => completeTaskManualIn(
+        inner, eventId, speakerId, taskId, null,
+      ));
+      expect(await pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
+      ))).toEqual({ enqueued: true, attemptStatus: "queued" });
+      expect(await logs("task_reminder")).toEqual([
+        expect.objectContaining({ idempotency_key: idempotencyKey, status: "queued" }),
+      ]);
+    });
+
+    it("serializes completion first so concurrent original and retry both refuse without an insert", async () => {
+      const held = deferred();
+      const release = deferred();
+      const completion = transactionHoldingAfterFirstStatement(tx, held, release)((inner) => completeTaskManualIn(
+        inner, eventId, speakerId, taskId, null,
+      ));
+      await held.promise;
+      const original = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
+      ));
+      const retry = pgliteTargetTransactions(tx).run((inner) => sendStableReminderAttemptIn(
+        inner, eventId, taskId, speakerId, null, bulkReminderAttemptId,
+      ));
+      release.resolve();
+
+      await expect(completion).resolves.toBeUndefined();
+      await expect(original).resolves.toEqual({ enqueued: false });
+      await expect(retry).resolves.toEqual({ enqueued: false });
       expect(await logs("task_reminder")).toHaveLength(0);
     });
   });
