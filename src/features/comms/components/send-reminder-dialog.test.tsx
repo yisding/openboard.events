@@ -108,6 +108,11 @@ describe("targeted reminder recovery", () => {
     expect(container.textContent).toContain("The outcome is unknown");
     expect(buttonNamed("Retry reminder")).toBeDefined();
 
+    // The durable record is already sufficient. A later storage write denial
+    // must not deadlock the restored exact retry by rewriting the same value.
+    const denyStorageRewrite = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("storage became read-only");
+    });
     await act(async () => buttonNamed("Retry reminder")?.click());
     await settle();
 
@@ -119,6 +124,7 @@ describe("targeted reminder recovery", () => {
     expect(toastMock.mock.calls.filter(([message]) => message === "Reminder was already sent"))
       .toHaveLength(1);
     expect(toastMock).not.toHaveBeenCalledWith("Reminder queued — it will arrive in about a second");
+    denyStorageRewrite.mockRestore();
 
     // Clicking again is a deliberate new confirmation, not a replay of the
     // acknowledged attempt, so it receives a fresh identity.

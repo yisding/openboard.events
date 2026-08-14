@@ -56,7 +56,7 @@ export function persistTargetedReminderRecovery(
 ): boolean {
   try {
     const existing = loadTargetedReminderRecovery(storage, recovery.eventId, recovery.contactId);
-    if (existing && existing.input.attemptId !== recovery.input.attemptId) return false;
+    if (existing) return existing.input.attemptId === recovery.input.attemptId;
     storage.setItem(
       targetedReminderRecoveryKey(recovery.eventId, recovery.contactId),
       JSON.stringify(targetedReminderRecoverySchema.parse(recovery)),
