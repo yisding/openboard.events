@@ -19,7 +19,7 @@ vi.mock("@/features/events/components/event-switcher", () => ({
   EventSwitcher: () => <button type="button">Event</button>,
 }));
 
-vi.mock("@/features/auth/components/sign-out-button", () => ({
+vi.mock("@/features/auth/index.client", () => ({
   SignOutButton: () => <button type="button">Sign out</button>,
 }));
 

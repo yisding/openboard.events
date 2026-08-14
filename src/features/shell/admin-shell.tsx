@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brand } from "@/shared/ui/brand";
 import { CommandPalette } from "@/features/shell/components/command-palette";
 import { EventSwitcher } from "@/features/events/components/event-switcher";
-import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { SignOutButton } from "@/features/auth/index.client";
 import type { EventId, MemberRole } from "@/shared/contracts";
 import { FirstRunHints, Hint } from "@/shared/ui/app/first-run-hints";
 import { UnsavedWorkGuardProvider } from "@/shared/ui/app/unsaved-work-guard";

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { eventIdSchema } from "@/shared/contracts";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 import {
   getEventTimezone,
   getTaskTabCounts,

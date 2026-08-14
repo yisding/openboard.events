@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 import { getDeliverableStateCounts, listDeliverables, parseDeliverableFiltersForPage, type DeliverableFilters } from "@/features/portal/deliverables";
 import { listFileRequests, listTasks } from "@/features/portal/tasks-admin/server/queries";
 import { FilesAdminView } from "@/features/portal/deliverables/components/files-admin-view";

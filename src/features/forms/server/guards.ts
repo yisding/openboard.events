@@ -2,7 +2,7 @@ import type { BuilderField, FieldPatch } from "../builder-types";
 import { eventIdSchema, type MapsToTarget, type TaskTarget } from "@/shared/contracts";
 import type { HandlerGuard } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
-import { requireAdmin } from "@/features/auth/server/admin";
+import { requireAdmin } from "@/features/auth/index.server";
 
 const LOCKED_MESSAGE = "Locked identity fields must remain required and keep their key, type, and mapping.";
 export const STRUCTURAL_LOCK_MESSAGE = "This form has submissions. Duplicate it to change its structure.";
