@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type KeyboardEvent } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Activity, BellRing, FileText, History, Send, ShieldOff } from "lucide-react";
-import type { DomainDeliverabilityRow, EmailTemplateRow, ReminderRuleRow, SuppressionRow } from "@/features/comms";
-import type { CommLogRow, EventId } from "@/shared/contracts";
+import type { EventId } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
+import { QueryBoundary } from "@/shared/ui/app/query-boundary";
+import type { QuerySeed } from "@/shared/lib/query-client";
 import { BulkSendTab } from "./bulk-send-tab";
 import { CommsLogTable } from "./comms-log-table";
 import { DeliverabilityTab } from "./deliverability-tab";
@@ -32,31 +32,22 @@ const TABS: Array<{ id: CommsTab; label: string; icon: typeof FileText }> = [
  * `/events/[eventId]/communications` — the comms admin page's six tabs:
  * M37's original three (Templates, Reminders, Log) plus M46's compliance and
  * deliverability ops (Suppressions, Deliverability, Bulk send). `?tab=` is
- * the source of truth so every tab deep-links; each panel's initial data was
- * hydrated server-side as TanStack `initialData` (the page RSC fetched all
- * five reads up front), and a broken panel hides itself rather than
+ * the source of truth so every tab deep-links; the page RSC hydrates all five
+ * reads into their feature-owned TanStack keys, and a broken panel hides
+ * itself rather than
  * white-screening its siblings (`<TabBoundary>`, M37 step 8).
  */
 export function CommsAdminPage({
   eventId,
   timezone,
   initialTab,
-  initialTemplates,
-  initialReminderRules,
-  initialLog,
-  initialSuppressions,
-  initialDeliverability,
+  querySeeds,
 }: {
   eventId: EventId;
   timezone: string;
   initialTab: CommsTab;
-  initialTemplates: EmailTemplateRow[];
-  initialReminderRules: ReminderRuleRow[];
-  initialLog: CommLogRow[];
-  initialSuppressions: SuppressionRow[];
-  initialDeliverability: DomainDeliverabilityRow[];
+  querySeeds: readonly QuerySeed[];
 }) {
-  const [client] = useState(() => new QueryClient());
   const router = useRouter();
   const [tab, setTab] = useState<CommsTab>(initialTab);
   const { runGuarded, allowNextNavigation } = useGuardedAction();
@@ -90,7 +81,7 @@ export function CommsAdminPage({
   }
 
   return (
-    <QueryClientProvider client={client}>
+    <QueryBoundary seeds={querySeeds}>
       <div className="page communications-page communications-admin-page">
         <PageHeader eyebrow="ENGAGE" title="Communications" description="Design messages, automate reminders, and understand what reached your audience." />
         <div className="communications-tabs" role="tablist" aria-label="Communications sections">
@@ -118,35 +109,35 @@ export function CommsAdminPage({
         {tab === "templates" && (
           <div className="communications-panel" id="communications-panel-templates" role="tabpanel" aria-labelledby="communications-tab-templates">
             <TabBoundary name="templates">
-              <TemplatesTab eventId={eventId} initialData={initialTemplates} />
+              <TemplatesTab eventId={eventId} />
             </TabBoundary>
           </div>
         )}
         {tab === "reminders" && (
           <div className="communications-panel" id="communications-panel-reminders" role="tabpanel" aria-labelledby="communications-tab-reminders">
             <TabBoundary name="reminders">
-              <RemindersTab eventId={eventId} initialData={initialReminderRules} />
+              <RemindersTab eventId={eventId} />
             </TabBoundary>
           </div>
         )}
         {tab === "log" && (
           <div className="communications-panel" id="communications-panel-log" role="tabpanel" aria-labelledby="communications-tab-log">
             <TabBoundary name="log">
-              <CommsLogTable eventId={eventId} timezone={timezone} initialData={initialLog} />
+              <CommsLogTable eventId={eventId} timezone={timezone} />
             </TabBoundary>
           </div>
         )}
         {tab === "suppressions" && (
           <div className="communications-panel" id="communications-panel-suppressions" role="tabpanel" aria-labelledby="communications-tab-suppressions">
             <TabBoundary name="suppressions">
-              <SuppressionsTab eventId={eventId} timezone={timezone} initialData={initialSuppressions} />
+              <SuppressionsTab eventId={eventId} timezone={timezone} />
             </TabBoundary>
           </div>
         )}
         {tab === "deliverability" && (
           <div className="communications-panel" id="communications-panel-deliverability" role="tabpanel" aria-labelledby="communications-tab-deliverability">
             <TabBoundary name="deliverability">
-              <DeliverabilityTab eventId={eventId} initialData={initialDeliverability} />
+              <DeliverabilityTab eventId={eventId} />
             </TabBoundary>
           </div>
         )}
@@ -158,6 +149,6 @@ export function CommsAdminPage({
           </div>
         )}
       </div>
-    </QueryClientProvider>
+    </QueryBoundary>
   );
 }

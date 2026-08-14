@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
 import { requireAdmin } from "@/features/auth";
-import { getDeliverabilityByDomain, listLog, listReminderRules, listSuppressions, listTemplates } from "@/features/comms";
+import { commsKeys, getDeliverabilityByDomain, listLog, listReminderRules, listSuppressions, listTemplates } from "@/features/comms";
 import { CommsAdminPage, type CommsTab } from "@/features/comms/index.client";
 import { eventIdSchema } from "@/shared/contracts";
 
@@ -37,17 +37,20 @@ export default async function Page({
     listSuppressions(eventId),
     getDeliverabilityByDomain(eventId),
   ]);
+  const querySeeds = [
+    { queryKey: commsKeys.templates(eventId), data: templates },
+    { queryKey: commsKeys.reminderRules(eventId), data: reminderRules },
+    { queryKey: commsKeys.log(eventId, { limit: 500 }), data: log },
+    { queryKey: commsKeys.suppressions(eventId), data: suppressions },
+    { queryKey: commsKeys.deliverability(eventId), data: deliverability },
+  ];
 
   return (
     <CommsAdminPage
       eventId={eventId}
       timezone={event[0]?.timezone ?? "America/Los_Angeles"}
       initialTab={tab}
-      initialTemplates={templates}
-      initialReminderRules={reminderRules}
-      initialLog={log}
-      initialSuppressions={suppressions}
-      initialDeliverability={deliverability}
+      querySeeds={querySeeds}
     />
   );
 }

@@ -3,13 +3,13 @@
 import { Mail, RotateCcw, Search, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { COMM_STATUSES, TEMPLATE_KEYS, type CommLogId, type CommLogRow, type CommStatus, type ContactId, type EventId, type TemplateKey } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
 import { Button, EmptyState, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { useToast } from "@/shared/ui/toast";
 import { useCommLog, useRetryFailedCommunications } from "../hooks/use-comm-log";
 import { canRetryCommunication, type RetryFailedCommunicationsResult } from "../schemas";
@@ -38,8 +38,6 @@ type CommsLogTableProps = {
   contactId?: ContactId;
   contactName?: string;
   timezone: string;
-  /** Only valid for the unfiltered, `contactId`-matching default query — see below. */
-  initialData?: CommLogRow[];
 };
 
 /**
@@ -48,7 +46,7 @@ type CommsLogTableProps = {
  * speaker detail (`contactId` set, scoped to one speaker's history) — one
  * query, one set of columns, so the two surfaces cannot drift.
  */
-function CommsLogTableInner({ eventId, contactId, contactName, timezone, initialData }: CommsLogTableProps) {
+function CommsLogTableInner({ eventId, contactId, contactName, timezone }: CommsLogTableProps) {
   const [status, setStatus] = useState<CommStatus | "">("");
   const [templateKey, setTemplateKey] = useState<TemplateKey | "">("");
   const [search, setSearch] = useState("");
@@ -58,16 +56,12 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
   const { toast } = useToast();
   const retry = useRetryFailedCommunications(eventId);
 
-  // `initialData` only matches the server-fetched shape while no filter has
-  // been touched — the moment status/templateKey change, this is a different
-  // query key and TanStack fetches it fresh regardless.
-  const isDefaultFilter = status === "" && templateKey === "";
   const query = useCommLog(eventId, {
     ...(contactId ? { contactId } : {}),
     ...(status ? { status } : {}),
     ...(templateKey ? { templateKey } : {}),
     limit: 500,
-  }, isDefaultFilter ? initialData : undefined);
+  });
 
   const rows = useMemo(() => {
     const all = query.data ?? [];
@@ -175,13 +169,10 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone, initial
 }
 
 /**
- * Owns its own `QueryClient` so a standalone consumer (M27's speaker detail)
- * never has to wrap the whole page in a provider just to embed one table.
- * When this component renders inside `CommsAdminPage` (which already provides
- * one), the nested provider is harmless — TanStack Query scopes queries to the
- * nearest provider, and each has its own in-memory cache.
+ * Reuses the page cache when embedded and creates a local one for a standalone
+ * consumer. The conditional boundary prevents nested providers from splitting
+ * a mutation's invalidation from the visible list.
  */
 export function CommsLogTable(props: CommsLogTableProps) {
-  const [client] = useState(() => new QueryClient());
-  return <QueryClientProvider client={client}><CommsLogTableInner {...props} /></QueryClientProvider>;
+  return <QueryBoundary><CommsLogTableInner {...props} /></QueryBoundary>;
 }

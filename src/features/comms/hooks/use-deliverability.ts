@@ -2,18 +2,19 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { domainDeliverabilityRowSchema, type DomainDeliverabilityRow } from "../schemas";
+import { domainDeliverabilityRowSchema } from "../schemas";
 import type { EventId } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { qk } from "@/shared/lib/query-keys";
+import { QUERY_DEFAULTS } from "@/shared/lib/query-keys";
+import { commsKeys } from "./keys";
 
 const deliverabilityResponseSchema = z.array(domainDeliverabilityRowSchema);
 
-export function useDeliverability(eventId: EventId, initialData: DomainDeliverabilityRow[]) {
+export function useDeliverability(eventId: EventId) {
   return useQuery({
-    queryKey: qk("comms", eventId, "deliverability"),
+    queryKey: commsKeys.deliverability(eventId),
     queryFn: () => api(`comms/${eventId}/deliverability`, deliverabilityResponseSchema),
-    initialData,
+    ...QUERY_DEFAULTS,
     staleTime: 30_000,
   });
 }
