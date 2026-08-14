@@ -57,6 +57,7 @@
         "EMAIL_ALLOWLIST": "yi.s.ding@gmail.com",
         "EMAIL_FALLBACK_UI": "1",
         "AIRTABLE_CRON": "0",
+        "NEXT_PRIVATE_DEBUG_CACHE": "1",
         "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
         "R2_BUCKET_NAME": "sb-files-preview"
       },
