@@ -20,6 +20,7 @@ export const submissions = pgTable("submissions", {
   unique().on(table.eventId, table.code), unique().on(table.id, table.eventId),
   index("submissions_event_status_idx").on(table.eventId, table.status), index("submissions_event_form_idx").on(table.eventId, table.formId),
   index("submissions_event_track_idx").on(table.eventId, table.trackId), index("submissions_event_submitter_idx").on(table.eventId, table.submitterContactId),
+  index("submissions_event_created_id_idx").on(table.eventId, table.createdAt, table.id),
   uniqueIndex("submissions_one_draft_per_contact_form_uq").on(table.eventId, table.formId, table.submitterContactId).where(sql`status='draft' AND form_id IS NOT NULL AND submitter_contact_id IS NOT NULL`),
 ]);
 
