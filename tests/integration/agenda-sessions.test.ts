@@ -28,6 +28,9 @@ const migration6 = readFileSync(new URL("../../drizzle/0006_content_deliverables
 // `db.update(contacts)....returning()` (Drizzle selects every mapped column)
 // now needs them to exist, even in a suite that never exercises suppression.
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+// Manual agenda creates atomically consume their caller-owned id in a durable
+// receipt, so this reduced fixture needs the receipt table as well.
+const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000002");
@@ -106,6 +109,7 @@ describe("agenda sessions", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migration6);
     await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationAgendaCreationReceipts);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -148,7 +152,7 @@ describe("agenda sessions", () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, session_content_revisions CASCADE");
+    await pglite.exec("TRUNCATE sessions, session_speakers, communication_logs, session_content_revisions, session_creation_receipts CASCADE");
     await pglite.query("DELETE FROM submissions WHERE id=$1", [batchTalk]);
     await pglite.query(
       "UPDATE events SET starts_at='2026-09-15T16:00:00Z', ends_at='2026-09-17T01:00:00Z', row_version=1, updated_at=now() WHERE id IN ($1,$2)",
