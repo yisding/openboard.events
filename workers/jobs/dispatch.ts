@@ -35,10 +35,6 @@ export function jobsForScheduledTime(scheduledTime: number): JobName[] {
   // make a stub look like successful scheduled work; add it here only when
   // the real idempotent sync and its production acceptance proof exist.
   if (scheduled.getUTCHours() === 9 && minute === 0) jobs.push("cleanup");
-  // Temporary R2 version-1 staging migration. Keep this separate from the
-  // heavier daily cleanup so per-minute convergence does not multiply every
-  // unrelated retention scan.
-  jobs.push("r2-migration");
   return jobs;
 }
 

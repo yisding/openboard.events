@@ -59,6 +59,7 @@ describe("scheduled jobs Worker", () => {
     for (const job of ["outbox", "reminders", "cleanup", "r2-migration"]) {
       expect(existsSync(new URL(`../src/app/api/jobs/${job}/route.ts`, import.meta.url))).toBe(false);
     }
+    expect(existsSync(new URL("../src/app/worker-jobs/r2-migration/route.ts", import.meta.url))).toBe(true);
   });
 
   it("propagates an RPC exception without another dispatch path", async () => {
@@ -121,10 +122,9 @@ describe("scheduled jobs Worker", () => {
       "outbox",
       "reminders",
       "cleanup",
-      "r2-migration",
     ]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox", "r2-migration"]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox", "r2-migration"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox"]);
   });
 
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {

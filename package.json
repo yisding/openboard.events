@@ -34,7 +34,6 @@
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "db:migrate": "tsx scripts/migrate-database.ts",
     "r2:lifecycle:ensure": "tsx scripts/ensure-r2-staging-lifecycle.ts",
-    "r2:migration:wait": "tsx scripts/wait-r2-staging-migration.ts",
     "seed": "tsx scripts/seed/index.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled",

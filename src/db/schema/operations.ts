@@ -32,9 +32,8 @@ export const scheduledJobHeartbeats = pgTable("scheduled_job_heartbeats", {
 ]);
 
 /**
- * Resumable, compare-and-swap checkpoint for the finite version-1 R2 staging
- * migration. The final compatibility-removal release drops this table after a
- * protected deploy has observed a complete zero-inventory cycle.
+ * Retained for one deployment after migration scheduling stops. The following
+ * contract release drops this checkpoint once no old jobs Worker can call it.
  */
 export const r2StagingMigrationState = pgTable("r2_staging_migration_state", {
   singleton: boolean("singleton").primaryKey().default(true),
