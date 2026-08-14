@@ -8,6 +8,7 @@ import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { assignmentLockGuidance, assignmentLockReason } from "../assignment-writability";
 import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
@@ -118,6 +119,8 @@ export function AssignmentDrawer({
   const [mode, setMode] = useState<AssignmentMode>("add");
   const [busy, setBusy] = useState(false);
   const [confirmEmptyReplace, setConfirmEmptyReplace] = useState(false);
+  const assignmentLock = assignmentLockReason(plan);
+  const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
   const dirty = assignmentDraftChanged({ reviewerIds, submissionIds: selected, mode });
   useUnsavedWorkGuard(dirty);
   const { runGuarded } = useGuardedAction();
@@ -140,6 +143,13 @@ export function AssignmentDrawer({
   }, [targetKey]);
 
   useEffect(() => {
+    if (assignmentLock) {
+      setSubmissions(null);
+      setLoadedTarget(null);
+      setLoadFailure(null);
+      setRetrying(false);
+      return;
+    }
     let cancelled = false;
     const loadTarget = targetKey;
     setLoadFailure(null);
@@ -169,7 +179,7 @@ export function AssignmentDrawer({
         if (!cancelled && currentTargetRef.current === loadTarget) setRetrying(false);
       });
     return () => { cancelled = true; };
-  }, [eventId, plan.id, targetKey, loadEpoch]);
+  }, [assignmentLock, eventId, plan.id, targetKey, loadEpoch]);
 
   function retryLoad() {
     if (!loadFailure?.retryable || retrying) return;
@@ -198,7 +208,7 @@ export function AssignmentDrawer({
   const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
   const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
   const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
-  const controlsDisabled = !assignmentsLoaded || Boolean(loadFailure) || busy;
+  const controlsDisabled = assignmentLock !== null || !assignmentsLoaded || Boolean(loadFailure) || busy;
   const canAssign = canSubmitAssignments({
     loaded: assignmentsLoaded,
     hasLoadError: Boolean(loadFailure),
@@ -210,6 +220,10 @@ export function AssignmentDrawer({
   });
 
   async function saveAssignments() {
+    if (assignmentGuidance) {
+      toast(assignmentGuidance, { kind: "error" });
+      return false;
+    }
     if (!submissions || loadFailure || loadedTarget !== targetKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return false;
@@ -278,6 +292,7 @@ export function AssignmentDrawer({
     <>
       <Drawer open onClose={requestClose} title={`Assign work · ${plan.name}`}>
         <div className="form-stack drawer-body">
+        {assignmentGuidance && <p className="portal-note" role="alert">Assignments are locked. {assignmentGuidance}</p>}
         {plan.reviewers.length === 0
           ? <p className="portal-note">Add reviewers to this round before assigning work to them.</p>
           : (

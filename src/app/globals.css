@@ -317,6 +317,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    label is not. */
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.assignment-locked-action{display:grid;gap:2px;justify-items:center}
+.assignment-locked-action small{max-width:96px;color:var(--muted);font-size:var(--text-xs);line-height:1.2;text-align:center}
 @media(max-width:480px){.admin-task-row>.row-actions{grid-column:2;justify-content:flex-start}}
 .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .event-lifecycle-groups{display:grid;gap:32px}.event-lifecycle-groups>section>h2{margin:0 0 14px;font-size:16px}.past-events{padding-top:20px;border-top:1px solid var(--line)}.past-events>summary{width:max-content;margin-bottom:16px;color:var(--muted);font-size:var(--text-table);font-weight: var(--weight-emphasis);cursor:pointer}.past-events>summary span{margin-left:6px;padding:2px 7px;border-radius:999px;background:var(--fill);font-size:var(--text-xs)}.past-events .event-grid{opacity:.78}

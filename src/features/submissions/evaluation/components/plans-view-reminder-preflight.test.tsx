@@ -41,6 +41,8 @@ function plan(suffix: string, name: string): PlanDTO {
 
 const PLAN_A = plan("000000000010", "Round A");
 const PLAN_B = plan("000000000020", "Round B");
+const CLOSED_PLAN = { ...plan("000000000030", "Closed round"), status: "closed" as const };
+const EXPIRED_PLAN = { ...plan("000000000040", "Expired round"), closesAt: "2000-01-01T00:00:00.000Z" };
 const ADA = {
   reviewerUserId: "c4200000-0000-4000-8001-000000000011",
   name: "Ada Lovelace",
@@ -119,6 +121,17 @@ afterEach(async () => {
 });
 
 describe("evaluation reminder exact-recipient preflight", () => {
+  it("keeps assignment entry points closed with specific recovery guidance", async () => {
+    await renderPlans([CLOSED_PLAN, EXPIRED_PLAN, PLAN_A]);
+
+    expect(rowButton("Closed round", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Closed round", "Assign")?.closest("tr")?.textContent).toContain("Reopen to assign");
+    expect(rowButton("Expired round", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Expired round", "Assign")?.closest("tr")?.textContent).toContain("Extend to assign");
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("previews exact recipients before one explicit, double-click-safe send", async () => {
     let resolvePreview!: (response: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => { resolvePreview = resolve; }));

@@ -9,6 +9,7 @@ import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/m
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { assignmentLockGuidance, assignmentLockReason } from "../assignment-writability";
 import type { PlanDTO } from "../types";
 import type { EventMember, TrackOption } from "./plans-view";
 import { evaluationFailureMessage, evaluationRequest, type EvaluationRequestResult } from "./evaluation-request";
@@ -110,17 +111,38 @@ function draftFrom(plan: PlanDTO): PlanDraft {
   };
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function sameReviewerAssignments(
+  left: readonly PlanDraft["reviewers"][number][],
+  right: readonly PlanDraft["reviewers"][number][],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightByUser = new Map(right.map((reviewer) => [reviewer.userId, reviewer.trackIds]));
+  return left.every((reviewer) => {
+    const otherTracks = rightByUser.get(reviewer.userId);
+    return otherTracks !== undefined && sameStringSet(reviewer.trackIds, otherTracks);
+  });
+}
+
 /** A `<Select multiple>` of tracks, where selecting nothing means every track. */
 function TrackScope({
   tracks,
   value,
   onChange,
   label,
+  disabled = false,
 }: {
   tracks: TrackOption[];
   value: string[];
   onChange: (next: string[]) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <Field label={label} hint="Select none for every track">
@@ -128,6 +150,7 @@ function TrackScope({
         multiple
         value={value}
         size={Math.min(tracks.length, 4)}
+        disabled={disabled}
         onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}
       >
         {tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
@@ -186,16 +209,45 @@ export function PlanEditor({
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
   const { runGuarded } = useGuardedAction();
   const dirty = pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline);
+  const reviewerAssignmentsChanged = !sameReviewerAssignments(draft.reviewers, baseline.reviewers);
+  const trackScopeChanged = !sameStringSet(draft.trackIds, baseline.trackIds);
+  const assignmentEditsChanged = reviewerAssignmentsChanged || trackScopeChanged;
+  const assignmentLock = assignmentLockReason(draft);
+  const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
 
   useUnsavedWorkGuard(dirty);
 
   const patch = (next: Partial<PlanDraft>) => setDraft((current) => ({ ...current, ...next }));
+
+  function refuseTerminalAssignmentEdits(): void {
+    toast("Save assignment changes while the round is open, then close it in a separate edit", { kind: "error" });
+  }
+
+  function changeStatus(status: PlanDTO["status"]): void {
+    if (assignmentEditsChanged && assignmentLockReason({ status, closesAt: draft.closesAt })) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
+    patch({ status });
+  }
+
+  function changeClosesAt(closesAt: string | null): void {
+    if (assignmentEditsChanged && assignmentLockReason({ status: draft.status, closesAt })) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
+    patch({ closesAt });
+  }
 
   function closeEditor() {
     requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: onClose });
   }
 
   async function save() {
+    if (assignmentEditsChanged && assignmentLockReason(draft)) {
+      refuseTerminalAssignmentEdits();
+      return;
+    }
     setSaving(true);
     try {
       const body = {
@@ -232,16 +284,18 @@ export function PlanEditor({
           { method: plan ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
           "That round did not save",
         ),
-        (savedPlanId) => evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            reviewers: draft.reviewers.map((reviewer) => ({
-              userId: reviewer.userId,
-              trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
-            })),
-          }),
-        }, "The round saved, but its reviewers did not"),
+        (savedPlanId) => reviewerAssignmentsChanged
+          ? evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                reviewers: draft.reviewers.map((reviewer) => ({
+                  userId: reviewer.userId,
+                  trackIds: reviewer.trackIds.length === 0 ? null : reviewer.trackIds,
+                })),
+              }),
+            }, "The round saved, but its reviewers did not")
+          : Promise.resolve({ ok: true as const, data: {} }),
       );
       if (!result.ok) {
         setPendingReviewerPlanId(result.pendingReviewerPlanId);
@@ -291,14 +345,23 @@ export function PlanEditor({
           </Field>
         </div>
 
-        <TrackScope label="Track scope" tracks={tracks} value={draft.trackIds} onChange={(trackIds) => patch({ trackIds })} />
+        <TrackScope
+          label="Track scope"
+          tracks={tracks}
+          value={draft.trackIds}
+          disabled={assignmentLock !== null}
+          onChange={(trackIds) => patch({ trackIds })}
+        />
+        {assignmentGuidance && (
+          <p className="portal-note" role="status">Track and reviewer assignments are locked. {assignmentGuidance}</p>
+        )}
 
         <div className="evaluation-field-row evaluation-window-row">
           <Field label="Opens" hint="Reviewers cannot open assigned proposals before this">
             <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
           <Field label="Closes" hint="Saving stops at this moment; prior work stays readable">
-            <DateTimePicker value={draft.closesAt} onChange={(closesAt) => patch({ closesAt })} tz={timezone} />
+            <DateTimePicker value={draft.closesAt} onChange={changeClosesAt} tz={timezone} />
           </Field>
         </div>
 
@@ -327,7 +390,7 @@ export function PlanEditor({
         </div>
 
         <Field label="Status">
-          <Select value={draft.status} onChange={(event) => patch({ status: event.target.value === "closed" ? "closed" : "open" })}>
+          <Select value={draft.status} onChange={(event) => changeStatus(event.target.value === "closed" ? "closed" : "open")}>
             <option value="open">Open — reviewers can score</option>
             <option value="closed">Closed — scores are final</option>
           </Select>
@@ -406,29 +469,32 @@ export function PlanEditor({
 
         <section>
           <h3>Reviewers</h3>
-          {members.length === 0 ? (
-            <p className="portal-note">This event has no members to assign yet.</p>
-          ) : members.map((member) => {
-            const assignment = draft.reviewers.find((reviewer) => reviewer.userId === member.userId);
-            return (
-              <div key={member.userId} className="reviewer-assignment">
-                <label>
-                  <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
-                  <b>{member.name || member.email}</b> <small>{member.role}</small>
-                </label>
-                {assignment && (
-                  <TrackScope
-                    label={`Tracks for ${member.name || member.email}`}
-                    tracks={tracks}
-                    value={assignment.trackIds}
-                    onChange={(trackIds) => patch({
-                      reviewers: draft.reviewers.map((reviewer) => reviewer.userId === member.userId ? { ...reviewer, trackIds } : reviewer),
-                    })}
-                  />
-                )}
-              </div>
-            );
-          })}
+          <fieldset disabled={saving || assignmentLock !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+            <legend className="sr-only">Reviewer assignments</legend>
+            {members.length === 0 ? (
+              <p className="portal-note">This event has no members to assign yet.</p>
+            ) : members.map((member) => {
+              const assignment = draft.reviewers.find((reviewer) => reviewer.userId === member.userId);
+              return (
+                <div key={member.userId} className="reviewer-assignment">
+                  <label>
+                    <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
+                    <b>{member.name || member.email}</b> <small>{member.role}</small>
+                  </label>
+                  {assignment && (
+                    <TrackScope
+                      label={`Tracks for ${member.name || member.email}`}
+                      tracks={tracks}
+                      value={assignment.trackIds}
+                      onChange={(trackIds) => patch({
+                        reviewers: draft.reviewers.map((reviewer) => reviewer.userId === member.userId ? { ...reviewer, trackIds } : reviewer),
+                      })}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </fieldset>
         </section>
 
         <p className="portal-note">

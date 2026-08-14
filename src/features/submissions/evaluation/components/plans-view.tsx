@@ -11,6 +11,7 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { OrganizationInvitationDTO } from "@/shared/contracts";
+import { assignmentLockGuidance, assignmentLockReason } from "../assignment-writability";
 import type { PlanDTO } from "../types";
 import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
@@ -311,14 +312,21 @@ export function PlansView({
       id: "actions",
       header: "",
       enableSorting: false,
-      cell: ({ row }) => (
-        <span className="row-actions">
-          <Button size="sm" variant="secondary" onClick={() => setAssigning(row.original)}>Assign</Button>
+      cell: ({ row }) => {
+        const lock = assignmentLockReason(row.original);
+        return <span className="row-actions">
+          {lock
+            ? <span className="assignment-locked-action">
+                <Button size="sm" variant="secondary" disabled>Assign</Button>
+                <small>{lock === "closed" ? "Reopen to assign" : "Extend to assign"}</small>
+                <span className="sr-only">{assignmentLockGuidance(lock)}</span>
+              </span>
+            : <Button size="sm" variant="secondary" onClick={() => setAssigning(row.original)}>Assign</Button>}
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => openReminderPreflight(row.original)}>Remind</Button>
           <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
-        </span>
-      ),
+        </span>;
+      },
     },
   // The row callbacks read current component state; the columns only need to be
   // rebuilt when the vocabulary or the busy flag changes.

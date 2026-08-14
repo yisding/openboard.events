@@ -301,6 +301,82 @@ describe("evaluation plans and reviewer routing", () => {
     expect(plan?.progress).toEqual({ scored: 1, total: 3 });
   });
 
+  it.each(["manual", "deadline"] as const)(
+    "keeps reviewer routing and completed work unchanged after a %s close",
+    async (closure) => {
+      const planId = await seedPlan();
+      await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [platforms] }]);
+      await giveReview(planId, platformsTalk, ada, 4);
+
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(db, eventId, planInput({ planId, ...lockedInput }));
+
+      const graph = async () => ({
+        reviewers: (await pglite.query(
+          "SELECT user_id, track_ids FROM reviewer_assignments WHERE plan_id=$1 ORDER BY user_id",
+          [planId],
+        )).rows,
+        assignments: (await pglite.query(
+          "SELECT submission_id, reviewer_user_id, status FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+          [planId],
+        )).rows,
+        reviews: (await pglite.query(
+          "SELECT submission_id, reviewer_user_id, overall_score::float8 AS overall_score FROM reviews WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+          [planId],
+        )).rows,
+      });
+      const before = await graph();
+
+      for (const attempted of [
+        [{ userId: ada, trackIds: [platforms] }, { userId: grace, trackIds: null }],
+        [],
+        [{ userId: ada, trackIds: [agents] }],
+      ]) {
+        const error = await assignReviewersIn(db, eventId, planId, attempted)
+          .catch((thrown: unknown) => thrown);
+        expect(isAppError(error) && error.code).toBe("CONFLICT");
+        expect(await graph()).toEqual(before);
+      }
+
+      const rescope = await savePlanIn(db, eventId, planInput({
+        planId,
+        ...lockedInput,
+        trackIds: [agents],
+      })).catch((thrown: unknown) => thrown);
+      expect(isAppError(rescope) && rescope.code).toBe("CONFLICT");
+      expect(await graph()).toEqual(before);
+      expect((await getPlanIn(db, eventId, planId)).trackIds).toBeNull();
+
+      const writableInput = closure === "manual"
+        ? { status: "open" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      await savePlanIn(db, eventId, planInput({ planId, ...writableInput }));
+      await expect(assignReviewersIn(db, eventId, planId, [
+        { userId: ada, trackIds: [agents] },
+        { userId: grace, trackIds: null },
+      ])).resolves.toBeUndefined();
+      expect((await getPlanIn(db, eventId, planId)).reviewers.map((reviewer) => reviewer.userId).sort())
+        .toEqual([ada, grace].sort());
+    },
+  );
+
+  it("allows reviewer routing to be prepared before the round opens", async () => {
+    const planId = await seedPlan({
+      opensAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      closesAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+    });
+
+    await expect(assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: [platforms] }]))
+      .resolves.toBeUndefined();
+    expect((await getPlanIn(db, eventId, planId)).reviewers[0]).toMatchObject({
+      userId: ada,
+      trackIds: [platforms],
+      assigned: 1,
+    });
+  });
+
   it("narrows the round's own scope to its tracks", async () => {
     const planId = await seedPlan({ trackIds: [agents] });
     await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);

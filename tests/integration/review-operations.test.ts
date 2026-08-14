@@ -364,6 +364,73 @@ describe("review operations", () => {
     expect(isAppError(refusedSave) && refusedSave.code).toBe("FORBIDDEN");
   });
 
+  it.each(["manual", "deadline"] as const)(
+    "keeps add and replace queue mutations atomic after a %s close",
+    async (closure) => {
+      const planId = await seedPlan();
+      await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+      await assignSubmissionsIn(db, eventId, {
+        planId,
+        reviewerUserIds: [ada],
+        submissionIds: [one],
+        mode: "replace",
+      });
+
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(db, eventId, plan({ planId, ...lockedInput }));
+      const rows = async () => (await pglite.query(
+        "SELECT submission_id, reviewer_user_id, status FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+        [planId],
+      )).rows;
+      const before = await rows();
+
+      for (const attempted of [
+        { submissionIds: [two], mode: "add" as const },
+        { submissionIds: [two], mode: "replace" as const },
+      ]) {
+        const error = await assignSubmissionsIn(db, eventId, {
+          planId,
+          reviewerUserIds: [ada],
+          ...attempted,
+        }).catch((thrown: unknown) => thrown);
+        expect(isAppError(error) && error.code).toBe("CONFLICT");
+        expect(await rows()).toEqual(before);
+      }
+
+      const writableInput = closure === "manual"
+        ? { status: "open" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      await savePlanIn(db, eventId, plan({ planId, ...writableInput }));
+      await expect(assignSubmissionsIn(db, eventId, {
+        planId,
+        reviewerUserIds: [ada],
+        submissionIds: [two],
+        mode: "add",
+      })).resolves.toMatchObject({ assigned: 1, removed: 0 });
+      expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId).sort())
+        .toEqual([one, two].sort());
+    },
+  );
+
+  it("allows explicit queues to be prepared before the round opens", async () => {
+    const planId = await seedPlan({
+      opensAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      closesAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+    });
+    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+
+    await expect(assignSubmissionsIn(db, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [one],
+      mode: "replace",
+    })).resolves.toMatchObject({ assigned: 0, removed: 2 });
+    expect((await listReviewQueueIn(db, eventId, ada, planId, new Date(Date.now() + 90 * 60_000))).rows.map((row) => row.submissionId))
+      .toEqual([one]);
+  });
+
   it("leaves queues unchanged when a replacement contains a stale submission", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);

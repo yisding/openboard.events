@@ -64,6 +64,8 @@ function submission(suffix: string, title: string): AssignableSubmission {
 
 const PLAN_A = plan("000000000010", "Round A");
 const PLAN_B = plan("000000000020", "Round B");
+const CLOSED_PLAN = { ...plan("000000000030", "Closed round"), status: "closed" as const };
+const EXPIRED_PLAN = { ...plan("000000000040", "Expired round"), closesAt: "2000-01-01T00:00:00.000Z" };
 const SUBMISSION_A = submission("000000000011", "Proposal from round A");
 const SUBMISSION_B = submission("000000000021", "Proposal from round B");
 
@@ -117,6 +119,18 @@ afterEach(async () => {
 });
 
 describe("evaluation assignment drawer loading recovery", () => {
+  it.each([
+    [CLOSED_PLAN, "Reopen this round before changing reviewer assignments."],
+    [EXPIRED_PLAN, "Extend this round’s close date before changing reviewer assignments."],
+  ])("does not load or unlock a terminal round", async (lockedPlan, guidance) => {
+    await renderDrawer(lockedPlan);
+
+    expect(container.textContent).toContain(`Assignments are locked. ${guidance}`);
+    expect(reviewerCheckbox(`${lockedPlan.name} reviewer`)?.matches(":disabled")).toBe(true);
+    expect(buttonNamed("Assign 0")?.disabled).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("recovers a transport failure in place and unlocks the loaded round", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("offline"));
     await renderDrawer(PLAN_A);

@@ -30,6 +30,7 @@ import type { AssignmentInput, PlanWrite, ReviewInput, ReviewerAssignmentInput }
  */
 
 const UNIQUE_NAME = "evaluation_plans_event_id_name_key";
+const ASSIGNMENTS_LOCKED = "This round is no longer accepting review work. Reopen it or extend its close date before changing assignments.";
 
 /**
  * Drizzle wraps the driver's error in one of its own and keeps the original as
@@ -302,6 +303,17 @@ export async function savePlanIn(
           updated_at = now()
         WHERE evaluation_plans.event_id = ${eventId}
           AND (${expectedUpdatedAt ?? null}::timestamptz IS NULL OR date_trunc('milliseconds', evaluation_plans.updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz))
+          -- Changing the round scope can delete live queue rows in descoped.
+          -- Permit that only when the state being saved can still accept the
+          -- resulting review work. Reopening/extending and rescoping together
+          -- is safe; closing/rescoping together is not.
+          AND (
+            evaluation_plans.track_ids IS NOT DISTINCT FROM EXCLUDED.track_ids
+            OR (
+              EXCLUDED.status = 'open'
+              AND (EXCLUDED.closes_at IS NULL OR EXCLUDED.closes_at > CURRENT_TIMESTAMP)
+            )
+          )
         RETURNING id
       ),
       dropped AS (
@@ -368,11 +380,20 @@ export async function savePlanIn(
   if (!planId) {
     // The insert wrote nothing, so the conflicting row is either somebody else's
     // event or a newer version of this plan. Say which.
-    const existing = await dbOrTx.execute<{ event_id: string; updated_at: string }>(sql`
-      SELECT event_id, updated_at FROM evaluation_plans WHERE id = ${input.planId}
+    const existing = await dbOrTx.execute<{ event_id: string; version_matches: boolean; scope_locked: boolean }>(sql`
+      SELECT event_id,
+             (${expectedUpdatedAt ?? null}::timestamptz IS NULL
+               OR date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${expectedUpdatedAt ?? null}::timestamptz)) AS version_matches,
+             NOT (track_ids IS NOT DISTINCT FROM ${uuidArraySql(trackIds)})
+               AND NOT (
+                 ${input.status}::plan_status = 'open'
+                 AND (${input.closesAt}::timestamptz IS NULL OR ${input.closesAt}::timestamptz > CURRENT_TIMESTAMP)
+               ) AS scope_locked
+      FROM evaluation_plans WHERE id = ${input.planId}
     `);
     const row = (existing.rows ?? [])[0];
     if (!row || row.event_id !== eventId) throw new AppError("NOT_FOUND", "Evaluation plan not found");
+    if (row.scope_locked && row.version_matches) throw new AppError("CONFLICT", ASSIGNMENTS_LOCKED);
     throw new AppError("STALE_WRITE", "Someone else changed this round while you were editing it");
   }
   return { planId: planId as PlanId };
@@ -434,9 +455,11 @@ export async function assignReviewersIn(
     track_ids: normalizeTracks(assignment.trackIds),
   }));
 
-  const result = await dbOrTx.execute<{ plan_found: number; matched: number }>(sql`
+  const result = await dbOrTx.execute<{ plan_found: number; writable: boolean | null; matched: number }>(sql`
     WITH plan AS (
-      SELECT id FROM evaluation_plans WHERE id = ${planId} AND event_id = ${eventId}
+      SELECT id,
+             status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
+      FROM evaluation_plans WHERE id = ${planId} AND event_id = ${eventId}
     ),
     incoming AS (
       SELECT x.user_id, x.track_ids FROM jsonb_to_recordset(${JSON.stringify(incoming)}::jsonb)
@@ -453,7 +476,7 @@ export async function assignReviewersIn(
     ),
     removed AS (
       DELETE FROM reviewer_assignments a USING plan
-      WHERE (SELECT ok FROM valid) AND a.plan_id = plan.id
+      WHERE plan.writable AND (SELECT ok FROM valid) AND a.plan_id = plan.id
         AND a.user_id NOT IN (SELECT user_id FROM members)
     ),
     -- Taking someone off the round takes their queue with them. The reviews
@@ -469,7 +492,7 @@ export async function assignReviewersIn(
     -- and to submitReview.
     unassigned AS (
       DELETE FROM review_assignments ra USING plan
-      WHERE (SELECT ok FROM valid) AND ra.plan_id = plan.id
+      WHERE plan.writable AND (SELECT ok FROM valid) AND ra.plan_id = plan.id
         AND ra.reviewer_user_id NOT IN (SELECT user_id FROM members)
         AND ra.status = 'assigned'
     ),
@@ -486,7 +509,7 @@ export async function assignReviewersIn(
     pruned AS (
       DELETE FROM review_assignments ra
       USING plan, evaluation_plans p, changed c, submissions s
-      WHERE (SELECT ok FROM valid) AND p.id = plan.id
+      WHERE plan.writable AND (SELECT ok FROM valid) AND p.id = plan.id
         AND ra.plan_id = plan.id AND ra.reviewer_user_id = c.user_id
         AND s.id = ra.submission_id AND s.event_id = ${eventId}
         AND ra.status = 'assigned'
@@ -498,21 +521,24 @@ export async function assignReviewersIn(
       INSERT INTO review_assignments (event_id, plan_id, submission_id, reviewer_user_id)
       SELECT ${eventId}, plan.id, s.id, c.user_id
       FROM plan, evaluation_plans p, changed c, submissions s
-      WHERE (SELECT ok FROM valid) AND p.id = plan.id AND s.event_id = ${eventId}
+      WHERE plan.writable AND (SELECT ok FROM valid) AND p.id = plan.id AND s.event_id = ${eventId}
         AND ${scopeSql(sql`p.track_ids`, sql`c.track_ids`)}
       ON CONFLICT ON CONSTRAINT review_assignments_natural_key DO NOTHING
     ),
     upserted AS (
       INSERT INTO reviewer_assignments (event_id, plan_id, user_id, track_ids)
       SELECT ${eventId}, plan.id, members.user_id, members.track_ids FROM plan, members
-      WHERE (SELECT ok FROM valid)
+      WHERE plan.writable AND (SELECT ok FROM valid)
       ON CONFLICT (plan_id, user_id) DO UPDATE SET track_ids = EXCLUDED.track_ids
     )
-    SELECT (SELECT count(*)::int FROM plan) AS plan_found, (SELECT count(*)::int FROM members) AS matched
+    SELECT (SELECT count(*)::int FROM plan) AS plan_found,
+           (SELECT writable FROM plan) AS writable,
+           (SELECT count(*)::int FROM members) AS matched
   `);
 
   const summary = (result.rows ?? [])[0];
   if (!summary || Number(summary.plan_found) === 0) throw new AppError("NOT_FOUND", "Evaluation plan not found");
+  if (!summary.writable) throw new AppError("CONFLICT", ASSIGNMENTS_LOCKED);
   if (Number(summary.matched) !== assignments.length) {
     throw new AppError("VALIDATION", "Every reviewer has to be a member of this event");
   }
@@ -536,9 +562,11 @@ export async function assignSubmissionsIn(
   const reviewerIds = [...new Set(input.reviewerUserIds)];
   const submissionIds = [...new Set(input.submissionIds)];
 
-  const result = await dbOrTx.execute<{ plan_found: number; reviewers: number; submissions: number; assigned: number; removed: number }>(sql`
+  const result = await dbOrTx.execute<{ plan_found: number; writable: boolean | null; reviewers: number; submissions: number; assigned: number; removed: number }>(sql`
     WITH plan AS (
-      SELECT id, event_id FROM evaluation_plans WHERE id = ${input.planId} AND event_id = ${eventId}
+      SELECT id, event_id,
+             status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
+      FROM evaluation_plans WHERE id = ${input.planId} AND event_id = ${eventId}
     ),
     reviewers AS (
       SELECT a.user_id FROM reviewer_assignments a, plan
@@ -560,7 +588,7 @@ export async function assignSubmissionsIn(
     ),
     removed AS (
       DELETE FROM review_assignments ra USING plan
-      WHERE (SELECT ok FROM valid) AND ${input.mode === "replace"}
+      WHERE plan.writable AND (SELECT ok FROM valid) AND ${input.mode === "replace"}
         AND ra.plan_id = plan.id AND ra.event_id = plan.event_id
         AND ra.reviewer_user_id IN (SELECT user_id FROM reviewers)
         AND ra.submission_id NOT IN (SELECT id FROM targets)
@@ -573,11 +601,12 @@ export async function assignSubmissionsIn(
       INSERT INTO review_assignments (event_id, plan_id, submission_id, reviewer_user_id)
       SELECT plan.event_id, plan.id, targets.id, reviewers.user_id
       FROM plan, targets, reviewers
-      WHERE (SELECT ok FROM valid)
+      WHERE plan.writable AND (SELECT ok FROM valid)
       ON CONFLICT ON CONSTRAINT review_assignments_natural_key DO NOTHING
       RETURNING id
     )
     SELECT (SELECT count(*)::int FROM plan) AS plan_found,
+           (SELECT writable FROM plan) AS writable,
            (SELECT count(*)::int FROM reviewers) AS reviewers,
            (SELECT count(*)::int FROM targets) AS submissions,
            (SELECT count(*)::int FROM added) AS assigned,
@@ -586,6 +615,7 @@ export async function assignSubmissionsIn(
 
   const summary = (result.rows ?? [])[0];
   if (!summary || Number(summary.plan_found) === 0) throw new AppError("NOT_FOUND", "Evaluation plan not found");
+  if (!summary.writable) throw new AppError("CONFLICT", ASSIGNMENTS_LOCKED);
   if (Number(summary.reviewers) !== reviewerIds.length) {
     throw new AppError("VALIDATION", "Every reviewer has to be on this round before work can be assigned to them");
   }
