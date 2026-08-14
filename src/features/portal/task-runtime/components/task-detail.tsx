@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { fileVersionDtoSchema, type AnswerValue, type FileVersionDTO, type FormSnapshot } from "@/shared/contracts";
-import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
+import { FormFieldRenderer } from "@/features/forms/index.client";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
