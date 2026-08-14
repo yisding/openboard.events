@@ -12,7 +12,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Kanban, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
 import {
@@ -41,6 +40,8 @@ import { CrmNav } from "./crm-nav";
 const STAGE_LABEL: Record<CrmPipelineStage, string> = { open: "Open", won: "Won", lost: "Lost" };
 const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this prospect was added. Its details are locked so Retry addition can safely recover the same attempt. You can also close and check the pipeline.";
 const CONTACT_REFRESH_RECOVERY_MESSAGE = "The prospect was added, but we could not load its current contact after a merge. Retry the contact refresh, or close and check the pipeline.";
+const PIPELINE_REFRESH_ERROR_MESSAGE = "We could not confirm the latest pipeline yet. Adding and moving prospects remain paused so an older snapshot cannot overwrite your work.";
+const MAX_AUTHORITY_READS = 4;
 
 type ContactLite = { id: OrganizationContactId; name: string; email: string; company: string | null };
 type AddProspectAttempt = {
@@ -52,6 +53,7 @@ type AddProspectRecovery = {
   confirmedEntry: CrmPipelineEntryDTO | null;
   closeOnly: boolean;
 };
+type PipelineAuthority = { entries: CrmPipelineEntryDTO[]; contacts: Record<string, ContactLite> };
 
 export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
   return !isAppError(error) || error.code === "INTERNAL";
@@ -71,8 +73,67 @@ function canonicalContactRecoveryMessage(error: unknown): string {
   return CONTACT_REFRESH_RECOVERY_MESSAGE;
 }
 
-function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; onMove: (stage: CrmPipelineStage) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry } });
+async function fetchPipelineEntries(organizationId: OrganizationId): Promise<CrmPipelineEntryDTO[]> {
+  return api(`organizations/${organizationId}/crm/pipeline`, crmPipelineEntryDtoSchema.array());
+}
+
+async function fetchContact(organizationId: OrganizationId, contactId: OrganizationContactId): Promise<OrganizationContactDTO> {
+  const history = await api(
+    `organizations/${organizationId}/crm/contacts/${contactId}`,
+    organizationContactHistoryDtoSchema,
+  );
+  if (history.contact.id !== contactId) {
+    throw new AppError("INTERNAL", "The current contact response did not match the requested contact");
+  }
+  return history.contact;
+}
+
+function samePipelineSnapshot(left: CrmPipelineEntryDTO[], right: CrmPipelineEntryDTO[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function resolveCurrentPipelineContact(
+  organizationId: OrganizationId,
+  recoveredEntry: CrmPipelineEntryDTO,
+): Promise<{ entry: CrmPipelineEntryDTO; contact: OrganizationContactDTO }> {
+  let currentEntry = recoveredEntry;
+  for (let read = 0; read < MAX_AUTHORITY_READS; read += 1) {
+    const before = (await fetchPipelineEntries(organizationId)).find((entry) => entry.id === currentEntry.id);
+    if (!before) throw new AppError("NOT_FOUND", "The recovered pipeline entry is no longer available");
+    const contact = await fetchContact(organizationId, before.organizationContactId);
+    const after = (await fetchPipelineEntries(organizationId)).find((entry) => entry.id === currentEntry.id);
+    if (!after) throw new AppError("NOT_FOUND", "The recovered pipeline entry is no longer available");
+    if (contact.mergedIntoId === null && after.organizationContactId === contact.id) {
+      return { entry: after, contact };
+    }
+    currentEntry = after;
+  }
+  throw new AppError("INTERNAL", "The prospect's contact kept changing while the pipeline was refreshed");
+}
+
+async function loadPipelineAuthority(organizationId: OrganizationId): Promise<PipelineAuthority> {
+  for (let read = 0; read < MAX_AUTHORITY_READS; read += 1) {
+    const entries = await fetchPipelineEntries(organizationId);
+    const contactIds = [...new Set(entries.map((entry) => entry.organizationContactId))];
+    const contactRows = await Promise.all(contactIds.map((contactId) => fetchContact(organizationId, contactId)));
+    const verifiedEntries = await fetchPipelineEntries(organizationId);
+    if (!samePipelineSnapshot(entries, verifiedEntries) || contactRows.some((contact) => contact.mergedIntoId !== null)) continue;
+    const contacts: Record<string, ContactLite> = {};
+    for (const contact of contactRows) {
+      contacts[contact.id] = {
+        id: contact.id,
+        name: `${contact.firstName} ${contact.lastName}`.trim() || contact.email,
+        email: contact.email,
+        company: contact.company,
+      };
+    }
+    return { entries: verifiedEntries, contacts };
+  }
+  throw new AppError("INTERNAL", "The pipeline kept changing while it was refreshed");
+}
+
+function Card({ entry, contact, eventName, mutationsBlocked, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; mutationsBlocked: boolean; onMove: (stage: CrmPipelineStage) => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry }, disabled: mutationsBlocked });
   const style: CSSProperties = { transform: transform ? CSS.Translate.toString(transform) : undefined };
   return (
     <div ref={setNodeRef} style={style} className={isDragging ? "crm-board-card crm-board-card--dragging" : "crm-board-card"} {...listeners} {...attributes}>
@@ -81,7 +142,7 @@ function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDT
       {eventName && <span>Target: {eventName}</span>}
       {entry.notes && <span>{entry.notes}</span>}
       <div className="crm-board-card-actions" onPointerDown={(event) => event.stopPropagation()}>
-        <Select aria-label={`Move ${contact?.name ?? "this prospect"} to a different stage`} value={entry.stage} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
+        <Select aria-label={`Move ${contact?.name ?? "this prospect"} to a different stage`} value={entry.stage} disabled={mutationsBlocked} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
           {CRM_PIPELINE_STAGES.map((stage) => <option key={stage} value={stage}>{STAGE_LABEL[stage]}</option>)}
         </Select>
       </div>
@@ -89,14 +150,15 @@ function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDT
   );
 }
 
-function Column({ stage, entries, contactsById, eventNameById, onMove }: {
+function Column({ stage, entries, contactsById, eventNameById, mutationsBlocked, onMove }: {
   stage: CrmPipelineStage;
   entries: CrmPipelineEntryDTO[];
   contactsById: Record<string, ContactLite>;
   eventNameById: Record<string, string>;
+  mutationsBlocked: boolean;
   onMove: (entryId: string, stage: CrmPipelineStage) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: stage });
+  const { setNodeRef, isOver } = useDroppable({ id: stage, disabled: mutationsBlocked });
   return (
     <div ref={setNodeRef} className={isOver ? "crm-board-column crm-board-column--over" : "crm-board-column"}>
       <div className="crm-board-column-header"><b>{STAGE_LABEL[stage]}</b><span>{entries.length}</span></div>
@@ -108,6 +170,7 @@ function Column({ stage, entries, contactsById, eventNameById, onMove }: {
             entry={entry}
             contact={contactsById[entry.organizationContactId]}
             eventName={entry.targetEventId ? eventNameById[entry.targetEventId] ?? null : null}
+            mutationsBlocked={mutationsBlocked}
             onMove={(nextStage) => onMove(entry.id, nextStage)}
           />
         ))}
@@ -120,10 +183,9 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   organizationId: OrganizationId;
   events: OrganizationEventRow[];
   open: boolean;
-  onClose: () => void;
+  onClose: (checkPipeline: boolean) => void;
   onCreated: (entry: CrmPipelineEntryDTO, contact: OrganizationContactDTO) => void;
 }) {
-  const router = useRouter();
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationContactSummaryDTO[]>([]);
@@ -145,8 +207,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
     if (busy) return;
     const shouldCheckPipeline = recovery !== null;
     reset();
-    onClose();
-    if (shouldCheckPipeline) router.refresh();
+    onClose(shouldCheckPipeline);
   }
 
   async function search() {
@@ -183,21 +244,17 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
           body: attempt.body,
         });
       }
+      let currentEntry = confirmedEntry;
       let currentContact: OrganizationContactDTO = attempt.contact;
       if (confirmedEntry.organizationContactId !== attempt.contact.id) {
-        const history = await api(
-          `organizations/${organizationId}/crm/contacts/${confirmedEntry.organizationContactId}`,
-          organizationContactHistoryDtoSchema,
-        );
-        if (history.contact.id !== confirmedEntry.organizationContactId) {
-          throw new AppError("INTERNAL", "The current contact response did not match the recovered prospect");
-        }
-        currentContact = history.contact;
+        const resolved = await resolveCurrentPipelineContact(organizationId, confirmedEntry);
+        currentEntry = resolved.entry;
+        currentContact = resolved.contact;
       }
-      onCreated(confirmedEntry, currentContact);
+      onCreated(currentEntry, currentContact);
       toast("Added to the pipeline");
       reset();
-      onClose();
+      onClose(false);
     } catch (caught) {
       if (confirmedEntry) {
         const message = canonicalContactRecoveryMessage(caught);
@@ -301,16 +358,33 @@ export function PipelineBoard({
   const [entries, setEntries] = useState(initialEntries);
   const [contacts, setContacts] = useState(contactsById);
   const [addOpen, setAddOpen] = useState(false);
+  const [authorityRefresh, setAuthorityRefresh] = useState<"pending" | "failed" | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const eventNameById = Object.fromEntries(events.map((event) => [event.id, event.name]));
+  const mutationsBlocked = authorityRefresh !== null;
 
-  // A recovery close refreshes the server component. Fold that authority into
-  // the still-mounted board so a committed response-loss attempt becomes
-  // visible without a hard reload.
+  // Fold later server-component authority into the mounted board. Recovery
+  // close uses the explicit barrier below instead of router.refresh(), because
+  // a late RSC snapshot must never overwrite a mutation made after close.
   useEffect(() => setEntries(initialEntries), [initialEntries]);
   useEffect(() => setContacts(contactsById), [contactsById]);
 
+  async function refreshAuthority() {
+    if (authorityRefresh === "pending") return;
+    setAuthorityRefresh("pending");
+    try {
+      const authority = await loadPipelineAuthority(organizationId);
+      setEntries(authority.entries);
+      setContacts(authority.contacts);
+      setAuthorityRefresh(null);
+    } catch (caught) {
+      setAuthorityRefresh("failed");
+      toast(isAppError(caught) ? caught.message : PIPELINE_REFRESH_ERROR_MESSAGE, { kind: "error" });
+    }
+  }
+
   async function move(entryId: string, stage: CrmPipelineStage) {
+    if (mutationsBlocked) return;
     const previous = entries;
     const current = entries.find((entry) => entry.id === entryId);
     if (!current || current.stage === stage) return;
@@ -325,6 +399,7 @@ export function PipelineBoard({
   }
 
   function onDragEnd(event: DragEndEvent) {
+    if (mutationsBlocked) return;
     if (!event.over) return;
     const stage = event.over.id as CrmPipelineStage;
     if (!(CRM_PIPELINE_STAGES as readonly string[]).includes(stage)) return;
@@ -337,9 +412,19 @@ export function PipelineBoard({
         eyebrow="ORGANIZATION"
         title="Speaker CRM"
         description="Track prospects from first contact to a confirmed speaker."
-        actions={<Button onClick={() => setAddOpen(true)}><Plus size={15} /> Add prospect</Button>}
+        actions={<Button disabled={mutationsBlocked} onClick={() => setAddOpen(true)}><Plus size={15} /> Add prospect</Button>}
       />
       <CrmNav organizationId={organizationId} active="pipeline" />
+
+      {authorityRefresh && (
+        <div className="notify-bar" role={authorityRefresh === "failed" ? "alert" : "status"}>
+          <p>
+            <b>{authorityRefresh === "pending" ? "Refreshing the pipeline…" : "Pipeline refresh needs another try"}</b>
+            <small>{authorityRefresh === "pending" ? "Prospect changes are paused until the latest server state arrives." : PIPELINE_REFRESH_ERROR_MESSAGE}</small>
+          </p>
+          {authorityRefresh === "failed" && <Button variant="secondary" onClick={() => void refreshAuthority()}>Retry refresh</Button>}
+        </div>
+      )}
 
       {entries.length === 0 ? (
         <EmptyState icon={<Kanban size={20} />} title="No prospects yet" description="Add a contact to start tracking them through open, won, and lost." />
@@ -353,6 +438,7 @@ export function PipelineBoard({
                 entries={entries.filter((entry) => entry.stage === stage)}
                 contactsById={contacts}
                 eventNameById={eventNameById}
+                mutationsBlocked={mutationsBlocked}
                 onMove={(entryId, nextStage) => void move(entryId, nextStage)}
               />
             ))}
@@ -368,7 +454,10 @@ export function PipelineBoard({
         organizationId={organizationId}
         events={events}
         open={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={(checkPipeline) => {
+          setAddOpen(false);
+          if (checkPipeline) void refreshAuthority();
+        }}
         onCreated={(entry, contact) => {
           setEntries((rows) => [entry, ...rows.filter((row) => row.id !== entry.id)]);
           setContacts((current) => ({ ...current, [contact.id]: { id: contact.id, name: `${contact.firstName} ${contact.lastName}`.trim() || contact.email, email: contact.email, company: contact.company } }));

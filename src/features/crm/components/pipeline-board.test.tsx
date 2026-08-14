@@ -11,16 +11,15 @@ import {
   organizationContactHistoryDtoSchema,
   organizationContactSummaryDtoSchema,
   organizationIdSchema,
+  type CrmPipelineEntryDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { PipelineBoard } from "./pipeline-board";
 
 const apiMock = vi.hoisted(() => vi.fn());
-const navigationMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/shared/lib/api-client", () => ({ api: apiMock }));
-vi.mock("next/navigation", () => ({ useRouter: () => navigationMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock("./crm-nav", () => ({ CrmNav: () => null }));
 vi.mock("@dnd-kit/core", () => ({
@@ -37,6 +36,7 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 const organizationId = organizationIdSchema.parse("c8000000-0000-4000-8000-000000000001");
 const contactId = organizationContactIdSchema.parse("c8000000-0000-4000-8000-000000000002");
 const canonicalContactId = organizationContactIdSchema.parse("c8000000-0000-4000-8000-000000000004");
+const latestContactId = organizationContactIdSchema.parse("c8000000-0000-4000-8000-000000000005");
 const eventId = eventIdSchema.parse("c8000000-0000-4000-8000-000000000003");
 const contact = organizationContactSummaryDtoSchema.parse({
   id: contactId,
@@ -67,6 +67,15 @@ const canonicalContact = organizationContactSummaryDtoSchema.parse({
   company: "Compiler Systems",
   updatedAt: "2026-08-13T18:06:00.000Z",
 });
+const latestContact = organizationContactSummaryDtoSchema.parse({
+  ...contact,
+  id: latestContactId,
+  email: "katherine@example.com",
+  firstName: "Katherine",
+  lastName: "Johnson",
+  company: "Orbital Mechanics",
+  updatedAt: "2026-08-13T18:07:00.000Z",
+});
 const events = [{
   id: eventId,
   name: "Open Source Summit",
@@ -81,6 +90,12 @@ let root: Root;
 function buttonNamed(name: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll<HTMLButtonElement>("button")]
     .find((button) => button.textContent?.trim() === name);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 async function changeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
@@ -104,16 +119,18 @@ async function pickContact() {
   await act(async () => result.click());
 }
 
-async function renderBoard() {
+async function renderBoard(
+  initialEntries: CrmPipelineEntryDTO[] = [],
+  initialContacts: Record<string, { id: typeof contactId; name: string; email: string; company: string | null }> = {},
+) {
   await act(async () => {
-    root.render(<PipelineBoard organizationId={organizationId} initialEntries={[]} contactsById={{}} events={events} />);
+    root.render(<PipelineBoard organizationId={organizationId} initialEntries={initialEntries} contactsById={initialContacts} events={events} />);
     await Promise.resolve();
   });
 }
 
 beforeEach(() => {
   apiMock.mockReset();
-  navigationMock.refresh.mockReset();
   toastMock.mockReset();
   container = document.createElement("div");
   document.body.append(container);
@@ -184,30 +201,49 @@ describe("CRM prospect creation recovery", () => {
     expect(toastMock).toHaveBeenCalledWith("Added to the pipeline");
   });
 
-  it("loads the canonical contact before materializing a merged replay", async () => {
+  it("follows a second merge before materializing the latest canonical replay", async () => {
     let pipelineAttempts = 0;
+    let pipelineReads = 0;
+    let pipelineId = "";
     apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
       if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
       if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) {
         return organizationContactHistoryDtoSchema.parse({
-          contact: canonicalContact,
+          contact: { ...canonicalContact, mergedIntoId: latestContactId },
           tags: [],
           events: [],
           notes: [],
           activity: [],
         });
       }
-      pipelineAttempts += 1;
-      if (pipelineAttempts === 1) throw new TypeError("connection lost after commit");
-      return crmPipelineEntryDtoSchema.parse({
-        id: init?.body?.id,
-        organizationContactId: canonicalContactId,
+      if (path.endsWith(`/crm/contacts/${latestContactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact: latestContact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (path.endsWith("/crm/pipeline") && init?.body) {
+        pipelineAttempts += 1;
+        pipelineId = String(init.body.id);
+        if (pipelineAttempts === 1) throw new TypeError("connection lost after commit");
+        return crmPipelineEntryDtoSchema.parse({
+          id: pipelineId,
+          organizationContactId: canonicalContactId,
+          targetEventId: eventId,
+          stage: "open",
+          notes: "Merged twice while the response was lost",
+          createdAt: "2026-08-13T18:05:00.000Z",
+          updatedAt: "2026-08-13T18:06:00.000Z",
+        });
+      }
+      pipelineReads += 1;
+      const organizationContactId = pipelineReads === 1 ? canonicalContactId : latestContactId;
+      return [crmPipelineEntryDtoSchema.parse({
+        id: pipelineId,
+        organizationContactId,
         targetEventId: eventId,
         stage: "open",
-        notes: "Merged while the response was lost",
+        notes: "Merged twice while the response was lost",
         createdAt: "2026-08-13T18:05:00.000Z",
-        updatedAt: "2026-08-13T18:06:00.000Z",
-      });
+        updatedAt: pipelineReads === 1 ? "2026-08-13T18:06:00.000Z" : "2026-08-13T18:07:00.000Z",
+      })];
     });
     await renderBoard();
     await pickContact();
@@ -216,7 +252,7 @@ describe("CRM prospect creation recovery", () => {
       buttonNamed("Add to pipeline")?.click();
       await Promise.resolve();
     });
-    const createCalls = () => apiMock.mock.calls.filter(([path]) => String(path).endsWith("/crm/pipeline"));
+    const createCalls = () => apiMock.mock.calls.filter(([path, , init]) => String(path).endsWith("/crm/pipeline") && init?.body);
     const firstBody = createCalls()[0]?.[2]?.body;
 
     await act(async () => {
@@ -228,20 +264,24 @@ describe("CRM prospect creation recovery", () => {
     expect(createCalls()).toHaveLength(2);
     expect(createCalls()[1]?.[2]?.body).toEqual(firstBody);
     expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith(`/crm/contacts/${canonicalContactId}`))).toHaveLength(1);
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith(`/crm/contacts/${latestContactId}`))).toHaveLength(1);
+    expect(pipelineReads).toBe(4);
     expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
-    expect(container.querySelector(".crm-board-card")?.textContent).toContain("Grace Hopper");
-    expect(container.querySelector(".crm-board-card")?.textContent).toContain("grace@example.com");
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("Katherine Johnson");
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("katherine@example.com");
+    expect(container.querySelector(".crm-board-card")?.textContent).not.toContain("Grace Hopper");
     expect(container.querySelector(".crm-board-card")?.textContent).not.toContain("Unknown contact");
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
     expect(toastMock).toHaveBeenCalledTimes(2);
     expect(toastMock).toHaveBeenLastCalledWith("Added to the pipeline");
     expect(toastMock.mock.calls.filter(([message]) => message === "Added to the pipeline")).toHaveLength(1);
-    expect(navigationMock.refresh).not.toHaveBeenCalled();
   });
 
   it("keeps a confirmed merged replay locked until its canonical contact refresh succeeds", async () => {
     let pipelineAttempts = 0;
+    let pipelineReads = 0;
     let contactRefreshAttempts = 0;
+    let pipelineId = "";
     apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
       if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
       if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) {
@@ -249,10 +289,15 @@ describe("CRM prospect creation recovery", () => {
         if (contactRefreshAttempts === 1) throw new TypeError("canonical contact response lost");
         return organizationContactHistoryDtoSchema.parse({ contact: canonicalContact, tags: [], events: [], notes: [], activity: [] });
       }
-      pipelineAttempts += 1;
-      if (pipelineAttempts === 1) throw new TypeError("creation response lost");
-      return crmPipelineEntryDtoSchema.parse({
-        id: init?.body?.id,
+      if (init?.body) {
+        pipelineAttempts += 1;
+        pipelineId = String(init.body.id);
+        if (pipelineAttempts === 1) throw new TypeError("creation response lost");
+      } else {
+        pipelineReads += 1;
+      }
+      const entry = crmPipelineEntryDtoSchema.parse({
+        id: pipelineId,
         organizationContactId: canonicalContactId,
         targetEventId: null,
         stage: "open",
@@ -260,6 +305,7 @@ describe("CRM prospect creation recovery", () => {
         createdAt: "2026-08-13T18:05:00.000Z",
         updatedAt: "2026-08-13T18:06:00.000Z",
       });
+      return init?.body ? entry : [entry];
     });
     await renderBoard();
     await pickContact();
@@ -285,20 +331,28 @@ describe("CRM prospect creation recovery", () => {
     });
 
     expect(pipelineAttempts).toBe(2);
+    expect(pipelineReads).toBe(3);
     expect(contactRefreshAttempts).toBe(2);
     expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
     expect(container.querySelector(".crm-board-card")?.textContent).toContain("Grace Hopper");
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
     expect(toastMock.mock.calls.filter(([message]) => message === "Added to the pipeline")).toHaveLength(1);
-    expect(navigationMock.refresh).not.toHaveBeenCalled();
   });
 
   it("offers only close-and-check when a confirmed replay's canonical contact is gone", async () => {
+    let pipelineId = "";
+    let pipelineReads = 0;
     apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
       if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
       if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) throw new AppError("NOT_FOUND", "Contact not found");
-      return crmPipelineEntryDtoSchema.parse({
-        id: init?.body?.id,
+      if (!init?.body) {
+        pipelineReads += 1;
+        if (pipelineReads > 1) return [];
+      } else {
+        pipelineId = String(init.body.id);
+      }
+      const entry = crmPipelineEntryDtoSchema.parse({
+        id: pipelineId,
         organizationContactId: canonicalContactId,
         targetEventId: null,
         stage: "open",
@@ -306,6 +360,7 @@ describe("CRM prospect creation recovery", () => {
         createdAt: "2026-08-13T18:05:00.000Z",
         updatedAt: "2026-08-13T18:06:00.000Z",
       });
+      return init?.body ? entry : [entry];
     });
     await renderBoard();
     await pickContact();
@@ -322,17 +377,48 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector<HTMLFieldSetElement>(".modal-body fieldset")?.disabled).toBe(true);
     expect(container.querySelectorAll(".crm-board-card")).toHaveLength(0);
 
-    await act(async () => buttonNamed("Close and check pipeline")?.click());
-    expect(navigationMock.refresh).toHaveBeenCalledOnce();
+    await act(async () => {
+      buttonNamed("Close and check pipeline")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+    expect(buttonNamed("Add prospect")?.disabled).toBe(false);
   });
 
-  it("closes an ambiguous attempt to refresh server authority without inventing a card", async () => {
-    apiMock.mockImplementation(async (path: string) => {
-      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
-      throw new AppError("INTERNAL", "Unexpected API response (500)");
+  it("blocks every board mutation until close-and-check receives verified authority", async () => {
+    const existingEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-000000000006",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "open",
+      notes: "Existing prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: "2026-08-13T17:00:00.000Z",
     });
-    await renderBoard();
+    const authority = deferred<CrmPipelineEntryDTO[]>();
+    let pipelineReads = 0;
+    let transitionCalls = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${contactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (path.endsWith("/crm/pipeline") && init?.body) throw new AppError("INTERNAL", "Unexpected API response (500)");
+      if (path.endsWith("/crm/pipeline")) {
+        pipelineReads += 1;
+        if (pipelineReads === 1) return authority.promise;
+        return [existingEntry];
+      }
+      if (path.endsWith(`/crm/pipeline/${existingEntry.id}/transition`)) {
+        transitionCalls += 1;
+        return { ...existingEntry, stage: init?.body?.stage, updatedAt: "2026-08-13T19:00:00.000Z" };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await renderBoard([existingEntry], {
+      [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
+    });
     await pickContact();
     await act(async () => {
       buttonNamed("Add to pipeline")?.click();
@@ -340,9 +426,31 @@ describe("CRM prospect creation recovery", () => {
     });
     await act(async () => buttonNamed("Close and check pipeline")?.click());
 
-    expect(navigationMock.refresh).toHaveBeenCalledOnce();
-    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(0);
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+    expect(container.textContent).toContain("Refreshing the pipeline");
+    expect(buttonNamed("Add prospect")?.disabled).toBe(true);
+    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
+    if (!stage) throw new Error("Expected the existing prospect stage control");
+    expect(stage.disabled).toBe(true);
+
+    await changeValue(stage, "won");
+    await act(async () => buttonNamed("Add prospect")?.click());
+    expect(transitionCalls).toBe(0);
+    expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+
+    await act(async () => {
+      authority.resolve([existingEntry]);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(2);
+    expect(buttonNamed("Add prospect")?.disabled).toBe(false);
+    expect(stage.disabled).toBe(false);
+    await changeValue(stage, "won");
+    expect(transitionCalls).toBe(1);
+    expect(stage.value).toBe("won");
   });
 
   it("keeps a definitive conflict editable for a new safe attempt", async () => {
@@ -361,6 +469,5 @@ describe("CRM prospect creation recovery", () => {
     expect(buttonNamed("Add to pipeline")).toBeDefined();
     expect(buttonNamed("Retry addition")).toBeUndefined();
     expect(container.querySelector<HTMLFieldSetElement>(".modal-body fieldset")?.disabled).toBe(false);
-    expect(navigationMock.refresh).not.toHaveBeenCalled();
   });
 });
