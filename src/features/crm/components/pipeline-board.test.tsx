@@ -8,6 +8,7 @@ import {
   crmPipelineEntryDtoSchema,
   eventIdSchema,
   organizationContactIdSchema,
+  organizationContactHistoryDtoSchema,
   organizationContactSummaryDtoSchema,
   organizationIdSchema,
 } from "@/shared/contracts";
@@ -35,6 +36,7 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
 const organizationId = organizationIdSchema.parse("c8000000-0000-4000-8000-000000000001");
 const contactId = organizationContactIdSchema.parse("c8000000-0000-4000-8000-000000000002");
+const canonicalContactId = organizationContactIdSchema.parse("c8000000-0000-4000-8000-000000000004");
 const eventId = eventIdSchema.parse("c8000000-0000-4000-8000-000000000003");
 const contact = organizationContactSummaryDtoSchema.parse({
   id: contactId,
@@ -55,6 +57,15 @@ const contact = organizationContactSummaryDtoSchema.parse({
   tags: [],
   eventCount: 0,
   lastActivityAt: null,
+});
+const canonicalContact = organizationContactSummaryDtoSchema.parse({
+  ...contact,
+  id: canonicalContactId,
+  email: "grace@example.com",
+  firstName: "Grace",
+  lastName: "Hopper",
+  company: "Compiler Systems",
+  updatedAt: "2026-08-13T18:06:00.000Z",
 });
 const events = [{
   id: eventId,
@@ -171,6 +182,149 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector(".crm-board-card")?.textContent).toContain("Follow up after the keynote");
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
     expect(toastMock).toHaveBeenCalledWith("Added to the pipeline");
+  });
+
+  it("loads the canonical contact before materializing a merged replay", async () => {
+    let pipelineAttempts = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({
+          contact: canonicalContact,
+          tags: [],
+          events: [],
+          notes: [],
+          activity: [],
+        });
+      }
+      pipelineAttempts += 1;
+      if (pipelineAttempts === 1) throw new TypeError("connection lost after commit");
+      return crmPipelineEntryDtoSchema.parse({
+        id: init?.body?.id,
+        organizationContactId: canonicalContactId,
+        targetEventId: eventId,
+        stage: "open",
+        notes: "Merged while the response was lost",
+        createdAt: "2026-08-13T18:05:00.000Z",
+        updatedAt: "2026-08-13T18:06:00.000Z",
+      });
+    });
+    await renderBoard();
+    await pickContact();
+
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+    });
+    const createCalls = () => apiMock.mock.calls.filter(([path]) => String(path).endsWith("/crm/pipeline"));
+    const firstBody = createCalls()[0]?.[2]?.body;
+
+    await act(async () => {
+      buttonNamed("Retry addition")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createCalls()).toHaveLength(2);
+    expect(createCalls()[1]?.[2]?.body).toEqual(firstBody);
+    expect(apiMock.mock.calls.filter(([path]) => String(path).endsWith(`/crm/contacts/${canonicalContactId}`))).toHaveLength(1);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("Grace Hopper");
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("grace@example.com");
+    expect(container.querySelector(".crm-board-card")?.textContent).not.toContain("Unknown contact");
+    expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+    expect(toastMock).toHaveBeenCalledTimes(2);
+    expect(toastMock).toHaveBeenLastCalledWith("Added to the pipeline");
+    expect(toastMock.mock.calls.filter(([message]) => message === "Added to the pipeline")).toHaveLength(1);
+    expect(navigationMock.refresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps a confirmed merged replay locked until its canonical contact refresh succeeds", async () => {
+    let pipelineAttempts = 0;
+    let contactRefreshAttempts = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) {
+        contactRefreshAttempts += 1;
+        if (contactRefreshAttempts === 1) throw new TypeError("canonical contact response lost");
+        return organizationContactHistoryDtoSchema.parse({ contact: canonicalContact, tags: [], events: [], notes: [], activity: [] });
+      }
+      pipelineAttempts += 1;
+      if (pipelineAttempts === 1) throw new TypeError("creation response lost");
+      return crmPipelineEntryDtoSchema.parse({
+        id: init?.body?.id,
+        organizationContactId: canonicalContactId,
+        targetEventId: null,
+        stage: "open",
+        notes: null,
+        createdAt: "2026-08-13T18:05:00.000Z",
+        updatedAt: "2026-08-13T18:06:00.000Z",
+      });
+    });
+    await renderBoard();
+    await pickContact();
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonNamed("Retry addition")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(buttonNamed("Retry contact refresh")).toBeDefined();
+    expect(buttonNamed("Close and check pipeline")).toBeDefined();
+    expect(container.querySelector<HTMLFieldSetElement>(".modal-body fieldset")?.disabled).toBe(true);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(0);
+    expect(container.textContent).toContain("The prospect was added, but we could not load its current contact after a merge");
+
+    await act(async () => {
+      buttonNamed("Retry contact refresh")?.click();
+      await Promise.resolve();
+    });
+
+    expect(pipelineAttempts).toBe(2);
+    expect(contactRefreshAttempts).toBe(2);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(1);
+    expect(container.querySelector(".crm-board-card")?.textContent).toContain("Grace Hopper");
+    expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+    expect(toastMock.mock.calls.filter(([message]) => message === "Added to the pipeline")).toHaveLength(1);
+    expect(navigationMock.refresh).not.toHaveBeenCalled();
+  });
+
+  it("offers only close-and-check when a confirmed replay's canonical contact is gone", async () => {
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${canonicalContactId}`)) throw new AppError("NOT_FOUND", "Contact not found");
+      return crmPipelineEntryDtoSchema.parse({
+        id: init?.body?.id,
+        organizationContactId: canonicalContactId,
+        targetEventId: null,
+        stage: "open",
+        notes: null,
+        createdAt: "2026-08-13T18:05:00.000Z",
+        updatedAt: "2026-08-13T18:06:00.000Z",
+      });
+    });
+    await renderBoard();
+    await pickContact();
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("The prospect was added, but its current contact is no longer available");
+    expect(buttonNamed("Close and check pipeline")).toBeDefined();
+    expect(buttonNamed("Retry contact refresh")).toBeUndefined();
+    expect(buttonNamed("Add to pipeline")).toBeUndefined();
+    expect(container.querySelector<HTMLFieldSetElement>(".modal-body fieldset")?.disabled).toBe(true);
+    expect(container.querySelectorAll(".crm-board-card")).toHaveLength(0);
+
+    await act(async () => buttonNamed("Close and check pipeline")?.click());
+    expect(navigationMock.refresh).toHaveBeenCalledOnce();
+    expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
   });
 
   it("closes an ambiguous attempt to refresh server authority without inventing a card", async () => {

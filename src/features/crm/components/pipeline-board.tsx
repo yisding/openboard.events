@@ -21,10 +21,12 @@ import {
   crmPipelineEntryDtoSchema,
   directoryPageDtoSchema,
   eventIdSchema,
+  organizationContactHistoryDtoSchema,
   type CreateCrmPipelineEntryInput,
   type CrmPipelineEntryDTO,
   type CrmPipelineId,
   type CrmPipelineStage,
+  type OrganizationContactDTO,
   type OrganizationContactId,
   type OrganizationContactSummaryDTO,
   type OrganizationId,
@@ -32,21 +34,41 @@ import {
 import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { AppError, isAppError } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { CrmNav } from "./crm-nav";
 
 const STAGE_LABEL: Record<CrmPipelineStage, string> = { open: "Open", won: "Won", lost: "Lost" };
 const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this prospect was added. Its details are locked so Retry addition can safely recover the same attempt. You can also close and check the pipeline.";
+const CONTACT_REFRESH_RECOVERY_MESSAGE = "The prospect was added, but we could not load its current contact after a merge. Retry the contact refresh, or close and check the pipeline.";
 
 type ContactLite = { id: OrganizationContactId; name: string; email: string; company: string | null };
 type AddProspectAttempt = {
   body: CreateCrmPipelineEntryInput & { id: CrmPipelineId };
   contact: OrganizationContactSummaryDTO;
 };
+type AddProspectRecovery = {
+  attempt: AddProspectAttempt;
+  confirmedEntry: CrmPipelineEntryDTO | null;
+  closeOnly: boolean;
+};
 
 export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
   return !isAppError(error) || error.code === "INTERNAL";
+}
+
+function canonicalContactCloseOnly(error: unknown): boolean {
+  return isAppError(error) && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.code);
+}
+
+function canonicalContactRecoveryMessage(error: unknown): string {
+  if (isAppError(error) && error.code === "NOT_FOUND") {
+    return "The prospect was added, but its current contact is no longer available. Close and check the pipeline for the latest state.";
+  }
+  if (isAppError(error) && (error.code === "UNAUTHORIZED" || error.code === "FORBIDDEN")) {
+    return "The prospect was added, but your access changed before its current contact could be loaded. Close and check the pipeline after restoring access.";
+  }
+  return CONTACT_REFRESH_RECOVERY_MESSAGE;
 }
 
 function Card({ entry, contact, eventName, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; onMove: (stage: CrmPipelineStage) => void }) {
@@ -99,7 +121,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   events: OrganizationEventRow[];
   open: boolean;
   onClose: () => void;
-  onCreated: (entry: CrmPipelineEntryDTO, contact: OrganizationContactSummaryDTO) => void;
+  onCreated: (entry: CrmPipelineEntryDTO, contact: OrganizationContactDTO) => void;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -111,7 +133,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [recovery, setRecovery] = useState<AddProspectAttempt | null>(null);
+  const [recovery, setRecovery] = useState<AddProspectRecovery | null>(null);
   const createRequestId = useRef(createStableCreateRequestId());
 
   function reset() {
@@ -140,9 +162,9 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
 
   async function create() {
     if ((!picked && !recovery) || busy) return;
-    const contact = recovery?.contact ?? picked;
+    const contact = recovery?.attempt.contact ?? picked;
     if (!contact) return;
-    const attempt: AddProspectAttempt = recovery ?? {
+    const attempt: AddProspectAttempt = recovery?.attempt ?? {
       body: {
         id: crmPipelineIdSchema.parse(createRequestId.current.begin()),
         organizationContactId: contact.id,
@@ -153,18 +175,39 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
     };
     setBusy(true);
     setError("");
+    let confirmedEntry = recovery?.confirmedEntry ?? null;
     try {
-      const entry = await api(`organizations/${organizationId}/crm/pipeline`, crmPipelineEntryDtoSchema, {
-        method: "POST",
-        body: attempt.body,
-      });
-      onCreated(entry, attempt.contact);
+      if (!confirmedEntry) {
+        confirmedEntry = await api(`organizations/${organizationId}/crm/pipeline`, crmPipelineEntryDtoSchema, {
+          method: "POST",
+          body: attempt.body,
+        });
+      }
+      let currentContact: OrganizationContactDTO = attempt.contact;
+      if (confirmedEntry.organizationContactId !== attempt.contact.id) {
+        const history = await api(
+          `organizations/${organizationId}/crm/contacts/${confirmedEntry.organizationContactId}`,
+          organizationContactHistoryDtoSchema,
+        );
+        if (history.contact.id !== confirmedEntry.organizationContactId) {
+          throw new AppError("INTERNAL", "The current contact response did not match the recovered prospect");
+        }
+        currentContact = history.contact;
+      }
+      onCreated(confirmedEntry, currentContact);
       toast("Added to the pipeline");
       reset();
       onClose();
     } catch (caught) {
+      if (confirmedEntry) {
+        const message = canonicalContactRecoveryMessage(caught);
+        setRecovery({ attempt, confirmedEntry, closeOnly: canonicalContactCloseOnly(caught) });
+        setError(message);
+        toast(message, { kind: "error" });
+        return;
+      }
       const outcomeUnknown = pipelineCreateOutcomeUnknown(caught);
-      if (outcomeUnknown) setRecovery(attempt);
+      if (outcomeUnknown) setRecovery({ attempt, confirmedEntry: null, closeOnly: false });
       else {
         setRecovery(null);
         createRequestId.current.reset();
@@ -187,9 +230,13 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
       description="Search the directory for who you're sourcing, then optionally name the event you have in mind."
       footer={<>
         <Button variant="secondary" onClick={requestClose} disabled={busy}>{recovery ? "Close and check pipeline" : "Cancel"}</Button>
-        <Button disabled={(!picked && !recovery) || busy} onClick={() => void create()}>
-          {busy ? recovery ? "Retrying…" : "Adding…" : recovery ? "Retry addition" : "Add to pipeline"}
-        </Button>
+        {!recovery?.closeOnly && (
+          <Button disabled={(!picked && !recovery) || busy} onClick={() => void create()}>
+            {busy
+              ? recovery?.confirmedEntry ? "Refreshing…" : recovery ? "Retrying…" : "Adding…"
+              : recovery?.confirmedEntry ? "Retry contact refresh" : recovery ? "Retry addition" : "Add to pipeline"}
+          </Button>
+        )}
       </>}
     >
       {error && <p className="portal-note" role="alert">{error}</p>}
