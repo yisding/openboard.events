@@ -49,20 +49,6 @@ function objectPropertyValues(
   return values;
 }
 
-function objectHasProperty(attributeName: string, object: ts.ObjectLiteralExpression): boolean {
-  return object.properties.some((property) => {
-    if (
-      (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))
-      && propertyName(property.name) === attributeName
-    ) {
-      return true;
-    }
-    return ts.isSpreadAssignment(property)
-      && ts.isObjectLiteralExpression(property.expression)
-      && objectHasProperty(attributeName, property.expression);
-  });
-}
-
 /** Every string an expression can statically evaluate to. */
 function literalValues(node: ts.Node | undefined): string[] {
   if (!node) return [];
@@ -102,17 +88,6 @@ function jsxAttributeValues(
     values.push(...objectPropertyValues(attributeName, attribute.expression));
   }
   return values;
-}
-
-function hasJsxAttribute(
-  attributeName: string,
-  element: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
-): boolean {
-  return element.attributes.properties.some((attribute) => {
-    if (ts.isJsxAttribute(attribute)) return attribute.name.getText() === attributeName;
-    return ts.isObjectLiteralExpression(attribute.expression)
-      && objectHasProperty(attributeName, attribute.expression);
-  });
 }
 
 function moduleSpecifier(node: ts.Node): string | null {
@@ -282,6 +257,15 @@ function inspectFile(absolutePath: string): Violation[] {
     ) {
       report(node, "r2-binding", "the FILES binding belongs in src/shared/server/r2.ts");
     }
+    if (
+      ts.isStringLiteralLike(node)
+      && node.text === "FILES"
+      && ts.isElementAccessExpression(node.parent)
+      && node.parent.argumentExpression === node
+      && path !== "src/shared/server/r2.ts"
+    ) {
+      report(node.parent, "r2-binding", "the FILES binding belongs in src/shared/server/r2.ts");
+    }
 
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "adminAuth") {
       const options = node.arguments[0];
@@ -300,6 +284,14 @@ function inspectFile(absolutePath: string): Violation[] {
       }
     }
 
+    if (
+      (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
+      && propertyName(node.name) === "dangerouslySetInnerHTML"
+      && path !== "src/shared/ui/app/rich-text-view.tsx"
+    ) {
+      report(node, "raw-html", "render sanitized HTML through RichTextView");
+    }
+
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       if (node.tagName.getText(source) === "select" && path !== "src/shared/ui/ui-kit.tsx") {
         report(node, "raw-select", "use the shared Select component instead of a raw select");
@@ -316,7 +308,9 @@ function inspectFile(absolutePath: string): Violation[] {
         report(node, "native-date", "use the shared date or date-time picker");
       }
       if (
-        hasJsxAttribute("dangerouslySetInnerHTML", node)
+        node.attributes.properties.some((attribute) => (
+          ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "dangerouslySetInnerHTML"
+        ))
         && path !== "src/shared/ui/app/rich-text-view.tsx"
       ) {
         report(node, "raw-html", "render sanitized HTML through RichTextView");

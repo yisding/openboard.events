@@ -57,7 +57,7 @@ describe("AST source invariants", () => {
         const runtime = ("edge"); export { runtime };
         export const env = globalThis.process["env"];
         export const { env: inheritedEnv } = process;
-        export const FILES = true;
+        export const bucket = getCloudflareContext().env["FILES"];
       `,
     });
 
@@ -72,11 +72,12 @@ describe("AST source invariants", () => {
     const root = fixture({
       "src/features/example/view.tsx": `
         const harmless = '<select role="switch" type="date">';
+        const htmlProps = { dangerouslySetInnerHTML: { __html: "unsafe" } };
         export const View = ({ flag }) => <>
           <select />
           <button role={flag ? "switch" : "button"} />
           <input {...{ ...{ type: flag ? "datetime-local" : "text" } }} />
-          <div {...{ ...{ dangerouslySetInnerHTML: { __html: "unsafe" } } }} />
+          <div {...htmlProps} />
           <span style={{ fontSize: -1 }}>Tiny</span>
         </>;
       `,
