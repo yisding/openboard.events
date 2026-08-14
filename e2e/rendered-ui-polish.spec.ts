@@ -457,7 +457,21 @@ test.describe("public CFP phone layout", () => {
 
   test("keeps every progress label readable inside its own step", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+    const archivo = await readFile(resolve(
+      process.cwd(),
+      "node_modules/@fontsource-variable/archivo/files/archivo-latin-wght-normal.woff2",
+    ));
+    const archivoSource = `data:font/woff2;base64,${archivo.toString("base64")}`;
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style><style>
+      @font-face {
+        font-family: "Test Archivo";
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: block;
+        src: url("${archivoSource}") format("woff2");
+      }
+      html { --font-sans: "Test Archivo"; }
+    </style></head><body>
       <main class="cfp-container">
         <section class="cfp-step cfp-step--compact">
           <ol class="public-form-progress public-form-progress-4" aria-label="Submission progress">
@@ -469,6 +483,8 @@ test.describe("public CFP phone layout", () => {
         </section>
       </main>
     </body></html>`);
+    await page.evaluate(() => document.fonts.load('550 12px "Test Archivo"'));
+    expect(await page.evaluate(() => document.fonts.check('550 12px "Test Archivo"'))).toBe(true);
 
     const progress = page.getByRole("list", { name: "Submission progress" });
     await expect(progress.locator("b")).toHaveText(["Account", "Submission", "Speaker", "Review"]);
