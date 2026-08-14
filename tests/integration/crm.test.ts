@@ -12,6 +12,7 @@ import {
   createCrmPipelineEntryIn,
   createCrmTagIn,
   createOrganizationContactIn,
+  createOrganizationContactWithPostCommitActivityIn,
   pushOrganizationContactToEventIn,
   setCrmContactTagsIn,
   transitionCrmPipelineIn,
@@ -53,6 +54,11 @@ const actorUserId = userIdSchema.parse("c55a0000-0000-4000-8000-0000000000f1");
 
 let pglite: PGlite;
 let db: DbOrTx;
+function createTestDb(client: PGlite) {
+  return drizzle(client, { schema });
+}
+let database: ReturnType<typeof createTestDb>;
+let postCommitDb: Parameters<typeof createOrganizationContactWithPostCommitActivityIn>[0];
 
 describe("organization-level speaker CRM (M55)", () => {
   beforeAll(async () => {
@@ -60,7 +66,9 @@ describe("organization-level speaker CRM (M55)", () => {
     for (const migration of [migration0, migration1, migrationEmailCompliance, migrationRoster, migrationTenancy, migrationCrm, migrationSpeakerMoments, migrationCrmMergeRecovery]) {
       await pglite.exec(migration);
     }
-    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+    database = createTestDb(pglite);
+    db = database as unknown as DbOrTx;
+    postCommitDb = database as unknown as Parameters<typeof createOrganizationContactWithPostCommitActivityIn>[0];
 
     await pglite.query("INSERT INTO organizations(id,name,slug) VALUES($1,'Org A','org-a'),($2,'Org B','org-b')", [orgA, orgB]);
     for (const [id, name, slug, orgId] of [
@@ -78,7 +86,7 @@ describe("organization-level speaker CRM (M55)", () => {
 
   afterAll(async () => pglite.close());
 
-  it("keeps a created contact authoritative when its best-effort activity fails", async () => {
+  it("keeps post-commit creation authoritative without returning an id from a rolled-back transaction", async () => {
     await pglite.exec(`
       CREATE FUNCTION fail_created_contact_activity() RETURNS trigger AS $$
       BEGIN
@@ -93,35 +101,49 @@ describe("organization-level speaker CRM (M55)", () => {
       FOR EACH ROW EXECUTE FUNCTION fail_created_contact_activity();
     `);
 
-    const createdId = await (async () => {
-      try {
-        return await createOrganizationContactIn(db, orgA, {
-          email: "activity-failure@example.com",
-          firstName: "Still",
-          lastName: "Created",
+    let transactionResult: Awaited<ReturnType<typeof createOrganizationContactIn>> | undefined;
+    let createdId: Awaited<ReturnType<typeof createOrganizationContactWithPostCommitActivityIn>>;
+    try {
+      await expect(database.transaction(async (tx) => {
+        transactionResult = await createOrganizationContactIn(tx as unknown as TxDb, orgA, {
+          email: "rolled-back-activity@example.com",
+          firstName: "Rolled",
+          lastName: "Back",
         });
-      } finally {
-        await pglite.exec("DROP TRIGGER fail_created_contact_activity ON organization_contact_activity; DROP FUNCTION fail_created_contact_activity();");
-      }
-    })();
+        return transactionResult;
+      })).rejects.toThrow();
+      expect(transactionResult).toBeUndefined();
+      expect((await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM organization_contacts WHERE organization_id=$1 AND email='rolled-back-activity@example.com'",
+        [orgA],
+      )).rows).toEqual([{ count: 0 }]);
 
-    const failedActivityRows = await pglite.query<{ id: string; activities: number }>(
-      `SELECT c.id,
-         (SELECT count(*)::int FROM organization_contact_activity a WHERE a.organization_contact_id=c.id) AS activities
-       FROM organization_contacts c
-       WHERE c.organization_id=$1 AND c.email='activity-failure@example.com'`,
-      [orgA],
-    );
-    expect(failedActivityRows.rows).toEqual([{ id: createdId, activities: 0 }]);
+      createdId = await createOrganizationContactWithPostCommitActivityIn(postCommitDb, orgA, {
+        email: "activity-failure@example.com",
+        firstName: "Still",
+        lastName: "Created",
+      });
 
-    await expect(createOrganizationContactIn(db, orgA, { email: "activity-failure@example.com" }))
-      .rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
-    expect((await pglite.query<{ count: number }>(
-      "SELECT count(*)::int AS count FROM organization_contacts WHERE organization_id=$1 AND email='activity-failure@example.com'",
-      [orgA],
-    )).rows).toEqual([{ count: 1 }]);
+      const failedActivityRows = await pglite.query<{ id: string; activities: number }>(
+        `SELECT c.id,
+           (SELECT count(*)::int FROM organization_contact_activity a WHERE a.organization_contact_id=c.id) AS activities
+         FROM organization_contacts c
+         WHERE c.organization_id=$1 AND c.email='activity-failure@example.com'`,
+        [orgA],
+      );
+      expect(failedActivityRows.rows).toEqual([{ id: createdId, activities: 0 }]);
 
-    const normalId = await createOrganizationContactIn(db, orgA, {
+      await expect(createOrganizationContactWithPostCommitActivityIn(postCommitDb, orgA, { email: "activity-failure@example.com" }))
+        .rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
+      expect((await pglite.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM organization_contacts WHERE organization_id=$1 AND email='activity-failure@example.com'",
+        [orgA],
+      )).rows).toEqual([{ count: 1 }]);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_created_contact_activity ON organization_contact_activity; DROP FUNCTION fail_created_contact_activity();");
+    }
+
+    const normalId = await createOrganizationContactWithPostCommitActivityIn(postCommitDb, orgA, {
       email: "activity-success@example.com",
       firstName: "Activity",
       lastName: "Recorded",

@@ -109,7 +109,7 @@ async function assertContactInOrgIn(dbOrTx: DbOrTx, organizationId: Organization
 
 // --- Contacts ---------------------------------------------------------------
 
-export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+async function insertOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
   let row: typeof organizationContacts.$inferSelect | undefined;
   try {
     [row] = await dbOrTx.insert(organizationContacts).values({
@@ -134,14 +134,31 @@ export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId
     throw error;
   }
   if (!row) throw new AppError("INTERNAL", "Contact insert did not return a row");
-  const id = organizationContactIdSchema.parse(row.id);
+  return organizationContactIdSchema.parse(row.id);
+}
+
+export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+  const id = await insertOrganizationContactIn(dbOrTx, organizationId, input);
+  await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
+  return id;
+}
+
+/**
+ * Manual creation runs on the nontransactional neon-http handle: its contact
+ * insert commits before the activity write starts. Keep that committed identity
+ * authoritative even if the contextual activity trail cannot be recorded.
+ * Transactional callers must use `createOrganizationContactIn`, where an
+ * activity failure rejects the transaction instead of being swallowed.
+ */
+export async function createOrganizationContactWithPostCommitActivityIn(
+  database: typeof db,
+  organizationId: OrganizationId,
+  input: CreateOrganizationContactInput,
+): Promise<OrganizationContactId> {
+  const id = await insertOrganizationContactIn(database, organizationId, input);
   try {
-    await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
+    await recordActivityIn(database, organizationId, id, "created", null, { source: "manual" });
   } catch (error) {
-    // Manual creation uses the plain HTTP database handle, so the directory
-    // identity is already committed. Its activity trail is useful context,
-    // never grounds for reporting a failed creation and stranding the organizer
-    // on a duplicate.
     log({
       level: "warn",
       msg: "crm.contact_created_activity_failed",
@@ -153,7 +170,7 @@ export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId
   return id;
 }
 export const createOrganizationContact = (organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> =>
-  createOrganizationContactIn(db, organizationId, input);
+  createOrganizationContactWithPostCommitActivityIn(db, organizationId, input);
 
 export async function updateOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, id: OrganizationContactId, input: UpdateOrganizationContactInput): Promise<void> {
   const current = await getOrganizationContactIn(dbOrTx, organizationId, id);
