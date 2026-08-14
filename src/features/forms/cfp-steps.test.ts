@@ -10,6 +10,7 @@ import {
   abortCfpSubmit,
   beginCfpSubmit,
   cfpAutosaveDisposition,
+  cfpCodeRequestRecovery,
   cfpRequest,
   cfpFlowSteps,
   cfpProgressLabel,
@@ -182,10 +183,30 @@ describe("CFP request and stale form recovery", () => {
     const pending = cfpRequest("/api/internal/auth/portal/request", {}, "POST", CFP_REQUEST_TIMEOUT_MS);
     await vi.advanceTimersByTimeAsync(CFP_REQUEST_TIMEOUT_MS);
 
-    await expect(pending).resolves.toMatchObject({
+    const result = await pending;
+    expect(result).toMatchObject({
       ok: false,
       message: "That request took too long. Check your connection and try again.",
       retryable: true,
+      outcomeUnknown: true,
+    });
+    expect(cfpCodeRequestRecovery(result)).toEqual({
+      acceptCode: true,
+      message: "We couldn’t confirm whether the code was sent. If it arrives, enter it below; otherwise resend in a moment.",
+      kind: "status",
+    });
+  });
+
+  it("keeps code entry closed after a definite OTP rejection", () => {
+    expect(cfpCodeRequestRecovery({
+      ok: false,
+      data: {},
+      message: "Check your inbox, or try again in a few minutes",
+      retryable: false,
+    })).toEqual({
+      acceptCode: false,
+      message: "Check your inbox, or try again in a few minutes",
+      kind: "error",
     });
   });
 

@@ -41,6 +41,7 @@ export type RequestResult = {
   errorData?: Record<string, unknown>;
   fieldErrors?: Record<string, string>;
   retryable?: boolean;
+  outcomeUnknown?: boolean;
 };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
 export type CfpSubmitFailure = { kind: "stale"; message: string } | { kind: "ordinary"; message: string };
@@ -195,10 +196,25 @@ export async function cfpRequest(
         ? "That request took too long. Check your connection and try again."
         : "Could not reach the server",
       retryable: true,
+      outcomeUnknown: true,
     };
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+export function cfpCodeRequestRecovery(result: RequestResult): {
+  acceptCode: boolean;
+  message: string;
+  kind: "status" | "error";
+} {
+  return result.outcomeUnknown
+    ? {
+      acceptCode: true,
+      message: "We couldn’t confirm whether the code was sent. If it arrives, enter it below; otherwise resend in a moment.",
+      kind: "status",
+    }
+    : { acceptCode: false, message: result.message, kind: "error" };
 }
 
 export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
@@ -516,7 +532,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     showNotice("");
     const sent = await cfpRequest("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
     setBusy(false);
-    if (!sent.ok) { showNotice(sent.message, "error"); return; }
+    if (!sent.ok) {
+      const recovery = cfpCodeRequestRecovery(sent);
+      if (recovery.acceptCode) setCodeRequested(true);
+      showNotice(recovery.message, recovery.kind);
+      return;
+    }
     // The preview surfaces the issued code inline; production never does, which
     // is why this is read from the response rather than assumed.
     const fallback = sent.data.fallback as { otp?: string } | undefined;
