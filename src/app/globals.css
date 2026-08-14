@@ -138,7 +138,7 @@ h1, h2, h3, h4, h5, h6, b, strong { font-weight: var(--weight-emphasis); }
 .data-table td, .data-table th, .metric-value, .dashboard-stat-row strong, .stat-tile__value,
 .countdown, .time-axis span, .score-buttons button, .table-footer, .donut__total { font-variant-numeric: tabular-nums; }
 button, input, textarea, select { font: inherit; }
-/* The UA sheet sets `small { font-size: .8333em }`, which is a *ratio*, not a
+/* The UA sheet scales `small` to .8333em, which is a *ratio*, not a
    step — it lands wherever the parent happens to be. Measured in the browser
    (not greppable from this file), bare `<small>` was rendering at 8.33px in the
    landing preview list and the dashboard table and 9.17px in the abstracts
