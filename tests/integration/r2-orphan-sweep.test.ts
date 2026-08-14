@@ -44,14 +44,14 @@ function page(objects: ListObjectsPage["objects"], nextToken: string | null = nu
 describe("parseListObjectsXml", () => {
   it("reads Key/LastModified pairs and the continuation token", () => {
     const xml = `<?xml version="1.0"?><ListBucketResult>
-      <Contents><Key>evt_1/staging/headshot/a/me.png</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified><Size>10</Size></Contents>
+      <Contents><Key>staging/evt_1/headshot/a/me.png</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified><Size>10</Size></Contents>
       <Contents><Key>evt_1/headshot/b/you.png</Key><LastModified>2026-02-02T00:00:00.000Z</LastModified><Size>20</Size></Contents>
       <IsTruncated>true</IsTruncated>
       <NextContinuationToken>abc123</NextContinuationToken>
     </ListBucketResult>`;
     const result = parseListObjectsXml(xml);
     expect(result.objects).toEqual([
-      { key: "evt_1/staging/headshot/a/me.png", lastModified: new Date("2026-01-01T00:00:00.000Z") },
+      { key: "staging/evt_1/headshot/a/me.png", lastModified: new Date("2026-01-01T00:00:00.000Z") },
       { key: "evt_1/headshot/b/you.png", lastModified: new Date("2026-02-02T00:00:00.000Z") },
     ]);
     expect(result.nextToken).toBe("abc123");
@@ -59,10 +59,10 @@ describe("parseListObjectsXml", () => {
 
   it("decodes XML entities in a key and returns a null token when the list is not truncated", () => {
     const xml = `<ListBucketResult>
-      <Contents><Key>evt_1/staging/upload/a/Q%26A.txt</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents>
+      <Contents><Key>staging/evt_1/upload/a/Q%26A.txt</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents>
     </ListBucketResult>`.replace("Q%26A", "Q&amp;A");
     const result = parseListObjectsXml(xml);
-    expect(result.objects[0]?.key).toBe("evt_1/staging/upload/a/Q&A.txt");
+    expect(result.objects[0]?.key).toBe("staging/evt_1/upload/a/Q&A.txt");
     expect(result.nextToken).toBeNull();
   });
 
@@ -95,9 +95,7 @@ describe("sweepOrphanStagingObjectsIn", () => {
   });
 
   it("deletes a stale staging object no row points to, and spares one a row still owns", async () => {
-    const ownedLegacy = "55555555-5555-4555-8555-000000000001";
     const ownedCurrent = "55555555-5555-4555-8555-000000000002";
-    await insertAsset(ownedLegacy, "evt_1/staging/headshot/owned-legacy/me.png");
     await insertAsset(ownedCurrent, "staging/evt_1/headshot/owned-current/me.png");
 
     const old = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -107,13 +105,13 @@ describe("sweepOrphanStagingObjectsIn", () => {
       hasCredentials: () => true,
       listPage: async () => page([
         // Stale, no matching row: the real orphan.
-        { key: "evt_1/staging/headshot/gone-legacy/deleted-row.png", lastModified: new Date(old) },
         { key: "staging/evt_1/headshot/gone-current/deleted-row.png", lastModified: new Date(old) },
         // Stale, but rows' r2_key values still equal these exact staging keys: still mid-upload.
-        { key: "evt_1/staging/headshot/owned-legacy/me.png", lastModified: new Date(old) },
         { key: "staging/evt_1/headshot/owned-current/me.png", lastModified: new Date(old) },
         // Fresh, no matching row: too young to touch.
-        { key: "evt_1/staging/headshot/fresh/new.png", lastModified: new Date(recent) },
+        { key: "staging/evt_1/headshot/fresh/new.png", lastModified: new Date(recent) },
+        // The retired event-first shape is outside the lifecycle prefix and parser.
+        { key: "evt_1/staging/headshot/retired/keep.png", lastModified: new Date(old) },
         // Not a staging key at all: never a candidate.
         { key: "evt_1/headshot/published/keep.png", lastModified: new Date(old) },
       ]),
@@ -124,17 +122,16 @@ describe("sweepOrphanStagingObjectsIn", () => {
     });
 
     expect(deletedKeys).toEqual([
-      "evt_1/staging/headshot/gone-legacy/deleted-row.png",
       "staging/evt_1/headshot/gone-current/deleted-row.png",
     ]);
-    expect(result).toEqual({ deleted: 2, scanned: 6, skipped: false });
+    expect(result).toEqual({ deleted: 1, scanned: 5, skipped: false });
   });
 
   it("logs but does not throw when deletes resolve false or reject", async () => {
     const result = await sweepOrphanStagingObjectsIn(testDb as unknown as DbOrTx, 24, {
       hasCredentials: () => true,
       listPage: async () => page([
-        { key: "evt_1/staging/upload/stranded/false.pdf", lastModified: new Date(0) },
+        { key: "staging/evt_1/upload/stranded/false.pdf", lastModified: new Date(0) },
         { key: "staging/evt_1/upload/stranded/rejected.pdf", lastModified: new Date(0) },
       ]),
       deleteKey: async (key) => {
@@ -151,7 +148,7 @@ describe("sweepOrphanStagingObjectsIn", () => {
       hasCredentials: () => true,
       listPage: async (token) => {
         calls += 1;
-        if (!token) return page([{ key: "evt_1/staging/upload/p1/a.pdf", lastModified: new Date(0) }], "next-page");
+        if (!token) return page([{ key: "staging/evt_1/upload/p1/a.pdf", lastModified: new Date(0) }], "next-page");
         return page([{ key: "staging/evt_1/upload/p2/b.pdf", lastModified: new Date(0) }], null);
       },
       deleteKey: async () => true,

@@ -1,9 +1,8 @@
 # R2 lifecycle rules
 
-M07's status note carried an open item since PR #15/#17: an R2 lifecycle rule expiring staging
-uploads on `sb-files-preview` and `sb-files`. The original event-first key layout made that rule
-unsafe. This runbook owns the versioned layout, compatibility window, deployment reconciliation,
-and verification that close the gap.
+The `sb-files-preview` and `sb-files` buckets expire unfinished browser uploads under a dedicated
+bucket-root prefix. This runbook owns the durable key boundary, lifecycle reconciliation, and
+verification.
 
 ## What a presigned upload leaves behind
 
@@ -19,75 +18,45 @@ and the published key `finalizeUpload` copies it to, once validated, is:
 evt_<eventId>/<kind>/<fileId>/<filename>
 ```
 
-A browser that never completes the PUT, or completes it but never calls finalize, leaves the
-staging object behind forever unless something reclaims it. Two things already do, both app-level
-and both already deployed:
+A browser that never completes the PUT, or completes it but never calls finalize, leaves a staging
+object behind unless something reclaims it. The application has two cleanup paths:
 
 - **`cleanupOrphanUploads`** deletes a `file_assets` row (and its object) once the row is older
   than the TTL and orphaned by the DB-side predicate.
-- **`sweepOrphanStagingObjectsIn`** (the "P3-OPS" sweep in the same file) lists the bucket via the
-  S3 API, parses both versioned staging layouts, keeps old keys with no owning `file_assets` row,
-  and deletes them.
+- **`sweepOrphanStagingObjectsIn`** lists only the bucket-root `staging/` prefix via the S3 API,
+  parses the current layout, keeps old keys with no owning `file_assets` row, and deletes them.
 
 Both run daily via `cleanupOrphans`, wired to the `cleanup` job at 09:00 UTC
 (`workers/jobs/dispatch.ts`). **This is the durable app-level mitigation** — an R2-native lifecycle
 rule is additional defense in depth (it survives even if the cron stops ticking, or a future code
 path forgets to call the sweep), not a replacement for it.
 
-## Layout transition and safety boundary
+## Safety boundary
 
 R2 object lifecycle rules use the same `PutBucketLifecycleConfiguration` shape as S3: a rule's
 `Prefix` filter matches an object key **only when the key begins with that exact string**
 (anchored at position 0 — `Prefix: "logs/"` matches `logs/2026-08-09.txt`, never
-`app/logs/2026-08-09.txt`). Version 2 therefore hoists `staging/` to the bucket root. Published
-objects still start with `evt_`, so the fleet-wide rule cannot match immutable downloads.
+`app/logs/2026-08-09.txt`). Pending objects start with `staging/`; published objects start with
+`evt_`. The fleet-wide rule therefore cannot match immutable downloads.
 
-The versioned parser continues to accept the legacy event-first layout while in-flight URLs and
-live rows are migrated:
+Finalization recognizes only the current staging layout, while download authorization recognizes
+only the published layout. The event-first staging shape was retired after both environments
+completed a full zero-inventory cycle beyond the 15-minute presign lifetime. Rolling this release
+back to the preceding compatibility release remains safe because that release accepts the current
+root-prefixed layout too.
 
-```
-evt_<eventId>/staging/<kind>/<fileId>/<filename>   # version 1, compatibility only
-staging/evt_<eventId>/<kind>/<fileId>/<filename>   # version 2, all new uploads
-```
+### Compatibility retirement evidence
 
-Finalization recognizes both versions, but download authorization recognizes neither: only the
-published key is ready to serve. Do not remove version 1 until the migration inventory reports
-zero database rows and zero bucket objects after the 15-minute presign window.
-
-### Migration checkpoint
-
-`migrateLegacyStagingIn` runs through the temporary private `r2-migration` job every minute while
-compatibility is enabled. Keeping it separate prevents fast migration convergence from multiplying
-the unrelated daily cleanup and retention scans. It:
-
-1. reads a bounded batch of version-1 `file_assets` rows;
-2. server-side copies each live source to its version-2 key;
-3. requires the source and destination size and ETag to match;
-4. changes `file_assets.r2_key` with a compare-and-swap, then best-effort deletes the old key; and
-5. deletes a missing-source row only after the 15-minute presign window and only when the same
-   complete ownership predicate used by normal orphan cleanup says it is unowned.
-
-The checkpoint also advances a row cursor, so one corrupt or still-owned missing-source row cannot
-starve valid rows later in the batch. Such an anomalous row still keeps the zero-inventory gate
-closed until an operator repairs or explicitly removes it; the cursor improves convergence without
-weakening the exit condition.
-
-After the row count reaches zero, the job walks `evt_` objects through the S3 continuation token,
-deleting old, unowned version-1 objects. `r2_staging_migration_state` stores that opaque cursor and
-advances it with a row-version compare-and-swap, so overlapping cron ticks can repeat safe work but
-cannot move inventory backwards. A completed cycle records zero legacy rows, zero legacy objects,
-and zero failures. Completion requires a fresh full zero cycle after the checkpoint has existed for
-the entire 15-minute presign lifetime, so an old URL cannot recreate an object behind an accepted
-inventory. Protected deployments poll that state through `pnpm r2:migration:wait` and independently
-verify the elapsed window; a non-zero or incomplete inventory blocks promotion and leaves dual
-parsing in place.
-
-The migration never changes a published key. If copying, fingerprinting, or the row CAS fails, the
-version-1 row remains finalizable and is retried on the next tick. Rolling application code back to
-the preceding compatibility release is also safe: it finalizes the exact staging key stored on the
-row, including already-migrated version-2 keys. Do not manually delete version-1 objects or remove
-the parser to recover a stalled migration; inspect the checkpoint counters and Worker error logs,
-repair the R2/DB cause, and let the idempotent job resume.
+PR #416 deployed the dual-layout migration checkpoint and gated deployments on a fresh, complete
+inventory. Deploy run `31833950542` proved preview at commit `6964d511`; its checkpoint completed
+at `2026-08-14T19:15:14.376Z` with zero database rows, zero bucket objects, and zero failures.
+Production deploy run `31835677697` promoted merge commit `2c0bf6f0` and completed its independent
+checkpoint at `2026-08-14T20:30:12.909Z` with the same zero counts. Both checkpoints began more
+than 15 minutes before completion, exhausting every pre-existing presigned PUT URL before the
+legacy parser, migration implementation, scheduler, and deployment gate were removed. The private
+job name now resolves to a no-op for one ordered deployment so an old jobs Worker cannot fail while
+web and jobs are replaced. Its adapter and checkpoint table are removed in the following contract
+release, after this scheduler-free release reaches production.
 
 ## What to actually provision, today
 

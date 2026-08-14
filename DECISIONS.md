@@ -70,12 +70,11 @@ protocol.
 
 ## R2 key scheme and lifecycle
 
-Objects are keyed `evt_<eventId>/staging/...`, so `staging` is the second path segment and no
-static R2 lifecycle prefix rule can isolate staging objects (`Prefix: "staging/"` matches
-nothing; `Prefix: "evt_"` would expire published files too). Orphan cleanup is therefore an
-application-level sweep — `cleanupOrphans`, on the daily cron — until the `staging/` segment is
-hoisted to the bucket root in `buildStagingKey` and its parsers. `docs/runbooks/r2-lifecycle.md`
-has the full analysis.
+Pending objects are keyed `staging/evt_<eventId>/...`, while published objects remain under
+`evt_<eventId>/...`. That bucket-root boundary lets the `expire-staging` lifecycle rule target
+only unfinished uploads. The daily `cleanupOrphans` sweep lists that same prefix as an
+application-level backstop, and the parser accepts only the current root-prefixed layout. See
+`docs/runbooks/r2-lifecycle.md` for provisioning and verification.
 
 ## Known operational limits
 

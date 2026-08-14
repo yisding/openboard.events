@@ -1,8 +1,8 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { AwsClient } from "aws4fetch";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { fileAssets, r2StagingMigrationState } from "@/db/schema";
+import { fileAssets } from "@/db/schema";
 import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type JobStats, type MemberRole, type UserId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
@@ -21,9 +21,6 @@ const PRESIGN_PUT_SECONDS = 15 * 60;
 const DOWNLOAD_URL_SECONDS = 60 * 60;
 const MAX_FILENAME_LENGTH = 128;
 const COPY_TIMEOUT_MS = 20_000;
-const LEGACY_PRESIGN_GRACE_MINUTES = 15;
-const LEGACY_MIGRATION_BATCH_SIZE = 10;
-const LEGACY_MIGRATION_INVENTORY_PAGES = 2;
 
 /** Hard ceiling a file_requests row may never raise, only lower. */
 export const UPLOAD_MAX_SIZE_MB = 100;
@@ -170,9 +167,7 @@ export function buildObjectKey(input: { eventId: EventId; kind: FileKind; fileId
   return `evt_${input.eventId}/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
 }
 
-export type StagingKeyVersion = 1 | 2;
 export type ParsedStagingKey = {
-  version: StagingKeyVersion;
   eventId: string;
   kind: FileKind;
   fileId: string;
@@ -180,13 +175,6 @@ export type ParsedStagingKey = {
 };
 
 const FILE_KINDS = new Set<FileKind>(Object.keys(KIND_POLICY) as FileKind[]);
-
-function stagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }, version: StagingKeyVersion): string {
-  const suffix = `${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
-  return version === 2
-    ? `staging/evt_${input.eventId}/${suffix}`
-    : `evt_${input.eventId}/staging/${suffix}`;
-}
 
 /**
  * The presigned PUT is only ever signed for this key. A presigned URL stays usable
@@ -196,41 +184,18 @@ function stagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; f
  * bucket-root `staging/` segment so one lifecycle rule can expire only pending data.
  */
 export function buildStagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }): string {
-  return stagingKey(input, 2);
+  return `staging/evt_${input.eventId}/${input.kind}/${input.fileId}/${sanitizeFilename(input.filename)}`;
 }
 
-/** Version 1 remains readable only during the staged-key migration window. */
-export function buildLegacyStagingKey(input: { eventId: EventId; kind: FileKind; fileId: string; filename: string }): string {
-  return stagingKey(input, 1);
-}
-
-/**
- * Parses both layouts without accepting near-misses. Keeping the version in the
- * result makes migration inventory and eventual compatibility removal explicit.
- */
+/** Parses the lifecycle-covered staging layout without accepting near-misses. */
 export function parseStagingKey(key: string): ParsedStagingKey | null {
   const segments = key.split("/");
-  if (segments.length !== 5) return null;
-
-  let version: StagingKeyVersion;
-  let eventSegment: string;
-  let kindSegment: string;
-  let fileId: string;
-  let filename: string;
-  if (segments[0] === "staging") {
-    version = 2;
-    [eventSegment, kindSegment, fileId, filename] = segments.slice(1) as [string, string, string, string];
-  } else if (segments[1] === "staging") {
-    version = 1;
-    [eventSegment, , kindSegment, fileId, filename] = segments as [string, string, string, string, string];
-  } else {
-    return null;
-  }
+  if (segments.length !== 5 || segments[0] !== "staging") return null;
+  const [eventSegment, kindSegment, fileId, filename] = segments.slice(1) as [string, string, string, string];
 
   if (!eventSegment.startsWith("evt_") || eventSegment.length === 4) return null;
   if (!FILE_KINDS.has(kindSegment as FileKind) || !fileId || !filename) return null;
   return {
-    version,
     eventId: eventSegment.slice(4),
     kind: kindSegment as FileKind,
     fileId,
@@ -238,7 +203,7 @@ export function parseStagingKey(key: string): ParsedStagingKey | null {
   };
 }
 
-export type AssetObjectKeyState = "published" | "staging-v1" | "staging-v2" | "invalid";
+export type AssetObjectKeyState = "published" | "staging" | "invalid";
 
 /** One classification owns the finalizer, readiness checks, and download gate. */
 export function classifyAssetObjectKey(
@@ -254,7 +219,7 @@ export function classifyAssetObjectKey(
     || parsed.fileId !== asset.fileId
     || parsed.filename !== sanitizeFilename(asset.filename)
   ) return "invalid";
-  return parsed.version === 2 ? "staging-v2" : "staging-v1";
+  return "staging";
 }
 
 function startsWith(bytes: Uint8Array, signature: readonly number[]): boolean {
@@ -861,424 +826,6 @@ async function deleteObjectViaS3(key: string): Promise<boolean> {
   return response.ok || response.status === 404;
 }
 
-type ObjectFingerprint = { size: number; etag: string };
-
-export type LegacyStagingMigrationStats = JobStats & {
-  legacyRowsProcessed: number;
-  legacyRowsMigrated: number;
-  legacyRowsDeletedMissingSource: number;
-  legacyRowsRemaining: number;
-  legacyObjectsScanned: number;
-  legacyObjectsFound: number;
-  legacyObjectsDeleted: number;
-  legacyObjectsRemaining: number;
-  migrationFailures: number;
-  migrationComplete: number;
-  checkpointWritten: number;
-};
-
-type LegacyMigrationOptions = {
-  now?: () => Date;
-  batchSize?: number;
-  headObject?: (key: string) => Promise<ObjectFingerprint | null>;
-  copyKey?: (sourceKey: string, destinationKey: string) => Promise<void>;
-  deleteKey?: (key: string) => Promise<boolean>;
-  listPage?: (continuationToken?: string) => Promise<ListObjectsPage>;
-  maxInventoryPages?: number;
-  presignGraceMinutes?: number;
-};
-
-type LegacyMigrationCheckpoint = {
-  rowCursor: string | null;
-  cursor: string | null;
-  cycleRemainingObjects: number;
-  failures: number;
-  complete: boolean;
-  rowVersion: number;
-  startedAt: Date;
-};
-
-type LegacyRowMigration = {
-  processed: number;
-  migrated: number;
-  deletedMissingSource: number;
-  failures: number;
-  nextCursor: string | null;
-};
-
-const legacyRowPredicate = sql`split_part(${fileAssets.r2Key}, '/', 2) = 'staging'`;
-
-async function countLegacyRowsIn(dbOrTx: DbOrTx): Promise<number> {
-  const [result] = await dbOrTx
-    .select({ count: sql<string | number>`count(*)` })
-    .from(fileAssets)
-    .where(legacyRowPredicate);
-  return Number(result?.count ?? 0);
-}
-
-async function liveHeadObject(key: string): Promise<ObjectFingerprint | null> {
-  const object = await filesBucket().head(key);
-  return object ? { size: object.size, etag: object.etag } : null;
-}
-
-async function liveDeleteObject(key: string): Promise<boolean> {
-  try {
-    await filesBucket().delete(key);
-    return true;
-  } catch {
-    log({ level: "warn", msg: "r2.staging_migration.object_delete_failed", requestId: "cron", feature: "uploads", code: key });
-    return false;
-  }
-}
-
-function sameFingerprint(left: ObjectFingerprint, right: ObjectFingerprint): boolean {
-  return left.size === right.size && left.etag === right.etag;
-}
-
-function abandonMigrationCopy(key: string): void {
-  // A check-then-delete cannot be made atomic with a sibling tick claiming the
-  // same deterministic destination. Leaving a version-2 copy is safe: it is
-  // unreadable while unowned and the staging/ lifecycle rule reclaims it.
-  log({ level: "warn", msg: "r2.staging_migration.copy_cleanup_deferred", requestId: "cron", feature: "uploads", code: key });
-}
-
-async function deleteExpiredUnownedLegacyRowIn(
-  dbOrTx: DbOrTx,
-  row: { id: string; r2Key: string },
-  cutoff: Date,
-): Promise<boolean> {
-  const deleted = await dbOrTx.execute<{ id: string }>(sql`
-    DELETE FROM file_assets fa
-    WHERE fa.id = ${row.id}::uuid
-      AND fa.r2_key = ${row.r2Key}
-      AND fa.created_at < ${cutoff}
-      AND ${sql.raw(ORPHAN_PREDICATE_SQL)}
-    RETURNING fa.id
-  `);
-  return (deleted.rows ?? []).length === 1;
-}
-
-/**
- * Copies one bounded batch of live version-1 staging rows. The source and copy
- * must have identical size and ETag before the database compare-and-swap can
- * point at the lifecycle-covered key. Missing, expired, unowned presigns are
- * rows rather than live uploads and are removed without manufacturing bytes.
- */
-async function migrateLegacyRowsIn(
-  dbOrTx: DbOrTx,
-  options: Required<Pick<LegacyMigrationOptions, "now" | "batchSize" | "headObject" | "copyKey" | "deleteKey">>
-    & { rowCursor: string | null },
-): Promise<LegacyRowMigration> {
-  const rows = await dbOrTx
-    .select({
-      id: fileAssets.id,
-      eventId: fileAssets.eventId,
-      kind: fileAssets.kind,
-      r2Key: fileAssets.r2Key,
-      filename: fileAssets.filename,
-      createdAt: fileAssets.createdAt,
-    })
-    .from(fileAssets)
-    .where(options.rowCursor
-      ? and(legacyRowPredicate, gt(fileAssets.id, options.rowCursor))
-      : legacyRowPredicate)
-    .orderBy(fileAssets.id)
-    .limit(options.batchSize);
-
-  const result: LegacyRowMigration = {
-    processed: 0,
-    migrated: 0,
-    deletedMissingSource: 0,
-    failures: 0,
-    nextCursor: rows.length === options.batchSize ? (rows.at(-1)?.id ?? null) : null,
-  };
-  const cutoff = new Date(options.now().getTime() - LEGACY_PRESIGN_GRACE_MINUTES * 60 * 1000);
-
-  for (const row of rows) {
-    result.processed += 1;
-    const eventId = row.eventId as EventId;
-    const state = classifyAssetObjectKey(row.r2Key, {
-      eventId,
-      kind: row.kind,
-      fileId: row.id,
-      filename: row.filename,
-    });
-    if (state !== "staging-v1") {
-      result.failures += 1;
-      log({ level: "warn", msg: "r2.staging_migration.invalid_legacy_row", requestId: "cron", feature: "uploads", code: row.id });
-      continue;
-    }
-
-    let source: ObjectFingerprint | null;
-    try {
-      source = await options.headObject(row.r2Key);
-    } catch {
-      result.failures += 1;
-      continue;
-    }
-    if (!source) {
-      if (row.createdAt < cutoff && await deleteExpiredUnownedLegacyRowIn(dbOrTx, row, cutoff)) {
-        result.deletedMissingSource += 1;
-      } else {
-        result.failures += 1;
-      }
-      continue;
-    }
-
-    const destinationKey = buildStagingKey({
-      eventId,
-      kind: row.kind,
-      fileId: row.id,
-      filename: row.filename,
-    });
-    try {
-      await options.copyKey(row.r2Key, destinationKey);
-      const destination = await options.headObject(destinationKey);
-      if (!destination || !sameFingerprint(source, destination)) {
-        abandonMigrationCopy(destinationKey);
-        result.failures += 1;
-        log({ level: "warn", msg: "r2.staging_migration.copy_mismatch", requestId: "cron", feature: "uploads", code: row.id });
-        continue;
-      }
-
-      const updated = await dbOrTx
-        .update(fileAssets)
-        .set({ r2Key: destinationKey })
-        .where(and(eq(fileAssets.id, row.id), eq(fileAssets.r2Key, row.r2Key)))
-        .returning();
-      if (updated.length === 1) {
-        result.migrated += 1;
-        await options.deleteKey(row.r2Key).catch(() => false);
-        continue;
-      }
-
-      // A finalizer or sibling migration won the row CAS. Never check-then-delete
-      // this deterministic destination: another tick can claim it between those
-      // operations. Lifecycle cleanup safely handles any genuinely stray copy.
-      abandonMigrationCopy(destinationKey);
-    } catch {
-      abandonMigrationCopy(destinationKey);
-      result.failures += 1;
-    }
-  }
-  return result;
-}
-
-async function readLegacyMigrationCheckpointIn(dbOrTx: DbOrTx, startedAt: Date): Promise<LegacyMigrationCheckpoint> {
-  await dbOrTx.insert(r2StagingMigrationState).values({ singleton: true, startedAt }).onConflictDoNothing();
-  const [row] = await dbOrTx
-    .select({
-      rowCursor: r2StagingMigrationState.rowCursor,
-      cursor: r2StagingMigrationState.cursor,
-      cycleRemainingObjects: r2StagingMigrationState.cycleRemainingObjects,
-      failures: r2StagingMigrationState.failures,
-      complete: r2StagingMigrationState.complete,
-      rowVersion: r2StagingMigrationState.rowVersion,
-      startedAt: r2StagingMigrationState.startedAt,
-    })
-    .from(r2StagingMigrationState)
-    .where(eq(r2StagingMigrationState.singleton, true))
-    .limit(1);
-  if (!row) throw new AppError("INTERNAL", "R2 staging migration checkpoint is unavailable");
-  return row;
-}
-
-async function writeLegacyMigrationCheckpointIn(
-  dbOrTx: DbOrTx,
-  checkpoint: LegacyMigrationCheckpoint,
-  state: {
-    rowCursor: string | null;
-    cursor: string | null;
-    cycleRemainingObjects: number;
-    remainingLegacyRows: number;
-    remainingLegacyObjects: number;
-    failures: number;
-    complete: boolean;
-    completedAt: Date | null;
-  },
-  now: Date,
-): Promise<boolean> {
-  const updated = await dbOrTx
-    .update(r2StagingMigrationState)
-    .set({
-      ...state,
-      rowVersion: checkpoint.rowVersion + 1,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(r2StagingMigrationState.singleton, true),
-      eq(r2StagingMigrationState.rowVersion, checkpoint.rowVersion),
-    ))
-    .returning();
-  return updated.length === 1;
-}
-
-type LegacyObjectScan = {
-  scanned: number;
-  found: number;
-  deleted: number;
-  remaining: number;
-  failures: number;
-  nextToken: string | null;
-};
-
-async function scanLegacyObjectPagesIn(
-  dbOrTx: DbOrTx,
-  startToken: string | null,
-  options: Required<Pick<LegacyMigrationOptions, "now" | "deleteKey" | "listPage" | "maxInventoryPages">>,
-): Promise<LegacyObjectScan> {
-  const result: LegacyObjectScan = { scanned: 0, found: 0, deleted: 0, remaining: 0, failures: 0, nextToken: startToken };
-  const cutoffMs = options.now().getTime() - LEGACY_PRESIGN_GRACE_MINUTES * 60 * 1000;
-  let token = startToken ?? undefined;
-  let pages = 0;
-
-  do {
-    const page = await options.listPage(token);
-    pages += 1;
-    result.scanned += page.objects.length;
-    const legacy = page.objects.filter((object) => parseStagingKey(object.key)?.version === 1);
-    result.found += legacy.length;
-    const keys = legacy.map((object) => object.key);
-    const owned = keys.length === 0
-      ? []
-      : await dbOrTx.select({ r2Key: fileAssets.r2Key }).from(fileAssets).where(inArray(fileAssets.r2Key, keys));
-    const ownedKeys = new Set(owned.map((row) => row.r2Key));
-
-    for (const object of legacy) {
-      if (ownedKeys.has(object.key) || object.lastModified.getTime() >= cutoffMs) {
-        result.remaining += 1;
-        continue;
-      }
-      let deleted = false;
-      try {
-        deleted = await options.deleteKey(object.key);
-      } catch {
-        // Retried from the same full inventory cycle when the checkpoint wraps.
-      }
-      if (deleted) result.deleted += 1;
-      else {
-        result.failures += 1;
-        result.remaining += 1;
-      }
-    }
-    token = page.nextToken ?? undefined;
-  } while (token && pages < options.maxInventoryPages);
-
-  result.nextToken = token ?? null;
-  return result;
-}
-
-/**
- * Resumable migration and inventory entrypoint used by the temporary per-minute
- * cleanup cadence. A checkpoint is advanced with a row-version CAS, so an
- * overlapping cron tick may repeat idempotent R2 work but cannot move the
- * opaque ListObjects cursor backwards.
- */
-export async function migrateLegacyStagingIn(
-  dbOrTx: DbOrTx = db,
-  options: LegacyMigrationOptions = {},
-): Promise<LegacyStagingMigrationStats> {
-  const now = options.now ?? (() => new Date());
-  const headObject = options.headObject ?? liveHeadObject;
-  const copyKey = options.copyKey ?? copyObject;
-  const deleteKey = options.deleteKey ?? liveDeleteObject;
-  const listPage = options.listPage ?? ((token?: string) => listObjectsPage(token, "evt_"));
-  const maxInventoryPages = options.maxInventoryPages ?? LEGACY_MIGRATION_INVENTORY_PAGES;
-  const checkpoint = await readLegacyMigrationCheckpointIn(dbOrTx, now());
-  const rowMigration = await migrateLegacyRowsIn(dbOrTx, {
-    now,
-    batchSize: options.batchSize ?? LEGACY_MIGRATION_BATCH_SIZE,
-    headObject,
-    copyKey,
-    deleteKey,
-    rowCursor: checkpoint.rowCursor,
-  });
-  const remainingRows = await countLegacyRowsIn(dbOrTx);
-  const base: LegacyStagingMigrationStats = {
-    legacyRowsProcessed: rowMigration.processed,
-    legacyRowsMigrated: rowMigration.migrated,
-    legacyRowsDeletedMissingSource: rowMigration.deletedMissingSource,
-    legacyRowsRemaining: remainingRows,
-    legacyObjectsScanned: 0,
-    legacyObjectsFound: 0,
-    legacyObjectsDeleted: 0,
-    legacyObjectsRemaining: checkpoint.cycleRemainingObjects,
-    migrationFailures: rowMigration.failures,
-    migrationComplete: 0,
-    checkpointWritten: 0,
-  };
-
-  if (remainingRows > 0) {
-    base.checkpointWritten = await writeLegacyMigrationCheckpointIn(dbOrTx, checkpoint, {
-      rowCursor: rowMigration.nextCursor,
-      cursor: null,
-      cycleRemainingObjects: 0,
-      remainingLegacyRows: remainingRows,
-      remainingLegacyObjects: 0,
-      failures: rowMigration.failures,
-      complete: false,
-      completedAt: null,
-    }, now()) ? 1 : 0;
-    return base;
-  }
-
-  if (checkpoint.complete) {
-    return { ...base, legacyObjectsRemaining: 0, migrationComplete: 1 };
-  }
-
-  // Do not even begin the accepted inventory cycle while a version-1 PUT URL
-  // could still be valid. Otherwise a late PUT could recreate an object on a
-  // page this cycle already passed and hide behind the eventual zero result.
-  const graceElapsed = now().getTime() >= checkpoint.startedAt.getTime()
-    + (options.presignGraceMinutes ?? LEGACY_PRESIGN_GRACE_MINUTES) * 60 * 1000;
-  if (!graceElapsed) {
-    base.checkpointWritten = await writeLegacyMigrationCheckpointIn(dbOrTx, checkpoint, {
-      rowCursor: null,
-      cursor: null,
-      cycleRemainingObjects: 0,
-      remainingLegacyRows: 0,
-      remainingLegacyObjects: 0,
-      failures: rowMigration.failures,
-      complete: false,
-      completedAt: null,
-    }, now()) ? 1 : 0;
-    return base;
-  }
-
-  const scan = await scanLegacyObjectPagesIn(dbOrTx, checkpoint.cursor, { now, deleteKey, listPage, maxInventoryPages });
-  const startingCycle = checkpoint.cursor === null;
-  const cycleRemaining = (startingCycle ? 0 : checkpoint.cycleRemainingObjects) + scan.remaining;
-  const cycleFailures = (startingCycle ? 0 : checkpoint.failures)
-    + rowMigration.failures
-    + scan.failures;
-  const scanFinished = scan.nextToken === null;
-  const finalRemainingRows = scanFinished ? await countLegacyRowsIn(dbOrTx) : 0;
-  const complete = scanFinished && finalRemainingRows === 0
-    && cycleRemaining === 0 && cycleFailures === 0;
-  const written = await writeLegacyMigrationCheckpointIn(dbOrTx, checkpoint, {
-    rowCursor: null,
-    cursor: scanFinished ? null : scan.nextToken,
-    cycleRemainingObjects: scanFinished ? 0 : cycleRemaining,
-    remainingLegacyRows: scanFinished ? finalRemainingRows : 0,
-    remainingLegacyObjects: cycleRemaining,
-    failures: cycleFailures,
-    complete,
-    completedAt: complete ? now() : null,
-  }, now());
-
-  return {
-    ...base,
-    legacyRowsRemaining: scanFinished ? finalRemainingRows : 0,
-    legacyObjectsScanned: scan.scanned,
-    legacyObjectsFound: scan.found,
-    legacyObjectsDeleted: scan.deleted,
-    legacyObjectsRemaining: cycleRemaining,
-    migrationFailures: cycleFailures,
-    migrationComplete: complete ? 1 : 0,
-    checkpointWritten: written ? 1 : 0,
-  };
-}
-
 function hasR2Credentials(): boolean {
   const env = getEnv();
   return Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET_NAME);
@@ -1308,7 +855,7 @@ export async function sweepOrphanStagingObjectsIn(
     log({ level: "info", msg: "r2.orphan_sweep.skipped_no_credentials", requestId: "cron", feature: "uploads" });
     return { deleted: 0, scanned: 0, skipped: true };
   }
-  const listPage = options?.listPage ?? listObjectsPage;
+  const listPage = options?.listPage ?? ((continuationToken?: string) => listObjectsPage(continuationToken, "staging/"));
   const deleteKey = options?.deleteKey ?? deleteObjectViaS3;
 
   const cutoffMs = Date.now() - olderThanHours * 60 * 60 * 1000;
