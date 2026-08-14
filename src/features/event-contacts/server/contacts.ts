@@ -20,17 +20,12 @@ export type ContactPatch = Partial<{
   twitterUrl: string | null;
   facebookUrl: string | null;
   websiteUrl: string | null;
-  // Written by M18's auto-confirm on acceptance and by M27's organizer override.
-  // There is no speaker-facing confirm button, so this is only ever set for them.
   confirmationStatus: "unconfirmed" | "confirmed" | "declined";
-  // M51 — pure organizer pipeline bookkeeping (drizzle/0008's header comment);
-  // never read by publication or notification logic.
   workflowStatus: SpeakerWorkflowStatus;
-  // M59 — set once, the moment the portal home has shown the
-  // acceptance-celebration hero to this contact.
   acceptanceSeenAt: Date;
 }>;
 
+/** Normalize and upsert the one event-local identity for an email address. */
 export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId> {
   const normalized = email.trim().toLowerCase();
   const [inserted] = await tx.insert(contacts)
@@ -46,6 +41,7 @@ export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: stri
   return existing.id as ContactId;
 }
 
+/** Apply an event-scoped field patch without permitting whole-row replacement. */
 export async function updateContactFields(dbOrTx: DbOrTx, eventId: EventId, contactId: ContactId, patch: ContactPatch): Promise<void> {
   const values = { ...patch, ...(patch.email ? { email: patch.email.trim().toLowerCase() } : {}), updatedAt: new Date() };
   const [updated] = await dbOrTx.update(contacts)
@@ -54,3 +50,4 @@ export async function updateContactFields(dbOrTx: DbOrTx, eventId: EventId, cont
     .returning();
   if (!updated) throw new AppError("NOT_FOUND", "Contact not found");
 }
+

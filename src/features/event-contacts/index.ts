@@ -1,3 +1,4 @@
-/** Supported contact identity writes shared with server-side features. */
+/** Canonical event-contact identity write contract. */
 export type { ContactPatch } from "./server/contacts";
 export { getOrCreateContact, updateContactFields } from "./server/contacts";
+
