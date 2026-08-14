@@ -106,6 +106,8 @@ describe("form builder accessibility", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
     expect(source).toContain('className="builder-edit-actions" role="group" aria-label="Form editing actions"');
+    expect(source).toContain('aria-label="Copy live form link" title="Copy live form link"');
+    expect(source).toContain('aria-label="Preview form" title="Preview form"');
     expect(source).toContain('id="publish-form-version" aria-label="Publish the current step as a new immutable form version"');
     expect(source).toContain('onClick={() => void saveStep()}');
     expect(source).toContain('className="builder-lifecycle-actions" role="group" aria-label="Form availability"');
@@ -116,6 +118,9 @@ describe("form builder accessibility", () => {
     expect(source).toContain("Every publish creates a new immutable version.");
     expect(source).not.toContain("Save step</Button>");
     expect(css).toContain(".builder-lifecycle-actions{padding-left:12px");
+    const tabletRules = css.slice(css.indexOf("@media(max-width:1024px){.cfp-welcome"), css.indexOf("@media(max-width:768px){.builder-wrap"));
+    expect(tabletRules).toContain(".builder-action-label{display:none}");
+    expect(tabletRules).toContain(".builder-edit-actions>.button,.builder-lifecycle-actions>.button{width:36px");
   });
 
   it("keeps a new-question draft open when its save fails", () => {

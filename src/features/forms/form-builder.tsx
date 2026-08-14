@@ -701,8 +701,8 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       <div className="builder-title"><Link className="icon-button" aria-label="Back to forms" href={`/events/${event.id}/forms`}><ArrowLeft size={18} /></Link><div><div><h1>{form.internalName}</h1><StatusBadge value={availability} /></div><span>Version {form.currentVersion} · <i className={dirty ? "saving" : "saved"}>{dirty ? "Unpublished changes" : "Version published"}</i></span></div></div>
       <div className="builder-actions">
         <div className="builder-edit-actions" role="group" aria-label="Form editing actions">
-          {availability === "live" && <Button variant="secondary" onClick={() => void copyLink()}><Copy size={16} /> Copy live link</Button>}
-          <Link className="button button-secondary" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> Preview</Link>
+          {availability === "live" && <Button variant="secondary" aria-label="Copy live form link" title="Copy live form link" onClick={() => void copyLink()}><Copy size={16} /> <span className="builder-action-label">Copy live link</span></Button>}
+          <Link className="button button-secondary" aria-label="Preview form" title="Preview form" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> <span className="builder-action-label">Preview</span></Link>
           <Button id="publish-form-version" aria-label="Publish the current step as a new immutable form version" title="Publish the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
         </div>
         <div className="builder-lifecycle-actions" role="group" aria-label="Form availability">
