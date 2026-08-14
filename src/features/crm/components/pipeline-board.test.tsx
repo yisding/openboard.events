@@ -94,8 +94,9 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 async function changeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
@@ -386,7 +387,7 @@ describe("CRM prospect creation recovery", () => {
     expect(buttonNamed("Add prospect")?.disabled).toBe(false);
   });
 
-  it("blocks every board mutation until close-and-check receives verified authority", async () => {
+  it("drains an in-flight stage move before close-and-check reads or applies authority", async () => {
     const existingEntry = crmPipelineEntryDtoSchema.parse({
       id: "c8000000-0000-4000-8000-000000000006",
       organizationContactId: contactId,
@@ -396,6 +397,8 @@ describe("CRM prospect creation recovery", () => {
       createdAt: "2026-08-13T17:00:00.000Z",
       updatedAt: "2026-08-13T17:00:00.000Z",
     });
+    const movedEntry = { ...existingEntry, stage: "won" as const, updatedAt: "2026-08-13T19:00:00.000Z" };
+    const transition = deferred<CrmPipelineEntryDTO>();
     const authority = deferred<CrmPipelineEntryDTO[]>();
     let pipelineReads = 0;
     let transitionCalls = 0;
@@ -408,17 +411,23 @@ describe("CRM prospect creation recovery", () => {
       if (path.endsWith("/crm/pipeline")) {
         pipelineReads += 1;
         if (pipelineReads === 1) return authority.promise;
-        return [existingEntry];
+        return [movedEntry];
       }
       if (path.endsWith(`/crm/pipeline/${existingEntry.id}/transition`)) {
         transitionCalls += 1;
-        return { ...existingEntry, stage: init?.body?.stage, updatedAt: "2026-08-13T19:00:00.000Z" };
+        return transition.promise;
       }
       throw new Error(`Unexpected request: ${path}`);
     });
     await renderBoard([existingEntry], {
       [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
     });
+    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
+    if (!stage) throw new Error("Expected the existing prospect stage control");
+    await changeValue(stage, "won");
+    expect(transitionCalls).toBe(1);
+    expect(stage.value).toBe("won");
+
     await pickContact();
     await act(async () => {
       buttonNamed("Add to pipeline")?.click();
@@ -429,17 +438,21 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
     expect(container.textContent).toContain("Refreshing the pipeline");
     expect(buttonNamed("Add prospect")?.disabled).toBe(true);
-    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
-    if (!stage) throw new Error("Expected the existing prospect stage control");
-    expect(stage.disabled).toBe(true);
-
-    await changeValue(stage, "won");
-    await act(async () => buttonNamed("Add prospect")?.click());
-    expect(transitionCalls).toBe(0);
-    expect(container.querySelector('dialog[aria-label="Add a prospect"]')).toBeNull();
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(true);
+    expect(pipelineReads).toBe(0);
 
     await act(async () => {
-      authority.resolve([existingEntry]);
+      transition.resolve(movedEntry);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(1);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("won");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(true);
+    await act(async () => {
+      authority.resolve([movedEntry]);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -447,10 +460,63 @@ describe("CRM prospect creation recovery", () => {
 
     expect(pipelineReads).toBe(2);
     expect(buttonNamed("Add prospect")?.disabled).toBe(false);
-    expect(stage.disabled).toBe(false);
-    await changeValue(stage, "won");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(false);
     expect(transitionCalls).toBe(1);
-    expect(stage.value).toBe("won");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("won");
+  });
+
+  it("continues the authority barrier after an in-flight stage move rejects", async () => {
+    const existingEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-000000000007",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "open",
+      notes: "Rejected move prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: "2026-08-13T17:00:00.000Z",
+    });
+    const transition = deferred<CrmPipelineEntryDTO>();
+    let pipelineReads = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      if (path.endsWith(`/crm/contacts/${contactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact, tags: [], events: [], notes: [], activity: [] });
+      }
+      if (path.endsWith("/crm/pipeline") && init?.body) throw new AppError("INTERNAL", "Unexpected API response (500)");
+      if (path.endsWith("/crm/pipeline")) {
+        pipelineReads += 1;
+        return [existingEntry];
+      }
+      if (path.endsWith(`/crm/pipeline/${existingEntry.id}/transition`)) return transition.promise;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await renderBoard([existingEntry], {
+      [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
+    });
+    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
+    if (!stage) throw new Error("Expected the existing prospect stage control");
+    await changeValue(stage, "won");
+    await pickContact();
+    await act(async () => {
+      buttonNamed("Add to pipeline")?.click();
+      await Promise.resolve();
+    });
+    await act(async () => buttonNamed("Close and check pipeline")?.click());
+
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(true);
+    expect(pipelineReads).toBe(0);
+    await act(async () => {
+      transition.reject(new AppError("CONFLICT", "This pipeline entry changed under you"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(2);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(false);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("open");
+    expect(buttonNamed("Add prospect")?.disabled).toBe(false);
+    expect(toastMock).toHaveBeenCalledWith("This pipeline entry changed under you");
   });
 
   it("keeps a definitive conflict editable for a new safe attempt", async () => {

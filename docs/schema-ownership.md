@@ -11,7 +11,7 @@ Run the drift gate with:
 pnpm schema:check
 ```
 
-The gate creates a clean in-memory Postgres database, applies all 35 entries in
+The gate creates a clean in-memory Postgres database, applies all 36 entries in
 `drizzle/meta/_journal.json`, and compares the result with Drizzle's runtime
 metadata. It checks:
 
@@ -30,8 +30,8 @@ differences include:
   column after fallback authentication was retired;
 - composite tenant/event foreign keys that supersede simpler query-model
   references;
-- SQL checks, partial or specialized indexes, eight reporting views, seven
-  functions, and seven triggers that Drizzle's query metadata does not own;
+- SQL checks, partial or specialized indexes, eight reporting views, nine
+  functions, and nine triggers that Drizzle's query metadata does not own;
 - 46 simple query-model foreign keys whose database enforcement is replaced by
   stronger composite keys, plus the `admin_sessions.token` query uniqueness
   represented in SQL as a unique index.

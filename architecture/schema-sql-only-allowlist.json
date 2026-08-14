@@ -33,6 +33,7 @@
       "organization_contact_custom_fields_key_check",
       "organization_contact_custom_fields_label_check",
       "organization_contact_notes_body_html_check",
+      "organization_contact_pipeline_creation_payload_shape_ck",
       "organization_contact_pipeline_history_check",
       "organization_contact_segments_name_check",
       "organization_contact_tags_name_check",
@@ -149,8 +150,10 @@
     ]
   },
   "functions": [
+    "capture_crm_pipeline_creation_payload()",
     "capture_review_revision()",
     "capture_submission_status_revision()",
+    "guard_crm_pipeline_creation_payload()",
     "guard_submission_transition()",
     "is_form_open(p_form_id uuid)",
     "mark_new_user_as_self_service()",
@@ -248,6 +251,8 @@
   },
   "triggers": [
     "evaluation_plans.evaluation_plans_track_scope_guard",
+    "organization_contact_pipeline.organization_contact_pipeline_capture_creation_payload",
+    "organization_contact_pipeline.organization_contact_pipeline_guard_creation_payload",
     "reviewer_assignments.reviewer_assignments_track_scope_guard",
     "reviews.reviews_capture_revision",
     "routing_rules.routing_rules_tag_scope_guard",

@@ -359,6 +359,9 @@ export function PipelineBoard({
   const [contacts, setContacts] = useState(contactsById);
   const [addOpen, setAddOpen] = useState(false);
   const [authorityRefresh, setAuthorityRefresh] = useState<"pending" | "failed" | null>(null);
+  const mutationsBlockedRef = useRef(false);
+  const authorityRefreshInFlightRef = useRef(false);
+  const pendingMutationsRef = useRef(new Set<Promise<void>>());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const eventNameById = Object.fromEntries(events.map((event) => [event.id, event.name]));
   const mutationsBlocked = authorityRefresh !== null;
@@ -369,33 +372,55 @@ export function PipelineBoard({
   useEffect(() => setEntries(initialEntries), [initialEntries]);
   useEffect(() => setContacts(contactsById), [contactsById]);
 
+  async function drainPendingMutations() {
+    while (pendingMutationsRef.current.size > 0) {
+      await Promise.allSettled([...pendingMutationsRef.current]);
+    }
+  }
+
   async function refreshAuthority() {
-    if (authorityRefresh === "pending") return;
+    if (authorityRefreshInFlightRef.current) return;
+    // The ref closes the same-tick gap before React paints disabled controls.
+    // A stage mutation that already owns a promise is allowed to finish; no
+    // authority read starts until every such promise has settled.
+    mutationsBlockedRef.current = true;
+    authorityRefreshInFlightRef.current = true;
     setAuthorityRefresh("pending");
     try {
+      await drainPendingMutations();
       const authority = await loadPipelineAuthority(organizationId);
       setEntries(authority.entries);
       setContacts(authority.contacts);
+      mutationsBlockedRef.current = false;
       setAuthorityRefresh(null);
     } catch (caught) {
       setAuthorityRefresh("failed");
       toast(isAppError(caught) ? caught.message : PIPELINE_REFRESH_ERROR_MESSAGE, { kind: "error" });
+    } finally {
+      authorityRefreshInFlightRef.current = false;
     }
   }
 
-  async function move(entryId: string, stage: CrmPipelineStage) {
-    if (mutationsBlocked) return;
+  function move(entryId: string, stage: CrmPipelineStage) {
+    if (mutationsBlockedRef.current) return;
     const previous = entries;
     const current = entries.find((entry) => entry.id === entryId);
     if (!current || current.stage === stage) return;
     setEntries((rows) => rows.map((row) => row.id === entryId ? { ...row, stage } : row));
-    try {
-      const updated = await api(`organizations/${organizationId}/crm/pipeline/${entryId}/transition`, crmPipelineEntryDtoSchema, { method: "POST", body: { stage } });
-      setEntries((rows) => rows.map((row) => row.id === entryId ? updated : row));
-    } catch (caught) {
-      setEntries(previous);
-      toast(isAppError(caught) ? caught.message : "That move did not save");
-    }
+    const mutation = (async () => {
+      try {
+        const updated = await api(`organizations/${organizationId}/crm/pipeline/${entryId}/transition`, crmPipelineEntryDtoSchema, { method: "POST", body: { stage } });
+        setEntries((rows) => rows.map((row) => row.id === entryId ? updated : row));
+      } catch (caught) {
+        setEntries(previous);
+        toast(isAppError(caught) ? caught.message : "That move did not save");
+      }
+    })();
+    pendingMutationsRef.current.add(mutation);
+    void mutation.then(
+      () => pendingMutationsRef.current.delete(mutation),
+      () => pendingMutationsRef.current.delete(mutation),
+    );
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -403,7 +428,7 @@ export function PipelineBoard({
     if (!event.over) return;
     const stage = event.over.id as CrmPipelineStage;
     if (!(CRM_PIPELINE_STAGES as readonly string[]).includes(stage)) return;
-    void move(String(event.active.id), stage);
+    move(String(event.active.id), stage);
   }
 
   return (
@@ -412,7 +437,7 @@ export function PipelineBoard({
         eyebrow="ORGANIZATION"
         title="Speaker CRM"
         description="Track prospects from first contact to a confirmed speaker."
-        actions={<Button disabled={mutationsBlocked} onClick={() => setAddOpen(true)}><Plus size={15} /> Add prospect</Button>}
+        actions={<Button disabled={mutationsBlocked} onClick={() => { if (!mutationsBlockedRef.current) setAddOpen(true); }}><Plus size={15} /> Add prospect</Button>}
       />
       <CrmNav organizationId={organizationId} active="pipeline" />
 
@@ -439,7 +464,7 @@ export function PipelineBoard({
                 contactsById={contacts}
                 eventNameById={eventNameById}
                 mutationsBlocked={mutationsBlocked}
-                onMove={(entryId, nextStage) => void move(entryId, nextStage)}
+                onMove={(entryId, nextStage) => move(entryId, nextStage)}
               />
             ))}
           </div>
