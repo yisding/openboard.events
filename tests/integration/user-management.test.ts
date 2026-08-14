@@ -698,9 +698,17 @@ describe("M44 user management", () => {
       const ownerSessions = await listAdminSessionsIn(db, ownerId);
       expect(ownerSessions.map((s) => s.id).sort()).toEqual(["e4400000-0000-4000-8000-000000000301", "e4400000-0000-4000-8000-000000000302"].sort());
 
-      // Cannot revoke another user's session by id.
-      await expect(revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000303")).rejects.toMatchObject({ code: "NOT_FOUND" });
+      // Absence is an indistinguishable success, including for another user's
+      // guessed id, but the actor-scoped predicate must leave that row intact.
+      await revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000303");
+      expect((await listAdminSessionsIn(db, organizerId)).map((s) => s.id)).toEqual(["e4400000-0000-4000-8000-000000000303"]);
 
+      // Two response-loss replays of the same target are safe and converge on
+      // one logical revocation without disturbing the caller's other session.
+      await Promise.all([
+        revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000301"),
+        revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000301"),
+      ]);
       await revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000301");
       expect((await listAdminSessionsIn(db, ownerId)).map((s) => s.id)).toEqual(["e4400000-0000-4000-8000-000000000302"]);
     });
