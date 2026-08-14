@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
@@ -72,7 +72,10 @@ export function AddAbstractDrawer({
   const [error, setError] = useState("");
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [speakerQuickAddPending, setSpeakerQuickAddPending] = useState(false);
   const attemptRef = useRef<ManualAbstractAttempt | null>(null);
+  const previousEventIdRef = useRef(eventId);
+  const previousOpenRef = useRef(open);
   /**
    * Who is giving the talk (#117). This drawer is the path built for the invited
    * keynote, and it could not name a speaker — so it produced an abstract
@@ -86,7 +89,35 @@ export function AddAbstractDrawer({
   const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
   const pickable = [...speakers, ...addedSpeakers.filter((added) => !speakers.some((known) => known.contactId === added.contactId))];
   const dirty = manualAbstractDraftDirty(values, status, participantIds);
-  useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy });
+  const blockingBusy = busy || speakerQuickAddPending;
+  useUnsavedWorkGuard(open && (dirty || blockingBusy), { blocking: blockingBusy });
+
+  // Modal closes normally unmount quick-add, but an externally replaced event
+  // can keep this parent mounted. Keying the child prevents its old request
+  // from selecting a contact in the new event; reset only the event-scoped
+  // attempt and speaker state so unrelated typed fields are not overwritten.
+  useEffect(() => {
+    if (previousEventIdRef.current === eventId) return;
+    previousEventIdRef.current = eventId;
+    setSpeakerQuickAddPending(false);
+    setParticipantIds([]);
+    setAddedSpeakers([]);
+    setRecoveryRequired(false);
+    setError("");
+    attemptRef.current = null;
+    setRequestId(crypto.randomUUID());
+  }, [eventId]);
+
+  // A parent route can replace the open modal without calling its close
+  // callback. Drop its speaker selection before any later fresh open; the
+  // unmounted quick-add ignores a late response and reports itself idle.
+  useEffect(() => {
+    if (previousOpenRef.current && !open) {
+      setSpeakerQuickAddPending(false);
+      setParticipantIds([]);
+    }
+    previousOpenRef.current = open;
+  }, [open]);
 
   const toggleParticipant = (contactId: string) => setParticipantIds((current) => (
     current.includes(contactId) ? current.filter((id) => id !== contactId) : [...current, contactId]
@@ -98,16 +129,19 @@ export function AddAbstractDrawer({
     setParticipantIds([]);
     setError("");
     setRecoveryRequired(false);
+    setSpeakerQuickAddPending(false);
     attemptRef.current = null;
     setRequestId(crypto.randomUUID());
     onClose();
   }
 
   function requestClose() {
+    if (blockingBusy) return;
     runGuarded(discardAndClose);
   }
 
   async function create() {
+    if (blockingBusy) return;
     setBusy(true);
     setError("");
     try {
@@ -149,6 +183,7 @@ export function AddAbstractDrawer({
       setStatus("pending");
       setParticipantIds([]);
       setRecoveryRequired(false);
+      setSpeakerQuickAddPending(false);
       attemptRef.current = null;
       setRequestId(crypto.randomUUID());
       // `addedSpeakers` is deliberately kept: those contacts exist on the event
@@ -167,13 +202,14 @@ export function AddAbstractDrawer({
     <Modal
       open={open}
       onClose={requestClose}
+      dismissible={!blockingBusy}
       title="Add a submission"
       description="Create a submission on behalf of a speaker. It gets the next SESS number and sends nobody an email."
       wide
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={requestClose}>Cancel</Button>
-          <Button disabled={busy || values.title.trim().length === 0} onClick={create}>
+          <Button variant="secondary" disabled={blockingBusy} onClick={requestClose}>Cancel</Button>
+          <Button disabled={blockingBusy || values.title.trim().length === 0} onClick={create}>
             {busy ? recoveryRequired ? "Retrying…" : "Creating…" : recoveryRequired ? "Retry submission creation" : "Create submission"}
           </Button>
         </>
@@ -218,8 +254,10 @@ export function AddAbstractDrawer({
           </div>
           <div className="speaker-picker-add">
             <SpeakerQuickAdd
+              key={eventId}
               eventId={eventId}
               disabled={busy || recoveryRequired}
+              onPendingChange={setSpeakerQuickAddPending}
               onAdded={(speaker) => {
                 setAddedSpeakers((current) => [...current, speaker]);
                 toggleParticipant(speaker.contactId);

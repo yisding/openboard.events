@@ -25,7 +25,7 @@ describe("manual abstract creation recovery", () => {
     expect(source).toContain("body: JSON.stringify(attempt)");
     expect(source).toContain("Creation could not be confirmed.");
     expect(source).toContain("Retry submission creation");
-    expect(source).toContain("useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy })");
+    expect(source).toContain("useUnsavedWorkGuard(open && (dirty || blockingBusy), { blocking: blockingBusy })");
     expect(source).toContain("onClose={requestClose}");
     expect(source).toContain("onClick={requestClose}>Cancel");
   });
