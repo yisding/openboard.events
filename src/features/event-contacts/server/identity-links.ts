@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { DbOrTx } from "@/db/client";
+import type { DbOrTx, TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { userContactLinks } from "@/db/schema";
 import {
@@ -8,6 +8,9 @@ import {
   type EventId,
   type UserId,
 } from "@/shared/contracts";
+import { getOrCreateContact } from "./contacts";
+
+export type UserContactLinkSource = "invitation" | "reminder" | "operator";
 
 export type UserContactResolution =
   | { status: "linked"; contactId: ContactId }
@@ -81,4 +84,39 @@ export async function resolveUserContactIn(
     status: "unlinked",
     candidateContactId: candidateContactIds[0] ?? null,
   };
+}
+
+/**
+ * Make one explicit relationship, or return the ambiguity that prevented it.
+ * Candidate discovery happens before contact creation so an existing CRM link
+ * wins without duplicating an event identity. Conflict-safe insert + final
+ * resolution make concurrent provisioning deterministic.
+ */
+export async function linkUserContactIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  userId: UserId,
+  source: UserContactLinkSource,
+): Promise<UserContactResolution> {
+  const resolution = await resolveUserContactIn(dbOrTx, eventId, userId);
+  if (resolution.status !== "unlinked") return resolution;
+
+  let contactId = resolution.candidateContactId;
+  if (!contactId) {
+    const account = await dbOrTx.execute<{ email: string }>(sql`
+      SELECT account.email
+      FROM users account
+      JOIN event_members membership
+        ON membership.user_id = account.id AND membership.event_id = ${eventId}
+      WHERE account.id = ${userId}
+    `);
+    const [row] = rowsOf<{ email: string }>(account);
+    if (!row) return resolution;
+    contactId = await getOrCreateContact(dbOrTx as TxDb, eventId, row.email);
+  }
+
+  await dbOrTx.insert(userContactLinks)
+    .values({ userId, eventId, contactId, source })
+    .onConflictDoNothing();
+  return resolveUserContactIn(dbOrTx, eventId, userId);
 }

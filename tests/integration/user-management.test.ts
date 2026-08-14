@@ -8,6 +8,7 @@ import * as schema from "@/db/schema";
 import { adminAuthEmailOutbox, communicationLogs, organizationInvitations } from "@/db/schema";
 import { dispatchAdminAuthEmailOutboxIn, openPlatformAdminLinkPayload } from "@/features/auth";
 import { listAdminSessionsIn, revokeAdminSessionByIdIn } from "@/features/auth/server/sessions";
+import { resolveUserContactIn } from "@/features/event-contacts";
 import {
   acceptOrganizationInvitationByTokenIn,
   assertOrganizationInvitationTokenForEmailIn,
@@ -46,12 +47,14 @@ const MIGRATIONS = [
   // the journal — with one exception. 0016 adds `contacts.acceptance_seen_at`,
   // which `getOrCreateContact`'s unqualified `.returning()` names on the
   // invitation path below, so the column has to exist even though nothing here
-  // reads it. Skipping 0013-0015 is still deliberate: they are later modules
-  // this test is not about, and 0014's template backfill would change the
-  // `email_templates` rows the outbox assertions inspect.
+  // reads it. 0013 and 0041 are the other exception: reviewer invitation
+  // acceptance now writes the stable event-contact link, and 0041's additive
+  // schema depends on the CRM link table. 0014's template backfill remains
+  // skipped because it would change the rows the outbox assertions inspect.
+  "0013_speaker_crm",
   "0016_speaker_moments",
   "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
-  "0029_event_reviewer_invitations",
+  "0029_event_reviewer_invitations", "0041_stable_user_contact_links",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");
@@ -190,6 +193,14 @@ describe("M44 user management", () => {
           [reviewEventId],
         );
         expect(contact.rows).toEqual([{ email: "new.event.reviewer@example.com", first_name: "New", last_name: "Reviewer" }]);
+        const link = await pglite.query<{ source: string; email: string }>(
+          `SELECT identity.source, contact.email
+           FROM user_contact_links identity
+           JOIN contacts contact ON contact.id=identity.contact_id AND contact.event_id=identity.event_id
+           WHERE identity.event_id=$1 AND identity.user_id=$2`,
+          [reviewEventId, inviteeId],
+        );
+        expect(link.rows).toEqual([{ source: "invitation", email: "new.event.reviewer@example.com" }]);
       } finally {
         await pglite.query("DELETE FROM events WHERE id=$1", [reviewEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
@@ -207,6 +218,15 @@ describe("M44 user management", () => {
       await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, reviewEventId]);
       await setOrganizationMemberIn(db, org.id, organizerId, "organizer");
       try {
+        const occupiedContactId = "e4400000-0000-4000-8000-000000000094";
+        await pglite.query(
+          "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'organizer@example.com','Occupied','Identity')",
+          [occupiedContactId, reviewEventId],
+        );
+        await pglite.query(
+          "INSERT INTO user_contact_links(user_id,event_id,contact_id,source) VALUES($1,$2,$3,'operator')",
+          [ownerId, reviewEventId, occupiedContactId],
+        );
         await testDb.transaction((tx) => inviteEventReviewerIn(
           tx as unknown as TxDb,
           reviewEventId,
@@ -226,6 +246,10 @@ describe("M44 user management", () => {
         if (!rawToken) throw new Error("expected a reviewer invitation token");
         await acceptOrganizationInvitationByTokenIn(db, rawToken, { userId: organizerId, email: "organizer@example.com" });
         await expect(getOrganizationMemberRoleIn(db, org.id, organizerId)).resolves.toBe("organizer");
+        await expect(resolveUserContactIn(db, reviewEventId, organizerId)).resolves.toEqual({
+          status: "ambiguous",
+          candidateContactIds: [occupiedContactId],
+        });
 
         await expect(testDb.transaction((tx) => inviteEventReviewerIn(
           tx as unknown as TxDb,

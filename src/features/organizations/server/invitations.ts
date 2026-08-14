@@ -544,7 +544,13 @@ async function finalizeAcceptanceIn(
       FROM claimed
       JOIN users account ON account.id = ${userId}::uuid
       WHERE claimed.event_id IS NOT NULL
-      ON CONFLICT (event_id, email) DO NOTHING
+      ON CONFLICT (event_id, email) DO UPDATE SET email = EXCLUDED.email
+      RETURNING id, event_id
+    ), reviewer_link AS (
+      INSERT INTO user_contact_links (user_id, event_id, contact_id, source)
+      SELECT ${userId}::uuid, reviewer_contact.event_id, reviewer_contact.id, 'invitation'
+      FROM reviewer_contact
+      ON CONFLICT DO NOTHING
       RETURNING event_id
     )
     SELECT membership.organization_id, membership.role, claimed.event_id
@@ -552,6 +558,7 @@ async function finalizeAcceptanceIn(
     JOIN claimed ON claimed.organization_id = membership.organization_id
     LEFT JOIN event_membership ON event_membership.event_id = claimed.event_id
     LEFT JOIN reviewer_contact ON reviewer_contact.event_id = claimed.event_id
+    LEFT JOIN reviewer_link ON reviewer_link.event_id = claimed.event_id
   `);
   const [row] = rowsOf<{ organization_id: string; role: MemberRole; event_id: string | null }>(result);
   if (!row) throw new AppError("VALIDATION", "That invitation is no longer valid, or accepting it would leave the organization without an owner");

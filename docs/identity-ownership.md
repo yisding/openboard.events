@@ -61,6 +61,11 @@ write/dual read, stable read, then removal of the legacy email join. Rollback is
 the reverse application order; the additive tables stay until no deployed
 version writes them.
 
+The compatibility release dual-writes event invitation acceptance and reminder
+provisioning. Reminder recipient discovery prefers `user_contact_links` and
+temporarily retains the legacy same-event email candidate, but enqueue first
+calls the resolver/writer and proceeds only after it returns `linked`.
+
 ## Boundary scenarios
 
 - Invitation acceptance may provision and link an event contact, but it never
