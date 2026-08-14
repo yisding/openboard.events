@@ -8,15 +8,30 @@ import type { FormSnapshot } from "@/shared/contracts";
  * away a wizard a speaker has half-filled, while a question that changed type or
  * lost its options would silently store an answer that no longer means anything.
  *
- * A field disappearing is compatible — the pipeline strips unknown answers
- * anyway. A field appearing is compatible unless it is required, because then
- * the speaker would submit something the form now considers incomplete.
+ * A field disappearing is normally compatible — the pipeline strips unknown
+ * answers anyway. Vocabulary-bound fields are the exception: their rendered
+ * snapshot can outlive the track/format row after the current authoring graph
+ * stops offering it, so the stale submission must refresh instead of trying a
+ * now-invalid foreign key.
  */
 export function isStructurallyCompatible(rendered: FormSnapshot, current: FormSnapshot): boolean {
   if (rendered.formId !== current.formId) return false;
 
   const renderedFields = new Map(rendered.sections.flatMap((section) => section.fields).map((field) => [field.id, field]));
   const currentFields = new Map(current.sections.flatMap((section) => section.fields).map((field) => [field.id, field]));
+
+  for (const [id, before] of renderedFields) {
+    const field = currentFields.get(id);
+    const carriesVocabulary = before.options.some((option) => option.trackId || option.formatId);
+    if (!field && carriesVocabulary) return false;
+    if (!field) continue;
+    const currentOptions = new Map(field.options.map((option) => [option.id, option]));
+    for (const option of before.options) {
+      const next = currentOptions.get(option.id);
+      if (!next) continue;
+      if (option.trackId !== next.trackId || option.formatId !== next.formatId) return false;
+    }
+  }
 
   for (const [id, field] of currentFields) {
     const before = renderedFields.get(id);

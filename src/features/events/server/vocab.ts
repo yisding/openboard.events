@@ -40,6 +40,94 @@ const PRIMARY_KEY_CONSTRAINTS: Record<VocabKind, string> = {
 
 type VocabDto = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 
+type VocabDependency = { id: string; name: string };
+
+function namedDependencies(label: string, rows: VocabDependency[]): string | null {
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, 5).map((row) => `“${row.name}”`).join(", ");
+  const remainder = rows.length > 5 ? ` and ${rows.length - 5} more` : "";
+  return `${label} ${shown}${remainder}`;
+}
+
+async function lockDeletionTarget(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string): Promise<boolean> {
+  const tableName = kind === "tracks" ? "tracks" : kind === "rooms" ? "rooms" : kind === "formats" ? "session_formats" : "tags";
+  const result = await dbOrTx.execute<{ id: string }>(sql`
+    SELECT target.id FROM ${sql.raw(tableName)} AS target
+    WHERE target.id = ${id} AND target.event_id = ${eventId}
+    FOR UPDATE
+  `);
+  return (result.rows ?? []).length > 0;
+}
+
+async function formDependencies(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  kind: "tracks" | "formats",
+  id: string,
+): Promise<VocabDependency[]> {
+  const binding = kind === "tracks" ? "trackId" : "formatId";
+  const result = await dbOrTx.execute<VocabDependency>(sql`
+    SELECT DISTINCT form.id, form.internal_name AS name
+    FROM forms AS form
+    WHERE form.event_id = ${eventId} AND (
+      (form.status = 'open' AND EXISTS (
+        SELECT 1 FROM form_fields AS field
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(field.options, '[]'::jsonb)) AS option
+        WHERE field.form_id = form.id AND field.event_id = form.event_id
+          AND field.deleted_at IS NULL AND option ->> ${binding} = ${id}
+      ))
+      OR ((form.status = 'open' OR EXISTS (
+        SELECT 1 FROM portal_tasks AS task
+        WHERE task.event_id = form.event_id AND task.form_id = form.id AND task.is_active
+      )) AND EXISTS (
+        SELECT 1 FROM form_versions AS version
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(version.snapshot -> 'sections', '[]'::jsonb)) AS section
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(section -> 'fields', '[]'::jsonb)) AS field
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(field -> 'options', '[]'::jsonb)) AS option
+        WHERE version.form_id = form.id AND version.event_id = form.event_id
+          AND version.version = (
+            SELECT max(latest.version) FROM form_versions AS latest
+            WHERE latest.form_id = form.id AND latest.event_id = form.event_id
+          )
+          AND option ->> ${binding} = ${id}
+      ))
+    )
+    ORDER BY name, id
+  `);
+  return result.rows ?? [];
+}
+
+async function evaluationDependencies(dbOrTx: DbOrTx, eventId: EventId, id: string): Promise<VocabDependency[]> {
+  const result = await dbOrTx.execute<VocabDependency>(sql`
+    SELECT DISTINCT plan.id, plan.name
+    FROM evaluation_plans AS plan
+    LEFT JOIN reviewer_assignments AS reviewer ON reviewer.plan_id = plan.id AND reviewer.event_id = plan.event_id
+    WHERE plan.event_id = ${eventId}
+      AND (${id}::uuid = ANY(COALESCE(plan.track_ids, '{}'::uuid[]))
+        OR ${id}::uuid = ANY(COALESCE(reviewer.track_ids, '{}'::uuid[])))
+    ORDER BY plan.name, plan.id
+  `);
+  return result.rows ?? [];
+}
+
+async function assertDeletionHasNoDependencies(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  kind: "tracks" | "formats",
+  id: string,
+): Promise<void> {
+  const forms = await formDependencies(dbOrTx, eventId, kind, id);
+  const rounds = kind === "tracks" ? await evaluationDependencies(dbOrTx, eventId, id) : [];
+  const named = [namedDependencies("forms", forms), namedDependencies("evaluation rounds", rounds)].filter(Boolean);
+  if (named.length === 0) return;
+  const label = kind === "tracks" ? "track" : "format";
+  throw new AppError(
+    "CONFLICT",
+    `This ${label} is still used by ${named.join(" and ")}. Remove it there before deleting it.`,
+    { forms, rounds },
+  );
+}
+
 function toDto(kind: VocabKind, row: Record<string, unknown>): VocabDto {
   switch (kind) {
     case "tracks": return trackDtoSchema.parse({ id: row.id, name: row.name, color: row.color, description: row.description, sortOrder: row.sortOrder });
@@ -276,6 +364,15 @@ export const patchVocabItem = (eventId: EventId, kind: VocabKind, id: string, in
  * double-click idempotent.
  */
 export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: VocabKind, id: string): Promise<void> {
+  // The reference guards installed by migration 0040 take FOR KEY SHARE when
+  // JSON/array dependencies are written. Taking FOR UPDATE here makes the
+  // dependency check and delete one serial order: a concurrent writer either
+  // commits first and is observed below, or waits and then rejects its missing
+  // vocabulary id. The production export keeps this lock through every cleanup.
+  if (!await lockDeletionTarget(dbOrTx, eventId, kind, id)) return;
+  if (kind === "tracks" || kind === "formats") {
+    await assertDeletionHasNoDependencies(dbOrTx, eventId, kind, id);
+  }
   const table = kind === "tracks" ? tracks : kind === "rooms" ? rooms : kind === "formats" ? sessionFormats : tags;
   const filterKey = kind === "tracks" ? "trackIds" : kind === "rooms" ? "roomIds" : kind === "formats" ? "formatIds" : null;
   if (filterKey) {

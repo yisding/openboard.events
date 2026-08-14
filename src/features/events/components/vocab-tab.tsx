@@ -3,8 +3,8 @@
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Plus, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { AlertTriangle, GripVertical, Plus, Trash2 } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z, type ZodType } from "zod";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/shared/contracts";
 import { Button, EmptyState } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -30,6 +31,11 @@ import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
 type VocabSaveResult = { ok: boolean; item: VocabItem };
+type DeleteRecovery = {
+  eventId: EventId;
+  kind: VocabKind;
+  item: VocabItem;
+};
 
 const deletedSchema = z.object({ deleted: z.boolean() });
 const reorderedSchema = z.object({ reordered: z.boolean() });
@@ -81,11 +87,12 @@ function hasDuration(item: VocabItem): item is SessionFormatDTO {
 }
 
 function Row({
-  item, reorderable, reorderDisabled, deleteDisabled, onSave, onDelete,
+  item, reorderable, reorderDisabled, mutationDisabled, deleteDisabled, onSave, onDelete,
 }: {
   item: VocabItem;
   reorderable: boolean;
   reorderDisabled: boolean;
+  mutationDisabled: boolean;
   deleteDisabled: boolean;
   onSave: (patch: Record<string, unknown>) => Promise<VocabSaveResult>;
   onDelete: () => void;
@@ -112,6 +119,7 @@ function Row({
         <input
           type="color"
           value={color}
+          disabled={mutationDisabled}
           className="vocab-color"
           aria-label={`Color for ${item.name}`}
           onChange={(event) => setColor(event.target.value)}
@@ -126,6 +134,7 @@ function Row({
       )}
       <input
         value={name}
+        disabled={mutationDisabled}
         aria-label="Name"
         onChange={(event) => setName(event.target.value)}
         onBlur={() => {
@@ -143,6 +152,7 @@ function Row({
           type="number"
           min={0}
           value={capacity}
+          disabled={mutationDisabled}
           aria-label="Capacity"
           placeholder="Capacity"
           onChange={(event) => setCapacity(event.target.value)}
@@ -162,6 +172,7 @@ function Row({
           min={5}
           max={600}
           value={duration}
+          disabled={mutationDisabled}
           aria-label="Default duration (minutes)"
           onChange={(event) => setDuration(Number(event.target.value))}
           onBlur={() => {
@@ -196,18 +207,31 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<VocabItem | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteRecovery, setDeleteRecovery] = useState<DeleteRecovery | null>(null);
   const [reordering, setReordering] = useState(false);
   const reorderPending = useRef(false);
   const reorderGeneration = useRef(0);
   const saveQueue = useRef(new KeyedSerialQueue());
   const persistedItems = useRef(new Map<string, VocabItem>(initialItems.map((item) => [item.id, item])));
+  const mutationLocked = deleteBusy || deleteRecovery !== null;
+  useUnsavedWorkGuard(mutationLocked, { blocking: mutationLocked });
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const applyAuthoritativeItems = useCallback((authoritative: VocabItem[]) => {
+    persistedItems.current = new Map(authoritative.map((item) => [item.id, item]));
+    setItems(authoritative);
+  }, []);
+
+  async function requestAuthoritativeItems(): Promise<VocabItem[]> {
+    return api(`events/${eventId}/vocab/${kind}`, z.array(dtoSchemaFor(kind)));
+  }
+
   async function addItem() {
-    if (!newName.trim()) return;
+    if (mutationLocked || !newName.trim()) return;
     setAdding(true);
     try {
       const created = await api(`events/${eventId}/vocab/${kind}`, dtoSchemaFor(kind), {
@@ -226,6 +250,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   }
 
   function saveItem(itemId: string, patch: Record<string, unknown>, fallbackItem: VocabItem): Promise<VocabSaveResult> {
+    if (mutationLocked) return Promise.resolve({ ok: false, item: persistedItems.current.get(itemId) ?? fallbackItem });
     return saveQueue.current.run(itemId, async () => {
       try {
         const saved = await api(`events/${eventId}/vocab/${kind}/${itemId}`, dtoSchemaFor(kind), {
@@ -244,29 +269,72 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   }
 
   async function confirmDelete() {
-    if (!pendingDelete || !canDeleteVocabItem(reorderPending.current)) return;
+    if (!pendingDelete || mutationLocked || !canDeleteVocabItem(reorderPending.current)) return;
     const removed = pendingDelete;
     const originalIndex = items.findIndex((item) => item.id === removed.id);
     setItems((current) => current.filter((row) => row.id !== removed.id));
     setPendingDelete(null);
+    setDeleteBusy(true);
     try {
       await api(`events/${eventId}/vocab/${kind}/${removed.id}`, deletedSchema, { method: "DELETE" });
       persistedItems.current.delete(removed.id);
       toast(`${removed.name} deleted`);
       router.refresh();
-    } catch {
+    } catch (caught) {
       setItems((current) => restoreFailedVocabDeletion(
         current,
         removed,
         originalIndex,
         persistedItems.current.get(removed.id),
       ));
-      toast("That delete failed — it has been restored", { kind: "error" });
+      if (isAppError(caught) && caught.code !== "INTERNAL") {
+        try {
+          applyAuthoritativeItems(await requestAuthoritativeItems());
+        } catch {
+          // A definitive DELETE rejection made no side effect; keep the last
+          // persisted row rather than pretending the failed refresh proved a
+          // different current list.
+        }
+        toast(caught.message, { kind: "error" });
+      } else {
+        setDeleteRecovery({ eventId, kind, item: removed });
+        toast("That deletion is unconfirmed. Keep this page open and retry the exact deletion.", { kind: "error" });
+      }
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function retryExactDelete() {
+    if (!deleteRecovery || deleteBusy) return;
+    const operation = deleteRecovery;
+    setDeleteBusy(true);
+    try {
+      await api(`events/${operation.eventId}/vocab/${operation.kind}/${operation.item.id}`, deletedSchema, { method: "DELETE" });
+      const authoritative = await requestAuthoritativeItems();
+      applyAuthoritativeItems(authoritative);
+      setDeleteRecovery(null);
+      toast(`Vocabulary checked: ${operation.item.name} is no longer in ${copy.title.toLowerCase()}.`);
+      router.refresh();
+    } catch (caught) {
+      if (isAppError(caught) && caught.code !== "INTERNAL") {
+        try {
+          applyAuthoritativeItems(await requestAuthoritativeItems());
+          setDeleteRecovery(null);
+          toast(caught.message, { kind: "error" });
+        } catch {
+          toast(`${caught.message} The current vocabulary could not be checked, so deletion recovery remains locked.`, { kind: "error" });
+        }
+      } else {
+        toast("The deletion is still unconfirmed. Restore your connection, then retry this exact deletion.", { kind: "error" });
+      }
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   async function onDragEnd(event: DragEndEvent) {
-    if (reorderPending.current) return;
+    if (mutationLocked || reorderPending.current) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = items.findIndex((item) => item.id === active.id);
@@ -303,6 +371,16 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         <h2>{copy.title}</h2>
         <p>Used consistently across forms, routing, review, and the published schedule.</p>
       </header>
+      {deleteRecovery && <div className="locked-banner" role="alert">
+        <AlertTriangle size={17} aria-hidden />
+        <div>
+          <b>Deletion outcome unconfirmed</b>
+          <span>We don’t know whether {deleteRecovery.item.name} was deleted. This list may be stale; other vocabulary changes and navigation are locked until the exact deletion is recovered.</span>
+        </div>
+        <Button size="sm" variant="secondary" disabled={deleteBusy} onClick={() => void retryExactDelete()}>
+          {deleteBusy ? "Retrying…" : "Retry exact deletion"}
+        </Button>
+      </div>}
       {items.length === 0 ? (
         <EmptyState icon={<Plus size={20} />} title={copy.empty} description={copy.emptyHint} />
       ) : (
@@ -311,14 +389,15 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
             <div className="vocab-list">
               {items.map((item) => (
                 <Row
-                  key={item.id}
+                  key={`${item.id}:${JSON.stringify(item)}`}
                   item={item}
                   reorderable={reorderable}
-                  reorderDisabled={reordering}
-                  deleteDisabled={!canDeleteVocabItem(reordering)}
+                  reorderDisabled={reordering || mutationLocked}
+                  mutationDisabled={mutationLocked}
+                  deleteDisabled={mutationLocked || !canDeleteVocabItem(reordering)}
                   onSave={(patch) => saveItem(item.id, patch, item)}
                   onDelete={() => {
-                    if (canDeleteVocabItem(reorderPending.current)) setPendingDelete(item);
+                    if (!mutationLocked && canDeleteVocabItem(reorderPending.current)) setPendingDelete(item);
                   }}
                 />
               ))}
@@ -331,15 +410,16 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
           value={newName}
           aria-label={`New ${copy.title.toLowerCase().slice(0, -1)} name`}
           placeholder={`Add ${copy.title.toLowerCase().slice(0, -1)}`}
+          disabled={mutationLocked}
           onChange={(event) => setNewName(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") void addItem(); }}
         />
-        <Button variant="secondary" disabled={adding} onClick={() => void addItem()}>
+        <Button variant="secondary" disabled={adding || mutationLocked} onClick={() => void addItem()}>
           <Plus size={15} /> Add
         </Button>
       </div>
       <ConfirmDialog
-        open={pendingDelete !== null}
+        open={pendingDelete !== null && deleteRecovery === null}
         title={`Delete ${pendingDelete?.name ?? "this item"}?`}
         body={
           kind === "tags"
@@ -348,7 +428,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         }
         confirmLabel="Delete"
         onConfirm={() => void confirmDelete()}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={() => { if (!mutationLocked) setPendingDelete(null); }}
       />
     </section>
   );

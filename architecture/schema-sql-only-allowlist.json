@@ -156,8 +156,14 @@
     "guard_crm_pipeline_creation_payload()",
     "guard_submission_transition()",
     "is_form_open(p_form_id uuid)",
+    "lock_form_runtime_vocab(p_event_id uuid, p_form_id uuid, p_include_authoring boolean)",
+    "lock_vocab_option_array(p_event_id uuid, p_options jsonb)",
     "mark_new_user_as_self_service()",
+    "validate_active_task_form_vocab()",
+    "validate_form_field_vocab_options()",
+    "validate_open_form_vocab()",
     "validate_routing_tag_scope_array()",
+    "validate_runtime_form_version_vocab()",
     "validate_track_scope_array()"
   ],
   "indexes": [
@@ -251,8 +257,12 @@
   },
   "triggers": [
     "evaluation_plans.evaluation_plans_track_scope_guard",
+    "form_fields.form_fields_vocab_options_guard",
+    "form_versions.form_versions_runtime_vocab_guard",
+    "forms.forms_open_vocab_guard",
     "organization_contact_pipeline.organization_contact_pipeline_capture_creation_payload",
     "organization_contact_pipeline.organization_contact_pipeline_guard_creation_payload",
+    "portal_tasks.portal_tasks_form_vocab_guard",
     "reviewer_assignments.reviewer_assignments_track_scope_guard",
     "reviews.reviews_capture_revision",
     "routing_rules.routing_rules_tag_scope_guard",
