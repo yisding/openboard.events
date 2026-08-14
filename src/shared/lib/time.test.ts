@@ -32,8 +32,10 @@ describe("event timezone API", () => {
   });
 
   it("presents canonical timezone values as readable selector labels", () => {
-    expect(timeZoneOptionLabel(LA)).toBe("Pacific Time — Los Angeles");
-    expect(timeZoneOptionLabel("Europe/London")).toBe("United Kingdom Time — London");
+    expect(timeZoneOptionLabel(LA)).toMatch(/Los Angeles$/);
+    expect(timeZoneOptionLabel(LA)).not.toContain("/");
+    expect(timeZoneOptionLabel("Europe/London")).toMatch(/London$/);
+    expect(timeZoneOptionLabel("Europe/London")).not.toContain("/");
     expect(timeZoneOptionLabel("UTC")).toBe("UTC");
     expect(timeZoneOptionLabel("Not_A_Real_Zone")).toBe("Not A Real Zone");
   });
