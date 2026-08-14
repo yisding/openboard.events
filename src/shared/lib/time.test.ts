@@ -33,7 +33,7 @@ describe("event timezone API", () => {
 
   it("accepts Intl style shortcuts without mixing component options", () => {
     expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { dateStyle: "medium" })).toBe("Oct 15, 2026");
-    expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { timeStyle: "short" })).toBe("12:00 PM PDT");
+    expect(formatInZone("2026-10-15T19:00:00.000Z", LA, { timeStyle: "short" })).toBe("12:00 PM");
   });
 
   it("keeps date-only component formats free of a dangling zone joiner", () => {

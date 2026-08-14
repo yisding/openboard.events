@@ -4,12 +4,15 @@ import { Dash } from "./dash";
 
 export function formatTzTime(instant: Date | string | number, tz: string, style: TimeStyle): string {
   const value = formatInZone(instant, tz, style);
+  const usesStyleShortcut = typeof style === "object"
+    && (style.dateStyle !== undefined || style.timeStyle !== undefined);
   const needsZone = typeof style === "object"
     && style.timeZoneName === undefined
-    && style.timeStyle === undefined
-    && style.hour === undefined
-    && style.minute === undefined
-    && style.second === undefined;
+    && (usesStyleShortcut || (
+      style.hour === undefined
+      && style.minute === undefined
+      && style.second === undefined
+    ));
   return needsZone ? `${value} ${zoneAbbreviation(instant, tz)}` : value;
 }
 

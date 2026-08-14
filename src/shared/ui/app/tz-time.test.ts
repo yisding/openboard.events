@@ -12,6 +12,11 @@ describe("TzTime", () => {
       "America/Los_Angeles",
       { dateStyle: "medium" },
     )).toBe("Oct 15, 2026 PDT");
+    expect(formatTzTime(
+      "2026-10-15T19:00:00.000Z",
+      "America/Los_Angeles",
+      { timeStyle: "short" },
+    )).toBe("12:00 PM PDT");
   });
 
   it("renders one zone token across a two-line table timestamp", () => {
