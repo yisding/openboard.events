@@ -27,9 +27,13 @@ async function waitForPublicContent(
   const startedAt = Date.now();
   await expect.poll(async () => {
     const results = await Promise.all(paths.map(async (path) => {
-      const response = await request.get(path, { timeout: Math.min(timeoutMs, 5_000) });
-      const body = await response.text();
-      return response.status() === 200 && body.includes(expected) ? null : `${path} (${response.status()})`;
+      try {
+        const response = await request.get(path, { timeout: Math.min(timeoutMs, 5_000) });
+        const body = await response.text();
+        return response.status() === 200 && body.includes(expected) ? null : `${path} (${response.status()})`;
+      } catch {
+        return `${path} (request timed out)`;
+      }
     }));
     return results.filter((result): result is string => result !== null);
   }, {
@@ -509,6 +513,8 @@ test.describe("self-service signup to first value", () => {
     const proposalTitle = `E2E First Proposal ${stamp}`;
     let submissionCode = "";
     await test.step("a speaker verifies and submits through the returned CFP", async () => {
+      const publicEventSlug = new URL(publicLink).pathname.split("/").at(-2) ?? "";
+      expect(publicEventSlug).not.toEqual("");
       const publicContext = await browser.newContext();
       const publicPage = await publicContext.newPage();
       publicPage.setDefaultTimeout(30_000);
@@ -552,10 +558,20 @@ test.describe("self-service signup to first value", () => {
         await publicPage.getByLabel("Last Name").fill("Speaker");
         await publicPage.getByRole("button", { name: /^review$/i }).click();
         await expect(publicPage.getByText(proposalTitle, { exact: true })).toBeVisible();
+        const submitResponsePromise = publicPage.waitForResponse((response) =>
+          new URL(response.url()).pathname === `/api/internal/forms/${formId}/submit`
+          && response.request().method() === "POST");
         await publicPage.getByRole("button", { name: /^submit$/i }).click();
-        await expect(publicPage.getByRole("heading", { name: /your submission is in/i })).toBeVisible({ timeout: 30_000 });
-        submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
+        const submitResponse = await submitResponsePromise;
+        const submitBody = await submitResponse.json().catch(() => null) as { data?: { code?: number } } | null;
+        expect(submitResponse.ok(), `submit rejected (${submitResponse.status()}): ${JSON.stringify(submitBody)}`).toBe(true);
+        submissionCode = `SESS-${submitBody?.data?.code ?? ""}`;
         expect(submissionCode).toMatch(/^SESS-\d+$/);
+        await expect.poll(async () =>
+          await publicPage.getByRole("heading", { name: /your submission is in/i }).isVisible().catch(() => false)
+          || new URL(publicPage.url()).pathname === `/portal/${publicEventSlug}`,
+        { message: "submission success should render before its documented portal redirect", timeout: 30_000 })
+          .toBe(true);
       } finally {
         // Preserve the failed interaction as the primary error if Playwright
         // has already ended the test; teardown should never mask its locator.
