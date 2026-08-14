@@ -34,7 +34,9 @@ export function sanitizeTemplateBody(bodyHtml: string): string {
 
   const replacements: Array<{ placeholder: string; token: string }> = [];
   function protect(prefix: string, path: string): string {
-    const placeholder = `${placeholderPrefix}${replacements.length}`;
+    // The closing slash makes every placeholder exact: `token-1/` cannot
+    // prefix-match `token-10/` when replacements are restored in order.
+    const placeholder = `${placeholderPrefix}token-${replacements.length}/`;
     const token = `{{${path}}}`;
     replacements.push({ placeholder, token });
     return `${prefix}"${placeholder}"`;

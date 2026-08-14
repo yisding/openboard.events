@@ -32,4 +32,26 @@ describe("templateBodyForMode", () => {
     expect(rich).toContain("<a>Not a URL token</a>");
     expect(rich).toContain("<a>Unsafe</a>");
   });
+
+  it("restores more than ten merge-token links without overlapping placeholders", () => {
+    const paths = [
+      "portal.magic_link",
+      "unsubscribe.url",
+      "calendar.google_url",
+      "calendar.outlook_url",
+      "calendar.download_url",
+      "review.queue_url",
+      "portal.magic_link",
+      "unsubscribe.url",
+      "calendar.google_url",
+      "portal.magic_link",
+      "review.queue_url",
+      "unsubscribe.url",
+    ];
+    const source = paths.map((path, index) => `<a href="{{${path}}}">Link ${index}</a>`).join("");
+
+    const rich = templateBodyForMode(source, "rich");
+    paths.forEach((path, index) => expect(rich).toContain(`<a href="{{${path}}}">Link ${index}</a>`));
+    expect(rich).not.toMatch(/\}\}\d/gu);
+  });
 });
