@@ -96,6 +96,16 @@ cross-identity boundaries, while the final AST guard resolves renamed imports,
 namespace imports, and table aliases before rejecting feature-local email
 joins.
 
+The public-cache workstream is complete in PR #414. Public schedule, speaker,
+event-metadata, and embed reads use stable event-scoped domain tags with a
+60-second recovery bound; committed writers invalidate only the affected
+domains after their database work succeeds. Public embed reads are side-effect
+free, including the legacy speaker-list fallback dependency. Preview canary run
+31822004587 warmed every canonical, legacy, and embed alias, changed schedule,
+speaker, event, and embed state, and observed each result inside the 10-second
+mutation budget. The run also proved that React's server-rendered hydration
+markers must be removed before comparing visible text in raw HTML.
+
 ## Sequencing and workstreams
 
 ### 1. Establish architectural and schema guardrails
@@ -266,6 +276,10 @@ Exit criteria:
 - Every public surface has a named tag and freshness service level.
 - Preview tests prove invalidation for all aliases and embeds.
 
+Status: complete in PR #414. Mutation coverage is behavioral rather than
+source-shape based, and route exports identify the writer under test by HTTP
+method so declaration reordering cannot silently change the assertion target.
+
 ### 8. Move staging objects to a lifecycle-compatible R2 prefix
 
 Introduce `staging/evt_<eventId>/...` keys and version the key parser. New
@@ -321,11 +335,11 @@ Exit criteria:
 4. Worker artifact compatibility hardening (completed in PR #386).
 5. Shared outbox engine and private scheduled invocation (completed in PRs
    #389, #396, and #403).
-6. Client consistency (completed in PRs #404, #405, #406, and #408); public
-   cache invalidation remains a separate workstream.
+6. Client consistency (completed in PRs #404, #405, #406, and #408).
 7. Identity link model and staged backfill (completed in PRs #410, #411, and
    #412).
-8. Public-cache invalidation and deployed alias/embed verification.
+8. Public-cache invalidation and deployed alias/embed verification (completed
+   in PR #414).
 9. R2 key migration and lifecycle enablement.
 10. Sign-in capacity controls and DMARC enforcement.
 
