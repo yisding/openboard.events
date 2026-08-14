@@ -8,7 +8,6 @@ import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { BULK_REMINDER_TARGET_LIMIT } from "@/shared/contracts";
 import type { AdminTaskAssignmentDTO, AdminTaskDTO } from "../server/queries";
 import { taskMutation } from "./task-mutation";
 
@@ -120,10 +119,6 @@ export function TaskMatrixDrawer({
     const openRows = rows ?? [];
     const targets = openRows.filter((row) => !row.completed && selected.has(assignmentKey(row)));
     if (targets.length === 0) return;
-    if (targets.length > BULK_REMINDER_TARGET_LIMIT) {
-      toast(`Send reminders to up to ${BULK_REMINDER_TARGET_LIMIT} assignees at a time. Your selection is still available.`, { kind: "error" });
-      return;
-    }
     await reminderRecovery.start(targets.map((row) => ({ taskId: task.id, contactId: row.contactId, submissionId: row.submissionId })));
   }
 

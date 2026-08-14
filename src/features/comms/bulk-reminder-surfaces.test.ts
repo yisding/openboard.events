@@ -16,7 +16,6 @@ describe("bulk reminder client adoption", () => {
     expect(text).toContain(call);
     expect(text).toContain("onAcknowledged: clearReminderSelection");
     expect(text).toContain("getSelectionFingerprint:");
-    expect(text).toContain("BULK_REMINDER_TARGET_LIMIT");
     expect(text).not.toContain("JSON.stringify({ targets:");
   });
 
@@ -28,7 +27,12 @@ describe("bulk reminder client adoption", () => {
     expect(page).toContain("onAcknowledged:");
     expect(page).toContain("<BulkReminderRecoveryDialog controller={reminderRecovery} />");
     expect(drawer).toContain("reminderRecovery.start(targets.map");
-    expect(drawer).toContain("BULK_REMINDER_TARGET_LIMIT");
     expect(drawer).not.toContain("JSON.stringify({ targets:");
+  });
+
+  it("enforces the reminder-only target limit once in the shared controller", () => {
+    const controller = source("./components/bulk-reminder-recovery.tsx");
+    expect(controller).toContain("targets.length > BULK_REMINDER_TARGET_LIMIT");
+    expect(controller).toContain("Your selection is still available.");
   });
 });

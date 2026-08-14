@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   bulkReminderResultSchema,
   type BulkReminderResult,
   type BulkReminderTarget,
@@ -263,6 +264,10 @@ export function useBulkReminderRecovery({
   }, [complete, eventId, persistConfirmed, toast, updateRecovery]);
 
   const start = useCallback(async (targets: readonly BulkReminderTarget[]): Promise<boolean> => {
+    if (targets.length > BULK_REMINDER_TARGET_LIMIT) {
+      toast(`Send reminders to up to ${BULK_REMINDER_TARGET_LIMIT} assignments at a time. Your selection is still available.`, { kind: "error" });
+      return false;
+    }
     const locked = await withBulkReminderRecoveryLock(eventId, bulkReminderRecoveryLockManager(), async () => {
       const storage = bulkReminderRecoveryStorage();
       if (!storage) {

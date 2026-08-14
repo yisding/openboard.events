@@ -4,7 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BULK_REMINDER_TARGET_LIMIT, type DeliverableRowDTO, type EventId, type FileCommentDTO, type FileExportJobDTO, type FileVersionDTO } from "@/shared/contracts";
+import type { DeliverableRowDTO, EventId, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
 import { BulkReminderRecoveryDialog, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
 import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limit";
@@ -291,10 +291,6 @@ export function FilesAdminView({
       return;
     }
     const frozenTargets = deliverableBulkTargets(targets);
-    if (frozenTargets.length > BULK_REMINDER_TARGET_LIMIT) {
-      toast(`Send reminders to up to ${BULK_REMINDER_TARGET_LIMIT} assignments at a time. Your selection is still available.`, { kind: "error" });
-      return;
-    }
     await reminderRecovery.start(frozenTargets);
   }
 
