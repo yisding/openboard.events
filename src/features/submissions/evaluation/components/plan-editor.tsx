@@ -213,7 +213,8 @@ export function PlanEditor({
   const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
   const [persistedPlanId, setPersistedPlanId] = useState<string | null>(plan?.id ?? null);
   const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(plan?.updatedAt);
-  const [criteriaAuthority, setCriteriaAuthority] = useState<PlanDTO["criteria"]>(() => plan?.criteria ?? []);
+  const [loadedLatestPlan, setLoadedLatestPlan] = useState<PlanDTO | null>(null);
+  const [windowEditRevision, setWindowEditRevision] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
@@ -221,11 +222,17 @@ export function PlanEditor({
   const [reviewerRecoveryLoaded, setReviewerRecoveryLoaded] = useState(false);
   const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
   const { runGuarded } = useGuardedAction();
+  const authoritativePlan = loadedLatestPlan && (!plan || new Date(loadedLatestPlan.updatedAt) >= new Date(plan.updatedAt))
+    ? loadedLatestPlan
+    : plan;
+  const assignmentWindow = !authoritativePlan || windowEditRevision === authoritativePlan.updatedAt
+    ? draft
+    : authoritativePlan;
   const dirty = pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline);
   const reviewerAssignmentsChanged = !sameReviewerAssignments(draft.reviewers, baseline.reviewers);
   const trackScopeChanged = !sameStringSet(draft.trackIds, baseline.trackIds);
   const assignmentEditsChanged = reviewerAssignmentsChanged || trackScopeChanged;
-  const assignmentLock = assignmentLockReason(draft, new Date(assignmentNowMs));
+  const assignmentLock = assignmentLockReason(assignmentWindow, new Date(assignmentNowMs));
   const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
 
   useUnsavedWorkGuard(dirty);
@@ -235,12 +242,12 @@ export function PlanEditor({
     const refreshLock = () => {
       const nowMs = Date.now();
       setAssignmentNowMs(nowMs);
-      const delay = nextAssignmentLockRefreshMs([{ status: draft.status, closesAt: draft.closesAt }], nowMs);
+      const delay = nextAssignmentLockRefreshMs([{ status: assignmentWindow.status, closesAt: assignmentWindow.closesAt }], nowMs);
       if (delay !== null) timer = window.setTimeout(refreshLock, delay);
     };
     refreshLock();
     return () => { if (timer !== null) window.clearTimeout(timer); };
-  }, [draft.closesAt, draft.status]);
+  }, [assignmentWindow.closesAt, assignmentWindow.status]);
 
   const patch = (next: Partial<PlanDraft>) => setDraft((current) => ({ ...current, ...next }));
 
@@ -249,19 +256,21 @@ export function PlanEditor({
   }
 
   function changeStatus(status: PlanDTO["status"]): void {
-    if (assignmentEditsChanged && assignmentLockReason({ status, closesAt: draft.closesAt })) {
+    if (assignmentEditsChanged && assignmentLockReason({ status, closesAt: assignmentWindow.closesAt })) {
       refuseTerminalAssignmentEdits();
       return;
     }
-    patch({ status });
+    setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
+    patch({ status, closesAt: assignmentWindow.closesAt });
   }
 
   function changeClosesAt(closesAt: string | null): void {
-    if (assignmentEditsChanged && assignmentLockReason({ status: draft.status, closesAt })) {
+    if (assignmentEditsChanged && assignmentLockReason({ status: assignmentWindow.status, closesAt })) {
       refuseTerminalAssignmentEdits();
       return;
     }
-    patch({ closesAt });
+    setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
+    patch({ status: assignmentWindow.status, closesAt });
   }
 
   function closeEditor() {
@@ -291,7 +300,8 @@ export function PlanEditor({
       setDraft((current) => ({ ...latestBaseline, reviewers: current.reviewers }));
       setPersistedPlanId(latest.id);
       setExpectedUpdatedAt(latest.updatedAt);
-      setCriteriaAuthority(latest.criteria);
+      setLoadedLatestPlan(latest);
+      setWindowEditRevision(null);
       setPendingReviewerPlanId(null);
       setReviewerLockConflict(false);
       setReviewerRecoveryLoaded(true);
@@ -301,7 +311,7 @@ export function PlanEditor({
   }
 
   async function save() {
-    if (assignmentEditsChanged && assignmentLockReason(draft)) {
+    if (assignmentEditsChanged && assignmentLockReason(assignmentWindow)) {
       refuseTerminalAssignmentEdits();
       return;
     }
@@ -314,11 +324,11 @@ export function PlanEditor({
         round: draft.round,
         scaleMin: draft.scaleMin,
         scaleMax: draft.scaleMax,
-        status: draft.status,
+        status: assignmentWindow.status,
         // Empty means every track, which the server stores as NULL.
         trackIds: draft.trackIds.length === 0 ? null : draft.trackIds,
         opensAt: draft.opensAt,
-        closesAt: draft.closesAt,
+        closesAt: assignmentWindow.closesAt,
         anonymizeAuthors: draft.anonymizeAuthors,
         showPeerScores: draft.showPeerScores,
         criteria: draft.criteria.map((criterion) => ({
@@ -328,7 +338,7 @@ export function PlanEditor({
           kind: criterion.kind,
           required: criterion.required,
           options: criterion.kind === "select"
-            ? parseOptions(criterion.optionsText, criteriaAuthority.find((entry) => entry.id === criterion.id)?.options ?? [])
+            ? parseOptions(criterion.optionsText, authoritativePlan?.criteria.find((entry) => entry.id === criterion.id)?.options ?? [])
             : [],
         })),
         // Optimistic concurrency, so a second organizer's edit is a conflict
@@ -434,7 +444,7 @@ export function PlanEditor({
             <DateTimePicker value={draft.opensAt} onChange={(opensAt) => patch({ opensAt })} tz={timezone} />
           </Field>
           <Field label="Closes" hint="Saving stops at this moment; prior work stays readable">
-            <DateTimePicker value={draft.closesAt} onChange={changeClosesAt} tz={timezone} />
+            <DateTimePicker value={assignmentWindow.closesAt} onChange={changeClosesAt} tz={timezone} />
           </Field>
         </div>
 
@@ -463,7 +473,7 @@ export function PlanEditor({
         </div>
 
         <Field label="Status">
-          <Select value={draft.status} onChange={(event) => changeStatus(event.target.value === "closed" ? "closed" : "open")}>
+          <Select value={assignmentWindow.status} onChange={(event) => changeStatus(event.target.value === "closed" ? "closed" : "open")}>
             <option value="open">Open — reviewers can score</option>
             <option value="closed">Closed — scores are final</option>
           </Select>

@@ -108,8 +108,11 @@ export function AssignmentDrawer({
   const router = useRouter();
   const { toast } = useToast();
   const targetKey = `${eventId}:${plan.id}`;
+  const loadKey = `${targetKey}:${plan.updatedAt}:${plan.trackIds?.join(",") ?? "all"}`;
   const currentTargetRef = useRef(targetKey);
   currentTargetRef.current = targetKey;
+  const currentLoadRef = useRef(loadKey);
+  currentLoadRef.current = loadKey;
   const [submissions, setSubmissions] = useState<AssignableSubmission[] | null>(null);
   const [loadedTarget, setLoadedTarget] = useState<string | null>(null);
   const [loadFailure, setLoadFailure] = useState<AssignmentLoadFailure | null>(null);
@@ -166,23 +169,33 @@ export function AssignmentDrawer({
       return;
     }
     let cancelled = false;
-    const loadTarget = targetKey;
+    const loadTarget = loadKey;
+    setSubmissions(null);
+    setLoadedTarget(null);
     setLoadFailure(null);
+    setConfirmEmptyReplace(false);
     fetch(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`)
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as AssignmentLoadPayload | null;
-        if (cancelled || currentTargetRef.current !== loadTarget) return;
+        if (cancelled || currentLoadRef.current !== loadTarget) return;
         if (!response.ok || !payload?.data) {
           setSubmissions(null);
           setLoadFailure(responseLoadFailure(response, payload));
         } else {
           setLoadFailure(null);
           setSubmissions(payload.data.submissions);
+          setSelected((current) => keepShownAssignmentSelection(
+            current,
+            payload.data?.submissions.map((submission) => submission.submissionId) ?? [],
+          ));
+          setTrackFilter((current) => current === "" || payload.data?.submissions.some((submission) => submission.trackId === current)
+            ? current
+            : "");
           setLoadedTarget(loadTarget);
         }
       })
       .catch(() => {
-        if (!cancelled && currentTargetRef.current === loadTarget) {
+        if (!cancelled && currentLoadRef.current === loadTarget) {
           setSubmissions(null);
           setLoadFailure({
             message: "Could not load this round's submissions. Check your connection and try again.",
@@ -191,10 +204,10 @@ export function AssignmentDrawer({
         }
       })
       .finally(() => {
-        if (!cancelled && currentTargetRef.current === loadTarget) setRetrying(false);
+        if (!cancelled && currentLoadRef.current === loadTarget) setRetrying(false);
       });
     return () => { cancelled = true; };
-  }, [assignmentLock, eventId, plan.id, targetKey, loadEpoch]);
+  }, [assignmentLock, eventId, plan.id, loadKey, loadEpoch]);
 
   function retryLoad() {
     if (!loadFailure?.retryable || retrying) return;
@@ -222,7 +235,7 @@ export function AssignmentDrawer({
 
   const selectedReviewers = plan.reviewers.filter((reviewer) => reviewerIds.includes(reviewer.userId));
   const currentAssignmentCount = selectedReviewers.reduce((total, reviewer) => total + reviewer.assigned, 0);
-  const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
+  const assignmentsLoaded = submissions !== null && loadedTarget === loadKey;
   const controlsDisabled = assignmentLock !== null || !assignmentsLoaded || Boolean(loadFailure) || busy;
   const canAssign = canSubmitAssignments({
     locked: assignmentLock !== null,
@@ -240,7 +253,7 @@ export function AssignmentDrawer({
       toast(assignmentGuidance, { kind: "error" });
       return false;
     }
-    if (!submissions || loadFailure || loadedTarget !== targetKey) {
+    if (!submissions || loadFailure || loadedTarget !== loadKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return false;
     }
@@ -273,7 +286,7 @@ export function AssignmentDrawer({
   }
 
   async function assign() {
-    if (!submissions || loadFailure || loadedTarget !== targetKey) {
+    if (!submissions || loadFailure || loadedTarget !== loadKey) {
       toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
       return;
     }

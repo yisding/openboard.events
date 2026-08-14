@@ -149,6 +149,34 @@ describe("evaluation assignment drawer loading recovery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("reloads candidates for a refreshed scope and keeps only still-eligible selections", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A, SUBMISSION_B] } }));
+    await renderDrawer(PLAN_A);
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 2")?.disabled).toBe(false);
+
+    let resolveRefresh!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => { resolveRefresh = resolve; }));
+    await renderDrawer({
+      ...PLAN_A,
+      trackIds: ["c4200000-0000-4000-8004-000000000099" as NonNullable<PlanDTO["trackIds"]>[number]],
+      updatedAt: "2026-08-13T13:00:00.000Z",
+    });
+
+    expect(container.textContent).toContain("Loading this round’s submissions…");
+    expect(buttonNamed("Assign 2")?.disabled).toBe(true);
+
+    resolveRefresh(Response.json({ data: { submissions: [SUBMISSION_B] } }));
+    await settle();
+
+    expect(container.textContent).not.toContain(SUBMISSION_A.title);
+    expect(container.textContent).toContain(SUBMISSION_B.title);
+    expect(container.textContent).toContain("1 submission selected from 1 shown.");
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("locks an open drawer at its close deadline without waiting for another render", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));

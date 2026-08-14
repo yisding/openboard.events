@@ -84,7 +84,7 @@ export function PlansView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [editing, setEditing] = useState<PlanDTO | null>(null);
+  const [editingPlanId, setEditingPlanId] = useState<PlanDTO["id"] | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PlanDTO | null>(null);
@@ -99,6 +99,9 @@ export function PlansView({
   const assigning = assigningPlanId === null
     ? null
     : plans.find((plan) => plan.id === assigningPlanId) ?? null;
+  const editing = editingPlanId === null
+    ? null
+    : plans.find((plan) => plan.id === editingPlanId) ?? null;
 
   useEffect(() => {
     const refreshProgress = () => router.refresh();
@@ -339,7 +342,7 @@ export function PlansView({
               </span>
             : <Button size="sm" variant="secondary" onClick={() => setAssigningPlanId(row.original.id)}>Assign</Button>}
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => openReminderPreflight(row.original)}>Remind</Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(row.original)}>Edit</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditingPlanId(row.original.id)}>Edit</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(row.original)}>Delete</Button>
         </span>;
       },
@@ -386,7 +389,7 @@ export function PlansView({
           members={members}
           nextRound={nextRound}
           timezone={timezone}
-          onClose={() => { setCreating(false); setEditing(null); }}
+          onClose={() => { setCreating(false); setEditingPlanId(null); }}
         />
       )}
 

@@ -94,6 +94,11 @@ function rowButton(round: string, name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
+function editorStatusSelect(): HTMLSelectElement | undefined {
+  return [...container.querySelectorAll<HTMLSelectElement>("select")]
+    .find((select) => [...select.options].some((option) => option.textContent?.includes("scores are final")));
+}
+
 beforeEach(() => {
   routerMock.refresh.mockReset();
   toastMock.mockReset();
@@ -144,6 +149,24 @@ describe("evaluation reminder exact-recipient preflight", () => {
 
     expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives an open editor's assignment lock from refreshed close and extend props", async () => {
+    await renderPlans([PLAN_A]);
+    await act(async () => rowButton("Round A", "Edit")?.click());
+    await settle();
+    expect(container.textContent).toContain("Edit Round A");
+    expect(container.textContent).not.toContain("Track and reviewer assignments are locked.");
+
+    await renderPlans([{ ...PLAN_A, status: "closed", updatedAt: "2026-08-13T13:00:00.000Z" }]);
+    expect(container.textContent).toContain("Track and reviewer assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(editorStatusSelect()?.value).toBe("closed");
+
+    await renderPlans([{ ...PLAN_A, status: "open", updatedAt: "2026-08-13T14:00:00.000Z" }]);
+    expect(container.textContent).toContain("Edit Round A");
+    expect(container.textContent).not.toContain("Track and reviewer assignments are locked.");
+    expect(editorStatusSelect()?.value).toBe("open");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("locks the assignment entry point when its deadline passes on screen", async () => {
