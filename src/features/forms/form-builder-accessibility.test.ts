@@ -101,6 +101,28 @@ describe("form builder accessibility", () => {
     expect(source).toContain("confirmDisabled={availabilityRecovery !== null || participantStepRecovery !== null}");
   });
 
+  it("separates version publishing from form availability and removes the duplicate footer save", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+    expect(source).toContain('className="builder-edit-actions" role="group" aria-label="Form editing actions"');
+    expect(source).toContain('aria-label="Copy live form link" title="Copy live form link"');
+    expect(source).toContain('aria-label="Preview form" title="Preview form"');
+    expect(source).toContain('id="publish-form-version" aria-label="Publish the current step as a new immutable form version"');
+    expect(source).toContain('onClick={() => void saveStep()}');
+    expect(source).toContain('className="builder-lifecycle-actions" role="group" aria-label="Form availability"');
+    expect(source).toContain('<CircleStop size={16} />');
+    expect(source).toContain("const availabilityActionLabel = formAvailabilityActionLabel(");
+    expect(source).toContain("<span className=\"builder-action-label\">{availabilityActionLabel}</span>");
+    expect(source).toContain('href="#publish-form-version"');
+    expect(source).toContain("Every publish creates a new immutable version.");
+    expect(source).not.toContain("Save step</Button>");
+    expect(css).toContain(".builder-lifecycle-actions{padding-left:12px");
+    const tabletRules = css.slice(css.indexOf("@media(max-width:1280px){.builder-title"), css.indexOf("@media(max-width:1024px){.cfp-welcome"));
+    expect(tabletRules).toContain(".builder-action-label{display:none}");
+    expect(tabletRules).toContain(".builder-edit-actions>.button,.builder-lifecycle-actions>.button{width:36px");
+  });
+
   it("keeps a new-question draft open when its save fails", () => {
     const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
     expect(source).toContain("const added = await run(");
