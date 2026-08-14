@@ -38,8 +38,10 @@ describe("AST source invariants", () => {
       "src/app/page.tsx": "export const configured = process.env.NODE_ENV;",
       "src/features/comms/server/send.ts": 'import("resend");',
       "src/shared/lib/env.ts": 'export const value = process["env"].VALUE;',
+      "src/shared/lib/query-client.ts": 'import { QueryClient } from "@tanstack/react-query"; export const client = new QueryClient();',
       "src/shared/lib/time.ts": 'export { format } from "date-fns";',
       "src/shared/server/r2.ts": 'import { AwsClient } from "aws4fetch"; export const FILES = AwsClient;',
+      "src/shared/ui/app/query-boundary.tsx": 'import { QueryClientProvider } from "@tanstack/react-query"; export const Boundary = QueryClientProvider;',
       "src/shared/ui/app/rich-text-view.tsx": "export const View = () => <div dangerouslySetInnerHTML={{ __html: '' }} />;",
       "src/shared/ui/ui-kit.tsx": 'export const Kit = () => <select role={"switch"} />;',
     });
@@ -116,5 +118,45 @@ describe("AST source invariants", () => {
     const result = check(root);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("[submission-event-lock]");
+  });
+
+  it("rejects split query ownership and mixed route refreshes", () => {
+    const root = fixture({
+      "src/features/example/view.tsx": `
+        import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+        export function View() {
+          const router = useRouter();
+          const queryClient = useQueryClient();
+          useQuery({ queryKey: (["example", "list"] as const), queryFn: load, initialData: [] });
+          queryClient.invalidateQueries({ queryKey: ["example", "list"] });
+          router.refresh();
+          return <QueryClientProvider client={new QueryClient()} />;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    for (const rule of ["query-client-owner", "query-key-literal", "query-initial-data", "mixed-cache-refresh"]) {
+      expect(result.stderr).toContain(`[${rule}]`);
+    }
+  });
+
+  it("rejects shorthand local query keys and initial data", () => {
+    const root = fixture({
+      "src/features/example/view.tsx": `
+        import { useQuery } from "@tanstack/react-query";
+        export function View({ initialData }) {
+          const queryKey = (["example", "list"] as const);
+          useQuery({ queryKey, queryFn: load, initialData });
+          return null;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[query-key-literal\]/gu)).toHaveLength(1);
+    expect(result.stderr.match(/\[query-initial-data\]/gu)).toHaveLength(1);
   });
 });
