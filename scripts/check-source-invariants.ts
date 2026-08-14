@@ -183,6 +183,24 @@ function unwrapExpression(node: ts.Expression): ts.Expression {
   return node;
 }
 
+function shorthandInitializer(node: ts.ShorthandPropertyAssignment): ts.Expression | undefined {
+  let parent: ts.Node | undefined = node.parent;
+  while (parent) {
+    if (ts.isBlock(parent) || ts.isSourceFile(parent)) {
+      for (const statement of [...parent.statements].reverse()) {
+        if (statement.getStart() >= node.getStart() || !ts.isVariableStatement(statement)) continue;
+        for (const declaration of [...statement.declarationList.declarations].reverse()) {
+          if (ts.isIdentifier(declaration.name) && declaration.name.text === node.name.text) {
+            return declaration.initializer;
+          }
+        }
+      }
+    }
+    parent = parent.parent;
+  }
+  return undefined;
+}
+
 function reviewerRouteAllowed(path: string): boolean {
   return /^src\/app\/api\/internal\/submissions\/[^/]+\/[^/]+\/route\.ts$/u.test(path)
     || /^src\/app\/api\/internal\/evaluation\/[^/]+\/(?:queue|reviews)\/route\.ts$/u.test(path)
@@ -261,9 +279,13 @@ function inspectFile(absolutePath: string): Violation[] {
 
     if (
       !isTestFile
-      && ts.isPropertyAssignment(node)
+      && (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
       && propertyName(node.name) === "queryKey"
-      && ts.isArrayLiteralExpression(unwrapExpression(node.initializer))
+      && ts.isArrayLiteralExpression(unwrapExpression(
+        ts.isPropertyAssignment(node)
+          ? node.initializer
+          : shorthandInitializer(node) ?? node.name,
+      ))
     ) {
       report(node, "query-key-literal", "build query keys with the owning feature's key factory");
     }
@@ -288,7 +310,10 @@ function inspectFile(absolutePath: string): Violation[] {
         const options = node.arguments[0];
         if (options && ts.isObjectLiteralExpression(options)) {
           for (const option of options.properties) {
-            if (ts.isPropertyAssignment(option) && propertyName(option.name) === "initialData") {
+            if (
+              (ts.isPropertyAssignment(option) || ts.isShorthandPropertyAssignment(option))
+              && propertyName(option.name) === "initialData"
+            ) {
               report(option, "query-initial-data", "hydrate the feature key through QueryBoundary instead of useQuery initialData");
             }
           }

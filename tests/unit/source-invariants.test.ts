@@ -141,4 +141,22 @@ describe("AST source invariants", () => {
       expect(result.stderr).toContain(`[${rule}]`);
     }
   });
+
+  it("rejects shorthand local query keys and initial data", () => {
+    const root = fixture({
+      "src/features/example/view.tsx": `
+        import { useQuery } from "@tanstack/react-query";
+        export function View({ initialData }) {
+          const queryKey = (["example", "list"] as const);
+          useQuery({ queryKey, queryFn: load, initialData });
+          return null;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[query-key-literal\]/gu)).toHaveLength(1);
+    expect(result.stderr.match(/\[query-initial-data\]/gu)).toHaveLength(1);
+  });
 });
