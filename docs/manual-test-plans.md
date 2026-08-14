@@ -205,7 +205,7 @@ instant and therefore has no timezone conversion.
 The Agenda session dialog now contains `SpeakerQuickAdd`; on a fresh event its empty state points to
 that inline form, and the created speaker is selected without closing or restarting the session.
 The Agenda toolbar also names and links to **Add abstract**, whose drawer can select or create a
-speaker. Both paths preserve the shared `SESS-n` sequence and manual creation sends no CFP receipt.
+speaker. Both paths use the shared collision-resistant `SESS-n` allocator, and manual creation sends no CFP receipt.
 MTP-03 §2 and MTP-09 task 1 are the permanent regression scripts.
 
 ### 0.9 Recording a run
@@ -273,7 +273,7 @@ hide a missing inline-create path.
 | 24 | Find **Add abstract** without being told where it is | Discoverable from the Agenda or from a global "add" affordance | Agenda toolbar names the path |
 | 25 | Use **Add abstract** to enter Amara's keynote | The form takes the speaker's name and email | Existing-speaker choice and inline create both work |
 | 26 | Complete either intended path and place the talk | No abandoned form or prerequisite trip; record surfaces and restarts | 0 restarts |
-| 27 | Confirm the manual abstract got a real `SESS-n` from the same sequence as CFP submissions | Codes are unique and gapless across both intake paths — no collision, no duplicate |
+| 27 | Confirm the manual abstract got a real `SESS-n` from the same allocator as CFP submissions | Codes are unique across both intake paths — no collision or duplicate; their numeric order is intentionally not meaningful |
 | 28 | Confirm **no email** was sent by the manual creation | The outbox has no new row. An invited speaker must not receive a "thanks for submitting" |
 | 29 | Import a roster CSV with 3 speakers, one duplicating Amara | A preview names creates/updates/rejects before committing; the duplicate merges rather than doubling |
 
@@ -322,7 +322,7 @@ having walked away for a day — and that what lands in the database is exactly 
 | 5 | Answer *Format* = **Workshop** | The conditional **Workshop duration** appears. Choosing **Talk** hides it again |
 | 6 | **Submission A (the stripping case).** Answer the conditional, then change Format back to **Talk**, complete the required fields, and submit | Success page with a `SESS-n` code. The hidden branch's answer is **stripped**, not stored as an orphan |
 | 7 | Check Submission A as organizer | Format **Talk**, and the track is the one the speaker chose — the Workshop routing rule matches `format = workshop` and must **not** have fired here |
-| 8 | **Submission B (the routing case).** Start a second proposal. Set *Format* = **Workshop**, answer the Workshop duration follow-up, set *Track* = **Platforms**, complete Title, Description, First/Last, Email, and submit **with Workshop still selected** | Success page with the next `SESS-n` code |
+| 8 | **Submission B (the routing case).** Start a second proposal. Set *Format* = **Workshop**, answer the Workshop duration follow-up, set *Track* = **Platforms**, complete Title, Description, First/Last, Email, and submit **with Workshop still selected** | Success page with a new `SESS-n` code |
 | 9 | Check Submission B as organizer | Track reads **AI Agents**, tag **Tooling** — the routing rule overrode the speaker's *Platforms* answer |
 | 10 | Open both submissions' answers | B has every answer including the conditional. A has no orphaned Workshop-duration answer — absent, not blank |
 | 11 | *(Env C)* Repeat steps 1–8 with a real inbox | The OTP email arrives from the verified domain and the code works. There is no fixed-code shortcut in any environment; on Env A the same real code is surfaced in the login UI by `EMAIL_FALLBACK_UI=1` |
@@ -374,7 +374,7 @@ having walked away for a day — and that what lands in the database is exactly 
 | # | Action | Expected result |
 |---|---|---|
 | 34 | Count submissions in Abstracts, on the Dashboard, and via `/api/v1/events/<slug>/stats` | All three agree |
-| 35 | List every `SESS-n` code issued in this plan | Unique, sequential, no gaps, no reuse — including the manual abstract from MTP-03 §2 |
+| 35 | List every `SESS-n` code issued in this plan | Unique and never reused — including the manual abstract from MTP-03 §2; gaps and non-sequential order are expected |
 | 36 | Export CSV and diff a row against the drawer | Every answer matches; commas and newlines are correctly quoted |
 
 ### §7 Design checks

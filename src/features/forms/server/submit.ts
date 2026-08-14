@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
@@ -237,23 +237,16 @@ export async function submitCfpForm(
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   return withTx(async (tx) => {
-    // Every CFP submit takes the event lock before it can lock/create contacts.
-    // createSubmissionIn reuses this lock; keeping one order for draft-backed
-    // and fresh submits prevents event↔contact deadlocks under mixed traffic.
-    const lockedEvent = await tx.execute<{ id: string }>(sql`
-      SELECT id FROM events WHERE id = ${input.eventId} FOR UPDATE
-    `);
-    if (!(lockedEvent.rows ?? [])[0]) throw new AppError("NOT_FOUND", "Event not found");
-    // Phase-one rollout: establish the scoped lock order while every instance
-    // still shares the legacy event mutex. The follow-up can remove only the
-    // broad lock once this compatible version has reached all writers.
+    // Lock this speaker/form invariant before draft or contact rows. Every CFP
+    // final-submit path uses this order, while unrelated speakers acquire
+    // different rows and proceed independently.
     await commands.lockSubmissionLimitScopeIn(tx, input.eventId, input.formId, input.contactId);
 
     if (input.draftSubmissionId) {
-      // Serialize against createSubmissionIn's event lock before participant
-      // side effects. A lost-response retry must return the committed result
-      // without applying a changed payload, and a caller cannot borrow another
-      // speaker's submitted UUID as an idempotency key.
+      // Recheck after the scope lock before participant side effects. A
+      // lost-response retry must return the committed result without applying
+      // a changed payload, and a caller cannot borrow another speaker's
+      // submitted UUID as an idempotency key.
       const [draft] = await tx.select({
         id: submissions.id,
         formId: submissions.formId,

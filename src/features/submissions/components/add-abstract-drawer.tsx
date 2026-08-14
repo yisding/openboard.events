@@ -22,8 +22,8 @@ import {
  * It posts to `POST /api/internal/submissions/[eventId]`, whose handler calls
  * M18's `createSubmission`. No code is allocated here and no row is written
  * here: the repository has exactly one submission-insert site, and a
- * manual row has to get its `SESS-n` from the same sequence a CFP submit does or
- * the two would eventually collide.
+ * manual row gets its `SESS-n` from the same collision-resistant allocator as
+ * a CFP submit.
  */
 const STATUSES = [
   { value: "pending", label: "Pending" },

@@ -4,6 +4,19 @@ export function randomBytes(length: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
+/** Return an unbiased Web Crypto integer in [0, maxExclusive). */
+export function randomInt(maxExclusive: number): number {
+  if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0 || maxExclusive > 0x1_0000_0000) {
+    throw new RangeError("maxExclusive must be an integer between 1 and 2^32");
+  }
+  const sampleLimit = Math.floor(0x1_0000_0000 / maxExclusive) * maxExclusive;
+  let sample: number;
+  do {
+    sample = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
+  } while (sample >= sampleLimit);
+  return sample % maxExclusive;
+}
+
 export function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
