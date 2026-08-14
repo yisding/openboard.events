@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
 import { organizationSubscriptions } from "@/db/schema";
-import { safeEqual } from "@/features/auth/server/crypto";
+import { safeEqual } from "@/shared/lib/crypto";
 import { billingPlanIdSchema, organizationIdSchema, subscriptionStatusSchema, type OrganizationId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";

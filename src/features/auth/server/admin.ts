@@ -4,7 +4,7 @@ import { db, type DbOrTx } from "@/db/client";
 import { adminLoginAttempts, adminSessions, eventMembers, organizationMembers } from "@/db/schema";
 import { userIdSchema, type EventId, type MemberRole, type OrganizationId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { sha256 } from "./crypto";
+import { sha256 } from "@/shared/lib/crypto";
 
 export type AdminIdentity = {
   userId: UserId;

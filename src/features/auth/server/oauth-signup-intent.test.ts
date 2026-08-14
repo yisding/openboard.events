@@ -6,7 +6,7 @@ import {
   openOAuthSignupIntent,
   sealOAuthSignupIntent,
 } from "./oauth-signup-intent";
-import { fromBase64Url, toBase64Url } from "./crypto";
+import { fromBase64Url, toBase64Url } from "@/shared/lib/crypto";
 
 const secret = "oauth-signup-test-secret-at-least-32-bytes";
 const now = Date.UTC(2026, 7, 12, 12, 0, 0);

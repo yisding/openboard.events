@@ -4,7 +4,7 @@ import { portalTokens } from "@/db/schema";
 import type { ContactId, EventId, TokenId, TokenPurpose } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { addDuration } from "@/shared/lib/time";
-import { randomBytes, sha256, toBase64Url } from "./crypto";
+import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
 
 export type IssuedPortalToken = { tokenId: TokenId; raw: string; otp?: string; expiresAt: Date };
 export type ConsumedPortalToken = { contactId: ContactId; eventId: EventId };

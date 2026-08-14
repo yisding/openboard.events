@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { authorizeAdmin, requiredRoleForEventPath, throttleAdminLogin } from "@/features/auth";
 import { authenticateApiKey } from "@/features/auth/server/guards";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
-import { sha256 } from "@/features/auth/server/crypto";
+import { sha256 } from "@/shared/lib/crypto";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");

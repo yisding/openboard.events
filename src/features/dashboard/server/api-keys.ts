@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { randomBytes, sha256, toBase64Url } from "@/features/auth/server/crypto";
+import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
 import { db, type DbOrTx } from "@/db/client";
 import { apiKeys } from "@/db/schema";
 import { apiKeyIdSchema, type ApiKeyId, type EventId } from "@/shared/contracts";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fromBase64Url, randomBytes, safeEqual, toBase64Url } from "./crypto";
+import { fromBase64Url, randomBytes, safeEqual, toBase64Url } from "@/shared/lib/crypto";
 
 /**
  * M42 AC 1 — Better Auth's custom password-hashing hooks.

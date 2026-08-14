@@ -3,7 +3,7 @@ import type { SeedCtx } from "./lib/helpers";
 import { rowsOf } from "@/db/query-result";
 import { communicationLogs, contacts, portalTokens, sessions, submissions } from "@/db/schema";
 import { sealPortalLoginPayload } from "@/features/auth";
-import { sha256 } from "@/features/auth/server/crypto";
+import { sha256 } from "@/shared/lib/crypto";
 import { seedDefaultTemplates } from "@/features/comms";
 import {
   contactIdSchema,

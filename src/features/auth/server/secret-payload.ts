@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ContactId, EventId, TokenId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
-import { randomBytes } from "./crypto";
+import { randomBytes } from "@/shared/lib/crypto";
 
 const VERSION = 1;
 const NONCE_LENGTH = 12;

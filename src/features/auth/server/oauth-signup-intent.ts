@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { RuntimeEnv } from "@/shared/lib/env";
-import { fromBase64Url, randomBytes, toBase64Url } from "./crypto";
+import { fromBase64Url, randomBytes, toBase64Url } from "@/shared/lib/crypto";
 
 export const OAUTH_SIGNUP_INTENT_COOKIE = "openboard_oauth_signup";
 export const OAUTH_SIGNUP_INTENT_SECONDS = 10 * 60;
