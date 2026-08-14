@@ -102,7 +102,7 @@ export function ReadyToPromoteTray({ eventId, accepted }: {
 
   return (
     <aside className="unscheduled-tray promotion-tray" aria-label="Accepted abstracts ready to promote">
-      <div className="accepted-tray">
+      <div className="accepted-tray accepted-tray--promotion">
         <div className="accepted-tray-heading">
           <span>READY TO PROMOTE</span>
           <span>{promotable.length}</span>
