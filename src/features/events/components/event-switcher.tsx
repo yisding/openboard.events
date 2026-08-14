@@ -119,9 +119,9 @@ export function EventSwitcher({
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {orderedEvents === null && !loadError && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>Loading…</div>}
+          {orderedEvents === null && !loadError && <div style={{ padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>Loading…</div>}
           {orderedEvents === null && loadError && (
-            <div role="alert" style={{ display: "grid", gap: 8, padding: 12, fontSize: 11.5, color: "var(--muted)" }}>
+            <div role="alert" style={{ display: "grid", gap: 8, padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>
               <span>{loadError}</span>
               <button type="button" className="text-button" onClick={() => {
                 setLoadError("");
@@ -129,7 +129,7 @@ export function EventSwitcher({
               }}>Retry</button>
             </div>
           )}
-          {orderedEvents?.length === 0 && <div style={{ padding: 12, fontSize: 11.5, color: "var(--muted)" }}>No events yet</div>}
+          {orderedEvents?.length === 0 && <div style={{ padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>No events yet</div>}
           {orderedEvents?.map((event) => (
             <Link
               key={event.id}
@@ -142,10 +142,10 @@ export function EventSwitcher({
                 color: "var(--ink)", background: event.id === eventId ? "var(--fill)" : "transparent",
               }}
             >
-              <span style={{ fontSize: 11.5, fontWeight: 700 }}>{initials(event.name)}</span>
+              <span style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}>{initials(event.name)}</span>
               <span style={{ display: "grid" }}>
-                <b style={{ fontSize: 11.5 }}>{event.name}</b>
-                <small style={{ fontSize: 10, color: "var(--muted)" }}>
+                <b style={{ fontSize: "var(--text-xs)" }}>{event.name}</b>
+                <small style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
                   {formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone)}
                 </small>
               </span>
@@ -154,7 +154,7 @@ export function EventSwitcher({
           <Link
             href={demoEvents || !canCreateEvent ? "/events" : "/organizations?intent=create-event"}
             onClick={() => setOpen(false)}
-            style={{ display: "block", marginTop: 6, padding: "8px 12px", borderTop: "1px solid var(--line)", fontSize: 11, fontWeight: 550, color: "var(--accent-dark)", textDecoration: "none" }}
+            style={{ display: "block", marginTop: 6, padding: "8px 12px", borderTop: "1px solid var(--line)", fontSize: "var(--text-xs)", fontWeight: 550, color: "var(--accent-dark)", textDecoration: "none" }}
           >
             {demoEvents || !canCreateEvent ? "All events" : "+ Create event"}
           </Link>

@@ -354,7 +354,7 @@ export function FilesAdminView({
       cell: ({ row }) => (
         <div>
           <b>{row.original.contactName}</b>
-          {row.original.submissionTitle && <span style={{ display: "block", color: "var(--muted)", fontSize: 10 }}>{row.original.submissionTitle}</span>}
+          {row.original.submissionTitle && <span style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)" }}>{row.original.submissionTitle}</span>}
         </div>
       ),
     },

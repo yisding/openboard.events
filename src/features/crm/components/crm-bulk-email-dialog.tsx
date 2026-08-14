@@ -411,7 +411,7 @@ export function CrmBulkEmailDialog({
             <ul className="crm-field-list">
               {sendResult.errors.map((entry) => {
                 const recipient = audience.find((row) => row.id === entry.organizationContactId);
-                return <li key={entry.organizationContactId} style={{ fontSize: 11, color: "var(--muted)" }}>
+                return <li key={entry.organizationContactId} style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
                   <b>{recipient?.name || recipient?.email || "Unknown recipient"}</b>{recipient?.email ? ` (${recipient.email})` : ""}: {entry.reason}
                 </li>;
               })}

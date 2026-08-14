@@ -117,8 +117,8 @@ describe("dashboard components", () => {
   });
 
   it("keeps milestone artwork visible instead of inheriting its text color", () => {
-    expect(globalCss).toContain(".dashboard-milestone a span{font-size:11px;color:var(--green)}");
-    expect(globalCss).not.toContain(".dashboard-milestone span{font-size:11px;color:var(--green)}");
+    expect(globalCss).toContain(".dashboard-milestone a span{font-size:var(--text-xs);color:var(--green)}");
+    expect(globalCss).not.toContain(".dashboard-milestone span{font-size:var(--text-xs);color:var(--green)}");
   });
 
   const fixtureForm = FIXTURE_OVERVIEW.forms[0];

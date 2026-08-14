@@ -350,4 +350,4 @@ export function TaskRowMenu({ task, onView, onEdit, onDuplicate, onDelete }: { t
   );
 }
 
-const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: 0, background: "transparent", fontSize: 11.5, borderRadius: 6, cursor: "pointer" };
+const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: 0, background: "transparent", fontSize: "var(--text-xs)", borderRadius: 6, cursor: "pointer" };

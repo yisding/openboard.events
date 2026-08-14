@@ -323,7 +323,7 @@ export function ContactDetailView({
                 <div className="drawer-actions">
                   <Button disabled={!fieldsDirty || savingFields} onClick={() => void saveFields()}>{savingFields ? "Saving…" : "Save details"}</Button>
                 </div>
-                {contact.bioHtml && <div><h3 style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase" }}>Bio</h3><RichTextView html={contact.bioHtml} /></div>}
+                {contact.bioHtml && <div><h3 style={{ fontSize: "var(--text-xs)", color: "var(--muted)", textTransform: "uppercase" }}>Bio</h3><RichTextView html={contact.bioHtml} /></div>}
               </div>
             </section>
 

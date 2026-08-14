@@ -93,7 +93,7 @@ describe("event settings styles", () => {
   it("puts the settings section header on the type scale instead of the UA ratio", () => {
     // Bare, the <h2> inherited the UA's 1.5em off the 14px body and rendered at
     // 21px with a 17.43px block margin — neither on any scale in T1 or T4.
-    expect(CSS).toContain(".settings-section>header h2{margin:0 0 4px;font-size:14px");
-    expect(CSS).toContain(".settings-section>header p{margin:0;color:var(--muted);font-size:12.5px}");
+    expect(CSS).toContain(".settings-section>header h2{margin:0 0 4px;font-size:var(--text-base)");
+    expect(CSS).toContain(".settings-section>header p{margin:0;color:var(--muted);font-size:var(--text-sm)}");
   });
 });

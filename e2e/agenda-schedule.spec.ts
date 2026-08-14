@@ -74,6 +74,39 @@ test.describe("agenda-schedule", () => {
     });
   });
 
+  test.describe("mobile view navigation", () => {
+    test.use({ viewport: { width: 375, height: 900 } });
+
+    test("keeps every agenda view label readable in a contained scroller", async ({ page }) => {
+      await loginAsAdmin(page);
+      await page.goto(`${AGENDA}?view=day`);
+
+      const tabs = page.locator(".agenda-view-tabs [role='tab']");
+      await expect(tabs).toHaveCount(6);
+      for (const tab of await tabs.all()) {
+        await expect(tab).toBeVisible();
+        expect((await tab.innerText()).trim()).not.toEqual("");
+        expect(await tab.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(12);
+      }
+
+      const layout = await page.locator(".agenda-view-tabs").evaluate((element) => {
+        const maximumScroll = element.scrollWidth - element.clientWidth;
+        element.scrollLeft = element.scrollWidth;
+        return {
+          isScrollable: maximumScroll > 0,
+          overflowX: getComputedStyle(element).overflowX,
+          reachedEnd: Math.abs(element.scrollLeft - maximumScroll) <= 1,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.isScrollable).toBe(true);
+      expect(["auto", "scroll"]).toContain(layout.overflowX);
+      expect(layout.reachedEnd).toBe(true);
+      expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    });
+  });
+
   test.afterEach(async ({ request }) => {
     if (!targetConfigured()) return;
     await loginAsAdmin(request);
