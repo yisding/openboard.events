@@ -168,7 +168,7 @@ export function DirectoryView({
       id: "source",
       header: "Source",
       accessorKey: "source",
-      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: 11, textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
+      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)", textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
     },
     {
       id: "lastActivityAt",

@@ -86,6 +86,34 @@ check_forbidden "adminAuth\\(\\{[[:space:]]*role:[[:space:]]*['\"]reviewer" src 
   --glob '!src/features/auth/server/guards.test.ts'
 check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
 
+# Design Phase 1: meaningful interface copy has a 12px floor. The landing
+# page's scaled product illustration is the only exception: those preview and
+# floating-card labels are decorative pixels inside a miniature, not controls.
+# Inline React styles use the same floor so a component cannot bypass the CSS
+# scale with a numeric value.
+type_floor_pattern="font-size:[[:space:]]*(0([[:space:]]*;|px)|[1-9](\.[0-9]+)?px|1[01](\.[0-9]+)?px)"
+set +e
+type_floor_output=$(rg -n "$type_floor_pattern" src --glob '*.css' 2>&1)
+type_floor_status=$?
+set -e
+if (( type_floor_status > 1 )); then
+  echo "check-invariants: rg failed (exit $type_floor_status) for the CSS type floor" >&2
+  echo "$type_floor_output" >&2
+  exit 2
+fi
+if (( type_floor_status == 0 )); then
+  while IFS= read -r match; do
+    if [[ "$match" =~ ^src/app/globals\.css:[0-9]+:\.(preview-|floating-card) ]]; then
+      continue
+    fi
+    echo "$match"
+    fail=1
+  done <<< "$type_floor_output"
+fi
+check_forbidden "fontSize[[:space:]]*:[[:space:]]*(0|[1-9](\.[0-9]+)?|1[01](\.[0-9]+)?)([^0-9.]|$)" src \
+  --glob '*.ts' \
+  --glob '*.tsx'
+
 if [[ "$fail" -ne 0 ]]; then
   echo "Invariant check failed"
   exit 1

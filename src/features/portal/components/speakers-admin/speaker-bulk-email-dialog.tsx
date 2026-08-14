@@ -423,7 +423,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
           {sendResult.errors.length > 0 && <ul className="crm-field-list">
             {sendResult.errors.map((entry) => {
               const recipient = audience.find((row) => row.contactId === entry.contactId);
-              return <li key={entry.contactId} style={{ fontSize: 11, color: "var(--muted)" }}>
+              return <li key={entry.contactId} style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
                 <b>{recipient?.name || recipient?.email || "Unknown recipient"}</b>{recipient?.email ? ` (${recipient.email})` : ""}: {entry.reason}
               </li>;
             })}
