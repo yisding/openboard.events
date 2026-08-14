@@ -35,6 +35,10 @@ recovery bound rather than the normal consistency mechanism.
 | Published speakers and headshots | speakers, gallery | speakers, gallery | `public:event:<eventId>:speakers` | 10 s / 60 s |
 | Embed kill switch, style, and filters | n/a | one tag per canonical embed content type | `public:event:<eventId>:embed:<contentType>` | 10 s / 60 s |
 
+The speaker-list compatibility read also carries the speaker-gallery tag while
+it can inherit that legacy configuration. Updating either configuration cannot
+leave the inherited public view stale beyond the normal budget.
+
 The `/f/<fileId>` response is immutable. Asset freshness therefore means that
 a logo, background, or headshot mutation stores a new file id and invalidates
 the event or speaker data tag; cached HTML then points at the new immutable

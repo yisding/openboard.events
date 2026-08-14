@@ -57,4 +57,22 @@ describe("public cached reads", () => {
       },
     );
   });
+
+  it("tags the speaker-list compatibility read with its legacy dependency", async () => {
+    const load = vi.fn().mockResolvedValue({ enabled: true });
+    await cachePublicRead(eventId, "embed:speaker_list", load);
+
+    expect(unstableCache).toHaveBeenCalledWith(
+      load,
+      ["openboard-public", eventId, "embed:speaker_list"],
+      {
+        revalidate: PUBLIC_CACHE_RECOVERY_SECONDS,
+        tags: [
+          publicCacheTag.event(eventId),
+          publicCacheTag.embed(eventId, "speaker_list"),
+          publicCacheTag.embed(eventId, "speaker_gallery"),
+        ],
+      },
+    );
+  });
 });

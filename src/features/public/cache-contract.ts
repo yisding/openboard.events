@@ -26,7 +26,12 @@ export const publicCacheTag = {
 export function publicCacheTagsFor(eventId: EventId, surface: PublicCacheSurface): string[] {
   if (surface.startsWith("embed:")) {
     const contentType = surface.slice("embed:".length) as CanonicalEmbedContentType;
-    return [publicCacheTag.event(eventId), publicCacheTag.embed(eventId, contentType)];
+    const tags = [publicCacheTag.event(eventId), publicCacheTag.embed(eventId, contentType)];
+    // Until the admin panel materializes a canonical speaker_list row, that
+    // public read inherits speaker_gallery. Keep the dependency explicit so
+    // an already-open legacy admin client invalidates both cached consumers.
+    if (contentType === "speaker_list") tags.push(publicCacheTag.embed(eventId, "speaker_gallery"));
+    return tags;
   }
   const dataSurface = surface as PublicEventSurface;
   return [publicCacheTag.event(eventId), publicCacheTag[dataSurface](eventId)];
