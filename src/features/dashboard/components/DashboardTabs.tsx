@@ -32,21 +32,43 @@ export function DashboardTabs(props: { eventId: EventId; initialData: DashboardO
 
 function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live = true }: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
   const query = useDashboardOverview(eventId, initialData, live);
-  const overview = query.data;
+  return <DashboardTabsView
+    eventId={eventId}
+    firstName={firstName}
+    initialTab={initialTab}
+    isError={query.isError}
+    isFetching={query.isFetching}
+    live={live}
+    onRetry={() => void query.refetch()}
+    overview={query.data}
+  />;
+}
+
+export function DashboardTabsView({ eventId, firstName, initialTab, isError = false, isFetching = false, live = true, onRetry = () => undefined, overview }: {
+  eventId: EventId;
+  firstName: string;
+  initialTab: DashboardTab;
+  isError?: boolean;
+  isFetching?: boolean;
+  live?: boolean;
+  onRetry?: () => void;
+  overview: DashboardOverview;
+}) {
   const phase = computeEventPhase(overview);
   return <div className="dashboard-page dashboard-live">
-    <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i className={query.isFetching ? "polling" : ""} />{query.isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
-    {query.isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={() => void query.refetch()}><RefreshCw size={14} /> Retry</button></div>}
-    <WidgetBoundary name="activation"><ActivationGuide overview={overview} /></WidgetBoundary>
+    <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i aria-hidden="true" className={isFetching ? "polling" : ""} />{isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
+    {isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={onRetry}><RefreshCw size={14} /> Retry</button></div>}
     {/* M56 — the dashboard leads with this, above the tabs, so it is the
         answer regardless of which tab is open. Below it, the two tabs stay
         the same detail views they always were. */}
     <WidgetBoundary name="attention"><AttentionQueue items={overview.attention} /></WidgetBoundary>
-    {/* M60 — one-time positive facts, distinct from the attention queue's
-        ongoing work: each stays true once crossed, so this is what
-        remembers "already celebrated" rather than recomputing urgency. */}
-    <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
     <DashboardTabNav eventId={eventId} active={initialTab} />
+    {/* M60 — one-time positive facts, distinct from the attention queue's
+        ongoing work. Milestones and the launch guide are dashboard content,
+        not peers of the event heading or priority queue, so both follow the
+        primary navigation. */}
+    <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
+    <WidgetBoundary name="activation"><ActivationGuide overview={overview} /></WidgetBoundary>
     {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
   </div>;
 }
