@@ -139,7 +139,7 @@ export function PublicEventShell({
         <div className="public-event-container">
           <Link className="public-event-logo" href={`/e/${eventSlug}/agenda`} aria-label={`${event.name} agenda`}>
             {event.logoUrl && <Image src={event.logoUrl} alt="" aria-hidden="true" width={36} height={36} unoptimized />}
-            {event.name}
+            <span className="public-event-name">{event.name}</span>
           </Link>
           <nav aria-label="Event navigation">
             {NAV_ITEMS.map((item) => (

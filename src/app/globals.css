@@ -898,6 +898,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    embed documents deliberately retain their compact, host-controlled chrome. */
 .public-event-logo{display:inline-flex;align-items:center;gap:10px;color:inherit}
 .public-event-logo>img{width:36px;height:36px;border-radius:7px;object-fit:contain}
+.public-event-header .public-event-name{color:inherit}
 .public-event-hero-image{object-fit:cover;object-position:center;opacity:.28}
 .public-event-hero::before,.public-event-hero::after{z-index:1}
 .public-event-hero>.public-event-container{z-index:2}
@@ -1896,7 +1897,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      sets this logo to 16px has identical specificity (0-2-0) and sits later in
      the file, so the earlier declaration never won and the documented "the ≤480
      block steps it to 14" never rendered. */
-  .public-event-header .public-event-logo{font-size:var(--text-base)}
+  .public-event-header .public-event-logo{font-size:var(--text-base);overflow:visible;text-overflow:clip;white-space:normal}
+  .public-event-header .public-event-name{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;line-height:1.15}
+  /* Five full labels fit cleanly in equal phone-width cells; "My schedule" can
+     wrap inside its own 44px target instead of forcing a clipped scroll row. */
+  .public-event-header nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow-x:visible;scrollbar-width:auto}
+  .public-event-header nav a{width:100%;min-width:0;padding:0 2px;text-align:center;white-space:normal;line-height:1.15}
 
   /* At phone widths three nowrap labels cannot share one line. Give the two
      secondary actions matching columns and the forward action a stable row. */

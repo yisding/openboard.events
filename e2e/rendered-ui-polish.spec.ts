@@ -85,6 +85,54 @@ test.describe("landing hero responsiveness", () => {
   });
 });
 
+test.describe("public event phone navigation", () => {
+  test("keeps the event identity and every destination readable without a clipped tab row", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="public-event">
+        <header class="public-event-header">
+          <div class="public-event-container">
+            <a class="public-event-logo" href="#" aria-label="AI Engineer Sandbox — NYC agenda">
+              <span class="public-event-name">AI Engineer Sandbox — NYC</span>
+            </a>
+            <nav aria-label="Event navigation">
+              <a href="#">Sessions</a>
+              <a href="#">Agenda</a>
+              <a href="#">My schedule</a>
+              <a class="active" href="#">Speakers</a>
+              <a href="#">Gallery</a>
+            </nav>
+            <a class="button public-cta" href="#">Speaker portal</a>
+          </div>
+        </header>
+      </main>
+    </body></html>`);
+
+    for (const width of [320, 360, 480]) {
+      await page.setViewportSize({ width, height: 700 });
+      const layout = await page.locator(".public-event-header").evaluate((header) => {
+        const logoName = header.querySelector(".public-event-name");
+        const nav = header.querySelector("nav");
+        if (!logoName || !nav) throw new Error("Public event header fixture is incomplete");
+        const navBox = nav.getBoundingClientRect();
+        const linkBoxes = [...nav.querySelectorAll("a")].map((link) => link.getBoundingClientRect());
+        return {
+          nameFits: logoName.scrollWidth <= logoName.clientWidth && logoName.scrollHeight <= logoName.clientHeight,
+          navFits: nav.scrollWidth <= nav.clientWidth
+            && linkBoxes.every((box) => box.left >= navBox.left - 0.5 && box.right <= navBox.right + 0.5),
+          touchTargets: linkBoxes.every((box) => box.height >= 44),
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.nameFits).toBe(true);
+      expect(layout.navFits).toBe(true);
+      expect(layout.touchTargets).toBe(true);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("self-service auth readability", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 320, height: 700 } });
