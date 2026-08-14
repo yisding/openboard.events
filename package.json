@@ -19,6 +19,7 @@
     "architecture:baseline": "tsx scripts/check-feature-architecture.ts --print-baseline",
     "schema:check": "tsx scripts/check-schema-drift.ts",
     "schema:allowlist": "tsx scripts/check-schema-drift.ts --print-allowlist",
+    "source:check": "tsx scripts/check-source-invariants.ts",
     "invariants": "bash scripts/check-invariants.sh",
     "audit:prod": "pnpm audit --prod --audit-level=low",
     "check": "pnpm typecheck && pnpm lint && pnpm architecture:check && pnpm schema:check && pnpm invariants && pnpm test && pnpm build && pnpm build:worker",

@@ -115,7 +115,8 @@ pnpm typecheck          # tsc --noEmit
 pnpm lint                # eslint --max-warnings=0
 pnpm architecture:check  # AST feature-boundary and cycle ratchet
 pnpm schema:check        # full migration journal vs Drizzle metadata and SQL-only ledger
-pnpm invariants          # CI greps: single sanitizer/evaluator/dispatcher, no stray process.env, etc.
+pnpm source:check        # AST imports, environment access, JSX, route roles, and storage seams
+pnpm invariants          # source AST plus literal configuration and CSS declaration checks
 pnpm audit:prod          # fail on any known production-dependency advisory
 pnpm test                # vitest: unit + PGlite integration suites
 pnpm e2e                 # Playwright — also set E2E_BASE_URL and the two E2E password variables
