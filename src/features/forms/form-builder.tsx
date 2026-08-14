@@ -394,6 +394,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     const targets: BuilderDirtyTarget[] = [`section:${section.id}`, "step:participant"];
     const recovery: ParticipantStepRecovery = {
       operation: participantStepOperationSchema.parse({
+        operationId: crypto.randomUUID(),
         expectedUpdatedAt: form.updatedAt,
         sectionId: section.id,
         participantRoles: normalizeParticipantStepRoles(form.participantRoles),
@@ -546,7 +547,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   async function duplicateAsDraft() {
-    if (busy || duplicating) return;
+    if (busy || duplicating || participantStepRecovery) return;
     setDuplicating(true);
     try {
       const copy = await duplicateFormAsDraft(event.id, form.id);
@@ -684,7 +685,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
         {participantStepRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Participant save is unconfirmed</b><span>{PARTICIPANT_STEP_RECOVERY_MESSAGE}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void confirmParticipantStep()}>{busy ? "Confirming…" : "Confirm participant save"}</Button></div>}
         {availabilityAlert && hasUnsavedBuilderTargets && <div className="locked-banner" role="alert"><Save size={17} /><div><b>Save before opening</b><span>{availabilityAlert}</span></div></div>}
-        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
+        {form.hasNonDraftSubmissions && (step === "setup" || step === "abstract" || step === "participant") && <div className="locked-banner"><LockKeyhole size={17} /><div><b>Structure locked after submissions</b><span>You can still update labels, guidance, dates, and copy. A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.</span></div><Button size="sm" variant="secondary" disabled={busy || duplicating || participantStepRecovery !== null} onClick={() => runGuarded(() => { void duplicateAsDraft(); })}><Copy size={14} /> {duplicating ? "Duplicating…" : "Duplicate as draft"}</Button></div>}
         {step === "setup" && <SetupStep form={form} onChange={applyLocal} />}
         {step === "welcome" && <WelcomeStep form={form} onChange={applyLocal} />}
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}

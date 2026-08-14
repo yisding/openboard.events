@@ -65,9 +65,10 @@ export type DbOrTx = typeof db | TxDb;
  * Form PATCH authoring (`updateFormWithPostCommitSignalsIn` in the internal
  * form route) runs its CAS bump, public availability change, immutable
  * snapshot, and current-version pointer transactionally before attempting its
- * best-effort onboarding signal outside that transaction. Participant-step
- * Save is also one transaction and one CAS across its role settings, section
- * copy, snapshot, and version pointer.
+ * best-effort onboarding signal outside that transaction. Every builder route
+ * that produces an immutable form snapshot (section, field create/update/delete,
+ * reorder, and Participant-step Save) likewise keeps its CAS, child authoring
+ * rows, snapshot, and current-version pointer in one transaction.
  * Organization invitation enqueue is also transactional: token rotation,
  * stale-message retirement, the replacement outbox row, and its audit record
  * must commit together (`src/features/organizations/server/invitations.ts`).

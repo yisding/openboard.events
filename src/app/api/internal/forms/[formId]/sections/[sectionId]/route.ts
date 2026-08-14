@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { eventIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
-import { db } from "@/db/client";
+import { withTx } from "@/db/client";
 import { updateSectionIn } from "@/features/forms/server/builder-mutations";
 import { formBuilderAuth } from "@/features/forms/server/guards";
 import { defineHandler } from "@/shared/server/handler";
@@ -18,7 +18,7 @@ const update = defineHandler({
   input: z.object({ expectedUpdatedAt: z.iso.datetime(), patch: patchSchema }),
   handler: async ({ eventId, input, params }) => {
     const route = paramsSchema.parse(params);
-    return updateSectionIn(db, eventIdSchema.parse(eventId), route.formId, route.sectionId, input.patch, input.expectedUpdatedAt);
+    return withTx((tx) => updateSectionIn(tx, eventIdSchema.parse(eventId), route.formId, route.sectionId, input.patch, input.expectedUpdatedAt));
   },
 });
 

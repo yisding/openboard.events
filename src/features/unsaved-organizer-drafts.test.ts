@@ -9,7 +9,12 @@ describe("unsaved organizer draft coverage", () => {
   it("guards CFP builder navigation and a half-written new question", () => {
     const builder = source("./forms/form-builder.tsx");
     expect(builder).toContain("const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== \"text\")");
-    expect(builder).toContain("useUnsavedWorkGuard(hasUnsavedWork)");
+    // An unconfirmed Participant save is unresolved work even when the local
+    // editor revisions were clean at click time; navigation must not discard
+    // its exact replay control.
+    expect(builder).toContain("useUnsavedWorkGuard(hasUnsavedWork || participantStepRecovery !== null)");
+    expect(builder).toContain("Participant save is unconfirmed");
+    expect(builder).toContain("Confirm participant save");
     expect(builder).toContain("the same FormBuilder mounted");
     expect(builder).toContain("allowNextNavigation(() => {");
     expect(builder).toContain("router.push(destination, { scroll: false })");

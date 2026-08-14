@@ -24,6 +24,7 @@ import { stableUuid } from "@/shared/server/stable-uuid";
 import type { BuilderField, BuilderForm, BuilderStep, FieldPatch, FormPatch, SectionPatch } from "../builder-types";
 import {
   normalizeParticipantStepRoles,
+  participantStepFingerprint,
   participantStepOperationSchema,
   type ParticipantStepOperation,
 } from "../participant-step";
@@ -119,8 +120,28 @@ async function touchFormIn(dbOrTx: DbOrTx, eventId: EventId, form: BuilderForm, 
   if (!updated) throw new AppError("STALE_WRITE", "This form changed since you loaded it. Reload and try again.");
 }
 
-async function storeVersionIn(dbOrTx: DbOrTx, eventId: EventId, form: BuilderForm, snapshot: ReturnType<typeof nextSnapshot>): Promise<void> {
-  await dbOrTx.insert(formVersions).values({ eventId, formId: form.id, version: snapshot.version, snapshot });
+type ParticipantOperationReceipt = {
+  operationId: string;
+  fingerprint: string;
+};
+
+async function storeVersionIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  form: BuilderForm,
+  snapshot: ReturnType<typeof nextSnapshot>,
+  participantReceipt?: ParticipantOperationReceipt,
+): Promise<void> {
+  await dbOrTx.insert(formVersions).values({
+    eventId,
+    formId: form.id,
+    version: snapshot.version,
+    snapshot,
+    ...(participantReceipt ? {
+      participantOperationId: participantReceipt.operationId,
+      participantOperationFingerprint: participantReceipt.fingerprint,
+    } : {}),
+  });
   await dbOrTx.update(forms).set({ currentVersion: snapshot.version })
     .where(and(eq(forms.id, form.id), eq(forms.eventId, eventId)));
 }
@@ -459,16 +480,21 @@ function participantStepValues(operation: ParticipantStepOperation) {
   };
 }
 
-function participantStepMatches(form: BuilderForm, operation: ParticipantStepOperation): boolean {
-  const requested = participantStepValues(operation);
-  const section = form.sections.find((candidate) => candidate.id === operation.sectionId && candidate.key === "participant");
-  if (!section || form.participantRoles.length !== requested.participantRoles.length) return false;
-  const rolesMatch = requested.participantRoles.every((role) =>
-    form.participantRoles.some((current) => current.role === role.role && current.enabled === role.enabled));
-  return rolesMatch
-    && section.title === requested.section.title
-    && section.pageHeading === requested.section.pageHeading
-    && section.descriptionHtml === requested.section.descriptionHtml;
+async function participantOperationFingerprintIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  formId: FormId,
+  operationId: string,
+): Promise<string | null> {
+  const [receipt] = await dbOrTx.select({ fingerprint: formVersions.participantOperationFingerprint })
+    .from(formVersions)
+    .where(and(
+      eq(formVersions.eventId, eventId),
+      eq(formVersions.formId, formId),
+      eq(formVersions.participantOperationId, operationId),
+    ))
+    .limit(1);
+  return receipt?.fingerprint ?? null;
 }
 
 /** One participant-step click owns one CAS, one snapshot, and one version. */
@@ -479,6 +505,19 @@ export async function updateParticipantStepIn(
   rawOperation: ParticipantStepOperation,
 ): Promise<BuilderForm> {
   const operation = participantStepOperationSchema.parse(rawOperation);
+  const fingerprint = participantStepFingerprint(operation);
+  const existingFingerprint = await participantOperationFingerprintIn(
+    dbOrTx,
+    eventId,
+    formId,
+    operation.operationId,
+  );
+  if (existingFingerprint !== null) {
+    if (existingFingerprint !== fingerprint) {
+      throw new AppError("CONFLICT", "This participant save operation was already used for different details");
+    }
+    throw new AppError("STALE_WRITE", "This participant save operation was already completed");
+  }
   const form = await getFormForBuilderIn(dbOrTx, eventId, formId);
   const section = form.sections.find((candidate) => candidate.id === operation.sectionId);
   if (form.context !== "cfp" || section?.key !== "participant") {
@@ -510,7 +549,10 @@ export async function updateParticipantStepIn(
     eq(formSections.eventId, eventId),
     eq(formSections.formId, formId),
   ));
-  await storeVersionIn(dbOrTx, eventId, form, snapshot);
+  await storeVersionIn(dbOrTx, eventId, form, snapshot, {
+    operationId: operation.operationId,
+    fingerprint,
+  });
   return getFormForBuilderIn(dbOrTx, eventId, formId);
 }
 
@@ -527,12 +569,23 @@ export async function updateParticipantStepWithReplayIn(
   participantReplay: boolean,
 ): Promise<BuilderForm> {
   const operation = participantStepOperationSchema.parse(rawOperation);
+  const fingerprint = participantStepFingerprint(operation);
   try {
     return await updateParticipantStepIn(dbOrTx, eventId, formId, operation);
   } catch (error) {
-    if (!participantReplay || !isAppError(error) || error.code !== "STALE_WRITE") throw error;
+    if (!isAppError(error) || error.code !== "STALE_WRITE") throw error;
+    const receiptFingerprint = await participantOperationFingerprintIn(
+      dbOrTx,
+      eventId,
+      formId,
+      operation.operationId,
+    );
+    if (receiptFingerprint === null) throw error;
+    if (receiptFingerprint !== fingerprint) {
+      throw new AppError("CONFLICT", "This participant save operation was already used for different details");
+    }
+    if (!participantReplay) throw error;
     const current = await getFormForBuilderIn(dbOrTx, eventId, formId);
-    if (!participantStepMatches(current, operation)) throw error;
     return current;
   }
 }

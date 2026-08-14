@@ -29,6 +29,7 @@ import { isAppError } from "@/shared/lib/errors";
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationParticipantReceipts = readFileSync(new URL("../../drizzle/0032_participant_step_receipts.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("f2000000-0000-4000-8000-000000000001");
 
 function required<T>(value: T | undefined, message: string): T {
@@ -45,6 +46,7 @@ describe("M24 portal form builder", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationParticipantReceipts);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Portal Conf','portal-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",

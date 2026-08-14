@@ -183,6 +183,7 @@ describe("participant-step save recovery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [original, replay] = requestBodies();
     expect(original).toEqual({
+      operationId: expect.any(String),
       expectedUpdatedAt: "2026-08-13T12:00:00.000Z",
       sectionId: participantSectionId,
       participantRoles: [
@@ -204,12 +205,35 @@ describe("participant-step save recovery", () => {
     expect(toastMock).toHaveBeenCalledWith("Participant step saved — confirmed from the completed request");
   });
 
+  it("canonicalizes a legacy speaker-only form before sending one Participant operation", async () => {
+    const initial = form({ participantRoles: [{ role: "speaker", enabled: true }] });
+    const saved = form({
+      participantRoles: [
+        { role: "speaker", enabled: true },
+        { role: "co_speaker", enabled: false },
+        { role: "moderator", enabled: false },
+        { role: "panelist", enabled: false },
+      ],
+      currentVersion: 2,
+      updatedAt: "2026-08-13T12:01:00.000Z",
+    });
+    fetchMock.mockResolvedValueOnce(response({ data: saved }));
+    await act(async () => root.render(<FormBuilder event={event} initialForm={initial} />));
+
+    await act(async () => buttonNamed("Save step")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(requestBodies()[0]?.participantRoles).toEqual(saved.participantRoles);
+    expect(container.textContent).toContain("Version 2");
+  });
+
   it("keeps repeated ambiguity locked and replays the same frozen operation from the recovery control", async () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError("connection dropped"))
       .mockRejectedValueOnce(new TypeError("still offline"))
       .mockRejectedValueOnce(new TypeError("still offline"));
-    await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
+    await act(async () => root.render(<FormBuilder event={event} initialForm={form({ hasNonDraftSubmissions: true })} />));
 
     await act(async () => edit(inputWithValue("Participants"), "Offline heading"));
     await act(async () => buttonNamed("Save step")?.click());
@@ -220,6 +244,7 @@ describe("participant-step save recovery", () => {
     expect(container.textContent).toContain(PARTICIPANT_STEP_RECOVERY_MESSAGE);
     expect(buttonNamed("Save step")?.disabled).toBe(true);
     expect(buttonNamed("Save")?.disabled).toBe(true);
+    expect(buttonNamed("Duplicate as draft")?.disabled).toBe(true);
     expect(inputWithValue("Offline heading")).toBeDefined();
 
     await act(async () => buttonNamed("Confirm participant save")?.click());

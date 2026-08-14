@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { participantStepInputSchema } from "./participant-step";
+import { normalizeParticipantStepRoles, participantStepInputSchema } from "./participant-step";
 
 const valid = {
+  operationId: "a0000000-0000-4000-8000-000000000001",
   expectedUpdatedAt: "2026-08-13T12:00:00.000Z",
   sectionId: "a1000000-0000-4000-8000-000000000001",
   participantRoles: [
@@ -29,5 +30,19 @@ describe("participant step request contract", () => {
       ...valid,
       participantRoles: valid.participantRoles.map((role) => ({ ...role, role: "speaker" })),
     }).success).toBe(false);
+  });
+
+  it("canonicalizes a supported persisted subset while rejecting duplicates and unknown roles", () => {
+    expect(normalizeParticipantStepRoles([{ role: "speaker", enabled: false }])).toEqual([
+      { role: "speaker", enabled: true },
+      { role: "co_speaker", enabled: false },
+      { role: "moderator", enabled: false },
+      { role: "panelist", enabled: false },
+    ]);
+    expect(() => normalizeParticipantStepRoles([
+      { role: "speaker", enabled: true },
+      { role: "speaker", enabled: false },
+    ])).toThrow();
+    expect(() => normalizeParticipantStepRoles([{ role: "host" as "speaker", enabled: true }])).toThrow();
   });
 });

@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { events, tracks, users } from "./core";
 import { fieldTypeEnum, formContextEnum, formStatusEnum, reviewVisibilityEnum, submissionKindEnum, taskTargetEnum } from "./enums";
@@ -35,7 +35,15 @@ export const formFields = pgTable("form_fields", {
 export const formVersions = pgTable("form_versions", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), formId: uuid("form_id").notNull(), version: integer("version").notNull(),
   snapshot: jsonb("snapshot").notNull(), publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow().notNull(), publishedBy: uuid("published_by").references(() => users.id, { onDelete: "set null" }),
-}, (table) => [unique().on(table.formId, table.version), unique().on(table.id, table.eventId)]);
+  participantOperationId: uuid("participant_operation_id"), participantOperationFingerprint: text("participant_operation_fingerprint"),
+}, (table) => [
+  unique().on(table.formId, table.version),
+  unique().on(table.id, table.eventId),
+  check("form_versions_participant_operation_pair_ck", sql`(${table.participantOperationId} IS NULL) = (${table.participantOperationFingerprint} IS NULL)`),
+  uniqueIndex("form_versions_participant_operation_uq")
+    .on(table.eventId, table.formId, table.participantOperationId)
+    .where(sql`${table.participantOperationId} IS NOT NULL`),
+]);
 
 export const routingRules = pgTable("routing_rules", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), formId: uuid("form_id").notNull(), sortOrder: integer("sort_order").notNull().default(0),
