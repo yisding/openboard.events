@@ -17,6 +17,13 @@ Cloudflare's DMARC Reports API, which idempotently enables collection and ensure
 `reportingConfigured: true`. `awaitingFirstReport: true` is expected for up to 24 hours after
 enablement.
 
+The workflow deliberately does not reuse the Worker deployment credential. Its production
+environment must contain `CLOUDFLARE_DMARC_API_TOKEN`, scoped only to the
+`openboard.events` zone with Cloudflare's **Email Security DMARC Reports Read** and
+**Email Security DMARC Reports Write** permissions, plus the non-secret `CLOUDFLARE_ZONE_ID`
+environment variable. The explicit ID means the token does not need Zone Read. Never add DNS,
+Workers, account-wide, or other zone permissions to this credential.
+
 Use the `status` operation for a read-only snapshot. It records the live policy, report URI,
 Cloudflare's approved-source inventory, and whether the first aggregate report has arrived.
 Cloudflare dashboard → **Email → DMARC Management** owns the per-source pass/fail detail; inspect

@@ -4,6 +4,7 @@ import {
   cloudflareRua,
   parseDmarcPolicy,
   summarizeDmarcStatus,
+  validateZoneId,
 } from "../scripts/manage-dmarc";
 
 const prefix = "0123456789abcdef0123456789abcdef";
@@ -66,5 +67,12 @@ describe("DMARC operations", () => {
         content: "v=DMARC1; p=none; rua=mailto:elsewhere@example.com",
       }] },
     }).reportingConfigured).toBe(false);
+  });
+
+  it("requires an explicit Cloudflare zone ID without granting Zone Read", () => {
+    const zoneId = "0123456789abcdef0123456789abcdef";
+    expect(validateZoneId(zoneId)).toBe(zoneId);
+    expect(() => validateZoneId(undefined)).toThrow("CLOUDFLARE_ZONE_ID");
+    expect(() => validateZoneId("openboard.events")).toThrow("32-character");
   });
 });
