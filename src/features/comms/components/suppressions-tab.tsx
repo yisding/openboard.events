@@ -12,6 +12,8 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { useRemoveSuppression, useSuppressions } from "../hooks/use-suppressions";
 
+const EMPTY_SUPPRESSIONS: SuppressionRow[] = [];
+
 /**
  * M46 — suppression list admin UI. Every row is a Resend-confirmed hard
  * bounce or spam complaint (`recordSuppressionIn`, the webhook handler);
@@ -22,13 +24,13 @@ import { useRemoveSuppression, useSuppressions } from "../hooks/use-suppressions
  * it. There is no manual "add a suppression" here: this table only ever
  * reflects what Resend actually reported.
  */
-export function SuppressionsTab({ eventId, timezone, initialData }: { eventId: EventId; timezone: string; initialData: SuppressionRow[] }) {
+export function SuppressionsTab({ eventId, timezone }: { eventId: EventId; timezone: string }) {
   const { toast } = useToast();
-  const query = useSuppressions(eventId, initialData);
+  const query = useSuppressions(eventId);
   const remove = useRemoveSuppression(eventId);
   const [search, setSearch] = useState("");
   const [pending, setPending] = useState<SuppressionRow | null>(null);
-  const rows = query.data ?? initialData;
+  const rows = query.data ?? EMPTY_SUPPRESSIONS;
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();

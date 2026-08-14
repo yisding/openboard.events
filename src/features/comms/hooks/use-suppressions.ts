@@ -5,17 +5,17 @@ import { z } from "zod";
 import { suppressionRowSchema, type SuppressionRow } from "../schemas";
 import type { ContactId, EventId } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { qk } from "@/shared/lib/query-keys";
+import { QUERY_DEFAULTS } from "@/shared/lib/query-keys";
+import { commsKeys } from "./keys";
 
 const suppressionsResponseSchema = z.array(suppressionRowSchema);
 const okResponseSchema = z.object({ ok: z.boolean() });
 
-export function useSuppressions(eventId: EventId, initialData: SuppressionRow[]) {
+export function useSuppressions(eventId: EventId) {
   return useQuery({
-    queryKey: qk("comms", eventId, "suppressions"),
+    queryKey: commsKeys.suppressions(eventId),
     queryFn: () => api(`comms/${eventId}/suppressions`, suppressionsResponseSchema),
-    initialData,
-    staleTime: 15_000,
+    ...QUERY_DEFAULTS,
   });
 }
 
@@ -24,7 +24,7 @@ export function useSuppressions(eventId: EventId, initialData: SuppressionRow[])
  * the optimistic state to have been right. */
 export function useRemoveSuppression(eventId: EventId) {
   const queryClient = useQueryClient();
-  const key = qk("comms", eventId, "suppressions");
+  const key = commsKeys.suppressions(eventId);
   return useMutation({
     mutationFn: (contactId: ContactId) =>
       api(`comms/${eventId}/suppressions/${contactId}`, okResponseSchema, { method: "DELETE" }),

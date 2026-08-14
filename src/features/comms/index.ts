@@ -1,5 +1,6 @@
 export type { CommLogFilters } from "./server/queries";
 export { listLog } from "./server/queries";
+export { commsKeys } from "./hooks/keys";
 export { dispatchOutbox } from "./server/dispatcher";
 export { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
 export { seedDefaultTemplates } from "./server/templates";

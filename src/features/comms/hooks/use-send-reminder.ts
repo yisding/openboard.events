@@ -5,12 +5,12 @@ import { z } from "zod";
 import { openAssignmentRowSchema } from "../schemas";
 import { sendReminderNowResultSchema, type ContactId, type EventId, type SendReminderNowInput } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { qk } from "@/shared/lib/query-keys";
+import { commsKeys } from "./keys";
 
 const assignmentsResponseSchema = z.array(openAssignmentRowSchema);
 export function useOpenAssignments(eventId: EventId, contactId: ContactId | null) {
   return useQuery({
-    queryKey: qk("comms", eventId, "open-assignments", contactId ?? "-"),
+    queryKey: commsKeys.openAssignments(eventId, contactId),
     queryFn: () => api(`comms/${eventId}/open-assignments?contactId=${contactId}`, assignmentsResponseSchema),
     enabled: contactId !== null,
   });

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EmailTemplateRow } from "@/features/comms";
 import { sanitizeTemplateBody } from "@/features/comms/template-body";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
@@ -24,12 +23,12 @@ type FocusTarget = "subject" | "body";
 const PREVIEW_DEBOUNCE_MS = 400;
 
 /** Templates tab (step 3), with visual editing by default and explicit source mode. */
-export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initialData: EmailTemplateRow[] }) {
+export function TemplatesTab({ eventId }: { eventId: EventId }) {
   const { toast } = useToast();
-  const query = useTemplates(eventId, initialData);
+  const query = useTemplates(eventId);
   const save = useSaveTemplate(eventId);
   const preview = useTemplatePreview(eventId);
-  const templates = query.data ?? initialData;
+  const templates = query.data ?? [];
   const [selectedKey, setSelectedKey] = useState<TemplateKey>(templates[0]?.key ?? TEMPLATE_KEYS[0]);
   const selected = templates.find((row) => row.key === selectedKey);
 
