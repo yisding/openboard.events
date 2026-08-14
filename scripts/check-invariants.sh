@@ -134,9 +134,27 @@ if (( type_floor_status == 0 )); then
     fail=1
   done <<< "$type_floor_output"
 fi
-check_forbidden "fontSize[[:space:]]*:[[:space:]]*(0|[1-9](\.[0-9]+)?|1[01](\.[0-9]+)?)([^0-9.]|$)" src \
-  --glob '*.ts' \
-  --glob '*.tsx'
+inline_type_pattern='fontSize[[:space:]]*:[[:space:]]*-?([0-9]+([.][0-9]+)?|[.][0-9]+)'
+set +e
+inline_type_output=$(rg -n -o "$inline_type_pattern" src --glob '*.ts' --glob '*.tsx' 2>&1)
+inline_type_status=$?
+set -e
+if (( inline_type_status > 1 )); then
+  echo "check-invariants: rg failed (exit $inline_type_status) for the inline type floor" >&2
+  echo "$inline_type_output" >&2
+  exit 2
+fi
+if (( inline_type_status == 0 )); then
+  while IFS= read -r match; do
+    declaration=${match#*:*:}
+    value=${declaration#*:}
+    value=$(printf '%s' "$value" | tr -d '[:space:]')
+    if ! awk -v size="$value" 'BEGIN { exit !(size >= 12) }'; then
+      echo "$match"
+      fail=1
+    fi
+  done <<< "$inline_type_output"
+fi
 
 if [[ "$fail" -ne 0 ]]; then
   echo "Invariant check failed"

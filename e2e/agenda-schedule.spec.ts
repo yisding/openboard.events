@@ -89,12 +89,20 @@ test.describe("agenda-schedule", () => {
         expect(await tab.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(12);
       }
 
-      const layout = await page.locator(".agenda-view-tabs").evaluate((element) => ({
-        isScrollable: element.scrollWidth > element.clientWidth,
-        documentWidth: document.documentElement.scrollWidth,
-        viewportWidth: window.innerWidth,
-      }));
+      const layout = await page.locator(".agenda-view-tabs").evaluate((element) => {
+        const maximumScroll = element.scrollWidth - element.clientWidth;
+        element.scrollLeft = element.scrollWidth;
+        return {
+          isScrollable: maximumScroll > 0,
+          overflowX: getComputedStyle(element).overflowX,
+          reachedEnd: Math.abs(element.scrollLeft - maximumScroll) <= 1,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
       expect(layout.isScrollable).toBe(true);
+      expect(["auto", "scroll"]).toContain(layout.overflowX);
+      expect(layout.reachedEnd).toBe(true);
       expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
     });
   });
