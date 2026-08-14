@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { submitCfpForm } from "@/features/forms/server/submit";
+import { submitCfpForm } from "@/features/cfp";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, participantRoleSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { clientIp } from "@/shared/server/rate-limit";

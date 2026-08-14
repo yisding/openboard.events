@@ -62,7 +62,7 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
-const { saveCfpDraft, submitCfpForm } = await import("@/features/forms/server/submit");
+const { saveCfpDraft, submitCfpForm } = await import("@/features/cfp");
 const { upsertDraft } = await import("@/features/submissions");
 
 const field = (key: string) => {

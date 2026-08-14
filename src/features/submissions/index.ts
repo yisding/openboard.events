@@ -1,4 +1,5 @@
-export type { CreateSubmissionResult, DecisionEmailPreviewSample, DraftParticipantInput, NotifyPreview, NotifyResult, TransitionResult } from "./server/mutations";
+export type { CreateSubmissionResult, DraftParticipantInput } from "@/shared/contracts";
+export type { DecisionEmailPreviewSample, NotifyPreview, NotifyResult, TransitionResult } from "./server/mutations";
 export {
   createSubmission,
   createSubmissionIn,
