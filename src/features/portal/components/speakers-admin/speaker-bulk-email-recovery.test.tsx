@@ -8,7 +8,7 @@ import {
   bulkSendPreviewFingerprint,
   claimBulkSendAttempt,
   completeBulkSendAttempt,
-} from "@/features/comms/bulk-send-attempt";
+} from "@/features/comms/index.bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
   bulkSendAttemptScope,
@@ -16,7 +16,7 @@ import {
   persistBulkSendRecovery,
   speakerBulkSendRecoveryIdentity,
   type BulkSendRecoverySnapshot,
-} from "@/features/comms/bulk-send-recovery";
+} from "@/features/comms/index.bulk-send-recovery";
 import { AppError } from "@/shared/lib/errors";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 

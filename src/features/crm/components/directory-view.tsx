@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationEventRow } from "@/features/organizations";
-import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/bulk-send-recovery";
-import { UnreadableBulkSendRecovery } from "@/features/comms/components/unreadable-bulk-send-recovery";
+import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
+import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
 import {
   CRM_CONTACT_SOURCES,
   CRM_PIPELINE_STAGES,

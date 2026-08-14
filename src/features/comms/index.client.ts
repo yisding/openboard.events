@@ -4,6 +4,8 @@
 export { CommsLogTable } from "./components/comms-log-table";
 export { CommsAdminPage, type CommsTab } from "./components/comms-admin-page";
 export { SendReminderDialog } from "./components/send-reminder-dialog";
+export { MessagePreview } from "./components/message-preview";
+export { UnreadableBulkSendRecovery } from "./components/unreadable-bulk-send-recovery";
 // The payload schemas the M37 hooks validate against — safe in the browser
 // because `schemas.ts` never touches the database or the session.
 export type {

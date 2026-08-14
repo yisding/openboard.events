@@ -2,8 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { templateVariablePaths } from "@/features/comms/components/sample-vars";
-import { unknownTokensClientSide } from "@/features/comms/components/validate-client";
+import { templateVariablePaths, unknownTokensClientSide } from "@/features/comms/index.templates";
 import {
   acceptedBulkSendCount,
   abandonBulkSendAttempt,
@@ -16,7 +15,7 @@ import {
   mergeBulkSendResults,
   verifyBulkSendAttempt,
   type BulkSendAttempt,
-} from "@/features/comms/bulk-send-attempt";
+} from "@/features/comms/index.bulk-send-attempt";
 import {
   BULK_SEND_RECOVERY_VERSION,
   browserBulkSendRecoveryLockManager,
@@ -29,7 +28,7 @@ import {
   withBulkSendRecoveryLock,
   type BulkSendRecoveryBatchResult,
   type BulkSendRecoverySnapshot,
-} from "@/features/comms/bulk-send-recovery";
+} from "@/features/comms/index.bulk-send-recovery";
 import { composeBulkSpeakerEmailResultSchema, type ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkBulkRecipientIds } from "@/features/comms/bulk-send-attempt";
+import { chunkBulkRecipientIds } from "@/features/comms/index.bulk-send-attempt";
 import {
   composeCrmBulkEmailInputSchema,
   organizationContactIdSchema,

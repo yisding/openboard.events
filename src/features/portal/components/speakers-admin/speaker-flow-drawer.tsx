@@ -5,7 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ContactListRow, SpeakerDetailDTO } from "@/features/portal";
 import { participantRoleLabel } from "../../lib/participant-role";
-import { SendReminderDialog } from "@/features/comms/components/send-reminder-dialog";
+import { SendReminderDialog } from "@/features/comms/index.client";
 import { eventIdSchema } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
