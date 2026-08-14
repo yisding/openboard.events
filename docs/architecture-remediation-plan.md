@@ -60,6 +60,12 @@ workerd across dynamic, static/R2, API, auth, redirect, and lazy-client paths;
 records artifact and cold-start metrics; and rejects missing emitted chunks.
 Deploys repeat the size contract before mutation, and production now has an
 explicit `needs: preview` dependency on the same commit's complete canary.
+PR #407 then kept the release SHA server-only, and PR #409 enabled Wrangler's
+supported final minification pass after a no-runtime-change rebuild exposed the
+remaining compression variance at the Free-plan ceiling. Hosted builds of the
+same 949-input / 262-chunk graph now compress to roughly 2,350 KiB instead of
+3,069–3,073 KiB, restoring more than 700 KiB of operational headroom without
+changing the Webpack chunk contract.
 
 The scheduled-delivery workstream is complete in PRs #389, #396, and #403.
 Both email outboxes now use one claim/deliver/retry engine with bounded
@@ -71,6 +77,15 @@ before removal; the removal release then proved both the internal namespace and
 the retired `/api/jobs/*` namespace return `404` publicly. `CRON_SECRET` was
 deleted from both preview Workers, and the resulting secret-change jobs version
 completed another RPC tick successfully.
+
+The client-consistency workstream is complete in PRs #404, #405, #406, and
+#408. Communications, Agenda, and Dashboard now hydrate one shared query cache
+from server-prefetched data; feature-owned key factories drive exact mutation
+invalidation; and RSC-only or response-local screens are explicitly recorded
+instead of being forced into a second client owner. The final AST guardrails
+reject production-local Query clients/providers, `useQuery` `initialData`,
+literal query keys (including shorthand aliases), and modules that combine
+query invalidation with `router.refresh()`.
 
 ## Sequencing and workstreams
 
@@ -164,6 +179,11 @@ Exit criteria:
 - One documented consistency model covers every interactive admin screen.
 - No mutation needs both broad query invalidation and `router.refresh()`.
 - Tests prove successful mutation, rollback/error, and cross-panel freshness.
+
+Status: complete in PRs #404, #405, #406, and #408. The screen-by-screen
+ownership/freshness/error ledger is maintained in
+`docs/client-data-consistency.md`, and CI enforces the zero-debt ownership
+boundaries.
 
 ### 5. Consolidate outbox delivery and remove public cron callbacks
 
@@ -286,7 +306,8 @@ Exit criteria:
 4. Worker artifact compatibility hardening (completed in PR #386).
 5. Shared outbox engine and private scheduled invocation (completed in PRs
    #389, #396, and #403).
-6. Client consistency and public-cache invalidation, feature by feature.
+6. Client consistency (completed in PRs #404, #405, #406, and #408); public
+   cache invalidation remains a separate workstream.
 7. Identity link model and staged backfill.
 8. R2 key migration and lifecycle enablement.
 9. Sign-in capacity controls and DMARC enforcement.
