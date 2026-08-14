@@ -154,6 +154,40 @@ test.describe("guided onboarding responsiveness", () => {
     });
     expect(publishAlignment).toBeLessThanOrEqual(1);
   });
+
+  test("wraps completion actions before they overflow the tablet wizard", async ({ page }) => {
+    await page.setViewportSize({ width: 500, height: 800 });
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:32px 16px">
+        <div class="panel settings-section onboarding-wizard" style="margin:auto">
+          <div class="cfp-step onboarding-done">
+            <footer class="cfp-actions">
+              <a class="button button-secondary" href="#">Manage form</a>
+              <a class="button button-secondary" href="#">Preview form</a>
+              <a class="button button-secondary" href="#">Open live form</a>
+              <a class="button button-primary" href="#">Open dashboard</a>
+            </footer>
+          </div>
+        </div>
+      </main>
+    </body></html>`);
+
+    const footer = page.locator(".onboarding-done .cfp-actions");
+    const layout = await footer.evaluate((element) => {
+      const footerBox = element.getBoundingClientRect();
+      const actionBoxes = [...element.children].map((action) => action.getBoundingClientRect());
+      return {
+        actionsFit: actionBoxes.every((box) => box.left >= footerBox.left && box.right <= footerBox.right),
+        distinctRows: new Set(actionBoxes.map((box) => Math.round(box.top))).size,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.actionsFit).toBe(true);
+    expect(layout.distinctRows).toBe(2);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  });
 });
 
 test.describe("mobile auth touch targets", () => {

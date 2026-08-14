@@ -367,6 +367,25 @@ test.describe("self-service signup to first value", () => {
       await publication.getByRole("button", { name: "Create and publish form" }).click();
 
       await expect(page.getByRole("heading", { name: `${correctedEventName} is ready` })).toBeVisible({ timeout: 30_000 });
+      const completionViewport = page.viewportSize();
+      const completionActions = page.locator(".onboarding-done .cfp-actions");
+      await page.setViewportSize({ width: 500, height: 800 });
+      const tabletActions = await completionActions.evaluate((element) => {
+        const footerBox = element.getBoundingClientRect();
+        const actionBoxes = [...element.children].map((action) => action.getBoundingClientRect());
+        return {
+          actionsFit: actionBoxes.every((box) => box.left >= footerBox.left && box.right <= footerBox.right),
+          distinctRows: new Set(actionBoxes.map((box) => Math.round(box.top))).size,
+        };
+      });
+      expect(tabletActions.actionsFit).toBe(true);
+      expect(tabletActions.distinctRows).toBe(2);
+      await page.setViewportSize({ width: 320, height: 700 });
+      const phoneActionRows = await completionActions.locator(":scope > *").evaluateAll((actions) =>
+        new Set(actions.map((action) => Math.round(action.getBoundingClientRect().top))).size);
+      expect(phoneActionRows).toBe(4);
+      if (completionViewport) await page.setViewportSize(completionViewport);
+
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
