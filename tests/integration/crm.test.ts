@@ -78,6 +78,62 @@ describe("organization-level speaker CRM (M55)", () => {
 
   afterAll(async () => pglite.close());
 
+  it("keeps a created contact authoritative when its best-effort activity fails", async () => {
+    await pglite.exec(`
+      CREATE FUNCTION fail_created_contact_activity() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.kind = 'created' THEN
+          RAISE EXCEPTION 'forced created-contact activity failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_created_contact_activity
+      BEFORE INSERT ON organization_contact_activity
+      FOR EACH ROW EXECUTE FUNCTION fail_created_contact_activity();
+    `);
+
+    const createdId = await (async () => {
+      try {
+        return await createOrganizationContactIn(db, orgA, {
+          email: "activity-failure@example.com",
+          firstName: "Still",
+          lastName: "Created",
+        });
+      } finally {
+        await pglite.exec("DROP TRIGGER fail_created_contact_activity ON organization_contact_activity; DROP FUNCTION fail_created_contact_activity();");
+      }
+    })();
+
+    const failedActivityRows = await pglite.query<{ id: string; activities: number }>(
+      `SELECT c.id,
+         (SELECT count(*)::int FROM organization_contact_activity a WHERE a.organization_contact_id=c.id) AS activities
+       FROM organization_contacts c
+       WHERE c.organization_id=$1 AND c.email='activity-failure@example.com'`,
+      [orgA],
+    );
+    expect(failedActivityRows.rows).toEqual([{ id: createdId, activities: 0 }]);
+
+    await expect(createOrganizationContactIn(db, orgA, { email: "activity-failure@example.com" }))
+      .rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
+    expect((await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM organization_contacts WHERE organization_id=$1 AND email='activity-failure@example.com'",
+      [orgA],
+    )).rows).toEqual([{ count: 1 }]);
+
+    const normalId = await createOrganizationContactIn(db, orgA, {
+      email: "activity-success@example.com",
+      firstName: "Activity",
+      lastName: "Recorded",
+    });
+    expect((await pglite.query<{ kind: string; source: string }>(
+      `SELECT kind, metadata->>'source' AS source
+       FROM organization_contact_activity
+       WHERE organization_id=$1 AND organization_contact_id=$2`,
+      [orgA, normalId],
+    )).rows).toEqual([{ kind: "created", source: "manual" }]);
+  });
+
   it("pushes a contact into two events without duplicating the organization identity, and isolates organizations", async () => {
     const adaId = await createOrganizationContactIn(db, orgA, { email: "Ada@Example.com", firstName: "Ada", lastName: "Lovelace" });
 

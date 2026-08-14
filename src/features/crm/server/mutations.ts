@@ -48,6 +48,7 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 import { sanitize } from "@/shared/lib/sanitize";
 import { getOrganizationContactIn } from "./queries";
 
@@ -109,8 +110,9 @@ async function assertContactInOrgIn(dbOrTx: DbOrTx, organizationId: Organization
 // --- Contacts ---------------------------------------------------------------
 
 export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+  let row: typeof organizationContacts.$inferSelect | undefined;
   try {
-    const [row] = await dbOrTx.insert(organizationContacts).values({
+    [row] = await dbOrTx.insert(organizationContacts).values({
       organizationId,
       // Normalized defensively here (not only by the route's zod schema,
       // which already lowercases/trims) — the same "the writer never trusts
@@ -127,14 +129,28 @@ export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId
       websiteUrl: input.websiteUrl || null,
       source: "manual",
     }).returning();
-    if (!row) throw new AppError("INTERNAL", "Contact insert did not return a row");
-    const id = organizationContactIdSchema.parse(row.id);
-    await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
-    return id;
   } catch (error) {
     if (isUniqueViolation(error)) throw new AppError("CONFLICT", "A contact with this email already exists in this organization.", { field: "email" });
     throw error;
   }
+  if (!row) throw new AppError("INTERNAL", "Contact insert did not return a row");
+  const id = organizationContactIdSchema.parse(row.id);
+  try {
+    await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
+  } catch (error) {
+    // Manual creation uses the plain HTTP database handle, so the directory
+    // identity is already committed. Its activity trail is useful context,
+    // never grounds for reporting a failed creation and stranding the organizer
+    // on a duplicate.
+    log({
+      level: "warn",
+      msg: "crm.contact_created_activity_failed",
+      requestId: id,
+      feature: "crm",
+      code: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return id;
 }
 export const createOrganizationContact = (organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> =>
   createOrganizationContactIn(db, organizationId, input);
