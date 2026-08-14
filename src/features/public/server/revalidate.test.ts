@@ -39,14 +39,9 @@ describe("public domain invalidation", () => {
     "schedule_itinerary",
     "speaker_list",
     "speaker_gallery",
-  ] as const)("invalidates the %s embed configuration and its composed content", async (contentType) => {
+  ] as const)("invalidates only the %s embed configuration", async (contentType) => {
     await revalidatePublicEmbed(eventId, contentType, "req-3");
-    expect(revalidateTag.mock.calls.map(([tag]) => tag)).toEqual([
-      publicCacheTag.embed(eventId, contentType),
-      contentType.startsWith("speaker_")
-        ? publicCacheTag.speakers(eventId)
-        : publicCacheTag.schedule(eventId),
-    ]);
+    expect(revalidateTag).toHaveBeenCalledExactlyOnceWith(publicCacheTag.embed(eventId, contentType));
   });
 
   it("never fails an already committed mutation when invalidation fails", async () => {

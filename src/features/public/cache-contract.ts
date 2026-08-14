@@ -12,14 +12,6 @@ export const PUBLIC_CACHE_MUTATION_BUDGET_SECONDS = 10;
 export type PublicEventSurface = "schedule" | "speakers";
 export type PublicCacheSurface = PublicEventSurface | `embed:${CanonicalEmbedContentType}`;
 
-export function publicEventSurfaceForEmbed(
-  contentType: CanonicalEmbedContentType,
-): PublicEventSurface {
-  return contentType === "speaker_list" || contentType === "speaker_gallery"
-    ? "speakers"
-    : "schedule";
-}
-
 const prefix = (eventId: EventId) => `public:event:${eventId}`;
 
 /** Stable domain tags. URLs and route aliases deliberately do not appear. */

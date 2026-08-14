@@ -30,7 +30,12 @@ async function waitForPublicContent(
       try {
         const response = await request.get(path, { timeout: Math.min(timeoutMs, 5_000) });
         const body = await response.text();
-        return response.status() === 200 && body.includes(expected) ? null : `${path} (${response.status()})`;
+        // React inserts empty comments between adjacent server-rendered text
+        // chunks (for example `This <!-- -->agenda<!-- --> is...`). Compare
+        // the rendered text rather than treating those hydration markers as
+        // user-visible content.
+        const renderedText = body.replaceAll("<!-- -->", "");
+        return response.status() === 200 && renderedText.includes(expected) ? null : `${path} (${response.status()})`;
       } catch {
         return `${path} (request timed out)`;
       }

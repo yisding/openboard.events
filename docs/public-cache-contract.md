@@ -48,11 +48,8 @@ Writers emit event-scoped domain invalidations. Session, placement, published
 speaker, committed speaker CSV import, vocabulary, CFP/profile-writeback, and
 erasure changes emit schedule and speaker tags as appropriate. Preview-only
 CSV imports do not invalidate. Event detail/branding changes emit the shared
-metadata tag. Embed settings emit their content-type tag plus the paired
-schedule or speaker tag. The latter is the eviction anchor for the composed
-ISR document: deployed OpenNext proof established that expiring an independently
-cached config read alone does not evict an already-rendered embed page. No
-writer knows or enumerates `/e` or `/embed` route aliases.
+metadata tag. Embed settings emit only their content-type tag. No writer knows
+or enumerates `/e` or `/embed` route aliases.
 
 Deployment is additive: preview creates the two SQLite namespaces first, then
 the deployed cache proof warms every alias, mutates through an authenticated
