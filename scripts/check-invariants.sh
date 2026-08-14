@@ -33,6 +33,7 @@ check_forbidden() {
 
 check_forbidden "OPENBOARD_API_KEY" src docs/api.md .dev.vars.example
 check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
+check_forbidden "NEXT_PUBLIC_BUILD_SHA" src scripts tests docs .github .dev.vars.example --glob '!check-invariants.sh'
 
 # Design Phase 1: meaningful interface copy has a 12px floor. The landing
 # page's scaled product illustration is the only exception: those preview and

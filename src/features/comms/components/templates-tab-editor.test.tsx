@@ -10,6 +10,7 @@ import { TemplatesTab } from "./templates-tab";
 
 const insertAtCursorMock = vi.hoisted(() => vi.fn());
 const previewMutateMock = vi.hoisted(() => vi.fn());
+const templatesHookState = vi.hoisted(() => ({ data: [] as EmailTemplateRow[] }));
 
 vi.mock("@/shared/ui/app/rich-text-editor-lazy", async () => {
   const ReactModule = await import("react");
@@ -30,7 +31,7 @@ vi.mock("@/shared/ui/app/rich-text-editor-lazy", async () => {
   };
 });
 vi.mock("../hooks/use-templates", () => ({
-  useTemplates: (_eventId: string, initialData: EmailTemplateRow[]) => ({ data: initialData, refetch: vi.fn() }),
+  useTemplates: () => ({ data: templatesHookState.data, refetch: vi.fn() }),
   useSaveTemplate: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("../hooks/use-template-preview", () => ({
@@ -58,7 +59,8 @@ let container: HTMLDivElement;
 let root: Root;
 
 async function mount(template: EmailTemplateRow = baseTemplate) {
-  await act(async () => root.render(<TemplatesTab eventId={eventId} initialData={[template]} />));
+  templatesHookState.data = [template];
+  await act(async () => root.render(<TemplatesTab eventId={eventId} />));
 }
 
 function buttonNamed(name: string): HTMLButtonElement | undefined {

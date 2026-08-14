@@ -10,6 +10,8 @@ import { StatTile } from "@/shared/ui/app/stat-tile";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import { useDeliverability } from "../hooks/use-deliverability";
 
+const EMPTY_DELIVERABILITY: DomainDeliverabilityRow[] = [];
+
 // Above these thresholds Resend's own guidance treats a sending domain as at
 // risk — not a hard cutoff, just where the tile switches from informational
 // to a warning tone so an organizer notices without a separate alerting system.
@@ -28,9 +30,9 @@ function formatPct(value: number): string {
  * corporate mail gateway greylisting the sender, a Gmail spam-folder
  * pattern) becomes visible instead of buried in the flat Log tab.
  */
-export function DeliverabilityTab({ eventId, initialData }: { eventId: EventId; initialData: DomainDeliverabilityRow[] }) {
-  const query = useDeliverability(eventId, initialData);
-  const rows = query.data ?? initialData;
+export function DeliverabilityTab({ eventId }: { eventId: EventId }) {
+  const query = useDeliverability(eventId);
+  const rows = query.data ?? EMPTY_DELIVERABILITY;
 
   const totals = useMemo(() => {
     const sent = rows.reduce((sum, row) => sum + row.sent, 0);

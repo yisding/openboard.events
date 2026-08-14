@@ -126,7 +126,10 @@ const envSchema = z.object({
    */
   BETTER_AUTH_URL: optionalString,
   TEST_AUTH: z.never().optional(),
-  NEXT_PUBLIC_BUILD_SHA: optionalString,
+  // Server/runtime release identity. This deliberately has no `NEXT_PUBLIC_`
+  // prefix: only `/api/health` reads it, and asking Next to inline a changing
+  // SHA into the client/server compilation materially inflates the Worker.
+  BUILD_SHA: optionalLegalVersion,
   DEPLOYMENT_ID: optionalLegalVersion,
 }).superRefine((env, context) => {
   const url = new URL(env.APP_BASE_URL);

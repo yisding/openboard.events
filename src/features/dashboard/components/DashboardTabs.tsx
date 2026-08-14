@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
 import type { EventId } from "@/shared/contracts";
+import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { Button } from "@/shared/ui/ui-kit";
 import type { DashboardOverview } from "../index";
-import { useDashboardOverview } from "../hooks/use-dashboard-overview";
+import { dashboardKeys, useDashboardOverview } from "../hooks/use-dashboard-overview";
 import { computeEventPhase } from "../lib/phase";
 import { ActivationGuide } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
@@ -25,13 +24,23 @@ export function DashboardTabNav({ eventId, active }: { eventId: EventId; active:
   </nav>;
 }
 
-export function DashboardTabs(props: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
-  const [client] = useState(() => new QueryClient());
-  return <QueryClientProvider client={client}><DashboardTabsInner {...props} /></QueryClientProvider>;
+type DashboardTabsProps = {
+  eventId: EventId;
+  initialTab: DashboardTab;
+  firstName: string;
+  live?: boolean;
+  /** Used only to hydrate the query boundary; the live view never receives a second prop copy. */
+  serverOverview: DashboardOverview;
+};
+
+export function DashboardTabs({ serverOverview, ...props }: DashboardTabsProps) {
+  const seeds = [{ queryKey: dashboardKeys.overview(props.eventId), data: serverOverview }];
+  return <QueryBoundary seeds={seeds}><DashboardTabsInner {...props} /></QueryBoundary>;
 }
 
-function DashboardTabsInner({ eventId, initialData, initialTab, firstName, live = true }: { eventId: EventId; initialData: DashboardOverview; initialTab: DashboardTab; firstName: string; live?: boolean }) {
-  const query = useDashboardOverview(eventId, initialData, live);
+function DashboardTabsInner({ eventId, initialTab, firstName, live = true }: Omit<DashboardTabsProps, "serverOverview">) {
+  const query = useDashboardOverview(eventId, live);
+  if (!query.data) return <DashboardLoadError />;
   return <DashboardTabsView
     eventId={eventId}
     firstName={firstName}

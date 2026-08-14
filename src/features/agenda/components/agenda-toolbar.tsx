@@ -22,7 +22,7 @@ const DAY_SCOPED: ReadonlySet<AgendaView> = new Set<AgendaView>(["day", "week", 
 /**
  * The one control surface above every view.
  *
- * The Conflicts badge reads the same server-authoritative array that is passed
+ * The Conflicts badge reads the same live derived array that is passed
  * to every view, so M31's Conflicts tab can be rewritten without ever touching
  * this file to keep the count in sync.
  *

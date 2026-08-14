@@ -3,17 +3,20 @@
 import { useQuery } from "@tanstack/react-query";
 import type { EventId } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { qk } from "@/shared/lib/query-keys";
-import { dashboardOverviewSchema, type DashboardOverview } from "../index";
+import { qk, QUERY_DEFAULTS } from "@/shared/lib/query-keys";
+import { dashboardOverviewSchema } from "../index";
 
-export function useDashboardOverview(eventId: EventId, initialData: DashboardOverview, live = true) {
+export const dashboardKeys = {
+  all: (eventId: EventId) => qk("dashboard", eventId),
+  overview: (eventId: EventId) => qk("dashboard", eventId, "overview"),
+} as const;
+
+export function useDashboardOverview(eventId: EventId, live = true) {
   return useQuery({
-    queryKey: qk("dashboard", eventId, "overview"),
+    queryKey: dashboardKeys.overview(eventId),
     queryFn: () => api(`dashboard/${eventId}/overview`, dashboardOverviewSchema),
-    initialData,
+    ...QUERY_DEFAULTS,
     enabled: live,
     refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
-    staleTime: 15_000,
   });
 }

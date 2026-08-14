@@ -170,6 +170,37 @@ function numericValue(node: ts.Expression): number | null {
   return null;
 }
 
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  if (
+    ts.isParenthesizedExpression(node)
+    || ts.isAsExpression(node)
+    || ts.isSatisfiesExpression(node)
+    || ts.isTypeAssertionExpression(node)
+    || ts.isNonNullExpression(node)
+  ) {
+    return unwrapExpression(node.expression);
+  }
+  return node;
+}
+
+function shorthandInitializer(node: ts.ShorthandPropertyAssignment): ts.Expression | undefined {
+  let parent: ts.Node | undefined = node.parent;
+  while (parent) {
+    if (ts.isBlock(parent) || ts.isSourceFile(parent)) {
+      for (const statement of [...parent.statements].reverse()) {
+        if (statement.getStart() >= node.getStart() || !ts.isVariableStatement(statement)) continue;
+        for (const declaration of [...statement.declarationList.declarations].reverse()) {
+          if (ts.isIdentifier(declaration.name) && declaration.name.text === node.name.text) {
+            return declaration.initializer;
+          }
+        }
+      }
+    }
+    parent = parent.parent;
+  }
+  return undefined;
+}
+
 function reviewerRouteAllowed(path: string): boolean {
   return /^src\/app\/api\/internal\/submissions\/[^/]+\/[^/]+\/route\.ts$/u.test(path)
     || /^src\/app\/api\/internal\/evaluation\/[^/]+\/(?:queue|reviews)\/route\.ts$/u.test(path)
@@ -180,6 +211,7 @@ function reviewerRouteAllowed(path: string): boolean {
 
 function inspectFile(absolutePath: string): Violation[] {
   const path = repoPath(absolutePath);
+  const isTestFile = /\.(?:test|spec)\.[tj]sx?$/u.test(path);
   const source = ts.createSourceFile(
     path,
     readFileSync(absolutePath, "utf8"),
@@ -188,6 +220,9 @@ function inspectFile(absolutePath: string): Violation[] {
     path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const violations: Violation[] = [];
+  let queryInvalidation: ts.CallExpression | null = null;
+  let routeRefresh: ts.CallExpression | null = null;
+  const routerNames = new Set<string>();
 
   function report(node: ts.Node, rule: string, message: string): void {
     violations.push({
@@ -221,6 +256,80 @@ function inspectFile(absolutePath: string): Violation[] {
       }
       if (specifier === "aws4fetch" && path !== "src/shared/server/r2.ts") {
         report(node, "r2-import", "aws4fetch imports belong in src/shared/server/r2.ts");
+      }
+      if (
+        specifier === "@tanstack/react-query"
+        && ts.isImportDeclaration(node)
+        && node.importClause?.namedBindings
+        && ts.isNamedImports(node.importClause.namedBindings)
+        && !isTestFile
+      ) {
+        for (const element of node.importClause.namedBindings.elements) {
+          if (node.importClause.isTypeOnly || element.isTypeOnly) continue;
+          const imported = element.propertyName?.text ?? element.name.text;
+          if (imported === "QueryClient" && path !== "src/shared/lib/query-client.ts") {
+            report(element, "query-client-owner", "create QueryClient instances only through src/shared/lib/query-client.ts");
+          }
+          if (imported === "QueryClientProvider" && path !== "src/shared/ui/app/query-boundary.tsx") {
+            report(element, "query-client-owner", "provide query clients only through the shared QueryBoundary");
+          }
+        }
+      }
+    }
+
+    if (
+      !isTestFile
+      && (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
+      && propertyName(node.name) === "queryKey"
+      && ts.isArrayLiteralExpression(unwrapExpression(
+        ts.isPropertyAssignment(node)
+          ? node.initializer
+          : shorthandInitializer(node) ?? node.name,
+      ))
+    ) {
+      report(node, "query-key-literal", "build query keys with the owning feature's key factory");
+    }
+
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.initializer
+      && ts.isCallExpression(node.initializer)
+      && ts.isIdentifier(node.initializer.expression)
+      && node.initializer.expression.text === "useRouter"
+    ) {
+      routerNames.add(node.name.text);
+    }
+
+    if (ts.isCallExpression(node)) {
+      if (
+        !isTestFile
+        && ts.isIdentifier(node.expression)
+        && ["useInfiniteQuery", "useQuery", "useSuspenseQuery"].includes(node.expression.text)
+      ) {
+        const options = node.arguments[0];
+        if (options && ts.isObjectLiteralExpression(options)) {
+          for (const option of options.properties) {
+            if (
+              (ts.isPropertyAssignment(option) || ts.isShorthandPropertyAssignment(option))
+              && propertyName(option.name) === "initialData"
+            ) {
+              report(option, "query-initial-data", "hydrate the feature key through QueryBoundary instead of useQuery initialData");
+            }
+          }
+        }
+      }
+
+      if (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)) {
+        const called = accessName(node.expression);
+        if (called === "invalidateQueries") queryInvalidation ??= node;
+        if (
+          called === "refresh"
+          && ts.isIdentifier(node.expression.expression)
+          && routerNames.has(node.expression.expression.text)
+        ) {
+          routeRefresh ??= node;
+        }
       }
     }
 
@@ -344,6 +453,13 @@ function inspectFile(absolutePath: string): Violation[] {
   }
 
   visit(source);
+  if (!isTestFile && queryInvalidation && routeRefresh) {
+    report(
+      queryInvalidation,
+      "mixed-cache-refresh",
+      "one module must not invalidate TanStack Query and refresh the RSC route for the same mutation surface",
+    );
+  }
   return violations;
 }
 

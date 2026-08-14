@@ -9,6 +9,8 @@ import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { useReminderRules, useSaveReminderRules } from "../hooks/use-reminder-rules";
 
+const EMPTY_RULES: ReminderRuleRow[] = [];
+
 function offsetLabel(offsetDays: number): string {
   if (offsetDays < 0) return `${Math.abs(offsetDays)} day${Math.abs(offsetDays) === 1 ? "" : "s"} before due`;
   if (offsetDays > 0) return `${offsetDays} day${offsetDays === 1 ? "" : "s"} after due`;
@@ -21,11 +23,11 @@ function offsetLabel(offsetDays: number): string {
  * offset. Saving replaces the whole set: `saveReminderRules` upserts every
  * row kept and deletes any offset no longer present.
  */
-export function RemindersTab({ eventId, initialData }: { eventId: EventId; initialData: ReminderRuleRow[] }) {
+export function RemindersTab({ eventId }: { eventId: EventId }) {
   const { toast } = useToast();
-  const query = useReminderRules(eventId, initialData);
+  const query = useReminderRules(eventId);
   const save = useSaveReminderRules(eventId);
-  const serverRows = query.data ?? initialData;
+  const serverRows = query.data ?? EMPTY_RULES;
   const [rows, setRows] = useState<{ offsetDays: number; enabled: boolean }[]>(serverRows.map((row) => ({ offsetDays: row.offsetDays, enabled: row.enabled })));
   const [dirty, setDirty] = useState(false);
   useUnsavedWorkGuard(dirty);

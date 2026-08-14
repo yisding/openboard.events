@@ -1,7 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { z } from "zod";
 import {
   bulkAgendaPromotionResultSchema,
@@ -36,21 +35,25 @@ export type SaveSessionPayload = {
 };
 
 /**
- * Every write the agenda's UI makes, with one invalidation rule between them.
- *
- * `router.refresh()` runs alongside the cache invalidation because the page's
- * conflicts, vocabulary and accepted list are server-rendered props, not query
- * data — refreshing the route is what keeps the Conflicts badge honest after a
- * save that created an overlap.
+ * Every write the agenda's UI makes, with exact cache ownership for sessions,
+ * accepted abstracts, and the announcement bundle. Conflicts are derived from
+ * the live session list, so no write also needs a route refresh.
  */
 export function useSessionMutations(eventId: EventId) {
   const queryClient = useQueryClient();
-  const router = useRouter();
 
-  const settle = async () => {
-    await queryClient.invalidateQueries({ queryKey: agendaKeys.allSessions(eventId) });
-    router.refresh();
+  const refresh = async (...queryKeys: QueryKey[]) => {
+    await Promise.all(queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
   };
+  const refreshSessions = () => refresh(agendaKeys.allSessions(eventId));
+  const refreshSessionsAndAnnouncement = () => refresh(
+    agendaKeys.allSessions(eventId),
+    agendaKeys.announceBundle(eventId),
+  );
+  const refreshPromotion = () => refresh(
+    agendaKeys.allSessions(eventId),
+    agendaKeys.accepted(eventId),
+  );
 
   const save = useMutation({
     mutationFn: (payload: SaveSessionPayload) => {
@@ -59,20 +62,26 @@ export function useSessionMutations(eventId: EventId) {
         ? api(`agenda/sessions/${id}?eventId=${eventId}`, savedSchema, { method: "PATCH", body })
         : api(`agenda/sessions?eventId=${eventId}`, savedSchema, { method: "POST", body });
     },
-    onSuccess: settle,
+    onSuccess: refreshSessionsAndAnnouncement,
     // A create may have committed before its response was lost or replaced by
     // an invalid/5xx envelope. Refresh the agenda truth while the dialog keeps
     // its exact retry payload locked; definitive 4xx responses remain purely
     // editable and do not disturb the form.
     onError: async (error, payload) => {
-      if (payload.id === undefined && (!isAppError(error) || error.code === "INTERNAL")) await settle();
+      if (payload.id === undefined && (!isAppError(error) || error.code === "INTERNAL")) {
+        await refreshSessionsAndAnnouncement();
+      }
     },
   });
 
   const remove = useMutation({
     mutationFn: ({ id, expectedVersion }: { id: SessionId; expectedVersion: number }) =>
       api(`agenda/sessions/${id}?eventId=${eventId}`, deletedSchema, { method: "DELETE", body: { expectedVersion } }),
-    onSuccess: settle,
+    onSuccess: () => refresh(
+      agendaKeys.allSessions(eventId),
+      agendaKeys.accepted(eventId),
+      agendaKeys.announceBundle(eventId),
+    ),
   });
 
   const setPublished = useMutation({
@@ -81,13 +90,13 @@ export function useSessionMutations(eventId: EventId) {
     // A response can be lost after the transaction commits. Refresh on either
     // outcome so the organizer sees the database truth before deciding whether
     // any still-draft rows need a safe retry.
-    onSettled: settle,
+    onSettled: refreshSessionsAndAnnouncement,
   });
 
   const promote = useMutation({
     mutationFn: (submissionId: SubmissionId) =>
       api(`agenda/promote?eventId=${eventId}`, promotedSchema, { method: "POST", body: { submissionId } }),
-    onSuccess: settle,
+    onSuccess: refreshPromotion,
   });
 
   const promoteBatch = useMutation({
@@ -96,15 +105,15 @@ export function useSessionMutations(eventId: EventId) {
     // A lost/5xx response can follow earlier committed rows in this deliberately
     // non-transactional batch. Refresh exactly once either way; the unique
     // submission link makes every still-visible row safe to retry.
-    onSettled: settle,
+    onSettled: refreshPromotion,
   });
 
   // M52 — restore an earlier content revision as the session's current
-  // title/description. Same settle rule as every other write here.
+  // title/description. It changes only the session list.
   const restoreContent = useMutation({
     mutationFn: ({ id, revisionId }: { id: SessionId; revisionId: string }) =>
       api(`agenda/sessions/${id}/revisions?eventId=${eventId}`, savedSchema, { method: "POST", body: { revisionId } }),
-    onSuccess: settle,
+    onSuccess: refreshSessions,
   });
 
   return { save, remove, setPublished, promote, promoteBatch, restoreContent };

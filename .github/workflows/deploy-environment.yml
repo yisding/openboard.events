@@ -36,7 +36,7 @@ jobs:
       EMAIL_ALLOWLIST: ${{ vars.EMAIL_ALLOWLIST }}
       E2E_SIGNUP_EMAIL: ${{ vars.E2E_SIGNUP_EMAIL }}
       E2E_RESEND_API_KEY: ${{ secrets.E2E_RESEND_API_KEY }}
-      NEXT_PUBLIC_BUILD_SHA: ${{ inputs.deploy_sha }}
+      BUILD_SHA: ${{ inputs.deploy_sha }}
       DEPLOYMENT_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.environment }}
       DEPLOY_ENV: ${{ inputs.environment }}
       SMOKE_EVENT_SLUG: ${{ vars.SMOKE_EVENT_SLUG || 'ai-engineer-sandbox-event' }}

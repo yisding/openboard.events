@@ -30,5 +30,5 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const defaultTab: DashboardTab = defaultTabForPhase(computeEventPhase(overview));
   const initialTab = resolveDashboardTab(requestedTab, defaultTab);
   const firstName = session.name.trim().split(/\s+/, 1)[0] || "Organizer";
-  return <DashboardTabs eventId={eventId} initialData={overview} initialTab={initialTab} firstName={firstName} />;
+  return <DashboardTabs eventId={eventId} serverOverview={overview} initialTab={initialTab} firstName={firstName} />;
 }
