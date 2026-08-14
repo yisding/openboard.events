@@ -15,10 +15,12 @@ export type LiveHighlight = {
 };
 
 export const EMPTY_LIVE_HIGHLIGHT: LiveHighlight = { nowSessionIds: new Set(), nextSessionId: null };
+export const DEFAULT_NEXT_SESSION_WINDOW_MS = 12 * 60 * 60 * 1_000;
 
 export function computeLiveHighlight(
   sessions: ReadonlyArray<{ id: string; startsAt: string; endsAt: string }>,
   now: Date,
+  nextSessionWindowMs = DEFAULT_NEXT_SESSION_WINDOW_MS,
 ): LiveHighlight {
   const nowMs = now.getTime();
   const nowSessionIds = new Set<string>();
@@ -29,7 +31,7 @@ export function computeLiveHighlight(
     const endMs = new Date(session.endsAt).getTime();
     if (startMs <= nowMs && nowMs < endMs) {
       nowSessionIds.add(session.id);
-    } else if (startMs > nowMs && startMs < nextStartMs) {
+    } else if (startMs > nowMs && startMs - nowMs <= nextSessionWindowMs && startMs < nextStartMs) {
       nextStartMs = startMs;
       nextSessionId = session.id;
     }

@@ -207,8 +207,22 @@ test.describe("agenda-schedule", () => {
 
       await page.goto(`${AGENDA}?view=list`);
       await expect(page.getByText(SESSIONS.publishedKeynote.title)).toBeVisible();
-      // The tray is the unscheduled rows' home; a session with no time must
-      // still be reachable, which is what the List view's `<Dash>` cells cover.
+      // Unscheduled rows stay reachable in List through their own table rows.
+      await expect(page.getByText(SESSIONS.draftUnscheduled.title)).toBeVisible();
+
+      await page.goto(`${AGENDA}?view=day`);
+      await expect(page.getByRole("heading", { name: "Unscheduled", exact: true })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Auto-place", exact: true })).toBeVisible();
+      await page.locator(".dv-unscheduled-card", { hasText: SESSIONS.draftUnscheduled.title })
+        .getByRole("button", { name: "Edit" })
+        .click();
+      await expect(page.getByRole("dialog", { name: "Edit session" })).toBeVisible();
+      await page.getByRole("dialog", { name: "Edit session" }).getByRole("button", { name: "Cancel" }).click();
+
+      // The Day view integrates this queue beside its grid; grouped views still
+      // need the shared tray because their lanes intentionally omit null times.
+      await page.goto(`${AGENDA}?view=week`);
+      await expect(page.getByRole("heading", { name: "Unscheduled", exact: true })).toHaveCount(1);
       await expect(page.getByText(SESSIONS.draftUnscheduled.title)).toBeVisible();
 
       assertClean();

@@ -1,15 +1,15 @@
 "use client";
 
-import { ArrowRight, GripVertical, Wand2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { MAX_BULK_AGENDA_PROMOTIONS, type BulkAgendaPromotionResult, type SubmissionId } from "@/shared/contracts";
+import { ArrowRight, GripVertical, Wand2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { MAX_BULK_AGENDA_PROMOTIONS, type AcceptedForSchedulingRow, type BulkAgendaPromotionResult, type EventId, type SubmissionId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { useSessionMutations } from "../hooks/use-session-mutations";
 import { agendaKeys } from "../hooks/keys";
+import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { nameLookup, unscheduled } from "../store";
 import { AutoPlaceDialog } from "./auto-place-dialog";
@@ -29,26 +29,14 @@ export function rejectedPromotionIds(result: BulkAgendaPromotionResult): string[
   return result.results.flatMap((row) => row.outcome === "rejected" ? [String(row.submissionId)] : []);
 }
 
-/**
- * The two ways a session that is not on the grid can reach it.
- *
- * Top half: sessions with NULL times. M30 makes these cards a drag source; here
- * they are static cards with an Edit affordance, which is enough to place one
- * through the dialog before drag-and-drop exists.
- *
- * Bottom half: accepted abstracts with no session yet. The filter is
- * `!row.alreadyPromoted` — the field `AcceptedForSchedulingRow` actually carries
- * — so a re-promote never offers a second copy of a talk already on the agenda.
- */
-export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tracks, formats, speakers, onEdit }: AgendaViewProps) {
+function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
+  eventId: EventId;
+  accepted: AcceptedForSchedulingRow[];
+  promotedOnly?: boolean;
+}) {
   const { toast } = useToast();
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const { promoteBatch } = useSessionMutations(eventId);
-  const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
-  const drafts = useMemo(() => unscheduled(sessions), [sessions]);
   const promotable = useMemo(() => accepted.filter((row) => !row.alreadyPromoted), [accepted]);
-  const [autoPlaceOpen, setAutoPlaceOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [promotionFeedback, setPromotionFeedback] = useState<PromotionFeedback | null>(null);
   const selectedRows = useMemo(
@@ -120,36 +108,7 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
   };
 
   return (
-    <aside className="unscheduled-tray">
-      <header>
-        <div>
-          <h2>Unscheduled</h2>
-          <span>{drafts.length}</span>
-        </div>
-        <p>Open a session to place it on the grid.</p>
-        {/* M54 — one action previews conflict-safe slots for every unscheduled
-            session; nothing is written until the organizer applies it. */}
-        <Button variant="secondary" size="sm" disabled={drafts.length === 0} onClick={() => setAutoPlaceOpen(true)}>
-          <Wand2 size={14} aria-hidden /> Auto-place
-        </Button>
-      </header>
-
-      {drafts.length === 0 && <p className="dash">Everything is scheduled.</p>}
-      {drafts.map((session) => {
-        const track = lookup.track(session.trackId);
-        return (
-          <button key={String(session.id)} type="button" onClick={() => onEdit?.(String(session.id))}>
-            <GripVertical size={15} aria-hidden />
-            <div>
-              <b>{session.title}</b>
-              <span>{track?.name ?? "No track"}{lookup.speakers(session.speakerIds).length > 0 ? ` · ${lookup.speakers(session.speakerIds).join(", ")}` : ""}</span>
-            </div>
-            <ArrowRight size={14} aria-hidden />
-          </button>
-        );
-      })}
-
-      <div className="accepted-tray">
+      <div className={`accepted-tray${promotedOnly ? " accepted-tray--promotion" : ""}`}>
         <div className="accepted-tray-heading">
           <span>READY TO PROMOTE</span>
           <span>{promotable.length}</span>
@@ -198,6 +157,64 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
           </>
         )}
       </div>
+  );
+}
+
+/** Accepted abstracts are a separate intake queue, not a second unscheduled-session tray. */
+export function ReadyToPromoteTray({ eventId, accepted }: {
+  eventId: EventId;
+  accepted: AcceptedForSchedulingRow[];
+}) {
+  return (
+    <aside className="unscheduled-tray promotion-tray" aria-label="Accepted abstracts ready to promote">
+      <PromotionQueue eventId={eventId} accepted={accepted} promotedOnly />
+    </aside>
+  );
+}
+
+/**
+ * Non-Day views cannot place a session by dragging onto the grid, so they keep
+ * the shared tray that exposes every unscheduled session and the promotion
+ * intake queue. Day owns its draggable unscheduled panel and renders only the
+ * separate Ready to promote queue beside it.
+ */
+export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tracks, formats, speakers, onEdit }: AgendaViewProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
+  const drafts = useMemo(() => unscheduled(sessions), [sessions]);
+  const [autoPlaceOpen, setAutoPlaceOpen] = useState(false);
+
+  return (
+    <aside className="unscheduled-tray" aria-label="Unscheduled sessions and accepted abstracts">
+      <header>
+        <div>
+          <h2>Unscheduled</h2>
+          <span>{drafts.length}</span>
+        </div>
+        <p>Open a session to place it on the grid.</p>
+        <Button variant="secondary" size="sm" disabled={drafts.length === 0} onClick={() => setAutoPlaceOpen(true)}>
+          <Wand2 size={14} aria-hidden /> Auto-place
+        </Button>
+      </header>
+
+      {drafts.length === 0 && <p className="dash">Everything is scheduled.</p>}
+      {drafts.map((session) => {
+        const track = lookup.track(session.trackId);
+        const sessionSpeakers = lookup.speakers(session.speakerIds);
+        return (
+          <button key={String(session.id)} type="button" onClick={() => onEdit?.(String(session.id))}>
+            <GripVertical size={15} aria-hidden />
+            <div>
+              <b>{session.title}</b>
+              <span>{track?.name ?? "No track"}{sessionSpeakers.length > 0 ? ` · ${sessionSpeakers.join(", ")}` : ""}</span>
+            </div>
+            <ArrowRight size={14} aria-hidden />
+          </button>
+        );
+      })}
+
+      <PromotionQueue eventId={eventId} accepted={accepted} />
 
       <AutoPlaceDialog
         eventId={eventId}
@@ -205,9 +222,6 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
         open={autoPlaceOpen}
         onClose={() => {
           setAutoPlaceOpen(false);
-          // Applied rows moved sessions server-side; the grid's cache and the
-          // page's server-rendered conflicts both need a fresh read, exactly
-          // like every other agenda write settles (`use-session-mutations`).
           void queryClient.invalidateQueries({ queryKey: agendaKeys.allSessions(eventId) });
           router.refresh();
         }}

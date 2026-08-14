@@ -15,9 +15,20 @@ export function formatInZone(utc: Date | string | number, timeZone: string, styl
   const value = asDate(utc);
   if (typeof style === "object") {
     const usesStyleShortcut = style.dateStyle !== undefined || style.timeStyle !== undefined;
+    const rendersTime = style.timeStyle !== undefined
+      || style.hour !== undefined
+      || style.minute !== undefined
+      || style.second !== undefined;
+    // A zone belongs to an instant, not a calendar label. Adding one to a
+    // date-only component format makes Intl join it as “August 12 at PDT”.
+    // `dateStyle`/`timeStyle` cannot be mixed with component options. Shortcut
+    // callers compose ranges and other prose, so they opt into a zone through
+    // `TzTime` or a separate `zoneAbbreviation` token instead.
     const options: Intl.DateTimeFormatOptions = usesStyleShortcut
       ? { ...style, timeZone }
-      : { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" };
+      : rendersTime
+        ? { ...style, timeZone, timeZoneName: style.timeZoneName ?? "short" }
+        : { ...style, timeZone };
     const rendered = new Intl.DateTimeFormat("en-US", options).format(value);
     return rendered;
   }

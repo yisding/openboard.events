@@ -1332,9 +1332,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    unrelated pre-existing `.day-grid`/`.calendar-session` demo mockup rules. */
 .dv-root{display:flex;flex-direction:column;gap:12px;min-width:0}
 .dv-layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;align-items:start}
+.accepted-tray--promotion{border-top:0;margin-top:0;padding-top:0}
 .dv-side-panels{display:grid;gap:12px;min-width:0}
 .dv-unscheduled-panel{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:12px}
-.dv-unscheduled-panel>header{display:flex;justify-content:space-between;align-items:center}
+.dv-unscheduled-panel>header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dv-unscheduled-panel>header>div{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;flex:1}
 .dv-unscheduled-panel h3{font-size:11.5px;margin:0}
 .dv-unscheduled-panel header span{min-width:18px;height:18px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);display:grid;place-items:center;font-size:10px}
 .dv-unscheduled-hint{font-size:10px;color:var(--muted);margin:6px 0}

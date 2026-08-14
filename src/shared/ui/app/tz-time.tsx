@@ -6,7 +6,19 @@ export function formatTzTime(instant: Date | string | number, tz: string, style:
   const value = formatInZone(instant, tz, style);
   const usesStyleShortcut = typeof style === "object"
     && (style.dateStyle !== undefined || style.timeStyle !== undefined);
-  return usesStyleShortcut ? `${value} ${zoneAbbreviation(instant, tz)}` : value;
+  const needsZone = typeof style === "object"
+    && style.timeZoneName === undefined
+    && (usesStyleShortcut || (
+      style.hour === undefined
+      && style.minute === undefined
+      && style.second === undefined
+    ));
+  return needsZone ? `${value} ${zoneAbbreviation(instant, tz)}` : value;
+}
+
+function withoutTrailingZone(value: string, instant: Date | string | number, tz: string): string {
+  const suffix = ` ${zoneAbbreviation(instant, tz)}`;
+  return value.endsWith(suffix) ? value.slice(0, -suffix.length) : value;
 }
 
 /**
@@ -35,7 +47,7 @@ export function TzTime({
   if (!secondary) return <time dateTime={iso}>{value}</time>;
   return (
     <time className="table-date" dateTime={iso}>
-      {value}
+      {withoutTrailingZone(value, instant, tz)}
       <small>{formatTzTime(instant, tz, secondary)}</small>
     </time>
   );
