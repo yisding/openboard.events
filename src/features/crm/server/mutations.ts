@@ -48,6 +48,7 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { log } from "@/shared/lib/log";
 import { sanitize } from "@/shared/lib/sanitize";
 import { getOrganizationContactIn } from "./queries";
 
@@ -108,9 +109,10 @@ async function assertContactInOrgIn(dbOrTx: DbOrTx, organizationId: Organization
 
 // --- Contacts ---------------------------------------------------------------
 
-export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+async function insertOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+  let row: typeof organizationContacts.$inferSelect | undefined;
   try {
-    const [row] = await dbOrTx.insert(organizationContacts).values({
+    [row] = await dbOrTx.insert(organizationContacts).values({
       organizationId,
       // Normalized defensively here (not only by the route's zod schema,
       // which already lowercases/trims) — the same "the writer never trusts
@@ -127,17 +129,48 @@ export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId
       websiteUrl: input.websiteUrl || null,
       source: "manual",
     }).returning();
-    if (!row) throw new AppError("INTERNAL", "Contact insert did not return a row");
-    const id = organizationContactIdSchema.parse(row.id);
-    await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
-    return id;
   } catch (error) {
     if (isUniqueViolation(error)) throw new AppError("CONFLICT", "A contact with this email already exists in this organization.", { field: "email" });
     throw error;
   }
+  if (!row) throw new AppError("INTERNAL", "Contact insert did not return a row");
+  return organizationContactIdSchema.parse(row.id);
+}
+
+export async function createOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> {
+  const id = await insertOrganizationContactIn(dbOrTx, organizationId, input);
+  await recordActivityIn(dbOrTx, organizationId, id, "created", null, { source: "manual" });
+  return id;
+}
+
+/**
+ * Manual creation runs on the nontransactional neon-http handle: its contact
+ * insert commits before the activity write starts. Keep that committed identity
+ * authoritative even if the contextual activity trail cannot be recorded.
+ * Transactional callers must use `createOrganizationContactIn`, where an
+ * activity failure rejects the transaction instead of being swallowed.
+ */
+export async function createOrganizationContactWithPostCommitActivityIn(
+  database: typeof db,
+  organizationId: OrganizationId,
+  input: CreateOrganizationContactInput,
+): Promise<OrganizationContactId> {
+  const id = await insertOrganizationContactIn(database, organizationId, input);
+  try {
+    await recordActivityIn(database, organizationId, id, "created", null, { source: "manual" });
+  } catch (error) {
+    log({
+      level: "warn",
+      msg: "crm.contact_created_activity_failed",
+      requestId: id,
+      feature: "crm",
+      code: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return id;
 }
 export const createOrganizationContact = (organizationId: OrganizationId, input: CreateOrganizationContactInput): Promise<OrganizationContactId> =>
-  createOrganizationContactIn(db, organizationId, input);
+  createOrganizationContactWithPostCommitActivityIn(db, organizationId, input);
 
 export async function updateOrganizationContactIn(dbOrTx: DbOrTx, organizationId: OrganizationId, id: OrganizationContactId, input: UpdateOrganizationContactInput): Promise<void> {
   const current = await getOrganizationContactIn(dbOrTx, organizationId, id);
