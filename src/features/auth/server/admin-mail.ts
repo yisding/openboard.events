@@ -6,10 +6,8 @@ import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { isEmailAllowed } from "@/shared/server/email-allowlist";
-import { emailLayout } from "@/features/comms/server/layout";
-import { escapeHtml } from "@/features/comms/server/render";
-import { sendViaResend, type EmailMessage } from "@/features/comms/server/resend";
-import { assertOrganizationInvitationTokenForEmailIn } from "@/features/organizations/server/invitations";
+import { emailLayout, escapeHtml, sendViaResend, type EmailMessage } from "@/features/comms/index.delivery";
+import { assertOrganizationInvitationTokenForEmailIn } from "@/features/organizations/index.invitations";
 import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
 import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload, type AdminLinkPayload } from "./secret-payload";
 

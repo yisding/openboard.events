@@ -4,7 +4,7 @@ import { contacts } from "@/db/schema";
 // The `In` variant, not the barrel's `listLog`: this whole read threads a
 // single `dbOrTx` through every query (contact, submissions, tasks, comms) so
 // a PGlite test can exercise it end to end without a live Neon connection.
-import { listLogIn } from "@/features/comms/server/queries";
+import { listLogIn } from "@/features/comms/index.log";
 // The client-safe barrel: it re-exports `toPortalStatus` straight off
 // `server/guards.ts` with no path back through `server/mutations.ts` (which
 // imports `updateContactFields` from this feature's own barrel). Importing the
@@ -13,7 +13,7 @@ import { listLogIn } from "@/features/comms/server/queries";
 import { toPortalStatus } from "@/features/submissions/index.client";
 import type { CommLogRow, ConfirmationStatus, ContactId, EventId, OutstandingTasksRow, ParticipantRole, SubmissionId, SubmissionStatus } from "@/shared/contracts";
 import type { SpeakerRecord } from "../types";
-import { stripHtml } from "@/features/comms/server/render";
+import { stripHtml } from "@/features/comms/index.render";
 import { listMyTasksIn } from "../task-runtime/server/queries";
 
 type ContactSpeakerRow = {

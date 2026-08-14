@@ -2,12 +2,9 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { submissionAnswers, submissionParticipants, submissions } from "@/db/schema";
 import { runSubmitPipeline, getPinnedSnapshotIn, type RawAnswers } from "@/features/forms";
-// Deep import, not the `@/features/submissions` barrel: that barrel's mutations
-// file imports `updateContactFields` from `@/features/portal`, and this module
-// lives inside the portal feature and is re-exported from its barrel — going
-// through both barrels would close a two-feature cycle for no reason. The forms
-// pipeline already sets this precedent (see `submissions/server/mutations.ts`).
-import { updateSubmissionFromCfp } from "@/features/submissions/server/mutations";
+// The named portal contract avoids importing the submissions feature's broad
+// server barrel while keeping this intentional cross-feature mutation explicit.
+import { updateSubmissionFromCfp } from "@/features/submissions/index.portal";
 import {
   answerValueSchema,
   cleanAnswersSchema,

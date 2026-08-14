@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brand } from "@/shared/ui/brand";
 import { CommandPalette } from "@/features/shell/components/command-palette";
-import { EventSwitcher } from "@/features/events/components/event-switcher";
+import { EventSwitcher } from "@/features/events/index.client";
 import { SignOutButton } from "@/features/auth/index.client";
 import type { EventId, MemberRole } from "@/shared/contracts";
 import { FirstRunHints, Hint } from "@/shared/ui/app/first-run-hints";

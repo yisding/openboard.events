@@ -30,7 +30,7 @@ import { getOrCreateContact, updateContactFields } from "@/features/portal";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone } from "@/shared/lib/time";
-import { renderTemplateContent } from "@/features/comms/server/render";
+import { renderTemplateContent } from "@/features/comms/index.render";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { assertTransition } from "./guards";
 import type { SubmissionFieldPatch } from "./filters";
