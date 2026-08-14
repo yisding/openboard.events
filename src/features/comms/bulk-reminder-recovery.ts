@@ -23,8 +23,17 @@ export const bulkReminderRecoverySchema = z.object({
   eventId: eventIdSchema,
   surface: bulkReminderSurfaceSchema,
   attemptId: z.uuid(),
+  /** Identifies the browser document that owns the originating selection. */
+  originId: z.uuid().optional(),
+  /** Canonical set identity for the exact rows selected by that document. */
+  targetFingerprint: z.string().min(1).max(30_000).optional(),
   targets: z.array(bulkReminderTargetSchema).min(1).max(200),
   resolution: bulkReminderResolutionSchema.optional(),
+}).superRefine((value, context) => {
+  if (value.targetFingerprint !== undefined
+    && value.targetFingerprint !== bulkReminderTargetSetFingerprint(value.targets)) {
+    context.addIssue({ code: "custom", path: ["targetFingerprint"], message: "Target fingerprint must match targets" });
+  }
 });
 
 export type BulkReminderRecovery = z.infer<typeof bulkReminderRecoverySchema>;
@@ -102,6 +111,8 @@ export function loadBulkReminderRecovery(
 function sameAttempt(left: BulkReminderRecovery, right: BulkReminderRecovery): boolean {
   return left.eventId === right.eventId
     && left.attemptId === right.attemptId
+    && left.originId === right.originId
+    && left.targetFingerprint === right.targetFingerprint
     && left.surface === right.surface
     && JSON.stringify(left.targets) === JSON.stringify(right.targets);
 }
@@ -162,18 +173,30 @@ export function normalizeBulkReminderTargets(targets: readonly BulkReminderTarge
   return normalized;
 }
 
+/** Order-independent identity for one exact, normalized assignment set. */
+export function bulkReminderTargetSetFingerprint(targets: readonly BulkReminderTarget[]): string {
+  return normalizeBulkReminderTargets(targets)
+    .map((target) => `${target.taskId}:${target.contactId}:${target.submissionId ?? "-"}`)
+    .sort()
+    .join("|");
+}
+
 export function createBulkReminderRecovery(
   eventId: EventId,
   surface: BulkReminderSurface,
   targets: readonly BulkReminderTarget[],
+  originId?: string,
   attemptId: string = crypto.randomUUID(),
 ): BulkReminderRecovery {
+  const normalizedTargets = normalizeBulkReminderTargets(targets);
   return bulkReminderRecoverySchema.parse({
     version: RECOVERY_VERSION,
     eventId,
     surface,
     attemptId,
-    targets: normalizeBulkReminderTargets(targets),
+    ...(originId ? { originId } : {}),
+    targetFingerprint: bulkReminderTargetSetFingerprint(normalizedTargets),
+    targets: normalizedTargets,
   });
 }
 

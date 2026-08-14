@@ -5,7 +5,7 @@ import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliverableRowDTO, EventId, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
-import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "@/features/comms/index.client";
+import { BulkReminderRecoveryDialog, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
 import type { DeliverableStateCounts } from "@/features/portal/deliverables";
 import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limit";
 import { DataTable } from "@/shared/ui/app/data-table";
@@ -273,6 +273,10 @@ export function FilesAdminView({
     eventId: eventId as EventId,
     surface: "files",
     onAcknowledged: clearReminderSelection,
+    getSelectionFingerprint: () => {
+      const targets = deliverableBulkTargets(selected.filter((row) => !row.completed));
+      return targets.length > 0 ? bulkReminderTargetSetFingerprint(targets) : null;
+    },
   });
 
   function clearReminderSelection() {
@@ -286,7 +290,8 @@ export function FilesAdminView({
       toast("Nothing to remind — every selected row is already complete");
       return;
     }
-    await reminderRecovery.start(deliverableBulkTargets(targets));
+    const frozenTargets = deliverableBulkTargets(targets);
+    await reminderRecovery.start(frozenTargets);
   }
 
   /**

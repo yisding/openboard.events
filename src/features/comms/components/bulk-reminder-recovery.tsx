@@ -18,6 +18,7 @@ import {
   bulkReminderRecoveryStorageKey,
   bulkReminderRecoveryLockManager,
   bulkReminderRecoverySchema,
+  bulkReminderTargetSetFingerprint,
   bulkReminderResultMessage,
   clearBulkReminderRecovery,
   createBulkReminderRecovery,
@@ -28,6 +29,11 @@ import {
   type BulkReminderRecovery,
   type BulkReminderSurface,
 } from "../bulk-reminder-recovery";
+
+// One id per loaded browser document: stable across React remounts, different
+// in another/duplicated tab, and intentionally renewed on a full reload where
+// the table's in-memory selection is also renewed.
+const bulkReminderDocumentId = crypto.randomUUID();
 
 export type BulkReminderRecoveryController = {
   blocked: boolean;
@@ -48,19 +54,43 @@ export function useBulkReminderRecovery({
   eventId,
   surface,
   onAcknowledged,
+  originId = bulkReminderDocumentId,
+  getSelectionFingerprint,
 }: {
   eventId: EventId;
   surface: BulkReminderSurface;
   onAcknowledged: (result: BulkReminderResult) => void;
+  /** Stable selection owner; production defaults to this loaded document. */
+  originId?: string;
+  /** Exact target set currently represented by this surface's selection. */
+  getSelectionFingerprint?: () => string | null;
 }): BulkReminderRecoveryController {
   const { toast } = useToast();
   const acknowledgedRef = useRef(onAcknowledged);
+  const selectionFingerprintRef = useRef(getSelectionFingerprint);
   acknowledgedRef.current = onAcknowledged;
+  selectionFingerprintRef.current = getSelectionFingerprint;
+  const startedTargetFingerprintRef = useRef<string | null>(null);
   const [recovery, setRecovery] = useState<BulkReminderRecovery | null>(null);
   const recoveryRef = useRef<BulkReminderRecovery | null>(null);
   const [sending, setSending] = useState(false);
   const [unreadable, setUnreadable] = useState(false);
   useUnsavedWorkGuard(recovery !== null, { blocking: true });
+
+  const ownsOriginatingSelection = useCallback((value: BulkReminderRecovery) => (
+    value.originId === originId
+    && value.surface === surface
+    && value.targetFingerprint !== undefined
+    && value.targetFingerprint === bulkReminderTargetSetFingerprint(value.targets)
+    && value.targetFingerprint === (selectionFingerprintRef.current
+      ? selectionFingerprintRef.current()
+      : startedTargetFingerprintRef.current)
+  ), [originId, surface]);
+
+  const ownsResolvedSelection = useCallback((value: BulkReminderRecovery, result: BulkReminderResult) => (
+    ownsOriginatingSelection(value)
+    && value.targetFingerprint === bulkReminderTargetSetFingerprint(result.results)
+  ), [ownsOriginatingSelection]);
 
   const updateRecovery = useCallback((next: BulkReminderRecovery | null) => {
     recoveryRef.current = next;
@@ -71,9 +101,15 @@ export function useBulkReminderRecovery({
     const storage = bulkReminderRecoveryStorage();
     if (!storage) return;
     const loaded = loadBulkReminderRecovery(storage, eventId);
+    if (loaded.ok
+      && !selectionFingerprintRef.current
+      && loaded.recovery.originId === originId
+      && loaded.recovery.surface === surface) {
+      startedTargetFingerprintRef.current = loaded.recovery.targetFingerprint ?? null;
+    }
     updateRecovery(loaded.ok ? loaded.recovery : null);
     setUnreadable(!loaded.ok && loaded.reason === "unreadable");
-  }, [eventId, updateRecovery]);
+  }, [eventId, originId, surface, updateRecovery]);
 
   useEffect(() => {
     refreshStored();
@@ -101,7 +137,7 @@ export function useBulkReminderRecovery({
         }
         if (current.resolution.kind === "result") {
           const summary = bulkReminderResultMessage(current.resolution.result);
-          acknowledgedRef.current(current.resolution.result);
+          if (ownsResolvedSelection(current, current.resolution.result)) acknowledgedRef.current(current.resolution.result);
           toast(summary.message, summary.kind ? { kind: summary.kind } : undefined);
         } else {
           toast(current.resolution.message, { kind: "error" });
@@ -128,7 +164,7 @@ export function useBulkReminderRecovery({
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [eventId, refreshStored, toast, updateRecovery]);
+  }, [eventId, ownsResolvedSelection, refreshStored, toast, updateRecovery]);
 
   const complete = useCallback((resolved: BulkReminderRecovery) => {
     const storage = bulkReminderRecoveryStorage();
@@ -140,13 +176,13 @@ export function useBulkReminderRecovery({
     if (resolved.resolution?.kind === "result") {
       const summary = bulkReminderResultMessage(resolved.resolution.result);
       toast(summary.message, summary.kind ? { kind: summary.kind } : undefined);
-      acknowledgedRef.current(resolved.resolution.result);
+      if (ownsResolvedSelection(resolved, resolved.resolution.result)) acknowledgedRef.current(resolved.resolution.result);
     } else if (resolved.resolution?.kind === "error") {
       toast(resolved.resolution.message, { kind: "error" });
     }
     updateRecovery(null);
     return true;
-  }, [toast, updateRecovery]);
+  }, [ownsResolvedSelection, toast, updateRecovery]);
 
   const send = useCallback(async (attempt: BulkReminderRecovery): Promise<boolean> => {
     if (attempt.resolution) return complete(attempt);
@@ -199,7 +235,7 @@ export function useBulkReminderRecovery({
       }
       let attempt: BulkReminderRecovery;
       try {
-        attempt = createBulkReminderRecovery(eventId, surface, targets);
+        attempt = createBulkReminderRecovery(eventId, surface, targets, originId);
       } catch {
         toast("Could not prepare that reminder selection. No reminders were sent.", { kind: "error" });
         return false;
@@ -209,6 +245,7 @@ export function useBulkReminderRecovery({
         toast("Could not prepare a safe reminder retry. No reminders were sent.", { kind: "error" });
         return false;
       }
+      startedTargetFingerprintRef.current = attempt.targetFingerprint ?? null;
       updateRecovery(attempt);
       return send(attempt);
     });
@@ -220,7 +257,7 @@ export function useBulkReminderRecovery({
       return false;
     }
     return locked.value;
-  }, [eventId, refreshStored, send, surface, toast, updateRecovery]);
+  }, [eventId, originId, refreshStored, send, surface, toast, updateRecovery]);
 
   const retry = useCallback(async () => {
     if (!recovery || sending) return;

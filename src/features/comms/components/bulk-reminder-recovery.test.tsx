@@ -5,7 +5,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, taskIdSchema, type BulkReminderResult } from "@/shared/contracts";
-import { bulkReminderRecoveryStorageKey } from "../bulk-reminder-recovery";
+import { bulkReminderRecoveryStorageKey, bulkReminderTargetSetFingerprint, type BulkReminderSurface } from "../bulk-reminder-recovery";
 import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "./bulk-reminder-recovery";
 
 const toastMock = vi.hoisted(() => vi.fn());
@@ -19,6 +19,13 @@ const targets = [{
   contactId: contactIdSchema.parse("e1000000-0000-4000-8000-000000000003"),
   submissionId: null,
 }] as const;
+const otherTargets = [{
+  taskId: taskIdSchema.parse("e1000000-0000-4000-8000-000000000004"),
+  contactId: contactIdSchema.parse("e1000000-0000-4000-8000-000000000005"),
+  submissionId: null,
+}] as const;
+const tabAId = "e1000000-0000-4000-8000-000000000006";
+const tabBId = "e1000000-0000-4000-8000-000000000007";
 const acknowledgedResult: BulkReminderResult = {
   enqueued: 0,
   total: 1,
@@ -28,6 +35,7 @@ const acknowledgedResult: BulkReminderResult = {
 let container: HTMLDivElement;
 let root: Root;
 const acknowledged = vi.fn();
+const scopedAcknowledged = vi.fn();
 
 function Harness() {
   const [selection, setSelection] = useState(1);
@@ -46,6 +54,42 @@ function Harness() {
   </>;
 }
 
+function ScopedHarness({
+  label,
+  surface,
+  originId,
+  selectedTargets,
+  initialSelection,
+}: {
+  label: string;
+  surface: BulkReminderSurface;
+  originId: string;
+  selectedTargets: typeof targets | typeof otherTargets;
+  initialSelection: number;
+}) {
+  const [selection, setSelection] = useState(initialSelection);
+  const controller = useBulkReminderRecovery({
+    eventId,
+    surface,
+    originId,
+    getSelectionFingerprint: () => selection > 0
+      ? bulkReminderTargetSetFingerprint(selectedTargets)
+      : null,
+    onAcknowledged: (result) => {
+      scopedAcknowledged(label, result);
+      setSelection(0);
+    },
+  });
+  return <section data-controller={label}>
+    <span>{selection} selected</span>
+    <button
+      type="button"
+      disabled={controller.blocked || selection === 0}
+      onClick={() => void controller.start(selectedTargets)}
+    >Start {label}</button>
+  </section>;
+}
+
 function buttonNamed(name: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll<HTMLButtonElement>("button")]
     .find((button) => button.textContent?.trim() === name);
@@ -60,6 +104,7 @@ async function settle() {
 beforeEach(() => {
   toastMock.mockReset();
   acknowledged.mockReset();
+  scopedAcknowledged.mockReset();
   window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn());
   Object.defineProperty(navigator, "locks", {
@@ -322,5 +367,78 @@ describe("bulk reminder recovery", () => {
     expect(buttonNamed("Start batch")?.disabled).toBe(false);
     expect(buttonNamed("Retry reminders")).toBeUndefined();
     expect(toastMock).toHaveBeenCalledWith("That assignment is no longer open", { kind: "error" });
+  });
+
+  it("clears only the originating surface and exact target selection across controllers", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<>
+      <ScopedHarness label="Speakers origin" surface="speakers" originId={tabAId} selectedTargets={targets} initialSelection={3} />
+      <ScopedHarness label="Files draft" surface="files" originId={tabAId} selectedTargets={otherTargets} initialSelection={80} />
+      <ScopedHarness label="Speakers other targets" surface="speakers" originId={tabAId} selectedTargets={otherTargets} initialSelection={2} />
+      <ScopedHarness label="Speakers other tab" surface="speakers" originId={tabBId} selectedTargets={targets} initialSelection={3} />
+    </>));
+    await act(async () => buttonNamed("Start Speakers origin")?.click());
+    await settle();
+
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const unresolvedValue = window.localStorage.getItem(key);
+    expect(unresolvedValue).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: null,
+        newValue: unresolvedValue,
+        storageArea: window.localStorage,
+      }));
+    });
+    const resolvedValue = JSON.stringify({
+      ...JSON.parse(unresolvedValue as string) as object,
+      resolution: { kind: "result", result: acknowledgedResult },
+    });
+    window.localStorage.setItem(key, resolvedValue);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: unresolvedValue,
+        newValue: resolvedValue,
+        storageArea: window.localStorage,
+      }));
+    });
+    window.localStorage.removeItem(key);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: resolvedValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+    });
+    await settle();
+
+    expect(scopedAcknowledged).toHaveBeenCalledOnce();
+    expect(scopedAcknowledged).toHaveBeenCalledWith("Speakers origin", acknowledgedResult);
+    expect(container.querySelector('[data-controller="Speakers origin"]')?.textContent).toContain("0 selected");
+    expect(container.querySelector('[data-controller="Files draft"]')?.textContent).toContain("80 selected");
+    expect(container.querySelector('[data-controller="Speakers other targets"]')?.textContent).toContain("2 selected");
+    expect(container.querySelector('[data-controller="Speakers other tab"]')?.textContent).toContain("3 selected");
+    expect(buttonNamed("Start Files draft")?.disabled).toBe(false);
+    expect(buttonNamed("Start Speakers other targets")?.disabled).toBe(false);
+    expect(buttonNamed("Start Speakers other tab")?.disabled).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: resolvedValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+      buttonNamed("Start Speakers origin")?.click();
+    });
+    await settle();
+
+    expect(scopedAcknowledged).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

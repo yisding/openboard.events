@@ -7,7 +7,7 @@ function source(relative: string): string {
 
 describe("bulk reminder client adoption", () => {
   it.each([
-    ["Files", "../portal/deliverables/components/files-admin-view.tsx", 'surface: "files"', "reminderRecovery.start(deliverableBulkTargets(targets))"],
+    ["Files", "../portal/deliverables/components/files-admin-view.tsx", 'surface: "files"', "reminderRecovery.start(frozenTargets)"],
     ["Speakers", "../portal/components/speakers-admin/speakers-admin-view.tsx", 'surface: "speakers"', "reminderRecovery.start(flatTargets)"],
   ])("routes %s sends through the shared durable recovery controller", (_name, path, surface, call) => {
     const text = source(path);
@@ -15,6 +15,7 @@ describe("bulk reminder client adoption", () => {
     expect(text).toContain(surface);
     expect(text).toContain(call);
     expect(text).toContain("onAcknowledged: clearReminderSelection");
+    expect(text).toContain("getSelectionFingerprint:");
     expect(text).not.toContain("JSON.stringify({ targets:");
   });
 

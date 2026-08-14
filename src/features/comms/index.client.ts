@@ -11,6 +11,7 @@ export {
   useBulkReminderRecovery,
   type BulkReminderRecoveryController,
 } from "./components/bulk-reminder-recovery";
+export { bulkReminderTargetSetFingerprint } from "./bulk-reminder-recovery";
 // The payload schemas the M37 hooks validate against — safe in the browser
 // because `schemas.ts` never touches the database or the session.
 export type {

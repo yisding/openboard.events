@@ -2,11 +2,11 @@
 
 import { Bell, Mail, Plus, Search, Upload, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow, SpeakerFilterCounts } from "@/features/portal";
 import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
-import { BulkReminderRecoveryDialog, UnreadableBulkSendRecovery, useBulkReminderRecovery } from "@/features/comms/index.client";
+import { BulkReminderRecoveryDialog, UnreadableBulkSendRecovery, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
 import type { ConfirmationStatus, EventId } from "@/shared/contracts";
 import { bulkReminderTargetSchema, CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -28,6 +28,10 @@ type Missing = NonNullable<ContactFilters["missing"]>;
 
 const SORT_TO_STATE: Record<Sort, string> = { name: "speaker", openTasks: "tasks", confirmation: "confirmation" };
 const STATE_TO_SORT: Record<string, Sort> = { speaker: "name", tasks: "openTasks", confirmation: "confirmation" };
+
+function speakerSelectionFingerprint(rows: readonly ContactListRow[]): string {
+  return rows.map((row) => row.contactId).sort().join("|");
+}
 
 /** Two-initial fallback for a speaker with no usable headshot — never a broken image. */
 function initialsFor(row: ContactListRow): string {
@@ -77,6 +81,13 @@ export function SpeakersAdminView({
   const [draftSearch, setDraftSearch] = useState(q);
   useEffect(() => setDraftSearch(q), [q]);
   const [selected, setSelected] = useState<ContactListRow[]>([]);
+  const reminderSelectionRef = useRef<{ contacts: string; targets: string } | null>(null);
+  const onReminderSelectionChange = useCallback((next: ContactListRow[]) => {
+    if (reminderSelectionRef.current?.contacts !== speakerSelectionFingerprint(next)) {
+      reminderSelectionRef.current = null;
+    }
+    setSelected(next);
+  }, []);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   // M58 — bumped to select every row on screen: a command-palette verb
   // ("Email speakers missing bio or headshot…") lands on `?missing=either&arm=1`
@@ -123,9 +134,11 @@ export function SpeakersAdminView({
     eventId: eventId as EventId,
     surface: "speakers",
     onAcknowledged: clearReminderSelection,
+    getSelectionFingerprint: () => reminderSelectionRef.current?.targets ?? null,
   });
 
   function clearReminderSelection() {
+    reminderSelectionRef.current = null;
     setSelected([]);
     setSelectionEpoch((epoch) => epoch + 1);
     setConfirmReminders(false);
@@ -172,6 +185,10 @@ export function SpeakersAdminView({
         toast("Nothing to remind — every selected speaker is caught up");
         return false;
       }
+      reminderSelectionRef.current = {
+        contacts: speakerSelectionFingerprint(selected),
+        targets: bulkReminderTargetSetFingerprint(flatTargets),
+      };
       setConfirmReminders(false);
       return reminderRecovery.start(flatTargets);
     } catch {
@@ -283,7 +300,7 @@ export function SpeakersAdminView({
         onRowClick={(row) => { if (!reminderRecovery.blocked) setOpenContactId(row.contactId); }}
         enableSelection
         getRowLabel={(row) => row.name || row.email}
-        onSelectionChange={setSelected}
+        onSelectionChange={onReminderSelectionChange}
         renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => {
           const reminderCount = selectedRows.filter((row) => row.openTasks > 0).length;
           return <BulkActionBar
