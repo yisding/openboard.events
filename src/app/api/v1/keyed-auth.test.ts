@@ -27,6 +27,7 @@ const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review
 // (PLAN P3-SEC), which hits `rate_limit_buckets` on every request; without
 // this migration every call 500s before the auth assertions below ever run.
 const migrationRateLimits = readFileSync(new URL("../../../../drizzle/0005_rate_limits.sql", import.meta.url), "utf8");
+const migrationApiKeyReceipts = readFileSync(new URL("../../../../drizzle/0036_api_key_creation_receipts.sql", import.meta.url), "utf8");
 
 const EVENT_A = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const EVENT_B = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
@@ -58,6 +59,14 @@ function statsRequest(slug: string, authorization?: string): [NextRequest, { par
 
 type Envelope = { error?: { code: string; message: string }; data?: unknown };
 
+function operation(sequence: number, label: string) {
+  return {
+    operationId: `b0000000-0000-4000-8000-${sequence.toString().padStart(12, "0")}`,
+    label,
+    plaintext: `ob_live_${String(sequence).repeat(43)}`,
+  };
+}
+
 describe("api/v1 keyed routes — API key event scoping", () => {
   let keyA = "";
 
@@ -66,6 +75,7 @@ describe("api/v1 keyed routes — API key event scoping", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationRateLimits);
+    await pglite.exec(migrationApiKeyReceipts);
     await pglite.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES
         ($1,'Keyed A',$3,'America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),
@@ -74,7 +84,7 @@ describe("api/v1 keyed routes — API key event scoping", () => {
     );
     // Issued through the real creation path, so the stored hash is exactly what
     // `apiKeyAuth()` recomputes — a fixture hash could hide a hashing mismatch.
-    keyA = (await createApiKeyIn(testDb as never, EVENT_A, "judge script")).plaintext;
+    keyA = (await createApiKeyIn(testDb as never, EVENT_A, operation(1, "judge script"))).plaintext;
   }, 60_000);
 
   afterAll(async () => {
@@ -125,7 +135,7 @@ describe("api/v1 keyed routes — API key event scoping", () => {
   });
 
   it("stops accepting a revoked key immediately", async () => {
-    const doomed = (await createApiKeyIn(testDb as never, EVENT_A, "temporary")).plaintext;
+    const doomed = (await createApiKeyIn(testDb as never, EVENT_A, operation(2, "temporary"))).plaintext;
     expect((await getStats(...statsRequest(SLUG_A, `Bearer ${doomed}`))).status).toBe(200);
 
     await pglite.query("DELETE FROM api_keys WHERE name='temporary'");
