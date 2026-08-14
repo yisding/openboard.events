@@ -11,6 +11,9 @@ import { SessionFormDialog } from "./session-form-dialog";
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
 const runGuardedMock = vi.hoisted(() => vi.fn((action: () => void) => action()));
+const quickAddMock = vi.hoisted(() => ({
+  add: vi.fn<() => Promise<{ contactId: string; name: string }>>(),
+}));
 
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
@@ -27,7 +30,20 @@ vi.mock("@/shared/ui/app/rich-text-editor-lazy", () => ({
   }) => <textarea aria-label={ariaLabel} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />,
 }));
 vi.mock("@/shared/ui/app/speaker-quick-add", () => ({
-  SpeakerQuickAdd: ({ disabled }: { disabled?: boolean }) => <button type="button" disabled={disabled}>Add speaker</button>,
+  SpeakerQuickAdd: ({ disabled, onAdded, onPendingChange }: {
+    disabled?: boolean;
+    onAdded: (speaker: { contactId: string; name: string }) => void;
+    onPendingChange?: (pending: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        onPendingChange?.(true);
+        void quickAddMock.add().then(onAdded).finally(() => onPendingChange?.(false));
+      }}
+    >Add speaker</button>
+  ),
 }));
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
@@ -81,6 +97,7 @@ beforeEach(() => {
   routerMock.refresh.mockReset();
   toastMock.mockReset();
   runGuardedMock.mockClear();
+  quickAddMock.add.mockReset();
   fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
   const ids = [firstCreationId, secondCreationId];
@@ -222,6 +239,69 @@ describe("manual session creation recovery", () => {
 
     await act(async () => buttonNamed("Close and check agenda")?.click());
     expect(runGuardedMock).not.toHaveBeenCalled();
+    expect(buttonNamed("Open session dialog")).toBeDefined();
+  });
+
+  it("waits for quick-add, then freezes and retries the payload with the selected speaker", async () => {
+    const addedContactId = "a5300000-0000-4000-8000-000000000001";
+    let resolveQuickAdd!: (speaker: { contactId: string; name: string }) => void;
+    quickAddMock.add.mockReturnValueOnce(new Promise((resolve) => { resolveQuickAdd = resolve; }));
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce(Response.json({ data: {
+        id: firstCreationId,
+        title: "Speaker-safe session",
+        slug: "speaker-safe-session",
+        descriptionHtml: "",
+        startsAt: null,
+        endsAt: null,
+        trackId: null,
+        roomId: null,
+        formatId: null,
+        status: "draft",
+        scheduleRevision: 0,
+        rowVersion: 1,
+        speakerIds: [addedContactId],
+      } }));
+
+    await act(async () => root.render(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>));
+    await settle();
+    const title = container.querySelector<HTMLInputElement>('input[placeholder="Enter a session title"]');
+    if (!title) throw new Error("expected title input");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(title, "Speaker-safe session");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => buttonNamed("Add speaker")?.click());
+    expect(buttonNamed("Save session")?.disabled).toBe(true);
+    expect(buttonNamed("Cancel")?.disabled).toBe(true);
+    await act(async () => buttonNamed("Save session")?.click());
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    resolveQuickAdd({ contactId: addedContactId, name: "Ada Lovelace" });
+    await settle();
+
+    const addedSpeaker = [...container.querySelectorAll("label")]
+      .find((label) => label.textContent?.includes("Ada Lovelace"));
+    expect(addedSpeaker?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
+    expect(buttonNamed("Save session")?.disabled).toBe(false);
+
+    await act(async () => buttonNamed("Save session")?.click());
+    await settle();
+
+    const firstBody = String(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(JSON.parse(firstBody)).toMatchObject({
+      creationId: firstCreationId,
+      title: "Speaker-safe session",
+      speakerContactIds: [addedContactId],
+    });
+    expect(buttonNamed("Retry creation")).toBeDefined();
+
+    await act(async () => buttonNamed("Retry creation")?.click());
+    await settle();
+
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(firstBody);
     expect(buttonNamed("Open session dialog")).toBeDefined();
   });
 });

@@ -114,6 +114,7 @@ export function SessionFormDialog({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [creationId, setCreationId] = useState<SessionId | null>(null);
   const [createRecovery, setCreateRecovery] = useState<{ payload: SaveSessionPayload & { creationId: SessionId } } | null>(null);
+  const [speakerQuickAddPending, setSpeakerQuickAddPending] = useState(false);
 
   const closeAfterMutation = () => {
     if (!session) {
@@ -137,6 +138,7 @@ export function SessionFormDialog({
     setError(null);
     setConfirmingDelete(false);
     setCreateRecovery(null);
+    setSpeakerQuickAddPending(false);
     setCreationId(session ? null : sessionIdSchema.parse(crypto.randomUUID()));
   }, [identity, open, session]);
 
@@ -250,7 +252,10 @@ export function SessionFormDialog({
     }
   };
 
-  const busy = save.isPending || remove.isPending;
+  // Quick-add owns a separate request, but its result becomes part of this
+  // session. Do not let Save freeze a payload or let the dialog disappear
+  // until that contact exists and has been selected by `onAdded`.
+  const busy = save.isPending || remove.isPending || speakerQuickAddPending;
   const createLocked = !session && createRecovery !== null;
   // Freeze the visible draft as soon as its create request leaves the browser.
   // If that response is lost, the recovery payload and the details still on
@@ -258,7 +263,7 @@ export function SessionFormDialog({
   // editable values.
   const createControlsLocked = !session && (save.isPending || createLocked);
   const dirty = isSessionDraftDirty(draft, original);
-  useUnsavedWorkGuard(open && dirty);
+  useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy });
 
   const requestClose = () => {
     if (busy) return;
@@ -421,8 +426,10 @@ export function SessionFormDialog({
             </div>
             <div className="speaker-picker-add">
               <SpeakerQuickAdd
+                key={identity}
                 eventId={String(eventId)}
                 disabled={createControlsLocked}
+                onPendingChange={setSpeakerQuickAddPending}
                 onAdded={(speaker) => {
                   setAddedSpeakers((current) => [...current, speaker]);
                   toggleSpeaker(speaker.contactId);
