@@ -41,7 +41,7 @@ function Harness() {
   });
   return <>
     <span data-selection={selection}>{selection} selected</span>
-    <button type="button" disabled={controller.blocked} onClick={() => void controller.start(targets)}>Start batch</button>
+    <button type="button" disabled={controller.blocked || selection === 0} onClick={() => void controller.start(targets)}>Start batch</button>
     <BulkReminderRecoveryDialog controller={controller} />
   </>;
 }
@@ -127,7 +127,7 @@ describe("bulk reminder recovery", () => {
     expect(acknowledged).toHaveBeenCalledOnce();
     expect(acknowledged).toHaveBeenCalledWith(acknowledgedResult);
     expect(container.textContent).toContain("0 selected");
-    expect(buttonNamed("Start batch")?.disabled).toBe(false);
+    expect(buttonNamed("Start batch")?.disabled).toBe(true);
     expect(window.localStorage.getItem(bulkReminderRecoveryStorageKey(eventId))).toBeNull();
     expect(toastMock.mock.calls.filter(([message]) => message === "Reminder status: 1 already sent")).toHaveLength(1);
   });
@@ -184,5 +184,143 @@ describe("bulk reminder recovery", () => {
     expect(buttonNamed("Start batch")?.disabled).toBe(true);
     expect(window.localStorage.getItem(bulkReminderRecoveryStorageKey(eventId))).not.toBeNull();
     expect(acknowledged).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges a Files selection before unlocking when another tab finishes the exact attempt", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const oldValue = window.localStorage.getItem(key);
+    expect(oldValue).not.toBeNull();
+    const resolvedValue = JSON.stringify({
+      ...JSON.parse(oldValue as string) as object,
+      resolution: { kind: "result", result: acknowledgedResult },
+    });
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<Harness />));
+    await settle();
+    expect(buttonNamed("Retry reminders")).toBeDefined();
+
+    window.localStorage.setItem(key, resolvedValue);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue,
+        newValue: resolvedValue,
+        storageArea: window.localStorage,
+      }));
+    });
+    window.localStorage.removeItem(key);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: resolvedValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+    });
+    await settle();
+
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(acknowledged).toHaveBeenCalledWith(acknowledgedResult);
+    expect(container.textContent).toContain("0 selected");
+    expect(buttonNamed("Start batch")?.disabled).toBe(true);
+    expect(buttonNamed("Retry reminders")).toBeUndefined();
+    expect(toastMock).toHaveBeenCalledWith("Reminder status: 1 already sent", undefined);
+
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: resolvedValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+      buttonNamed("Start batch")?.click();
+    });
+    await settle();
+
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not infer success or unlock when another tab deletes an unresolved attempt", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const oldValue = window.localStorage.getItem(key);
+    expect(oldValue).not.toBeNull();
+
+    window.localStorage.removeItem(key);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+    });
+    await settle();
+
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 selected");
+    expect(buttonNamed("Start batch")?.disabled).toBe(true);
+    expect(buttonNamed("Retry reminders")).toBeDefined();
+    expect(window.localStorage.getItem(key)).toBe(oldValue);
+    expect(toastMock).toHaveBeenCalledWith(
+      "Saved reminder recovery was removed before its outcome was confirmed. Retry the exact batch to continue.",
+      { kind: "error" },
+    );
+  });
+
+  it("unlocks a remotely confirmed refusal without falsely acknowledging or clearing the selection", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const unresolvedValue = window.localStorage.getItem(key);
+    expect(unresolvedValue).not.toBeNull();
+    const resolvedValue = JSON.stringify({
+      ...JSON.parse(unresolvedValue as string) as object,
+      resolution: { kind: "error", message: "That assignment is no longer open" },
+    });
+
+    window.localStorage.setItem(key, resolvedValue);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: unresolvedValue,
+        newValue: resolvedValue,
+        storageArea: window.localStorage,
+      }));
+    });
+    window.localStorage.removeItem(key);
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key,
+        oldValue: resolvedValue,
+        newValue: null,
+        storageArea: window.localStorage,
+      }));
+    });
+    await settle();
+
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 selected");
+    expect(buttonNamed("Start batch")?.disabled).toBe(false);
+    expect(buttonNamed("Retry reminders")).toBeUndefined();
+    expect(toastMock).toHaveBeenCalledWith("That assignment is no longer open", { kind: "error" });
   });
 });

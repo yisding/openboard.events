@@ -14,6 +14,7 @@ describe("bulk reminder client adoption", () => {
     expect(text).toContain("useBulkReminderRecovery");
     expect(text).toContain(surface);
     expect(text).toContain(call);
+    expect(text).toContain("onAcknowledged: clearReminderSelection");
     expect(text).not.toContain("JSON.stringify({ targets:");
   });
 
@@ -22,6 +23,7 @@ describe("bulk reminder client adoption", () => {
     const drawer = source("../portal/tasks-admin/components/task-matrix-drawer.tsx");
     expect(page).toContain("useBulkReminderRecovery");
     expect(page).toContain('surface: "task-matrix"');
+    expect(page).toContain("onAcknowledged:");
     expect(page).toContain("<BulkReminderRecoveryDialog controller={reminderRecovery} />");
     expect(drawer).toContain("reminderRecovery.start(targets.map");
     expect(drawer).not.toContain("JSON.stringify({ targets:");

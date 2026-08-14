@@ -17,6 +17,7 @@ import {
   bulkReminderRecoveryStorage,
   bulkReminderRecoveryStorageKey,
   bulkReminderRecoveryLockManager,
+  bulkReminderRecoverySchema,
   bulkReminderResultMessage,
   clearBulkReminderRecovery,
   createBulkReminderRecovery,
@@ -56,36 +57,86 @@ export function useBulkReminderRecovery({
   const acknowledgedRef = useRef(onAcknowledged);
   acknowledgedRef.current = onAcknowledged;
   const [recovery, setRecovery] = useState<BulkReminderRecovery | null>(null);
+  const recoveryRef = useRef<BulkReminderRecovery | null>(null);
   const [sending, setSending] = useState(false);
   const [unreadable, setUnreadable] = useState(false);
   useUnsavedWorkGuard(recovery !== null, { blocking: true });
+
+  const updateRecovery = useCallback((next: BulkReminderRecovery | null) => {
+    recoveryRef.current = next;
+    setRecovery(next);
+  }, []);
 
   const refreshStored = useCallback(() => {
     const storage = bulkReminderRecoveryStorage();
     if (!storage) return;
     const loaded = loadBulkReminderRecovery(storage, eventId);
-    setRecovery(loaded.ok ? loaded.recovery : null);
+    updateRecovery(loaded.ok ? loaded.recovery : null);
     setUnreadable(!loaded.ok && loaded.reason === "unreadable");
-  }, [eventId]);
+  }, [eventId, updateRecovery]);
 
   useEffect(() => {
     refreshStored();
     const key = bulkReminderRecoveryStorageKey(eventId);
     const onStorage = (event: StorageEvent) => {
-      if (event.key === key) refreshStored();
+      if (event.key !== key) return;
+      const current = recoveryRef.current;
+      if (event.newValue === null && current) {
+        if (!current.resolution) {
+          // Deletion by itself is not an acknowledgement. Restore the frozen
+          // attempt so a devtools/manual clear or a racing tab cannot silently
+          // unlock a selection whose server outcome is still unknown.
+          const storage = bulkReminderRecoveryStorage();
+          if (storage) {
+            const latest = loadBulkReminderRecovery(storage, eventId);
+            if (latest.ok) {
+              updateRecovery(latest.recovery);
+              setUnreadable(false);
+              return;
+            }
+            persistBulkReminderRecovery(storage, current);
+          }
+          toast("Saved reminder recovery was removed before its outcome was confirmed. Retry the exact batch to continue.", { kind: "error" });
+          return;
+        }
+        if (current.resolution.kind === "result") {
+          const summary = bulkReminderResultMessage(current.resolution.result);
+          acknowledgedRef.current(current.resolution.result);
+          toast(summary.message, summary.kind ? { kind: summary.kind } : undefined);
+        } else {
+          toast(current.resolution.message, { kind: "error" });
+        }
+        // A later attempt may already occupy the event-wide marker by the
+        // time this queued removal event reaches us. Re-read after applying
+        // this outcome so that newer authority remains blocked and visible.
+        refreshStored();
+        return;
+      }
+      if (event.newValue !== null) {
+        try {
+          const parsed = bulkReminderRecoverySchema.safeParse(JSON.parse(event.newValue));
+          if (parsed.success && parsed.data.eventId === eventId) {
+            updateRecovery(parsed.data);
+            setUnreadable(false);
+            return;
+          }
+        } catch {
+          // Fall through to the authoritative current storage value.
+        }
+      }
+      refreshStored();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [eventId, refreshStored]);
+  }, [eventId, refreshStored, toast, updateRecovery]);
 
   const complete = useCallback((resolved: BulkReminderRecovery) => {
     const storage = bulkReminderRecoveryStorage();
     if (!storage || !clearBulkReminderRecovery(storage, resolved)) {
-      setRecovery(resolved);
+      updateRecovery(resolved);
       toast("The reminder result is confirmed, but browser recovery cleanup is blocked. Finish cleanup to continue.", { kind: "error" });
       return false;
     }
-    setRecovery(null);
     if (resolved.resolution?.kind === "result") {
       const summary = bulkReminderResultMessage(resolved.resolution.result);
       toast(summary.message, summary.kind ? { kind: summary.kind } : undefined);
@@ -93,8 +144,9 @@ export function useBulkReminderRecovery({
     } else if (resolved.resolution?.kind === "error") {
       toast(resolved.resolution.message, { kind: "error" });
     }
+    updateRecovery(null);
     return true;
-  }, [toast]);
+  }, [toast, updateRecovery]);
 
   const send = useCallback(async (attempt: BulkReminderRecovery): Promise<boolean> => {
     if (attempt.resolution) return complete(attempt);
@@ -108,11 +160,11 @@ export function useBulkReminderRecovery({
       const resolved = withBulkReminderResolution(attempt, { kind: "result", result });
       const storage = bulkReminderRecoveryStorage();
       if (storage) persistBulkReminderRecovery(storage, resolved);
-      setRecovery(resolved);
+      updateRecovery(resolved);
       return complete(resolved);
     } catch (caught) {
       if (isUnknownOutcome(caught)) {
-        setRecovery(attempt);
+        updateRecovery(attempt);
         toast("Could not confirm which reminders were queued. Retry the exact batch to recover its current status.", { kind: "error" });
         return false;
       }
@@ -120,12 +172,12 @@ export function useBulkReminderRecovery({
       const resolved = withBulkReminderResolution(attempt, { kind: "error", message: message.slice(0, 500) });
       const storage = bulkReminderRecoveryStorage();
       if (storage) persistBulkReminderRecovery(storage, resolved);
-      setRecovery(resolved);
+      updateRecovery(resolved);
       return complete(resolved);
     } finally {
       setSending(false);
     }
-  }, [complete, eventId, toast]);
+  }, [complete, eventId, toast, updateRecovery]);
 
   const start = useCallback(async (targets: readonly BulkReminderTarget[]): Promise<boolean> => {
     const locked = await withBulkReminderRecoveryLock(eventId, bulkReminderRecoveryLockManager(), async () => {
@@ -136,7 +188,7 @@ export function useBulkReminderRecovery({
       }
       const loaded = loadBulkReminderRecovery(storage, eventId);
       if (loaded.ok) {
-        setRecovery(loaded.recovery);
+        updateRecovery(loaded.recovery);
         toast("Finish the saved reminder attempt before starting another.", { kind: "error" });
         return false;
       }
@@ -157,7 +209,7 @@ export function useBulkReminderRecovery({
         toast("Could not prepare a safe reminder retry. No reminders were sent.", { kind: "error" });
         return false;
       }
-      setRecovery(attempt);
+      updateRecovery(attempt);
       return send(attempt);
     });
     if (!locked.ok) {
@@ -168,7 +220,7 @@ export function useBulkReminderRecovery({
       return false;
     }
     return locked.value;
-  }, [eventId, refreshStored, send, surface, toast]);
+  }, [eventId, refreshStored, send, surface, toast, updateRecovery]);
 
   const retry = useCallback(async () => {
     if (!recovery || sending) return;
@@ -196,7 +248,7 @@ export function useBulkReminderRecovery({
     try {
       const current = loadBulkReminderRecovery(storage, eventId);
       if (current.ok) {
-        setRecovery(current.recovery);
+        updateRecovery(current.recovery);
         setUnreadable(false);
         return;
       }
@@ -210,7 +262,7 @@ export function useBulkReminderRecovery({
       // Fall through to the truthful error below.
     }
     toast("Could not clear saved reminder recovery.", { kind: "error" });
-  }, [eventId, toast]);
+  }, [eventId, toast, updateRecovery]);
 
   return {
     blocked: recovery !== null || unreadable,

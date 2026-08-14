@@ -122,12 +122,14 @@ export function SpeakersAdminView({
   const reminderRecovery = useBulkReminderRecovery({
     eventId: eventId as EventId,
     surface: "speakers",
-    onAcknowledged: () => {
-      setSelected([]);
-      setSelectionEpoch((epoch) => epoch + 1);
-      setConfirmReminders(false);
-    },
+    onAcknowledged: clearReminderSelection,
   });
+
+  function clearReminderSelection() {
+    setSelected([]);
+    setSelectionEpoch((epoch) => epoch + 1);
+    setConfirmReminders(false);
+  }
   useFlowKeyboardNav({
     ids: rowIds,
     activeId: openContactId,

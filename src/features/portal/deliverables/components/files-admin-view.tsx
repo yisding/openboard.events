@@ -272,11 +272,13 @@ export function FilesAdminView({
   const reminderRecovery = useBulkReminderRecovery({
     eventId: eventId as EventId,
     surface: "files",
-    onAcknowledged: () => {
-      setSelected([]);
-      setSelectionEpoch((epoch) => epoch + 1);
-    },
+    onAcknowledged: clearReminderSelection,
   });
+
+  function clearReminderSelection() {
+    setSelected([]);
+    setSelectionEpoch((epoch) => epoch + 1);
+  }
 
   async function bulkRemind(selection = selected) {
     const targets = selection.filter((row) => !row.completed);
