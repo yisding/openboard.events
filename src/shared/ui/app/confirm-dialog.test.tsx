@@ -27,4 +27,13 @@ describe("ConfirmDialog labels", () => {
     expect(html).toContain('disabled=""');
     expect(html).toContain(">Send</button>");
   });
+
+  it("can lock an ambiguous operation until its exact retry settles", () => {
+    const html = renderToStaticMarkup(
+      <ConfirmDialog open title="Unconfirmed" body="Retry safely." cancelDisabled confirmLabel="Retry" onConfirm={() => undefined} onCancel={() => undefined} />,
+    );
+    expect(html).not.toContain('aria-label="Close"');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain(">Retry</button>");
+  });
 });

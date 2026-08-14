@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("communications organizer feedback", () => {
   it.each([
-    ["send reminder", "./send-reminder-dialog.tsx", 'toast("Could not queue that reminder", { kind: "error" })'],
+    ["send reminder", "./send-reminder-dialog.tsx", 'toast("Could not confirm whether that reminder was queued", { kind: "error" })'],
     ["save template", "./templates-tab.tsx", 'toast("Could not save that template", { kind: "error" })'],
     ["save reminder ladder", "./reminders-tab.tsx", 'toast("Could not save the reminder ladder", { kind: "error" })'],
     ["reinstate address", "./suppressions-tab.tsx", 'toast("Could not reinstate this address", { kind: "error" })'],

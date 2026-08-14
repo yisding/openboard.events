@@ -1,18 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { nudgeOutbox, sendReminderNow } from "@/features/comms";
-import { contactIdSchema, eventIdSchema, submissionIdSchema, taskIdSchema } from "@/shared/contracts";
+import { eventIdSchema, sendReminderNowInputSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
 export const dynamic = "force-dynamic";
-
-const sendReminderInputSchema = z.object({
-  taskId: taskIdSchema,
-  contactId: contactIdSchema,
-  submissionId: submissionIdSchema.nullable().default(null),
-});
 
 /**
  * The organizer's "Send reminder now" (step 7): enqueues through the same
@@ -23,9 +16,9 @@ const sendReminderInputSchema = z.object({
  */
 const send = defineHandler({
   auth: adminAuth({ role: "organizer" }),
-  input: sendReminderInputSchema,
+  input: sendReminderNowInputSchema,
   handler: async ({ eventId, input }) => {
-    const result = await sendReminderNow(eventIdSchema.parse(eventId), input.taskId, input.contactId, input.submissionId);
+    const result = await sendReminderNow(eventIdSchema.parse(eventId), input.taskId, input.contactId, input.submissionId, input.attemptId);
     if (result.enqueued) {
       try {
         const ctx = getCloudflareContext().ctx;
