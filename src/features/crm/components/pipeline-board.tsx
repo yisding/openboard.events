@@ -41,6 +41,7 @@ const STAGE_LABEL: Record<CrmPipelineStage, string> = { open: "Open", won: "Won"
 const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this prospect was added. Its details are locked so Retry addition can safely recover the same attempt. You can also close and check the pipeline.";
 const CONTACT_REFRESH_RECOVERY_MESSAGE = "The prospect was added, but we could not load its current contact after a merge. Retry the contact refresh, or close and check the pipeline.";
 const PIPELINE_REFRESH_ERROR_MESSAGE = "We could not confirm the latest pipeline yet. Adding and moving prospects remain paused so an older snapshot cannot overwrite your work.";
+const PIPELINE_TRANSITION_RECOVERY_MESSAGE = "We could not confirm that move. The pipeline is refreshing before any more changes.";
 const MAX_AUTHORITY_READS = 4;
 
 type ContactLite = { id: OrganizationContactId; name: string; email: string; company: string | null };
@@ -57,6 +58,11 @@ type PipelineAuthority = { entries: CrmPipelineEntryDTO[]; contacts: Record<stri
 
 export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
   return !isAppError(error) || error.code === "INTERNAL";
+}
+
+export function pipelineTransitionNeedsAuthority(error: unknown): boolean {
+  return pipelineCreateOutcomeUnknown(error)
+    || (isAppError(error) && (error.code === "STALE_WRITE" || error.code === "CONFLICT"));
 }
 
 function canonicalContactCloseOnly(error: unknown): boolean {
@@ -151,12 +157,13 @@ function Card({ entry, contact, eventName, mutationsBlocked, onMove }: { entry: 
   );
 }
 
-function Column({ stage, entries, contactsById, eventNameById, mutationsBlocked, onMove }: {
+function Column({ stage, entries, contactsById, eventNameById, mutationsBlocked, pendingEntryIds, onMove }: {
   stage: CrmPipelineStage;
   entries: CrmPipelineEntryDTO[];
   contactsById: Record<string, ContactLite>;
   eventNameById: Record<string, string>;
   mutationsBlocked: boolean;
+  pendingEntryIds: ReadonlySet<string>;
   onMove: (entryId: string, stage: CrmPipelineStage) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage, disabled: mutationsBlocked });
@@ -171,7 +178,7 @@ function Column({ stage, entries, contactsById, eventNameById, mutationsBlocked,
             entry={entry}
             contact={contactsById[entry.organizationContactId]}
             eventName={entry.targetEventId ? eventNameById[entry.targetEventId] ?? null : null}
-            mutationsBlocked={mutationsBlocked}
+            mutationsBlocked={mutationsBlocked || pendingEntryIds.has(entry.id)}
             onMove={(nextStage) => onMove(entry.id, nextStage)}
           />
         ))}
@@ -354,9 +361,11 @@ export function PipelineBoard({
   const [contacts, setContacts] = useState(contactsById);
   const [addOpen, setAddOpen] = useState(false);
   const [authorityRefresh, setAuthorityRefresh] = useState<"pending" | "failed" | null>(null);
+  const [pendingEntryIds, setPendingEntryIds] = useState<ReadonlySet<string>>(() => new Set());
   const mutationsBlockedRef = useRef(false);
   const authorityRefreshInFlightRef = useRef(false);
   const pendingMutationsRef = useRef(new Set<Promise<void>>());
+  const pendingEntryIdsRef = useRef(new Set<string>());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const eventNameById = Object.fromEntries(events.map((event) => [event.id, event.name]));
   const mutationsBlocked = authorityRefresh !== null;
@@ -397,25 +406,50 @@ export function PipelineBoard({
   }
 
   function move(entryId: string, stage: CrmPipelineStage) {
-    if (mutationsBlockedRef.current) return;
-    const previous = entries;
+    if (mutationsBlockedRef.current || pendingEntryIdsRef.current.has(entryId)) return;
     const current = entries.find((entry) => entry.id === entryId);
     if (!current || current.stage === stage) return;
+    pendingEntryIdsRef.current.add(entryId);
+    setPendingEntryIds(new Set(pendingEntryIdsRef.current));
     setEntries((rows) => rows.map((row) => row.id === entryId ? { ...row, stage } : row));
+    let needsAuthorityRefresh = false;
     const mutation = (async () => {
       try {
-        const updated = await api(`organizations/${organizationId}/crm/pipeline/${entryId}/transition`, crmPipelineEntryDtoSchema, { method: "POST", body: { stage } });
+        const updated = await api(`organizations/${organizationId}/crm/pipeline/${entryId}/transition`, crmPipelineEntryDtoSchema, {
+          method: "POST",
+          body: { stage, expectedFrom: current.stage, expectedUpdatedAt: current.updatedAt },
+        });
         setEntries((rows) => rows.map((row) => row.id === entryId ? updated : row));
       } catch (caught) {
-        setEntries(previous);
-        toast(isAppError(caught) ? caught.message : "That move did not save");
+        if (pipelineTransitionNeedsAuthority(caught)) {
+          // Block synchronously before React paints. The authority reader starts
+          // only after this promise is removed from the drain set below, which
+          // avoids waiting on itself while still draining every other mutation.
+          needsAuthorityRefresh = true;
+          mutationsBlockedRef.current = true;
+          setAuthorityRefresh("pending");
+          toast(
+            isAppError(caught) && caught.code !== "INTERNAL"
+              ? `${caught.message}${/[.!?]$/u.test(caught.message) ? "" : "."} The pipeline is refreshing.`
+              : PIPELINE_TRANSITION_RECOVERY_MESSAGE,
+            { kind: "error" },
+          );
+          return;
+        }
+        // The server definitively refused this request. Roll back this card
+        // only if it still carries our optimistic stage/version; never replace
+        // a later confirmed response for the same entry.
+        setEntries((rows) => rows.map((row) => row.id === entryId && row.stage === stage && row.updatedAt === current.updatedAt ? current : row));
+        toast(isAppError(caught) ? caught.message : "That move did not save", { kind: "error" });
       }
     })();
     pendingMutationsRef.current.add(mutation);
-    void mutation.then(
-      () => pendingMutationsRef.current.delete(mutation),
-      () => pendingMutationsRef.current.delete(mutation),
-    );
+    void mutation.then(() => {
+      pendingMutationsRef.current.delete(mutation);
+      pendingEntryIdsRef.current.delete(entryId);
+      setPendingEntryIds(new Set(pendingEntryIdsRef.current));
+      if (needsAuthorityRefresh) void refreshAuthority();
+    });
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -459,6 +493,7 @@ export function PipelineBoard({
                 contactsById={contacts}
                 eventNameById={eventNameById}
                 mutationsBlocked={mutationsBlocked}
+                pendingEntryIds={pendingEntryIds}
                 onMove={(entryId, nextStage) => move(entryId, nextStage)}
               />
             ))}

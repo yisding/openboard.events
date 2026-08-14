@@ -535,6 +535,90 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("won");
   });
 
+  it.each([
+    { authorityStage: "won" as const, authorityLabel: "the committed move" },
+    { authorityStage: "lost" as const, authorityLabel: "a colleague's later move" },
+  ])("recovers a lost stage response to $authorityLabel with one mutation", async ({ authorityStage }) => {
+    const existingEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-00000000000a",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "open",
+      notes: "Ambiguous move prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: "2026-08-13T17:00:00.000Z",
+    });
+    const canonicalEntry = crmPipelineEntryDtoSchema.parse({
+      ...existingEntry,
+      stage: authorityStage,
+      updatedAt: authorityStage === "won" ? "2026-08-13T18:00:00.000Z" : "2026-08-13T19:00:00.000Z",
+    });
+    const transition = deferred<CrmPipelineEntryDTO>();
+    const authority = deferred<CrmPipelineEntryDTO[]>();
+    let transitionCalls = 0;
+    let transitionBody: Record<string, unknown> | undefined;
+    let pipelineReads = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.endsWith(`/crm/pipeline/${existingEntry.id}/transition`)) {
+        transitionCalls += 1;
+        transitionBody = init?.body;
+        return transition.promise;
+      }
+      if (path.endsWith("/crm/pipeline")) {
+        pipelineReads += 1;
+        return pipelineReads === 1 ? authority.promise : [canonicalEntry];
+      }
+      if (path.endsWith(`/crm/contacts/${contactId}`)) {
+        return organizationContactHistoryDtoSchema.parse({ contact, tags: [], events: [], notes: [], activity: [] });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    await renderBoard([existingEntry], {
+      [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
+    });
+    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
+    if (!stage) throw new Error("Expected the existing prospect stage control");
+
+    await changeValue(stage, "won");
+    expect(transitionCalls).toBe(1);
+    expect(transitionBody).toEqual({
+      stage: "won",
+      expectedFrom: "open",
+      expectedUpdatedAt: existingEntry.updatedAt,
+    });
+
+    await act(async () => {
+      transition.reject(new TypeError("response lost after commit"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(1);
+    expect(container.textContent).toContain("Refreshing the pipeline");
+    expect(buttonNamed("Add prospect")?.disabled).toBe(true);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(true);
+    expect(transitionCalls).toBe(1);
+
+    await act(async () => {
+      authority.resolve([canonicalEntry]);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pipelineReads).toBe(2);
+    expect(transitionCalls).toBe(1);
+    expect(buttonNamed("Add prospect")?.disabled).toBe(false);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(false);
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe(authorityStage);
+    expect(toastMock).toHaveBeenCalledWith(
+      "We could not confirm that move. The pipeline is refreshing before any more changes.",
+      { kind: "error" },
+    );
+  });
+
   it("accepts unchanged authority rows returned in the opposite order", async () => {
     const tiedUpdatedAt = "2026-08-13T19:00:00.000Z";
     const firstEntry = crmPipelineEntryDtoSchema.parse({
@@ -640,7 +724,10 @@ describe("CRM prospect creation recovery", () => {
     expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.disabled).toBe(false);
     expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("open");
     expect(buttonNamed("Add prospect")?.disabled).toBe(false);
-    expect(toastMock).toHaveBeenCalledWith("This pipeline entry changed under you");
+    expect(toastMock).toHaveBeenCalledWith(
+      "This pipeline entry changed under you. The pipeline is refreshing.",
+      { kind: "error" },
+    );
   });
 
   it("keeps a definitive conflict editable for a new safe attempt", async () => {

@@ -85,7 +85,10 @@ export type DbOrTx = typeof db | TxDb;
  * failed status write must not make an already-queued invitation look unsent.
  * CRM sourcing-pipeline creation likewise commits the new prospect row and
  * its initial open-stage history together before attempting best-effort
- * activity (`createCrmPipelineEntryWithPostCommitActivityIn`).
+ * activity (`createCrmPipelineEntryWithPostCommitActivityIn`). Pipeline stage
+ * transitions also lock the prospect and commit its stage, timestamped
+ * history, and organizer-visible activity together (`transitionCrmPipelineIn`),
+ * so a failed audit insert can never leave the board ahead of its history.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {
