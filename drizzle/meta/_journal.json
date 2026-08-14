@@ -281,6 +281,13 @@
       "when": 1786691600000,
       "tag": "0039_submission_pagination_order",
       "breakpoints": false
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786702984000,
+      "tag": "0040_vocab_dependency_locks",
+      "breakpoints": false
     }
   ]
 }

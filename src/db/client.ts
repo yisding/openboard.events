@@ -75,6 +75,10 @@ export type DbOrTx = typeof db | TxDb;
  * Organization membership role changes and removals likewise keep the access
  * mutation and its audit evidence atomic
  * (`src/features/organizations/server/membership.ts`).
+ * Vocabulary deletion also keeps its target-row lock, JSON/array dependency
+ * checks, embed cleanup, nullable foreign-key cleanup, and final delete in one
+ * transaction (`src/features/events/server/vocab.ts`); migration 0040 gives
+ * dependency writers the matching key-share side of that lock protocol.
  * Evaluation plan saves, reviewer-set replacements, and explicit-queue
  * replacements also use a transaction: they acquire the plan-row lock in one
  * statement, then run the snapshot-dependent graph change in a fresh statement
