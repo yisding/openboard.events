@@ -20,7 +20,7 @@ R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=sb-files-dev
 APP_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_BUILD_SHA=local
+BUILD_SHA=local
 
 # Optional. Google social login for admins; must be set as a pair. Register the
 # redirect URI <origin>/api/auth/callback/google in the Google console.

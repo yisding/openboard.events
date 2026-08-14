@@ -102,7 +102,7 @@ printf '%s' "$status"
         ...process.env,
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         SMOKE_FAKE_STATE: state,
-        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        BUILD_SHA: "same-build",
         DEPLOYMENT_ID: "new-deployment",
       },
     });
@@ -193,7 +193,7 @@ printf '%s' "$status"
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         SMOKE_FAKE_STATE: state,
         SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
-        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        BUILD_SHA: "same-build",
         DEPLOYMENT_ID: "new-deployment",
       },
     });
@@ -217,7 +217,7 @@ printf '%s' "$status"
         SMOKE_PROPAGATION_TIMEOUT_SECONDS: "1",
         SMOKE_FAKE_HEALTH_DEPLOYMENT: "new-deployment",
         SMOKE_FAKE_CACHE_DEPLOYMENT: "new-deployment",
-        NEXT_PUBLIC_BUILD_SHA: "same-build",
+        BUILD_SHA: "same-build",
         DEPLOYMENT_ID: "",
       },
     });

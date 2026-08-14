@@ -28,6 +28,11 @@ describe("parseEnv", () => {
     expect(env.BILLING_MODE).toBe("disabled");
   });
 
+  it("keeps the release SHA in the server runtime contract", () => {
+    expect(parseEnv({ BUILD_SHA: "abc123def456" }).BUILD_SHA).toBe("abc123def456");
+    expect(() => parseEnv({ BUILD_SHA: "not a release SHA" })).toThrow(/BUILD_SHA/);
+  });
+
   it("accepts the isolated preview contract", () => {
     expect(parseEnv({ ...deployed, APP_ENV: "preview", R2_BUCKET_NAME: "sb-files-preview" }).APP_ENV).toBe("preview");
   });

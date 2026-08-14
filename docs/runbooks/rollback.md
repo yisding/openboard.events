@@ -79,7 +79,7 @@ bash scripts/post-deploy-smoke.sh https://openboard.events --strict --production
 ```
 
 Confirm `sha` matches the commit the rolled-back version was built from (the deploy scripts
-stamp `NEXT_PUBLIC_BUILD_SHA` at build time — `git log --oneline | grep <sha>` to identify the
+stamp the server-only `BUILD_SHA` binding at deploy time — `git log --oneline | grep <sha>` to identify the
 commit), and that the smoke script exits 0. Then tail the jobs Worker to confirm the cron is
 still ticking authenticated:
 

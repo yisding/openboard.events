@@ -48,18 +48,18 @@ if [[ "$target_env" == "production" ]]; then
   grep -q '"EMAIL_FROM"' wrangler.jsonc || { echo "EMAIL_FROM must be set in wrangler.jsonc production vars" >&2; exit 2; }
 fi
 
-build_sha="${NEXT_PUBLIC_BUILD_SHA:-}"
+build_sha="${BUILD_SHA:-}"
 if [[ -z "$build_sha" ]]; then
   build_sha=$(git rev-parse --short HEAD)
 fi
-export NEXT_PUBLIC_BUILD_SHA="$build_sha"
+export BUILD_SHA="$build_sha"
 deployment_id="${DEPLOYMENT_ID:-manual-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 export DEPLOYMENT_ID="$deployment_id"
 
 vars=(
   --var "APP_BASE_URL:$APP_BASE_URL"
   --var "R2_ACCOUNT_ID:$R2_ACCOUNT_ID"
-  --var "NEXT_PUBLIC_BUILD_SHA:$build_sha"
+  --var "BUILD_SHA:$build_sha"
   --var "DEPLOYMENT_ID:$deployment_id"
 )
 [[ -n "${EMAIL_ALLOWLIST:-}" ]] && vars+=(--var "EMAIL_ALLOWLIST:$EMAIL_ALLOWLIST")

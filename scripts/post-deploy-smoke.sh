@@ -263,7 +263,7 @@ while (( ! health_ok || ! schedule_ok || ! embed_ok )); do
     candidate_build_sha="$(sed -n 's/.*\"sha\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)"
     candidate_deployment_id="$(sed -n 's/.*\"deployment\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)"
     if [[ "$last_status" == "200" && -n "$candidate_build_sha" && -n "$candidate_deployment_id" ]] \
-      && { [[ -z "${NEXT_PUBLIC_BUILD_SHA:-}" ]] || [[ "$candidate_build_sha" == "$NEXT_PUBLIC_BUILD_SHA" ]]; } \
+      && { [[ -z "${BUILD_SHA:-}" ]] || [[ "$candidate_build_sha" == "$BUILD_SHA" ]]; } \
       && { [[ -z "${DEPLOYMENT_ID:-}" ]] || [[ "$candidate_deployment_id" == "$DEPLOYMENT_ID" ]]; }; then
       health_ok=1
       deployed_build_sha="$candidate_build_sha"
@@ -308,8 +308,8 @@ if (( ! health_ok )); then
     fail "$base_url/api/health" "health identifies the deployed build before the propagation deadline ($health_attempts attempts)"
   elif [[ -z "$(sed -n 's/.*\"deployment\":\"\([^\"]*\)\".*/\1/p' "$body_file" | head -1)" ]]; then
     fail "$base_url/api/health" "health identifies the unique deployment before the propagation deadline ($health_attempts attempts)"
-  elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
-    && ! grep -qF -- "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "$body_file"; then
+  elif [[ -n "${BUILD_SHA:-}" ]] \
+    && ! grep -qF -- "\"sha\":\"$BUILD_SHA\"" "$body_file"; then
     fail "$base_url/api/health" "health matches the requested build before the propagation deadline ($health_attempts attempts)"
   else
     fail "$base_url/api/health" "health matches the requested deployment before the propagation deadline ($health_attempts attempts)"
@@ -323,8 +323,8 @@ else
       fail "$base_url/api/health" "health identifies the deployed build"
     elif [[ -z "$deployed_id" ]]; then
       fail "$base_url/api/health" "health identifies the unique deployment"
-    elif [[ -n "${NEXT_PUBLIC_BUILD_SHA:-}" ]] \
-      && ! expect_body_literal "\"sha\":\"$NEXT_PUBLIC_BUILD_SHA\"" "health matches the requested build"; then
+    elif [[ -n "${BUILD_SHA:-}" ]] \
+      && ! expect_body_literal "\"sha\":\"$BUILD_SHA\"" "health matches the requested build"; then
       :
     elif [[ -n "${DEPLOYMENT_ID:-}" ]] \
       && ! expect_body_literal "\"deployment\":\"$DEPLOYMENT_ID\"" "health matches the requested deployment"; then
