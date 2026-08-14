@@ -493,6 +493,13 @@ describe("organization tenancy (M43)", () => {
         )).resolves.toMatchObject({ userId: reviewerUserId, role: "organizer" });
         expect((await getEventAccessOverviewIn(db, legacyEventB, organizerUserId)).candidates).toEqual([]);
         await removeEventAccessMemberIn(db, legacyEventB, organizerUserId, reviewerUserId);
+        // Replaying a committed removal after a lost response is canonical
+        // success, while the actor and owner checks below stay fail-closed.
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, reviewerUserId,
+        )).resolves.toBeUndefined();
+        expect((await getEventAccessOverviewIn(db, legacyEventB, organizerUserId)).members)
+          .not.toEqual(expect.arrayContaining([expect.objectContaining({ userId: reviewerUserId })]));
 
         await expect(removeEventAccessMemberIn(
           db, legacyEventA, reviewerUserId, organizerUserId,

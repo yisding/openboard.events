@@ -359,7 +359,9 @@ export async function removeEventAccessMemberIn(
   const [row] = rowsOf<{ authorized: boolean; existing_role: MemberRole | null; removed_role: MemberRole | null }>(result);
   if (!row?.authorized) throw new AppError("FORBIDDEN", "Only an event organizer can remove event access");
   if (row.existing_role === "owner") throw new AppError("VALIDATION", "Event owner access cannot be removed here");
-  if (!row.removed_role) throw new AppError("NOT_FOUND", "That person has no access to this event");
+  // A lost response must be safe to replay. Once actor authority and the
+  // owner guard have been checked above, an absent target is already in the
+  // requested state and is therefore the canonical successful outcome.
 }
 export const removeEventAccessMember = (eventId: EventId, actorUserId: UserId, targetUserId: UserId): Promise<void> =>
   removeEventAccessMemberIn(db, eventId, actorUserId, targetUserId);
