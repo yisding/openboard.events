@@ -11,6 +11,7 @@ export const TASK_FIXTURE = taskDtoSchema.parse({
   dueAt: "2026-09-10T06:59:59.999Z",
   isActive: true,
   createdAt: "2026-08-08T18:00:00.000Z",
+  updatedAt: "2026-08-08T18:00:00.000Z",
 });
 
 export const TASK_ASSIGNMENT_FIXTURE = taskAssignmentDtoSchema.parse({

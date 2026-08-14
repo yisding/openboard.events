@@ -14,6 +14,7 @@ const sourceTask = {
   dueAt: "2026-11-01T23:59:59.999Z",
   isActive: true,
   createdAt: "2026-08-11T00:00:00.000Z",
+  updatedAt: "2026-08-11T00:00:00.000Z",
   counts: { completed: 2, open: 3, overdue: 1 },
 } as AdminTaskDTO;
 
@@ -38,9 +39,9 @@ describe("TaskEditor validation accessibility", () => {
     const source = readFileSync(new URL("./task-editor.tsx", import.meta.url), "utf8");
 
     expect(source).toContain("useUnsavedWorkGuard(dirty)");
-    expect(source).toContain("requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor })");
-    expect(source).toContain("inert={saving || undefined}");
-    expect(source).toContain('onClick={closeEditor} disabled={saving}');
+    expect(source).toContain("requestGuardedEditorClose({ busy: saving || loadingLatest, dirty, runGuarded, close: discardEditor })");
+    expect(source).toContain("inert={saving || loadingLatest || undefined}");
+    expect(source).toContain('onClick={closeEditor} disabled={saving || loadingLatest}');
     expect(source.indexOf("setBaseline(draft)")).toBeLessThan(source.indexOf("await onSaved(saved.data)"));
   });
 

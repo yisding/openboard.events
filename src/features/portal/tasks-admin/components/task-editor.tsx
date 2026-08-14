@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
@@ -42,7 +43,7 @@ function hintProp(hint: string | undefined): { hint: string } | Record<string, n
   return hint ? { hint } : {};
 }
 
-export function draftFromTask(task: AdminTaskDTO | null, timezone: string, duplicate = false): TaskDraft {
+export function draftFromTask(task: TaskDTO | null, timezone: string, duplicate = false): TaskDraft {
   if (!task) {
     return {
       name: "", descriptionHtml: "", targetType: "contact", completionMode: "manual",
@@ -101,8 +102,13 @@ export function TaskEditor({
   const [draft, setDraft] = useState<TaskDraft>(initialDraft);
   const [baseline, setBaseline] = useState<TaskDraft>(initialDraft);
   const [saving, setSaving] = useState(false);
+  const [loadingLatest, setLoadingLatest] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [confirmingLoadLatest, setConfirmingLoadLatest] = useState(false);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(task?.updatedAt ?? null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const editorRef = useRef<HTMLDivElement>(null);
+  const staleRef = useRef<HTMLDivElement>(null);
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
@@ -118,6 +124,9 @@ export function TaskEditor({
     const nextDraft = draftFromTask(task ?? duplicateOf, timezone, duplicating);
     setDraft(nextDraft);
     setBaseline(nextDraft);
+    setExpectedUpdatedAt(task?.updatedAt ?? null);
+    setStale(false);
+    setConfirmingLoadLatest(false);
     setFieldErrors({});
   }, [duplicateOf, duplicating, open, task, timezone]);
 
@@ -125,6 +134,11 @@ export function TaskEditor({
     if (Object.keys(fieldErrors).length === 0) return;
     editorRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [fieldErrors]);
+
+  useEffect(() => {
+    if (!stale) return;
+    window.requestAnimationFrame(() => staleRef.current?.focus());
+  }, [stale]);
 
   const availableFileRequests = fileRequests.filter((request) => request.targetType === draft.targetType);
 
@@ -138,7 +152,7 @@ export function TaskEditor({
   }
 
   function closeEditor() {
-    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: discardEditor });
+    requestGuardedEditorClose({ busy: saving || loadingLatest, dirty, runGuarded, close: discardEditor });
   }
 
   function setMode(mode: TaskDraft["completionMode"]) {
@@ -170,7 +184,7 @@ export function TaskEditor({
   }
 
   async function save() {
-    if (saving) return;
+    if (saving || loadingLatest || stale) return;
     setSaving(true);
     setFieldErrors({});
     try {
@@ -185,14 +199,20 @@ export function TaskEditor({
           formId: draft.formId,
           fileRequestId: draft.fileRequestId,
           dueAt: draft.dueAt,
+          ...(draft.id && expectedUpdatedAt ? { expectedUpdatedAt } : {}),
           // A duplicate's first save is always an inactive draft. The switch is
           // disabled below as the visible guard; this payload rule is the
           // backstop that prevents stale client state from creating fan-out.
           isActive: duplicating ? false : draft.isActive,
         })),
       });
-      const payload = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string; fieldErrors?: Record<string, string> } } | null;
+      const payload = await response.json().catch(() => null) as { data?: unknown; error?: { code?: string; message?: string; fieldErrors?: Record<string, string> } } | null;
       const saved = taskDtoSchema.safeParse(payload?.data);
+      if (payload?.error?.code === "STALE_WRITE") {
+        setStale(true);
+        toast(payload.error.message ?? "This task changed since you opened it", { kind: "error" });
+        return;
+      }
       if (!response.ok || !saved.success) {
         setFieldErrors(payload?.error?.fieldErrors ?? {});
         toast(payload?.error?.message ?? "That task could not be saved", { kind: "error" });
@@ -200,6 +220,7 @@ export function TaskEditor({
       }
       toast(draft.id ? "Task updated" : duplicating ? "Inactive task copy created" : "Task created");
       setBaseline(draft);
+      setExpectedUpdatedAt(saved.data.updatedAt);
       await onSaved(saved.data);
       createRequestId.current.reset();
     } catch {
@@ -209,21 +230,59 @@ export function TaskEditor({
     }
   }
 
+  async function loadLatest() {
+    if (!draft.id || loadingLatest) return;
+    setLoadingLatest(true);
+    try {
+      const response = await fetch(`/api/internal/tasks/${draft.id}?eventId=${eventId}`);
+      const payload = await response.json().catch(() => null) as { data?: { task?: unknown }; error?: { message?: string } } | null;
+      const latest = taskDtoSchema.safeParse(payload?.data?.task);
+      if (!response.ok || !latest.success) {
+        toast(payload?.error?.message ?? "The latest task could not be loaded", { kind: "error" });
+        return;
+      }
+      const nextDraft = draftFromTask(latest.data, timezone);
+      setDraft(nextDraft);
+      setBaseline(nextDraft);
+      setExpectedUpdatedAt(latest.data.updatedAt);
+      setFieldErrors({});
+      setStale(false);
+      toast("Latest task loaded");
+    } catch {
+      toast("The latest task could not be loaded", { kind: "error" });
+    } finally {
+      setLoadingLatest(false);
+      setConfirmingLoadLatest(false);
+    }
+  }
+
   return (
-    <Modal
-      open={open}
-      onClose={closeEditor}
-      title={draft.id ? "Edit task" : duplicating ? "Duplicate task" : "Create a task"}
-      description={duplicating
-        ? "Review the copied setup. The new task will stay inactive until you deliberately activate it."
-        : "Assign once to accepted speakers or per accepted submission."}
-      wide
-      footer={<>
-        <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
-        <Button disabled={!draft.name.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : duplicating ? "Create inactive copy" : "Create task"}</Button>
-      </>}
-    >
-      <div ref={editorRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
+    <>
+      <Modal
+        open={open}
+        onClose={closeEditor}
+        title={draft.id ? "Edit task" : duplicating ? "Duplicate task" : "Create a task"}
+        description={duplicating
+          ? "Review the copied setup. The new task will stay inactive until you deliberately activate it."
+          : "Assign once to accepted speakers or per accepted submission."}
+        wide
+        footer={<>
+          <Button variant="secondary" onClick={closeEditor} disabled={saving || loadingLatest}>Cancel</Button>
+          <Button disabled={!draft.name.trim() || saving || loadingLatest || stale} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : duplicating ? "Create inactive copy" : "Create task"}</Button>
+        </>}
+      >
+        {stale && (
+          <div ref={staleRef} className="notify-bar" role="alert" tabIndex={-1}>
+            <div>
+              <p><b>This task changed since you opened it.</b></p>
+              <small>Your draft is still here. Load the latest task only when you are ready to replace it.</small>
+            </div>
+            <Button variant="secondary" disabled={saving || loadingLatest} onClick={() => setConfirmingLoadLatest(true)}>
+              {loadingLatest ? "Loading…" : "Load latest"}
+            </Button>
+          </div>
+        )}
+        <div ref={editorRef} className="form-stack" inert={saving || loadingLatest || undefined} aria-busy={saving || loadingLatest || undefined}>
         <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
           <input required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "task-name-error" : undefined} value={draft.name} onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearFieldError("name"); }} placeholder="e.g. Upload final slides" />
         </Field>
@@ -293,7 +352,17 @@ export function TaskEditor({
           <div><b>Active</b><small>{duplicating ? "Copies start inactive. Save this draft, then activate it when you are ready to assign speakers." : "Inactive tasks stop assigning to new speakers and drop off the portal."}</small></div>
           <Switch label="Active" checked={draft.isActive} disabled={duplicating} onClick={() => setDraft((current) => ({ ...current, isActive: !current.isActive }))} />
         </div>
-      </div>
-    </Modal>
+        </div>
+      </Modal>
+      <ConfirmDialog
+        open={confirmingLoadLatest}
+        title="Load the latest task?"
+        body="Your unsaved task changes will be replaced by the latest saved version. This cannot be undone."
+        confirmLabel="Load latest"
+        variant="stale"
+        onConfirm={loadLatest}
+        onCancel={() => setConfirmingLoadLatest(false)}
+      />
+    </>
   );
 }
