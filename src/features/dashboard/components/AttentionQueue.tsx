@@ -31,8 +31,8 @@ export function AttentionQueue({ items }: { items: DashboardOverview["attention"
   if (items.length === 0) return null;
   const ranked = [...items].sort((a, b) => b.count - a.count);
   return (
-    <section className="dashboard-attention-queue" aria-label="What needs attention">
-      <header><span>Needs attention</span></header>
+    <section className="dashboard-attention-queue" aria-labelledby="dashboard-attention-title">
+      <header><h2 id="dashboard-attention-title">Needs attention</h2></header>
       <ol>
         {ranked.map((item, index) => {
           const Icon = ICONS[item.code];

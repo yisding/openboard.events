@@ -3,12 +3,14 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatInZone } from "@/shared/lib/time";
+import type { EventId } from "@/shared/contracts";
 import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/components/saved-form-actions";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";
 import { ActivationGuide, resolveActivationState } from "./ActivationGuide";
 import { AttentionQueue } from "./AttentionQueue";
+import { DashboardTabsView } from "./DashboardTabs";
 import { FormProgressCards } from "./FormProgressCards";
 import { OverdueList } from "./OverdueList";
 import { RecentSubmissionsTable } from "./RecentSubmissionsTable";
@@ -38,6 +40,43 @@ function renderFormProgress(form: typeof FIXTURE_OVERVIEW.forms[number]) {
 }
 
 describe("dashboard components", () => {
+  it("keeps one page heading and the priority queue ahead of navigation and content", () => {
+    const html = renderToStaticMarkup(React.createElement(
+      ToastProvider,
+      null,
+      React.createElement(DashboardTabsView, {
+        eventId: FIXTURE_OVERVIEW.event.id as EventId,
+        firstName: "Maya",
+        initialTab: "today",
+        live: false,
+        overview: FIXTURE_OVERVIEW,
+      }),
+    ));
+
+    const eventHeading = renderToStaticMarkup(React.createElement("h1", null, FIXTURE_OVERVIEW.event.name));
+    const headingLevels = [...html.matchAll(/<h([1-6])(?:\s|>)/g)].map((match) => Number(match[1]));
+    expect(html.match(/<h1(?:\s|>)/g)).toHaveLength(1);
+    expect(html).toContain(eventHeading);
+    expect(html).not.toContain("<h1>Good ");
+    expect(headingLevels[0]).toBe(1);
+    for (let index = 1; index < headingLevels.length; index += 1) {
+      expect(headingLevels[index]).toBeLessThanOrEqual((headingLevels[index - 1] ?? 0) + 1);
+    }
+
+    const headingIndex = html.indexOf(eventHeading);
+    const attentionIndex = html.indexOf("dashboard-attention-queue");
+    const tabsIndex = html.indexOf("dashboard-tabs");
+    const milestoneIndex = html.indexOf("dashboard-milestones");
+    const statusIndex = html.indexOf("dashboard-statuses");
+    const formProgressIndex = html.indexOf("dashboard-form-progress");
+    expect([headingIndex, attentionIndex, tabsIndex, milestoneIndex, statusIndex, formProgressIndex]).not.toContain(-1);
+    expect(headingIndex).toBeLessThan(attentionIndex);
+    expect(attentionIndex).toBeLessThan(tabsIndex);
+    expect(tabsIndex).toBeLessThan(milestoneIndex);
+    expect(milestoneIndex).toBeLessThan(statusIndex);
+    expect(statusIndex).toBeLessThan(formProgressIndex);
+  });
+
   it("renders every designed empty state without invalid percentages", () => {
     const speakerHtml = renderToStaticMarkup(React.createElement(SpeakerTrackingPanel, { overview: EMPTY_FIXTURE_OVERVIEW }));
     const todayHtml = renderToStaticMarkup(React.createElement(TodayPanel, { overview: EMPTY_FIXTURE_OVERVIEW, firstName: "Maya" }));
@@ -50,6 +89,7 @@ describe("dashboard components", () => {
     expect(speakerHtml).not.toContain("dashboard-missing-alert");
     expect(todayHtml).toContain("No submission forms yet");
     expect(todayHtml).toContain("No submissions yet");
+    expect(todayHtml).not.toContain("<h1");
     // The attention queue lives above the tabs now (`DashboardTabsInner`), not
     // inside either tab panel — `TodayPanel` on its own never renders it.
     expect(todayHtml).not.toContain("dashboard-attention-queue");

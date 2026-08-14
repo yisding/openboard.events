@@ -54,7 +54,7 @@ export function MilestoneBanner({ eventId, overview }: { eventId: EventId; overv
             <b>{milestone.title}</b>
             <span>{milestone.detail}</span>
           </Link>
-          <button type="button" aria-label="Dismiss" onClick={() => dismiss(milestone)}><X size={14} /></button>
+          <button type="button" aria-label={`Dismiss ${milestone.title}`} onClick={() => dismiss(milestone)}><X size={14} /></button>
         </div>
       ))}
     </div>

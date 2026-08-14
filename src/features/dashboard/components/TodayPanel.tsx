@@ -9,8 +9,8 @@ import { WidgetBoundary } from "./WidgetBoundary";
 
 function dayKicker(timezone: string, days: number): string {
   const date = formatInZone(new Date(), timezone, { weekday: "long", month: "long", day: "numeric" });
-  const countdown = days === 0 ? "EVENT DAY" : days > 0 ? `${days} DAYS TO EVENT` : `${Math.abs(days)} DAYS SINCE EVENT`;
-  return `${date.toUpperCase()} · ${countdown}`;
+  const countdown = days === 0 ? "Event day" : days > 0 ? `${days} days to event` : `${Math.abs(days)} days since event`;
+  return `${date} · ${countdown}`;
 }
 
 function greeting(timezone: string): string {
@@ -33,7 +33,7 @@ function FormsAndRecent({ overview, phase }: { overview: DashboardOverview; phas
 
 export function TodayPanel({ overview, firstName, phase = "cfp" }: { overview: DashboardOverview; firstName: string; phase?: EventPhase }) {
   return <div className="dashboard-tab-panel">
-    <header className="dashboard-greeting"><span>{dayKicker(overview.event.timezone, overview.event.daysToEvent)}</span><h1>{greeting(overview.event.timezone)}, {firstName}</h1><p>Here’s what needs your attention for {overview.event.name}.</p></header>
+    <p className="dashboard-greeting">{greeting(overview.event.timezone)}, {firstName} <span aria-hidden="true">·</span> {dayKicker(overview.event.timezone, overview.event.daysToEvent)}</p>
     <WidgetBoundary name="statuses"><StatusRow counts={overview.statusCounts} /></WidgetBoundary>
     <div className="dashboard-today-grid">
       <FormsAndRecent overview={overview} phase={phase} />
