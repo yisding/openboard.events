@@ -292,7 +292,8 @@ stores only the credentials and direct database URL needed by the deployment wor
 
 - [x] Verify a dedicated sending subdomain in Resend (`mail.openboard.events`, status rev. 7).
 - [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
-- [ ] Confirm the DMARC policy and record `dmarc=pass` evidence.
+- [ ] Enable aggregate reporting and advance the DMARC policy using
+  [`docs/runbooks/dmarc.md`](runbooks/dmarc.md); record `dmarc=pass` evidence at every stage.
 - [x] Choose a real `EMAIL_FROM` mailbox or alias on that domain
   (`AI.Engineer Sandbox <hello@mail.openboard.events>`).
 - [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
