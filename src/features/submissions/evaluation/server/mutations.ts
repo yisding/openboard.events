@@ -460,6 +460,10 @@ export async function assignReviewersIn(
       SELECT id,
              status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
       FROM evaluation_plans WHERE id = ${planId} AND event_id = ${eventId}
+      -- Serialize this writability decision with savePlanIn. Without the row
+      -- lock, a close can commit after this statement reads open but before
+      -- its assignment CTEs write, admitting work after the round closed.
+      FOR UPDATE
     ),
     incoming AS (
       SELECT x.user_id, x.track_ids FROM jsonb_to_recordset(${JSON.stringify(incoming)}::jsonb)
@@ -567,6 +571,9 @@ export async function assignSubmissionsIn(
       SELECT id, event_id,
              status = 'open' AND (closes_at IS NULL OR closes_at > CURRENT_TIMESTAMP) AS writable
       FROM evaluation_plans WHERE id = ${input.planId} AND event_id = ${eventId}
+      -- The queue mutation and a concurrent close must observe one another in
+      -- commit order; the loser rechecks this row after the lock is released.
+      FOR UPDATE
     ),
     reviewers AS (
       SELECT a.user_id FROM reviewer_assignments a, plan

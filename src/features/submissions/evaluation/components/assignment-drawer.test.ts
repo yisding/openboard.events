@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { assignmentDraftChanged, canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
 
 const ready = {
+  locked: false,
   loaded: true,
   hasLoadError: false,
   busy: false,
@@ -31,6 +32,11 @@ describe("assignment drawer submission safety", () => {
   it("never submits before candidates load or after loading fails", () => {
     expect(canSubmitAssignments({ ...ready, loaded: false })).toBe(false);
     expect(canSubmitAssignments({ ...ready, hasLoadError: true })).toBe(false);
+  });
+
+  it("locks submission immediately when the round prop becomes unwritable", () => {
+    expect(canSubmitAssignments(ready)).toBe(true);
+    expect(canSubmitAssignments({ ...ready, locked: true })).toBe(false);
   });
 
   it("requires reviewers and a submission when adding work", () => {

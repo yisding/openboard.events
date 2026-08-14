@@ -35,6 +35,7 @@ function responseLoadFailure(response: Response, payload: AssignmentLoadPayload 
 }
 
 export function canSubmitAssignments({
+  locked,
   loaded,
   hasLoadError,
   busy,
@@ -43,6 +44,7 @@ export function canSubmitAssignments({
   mode,
   currentAssignmentCount,
 }: {
+  locked: boolean;
   loaded: boolean;
   hasLoadError: boolean;
   busy: boolean;
@@ -51,7 +53,7 @@ export function canSubmitAssignments({
   mode: AssignmentMode;
   currentAssignmentCount: number;
 }) {
-  if (!loaded || hasLoadError || busy || reviewerCount === 0) return false;
+  if (locked || !loaded || hasLoadError || busy || reviewerCount === 0) return false;
   if (selectedCount > 0) return true;
   return mode === "replace" && currentAssignmentCount > 0;
 }
@@ -210,6 +212,7 @@ export function AssignmentDrawer({
   const assignmentsLoaded = submissions !== null && loadedTarget === targetKey;
   const controlsDisabled = assignmentLock !== null || !assignmentsLoaded || Boolean(loadFailure) || busy;
   const canAssign = canSubmitAssignments({
+    locked: assignmentLock !== null,
     loaded: assignmentsLoaded,
     hasLoadError: Boolean(loadFailure),
     busy,

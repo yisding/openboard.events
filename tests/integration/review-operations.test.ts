@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
@@ -413,6 +414,57 @@ describe("review operations", () => {
         .toEqual([one, two].sort());
     },
   );
+
+  /**
+   * PGlite exposes one connection, so it cannot hold a close open on one
+   * session while an assignment mutates on another. The production guarantee
+   * is the row lock both assignment writers take before deciding writability:
+   * it makes a concurrent close and queue/reviewer write commit in a single
+   * order, with the loser re-reading the plan's latest status/deadline.
+   *
+   * Capture the exact SQL Drizzle emits and have PGlite plan it, so removing
+   * or misplacing the locking read is still a behavioral regression here.
+   */
+  it("serializes reviewer and queue writes with a concurrent round close", async () => {
+    const dialect = new PgDialect();
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const capturing = {
+      execute: async (query: unknown) => {
+        statements.push(dialect.sqlToQuery(query as Parameters<typeof dialect.sqlToQuery>[0]));
+        return {
+          rows: [{
+            plan_found: 1,
+            writable: true,
+            matched: 1,
+            reviewers: 1,
+            submissions: 1,
+            assigned: 1,
+            removed: 0,
+          }],
+        };
+      },
+    } as unknown as DbOrTx;
+
+    const planId = await seedPlan();
+    await assignReviewersIn(capturing, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(capturing, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [one],
+      mode: "add",
+    });
+    expect(statements).toHaveLength(2);
+
+    for (const statement of statements) {
+      expect(statement.sql).toMatch(/for update/iu);
+      const inlined = statement.sql.replace(/\$(\d+)/gu, (_match, index: string) => {
+        const value = String(statement.params[Number(index) - 1]).replaceAll("'", "''");
+        return `'${value}'`;
+      });
+      const plan = await pglite.query<{ "QUERY PLAN": string }>(`EXPLAIN ${inlined}`);
+      expect(plan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain("LockRows");
+    }
+  });
 
   it("allows explicit queues to be prepared before the round opens", async () => {
     const planId = await seedPlan({

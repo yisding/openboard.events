@@ -131,6 +131,23 @@ describe("evaluation assignment drawer loading recovery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("disables an already-loaded assignment draft as soon as the round closes", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(PLAN_A);
+
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await renderDrawer({ ...PLAN_A, status: "closed" });
+
+    expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(reviewerCheckbox("Round A reviewer")?.checked).toBe(true);
+    expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("recovers a transport failure in place and unlocks the loaded round", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("offline"));
     await renderDrawer(PLAN_A);
