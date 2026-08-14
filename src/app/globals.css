@@ -1550,7 +1550,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-track-sync{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border:1px solid var(--red-border);border-radius:8px;background:var(--red-soft)}
 .onboarding-track-sync p{margin:0;color:var(--red);font-size:var(--text-xs);line-height:1.4}
 .onboarding-tracks-step>.field{margin-top:12px}
-.onboarding-toggle{display:flex;align-items:center;gap:8px;font-size:var(--text-xs);color:var(--muted)}
+.onboarding-toggle{display:flex;align-items:center;gap:8px;min-height:32px;font-size:var(--text-xs);color:var(--muted);cursor:pointer}
 .onboarding-wizard>.cfp-step>label.onboarding-toggle{display:flex;align-items:center;font-weight:500}
 .onboarding-toggle input{width:15px;height:15px;accent-color:var(--accent)}
 .onboarding-done{text-align:center;padding:32px 24px}
@@ -2118,6 +2118,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 
 @media (max-width: 768px) {
   .icon-button, .mobile-menu, .mobile-close, .portal-mobile-menu { min-width: 44px; min-height: 44px; }
+  .onboarding-advanced summary, .onboarding-toggle { min-height: 44px; }
   /* Discrete controls the base sheet sizes under 44 and that no other rule in
      this block reaches: the toast dismiss (16×16), the rich-text toolbar tools
      and mode toggle, the sortable column-header button, the milestone dismiss

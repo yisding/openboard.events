@@ -119,6 +119,41 @@ test.describe("guided onboarding responsiveness", () => {
     expect(layout.labelsFit).toBe(true);
     expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
   });
+
+  test("keeps the disclosure and publish row comfortably tappable on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main style="padding:24px">
+        <div class="panel settings-section onboarding-wizard">
+          <details class="onboarding-advanced">
+            <summary>Customize public URL</summary>
+          </details>
+          <label class="onboarding-toggle">
+            <input type="checkbox" checked>
+            Publish immediately so the link is shareable right away
+          </label>
+        </div>
+      </main>
+    </body></html>`);
+
+    const disclosure = page.getByText("Customize public URL", { exact: true });
+    const publishRow = page.getByText("Publish immediately so the link is shareable right away", { exact: true });
+    await expect(disclosure).toBeVisible();
+    await expect(publishRow).toBeVisible();
+    expect((await disclosure.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    expect((await publishRow.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+
+    const publishAlignment = await publishRow.evaluate((element) => {
+      const input = element.querySelector("input");
+      if (!input) throw new Error("Publish fixture is incomplete");
+      const rowBox = element.getBoundingClientRect();
+      const inputBox = input.getBoundingClientRect();
+      return Math.abs((rowBox.top + rowBox.bottom - inputBox.top - inputBox.bottom) / 2);
+    });
+    expect(publishAlignment).toBeLessThanOrEqual(1);
+  });
 });
 
 test.describe("mobile auth touch targets", () => {

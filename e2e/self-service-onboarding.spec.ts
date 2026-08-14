@@ -227,6 +227,11 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
+      const onboardingViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      expect((await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height)
+        .toBeGreaterThanOrEqual(44);
+      if (onboardingViewport) await page.setViewportSize(onboardingViewport);
     });
 
     await test.step("create the first event and tracks", async () => {
@@ -334,6 +339,23 @@ test.describe("self-service signup to first value", () => {
     let publicLink = "";
     await test.step("publish the first form and capture its public link", async () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
+      const onboardingViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      const publishRow = page.getByText("Publish immediately so the link is shareable right away", { exact: true });
+      const publishMetrics = await publishRow.evaluate((element) => {
+        const input = element.querySelector("input");
+        if (!input) throw new Error("Onboarding publish control is incomplete");
+        const rowBox = element.getBoundingClientRect();
+        const inputBox = input.getBoundingClientRect();
+        return {
+          height: rowBox.height,
+          verticalCenterDelta: Math.abs((rowBox.top + rowBox.bottom - inputBox.top - inputBox.bottom) / 2),
+        };
+      });
+      expect(publishMetrics.height).toBeGreaterThanOrEqual(44);
+      expect(publishMetrics.verticalCenterDelta).toBeLessThanOrEqual(1);
+      if (onboardingViewport) await page.setViewportSize(onboardingViewport);
+
       await page.getByLabel("Form name").fill(formName);
       await expect(page.getByRole("checkbox", { name: /publish immediately/i })).toBeChecked();
       await expect(page.getByLabel("CFP deadline")).toHaveValue("four_weeks");
