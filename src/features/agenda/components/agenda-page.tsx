@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
+import { detectConflicts, toScheduledSession } from "../conflicts";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
 import type { AnnounceBundle } from "../server/announce";
@@ -68,6 +69,9 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   // a save still has one key to invalidate.
   const sessionsQuery = useSessions(props.eventId, props.sessions);
   const sessions: ScheduledSessionDTO[] = sessionsQuery.data ?? props.sessions;
+  const liveConflicts = useMemo(() => detectConflicts(sessions
+    .map(toScheduledSession)
+    .filter((session): session is NonNullable<typeof session> => session !== null)), [sessions]);
 
   const navigate = useCallback((next: { view?: AgendaView; day?: string | null }) => {
     const query = new URLSearchParams(params.toString());
@@ -110,8 +114,8 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
     [needle, sessions],
   );
   const displayedConflicts = useMemo(
-    () => conflictsForAgendaView(props.conflicts, sessions, view, activeGridDay, props.event.timezone),
-    [activeGridDay, props.conflicts, props.event.timezone, sessions, view],
+    () => conflictsForAgendaView(liveConflicts, sessions, view, activeGridDay, props.event.timezone),
+    [activeGridDay, liveConflicts, props.event.timezone, sessions, view],
   );
   const visibleConflicts = useMemo(
     () => needle ? conflictsTouchingSessions(displayedConflicts, visible) : displayedConflicts,
@@ -121,6 +125,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
   const viewProps: AgendaViewProps = {
     ...props,
     sessions: visible,
+    conflicts: liveConflicts,
     day: view === "day" ? activeGridDay : props.day ?? null,
     onEdit: setEditingId,
   };
@@ -144,7 +149,7 @@ function AgendaPageInner({ eventSlug, view, announceBundle = null, ...props }: A
       <AgendaToolbar
         view={view}
         day={view === "day" ? activeGridDay : props.day ?? null}
-        conflictCount={displayedConflicts.length}
+        conflictCount={liveConflicts.length}
         event={props.event}
         search={search}
         onSearch={setSearch}

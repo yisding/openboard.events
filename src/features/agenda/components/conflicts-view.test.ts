@@ -104,7 +104,9 @@ describe("conflictsTouchingSessions", () => {
     expect(source).toContain("conflicts={visibleConflicts}");
     expect(source).toContain("sessions={sessions}");
     expect(source).toContain("searchActive={needle.length > 0}");
-    expect(source).toContain("conflictCount={displayedConflicts.length}");
+    expect(source).toContain("conflictCount={liveConflicts.length}");
+    expect(source).toContain("detectConflicts(sessions");
+    expect(source).toContain("conflicts: liveConflicts");
   });
 });
 

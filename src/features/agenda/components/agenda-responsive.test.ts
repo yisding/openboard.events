@@ -79,4 +79,28 @@ describe("agenda workspace responsive styles", () => {
     expect(html).toContain("Add invited talk</a>");
     expect(html).toContain("Add session</button>");
   });
+
+  it("turns unresolved conflicts into an amber tab and a direct review action", () => {
+    const html = renderToStaticMarkup(React.createElement(AgendaToolbar, {
+      view: "day",
+      day: "2026-08-12",
+      conflictCount: 2,
+      event: {
+        timezone: "UTC",
+        startsAt: "2026-08-12T09:00:00.000Z",
+        endsAt: "2026-08-12T18:00:00.000Z",
+      },
+      search: "",
+      onSearch: () => undefined,
+      onView: () => undefined,
+      onDay: () => undefined,
+      onCreate: () => undefined,
+      eventId: "11111111-1111-4111-8111-111111111111",
+    }));
+
+    expect(html).toContain('class="has-conflicts"');
+    expect(html).toContain('class="agenda-conflict-banner"');
+    expect(html).toContain("2 scheduling conflicts</b> need attention before you publish.");
+    expect(html).toContain("Review conflicts");
+  });
 });

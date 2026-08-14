@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search, UserPlus } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { Button } from "@/shared/ui/ui-kit";
@@ -64,13 +64,14 @@ export function AgendaToolbar({
         <div className="agenda-view-tabs" role="tablist" aria-label="Agenda views">
           {AGENDA_VIEWS.map((candidate) => {
             const { label, icon: Icon } = VIEW_LABELS[candidate];
+            const hasConflicts = candidate === "conflicts" && conflictCount > 0;
             return (
               <button
                 key={candidate}
                 type="button"
                 role="tab"
                 aria-selected={view === candidate}
-                className={view === candidate ? "active" : ""}
+                className={[view === candidate ? "active" : "", hasConflicts ? "has-conflicts" : ""].filter(Boolean).join(" ")}
                 onClick={() => onView(candidate)}
               >
                 <Icon size={14} aria-hidden />
@@ -124,6 +125,13 @@ export function AgendaToolbar({
           </div>
           <span>All times {event.timezone}</span>
         </div>
+      )}
+      {conflictCount > 0 && view !== "conflicts" && (
+        <button type="button" className="agenda-conflict-banner" onClick={() => onView("conflicts")}>
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span><b>{conflictCount} scheduling conflict{conflictCount === 1 ? "" : "s"}</b> {conflictCount === 1 ? "needs" : "need"} attention before you publish.</span>
+          <strong>Review conflicts <ArrowRight size={14} aria-hidden="true" /></strong>
+        </button>
       )}
     </>
   );

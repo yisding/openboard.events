@@ -183,6 +183,10 @@ test.describe("agenda-schedule", () => {
   test.describe("the seeded conflict pair", () => {
     test("the seeded conflict pair is flagged and the back-to-back pair is not", async ({ page }) => {
       await loginAsAdmin(page);
+      const seededSessions = await apiData<SessionDTO[]>(page.request, `/api/internal/agenda/sessions?eventId=${EVENTS.main.id}`);
+      const roomConflictAnchor = seededSessions.find((session) => session.id === SESSIONS.conflictA1.id);
+      expect(roomConflictAnchor?.startsAt).toBeTruthy();
+      const conflictDay = eventDay(roomConflictAnchor?.startsAt ?? new Date().toISOString());
       await page.goto(`${AGENDA}?view=conflicts`);
 
       await test.step(`${SESSIONS.conflictA} and ${SESSIONS.conflictB} are flagged`, async () => {
@@ -197,6 +201,26 @@ test.describe("agenda-schedule", () => {
         const speakerPair = page.locator(".agenda-conflict-row", { hasText: SESSIONS.conflictB });
         await expect(speakerPair).toHaveCount(1);
         await expect(speakerPair).toContainText("Speaker conflict");
+      });
+
+      await test.step("same-room conflicts split into readable side-by-side lanes", async () => {
+        await page.goto(`${AGENDA}?view=day&day=${conflictDay}`);
+        const first = page.locator(".dv-session-card", { hasText: SESSIONS.conflictA1.title });
+        const second = page.locator(".dv-session-card", { hasText: SESSIONS.conflictA2.title });
+        await expect(first).toBeVisible();
+        await expect(second).toBeVisible();
+
+        const firstBox = await first.boundingBox();
+        const secondBox = await second.boundingBox();
+        expect(firstBox).not.toBeNull();
+        expect(secondBox).not.toBeNull();
+        expect(
+          (firstBox?.x ?? 0) + (firstBox?.width ?? 0) <= (secondBox?.x ?? 0)
+          || (secondBox?.x ?? 0) + (secondBox?.width ?? 0) <= (firstBox?.x ?? 0),
+        ).toBe(true);
+        for (const card of [first, second]) {
+          expect(await card.locator("b").evaluate((title) => title.scrollWidth <= title.clientWidth)).toBe(true);
+        }
       });
 
       await test.step("the seeded back-to-back pair is not flagged", async () => {
