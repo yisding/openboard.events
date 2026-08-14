@@ -138,7 +138,14 @@ test.describe("self-service signup to first value", () => {
   test.skip(!signupJourneyConfigured(), NO_SIGNUP_JOURNEY);
 
   test("a new customer verifies, provisions, publishes, and receives their first proposal", async ({ page, browser }) => {
-    test.setTimeout(180_000);
+    // This is one deliberately continuous customer journey rather than a set
+    // of isolated fixtures: it creates and verifies an account, provisions an
+    // organization and event, publishes a CFP, then submits through it. Keep
+    // the individual 30–60 second UI/delivery limits below as the failure
+    // signals; the suite-wide budget only needs to cover their cumulative work.
+    test.setTimeout(300_000);
+    page.setDefaultTimeout(30_000);
+    page.setDefaultNavigationTimeout(30_000);
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     const password = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
     const personName = `E2E Self-service ${stamp}`;
@@ -305,7 +312,9 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: "Save and continue" }).click();
       expect((await correctedResponse).status(), "event correction should update the existing event").toBe(200);
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible();
-      await page.getByRole("button", { name: /main stage/i }).click();
+      const mainStageSuggestion = page.locator(".onboarding-tracks-step .chip-picker")
+        .getByRole("button", { name: "Main Stage", exact: true });
+      await mainStageSuggestion.click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       const createdTrack = await queryRows<{ id: string }>(`
         SELECT id FROM tracks WHERE event_id = (
@@ -324,7 +333,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("heading", { name: "Remove Main Stage?" })).toBeVisible();
       await page.getByRole("button", { name: "Remove track" }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toHaveCount(0);
-      await page.getByRole("button", { name: /main stage/i }).click();
+      await mainStageSuggestion.click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: /^continue/i }).click();
       await expect(page.getByRole("heading", { name: "Step 3: First form" })).toBeVisible();
@@ -445,7 +454,7 @@ test.describe("self-service signup to first value", () => {
       const liveFormViewport = liveFormPage.viewportSize();
       await liveFormPage.setViewportSize({ width: 320, height: 700 });
       const progress = liveFormPage.getByRole("list", { name: "Submission progress" });
-      await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+      await expect(progress.locator("b")).toHaveText(["Account", "Submission", "Speaker", "Review"]);
       const progressLayout = await progress.evaluate((element) => {
         const items = [...element.querySelectorAll(":scope > li")];
         const measurements = items.map((item) => {
@@ -478,6 +487,8 @@ test.describe("self-service signup to first value", () => {
     await test.step("a speaker verifies and submits through the returned CFP", async () => {
       const publicContext = await browser.newContext();
       const publicPage = await publicContext.newPage();
+      publicPage.setDefaultTimeout(30_000);
+      publicPage.setDefaultNavigationTimeout(30_000);
       try {
         const response = await publicPage.goto(publicLink);
         expect(response?.status(), `${publicLink} should be public`).toBe(200);
@@ -522,7 +533,9 @@ test.describe("self-service signup to first value", () => {
         submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
         expect(submissionCode).toMatch(/^SESS-\d+$/);
       } finally {
-        await publicContext.close();
+        // Preserve the failed interaction as the primary error if Playwright
+        // has already ended the test; teardown should never mask its locator.
+        await publicContext.close().catch(() => undefined);
       }
     });
 

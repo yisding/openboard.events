@@ -342,6 +342,27 @@ if expect_status "$base_url/api/auth/get-session" 200 "self-service auth is moun
   pass "/api/auth/get-session"
 fi
 
+# 1c. The private job adapter is compiled into the web artifact for the named
+# Service Binding entrypoint, but the default/public Worker entrypoint must
+# deny it before OpenNext routing. Spoof the non-secret marker too: the outer
+# gate, not header secrecy, is the security boundary.
+private_job_status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 \
+  -X POST -H 'x-openboard-private-job: JobsEntrypoint' \
+  "$base_url/worker-jobs/outbox" 2>/dev/null)" || private_job_status="000"
+if [[ "$private_job_status" == "404" ]]; then
+  pass "/worker-jobs/* is absent from the public entrypoint"
+else
+  fail "$base_url/worker-jobs/outbox" "the private job namespace must 404 publicly (got $private_job_status)"
+fi
+
+retired_job_status="$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' --max-time 30 \
+  -X POST "$base_url/api/jobs/outbox" 2>/dev/null)" || retired_job_status="000"
+if [[ "$retired_job_status" == "404" ]]; then
+  pass "/api/jobs/* is retired"
+else
+  fail "$base_url/api/jobs/outbox" "the retired public job callback must 404 (got $retired_job_status)"
+fi
+
 # 2. The public schedule and embed use separate ISR cache entries, so probe them
 #    together inside the shared propagation window. This both initiates their
 #    regeneration before waiting and prevents whichever is checked first from

@@ -4,7 +4,7 @@ import { Bell, Mail, Plus, Search, Upload, Users, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import type { ContactFilters, ContactListRow } from "@/features/portal";
+import type { ContactFilters, ContactListRow, SpeakerFilterCounts } from "@/features/portal";
 import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
 import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
 import type { ConfirmationStatus } from "@/shared/contracts";
@@ -48,6 +48,7 @@ export function SpeakersAdminView({
   eventId,
   rows,
   total,
+  filterCounts,
   page,
   pageSize,
   q,
@@ -60,6 +61,7 @@ export function SpeakersAdminView({
   eventId: string;
   rows: ContactListRow[];
   total: number;
+  filterCounts: SpeakerFilterCounts;
   page: number;
   pageSize: number;
   q: string;
@@ -261,12 +263,12 @@ export function SpeakersAdminView({
         onCleared={() => setBulkEmailRecoveryUnreadable(false)}
       />}
 
-      <div className="abstract-status-tabs" role="group" aria-label="Filter speakers">
-        <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All</button>
-        <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted speakers</button>
-        <button type="button" aria-pressed={missing === "bio"} className={missing === "bio" ? "active" : ""} onClick={() => setParams({ missing: missing === "bio" ? null : "bio" })}>Missing bio</button>
-        <button type="button" aria-pressed={missing === "headshot"} className={missing === "headshot" ? "active" : ""} onClick={() => setParams({ missing: missing === "headshot" ? null : "headshot" })}>Missing headshot</button>
-        <button type="button" aria-pressed={missing === "either"} className={missing === "either" ? "active" : ""} onClick={() => setParams({ missing: missing === "either" ? null : "either" })}>Missing bio or headshot</button>
+      <div className="speaker-filter-chips" role="group" aria-label="Filter speakers">
+        <button type="button" aria-pressed={!accepted && !missing} className={!accepted && !missing ? "active" : ""} onClick={() => setParams({ accepted: null, missing: null })}>All <span>{filterCounts.all}</span></button>
+        <button type="button" aria-pressed={accepted} className={accepted ? "active" : ""} onClick={() => setParams({ accepted: accepted ? null : "1" })}>Accepted <span>{filterCounts.accepted}</span></button>
+        <button type="button" aria-pressed={missing === "either"} className={`parent-filter${missing === "either" ? " active" : ""}`} onClick={() => setParams({ missing: missing === "either" ? null : "either" })}>Any profile gap <span>{filterCounts.missingEither}</span></button>
+        <button type="button" aria-pressed={missing === "bio"} className={missing === "bio" ? "active" : ""} onClick={() => setParams({ missing: missing === "bio" ? null : "bio" })}>Bio missing <span>{filterCounts.missingBio}</span></button>
+        <button type="button" aria-pressed={missing === "headshot"} className={missing === "headshot" ? "active" : ""} onClick={() => setParams({ missing: missing === "headshot" ? null : "headshot" })}>Headshot missing <span>{filterCounts.missingHeadshot}</span></button>
       </div>
 
       <DataTable
@@ -338,7 +340,7 @@ export function SpeakersAdminView({
           <EmptyState
             icon={<Users size={20} />}
             title={q || accepted || missing || confirmation ? "Nothing matches these filters" : "No speakers yet"}
-            description={q || accepted || missing || confirmation ? "Try clearing a filter or search term." : "Contacts appear here once a proposal names them as a speaker."}
+            description={q || accepted || missing || confirmation ? "Try clearing a filter or search term." : "Contacts appear here once a submission names them as a speaker."}
           />
         }
       />

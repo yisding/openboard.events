@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, timeZoneOptionLabel, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, formatTimeRangeInZone, timeZoneOptionLabel, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -68,6 +68,18 @@ describe("event timezone API", () => {
   it("keeps both zone labels when a range crosses a DST boundary", () => {
     expect(formatDateRangeInZone("2026-10-31T19:00:00.000Z", "2026-11-02T20:00:00.000Z", LA))
       .toBe("Oct 31, 2026 PDT – Nov 2, 2026 PST");
+  });
+
+  it("formats event-local time ranges without repeating shared labels", () => {
+    expect(formatTimeRangeInZone("2026-10-15T16:00:00.000Z", "2026-10-15T16:45:00.000Z", LA))
+      .toBe("9:00–9:45 AM PDT");
+    expect(formatTimeRangeInZone("2026-10-15T18:30:00.000Z", "2026-10-15T19:15:00.000Z", LA))
+      .toBe("11:30 AM–12:15 PM PDT");
+  });
+
+  it("keeps both zone labels when a time range crosses a DST boundary", () => {
+    expect(formatTimeRangeInZone("2026-11-01T08:30:00.000Z", "2026-11-01T10:30:00.000Z", LA))
+      .toBe("1:30 AM PDT–2:30 AM PST");
   });
 
   it("uses calendar-day differences across DST", () => {

@@ -35,7 +35,7 @@
     "db:migrate": "tsx scripts/migrate-database.ts",
     "seed": "tsx scripts/seed/index.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
-    "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled --var APP_BASE_URL:http://localhost:3000",
+    "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled",
     "deploy:web": "pnpm deploy:web:production",
     "deploy:web:preview": "bash scripts/deploy-cloudflare.sh web preview",
     "deploy:web:production": "bash scripts/deploy-cloudflare.sh web production",
@@ -75,6 +75,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@eslint/eslintrc": "^3.3.1",
+    "@fontsource-variable/archivo": "5.3.0",
     "@opennextjs/cloudflare": "1.20.2",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.2.1",

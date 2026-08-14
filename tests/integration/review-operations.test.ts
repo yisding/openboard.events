@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
@@ -143,6 +144,7 @@ const SNAPSHOT: FormSnapshot = {
 
 let pglite: PGlite;
 let db: DbOrTx;
+let runEvaluationTransaction: <T>(work: (tx: DbOrTx) => Promise<T>) => Promise<T>;
 
 /**
  * Enough environment to render an email, and no more: the reminder's queue link
@@ -169,7 +171,7 @@ const plan = (overrides: Record<string, unknown> = {}) =>
   planInputSchema.parse({ name: "Round 1", round: 1, scaleMin: 1, scaleMax: 5, ...overrides });
 
 async function seedPlan(overrides: Record<string, unknown> = {}): Promise<PlanId> {
-  const { planId } = await savePlanIn(db, eventId, plan(overrides));
+  const { planId } = await savePlanIn(runEvaluationTransaction, eventId, plan(overrides));
   return planId;
 }
 
@@ -177,7 +179,9 @@ describe("review operations", () => {
   beforeAll(async () => {
     pglite = new PGlite();
     for (const migration of MIGRATIONS) await pglite.exec(migration);
-    db = drizzle(pglite, { schema }) as unknown as DbOrTx;
+    const database = drizzle(pglite, { schema });
+    db = database as unknown as DbOrTx;
+    runEvaluationTransaction = (work) => database.transaction((tx) => work(tx as unknown as DbOrTx));
 
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Review ops','review-ops','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
@@ -281,8 +285,8 @@ describe("review operations", () => {
         { label: "Notes", weight: 1, kind: "text", required: false },
       ],
     });
-    await assignReviewersIn(db, eventId, roundOne, [{ userId: ada, trackIds: [platforms] }]);
-    await assignReviewersIn(db, eventId, roundTwo, [{ userId: grace, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, roundOne, [{ userId: ada, trackIds: [platforms] }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, roundTwo, [{ userId: grace, trackIds: null }]);
 
     const reloadedOne = await getPlanIn(db, eventId, roundOne);
     expect(reloadedOne.opensAt).toBe("2026-09-01T17:00:00.000Z");
@@ -308,7 +312,7 @@ describe("review operations", () => {
     const backwards = plan.bind(null);
     expect(() => backwards({ opensAt: "2026-09-10T17:00:00.000Z", closesAt: "2026-09-01T17:00:00.000Z" })).toThrow();
 
-    const outOfScale = await savePlanIn(db, eventId, plan({
+    const outOfScale = await savePlanIn(runEvaluationTransaction, eventId, plan({
       name: "Out of scale",
       criteria: [{ label: "Recommendation", kind: "select", options: [{ id: "yes", label: "Accept", score: 9 }] }],
     })).catch((thrown: unknown) => thrown);
@@ -320,7 +324,7 @@ describe("review operations", () => {
       opensAt: AT_OPEN.toISOString(),
       closesAt: AT_CLOSE.toISOString(),
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
 
     // Before the window there is nothing to read at all.
     const early = await listReviewQueueIn(db, eventId, ada, planId, BEFORE_OPEN);
@@ -350,8 +354,8 @@ describe("review operations", () => {
 
   it("gives a reviewer exactly their assigned submissions and refuses the rest", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one, two], mode: "replace" });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one, two], mode: "replace" });
 
     const queue = await listReviewQueueIn(db, eventId, ada, planId);
     expect(queue.rows.map((row) => row.submissionId).sort()).toEqual([one, two].sort());
@@ -364,12 +368,265 @@ describe("review operations", () => {
     expect(isAppError(refusedSave) && refusedSave.code).toBe("FORBIDDEN");
   });
 
+  it.each(["manual", "deadline"] as const)(
+    "keeps add and replace queue mutations atomic after a %s close",
+    async (closure) => {
+      const planId = await seedPlan();
+      await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+      await assignSubmissionsIn(runEvaluationTransaction, eventId, {
+        planId,
+        reviewerUserIds: [ada],
+        submissionIds: [one],
+        mode: "replace",
+      });
+
+      const lockedInput = closure === "manual"
+        ? { status: "closed" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() - 60_000).toISOString() };
+      await savePlanIn(runEvaluationTransaction, eventId, plan({ planId, ...lockedInput }));
+      const rows = async () => (await pglite.query(
+        "SELECT submission_id, reviewer_user_id, status FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+        [planId],
+      )).rows;
+      const before = await rows();
+
+      for (const attempted of [
+        { submissionIds: [two], mode: "add" as const },
+        { submissionIds: [two], mode: "replace" as const },
+      ]) {
+        const error = await assignSubmissionsIn(runEvaluationTransaction, eventId, {
+          planId,
+          reviewerUserIds: [ada],
+          ...attempted,
+        }).catch((thrown: unknown) => thrown);
+        expect(isAppError(error) && error.code).toBe("CONFLICT");
+        expect(await rows()).toEqual(before);
+      }
+
+      const writableInput = closure === "manual"
+        ? { status: "open" as const, closesAt: null }
+        : { status: "open" as const, closesAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      await savePlanIn(runEvaluationTransaction, eventId, plan({ planId, ...writableInput }));
+      await expect(assignSubmissionsIn(runEvaluationTransaction, eventId, {
+        planId,
+        reviewerUserIds: [ada],
+        submissionIds: [two],
+        mode: "add",
+      })).resolves.toMatchObject({ assigned: 1, removed: 0 });
+      expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId).sort())
+        .toEqual([one, two].sort());
+    },
+  );
+
+  /** PostgreSQL keeps a statement snapshot after a FOR UPDATE wait. The lock
+   * and mutation must therefore be separate statements in one transaction. */
+  it("locks before taking the reviewer and queue mutation snapshots", async () => {
+    const dialect = new PgDialect();
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const capturing = {
+      execute: async (query: unknown) => {
+        statements.push(dialect.sqlToQuery(query as Parameters<typeof dialect.sqlToQuery>[0]));
+        return {
+          rows: [{ writable: true, matched: 1, reviewers: 1, submissions: 1, assigned: 1, removed: 0 }],
+        };
+      },
+    } as unknown as DbOrTx;
+    let transactions = 0;
+    const capturingTransaction = async <T>(work: (tx: DbOrTx) => Promise<T>) => {
+      transactions += 1;
+      return work(capturing);
+    };
+
+    const planId = await seedPlan();
+    await assignReviewersIn(capturingTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(capturingTransaction, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [one],
+      mode: "add",
+    });
+    expect(transactions).toBe(2);
+    expect(statements).toHaveLength(4);
+
+    for (const statement of [statements[0], statements[2]]) {
+      expect(statement).toBeDefined();
+      if (!statement) continue;
+      expect(statement.sql).toMatch(/for update/iu);
+      expect(statement.sql).toMatch(/clock_timestamp\(\)/iu);
+      expect(statement.sql).not.toMatch(/current_timestamp/iu);
+      const inlined = statement.sql.replace(/\$(\d+)/gu, (_match, index: string) => {
+        const value = String(statement.params[Number(index) - 1]).replaceAll("'", "''");
+        return `'${value}'`;
+      });
+      const plan = await pglite.query<{ "QUERY PLAN": string }>(`EXPLAIN ${inlined}`);
+      expect(plan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain("LockRows");
+    }
+    for (const statement of [statements[1], statements[3]]) {
+      expect(statement?.sql).not.toMatch(/for update/iu);
+      expect(statement?.sql).toMatch(/review_assignments|reviewer_assignments/iu);
+    }
+  });
+
+  it("replaces from the state committed before its plan lock and rejects a close that wins first", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+
+    const afterCompetingCommit = (compete: () => Promise<void>) => async <T>(work: (tx: DbOrTx) => Promise<T>) => {
+      let beforeLock = true;
+      const intercepted = {
+        execute: async (query: unknown) => {
+          if (beforeLock) {
+            beforeLock = false;
+            await compete();
+          }
+          return db.execute(query as Parameters<DbOrTx["execute"]>[0]);
+        },
+      } as unknown as DbOrTx;
+      return work(intercepted);
+    };
+
+    await assignReviewersIn(afterCompetingCommit(() => assignReviewersIn(
+      runEvaluationTransaction,
+      eventId,
+      planId,
+      [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }],
+    )), eventId, planId, [{ userId: grace, trackIds: null }]);
+    expect((await getPlanIn(db, eventId, planId)).reviewers.map((reviewer) => reviewer.userId)).toEqual([grace]);
+
+    await assignSubmissionsIn(afterCompetingCommit(() => assignSubmissionsIn(
+      runEvaluationTransaction,
+      eventId,
+      { planId, reviewerUserIds: [grace], submissionIds: [one, two], mode: "replace" },
+    ).then(() => undefined)), eventId, {
+      planId,
+      reviewerUserIds: [grace],
+      submissionIds: [three],
+      mode: "replace",
+    });
+    expect((await listReviewQueueIn(db, eventId, grace, planId)).rows.map((row) => row.submissionId)).toEqual([three]);
+
+    const beforeClose = await pglite.query(
+      "SELECT submission_id, reviewer_user_id FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+      [planId],
+    );
+    const rejected = await assignSubmissionsIn(afterCompetingCommit(async () => {
+      await savePlanIn(runEvaluationTransaction, eventId, plan({ planId, status: "closed" }));
+    }), eventId, {
+      planId,
+      reviewerUserIds: [grace],
+      submissionIds: [one],
+      mode: "add",
+    }).catch((error: unknown) => error);
+    expect(isAppError(rejected) && rejected.code).toBe("CONFLICT");
+    expect((await pglite.query(
+      "SELECT submission_id, reviewer_user_id FROM review_assignments WHERE plan_id=$1 ORDER BY submission_id, reviewer_user_id",
+      [planId],
+    )).rows).toEqual(beforeClose.rows);
+  });
+
+  it("narrows from the assignment graph committed before its plan lock", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [one],
+      mode: "replace",
+    });
+
+    const dialect = new PgDialect();
+    const statements: string[] = [];
+    let competingAssignmentCommitted = false;
+    const rescopeAfterAssignment = async <T>(work: (tx: DbOrTx) => Promise<T>) => {
+      const intercepted = {
+        execute: async (query: unknown) => {
+          const statement = dialect.sqlToQuery(query as Parameters<typeof dialect.sqlToQuery>[0]);
+          statements.push(statement.sql);
+          if (!competingAssignmentCommitted && /for update/iu.test(statement.sql)) {
+            competingAssignmentCommitted = true;
+            await assignSubmissionsIn(runEvaluationTransaction, eventId, {
+              planId,
+              reviewerUserIds: [ada],
+              submissionIds: [two],
+              mode: "add",
+            });
+          }
+          return db.execute(query as Parameters<DbOrTx["execute"]>[0]);
+        },
+      } as unknown as DbOrTx;
+      return work(intercepted);
+    };
+
+    await savePlanIn(rescopeAfterAssignment, eventId, plan({ planId, trackIds: [platforms] }));
+    const lockIndex = statements.findIndex((statement) => /for update/iu.test(statement));
+    const mutationIndex = statements.findIndex((statement) => /with\s+saved\s+as/iu.test(statement));
+    expect(competingAssignmentCommitted).toBe(true);
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(mutationIndex).toBeGreaterThan(lockIndex);
+    expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).toEqual([one]);
+
+    const outOfScope = await assignSubmissionsIn(runEvaluationTransaction, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [two],
+      mode: "add",
+    }).catch((error: unknown) => error);
+    expect(isAppError(outOfScope) && outOfScope.code).toBe("VALIDATION");
+
+    const narrowed = await getPlanIn(db, eventId, planId);
+    let competingCloseCommitted = false;
+    const widenAfterClose = async <T>(work: (tx: DbOrTx) => Promise<T>) => {
+      const intercepted = {
+        execute: async (query: unknown) => {
+          const statement = dialect.sqlToQuery(query as Parameters<typeof dialect.sqlToQuery>[0]);
+          if (!competingCloseCommitted && /for update/iu.test(statement.sql)) {
+            competingCloseCommitted = true;
+            await savePlanIn(runEvaluationTransaction, eventId, plan({
+              planId,
+              status: "closed",
+              trackIds: [platforms],
+            }));
+            await pglite.query("UPDATE evaluation_plans SET updated_at=updated_at + interval '1 second' WHERE id=$1", [planId]);
+          }
+          return db.execute(query as Parameters<DbOrTx["execute"]>[0]);
+        },
+      } as unknown as DbOrTx;
+      return work(intercepted);
+    };
+    const staleWiden = await savePlanIn(widenAfterClose, eventId, plan({
+      planId,
+      status: "open",
+      trackIds: [platforms, agents],
+    }), narrowed.updatedAt).catch((error: unknown) => error);
+    expect(competingCloseCommitted).toBe(true);
+    expect(isAppError(staleWiden) && staleWiden.code).toBe("STALE_WRITE");
+    expect(await getPlanIn(db, eventId, planId)).toMatchObject({ status: "closed", trackIds: [platforms] });
+    expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).toEqual([one]);
+  });
+
+  it("allows explicit queues to be prepared before the round opens", async () => {
+    const planId = await seedPlan({
+      opensAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      closesAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+    });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+
+    await expect(assignSubmissionsIn(runEvaluationTransaction, eventId, {
+      planId,
+      reviewerUserIds: [ada],
+      submissionIds: [one],
+      mode: "replace",
+    })).resolves.toMatchObject({ assigned: 0, removed: 2 });
+    expect((await listReviewQueueIn(db, eventId, ada, planId, new Date(Date.now() + 90 * 60_000))).rows.map((row) => row.submissionId))
+      .toEqual([one]);
+  });
+
   it("leaves queues unchanged when a replacement contains a stale submission", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
 
-    const rejected = await assignSubmissionsIn(db, eventId, {
+    const rejected = await assignSubmissionsIn(runEvaluationTransaction, eventId, {
       planId,
       reviewerUserIds: [ada],
       submissionIds: [two, missingSubmission],
@@ -382,10 +639,10 @@ describe("review operations", () => {
 
   it("leaves queues unchanged when a replacement names a reviewer outside the round", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
 
-    const rejected = await assignSubmissionsIn(db, eventId, {
+    const rejected = await assignSubmissionsIn(runEvaluationTransaction, eventId, {
       planId,
       reviewerUserIds: [ada, missingReviewer],
       submissionIds: [two],
@@ -398,8 +655,8 @@ describe("review operations", () => {
 
   it("keeps the committee roster out of a reviewer's own payload", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one], mode: "replace" });
 
     // The organizer's own page is what per-reviewer progress is for.
     const organizerView = await getPlanIn(db, eventId, planId);
@@ -421,7 +678,7 @@ describe("review operations", () => {
 
   it("builds a blind DTO from the pinned snapshot and leaves the organizer's complete", async () => {
     const planId = await seedPlan({ anonymizeAuthors: true });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
 
     const blind = await getReviewerSubmissionDetailIn(db, eventId, planId, one, ada);
     expect(blind.submitterName).toBeNull();
@@ -440,7 +697,7 @@ describe("review operations", () => {
 
     // The same round, read by an organizer, is untouched.
     const openPlan = await seedPlan({ name: "Round 1 open", anonymizeAuthors: false });
-    await assignReviewersIn(db, eventId, openPlan, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, openPlan, [{ userId: ada, trackIds: null }]);
     const full = await getReviewerSubmissionDetailIn(db, eventId, openPlan, one, ada);
     expect(full.submitterName).not.toBeNull();
     expect(full.participants.length).toBe(2);
@@ -459,7 +716,7 @@ describe("review operations", () => {
         { label: "Notes", weight: 1, kind: "text", required: false },
       ],
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const criteria = (await getPlanIn(db, eventId, planId)).criteria;
     const [originality, recommendation, notes] = criteria;
 
@@ -507,7 +764,7 @@ describe("review operations", () => {
       name: "Comments only",
       criteria: [{ label: "Notes", weight: 1, kind: "text", required: true }],
     });
-    await assignReviewersIn(db, eventId, textOnly, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, textOnly, [{ userId: ada, trackIds: null }]);
     const textCriterion = (await getPlanIn(db, eventId, textOnly)).criteria[0];
     const written = await submitReviewIn(db, eventId, textOnly, one, ada, verdict({
       criterionScores: { [textCriterion?.id ?? ""]: { kind: "text", value: "Needs a stronger demo" } },
@@ -520,7 +777,7 @@ describe("review operations", () => {
     const planId = await seedPlan({
       criteria: [{ label: "Relevance", weight: 1, kind: "numeric", required: true }],
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
     const firstVerdict = verdict({
       criterionScores: { [criterion?.id ?? ""]: { kind: "numeric", value: 3 } },
@@ -533,7 +790,7 @@ describe("review operations", () => {
     await submitReviewIn(db, eventId, planId, one, ada, firstVerdict, new Date(AT_OPEN.getTime() + 60_000));
     expect(await listReviewHistoryIn(db, eventId, one)).toHaveLength(1);
 
-    await savePlanIn(db, eventId, plan({
+    await savePlanIn(runEvaluationTransaction, eventId, plan({
       planId,
       criteria: [{
         id: criterion?.id,
@@ -578,7 +835,7 @@ describe("review operations", () => {
         { label: "Recommendation", weight: 1, kind: "select", required: true, options: [{ id: "accept", label: "Accept", score: 5 }] },
       ],
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const [originality, recommendation] = (await getPlanIn(db, eventId, planId)).criteria;
 
     for (const values of [
@@ -594,7 +851,7 @@ describe("review operations", () => {
 
   it("reads M19's bare numbers as numeric values without a second answer store", async () => {
     const planId = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const criterion = (await getPlanIn(db, eventId, planId)).criteria[0];
 
     // Exactly the payload M19 wrote, straight into the same column.
@@ -611,7 +868,7 @@ describe("review operations", () => {
 
   it("reports assigned, completed and recused per reviewer, and keeps a recusal auditable", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: grace, trackIds: null },
     ]);
@@ -632,7 +889,7 @@ describe("review operations", () => {
     expect(isAppError(refused) && refused.code).toBe("CONFLICT");
 
     // …and survives the reassignment of the same abstract to somebody else.
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [grace], submissionIds: [two], mode: "add" });
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [grace], submissionIds: [two], mode: "add" });
     const audit = await pglite.query<{ status: string; recusal_reason: string; recused_at: string | null }>(
       "SELECT status, recusal_reason, recused_at FROM review_assignments WHERE plan_id=$1 AND submission_id=$2 AND reviewer_user_id=$3",
       [planId, two, ada],
@@ -642,13 +899,13 @@ describe("review operations", () => {
     expect(audit.rows[0]?.recused_at).not.toBeNull();
 
     // A bulk "replace" must not resurrect it either.
-    await assignSubmissionsIn(db, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one, two, three], mode: "replace" });
+    await assignSubmissionsIn(runEvaluationTransaction, eventId, { planId, reviewerUserIds: [ada], submissionIds: [one, two, three], mode: "replace" });
     expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).not.toContain(two);
   });
 
   it("keeps a recusal when the reviewer who declared it is taken off the round", async () => {
     const planId = await seedPlan();
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: grace, trackIds: null },
     ]);
@@ -656,7 +913,7 @@ describe("review operations", () => {
 
     // Removing a reviewer from a round is the move most likely to *follow* a
     // recusal, so it is the one that must not erase the reason it happened.
-    await assignReviewersIn(db, eventId, planId, [{ userId: grace, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
 
     const remaining = await pglite.query<{ status: string; recusal_reason: string | null; recused_at: string | null }>(
       "SELECT status, recusal_reason, recused_at FROM review_assignments WHERE plan_id=$1 AND reviewer_user_id=$2",
@@ -672,7 +929,7 @@ describe("review operations", () => {
     expect((await getPlanIn(db, eventId, planId)).reviewers.map((reviewer) => reviewer.userId)).toEqual([grace]);
 
     // …and putting her back does not hand her the abstract she stepped away from.
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: grace, trackIds: null },
     ]);
@@ -686,7 +943,7 @@ describe("review operations", () => {
 
   it("narrows every reviewer's queue when the round's track scope narrows", async () => {
     const planId = await seedPlan({ trackIds: null });
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: grace, trackIds: null },
     ]);
@@ -699,7 +956,7 @@ describe("review operations", () => {
     // seeing the AI Agents track. The queue is the assignment row, so it has to
     // move with the scope — the plan's own progress and the assignable pool
     // already do.
-    await savePlanIn(db, eventId, plan({ planId, trackIds: [platforms] }));
+    await savePlanIn(runEvaluationTransaction, eventId, plan({ planId, trackIds: [platforms] }));
 
     const narrowed = await listReviewQueueIn(db, eventId, ada, planId);
     expect(narrowed.rows.map((row) => row.submissionId).sort()).toEqual([one, three].sort());
@@ -725,7 +982,7 @@ describe("review operations", () => {
     expect(audit.rows[0]).toMatchObject({ status: "recused", recusal_reason: "Conflicted on the agents track" });
 
     // Widening again adds candidates, not queue rows: assignments stay explicit.
-    await savePlanIn(db, eventId, plan({ planId, trackIds: null }));
+    await savePlanIn(runEvaluationTransaction, eventId, plan({ planId, trackIds: null }));
     expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId).sort())
       .toEqual([one, three].sort());
     expect((await listAssignableSubmissionsIn(db, eventId, planId)).map((row) => row.submissionId).sort())
@@ -742,7 +999,7 @@ describe("review operations", () => {
         },
       ],
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const [originality, recommendation] = (await getPlanIn(db, eventId, planId)).criteria;
     const scored = await submitReviewIn(db, eventId, planId, one, ada, verdict({
       criterionScores: {
@@ -766,7 +1023,7 @@ describe("review operations", () => {
 
     // Re-scoring "Accept" from 5 to 1, or deleting the option a stored answer
     // names, would leave the review's stored 4 meaning nothing anybody chose.
-    const rescored = await savePlanIn(db, eventId, keep({
+    const rescored = await savePlanIn(runEvaluationTransaction, eventId, keep({
       criteria: [
         { id: originality?.id, label: "Originality", weight: 1, kind: "numeric", required: true, minValue: 1, maxValue: 5 },
         {
@@ -777,7 +1034,7 @@ describe("review operations", () => {
     })).catch((thrown: unknown) => thrown);
     expect(isAppError(rescored) && rescored.code).toBe("CONFLICT");
 
-    const dropped = await savePlanIn(db, eventId, keep({
+    const dropped = await savePlanIn(runEvaluationTransaction, eventId, keep({
       criteria: [
         { id: originality?.id, label: "Originality", weight: 1, kind: "numeric", required: true, minValue: 1, maxValue: 5 },
         {
@@ -788,7 +1045,7 @@ describe("review operations", () => {
     })).catch((thrown: unknown) => thrown);
     expect(isAppError(dropped) && dropped.code).toBe("CONFLICT");
 
-    const rebounded = await savePlanIn(db, eventId, keep({
+    const rebounded = await savePlanIn(runEvaluationTransaction, eventId, keep({
       criteria: [
         { id: originality?.id, label: "Originality", weight: 1, kind: "numeric", required: true, minValue: 3, maxValue: 5 },
         {
@@ -801,7 +1058,7 @@ describe("review operations", () => {
 
     // Presentation is still editable: a reworded option, a reordered choice
     // list, a renamed round and a closing date change no arithmetic.
-    await savePlanIn(db, eventId, keep({
+    await savePlanIn(runEvaluationTransaction, eventId, keep({
       name: "Round 1 (renamed)",
       status: "closed",
       criteria: [
@@ -823,7 +1080,7 @@ describe("review operations", () => {
       opensAt: AT_OPEN.toISOString(),
       closesAt: AT_CLOSE.toISOString(),
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }, { userId: grace, trackIds: null }]);
     await submitReviewIn(db, eventId, planId, one, ada, verdict({ overallScore: 4 }), AT_OPEN);
 
     const outstanding = await listOutstandingReviewersIn(db, eventId, planId);
@@ -895,7 +1152,7 @@ describe("review operations", () => {
       opensAt: AT_OPEN.toISOString(),
       closesAt: AT_CLOSE.toISOString(),
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
 
     await sendReviewRemindersIn(db, eventId, planId, [ada], REMINDER_ATTEMPT_A, AT_OPEN.getTime());
     await sendReviewRemindersIn(db, eventId, planId, [ada], REMINDER_ATTEMPT_A, AT_OPEN.getTime() + 61_000);
@@ -924,11 +1181,11 @@ describe("review operations", () => {
       opensAt: AT_OPEN.toISOString(),
       closesAt: AT_CLOSE.toISOString(),
     });
-    await assignReviewersIn(db, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
     const preview = await listOutstandingReviewersIn(db, eventId, planId);
     expect(preview.map((target) => target.reviewerUserId)).toEqual([ada]);
 
-    await assignReviewersIn(db, eventId, planId, [
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
       { userId: ada, trackIds: null },
       { userId: grace, trackIds: null },
     ]);

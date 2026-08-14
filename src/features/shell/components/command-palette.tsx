@@ -35,7 +35,7 @@ function verbsForRole(base: string, role: MemberRole): Verb[] {
     // "arm=1" is `DataTable`'s `selectAllEpoch` trigger, read by the target
     // view — the bulk bar is already showing a count and its actions the
     // moment the list renders, not after a manual select-all.
-    { id: "abstracts-pending", label: "Decide pending abstracts…", hint: "Abstracts", href: `${base}/abstracts?status=pending&arm=1` },
+    { id: "abstracts-pending", label: "Decide pending submissions…", hint: "Submissions", href: `${base}/abstracts?status=pending&arm=1` },
     { id: "speakers-missing", label: "Email speakers missing bio or headshot…", hint: "Speakers", href: `${base}/speakers?missing=either&arm=1` },
     { id: "assign-reviewers", label: "Assign reviewers…", hint: "Evaluation", href: `${base}/evaluation` },
     { id: "unscheduled", label: "Schedule unscheduled sessions", hint: "Agenda", href: `${base}/agenda?view=day` },

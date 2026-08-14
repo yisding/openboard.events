@@ -400,7 +400,21 @@ export const createCrmPipelineEntryInputSchema = z.object({
 });
 export type CreateCrmPipelineEntryInput = z.infer<typeof createCrmPipelineEntryInputSchema>;
 
-export const transitionCrmPipelineInputSchema = z.object({ stage: crmPipelineStageSchema });
+export const transitionCrmPipelineInputSchema = z.object({
+  stage: crmPipelineStageSchema,
+  // Optional during rollout: current clients always send both observed
+  // fields, while an already-open older tab can still make a locked,
+  // transactional transition without them.
+  expectedFrom: crmPipelineStageSchema.optional(),
+  expectedUpdatedAt: iso.optional(),
+}).superRefine((input, context) => {
+  if ((input.expectedFrom === undefined) !== (input.expectedUpdatedAt === undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: "The observed pipeline stage and version must be supplied together",
+    });
+  }
+});
 export type TransitionCrmPipelineInput = z.infer<typeof transitionCrmPipelineInputSchema>;
 
 export const crmPipelineHistoryEntryDtoSchema = z.object({

@@ -5,7 +5,7 @@ import { WEB_DEPLOY_SECRET_NAMES } from "../src/shared/lib/env";
 type DeployService = "web" | "jobs";
 type DeployEnvironment = "preview" | "production";
 
-const JOBS_DEPLOY_SECRET_NAMES = ["CRON_SECRET"] as const;
+const JOBS_DEPLOY_SECRET_NAMES: readonly string[] = [];
 
 export function requiredDeploySecrets(service: DeployService): readonly string[] {
   return service === "web" ? WEB_DEPLOY_SECRET_NAMES : JOBS_DEPLOY_SECRET_NAMES;
@@ -46,7 +46,8 @@ function main(): void {
     throw new Error("usage: check-deploy-secrets.ts web|jobs preview|production");
   }
 
-  const missing = missingDeploySecrets(requiredDeploySecrets(service), secretNames(service, environment));
+  const required = requiredDeploySecrets(service);
+  const missing = missingDeploySecrets(required, required.length > 0 ? secretNames(service, environment) : []);
   if (missing.length > 0) {
     throw new Error(`${service}/${environment} is missing required Cloudflare secret bindings: ${missing.join(", ")}`);
   }

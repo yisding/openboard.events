@@ -59,6 +59,12 @@ pnpm exec wrangler rollback <version-id> --config workers/jobs/wrangler.jsonc --
   -m "rollback: <why>"
 ```
 
+Web and jobs versions form one scheduler contract. When rolling the web Worker back, select a
+version that still exposes `JobsEntrypoint`; if the target predates that entrypoint, roll the jobs
+Worker back to its matching version in the same maintenance window. There is intentionally no
+public fallback: switching transport after an ambiguous RPC failure could execute a partially
+completed job twice.
+
 Use `--env preview` against the preview config/URL to rehearse this exact sequence risk-free
 before ever touching production — the submission checklist's "rehearsed against production at
 least once" item means having actually run this against `sb-web` once, not just read this file.

@@ -24,7 +24,7 @@ type CfpFlowStep = Exclude<Step, "done">;
 
 const CFP_PROGRESS_LABELS: Record<CfpFlowStep, string> = {
   account: "Account",
-  submission: "Proposal",
+  submission: "Submission",
   speaker: "Speaker",
   review: "Review",
 };
@@ -41,6 +41,7 @@ export type RequestResult = {
   errorData?: Record<string, unknown>;
   fieldErrors?: Record<string, string>;
   retryable?: boolean;
+  outcomeUnknown?: boolean;
 };
 export type AutosaveState = "idle" | "saving" | "saved" | "retrying" | "failed";
 export type CfpSubmitFailure = { kind: "stale"; message: string } | { kind: "ordinary"; message: string };
@@ -124,7 +125,7 @@ export function stepFieldErrors(
 
 export function cfpStepHeading(snapshot: FormSnapshot, step: Exclude<Step, "done">): string {
   if (step === "account") return "Verify your email";
-  if (step === "review") return "Review your proposal";
+  if (step === "review") return "Review your submission";
   const key = step === "submission" ? "abstract" : "participant";
   const section = snapshot.sections.find((candidate) => candidate.key === key);
   return section?.pageHeading || section?.title || (step === "submission" ? "Submission" : "Participant");
@@ -137,6 +138,7 @@ const PARTICIPANT_ROLE_LABELS: Record<SecondaryParticipantRole, string> = {
 };
 
 export const CFP_PORTAL_REDIRECT_MS = 10_000;
+export const CFP_REQUEST_TIMEOUT_MS = 30_000;
 
 export function schedulePortalRedirect(
   enabled: boolean,
@@ -149,35 +151,70 @@ export function schedulePortalRedirect(
   return () => (cancel ?? ((timerId) => window.clearTimeout(timerId)))(timer);
 }
 
-export async function cfpRequest(path: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<RequestResult> {
-  let response: Response;
+export async function cfpRequest(
+  path: string,
+  body: unknown,
+  method: "POST" | "PATCH" = "POST",
+  timeoutMs = CFP_REQUEST_TIMEOUT_MS,
+): Promise<RequestResult> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  } catch {
-    return { ok: false, data: {}, message: "Could not reach the server", retryable: true };
-  }
-  const payload = await response.json().catch(() => null) as {
-    data?: Record<string, unknown>;
-    error?: {
-      code?: string;
-      message?: string;
-      data?: Record<string, unknown> & { fieldErrors?: Record<string, string> };
-      fieldErrors?: Record<string, string>;
-    };
-  } | null;
-  if (!response.ok || !payload?.data) {
+    const response = await fetch(path, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null) as {
+      data?: Record<string, unknown>;
+      error?: {
+        code?: string;
+        message?: string;
+        data?: Record<string, unknown> & { fieldErrors?: Record<string, string> };
+        fieldErrors?: Record<string, string>;
+      };
+    } | null;
+    if (!response.ok || !payload?.data) {
+      return {
+        ok: false,
+        data: {},
+        message: payload?.error?.message ?? "We couldn’t complete that request. Try again.",
+        ...(payload?.error?.code ? { code: payload.error.code } : {}),
+        ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
+        ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
+        ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+      };
+    }
+    return { ok: true, data: payload.data, message: "" };
+  } catch (error) {
     return {
       ok: false,
       data: {},
-      message: payload?.error?.message ?? "We couldn’t complete that request. Try again.",
-      ...(payload?.error?.code ? { code: payload.error.code } : {}),
-      ...(payload?.error?.data ? { errorData: payload.error.data } : {}),
-      ...(payload?.error?.data?.fieldErrors ? { fieldErrors: payload.error.data.fieldErrors } : {}),
-      ...(payload?.error?.fieldErrors ? { fieldErrors: payload.error.fieldErrors } : {}),
-      retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+      message: error instanceof Error && error.name === "AbortError"
+        ? "That request took too long. Check your connection and try again."
+        : "Could not reach the server",
+      retryable: true,
+      outcomeUnknown: true,
     };
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
-  return { ok: true, data: payload.data, message: "" };
+}
+
+export function cfpCodeRequestRecovery(result: RequestResult): {
+  acceptCode: boolean;
+  message: string;
+  kind: "status" | "error";
+} {
+  return result.outcomeUnknown
+    ? {
+      acceptCode: true,
+      message: "We couldn’t confirm whether the code was sent. If it arrives, enter it below; otherwise resend in a moment.",
+      kind: "status",
+    }
+    : { acceptCode: false, message: result.message, kind: "error" };
 }
 
 export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
@@ -495,7 +532,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     showNotice("");
     const sent = await cfpRequest("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
     setBusy(false);
-    if (!sent.ok) { showNotice(sent.message, "error"); return; }
+    if (!sent.ok) {
+      const recovery = cfpCodeRequestRecovery(sent);
+      if (recovery.acceptCode) setCodeRequested(true);
+      showNotice(recovery.message, recovery.kind);
+      return;
+    }
     // The preview surfaces the issued code inline; production never does, which
     // is why this is read from the response rather than assumed.
     const fallback = sent.data.fallback as { otp?: string } | undefined;
@@ -687,10 +729,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   if (step === "done" && result) {
     return (
       <section ref={stepRegion} className="cfp-step cfp-step--compact">
-        <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your proposal is in</h2>
+        <h2 data-cfp-step-heading tabIndex={-1}>Thank you — your submission is in</h2>
         {form.successHtml?.trim()
           ? <RichTextView html={form.successHtml} />
-          : <p>Your proposal was submitted successfully. Keep the reference code below for your records.</p>}
+          : <p>Your submission was received successfully. Keep the reference code below for your records.</p>}
         <p>Reference <b>SESS-{result.code}</b></p>
         {form.autoRedirectToPortal && <p role="status">Opening your speaker portal in 10 seconds…</p>}
         <a className="button button-primary" href={portalHref}>Open your speaker portal</a>
@@ -785,7 +827,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           {enabledSecondaryRoles.map((role) => (
             <button key={role} type="button" className="add-cospeaker" onClick={() => addParticipant(role)}>
               <b>Add a {PARTICIPANT_ROLE_LABELS[role]}</b>
-              <span>Include another person on this proposal.</span>
+              <span>Include another person on this submission.</span>
             </button>
           ))}
           <div className="cfp-actions">
@@ -822,7 +864,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <div className="cfp-actions">
             <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit proposal"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit"}</Button>
           </div>
         </form>
       )}

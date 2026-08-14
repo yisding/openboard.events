@@ -299,6 +299,22 @@ describe("isStructurallyCompatible", () => {
     expect(isStructurallyCompatible(GOLDEN_SNAPSHOT, next)).toBe(true);
   });
 
+  it("rejects removing a vocabulary-bound field from a pinned speaker snapshot", () => {
+    const next = clone();
+    for (const section of next.sections) {
+      section.fields = section.fields.filter((field) => field.key !== "track");
+    }
+    expect(isStructurallyCompatible(GOLDEN_SNAPSHOT, next)).toBe(false);
+  });
+
+  it("rejects rebinding a pinned option id to a different vocabulary row", () => {
+    const next = clone();
+    const track = next.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "track");
+    const option = track?.options[0];
+    if (option) option.trackId = "99999999-9999-4999-8999-999999999999" as typeof option.trackId;
+    expect(isStructurallyCompatible(GOLDEN_SNAPSHOT, next)).toBe(false);
+  });
+
   it("rejects a removed option but accepts a new one", () => {
     const removed = clone();
     const track = removed.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "track");

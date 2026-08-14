@@ -85,6 +85,139 @@ test.describe("landing hero responsiveness", () => {
   });
 });
 
+test.describe("agenda workspace geometry", () => {
+  test("anchors view tabs to their row and keeps placement guidance clear of actions", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="page">
+        <div class="agenda-toolbar">
+          <div class="agenda-view-tabs" role="tablist" aria-label="Agenda views">
+            <button class="active" role="tab" aria-selected="true">List</button>
+            <button role="tab" aria-selected="false">Day</button>
+            <button role="tab" aria-selected="false">Week</button>
+            <button role="tab" aria-selected="false">Track</button>
+            <button role="tab" aria-selected="false">Room</button>
+          </div>
+          <div class="agenda-toolbar-actions">
+            <label class="table-search"><input aria-label="Find session" placeholder="Find session"></label>
+            <button class="button button-secondary button-sm">Add invited talk</button>
+            <button class="button button-primary button-sm">Add session</button>
+          </div>
+        </div>
+        <div class="dv-root">
+          <div class="dv-layout">
+            <div class="dv-side-panels">
+              <aside class="dv-unscheduled-panel">
+                <header>
+                  <div><h3>Unscheduled</h3><span>3</span></div>
+                  <button class="button button-secondary button-sm">Auto-place</button>
+                </header>
+                <p class="dv-unscheduled-hint">Add a room, then open a session to place it.</p>
+                <div class="dv-unscheduled-card"><div><b>Opening keynote</b><span>No track</span></div></div>
+              </aside>
+            </div>
+            <div class="dv-no-rooms">Add a room to start building the day.</div>
+          </div>
+        </div>
+      </main>
+    </body></html>`);
+
+    for (const width of [1280, 1024, 768, 480, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Agenda fixture is missing ${selector}`);
+          return element.getBoundingClientRect();
+        };
+        const action = rect(".dv-unscheduled-panel header .button");
+        const hint = rect(".dv-unscheduled-hint");
+        const activeTab = rect(".agenda-view-tabs .active");
+        const tabRow = rect(".agenda-view-tabs");
+        return {
+          actionOverlapsHint: action.left < hint.right
+            && action.right > hint.left
+            && action.top < hint.bottom
+            && action.bottom > hint.top,
+          activeTabHeight: activeTab.height,
+          underlineOffset: Math.abs(tabRow.bottom - activeTab.bottom),
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+
+      expect(layout.actionOverlapsHint).toBe(false);
+      // Match the 57px Submission Forms toolbar's label-to-indicator rhythm.
+      // The agenda header has a border on both edges, leaving a 55px tab row.
+      expect(layout.activeTabHeight).toBeGreaterThanOrEqual(55);
+      expect(layout.underlineOffset).toBeLessThanOrEqual(0.5);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
+test.describe("embedded itinerary phone spacing", () => {
+  test("uses the host width for content while preserving full-size actions", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <div class="embed-shell">
+        <header class="embed-header"><h1>AI Engineer Sandbox</h1><span>Oct 14–15</span></header>
+        <main class="public-schedule embed-content">
+          <div class="itinerary-toolbar">
+            <button class="itinerary-my-schedule">My Schedule</button>
+            <span class="itinerary-export disabled">Star sessions to export</span>
+          </div>
+          <section class="itinerary-day">
+            <h3>Wednesday <span>Oct 14</span></h3>
+            <div class="itinerary-sessions">
+              <article>
+                <button class="itinerary-star" aria-label="Add session to My Schedule">☆</button>
+                <div>
+                  <span class="itinerary-time">9:00 AM PDT – 9:45 AM PDT · Main Stage</span>
+                  <h4>Opening keynote: the year agents grew up</h4>
+                  <div class="public-session-speaker"><b>Ada Lovelace</b></div>
+                  <p class="itinerary-desc">Where the last twelve months actually landed, and what shipped.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </body></html>`);
+
+    for (const width of [320, 375, 480]) {
+      await page.setViewportSize({ width, height: 800 });
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Embed fixture is missing ${selector}`);
+          return element.getBoundingClientRect();
+        };
+        const article = rect(".itinerary-sessions article");
+        const title = rect(".itinerary-sessions h4");
+        const star = rect(".itinerary-star");
+        const headerTitle = rect(".embed-header h1");
+        return {
+          articleLeft: article.left,
+          articleRight: article.right,
+          titleWidth: title.width,
+          starWidth: star.width,
+          headerTitleLeft: headerTitle.left,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+
+      expect(layout.articleLeft).toBeCloseTo(12, 0);
+      expect(layout.articleRight).toBeCloseTo(width - 12, 0);
+      expect(layout.headerTitleLeft).toBeCloseTo(12, 0);
+      expect(layout.titleWidth).toBeGreaterThanOrEqual(220);
+      expect(layout.starWidth).toBeGreaterThanOrEqual(44);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("public event phone navigation", () => {
   test("keeps the event identity and every destination readable without a clipped tab row", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
@@ -388,21 +521,37 @@ test.describe("public CFP phone layout", () => {
 
   test("keeps every progress label readable inside its own step", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+    const archivo = await readFile(resolve(
+      process.cwd(),
+      "node_modules/@fontsource-variable/archivo/files/archivo-latin-wght-normal.woff2",
+    ));
+    const archivoSource = `data:font/woff2;base64,${archivo.toString("base64")}`;
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style><style>
+      @font-face {
+        font-family: "Test Archivo";
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: block;
+        src: url("${archivoSource}") format("woff2");
+      }
+      html { --font-sans: "Test Archivo"; }
+    </style></head><body>
       <main class="cfp-container">
         <section class="cfp-step cfp-step--compact">
           <ol class="public-form-progress public-form-progress-4" aria-label="Submission progress">
             <li class="active"><span aria-hidden="true">1</span><b>Account</b></li>
-            <li><span aria-hidden="true">2</span><b>Proposal</b></li>
+            <li><span aria-hidden="true">2</span><b>Submission</b></li>
             <li><span aria-hidden="true">3</span><b>Speaker</b></li>
             <li><span aria-hidden="true">4</span><b>Review</b></li>
           </ol>
         </section>
       </main>
     </body></html>`);
+    await page.evaluate(() => document.fonts.load('550 12px "Test Archivo"'));
+    expect(await page.evaluate(() => document.fonts.check('550 12px "Test Archivo"'))).toBe(true);
 
     const progress = page.getByRole("list", { name: "Submission progress" });
-    await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+    await expect(progress.locator("b")).toHaveText(["Account", "Submission", "Speaker", "Review"]);
     const layout = await progress.evaluate((element) => {
       const items = [...element.querySelectorAll(":scope > li")];
       const measurements = items.map((item) => {

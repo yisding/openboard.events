@@ -282,7 +282,7 @@ export function DecisionBar({
       actions={<>
         {selectAllMatching && (
           <Button variant="secondary" disabled={busy || selectAllMatching.busy} onClick={selectAllMatching.request}>
-            {selectAllMatching.busy ? `Selecting all ${selectAllMatching.count}…` : `Select all ${selectAllMatching.count} matching abstracts`}
+            {selectAllMatching.busy ? `Selecting all ${selectAllMatching.count}…` : `Select all ${selectAllMatching.count} matching submissions`}
           </Button>
         )}
         <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>

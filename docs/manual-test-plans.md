@@ -82,11 +82,14 @@ Outbound email never sends inline: a domain event enqueues an outbox row, and th
 dispatcher is the only caller of Resend. Advance it by hand:
 
 ```bash
-curl -s -X POST -H "x-cron-secret: $CRON_SECRET" http://localhost:3000/api/jobs/outbox | jq .
-# same shape for /api/jobs/reminders and /api/jobs/cleanup
+pnpm build:worker
+pnpm exec wrangler dev -c workers/jobs/wrangler.jsonc -c wrangler.jsonc --test-scheduled
+# In another terminal, trigger the private dispatcher:
+curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
 ```
 
-Or run the real dispatcher on its minute schedule in a second terminal: `pnpm dev:jobs`.
+The web job implementations are reachable only through the local Service Binding; there is no
+public job callback to invoke by hand.
 
 With `EMAIL_MODE=log` the dispatcher writes the rendered message to the server log instead of calling
 Resend — that log line is the artifact for local email assertions.
@@ -961,9 +964,9 @@ sees; D7 and D8 failures here are public.
 | 10 | Follow unsubscribe and confirm | Suppressed; later sends skip it |
 | 11 | Enable a reminder ladder with an overdue offset | Saved; shows Active |
 | 12 | Pause it | Shows Paused; the next scan enqueues nothing for it |
-| 13 | Re-activate; `POST /api/jobs/reminders` | Reminders for overdue items only |
-| 14 | Run it again immediately | No duplicates in the same window |
-| 15 | `POST /api/jobs/outbox` with a wrong secret | `401` |
+| 13 | Re-activate; trigger the private scheduler on a 15-minute tick | Reminders for overdue items only |
+| 14 | Trigger another eligible tick | No duplicates in the same window |
+| 15 | `POST /api/jobs/outbox` on the public web origin | `404`; no job control endpoint exists |
 | 16 | Drain and read the log | Each message rendered once, with template and idempotency key |
 | 17 | Publish a session; drain | A **Schedule assigned** message ("You're scheduled: …") with ICS and Google/Outlook deeplinks |
 | 18 | Move it; drain | **Schedule changed** replaying the update — not a duplicate invite |

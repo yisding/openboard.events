@@ -173,8 +173,8 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       <div className="form-stack">
         <Field label="Internal form name" required><input autoFocus required disabled={busy || recoveryRequired} maxLength={255} value={name} onChange={(current) => setName(current.target.value)} placeholder="e.g. Main call for speakers" /></Field>
         <Field label="Submission type" group><div className="choice-cards">
-          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "abstract"} className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstracts</b><small>Collect talk proposals for review</small></button>
-          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "session"} className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Sessions</b><small>Collect complete session details</small></button>
+          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "abstract"} className={kind === "abstract" ? "active" : ""} onClick={() => setKind("abstract")}><FileText size={20} /><b>Abstract</b><small>Collect talk submissions for review</small></button>
+          <button type="button" disabled={busy || recoveryRequired} aria-pressed={kind === "session"} className={kind === "session" ? "active" : ""} onClick={() => setKind("session")}><CalendarClock size={20} /><b>Session</b><small>Collect complete session details</small></button>
         </div></Field>
         <div className="inline-setting"><div><b>Collect participant information</b><small>Add the required speaker identity section.</small></div><Switch label="Collect participant information" checked={collectParticipants} disabled={busy || recoveryRequired} onClick={() => setCollectParticipants((value) => !value)} /></div>
         {recoveryRequired && <p className="portal-note" role="status">Creation could not be confirmed. Retry with the same details before making changes.</p>}

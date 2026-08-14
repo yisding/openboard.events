@@ -50,8 +50,6 @@ issuing R2 credentials, is separate from upgrading the Workers plan.
 
 - [x] Generate an independent preview `SESSION_SECRET` of at least 32 random characters.
 - [ ] Generate an independent production `SESSION_SECRET` of at least 32 random characters.
-- [x] Generate an independent preview `CRON_SECRET` of at least 32 random characters.
-- [ ] Generate an independent production `CRON_SECRET` of at least 32 random characters.
 - [ ] Generate independent preview `UNSUBSCRIBE_SECRET` and `SPEAKER_SHARE_SECRET` values of at
   least 32 random characters. They sign different public payloads and must not reuse
   `SESSION_SECRET` or one another.
@@ -69,9 +67,6 @@ One suitable generator is:
 ```bash
 openssl rand -base64 48
 ```
-
-Within one environment, the web and jobs Workers must use the same `CRON_SECRET`. Preview
-and production must use different values.
 
 ## 3. Provision Neon
 
@@ -170,7 +165,6 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   |---|---|
   | `DATABASE_URL` | `sb-test` pooled Neon URL |
   | `SESSION_SECRET` | preview session secret |
-  | `CRON_SECRET` | preview cron secret |
   | `UNSUBSCRIBE_SECRET` | preview unsubscribe-token secret |
   | `RESEND_WEBHOOK_SECRET` | provider-issued preview Resend webhook signing secret |
   | `SPEAKER_SHARE_SECRET` | preview speaker-share token secret |
@@ -183,7 +177,6 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   ```bash
   pnpm exec wrangler secret put DATABASE_URL --env preview
   pnpm exec wrangler secret put SESSION_SECRET --env preview
-  pnpm exec wrangler secret put CRON_SECRET --env preview
   pnpm exec wrangler secret put UNSUBSCRIBE_SECRET --env preview
   pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env preview
   pnpm exec wrangler secret put SPEAKER_SHARE_SECRET --env preview
@@ -200,33 +193,15 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   pnpm deploy:web:preview
   ```
 
-- [x] For the first jobs deployment, create a mode-0600 transient secrets file containing
-  only the matching preview cron secret. Keep it outside the repository and retain the
-  resolved path for both deployment and cleanup:
+- [x] Create `sb-jobs-preview` after the matching web Worker exists:
 
   ```bash
-  export JOBS_SECRETS_DIR="$(mktemp -d "${HOME}/Code/sb-deploy-secrets.XXXXXX")"
-  export JOBS_SECRETS_FILE="$JOBS_SECRETS_DIR/jobs-preview.env"
-  umask 077
+  pnpm deploy:jobs:preview
   ```
 
-  ```dotenv
-  CRON_SECRET=replace-with-the-preview-cron-secret
-  ```
-
-- [x] Create `sb-jobs-preview` with its secret already attached so the cron never starts
-  unauthenticated:
-
-  ```bash
-  pnpm exec wrangler deploy \
-    --config workers/jobs/wrangler.jsonc \
-    --env preview \
-    --var "APP_BASE_URL:$APP_BASE_URL" \
-    --secrets-file "$JOBS_SECRETS_FILE"
-  ```
-
-- [x] Confirm `sb-jobs-preview` has only `APP_BASE_URL` and `CRON_SECRET`; do not copy database,
-  session, R2, Resend, or Airtable credentials to it.
+- [ ] Confirm `sb-jobs-preview` has the `WEB_JOBS` Service Binding to
+  `sb-web-preview#JobsEntrypoint`. It has no application variables or secrets; do not copy
+  database, session, R2, Resend, or Airtable credentials to it.
 - [x] Run the preview smoke check. Without the `SMOKE_*` fixture ids the dashboard,
   submit-form, and headshot checks skip instead of running; `--strict` turns any skip into a
   failure, which is how the deploy workflow runs it:
@@ -236,14 +211,16 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" --strict
   ```
 
-- [x] Inspect Workers logs and record a successful scheduled jobs tick.
-- [x] Remove the exact external file and its now-empty directory after the secret is safely
-  stored elsewhere:
+- [x] Inspect Workers logs and record three consecutive successful scheduled jobs ticks over RPC.
+- [ ] After deploying the no-callback release, delete the retired credential from both Workers
+  in every provisioned environment if it remains in Cloudflare's remote secret inventory:
 
   ```bash
-  shred -u "$JOBS_SECRETS_FILE"
-  rmdir "$JOBS_SECRETS_DIR"
-  unset JOBS_SECRETS_FILE JOBS_SECRETS_DIR
+  for target_env in preview production; do
+    pnpm exec wrangler secret delete CRON_SECRET --env "$target_env"
+    pnpm exec wrangler secret delete CRON_SECRET \
+      --config workers/jobs/wrangler.jsonc --env "$target_env"
+  done
   ```
 
 - [x] Seed the non-production databases — `APP_ENV=local DATABASE_URL=<sb-dev pooled URL>
@@ -254,10 +231,9 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   (`pnpm admin:bootstrap`; first run in the project's history at rev. 7, on both branches —
   credentials held outside the repository).
 
-Subsequent jobs deployments can use `pnpm deploy:jobs:preview`; Wrangler preserves the
-existing Worker secret. The jobs Worker uses `global_fetch_strictly_public` because its
-documented `APP_BASE_URL` is a sibling Worker on the same `workers.dev` zone; without that
-flag Cloudflare rejects the scheduled subrequest with error 1042.
+Subsequent jobs deployments use `pnpm deploy:jobs:preview`. The account-scoped `WEB_JOBS`
+Service Binding is the only scheduled transport, and matching web/jobs versions are deployed in
+that order.
 
 ## 7. Configure protected GitHub environments
 
@@ -334,8 +310,8 @@ stores only the credentials and direct database URL needed by the deployment wor
   production values plus `RESEND_API_KEY`.
 - [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, and no
   `EMAIL_ALLOWLIST`.
-- [ ] Create `sb-jobs` with the production `CRON_SECRET` attached on its first deploy, using
-  the same `--secrets-file` pattern as preview with `--env production`.
+- [ ] Create `sb-jobs` after `sb-web`, and confirm its declared `WEB_JOBS` binding resolves to
+  `sb-web#JobsEntrypoint` and its application secret inventory is empty.
 - [ ] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
   `Deploy` workflow for `production` and approve its protected environment gate. The workflow
   first replays the exact commit through preview; production cannot be selected alone.
@@ -351,7 +327,6 @@ Production web secrets are:
 |---|---:|
 | `DATABASE_URL` (pooled `sb-prod` URL) | yes |
 | `SESSION_SECRET` | yes |
-| `CRON_SECRET` | yes |
 | `UNSUBSCRIBE_SECRET` | yes |
 | `RESEND_WEBHOOK_SECRET` | yes |
 | `SPEAKER_SHARE_SECRET` | yes |
@@ -362,9 +337,10 @@ Production web secrets are:
 | `GOOGLE_CLIENT_SECRET` | yes |
 | `AIRTABLE_API_KEY` | only if the deferred M39 integration is enabled |
 
-`pnpm deploy:preflight web|jobs preview|production` compares the required names — the eleven in
-`WEB_DEPLOY_SECRET_NAMES` for web, `CRON_SECRET` for jobs — with Cloudflare's secret names
-without reading any secret value; the optional `AIRTABLE_API_KEY` is not part of that check. Both the protected deploy workflow and the local
+`pnpm deploy:preflight web|jobs preview|production` compares the required web names — the ten in
+`WEB_DEPLOY_SECRET_NAMES` — with Cloudflare's secret names without reading any secret value. The
+jobs Worker intentionally has no required secrets, and the optional `AIRTABLE_API_KEY` is not part
+of the web check. Both the protected deploy workflow and the local
 deploy wrapper run it before release. `ALLOW_MISSING_DEPLOY_SECRETS=1` exists only for the first
 bootstrap of a Worker that does not exist yet; after that first deploy, provision the complete
 inventory before deploying application code again.

@@ -18,7 +18,7 @@ them:
    run on every schedule and neither can be silently skipped because a repository variable is
    missing. Override a default only when the corresponding deployment origin changes.
 2. **Unexpected-error-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single
-   seam every unmapped `INTERNAL` error (`defineHandler` and job routes) flows through. Next's
+   seam every unmapped `INTERNAL` error (`defineHandler` and the private job runner) flows through. Next's
    `instrumentation.ts` adds uncaught renders, Server Actions, middleware, and unwrapped route
    failures. Raw messages and stacks remain in structured Cloudflare Workers Logs; deployed
    invocations use `ctx.waitUntil()` to aggregate only a SHA-256 fingerprint, feature, code,
@@ -26,14 +26,14 @@ them:
    count. The scheduled uptime check fails on one or more unexpected errors, so this path is an
    automated alert rather than a dashboard-reading procedure. Rows older than seven days are
    removed by the daily cleanup job.
-3. **Scheduled-dispatch status** — `workers/jobs/index.ts` gives every web request a 120-second
+3. **Scheduled-dispatch status** — `workers/jobs/dispatch.ts` gives every RPC call a 120-second
    deadline, allows every due sibling to settle, and rejects the aggregate `waitUntil()` promise
    if any failed. Cloudflare records that rejection as a failed Cron Trigger invocation under
    **Workers & Pages → `sb-jobs[-preview]` → Triggers → Past Events**. Workers Logs receive
    `scheduled.job_complete`, `scheduled.job_failed`, or `scheduled.job_request_failed` with job,
-   status, and duration only; response bodies are never copied into the dispatcher log. A web-job
-   500 also reaches path 2 through `captureError`, but an authentication or network failure may
-   exist only in this Cloudflare status/log path. Past Events is currently a runtime signal, not
+   transport, status, and duration only; response bodies are never copied into the dispatcher log.
+   A web-job 500 also reaches path 2 through `captureError`, but a binding or RPC failure may exist
+   only in this Cloudflare status/log path. Past Events is currently a runtime signal, not
    an independently routed pager; inspect it during deployment and incident triage, and treat any
    failed invocation as an incident until an external Cloudflare notification is configured.
 
@@ -51,7 +51,7 @@ them:
 | `errors.recentCount` | `0` | — | `> 0` | These are unexpected 500-class failures, not validation/auth/user errors. On this low-traffic application, one caught failure is actionable and must link back to `error.captured` logs by time/feature/code. |
 | `jobs` present | object | missing only during the additive one-deploy rollout | missing after the current release has passed strict post-deploy smoke | The strict smoke requires the field; a missing field is tolerated only while an older artifact remains live. |
 | `jobs.ok` | `true` | — | `false` | The heartbeat query failed, so Cron liveness cannot be monitored independently of queue depth. |
-| `jobs.outboxLastSuccessAgeSeconds` | `0`–`180` | `> 180` | missing/null or `> 300` | Outbox completes every minute even with no queued mail. Staleness therefore catches a stopped Cron, wrong shared secret, network failure, or broken job route when queue metrics remain empty. |
+| `jobs.outboxLastSuccessAgeSeconds` | `0`–`180` | `> 180` | missing/null or `> 300` | Outbox completes every minute even with no queued mail. Staleness therefore catches a stopped Cron, broken Service Binding/entrypoint, or private job failure when queue metrics remain empty. |
 | `jobs.remindersLastSuccessAgeSeconds` / `cleanupLastSuccessAgeSeconds` | informational ages | — | specific failures page through `errors.recentCount` | These jobs run every 15 minutes and daily. Their ages accelerate diagnosis, while the every-minute outbox is the unambiguous scheduler-liveness threshold. |
 | `comms.ok` | `true` | `false` on one poll | treat as a page once it recurs across **multiple separate uptime-workflow runs** | The `communication_logs` aggregate query itself failed — table locked, migration mid-flight, or a real DB fault the version probe didn't happen to hit. `scripts/uptime-check.sh` annotates this as a warning rather than failing the run outright (see rationale below), so a recurring `comms.ok: false` shows up as repeated warnings in the workflow's run history — that history is what "recurs" means here; there is no automated run-counter. |
 | `comms.queuedCount` | low double digits or less | `> 100` | `> 300` | The jobs Worker's cron claims up to 50 rows/minute (`dispatchOutboxIn`'s default budget) — a healthy dispatcher keeps this near zero between ticks. Sustained growth past 100 means sends are being enqueued faster than the dispatcher drains them, or the dispatcher has stopped running. |
@@ -74,7 +74,7 @@ the workflow run.
 |---|---|---|
 | `pnpm worker:size` compressed bundle | warn `> 2.5 MiB`, fail `> 3 MiB` | `scripts/check-worker-size.sh`, already a CI gate (`.github/workflows/ci.yml`'s `artifacts` job) — listed here only so it appears in one place alongside the runtime thresholds, not duplicated as a new check. |
 | Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s `Smoke test the deployed web worker` step (followed, on preview only, by the self-service signup journey) — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
-| Jobs Cron Trigger invocation | any failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The web route owns raw error capture; dispatcher logs stay metadata-only. |
+| Jobs Cron Trigger invocation | failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The private web runner owns raw error capture; dispatcher logs stay metadata-only. |
 
 ## R2 / storage
 

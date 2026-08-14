@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CalendarPlus, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
-import { formatDayKeyInZone, formatInZone, zoneAbbreviation } from "@/shared/lib/time";
+import { formatDayKeyInZone, formatInZone, formatTimeRangeInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { PublishedScheduleDTO } from "@/shared/contracts";
 import type { EmbedFilters } from "./embed-config-types";
 import { readStarredIds, reconcileStarredIds, toggleStarredId, writeStarredIds } from "./itinerary-storage";
@@ -204,9 +204,7 @@ export function PublicItinerary({
                   </button>
                   <div>
                     <span className="itinerary-time">
-                      {formatInZone(session.startsAt, event.timezone, { hour: "numeric", minute: "2-digit" })}
-                      {" – "}
-                      {formatInZone(session.endsAt, event.timezone, { hour: "numeric", minute: "2-digit" })}
+                      {formatTimeRangeInZone(session.startsAt, session.endsAt, event.timezone)}
                       {session.room ? ` · ${session.room.name}` : ""}
                     </span>
                     <h4>{session.title}</h4>

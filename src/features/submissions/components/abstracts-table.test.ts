@@ -76,10 +76,10 @@ describe("AbstractsTable workflow navigation", () => {
   it("shows four workflow views, both notification directions, and a secondary exact-status filter", () => {
     const html = renderTable([ROW], "accept_queue", "ready_to_notify");
 
-    expect(html).toContain('role="group" aria-label="Filter abstracts by workflow"');
+    expect(html).toContain('role="group" aria-label="Filter submissions by workflow"');
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(2);
-    expect(html).toContain('aria-label="Needs decision, 1 abstract" aria-pressed="false"');
-    expect(html).toContain('aria-label="Ready to notify, 3 abstracts, 2 accept, 1 decline" aria-pressed="true"');
+    expect(html).toContain('aria-label="Needs decision, 1 submission" aria-pressed="false"');
+    expect(html).toContain('aria-label="Ready to notify, 3 submissions, 2 accept, 1 decline" aria-pressed="true"');
     expect(html).toContain("2 accept</i><i>1 decline");
     expect(html).toContain('role="group" aria-label="Filter current workflow by exact status"');
     expect(html).toContain("All ready to notify");
@@ -98,7 +98,10 @@ describe("AbstractsTable workflow navigation", () => {
       ["all", 7],
     ]);
     expect(renderTable([ROW])).toContain('data-status="pending"');
-    expect(renderTable([ROW], "all", "all")).toContain('data-status="draft"');
+    const allWorkflowHtml = renderTable([ROW], "all", "all");
+    expect(allWorkflowHtml).toContain("All submissions");
+    expect(allWorkflowHtml).not.toContain("All all");
+    expect(allWorkflowHtml).toContain('data-status="draft"');
   });
 });
 

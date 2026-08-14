@@ -74,6 +74,7 @@ export {
   listReviewQueueIn,
 } from "./server/queries";
 export { getReviewerSubmissionDetail, getReviewerSubmissionDetailIn } from "./server/reviewer-detail";
+export type { EvaluationTransaction } from "./server/mutations";
 export {
   assignReviewers,
   assignReviewersIn,

@@ -75,12 +75,24 @@ export type DbOrTx = typeof db | TxDb;
  * Organization membership role changes and removals likewise keep the access
  * mutation and its audit evidence atomic
  * (`src/features/organizations/server/membership.ts`).
+ * Vocabulary deletion also keeps its target-row lock, JSON/array dependency
+ * checks, embed cleanup, nullable foreign-key cleanup, and final delete in one
+ * transaction (`src/features/events/server/vocab.ts`); migration 0040 gives
+ * dependency writers the matching key-share side of that lock protocol.
+ * Evaluation plan saves, reviewer-set replacements, and explicit-queue
+ * replacements also use a transaction: they acquire the plan-row lock in one
+ * statement, then run the snapshot-dependent graph change in a fresh statement
+ * so concurrent writers cannot leak stale reviewer or queue rows into the final
+ * set or survive a narrowing round scope.
  * The single-speaker portal invite likewise commits its token rotation,
  * credential-bearing outbox row, and organizer pipeline status together; a
  * failed status write must not make an already-queued invitation look unsent.
  * CRM sourcing-pipeline creation likewise commits the new prospect row and
  * its initial open-stage history together before attempting best-effort
- * activity (`createCrmPipelineEntryWithPostCommitActivityIn`).
+ * activity (`createCrmPipelineEntryWithPostCommitActivityIn`). Pipeline stage
+ * transitions also lock the prospect and commit its stage, timestamped
+ * history, and organizer-visible activity together (`transitionCrmPipelineIn`),
+ * so a failed audit insert can never leave the board ahead of its history.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {

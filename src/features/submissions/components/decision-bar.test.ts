@@ -211,12 +211,12 @@ describe("DecisionBar selection scope", () => {
       eventId: "event-1",
       selected,
       pendingNotify: 0,
-      countLabel: "1 abstract selected on this page",
+      countLabel: "1 submission selected on this page",
       selectAllMatching: { count: 87, busy: false, request: () => undefined },
       onDone: () => undefined,
     }));
 
-    expect(html).toContain("Select all 87 matching abstracts");
+    expect(html).toContain("Select all 87 matching submissions");
     expect(html).toContain('type="button"');
     expect(html).not.toContain('role="status"');
   });
@@ -227,7 +227,7 @@ describe("DecisionBar selection scope", () => {
       eventId: "event-1",
       selected,
       pendingNotify: 0,
-      countLabel: "1 abstract selected on this page",
+      countLabel: "1 submission selected on this page",
       selectAllMatching: { count: 87, busy: true, request: () => undefined },
       onDone: () => undefined,
     }));
@@ -242,7 +242,7 @@ describe("DecisionBar selection scope", () => {
       eventId: "event-1",
       selected,
       pendingNotify: 0,
-      countLabel: "1 matching abstract selected",
+      countLabel: "1 matching submission selected",
       allMatching: true,
       onDone: () => undefined,
     }));
@@ -250,7 +250,7 @@ describe("DecisionBar selection scope", () => {
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('aria-atomic="true"');
-    expect(html).toContain("1 matching abstract selected");
+    expect(html).toContain("1 matching submission selected");
     expect(html).not.toContain("Select all");
   });
 });

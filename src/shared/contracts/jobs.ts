@@ -1,2 +1,6 @@
-export type JobName = "outbox" | "reminders" | "airtable" | "cleanup";
+export type JobName = "outbox" | "reminders" | "cleanup";
 export type JobStats = Record<string, number>;
+
+export const PRIVATE_JOB_PATH_PREFIX = "/worker-jobs/";
+export const PRIVATE_JOB_HEADER = "x-openboard-private-job";
+export const PRIVATE_JOB_HEADER_VALUE = "JobsEntrypoint";

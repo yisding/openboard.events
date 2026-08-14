@@ -62,10 +62,9 @@ protocol.
   always replays the same commit through a sequential preview migration, deploy, smoke, and
   browser canary first. The `preview` GitHub environment must have no required reviewer, or every
   merge queues an approval instead of deploying.
-- The jobs Worker holds only `APP_BASE_URL` and `CRON_SECRET`. Deploys require the exact
-  matching web origin through `scripts/deploy-cloudflare.sh` — no guessed `workers.dev`
-  hostname is committed — and the `global_fetch_strictly_public` compatibility flag stays set so
-  the jobs Worker can fetch its sibling on the same zone (Cloudflare error 1042 otherwise).
+- The jobs Worker holds no application variables or secrets. Its only application capability is
+  the `WEB_JOBS` Service Binding to the matching web Worker's named `JobsEntrypoint`; jobs execute
+  directly inside the web Worker and there is no public callback or shared bearer credential.
 - Runtime variables are validated fail-closed; retired auth settings are rejected, and
   production cannot enable the fallback delivery UI, `EMAIL_MODE=log`, or an email allowlist.
 
