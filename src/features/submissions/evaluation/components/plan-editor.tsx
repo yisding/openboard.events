@@ -164,6 +164,26 @@ function rebaseDraft(
   };
 }
 
+function assignmentWindowBlockers(
+  window: Pick<PlanDTO, "status" | "closesAt">,
+  now: Date,
+): number {
+  return Number(window.status !== "open")
+    + Number(window.closesAt !== null && new Date(window.closesAt).getTime() <= now.getTime());
+}
+
+/** Recovery can require both reopening and extending a round. Let either
+ * deliberate edit remove one blocker, but never let an ordinary edit move
+ * unsaved assignments toward a terminal window. */
+function canStageReviewerRecovery(
+  current: Pick<PlanDTO, "status" | "closesAt">,
+  next: Pick<PlanDTO, "status" | "closesAt">,
+  now: Date,
+  recoveryLoaded: boolean,
+): boolean {
+  return recoveryLoaded && assignmentWindowBlockers(next, now) < assignmentWindowBlockers(current, now);
+}
+
 /** A `<Select multiple>` of tracks, where selecting nothing means every track. */
 function TrackScope({
   tracks,
@@ -272,6 +292,9 @@ export function PlanEditor({
   const assignmentEditsChanged = reviewerAssignmentsChanged || trackScopeChanged;
   const assignmentLock = assignmentLockReason(assignmentWindow, new Date(assignmentNowMs));
   const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
+  const reviewerRecoveryRequired = pendingReviewerPlanId !== null
+    && (reviewerLockConflict || assignmentLock !== null);
+  const assignmentSaveBlocked = assignmentEditsChanged && assignmentLock !== null;
 
   useUnsavedWorkGuard(dirty);
 
@@ -285,6 +308,7 @@ export function PlanEditor({
     setDraft((current) => rebaseDraft(current, previous, latest));
     setBaseline(latest);
     setExpectedUpdatedAt(plan.updatedAt);
+    setWindowEditRevision((revision) => revision === null ? null : plan.updatedAt);
   }, [plan]);
 
   useEffect(() => {
@@ -306,21 +330,33 @@ export function PlanEditor({
   }
 
   function changeStatus(status: PlanDTO["status"]): void {
-    if (assignmentEditsChanged && assignmentLockReason({ status, closesAt: assignmentWindow.closesAt })) {
+    const nextWindow = { status, closesAt: assignmentWindow.closesAt };
+    const now = new Date(assignmentNowMs);
+    if (
+      assignmentEditsChanged
+      && assignmentLockReason(nextWindow, now)
+      && !canStageReviewerRecovery(assignmentWindow, nextWindow, now, reviewerRecoveryLoaded)
+    ) {
       refuseTerminalAssignmentEdits();
       return;
     }
     setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
-    patch({ status, closesAt: assignmentWindow.closesAt });
+    patch(nextWindow);
   }
 
   function changeClosesAt(closesAt: string | null): void {
-    if (assignmentEditsChanged && assignmentLockReason({ status: assignmentWindow.status, closesAt })) {
+    const nextWindow = { status: assignmentWindow.status, closesAt };
+    const now = new Date(assignmentNowMs);
+    if (
+      assignmentEditsChanged
+      && assignmentLockReason(nextWindow, now)
+      && !canStageReviewerRecovery(assignmentWindow, nextWindow, now, reviewerRecoveryLoaded)
+    ) {
       refuseTerminalAssignmentEdits();
       return;
     }
     setWindowEditRevision(authoritativePlan?.updatedAt ?? "local");
-    patch({ status: assignmentWindow.status, closesAt });
+    patch(nextWindow);
   }
 
   function closeEditor() {
@@ -444,7 +480,7 @@ export function PlanEditor({
       <div className="form-stack drawer-body">
         {pendingReviewerPlanId && (
           <div className="portal-note" role="alert">
-            {reviewerLockConflict ? (
+            {reviewerRecoveryRequired ? (
               <>
                 <p><b>Round details are saved, but assignments are now locked.</b> Load the latest round, then reopen it or extend its close date before saving your preserved reviewer changes.</p>
                 <Button size="sm" variant="secondary" disabled={loadingLatest} onClick={loadLatestRound}>
@@ -635,8 +671,8 @@ export function PlanEditor({
         </p>
         <div className="drawer-actions">
           <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>
-          <Button disabled={saving || loadingLatest || reviewerLockConflict || draft.name.trim() === ""} onClick={save}>
-            {saving ? "Saving…" : reviewerLockConflict ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
+          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || draft.name.trim() === ""} onClick={save}>
+            {saving ? "Saving…" : reviewerRecoveryRequired ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
           </Button>
         </div>
       </div>

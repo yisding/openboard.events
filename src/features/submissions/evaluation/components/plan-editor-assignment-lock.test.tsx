@@ -17,7 +17,13 @@ vi.mock("@/shared/ui/app/unsaved-work-guard", () => ({
   useGuardedAction: () => ({ runGuarded: (action: () => void) => action() }),
 }));
 vi.mock("@/shared/ui/app/datetime-picker", () => ({
-  DateTimePicker: ({ value }: { value: string | null }) => <span data-date-value={value ?? ""} />,
+  DateTimePicker: ({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) => (
+    <input
+      data-date-picker
+      value={value ?? ""}
+      onChange={(event) => onChange(event.currentTarget.value || null)}
+    />
+  ),
 }));
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
@@ -111,9 +117,29 @@ function roundNameInput(): HTMLInputElement | null {
   return container.querySelector<HTMLInputElement>('input[required]');
 }
 
+function closesAtInput(): HTMLInputElement | undefined {
+  return [...container.querySelectorAll<HTMLInputElement>("[data-date-picker]")][1];
+}
+
 function changeInput(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+async function changeStatus(value: PlanDTO["status"]): Promise<void> {
+  const status = statusSelect();
+  await act(async () => {
+    if (!status) return;
+    status.value = value;
+    status.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function changeClosesAt(value: string): Promise<void> {
+  const closesAt = closesAtInput();
+  await act(async () => {
+    if (closesAt) changeInput(closesAt, value);
+  });
 }
 
 beforeEach(() => {
@@ -237,6 +263,138 @@ describe("evaluation plan assignment locking", () => {
       expectedUpdatedAt: latest.updatedAt,
     });
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reviewers"))).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a locally edited assignment window through a newer authoritative refresh", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const initial = {
+      ...plan("closed"),
+      closesAt: "2026-08-14T11:00:00.000Z",
+    };
+    const localClose = "2026-08-15T12:00:00.000Z";
+    await renderEditor(initial);
+
+    await changeStatus("open");
+    await changeClosesAt(localClose);
+    expect(statusSelect()?.value).toBe("open");
+    expect(closesAtInput()?.value).toBe(localClose);
+
+    const latest = {
+      ...initial,
+      round: 2,
+      updatedAt: "2026-08-14T12:01:00.000Z",
+    };
+    await renderEditor(latest);
+
+    expect(statusSelect()?.value).toBe("open");
+    expect(closesAtInput()?.value).toBe(localClose);
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }));
+    await act(async () => buttonNamed("Save round")?.click());
+    await settle();
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      round: 2,
+      status: "open",
+      closesAt: localClose,
+      expectedUpdatedAt: latest.updatedAt,
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("offers load-latest recovery when an ambiguous reviewer retry becomes locked", async () => {
+    const initial = plan("open");
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }))
+      .mockRejectedValueOnce(new TypeError("response lost"));
+    await renderEditor(initial);
+    await act(async () => reviewerCheckbox("Grace Hopper")?.click());
+    await act(async () => buttonNamed("Save round")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("Reviewer assignment is still pending.");
+    expect(buttonNamed("Retry reviewer assignments")?.disabled).toBe(false);
+
+    const latest = {
+      ...initial,
+      status: "closed" as const,
+      updatedAt: "2026-08-14T12:01:00.000Z",
+    };
+    await renderEditor(latest);
+
+    expect(container.textContent).toContain("Round details are saved, but assignments are now locked.");
+    expect(buttonNamed("Load latest round")).toBeDefined();
+    expect(buttonNamed("Load latest to continue")?.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { plans: [latest] } }));
+    await act(async () => buttonNamed("Load latest round")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/internal/evaluation/${EVENT_ID}/plans`, { method: "GET" });
+    expect(container.textContent).toContain("Latest round loaded. Your reviewer changes are preserved.");
+    expect(reviewerCheckbox("Grace Hopper")?.checked).toBe(true);
+  });
+
+  it.each([
+    ["reopen then extend", ["status", "deadline"] as const],
+    ["extend then reopen", ["deadline", "status"] as const],
+  ])("stages %s while recovering assignments from a closed and expired round", async (_label, order) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const initial = plan("open");
+    const latest = {
+      ...initial,
+      status: "closed" as const,
+      closesAt: "2026-08-14T11:00:00.000Z",
+      updatedAt: "2026-08-14T12:01:00.000Z",
+    };
+    const futureClose = "2026-08-15T12:00:00.000Z";
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }))
+      .mockResolvedValueOnce(Response.json({
+        error: { code: "CONFLICT", message: "Reviewer assignments cannot change after this round closes" },
+      }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ data: { plans: [latest] } }))
+      .mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }))
+      .mockResolvedValueOnce(Response.json({ data: {} }));
+    await renderEditor(initial);
+    await act(async () => reviewerCheckbox("Grace Hopper")?.click());
+    await act(async () => buttonNamed("Save round")?.click());
+    await settle();
+    await act(async () => buttonNamed("Load latest round")?.click());
+    await settle();
+
+    const apply = async (step: "status" | "deadline") => {
+      if (step === "status") await changeStatus("open");
+      else await changeClosesAt(futureClose);
+    };
+    await apply(order[0]);
+
+    expect(buttonNamed("Save round")?.disabled).toBe(true);
+    expect(reviewerCheckbox("Grace Hopper")?.closest("fieldset")?.disabled).toBe(true);
+    await apply(order[1]);
+
+    expect(statusSelect()?.value).toBe("open");
+    expect(closesAtInput()?.value).toBe(futureClose);
+    expect(buttonNamed("Save round")?.disabled).toBe(false);
+    expect(reviewerCheckbox("Grace Hopper")?.closest("fieldset")?.disabled).toBe(false);
+
+    await act(async () => buttonNamed("Save round")?.click());
+    await settle();
+
+    const retryPlanBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body)) as Record<string, unknown>;
+    expect(retryPlanBody).toMatchObject({
+      status: "open",
+      closesAt: futureClose,
+      expectedUpdatedAt: latest.updatedAt,
+    });
+    const retryReviewersBody = JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body)) as {
+      reviewers: Array<{ userId: string }>;
+    };
+    expect(retryReviewersBody.reviewers.map((reviewer) => reviewer.userId)).toEqual([REVIEWER_ID, SECOND_REVIEWER_ID]);
     expect(onClose).toHaveBeenCalledOnce();
   });
 
