@@ -30,4 +30,16 @@ describe("TzTime", () => {
     expect(html).toContain("Oct 15, 2026<small>12:00 PM PDT</small>");
     expect(html.match(/PDT/gu)).toHaveLength(1);
   });
+
+  it("omits a repeated zone only when its surrounding view supplies that context", () => {
+    const html = renderToStaticMarkup(React.createElement(TzTime, {
+      instant: "2026-10-15T19:00:00.000Z",
+      tz: "America/Los_Angeles",
+      style: { hour: "numeric", minute: "2-digit" },
+      zoneDisplay: "context",
+    }));
+
+    expect(html).toContain(">12:00 PM</time>");
+    expect(html).not.toContain("PDT");
+  });
 });
