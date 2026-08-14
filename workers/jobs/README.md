@@ -19,10 +19,6 @@ divisible by 15, and `cleanup` at 09:00 UTC. Airtable remains deferred and is
 not part of the RPC contract. A missed tick self-heals on the next one because
 every real job is an idempotent bounded database scan.
 
-`r2-migration` remains in the private RPC name set as a one-release no-op adapter, but it is not
-scheduled. This keeps an old jobs Worker successful while an ordered deployment replaces web
-before jobs; the following contract release removes the adapter and its completed checkpoint table.
-
 Each RPC call has a 120-second caller-side deadline. Every due sibling is allowed to settle,
 then the aggregate `waitUntil()` promise rejects if any request failed.
 Cloudflare therefore records a failed Cron Trigger invocation instead of a false success. Dispatcher
