@@ -154,6 +154,68 @@ test.describe("agenda workspace geometry", () => {
   });
 });
 
+test.describe("embedded itinerary phone spacing", () => {
+  test("uses the host width for content while preserving full-size actions", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <div class="embed-shell">
+        <header class="embed-header"><h1>AI Engineer Sandbox</h1><span>Oct 14–15</span></header>
+        <main class="public-schedule embed-content">
+          <div class="itinerary-toolbar">
+            <button class="itinerary-my-schedule">My Schedule</button>
+            <span class="itinerary-export disabled">Star sessions to export</span>
+          </div>
+          <section class="itinerary-day">
+            <h3>Wednesday <span>Oct 14</span></h3>
+            <div class="itinerary-sessions">
+              <article>
+                <button class="itinerary-star" aria-label="Add session to My Schedule">☆</button>
+                <div>
+                  <span class="itinerary-time">9:00 AM PDT – 9:45 AM PDT · Main Stage</span>
+                  <h4>Opening keynote: the year agents grew up</h4>
+                  <div class="public-session-speaker"><b>Ada Lovelace</b></div>
+                  <p class="itinerary-desc">Where the last twelve months actually landed, and what shipped.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </body></html>`);
+
+    for (const width of [320, 375, 480]) {
+      await page.setViewportSize({ width, height: 800 });
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Embed fixture is missing ${selector}`);
+          return element.getBoundingClientRect();
+        };
+        const article = rect(".itinerary-sessions article");
+        const title = rect(".itinerary-sessions h4");
+        const star = rect(".itinerary-star");
+        const headerTitle = rect(".embed-header h1");
+        return {
+          articleLeft: article.left,
+          articleRight: article.right,
+          titleWidth: title.width,
+          starWidth: star.width,
+          headerTitleLeft: headerTitle.left,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+
+      expect(layout.articleLeft).toBeCloseTo(12, 0);
+      expect(layout.articleRight).toBeCloseTo(width - 12, 0);
+      expect(layout.headerTitleLeft).toBeCloseTo(12, 0);
+      expect(layout.titleWidth).toBeGreaterThanOrEqual(220);
+      expect(layout.starWidth).toBeGreaterThanOrEqual(44);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("public event phone navigation", () => {
   test("keeps the event identity and every destination readable without a clipped tab row", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");

@@ -2596,6 +2596,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .public-event-hero{min-height:184px;height:184px}
   .public-event-hero>.public-event-container{padding-block:0;display:flex}
   .public-event-hero-controls .public-event-container{width:100%}
+  /* Embeds often live in narrow CMS columns where the hosted page's 32px
+     inset consumes a fifth of the available width. Keep a real gutter, but
+     return that space to session titles, speaker names and filter controls. */
+  .embed-shell>.embed-header{padding:16px 12px 0}
+  .embed-shell>.embed-content{padding:24px 12px 32px}
+  .embed-shell>.embed-content .itinerary-toolbar{gap:8px;padding:8px}
+  .embed-shell>.embed-content .itinerary-sessions article{grid-template-columns:44px minmax(0,1fr)}
+  .embed-shell>.embed-content .itinerary-sessions article>div,
+  .embed-shell>.embed-content .speaker-row,
+  .embed-shell>.embed-content .speaker-row-detail{min-width:0;padding-inline:12px}
 }
 
 /* Phase 10: filter chips communicate combinable roster filters rather than
