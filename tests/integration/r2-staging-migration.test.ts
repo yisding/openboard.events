@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -12,12 +11,7 @@ import {
   type ListObjectsPage,
 } from "@/shared/server/r2";
 import type { EventId } from "@/shared/contracts";
-
-const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
-const migration6 = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
-const migration19 = readFileSync(new URL("../../drizzle/0019_scheduled_job_heartbeats.sql", import.meta.url), "utf8");
-const migration42 = readFileSync(new URL("../../drizzle/0042_r2_staging_migration_state.sql", import.meta.url), "utf8");
+import { applyProductMigrations } from "../../scripts/lib/product-migrations";
 
 const EVENT_ID = "77777777-7777-4777-8777-777777777771" as EventId;
 const FILE_ID = "77777777-7777-4777-8777-777777777772";
@@ -28,17 +22,13 @@ let testDb: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeAll(async () => {
   pglite = new PGlite();
-  await pglite.exec(migration0);
-  await pglite.exec(migration1);
-  await pglite.exec(migration6);
-  await pglite.exec(migration19);
-  await pglite.exec(migration42);
+  await applyProductMigrations(pglite);
   testDb = drizzle(pglite, { schema });
   await pglite.query(
     "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Migration Event','migration-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
     [EVENT_ID],
   );
-}, 30_000);
+}, 120_000);
 
 beforeEach(async () => {
   await pglite.exec("DELETE FROM r2_staging_migration_state; DELETE FROM scheduled_job_heartbeats; DELETE FROM file_assets;");
@@ -57,11 +47,14 @@ function keys(fileId = FILE_ID) {
   };
 }
 
-async function insertLegacyAsset(createdAt = "2026-08-14T17:00:00.000Z") {
+async function insertLegacyAsset(
+  createdAt = "2026-08-14T17:00:00.000Z",
+  fileId = FILE_ID,
+) {
   await pglite.query(
     `INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,created_at)
      VALUES($1,$2,'headshot',$3,'me.png','image/png',8,$4)`,
-    [FILE_ID, EVENT_ID, keys().legacy, createdAt],
+    [fileId, EVENT_ID, keys(fileId).legacy, createdAt],
   );
 }
 
@@ -113,7 +106,7 @@ describe("version-1 R2 staging migration", () => {
     });
   });
 
-  it("leaves the row on version 1 and removes a copy whose ETag does not match", async () => {
+  it("leaves the row on version 1 and defers mismatched-copy cleanup to lifecycle", async () => {
     await insertLegacyAsset();
     const objects = new Map<string, { size: number; etag: string }>([
       [keys().legacy, { size: 8, etag: "source" }],
@@ -132,7 +125,7 @@ describe("version-1 R2 staging migration", () => {
 
     const row = await pglite.query<{ r2_key: string }>("SELECT r2_key FROM file_assets WHERE id=$1", [FILE_ID]);
     expect(row.rows[0]?.r2_key).toBe(keys().legacy);
-    expect(objects.has(keys().current)).toBe(false);
+    expect(objects.has(keys().current)).toBe(true);
     expect(result).toMatchObject({ legacyRowsRemaining: 1, migrationFailures: 1, migrationComplete: 0 });
   });
 
@@ -255,5 +248,92 @@ describe("version-1 R2 staging migration", () => {
       legacyObjectsRemaining: 0,
       migrationComplete: 1,
     });
+  });
+
+  it("rejects a stale checkpoint write without moving a sibling's cursor backwards", async () => {
+    await pglite.query(
+      `INSERT INTO r2_staging_migration_state(singleton,started_at)
+       VALUES(true,$1)`,
+      [NOW.toISOString()],
+    );
+    const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
+      now: () => NOW,
+      presignGraceMinutes: 0,
+      headObject: async () => null,
+      copyKey: async () => undefined,
+      deleteKey: async () => true,
+      maxInventoryPages: 1,
+      listPage: async () => {
+        await pglite.query(
+          "UPDATE r2_staging_migration_state SET cursor='winner',row_version=row_version+1 WHERE singleton",
+        );
+        return { objects: [], nextToken: "loser" };
+      },
+    });
+
+    const state = await pglite.query<{ cursor: string; row_version: number }>(
+      "SELECT cursor,row_version FROM r2_staging_migration_state WHERE singleton",
+    );
+    expect(result.checkpointWritten).toBe(0);
+    expect(state.rows[0]).toEqual({ cursor: "winner", row_version: 1 });
+  });
+
+  it("returns a completed checkpoint without listing the bucket again", async () => {
+    await pglite.query(
+      `INSERT INTO r2_staging_migration_state(singleton,complete,started_at,completed_at)
+       VALUES(true,true,$1,$2)`,
+      [NOW.toISOString(), new Date(NOW.getTime() + 15 * 60 * 1000).toISOString()],
+    );
+    let listed = false;
+    const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
+      now: () => new Date(NOW.getTime() + 16 * 60 * 1000),
+      headObject: async () => null,
+      copyKey: async () => undefined,
+      deleteKey: async () => true,
+      listPage: async () => {
+        listed = true;
+        return emptyPage();
+      },
+    });
+
+    expect(listed).toBe(false);
+    expect(result.migrationComplete).toBe(1);
+  });
+
+  it("advances past a corrupt row so later valid rows can still migrate", async () => {
+    const laterFileId = "77777777-7777-4777-8777-777777777773";
+    await insertLegacyAsset(undefined, FILE_ID);
+    await insertLegacyAsset(undefined, laterFileId);
+    await pglite.query("UPDATE file_assets SET filename='does-not-match.png' WHERE id=$1", [FILE_ID]);
+    const objects = new Map([
+      [keys(FILE_ID).legacy, { size: 8, etag: "invalid-row" }],
+      [keys(laterFileId).legacy, { size: 8, etag: "later-row" }],
+    ]);
+    const options = {
+      now: () => NOW,
+      batchSize: 1,
+      presignGraceMinutes: 0,
+      headObject: async (key: string) => objects.get(key) ?? null,
+      copyKey: async (source: string, destination: string) => {
+        const object = objects.get(source);
+        if (!object) throw new Error("missing source");
+        objects.set(destination, object);
+      },
+      deleteKey: async (key: string) => objects.delete(key) || !objects.has(key),
+      listPage: async () => emptyPage(),
+    };
+
+    const blocked = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, options);
+    const progressed = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, options);
+    const rows = await pglite.query<{ id: string; r2_key: string }>(
+      "SELECT id,r2_key FROM file_assets ORDER BY id",
+    );
+
+    expect(blocked).toMatchObject({ legacyRowsProcessed: 1, migrationFailures: 1 });
+    expect(progressed).toMatchObject({ legacyRowsMigrated: 1, legacyRowsRemaining: 1 });
+    expect(rows.rows).toEqual([
+      { id: FILE_ID, r2_key: keys(FILE_ID).legacy },
+      { id: laterFileId, r2_key: keys(laterFileId).current },
+    ]);
   });
 });

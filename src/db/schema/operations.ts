@@ -38,6 +38,7 @@ export const scheduledJobHeartbeats = pgTable("scheduled_job_heartbeats", {
  */
 export const r2StagingMigrationState = pgTable("r2_staging_migration_state", {
   singleton: boolean("singleton").primaryKey().default(true),
+  rowCursor: text("row_cursor"),
   cursor: text("cursor"),
   cycleRemainingObjects: integer("cycle_remaining_objects").notNull().default(0),
   remainingLegacyRows: integer("remaining_legacy_rows").notNull().default(0),

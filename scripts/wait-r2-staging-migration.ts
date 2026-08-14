@@ -1,23 +1,12 @@
 import { neon } from "@neondatabase/serverless";
+import {
+  migrationStateIsVerified,
+  parseMigrationState,
+  type MigrationState,
+} from "./lib/r2-staging-migration-state";
 
 const POLL_INTERVAL_MS = 10_000;
 const MAX_POLLS = 120;
-const LEGACY_PRESIGN_GRACE_MS = 15 * 60 * 1000;
-
-type MigrationState = {
-  complete: boolean;
-  remaining_legacy_rows: number;
-  remaining_legacy_objects: number;
-  failures: number;
-  started_at: string;
-  updated_at: string;
-  completed_at: string | null;
-};
-
-function numeric(value: unknown): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 async function main() {
   const url = process.env.DATABASE_URL_DIRECT;
@@ -33,20 +22,8 @@ async function main() {
       WHERE singleton
     `;
     const row = rows[0];
-    last = row ? {
-      complete: row.complete === true,
-      remaining_legacy_rows: numeric(row.remaining_legacy_rows),
-      remaining_legacy_objects: numeric(row.remaining_legacy_objects),
-      failures: numeric(row.failures),
-      started_at: String(row.started_at),
-      updated_at: String(row.updated_at),
-      completed_at: row.completed_at ? String(row.completed_at) : null,
-    } : null;
-    const coveredPresignWindow = last?.completed_at
-      ? Date.parse(last.completed_at) - Date.parse(last.started_at) >= LEGACY_PRESIGN_GRACE_MS
-      : false;
-    if (last?.complete && coveredPresignWindow
-      && last.remaining_legacy_rows === 0 && last.remaining_legacy_objects === 0 && last.failures === 0) {
+    last = row ? parseMigrationState(row as Record<string, unknown>) : null;
+    if (last && migrationStateIsVerified(last)) {
       console.log(JSON.stringify({ verified: true, ...last }));
       return;
     }

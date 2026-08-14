@@ -67,6 +67,11 @@ the unrelated daily cleanup and retention scans. It:
 5. deletes a missing-source row only after the 15-minute presign window and only when the same
    complete ownership predicate used by normal orphan cleanup says it is unowned.
 
+The checkpoint also advances a row cursor, so one corrupt or still-owned missing-source row cannot
+starve valid rows later in the batch. Such an anomalous row still keeps the zero-inventory gate
+closed until an operator repairs or explicitly removes it; the cursor improves convergence without
+weakening the exit condition.
+
 After the row count reaches zero, the job walks `evt_` objects through the S3 continuation token,
 deleting old, unowned version-1 objects. `r2_staging_migration_state` stores that opaque cursor and
 advances it with a row-version compare-and-swap, so overlapping cron ticks can repeat safe work but

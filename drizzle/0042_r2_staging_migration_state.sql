@@ -1,5 +1,6 @@
 CREATE TABLE "r2_staging_migration_state" (
   "singleton" boolean PRIMARY KEY DEFAULT true NOT NULL,
+  "row_cursor" text,
   "cursor" text,
   "cycle_remaining_objects" integer DEFAULT 0 NOT NULL,
   "remaining_legacy_rows" integer DEFAULT 0 NOT NULL,
