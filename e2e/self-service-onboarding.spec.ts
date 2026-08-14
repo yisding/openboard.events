@@ -23,8 +23,7 @@ async function waitForPublicContent(
   paths: readonly string[],
   expected: string,
   timeoutMs: number,
-): Promise<number> {
-  const startedAt = Date.now();
+): Promise<void> {
   await expect.poll(async () => {
     const results = await Promise.all(paths.map(async (path) => {
       try {
@@ -36,8 +35,10 @@ async function waitForPublicContent(
         // user-visible content.
         const renderedText = body.replaceAll("<!-- -->", "");
         return response.status() === 200 && renderedText.includes(expected) ? null : `${path} (${response.status()})`;
-      } catch {
-        return `${path} (request timed out)`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failure = /tim(?:e|ed)\s*out/iu.test(message) ? "request timed out" : message;
+        return `${path} (${failure})`;
       }
     }));
     return results.filter((result): result is string => result !== null);
@@ -46,7 +47,6 @@ async function waitForPublicContent(
     timeout: timeoutMs,
     intervals: [250, 500, 1_000],
   }).toEqual([]);
-  return Date.now() - startedAt;
 }
 
 function addCalendarDays(dayKey: string, days: number): string {
@@ -378,6 +378,7 @@ test.describe("self-service signup to first value", () => {
 
     let eventId = "";
     let formId = "";
+    let publicEventSlug = "";
     let publicLink = "";
     await test.step("publish the first form and capture its public link", async () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
@@ -431,22 +432,28 @@ test.describe("self-service signup to first value", () => {
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
-      expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      const publicLinkMatch = /^\/submit\/([a-z0-9-]+)\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/u
+        .exec(new URL(publicLink).pathname);
+      expect(publicLinkMatch, "the public CFP link should contain its event slug and form id").not.toBeNull();
+      if (!publicLinkMatch) throw new Error(`Unexpected public CFP link: ${publicLink}`);
+      publicEventSlug = publicLinkMatch[1] ?? "";
+      formId = publicLinkMatch[2] ?? "";
 
       const restoredResponse = await page.reload();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?event=[0-9a-f-]{36}$/);
       eventId = new URL(page.url()).searchParams.get("event") ?? "";
-      formId = new URL(publicLink).pathname.split("/").at(-1) ?? "";
       expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
       expect(formId).toMatch(/^[0-9a-f-]{36}$/);
       const publishedForm = await queryRows<{
         closes_at: string | null;
         event_name: string;
+        event_slug: string;
         progress_step: string;
         status: string;
       }>(
         `SELECT form.closes_at::text AS closes_at, form.status,
-                event.name AS event_name, progress.step AS progress_step
+                event.name AS event_name, event.slug AS event_slug,
+                progress.step AS progress_step
          FROM forms form
          JOIN events event ON event.id = form.event_id
          JOIN event_onboarding_progress progress
@@ -457,6 +464,7 @@ test.describe("self-service signup to first value", () => {
       expect(publishedForm).toHaveLength(1);
       expect(publishedForm[0]?.status).toBe("open");
       expect(publishedForm[0]?.event_name).toBe(correctedEventName);
+      expect(publicEventSlug).toBe(publishedForm[0]?.event_slug);
       expect(publishedForm[0]?.progress_step).toBe("complete");
       expect(publishedForm[0]?.closes_at, "onboarding must not publish an indefinitely open CFP by default").not.toBeNull();
       expect(restoredResponse?.status(), "the completed onboarding checkpoint should restore as a page").toBe(200);
@@ -518,8 +526,6 @@ test.describe("self-service signup to first value", () => {
     const proposalTitle = `E2E First Proposal ${stamp}`;
     let submissionCode = "";
     await test.step("a speaker verifies and submits through the returned CFP", async () => {
-      const publicEventSlug = new URL(publicLink).pathname.split("/").at(-2) ?? "";
-      expect(publicEventSlug).not.toEqual("");
       const publicContext = await browser.newContext();
       const publicPage = await publicContext.newPage();
       publicPage.setDefaultTimeout(30_000);
