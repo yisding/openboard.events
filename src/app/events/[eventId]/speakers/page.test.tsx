@@ -47,7 +47,13 @@ describe("speaker roster page guard", () => {
   beforeEach(() => {
     requireAdminMock.mockReset();
     listContactsMock.mockReset().mockResolvedValue({ rows: [], total: 0 });
-    getSpeakerFilterCountsMock.mockReset().mockResolvedValue({ all: 0, accepted: 0, missingEither: 0, missingBio: 0, missingHeadshot: 0 });
+    getSpeakerFilterCountsMock.mockReset().mockResolvedValue({
+      all: 0,
+      accepted: 0,
+      missingEither: 0,
+      missingBio: 0,
+      missingHeadshot: 0,
+    });
   });
 
   // A soft navigation from `/review` re-renders this page without re-running
