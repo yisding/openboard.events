@@ -12,7 +12,9 @@ import {
   type AnswerValue,
   type CleanAnswers,
   type ContactId,
+  type CreateSubmissionResult,
   type CreateSubmissionInput,
+  type DraftParticipantInput,
   type EventId,
   type FormId,
   type SubmissionKind,
@@ -24,7 +26,6 @@ import {
   deriveMappedFields,
   getPinnedSnapshotIn,
   secondaryParticipantRoleSchema,
-  type SecondaryParticipantRole,
 } from "@/features/forms/index.submission";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { AppError } from "@/shared/lib/errors";
@@ -40,22 +41,6 @@ export { formatCode } from "./guards";
  * The result shape M18 publishes. Contracts froze the *input* verbatim but not
  * this, so it lives with its only producer rather than being invented twice.
  */
-export type CreateSubmissionResult = {
-  submissionId: SubmissionId;
-  code: number;
-  status: SubmissionStatus;
-  promotedFromDraft: boolean;
-};
-
-export type DraftParticipantInput = {
-  clientId: string;
-  email: string;
-  role: SecondaryParticipantRole;
-  isPrimary: false;
-  sortOrder: number;
-  answers: CleanAnswers;
-};
-
 /**
  * The only file in the repository that inserts into `submissions`. Six callers
  * across four lanes go through these functions, which is what keeps the code

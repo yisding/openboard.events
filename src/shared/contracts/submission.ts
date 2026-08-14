@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { participantRoleSchema, submissionSourceSchema, submissionStatusSchema } from "./enums";
-import { answerValueSchema, cleanAnswersSchema, formSnapshotSchema } from "./forms";
+import { participantRoleSchema, submissionSourceSchema, submissionStatusSchema, type ParticipantRole, type SubmissionStatus } from "./enums";
+import { answerValueSchema, cleanAnswersSchema, formSnapshotSchema, type CleanAnswers } from "./forms";
 import {
   contactIdSchema,
   formIdSchema,
@@ -8,6 +8,7 @@ import {
   submissionIdSchema,
   tagIdSchema,
   trackIdSchema,
+  type SubmissionId,
 } from "./ids";
 
 const speakerSummarySchema = z.object({
@@ -125,3 +126,20 @@ export const createSubmissionInputSchema = z.object({
 });
 // Drafts never consume the submission limit.
 export type CreateSubmissionInput = z.infer<typeof createSubmissionInputSchema>;
+
+/** Stable result and draft-participant shapes shared across the CFP composition boundary. */
+export type CreateSubmissionResult = {
+  submissionId: SubmissionId;
+  code: number;
+  status: SubmissionStatus;
+  promotedFromDraft: boolean;
+};
+
+export type DraftParticipantInput = {
+  clientId: string;
+  email: string;
+  role: Exclude<ParticipantRole, "speaker">;
+  isPrimary: false;
+  sortOrder: number;
+  answers: CleanAnswers;
+};

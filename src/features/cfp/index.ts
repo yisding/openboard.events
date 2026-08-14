@@ -1,0 +1,25 @@
+import {
+  saveCfpDraft as savePreparedCfpDraft,
+  submitCfpForm as submitPreparedCfpForm,
+  type CfpSubmissionCommands,
+  type SaveDraftInput,
+  type SubmitInput,
+} from "@/features/forms/index.cfp";
+import { createSubmissionIn, saveDraftAnswers } from "@/features/submissions/index.cfp";
+
+const submissionCommands = {
+  createSubmissionIn,
+  saveDraftAnswers,
+} satisfies CfpSubmissionCommands;
+
+/** Application service composing form preparation with submission persistence. */
+export function submitCfpForm(input: SubmitInput) {
+  return submitPreparedCfpForm(input, submissionCommands);
+}
+
+export function saveCfpDraft(input: SaveDraftInput) {
+  return savePreparedCfpDraft(input, submissionCommands);
+}
+
+export type { ParticipantInput, SaveDraftInput, SubmitInput } from "@/features/forms/index.cfp";
+

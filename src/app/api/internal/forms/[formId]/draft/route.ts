@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { saveCfpDraft } from "@/features/forms/server/submit";
+import { saveCfpDraft } from "@/features/cfp";
 import { secondaryParticipantRoleSchema } from "@/features/forms/index.submission";
 import { upsertDraft } from "@/features/submissions";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema } from "@/shared/contracts";
