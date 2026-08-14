@@ -5,7 +5,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, taskIdSchema, type BulkReminderResult } from "@/shared/contracts";
-import { bulkReminderRecoveryStorageKey, bulkReminderTargetSetFingerprint, type BulkReminderSurface } from "../bulk-reminder-recovery";
+import { bulkReminderRecoveryStorageKey, bulkReminderTargetSetFingerprint, createBulkReminderRecovery, type BulkReminderSurface } from "../bulk-reminder-recovery";
 import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "./bulk-reminder-recovery";
 
 const toastMock = vi.hoisted(() => vi.fn());
@@ -276,6 +276,128 @@ describe("bulk reminder recovery", () => {
     expect(buttonNamed("Start batch")?.disabled).toBe(true);
     expect(window.localStorage.getItem(bulkReminderRecoveryStorageKey(eventId))).not.toBeNull();
     expect(acknowledged).not.toHaveBeenCalled();
+  });
+
+  it("reloads a newer authoritative attempt inside the lock and ignores delayed old events", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const oldValue = window.localStorage.getItem(key);
+    expect(oldValue).not.toBeNull();
+    const oldResolvedValue = JSON.stringify({
+      ...JSON.parse(oldValue as string) as object,
+      resolution: { kind: "result", result: acknowledgedResult },
+    });
+    const newRecovery = createBulkReminderRecovery(
+      eventId,
+      "speakers",
+      otherTargets,
+      tabBId,
+      "e1000000-0000-4000-8000-000000000008",
+    );
+    const newValue = JSON.stringify(newRecovery);
+
+    // Tab B completes/removes A's generation and starts a new one before A
+    // receives any of those storage events.
+    window.localStorage.setItem(key, oldResolvedValue);
+    window.localStorage.removeItem(key);
+    window.localStorage.setItem(key, newValue);
+
+    await act(async () => buttonNamed("Retry reminders")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 selected");
+    expect(buttonNamed("Retry reminders")).toBeDefined();
+    expect(window.localStorage.getItem(key)).toBe(newValue);
+
+    // The old resolved/removal pair arrives late and twice. Current storage
+    // remains the authority, so neither event clears A's unrelated selection
+    // or replaces B's global recovery marker.
+    for (let duplicate = 0; duplicate < 2; duplicate += 1) {
+      await act(async () => {
+        window.dispatchEvent(new StorageEvent("storage", {
+          key,
+          oldValue,
+          newValue: oldResolvedValue,
+          storageArea: window.localStorage,
+        }));
+        window.dispatchEvent(new StorageEvent("storage", {
+          key,
+          oldValue: oldResolvedValue,
+          newValue: null,
+          storageArea: window.localStorage,
+        }));
+      });
+    }
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 selected");
+    expect(window.localStorage.getItem(key)).toBe(newValue);
+  });
+
+  it("adopts a resolved marker inside the lock without re-posting", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const unresolvedValue = window.localStorage.getItem(key);
+    const resolvedValue = JSON.stringify({
+      ...JSON.parse(unresolvedValue as string) as object,
+      resolution: { kind: "result", result: acknowledgedResult },
+    });
+    window.localStorage.setItem(key, resolvedValue);
+
+    await act(async () => buttonNamed("Retry reminders")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("0 selected");
+    expect(window.localStorage.getItem(key)).toBeNull();
+  });
+
+  it("restores a missing marker inside the lock before a later exact retry", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: acknowledgedResult }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => buttonNamed("Start batch")?.click());
+    await settle();
+    const key = bulkReminderRecoveryStorageKey(eventId);
+    const firstBody = fetchMock.mock.calls[0]?.[1]?.body;
+    window.localStorage.removeItem(key);
+
+    await act(async () => buttonNamed("Retry reminders")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(key)).not.toBeNull();
+    expect(buttonNamed("Retry reminders")).toBeDefined();
+
+    await act(async () => buttonNamed("Retry reminders")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(firstBody);
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(window.localStorage.getItem(key)).toBeNull();
   });
 
   it("acknowledges a Files selection before unlocking when another tab finishes the exact attempt", async () => {
