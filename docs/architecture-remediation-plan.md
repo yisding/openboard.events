@@ -22,6 +22,18 @@ password mirroring, and test-only cookie-minting endpoint are gone;
 through the real password endpoint. Review also uncovered and closed the E2E
 reset path that wiped Better Auth credentials without recreating them.
 
+The guardrail foundation is now in place. PR #351 added a TypeScript-AST
+feature graph with exact debt and cycle ratchets; PR #352 added a full migration
+journal versus Drizzle metadata comparison, an explicit SQL-only ledger, and a
+complete-schema integration fixture; and PR #356 replaced syntax-sensitive
+repository greps with AST policies while retaining literal configuration and
+CSS checks. Their current measurements are 43 feature dependency directions,
+55 direct cross-feature imports, one seven-feature strongly connected group,
+zero server-to-UI/route imports, 83 tables, 747 modeled columns, 33 enums, and
+35 migrations. The remaining work in this guardrail phase is to drive the
+import and cycle baselines to zero through dependency inversion rather than
+merely re-exporting the same coupling from public barrels.
+
 ## Sequencing and workstreams
 
 ### 1. Establish architectural and schema guardrails
@@ -215,7 +227,8 @@ Exit criteria:
 ## Proposed pull-request order
 
 1. Fallback-auth retirement (completed in PR #345).
-2. Import/schema/invariant guardrails.
+2. Import/schema/invariant guardrails (foundation merged in PRs #351, #352,
+   and #356; dependency cleanup remains).
 3. Submission concurrency redesign.
 4. Worker artifact compatibility hardening.
 5. Shared outbox engine, then private scheduled invocation.
