@@ -2,7 +2,11 @@ import { revalidateTag } from "next/cache";
 import type { EventId } from "@/shared/contracts";
 import { log } from "@/shared/lib/log";
 import type { CanonicalEmbedContentType } from "../embed-config-types";
-import { publicCacheTag, type PublicEventSurface } from "../cache-contract";
+import {
+  publicCacheTag,
+  publicEventSurfaceForEmbed,
+  type PublicEventSurface,
+} from "../cache-contract";
 
 function revalidate(tags: readonly string[]): void {
   for (const tag of new Set(tags)) revalidateTag(tag);
@@ -34,14 +38,23 @@ export async function revalidatePublicEventMetadata(eventId: EventId, requestId:
   }
 }
 
-/** A kill switch, style, or filter affects only its canonical embed type. */
+/**
+ * A kill switch, style, or filter affects one canonical embed type. The
+ * paired content tag is also an eviction anchor for the composed ISR document:
+ * deployed OpenNext cache proof showed that expiring an independently cached
+ * config read alone does not evict an already-rendered embed page.
+ */
 export async function revalidatePublicEmbed(
   eventId: EventId,
   contentType: CanonicalEmbedContentType,
   requestId: string,
 ): Promise<void> {
   try {
-    revalidate([publicCacheTag.embed(eventId, contentType)]);
+    const contentSurface = publicEventSurfaceForEmbed(contentType);
+    revalidate([
+      publicCacheTag.embed(eventId, contentType),
+      publicCacheTag[contentSurface](eventId),
+    ]);
   } catch {
     log({ level: "warn", msg: "revalidate.failed", requestId, feature: "cache", eventId });
   }
