@@ -27,6 +27,18 @@
     { "binding": "FILES", "bucket_name": "sb-files-dev" },
     { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-dev" }
   ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+      { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "cache-v1",
+      "new_sqlite_classes": ["DOQueueHandler", "DOShardedTagCache"]
+    }
+  ],
   "services": [
     { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-local" }
   ],
@@ -52,6 +64,12 @@
         { "binding": "FILES", "bucket_name": "sb-files-preview" },
         { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-preview" }
       ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+          { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+        ]
+      },
       "services": [
         { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-preview" }
       ]
@@ -87,6 +105,12 @@
         { "binding": "FILES", "bucket_name": "sb-files" },
         { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files" }
       ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+          { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+        ]
+      },
       "services": [
         { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web" }
       ]
