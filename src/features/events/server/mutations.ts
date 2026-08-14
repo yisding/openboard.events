@@ -236,6 +236,9 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
 
     const effectiveStartsAt = patch.startsAt !== undefined ? new Date(patch.startsAt) : current.startsAt;
     const effectiveEndsAt = patch.endsAt !== undefined ? new Date(patch.endsAt) : current.endsAt;
+    const effectiveName = patch.name ?? current.name;
+    const effectiveSlug = patch.slug ?? current.slug;
+    const publicIcsMetadataChanged = effectiveName !== current.name || effectiveSlug !== current.slug;
     if (!(effectiveEndsAt.getTime() > effectiveStartsAt.getTime())) {
       throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
     }
@@ -247,35 +250,49 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
         AND (${sessions.startsAt} < ${effectiveStartsAt} OR ${sessions.endsAt} > ${effectiveEndsAt})
     )` : sql`true`;
 
-    let updated;
+    let updated: { id: string } | undefined;
     try {
-      [updated] = await dbOrTx.update(events)
-        .set({
-          name: patch.name ?? current.name,
-          slug: patch.slug ?? current.slug,
-          eventType: patch.eventType ?? current.eventType,
-          websiteUrl: patch.websiteUrl !== undefined ? (patch.websiteUrl || null) : current.websiteUrl,
-          location: patch.location !== undefined ? (patch.location || null) : current.location,
-          physicalAddress: patch.physicalAddress !== undefined ? (patch.physicalAddress || null) : current.physicalAddress,
-          timezone: patch.timezone ?? current.timezone,
-          startsAt: effectiveStartsAt,
-          endsAt: effectiveEndsAt,
-          theme: patch.theme !== undefined ? (patch.theme || null) : current.theme,
-          logoFileId: patch.logoFileId !== undefined ? patch.logoFileId : current.logoFileId,
-          backgroundFileId: patch.backgroundFileId !== undefined ? patch.backgroundFileId : current.backgroundFileId,
-          rowVersion: sql`${events.rowVersion} + 1`,
-          updatedAt: sql`greatest(${events.updatedAt} + interval '1 millisecond', clock_timestamp())`,
-        })
-        .where(and(
-          eq(events.id, eventId),
-          eq(events.rowVersion, expectedRowVersion),
-          // PostgreSQL stores microseconds while JavaScript Date carries only
-          // milliseconds. Compare at the shared precision; schedule writers
-          // always advance the token by at least one full millisecond.
-          sql`date_trunc('milliseconds', ${events.updatedAt}) = ${current.updatedAt}`,
-          scheduledSessionsFit,
-        ))
-        .returning();
+      const result = await dbOrTx.execute<{ id: string }>(sql`
+        WITH updated AS (
+          UPDATE ${events} AS event SET
+            name = ${effectiveName},
+            slug = ${effectiveSlug},
+            event_type = ${patch.eventType ?? current.eventType},
+            website_url = ${patch.websiteUrl !== undefined ? (patch.websiteUrl || null) : current.websiteUrl},
+            location = ${patch.location !== undefined ? (patch.location || null) : current.location},
+            physical_address = ${patch.physicalAddress !== undefined ? (patch.physicalAddress || null) : current.physicalAddress},
+            timezone = ${patch.timezone ?? current.timezone},
+            starts_at = ${effectiveStartsAt},
+            ends_at = ${effectiveEndsAt},
+            theme = ${patch.theme !== undefined ? (patch.theme || null) : current.theme},
+            logo_file_id = ${patch.logoFileId !== undefined ? patch.logoFileId : current.logoFileId},
+            background_file_id = ${patch.backgroundFileId !== undefined ? patch.backgroundFileId : current.backgroundFileId},
+            row_version = event.row_version + 1,
+            updated_at = greatest(event.updated_at + interval '1 millisecond', clock_timestamp())
+          WHERE event.id = ${eventId}
+            AND event.row_version = ${expectedRowVersion}
+            -- PostgreSQL stores microseconds while JavaScript Date carries only
+            -- milliseconds. Compare at the shared precision; schedule writers
+            -- always advance the token by at least one full millisecond.
+            AND date_trunc('milliseconds', event.updated_at) = ${current.updatedAt}
+            AND ${scheduledSessionsFit}
+          RETURNING event.id
+        ), revision_bumps AS (
+          UPDATE ${sessions} AS session SET
+            schedule_revision = session.schedule_revision + 1,
+            updated_at = greatest(session.updated_at + interval '1 millisecond', clock_timestamp())
+          FROM updated
+          WHERE ${publicIcsMetadataChanged}
+            AND session.event_id = updated.id
+            AND session.status::text = 'published'
+            AND session.starts_at IS NOT NULL
+          RETURNING session.id
+        )
+        SELECT updated.id
+        FROM updated
+        CROSS JOIN (SELECT count(*) FROM revision_bumps) AS applied
+      `);
+      [updated] = result.rows ?? [];
     } catch (error) {
       if (isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
       throw error;

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { restoreSessionContentIn, saveSessionIn } from "@/features/agenda/server/mutations";
+import { updateEventIn } from "@/features/events/server/mutations";
 import { deleteVocabItemIn, patchVocabItemIn } from "@/features/events/server/vocab";
 import { buildPublicScheduleIcsIn } from "@/features/public/server/public-ics";
 import { eventIdSchema, sessionIdSchema } from "@/shared/contracts";
@@ -19,6 +20,8 @@ const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.me
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migrationContentRevisions = readFileSync(new URL("../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
+const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
+const migrationOrganizationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
 
 const env = parseEnv({
@@ -40,6 +43,9 @@ const sessionContent = sessionIdSchema.parse("c1000000-0000-4000-8000-0000000000
 const originalContentRevision = "c1000000-0000-4000-8000-000000000051";
 const sessionRoomVocabulary = "c1000000-0000-4000-8000-000000000060";
 const roomVocabulary = "c1000000-0000-4000-8000-000000000061";
+const metadataEventId = eventIdSchema.parse("c1000000-0000-4000-8000-000000000070");
+const metadataSession = sessionIdSchema.parse("c1000000-0000-4000-8000-000000000071");
+const metadataDraftSession = "c1000000-0000-4000-8000-000000000072";
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -51,6 +57,8 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationContentRevisions);
+    await pglite.exec(migrationEmailCompliance);
+    await pglite.exec(migrationOrganizationTenancy);
     await pglite.exec(migrationPublicScheduleRevision);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
@@ -203,6 +211,46 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     }
   });
 
+  it("advances public sessions once for a combined event name and slug edit, but not for no-op or unrelated edits", async () => {
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Metadata Event','metadata-event','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [metadataEventId],
+    );
+    await pglite.query(
+      "INSERT INTO sessions(id,event_id,title,slug,starts_at,ends_at,status,schedule_revision) VALUES($1,$2,'Metadata Session','metadata-session','2026-09-16T05:00:00Z','2026-09-16T05:30:00Z','published',11),($3,$2,'Draft Metadata Session','draft-metadata-session','2026-09-16T06:00:00Z','2026-09-16T06:30:00Z','draft',20)",
+      [metadataSession, metadataEventId, metadataDraftSession],
+    );
+
+    try {
+      const original = required(await buildPublicScheduleIcsIn(db, "metadata-event", [metadataSession], env), "expected original metadata calendar");
+      const renamed = await updateEventIn(db, metadataEventId, { name: "Renamed Event", slug: "renamed-event" }, 1);
+      const afterRename = required(await buildPublicScheduleIcsIn(db, "renamed-event", [metadataSession], env), "expected renamed metadata calendar");
+      const unfoldedRename = unfoldIcs(afterRename.ics);
+
+      expect(uidOf(afterRename.ics)).toBe(uidOf(original.ics));
+      expect(afterRename.ics).toContain("SEQUENCE:12\r\n");
+      expect(afterRename.ics).toContain('ORGANIZER;CN="Renamed Event":mailto:hello@events.example.com\r\n');
+      expect(unfoldedRename).toContain(`URL:https://events.example.com/e/renamed-event/agenda?session=${metadataSession}\r\n`);
+
+      const noOp = await updateEventIn(db, metadataEventId, { name: "Renamed Event", slug: "renamed-event" }, renamed.rowVersion);
+      const unrelated = await updateEventIn(db, metadataEventId, { physicalAddress: "123 Main St" }, noOp.rowVersion);
+      const afterUnrelated = required(await buildPublicScheduleIcsIn(db, "renamed-event", [metadataSession], env), "expected metadata calendar after unrelated edit");
+      const revisions = await pglite.query<{ id: string; schedule_revision: number }>(
+        "SELECT id,schedule_revision FROM sessions WHERE event_id=$1 ORDER BY id",
+        [metadataEventId],
+      );
+
+      expect(unrelated.physicalAddress).toBe("123 Main St");
+      expect(afterUnrelated.ics).toContain("SEQUENCE:12\r\n");
+      expect(revisions.rows).toEqual([
+        { id: metadataSession, schedule_revision: 12 },
+        { id: metadataDraftSession, schedule_revision: 20 },
+      ]);
+    } finally {
+      await pglite.query("DELETE FROM events WHERE id=$1", [metadataEventId]);
+    }
+  });
+
   it("keeps the UID stable while advancing sequence, time, and location with a schedule revision", async () => {
     const first = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionKeep], env), "expected a calendar");
     expect(first.ics).toContain("SEQUENCE:3\r\n");
@@ -226,4 +274,8 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
 
 function uidOf(ics: string): string | undefined {
   return /UID:([^\r\n]+)/.exec(ics)?.[1];
+}
+
+function unfoldIcs(ics: string): string {
+  return ics.replaceAll("\r\n ", "");
 }
