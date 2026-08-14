@@ -246,6 +246,24 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     return () => media.removeEventListener("change", sync);
   }, []);
 
+  // Effective availability can change while this long-lived editor stays
+  // mounted. Wake at the next opening/closing boundary so the badge and
+  // lifecycle action never describe yesterday's state.
+  useEffect(() => {
+    if (persistedAvailabilityInput.status !== "open") return;
+    const current = Date.now();
+    const nextBoundary = [persistedAvailabilityInput.opensAt, persistedAvailabilityInput.closesAt]
+      .map((instant) => instant ? Date.parse(instant) : Number.NaN)
+      .filter((instant) => Number.isFinite(instant) && instant > current)
+      .sort((left, right) => left - right)[0];
+    if (nextBoundary === undefined) return;
+    const timer = window.setTimeout(
+      () => setAvailabilityNow(new Date().toISOString()),
+      Math.min(nextBoundary - current + 50, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [availabilityNow, persistedAvailabilityInput.closesAt, persistedAvailabilityInput.opensAt, persistedAvailabilityInput.status]);
+
   function markDirty(target: BuilderDirtyTarget) {
     dirtyRevisions.current.set(target, (dirtyRevisions.current.get(target) ?? 0) + 1);
     setDirty(true);
@@ -635,6 +653,9 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       toast(formAvailabilityRecoveryMessage(availabilityRecovery.action), { kind: "error" });
       return;
     }
+    // Also refresh on intent: a backgrounded tab can throttle the boundary
+    // timer, but its confirmation still must state the present consequence.
+    setAvailabilityNow(new Date().toISOString());
     const action: FormAvailabilityAction = persistedAvailabilityInput.status === "open" ? "close" : "open";
     if (action === "open" && hasUnsavedBuilderTargets) {
       const message = "Publish every unsaved form change before opening. Only published content appears on the public form.";

@@ -158,11 +158,39 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  vi.useRealTimers();
   container.remove();
   vi.unstubAllGlobals();
 });
 
 describe("form availability outcome recovery", () => {
+  it("updates a scheduled lifecycle action when the opening boundary passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:00:00.000Z"));
+    await mount(form({ opensAt: "2026-08-13T12:00:00.100Z" }));
+
+    expect(buttonNamed("Cancel scheduled opening")).toBeDefined();
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+
+    expect(buttonNamed("Stop accepting submissions")).toBeDefined();
+    expect(buttonNamed("Cancel scheduled opening")).toBeUndefined();
+  });
+
+  it("refreshes effective availability again when the lifecycle action is requested", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:00:00.000Z"));
+    await mount(form({ opensAt: "2026-08-13T12:01:00.000Z" }));
+    expect(buttonNamed("Cancel scheduled opening")).toBeDefined();
+
+    // Simulate a backgrounded tab whose boundary timer was throttled.
+    vi.setSystemTime(new Date("2026-08-13T12:02:00.000Z"));
+    await act(async () => buttonNamed("Cancel scheduled opening")?.click());
+
+    const dialog = container.querySelector("dialog");
+    expect(dialog?.textContent).toContain("Stop accepting submissions now?");
+    expect(buttonNamed("Stop accepting submissions", dialog ?? container)).toBeDefined();
+  });
+
   it("adopts the full concurrent server form while preserving only dirty authoring targets after recovery", async () => {
     const opensAt = "2026-09-01T16:00:00.000Z";
     const closesAt = "2026-09-15T23:00:00.000Z";
