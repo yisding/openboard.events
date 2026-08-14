@@ -15,7 +15,7 @@ export interface JobRouteHandler<Env, Context> {
   fetch(request: Request, env: Env, context: Context): Promise<Response>;
 }
 
-const JOB_NAMES = new Set<JobName>(["outbox", "reminders", "cleanup"]);
+const JOB_NAMES = new Set<JobName>(["outbox", "reminders", "cleanup", "r2-migration"]);
 
 export function isJobName(value: unknown): value is JobName {
   return typeof value === "string" && JOB_NAMES.has(value as JobName);

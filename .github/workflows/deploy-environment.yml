@@ -153,3 +153,6 @@ jobs:
           NEON_TEST_URL: ${{ env.DATABASE_URL_DIRECT }}
           E2E_SEED: "0"
         run: pnpm exec playwright test e2e/self-service-onboarding.spec.ts
+      - name: Verify zero version-1 R2 staging inventory
+        if: steps.freshness.outputs.current == 'true'
+        run: pnpm r2:migration:wait

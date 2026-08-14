@@ -30,9 +30,9 @@ and both already deployed:
   and deletes them.
 
 Both run daily via `cleanupOrphans`, wired to the `cleanup` job at 09:00 UTC
-(`workers/jobs/dispatch.ts`). **This is the durable, already-proven mitigation** — an R2-native
-lifecycle rule is additional defense in depth (it survives even if the cron stops ticking, or a
-future code path forgets to call the sweep), not a replacement for it.
+(`workers/jobs/dispatch.ts`). **This is the durable app-level mitigation** — an R2-native lifecycle
+rule is additional defense in depth (it survives even if the cron stops ticking, or a future code
+path forgets to call the sweep), not a replacement for it.
 
 ## Layout transition and safety boundary
 
@@ -53,6 +53,41 @@ staging/evt_<eventId>/<kind>/<fileId>/<filename>   # version 2, all new uploads
 Finalization recognizes both versions, but download authorization recognizes neither: only the
 published key is ready to serve. Do not remove version 1 until the migration inventory reports
 zero database rows and zero bucket objects after the 15-minute presign window.
+
+### Migration checkpoint
+
+`migrateLegacyStagingIn` runs through the temporary private `r2-migration` job every minute while
+compatibility is enabled. Keeping it separate prevents fast migration convergence from multiplying
+the unrelated daily cleanup and retention scans. It:
+
+1. reads a bounded batch of version-1 `file_assets` rows;
+2. server-side copies each live source to its version-2 key;
+3. requires the source and destination size and ETag to match;
+4. changes `file_assets.r2_key` with a compare-and-swap, then best-effort deletes the old key; and
+5. deletes a missing-source row only after the 15-minute presign window and only when the same
+   complete ownership predicate used by normal orphan cleanup says it is unowned.
+
+The checkpoint also advances a row cursor, so one corrupt or still-owned missing-source row cannot
+starve valid rows later in the batch. Such an anomalous row still keeps the zero-inventory gate
+closed until an operator repairs or explicitly removes it; the cursor improves convergence without
+weakening the exit condition.
+
+After the row count reaches zero, the job walks `evt_` objects through the S3 continuation token,
+deleting old, unowned version-1 objects. `r2_staging_migration_state` stores that opaque cursor and
+advances it with a row-version compare-and-swap, so overlapping cron ticks can repeat safe work but
+cannot move inventory backwards. A completed cycle records zero legacy rows, zero legacy objects,
+and zero failures. Completion requires a fresh full zero cycle after the checkpoint has existed for
+the entire 15-minute presign lifetime, so an old URL cannot recreate an object behind an accepted
+inventory. Protected deployments poll that state through `pnpm r2:migration:wait` and independently
+verify the elapsed window; a non-zero or incomplete inventory blocks promotion and leaves dual
+parsing in place.
+
+The migration never changes a published key. If copying, fingerprinting, or the row CAS fails, the
+version-1 row remains finalizable and is retried on the next tick. Rolling application code back to
+the preceding compatibility release is also safe: it finalizes the exact staging key stored on the
+row, including already-migrated version-2 keys. Do not manually delete version-1 objects or remove
+the parser to recover a stalled migration; inspect the checkpoint counters and Worker error logs,
+repair the R2/DB cause, and let the idempotent job resume.
 
 ## What to actually provision, today
 

@@ -56,7 +56,7 @@ describe("scheduled jobs Worker", () => {
     expect(dispatchSource).not.toContain("public-compat");
     expect(configSource).not.toContain("global_fetch_strictly_public");
     expect(configSource).not.toContain("JOB_TRANSPORT");
-    for (const job of ["outbox", "reminders", "cleanup"]) {
+    for (const job of ["outbox", "reminders", "cleanup", "r2-migration"]) {
       expect(existsSync(new URL(`../src/app/api/jobs/${job}/route.ts`, import.meta.url))).toBe(false);
     }
   });
@@ -121,13 +121,14 @@ describe("scheduled jobs Worker", () => {
       "outbox",
       "reminders",
       "cleanup",
+      "r2-migration",
     ]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox"]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox", "r2-migration"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox", "r2-migration"]);
   });
 
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {
-    expect(["outbox", "reminders", "cleanup"].every(isJobName)).toBe(true);
+    expect(["outbox", "reminders", "cleanup", "r2-migration"].every(isJobName)).toBe(true);
     expect(isJobName("airtable")).toBe(false);
     expect(isJobName("billing")).toBe(false);
   });
