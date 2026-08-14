@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, withTx } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
-import { getOrCreateContact, updateContactFields } from "@/features/portal";
+import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { createSubmissionIn, saveDraftAnswers, type CreateSubmissionResult, type DraftParticipantInput } from "@/features/submissions";
 import {
   cleanAnswersSchema,

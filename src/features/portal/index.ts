@@ -1,5 +1,3 @@
-export type { ContactPatch } from "./server/contacts";
-export { getOrCreateContact, updateContactFields } from "./server/contacts";
 // M52 — the shared deliverable-slot module: file versions and their plaintext
 // comment thread, read/written by both the speaker's task detail and the
 // organizer's tasks-admin / central Files surfaces.
@@ -28,8 +26,8 @@ export {
 } from "./server/queries";
 
 // M22 — speaker profile. `updateProfile` is the only writer of these `contacts`
-// columns from the portal side; it always goes through `updateContactFields`
-// above (resolution #13).
+// columns from the portal side; it always goes through the event-contacts
+// feature's field-scoped writer (resolution #13).
 export type { SpeakerProfileDTO } from "./profile/server/queries";
 export { getSpeakerProfile, getSpeakerProfileIn } from "./profile/server/queries";
 export type { ProfilePatch } from "./profile/server/mutations";
@@ -113,7 +111,7 @@ export { PortalFormBuilder } from "./form-builder/components/portal-form-builder
 // per-contact logistics values, declared unavailability (the M54 read
 // contract) and organizer-visible uploaded assets. Writes go through
 // `createSpeakerIn`/`updateSpeakerProfileIn` — both of which call
-// `getOrCreateContact`/`updateContactFields` above — plus the CSV importer
+// the event-contacts identity writers — plus the CSV importer
 // and the one-CTE unavailability replace.
 export type { SpeakerRosterExtras } from "./server/speaker-roster-queries";
 export {

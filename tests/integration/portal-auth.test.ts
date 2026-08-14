@@ -8,7 +8,7 @@ import { consumeToken, issuePortalToken, requestPortalLoginIn } from "@/features
 import { createPortalSessionRowIn, findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
 import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/index.payloads";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
-import { getOrCreateContact, updateContactFields } from "@/features/portal";
+import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { contactIdSchema, eventIdSchema, tokenIdSchema } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");

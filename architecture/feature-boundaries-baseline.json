@@ -2,11 +2,7 @@
   "directCrossFeatureImports": [],
   "featureCycles": [
     [
-      "auth",
-      "comms",
-      "events",
       "forms",
-      "portal",
       "submissions"
     ]
   ],

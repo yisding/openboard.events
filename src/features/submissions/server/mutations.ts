@@ -26,7 +26,7 @@ import {
   secondaryParticipantRoleSchema,
   type SecondaryParticipantRole,
 } from "@/features/forms/index.submission";
-import { getOrCreateContact, updateContactFields } from "@/features/portal";
+import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone } from "@/shared/lib/time";
