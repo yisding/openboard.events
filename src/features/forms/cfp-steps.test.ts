@@ -220,7 +220,7 @@ describe("CFP stale form recovery", () => {
     expect(staleHtml).not.toContain("<input");
     expect(staleHtml).not.toContain("<textarea");
     expect(staleHtml).not.toContain("Back");
-    expect(staleHtml).not.toContain("Submit submission");
+    expect(staleHtml).not.toContain(">Submit<");
     expect(staleHtml).not.toContain("Retry now");
   });
 

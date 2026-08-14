@@ -822,7 +822,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           )}
           <div className="cfp-actions">
             <Button type="button" variant="secondary" onClick={() => setStep(form.collectParticipants ? "speaker" : "submission")}>Back</Button>
-            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit submission"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit"}</Button>
           </div>
         </form>
       )}
