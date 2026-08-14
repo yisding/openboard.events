@@ -391,6 +391,9 @@ export const crmPipelineEntryDtoSchema = z.object({
 export type CrmPipelineEntryDTO = z.infer<typeof crmPipelineEntryDtoSchema>;
 
 export const createCrmPipelineEntryInputSchema = z.object({
+  // Optional for a rolling deployment: current clients always send one stable
+  // creation id, while an older tab can still create a server-id row.
+  id: crmPipelineIdSchema.optional(),
   organizationContactId: organizationContactIdSchema,
   targetEventId: eventIdSchema.nullable().optional(),
   notes: z.string().trim().max(2_000).optional(),

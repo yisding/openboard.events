@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import {
   contacts,
   organizationContactActivity,
@@ -53,12 +53,12 @@ import { sanitize } from "@/shared/lib/sanitize";
 import { getOrganizationContactIn } from "./queries";
 
 /**
- * M55 — organization-level speaker CRM writes. None of these is one of the
- * audited `withTx` functions (PLAN resolution #4): each is a small number of
+ * M55 — organization-level speaker CRM writes. Most are not among the audited
+ * `withTx` functions (PLAN resolution #4): each is a small number of
  * guarded single-statement writes over the plain `neon-http` handle, the
- * same discipline M51's roster mutations use — except
- * `mergeOrganizationContactsIn`, which lives in `./merge.ts` and *is* the
- * 10th function added to the audit list this run.
+ * same discipline M51's roster mutations use. The exceptions are the
+ * cross-table merge in `./merge.ts` and replay-safe pipeline creation below,
+ * whose row and initial history must commit together.
  *
  * `pushOrganizationContactToEventIn` is this module's one exception to
  * "never a second contacts writer": it calls the two owning helpers
@@ -366,25 +366,141 @@ export const pushOrganizationContactToEvent = (organizationId: OrganizationId, i
 
 // --- Sourcing pipeline -------------------------------------------------------
 
-export async function createCrmPipelineEntryIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateCrmPipelineEntryInput): Promise<CrmPipelineEntryDTO> {
+type CrmPipelineCreateAttempt = { entry: CrmPipelineEntryDTO; created: boolean };
+type CrmPipelineTransaction = <T>(work: (tx: TxDb) => Promise<T>) => Promise<T>;
+
+function toCrmPipelineEntryDto(row: typeof organizationContactPipeline.$inferSelect): CrmPipelineEntryDTO {
+  return crmPipelineEntryDtoSchema.parse({
+    id: row.id,
+    organizationContactId: row.organizationContactId,
+    targetEventId: row.targetEventId,
+    stage: row.stage,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  });
+}
+
+function crmPipelineCreationPayload(input: CreateCrmPipelineEntryInput) {
+  return {
+    organizationContactId: input.organizationContactId,
+    targetEventId: input.targetEventId ?? null,
+    notes: input.notes ?? null,
+  };
+}
+
+function sameCrmPipelineCreatePayload(
+  row: typeof organizationContactPipeline.$inferSelect,
+  organizationId: OrganizationId,
+  input: CreateCrmPipelineEntryInput,
+): boolean {
+  const original = row.creationPayload;
+  const replay = crmPipelineCreationPayload(input);
+  return row.organizationId === organizationId
+    && original.organizationContactId === replay.organizationContactId
+    && original.targetEventId === replay.targetEventId
+    && original.notes === replay.notes;
+}
+
+async function existingCrmPipelineCreateAttemptIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  input: CreateCrmPipelineEntryInput,
+): Promise<CrmPipelineCreateAttempt | null> {
+  if (!input.id) return null;
+  const [existing] = await dbOrTx.select().from(organizationContactPipeline)
+    .where(eq(organizationContactPipeline.id, input.id))
+    .limit(1);
+  if (!existing) return null;
+  if (!sameCrmPipelineCreatePayload(existing, organizationId, input)) {
+    throw new AppError("CONFLICT", "That pipeline creation request is already in use");
+  }
+  return { entry: toCrmPipelineEntryDto(existing), created: false };
+}
+
+async function createCrmPipelineEntryAttemptIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  input: CreateCrmPipelineEntryInput,
+): Promise<CrmPipelineCreateAttempt> {
+  // Resolve an already-committed request before re-validating its references:
+  // a response-loss retry identifies the same row even if a later operation
+  // has since changed the contact's lifecycle state.
+  const replay = await existingCrmPipelineCreateAttemptIn(dbOrTx, organizationId, input);
+  if (replay) return replay;
+
   await assertContactInOrgIn(dbOrTx, organizationId, input.organizationContactId);
   if (input.targetEventId) {
     const eventOrgId = await getEventOrganizationIn(dbOrTx, input.targetEventId);
     if (eventOrgId !== organizationId) throw new AppError("VALIDATION", "Target event does not belong to this organization");
   }
   const [row] = await dbOrTx.insert(organizationContactPipeline).values({
-    organizationId, organizationContactId: input.organizationContactId, targetEventId: input.targetEventId ?? null, notes: input.notes ?? null,
-  }).returning();
-  if (!row) throw new AppError("INTERNAL", "Pipeline insert did not return a row");
+    ...(input.id ? { id: input.id } : {}),
+    organizationId,
+    organizationContactId: input.organizationContactId,
+    targetEventId: input.targetEventId ?? null,
+    creationPayload: crmPipelineCreationPayload(input),
+    notes: input.notes ?? null,
+  }).onConflictDoNothing({ target: organizationContactPipeline.id }).returning();
+  if (!row) {
+    // A concurrent original request can win after the read above. PostgreSQL's
+    // uniqueness check waits for it; this second read then observes that row.
+    const concurrentReplay = await existingCrmPipelineCreateAttemptIn(dbOrTx, organizationId, input);
+    if (concurrentReplay) return concurrentReplay;
+    throw new AppError("INTERNAL", "Pipeline insert did not return a row");
+  }
   await dbOrTx.insert(organizationContactPipelineHistory).values({ organizationId, pipelineId: row.id, fromStage: null, toStage: "open" });
-  await recordActivityIn(dbOrTx, organizationId, input.organizationContactId, "pipeline_created", null, { pipelineId: row.id, targetEventId: input.targetEventId ?? null });
-  return crmPipelineEntryDtoSchema.parse({
-    id: row.id, organizationContactId: row.organizationContactId, targetEventId: row.targetEventId, stage: row.stage,
-    notes: row.notes, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
-  });
+  return { entry: toCrmPipelineEntryDto(row), created: true };
+}
+
+/**
+ * Transactional callers keep the authoritative pipeline row, its initial
+ * history, and its activity together. The runtime HTTP path below deliberately
+ * coordinates activity after commit because that audit is best effort.
+ */
+export async function createCrmPipelineEntryIn(dbOrTx: DbOrTx, organizationId: OrganizationId, input: CreateCrmPipelineEntryInput): Promise<CrmPipelineEntryDTO> {
+  const result = await createCrmPipelineEntryAttemptIn(dbOrTx, organizationId, input);
+  if (result.created) {
+    await recordActivityIn(dbOrTx, organizationId, input.organizationContactId, "pipeline_created", null, {
+      pipelineId: result.entry.id,
+      targetEventId: input.targetEventId ?? null,
+    });
+  }
+  return result.entry;
+}
+
+/**
+ * Commit the pipeline row and initial history before attempting contextual
+ * activity. A caught PostgreSQL error aborts its transaction, so activity must
+ * run on the plain database handle after the authoritative callback returns.
+ */
+export async function createCrmPipelineEntryWithPostCommitActivityIn(
+  database: typeof db,
+  runInTransaction: CrmPipelineTransaction,
+  organizationId: OrganizationId,
+  input: CreateCrmPipelineEntryInput,
+): Promise<CrmPipelineEntryDTO> {
+  const result = await runInTransaction((tx) => createCrmPipelineEntryAttemptIn(tx, organizationId, input));
+  if (result.created) {
+    try {
+      await recordActivityIn(database, organizationId, input.organizationContactId, "pipeline_created", null, {
+        pipelineId: result.entry.id,
+        targetEventId: input.targetEventId ?? null,
+      });
+    } catch (error) {
+      log({
+        level: "warn",
+        msg: "crm.pipeline_created_activity_failed",
+        requestId: result.entry.id,
+        feature: "crm",
+        code: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return result.entry;
 }
 export const createCrmPipelineEntry = (organizationId: OrganizationId, input: CreateCrmPipelineEntryInput): Promise<CrmPipelineEntryDTO> =>
-  createCrmPipelineEntryIn(db, organizationId, input);
+  createCrmPipelineEntryWithPostCommitActivityIn(db, withTx, organizationId, input);
 
 /** AC: "Move a prospect through open/won/lost states and verify timestamped
  * history." Guarded `UPDATE … WHERE stage <> $newStage` so a repeat call
