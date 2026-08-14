@@ -80,6 +80,7 @@ export type MySessionDTO = z.infer<typeof mySessionDtoSchema>;
 
 export const publishedSessionDtoSchema = z.object({
   id: sessionIdSchema,
+  scheduleRevision: z.int().nonnegative(),
   slug: z.string(),
   title: z.string(),
   descriptionHtml: z.string().nullable(),

@@ -16,6 +16,7 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
 
 const eventId = "a1000000-0000-4000-8000-000000000001";
 const otherEventId = "a1000000-0000-4000-8000-000000000002";
@@ -45,6 +46,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationPublicScheduleRevision);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     // PDT (UTC-7) in September: a session starting 2026-09-16T05:30:00Z is
@@ -83,7 +85,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
       [sessionDraft, eventId],
     );
     await pglite.query(
-      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,room_id,track_id,format_id) VALUES($1,$2,'Published Talk','published-talk','<p>published</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published',$3,$4,$5)",
+      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,room_id,track_id,format_id,schedule_revision) VALUES($1,$2,'Published Talk','published-talk','<p>published</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published',$3,$4,$5,3)",
       [sessionPublished, eventId, roomId, trackId, formatId],
     );
     await pglite.query(
@@ -128,6 +130,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
     // 2026-09-16T05:30:00Z is 2026-09-15 local in America/Los_Angeles (PDT).
     const published = schedule.sessions.find((s) => s.id === sessionPublished);
     expect(published?.dayKey).toBe("2026-09-15");
+    expect(published?.scheduleRevision).toBe(3);
     expect(schedule.days).toEqual(["2026-09-15"]);
   });
 
