@@ -107,6 +107,15 @@ function statusSelect(): HTMLSelectElement | undefined {
     .find((select) => [...select.options].some((option) => option.textContent?.includes("scores are final")));
 }
 
+function roundNameInput(): HTMLInputElement | null {
+  return container.querySelector<HTMLInputElement>('input[required]');
+}
+
+function changeInput(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 beforeEach(() => {
   routerMock.refresh.mockReset();
   toastMock.mockReset();
@@ -186,6 +195,49 @@ describe("evaluation plan assignment locking", () => {
 
     expect(container.textContent).toContain("Extend this round’s close date before changing reviewer assignments.");
     expect(reviewerCheckbox("Grace Hopper")?.closest("fieldset")?.disabled).toBe(true);
+  });
+
+  it("rebases the optimistic revision when refreshed closure props are deliberately reopened", async () => {
+    const initial = plan("open");
+    await renderEditor(initial);
+    const name = roundNameInput();
+    await act(async () => {
+      if (!name) return;
+      changeInput(name, "Local program edit");
+    });
+
+    const latest = {
+      ...initial,
+      status: "closed" as const,
+      round: 2,
+      updatedAt: "2026-08-13T13:00:00.000Z",
+    };
+    await renderEditor(latest);
+
+    expect(roundNameInput()?.value).toBe("Local program edit");
+    expect(statusSelect()?.value).toBe("closed");
+    expect(container.textContent).toContain("Reopen this round before changing reviewer assignments.");
+
+    const status = statusSelect();
+    await act(async () => {
+      if (!status) return;
+      status.value = "open";
+      status.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { planId: PLAN_ID } }));
+    await act(async () => buttonNamed("Save round")?.click());
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      name: "Local program edit",
+      round: 2,
+      status: "open",
+      expectedUpdatedAt: latest.updatedAt,
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reviewers"))).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("preserves reviewer edits and loads the latest round after closure between save stages", async () => {

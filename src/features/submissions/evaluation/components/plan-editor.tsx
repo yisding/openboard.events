@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CriterionKind } from "@/shared/contracts";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -130,6 +130,40 @@ function sameReviewerAssignments(
   });
 }
 
+function sameCriteriaDrafts(left: readonly CriterionDraft[], right: readonly CriterionDraft[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * Rebase a mounted editor after router.refresh supplies a newer authoritative
+ * plan. Fields the organizer has not touched follow the server; local edits
+ * stay local and are now protected by the fresh optimistic revision.
+ */
+function rebaseDraft(
+  current: PlanDraft,
+  previous: PlanDraft,
+  latest: PlanDraft,
+): PlanDraft {
+  return {
+    name: current.name === previous.name ? latest.name : current.name,
+    round: current.round === previous.round ? latest.round : current.round,
+    scaleMin: current.scaleMin === previous.scaleMin ? latest.scaleMin : current.scaleMin,
+    scaleMax: current.scaleMax === previous.scaleMax ? latest.scaleMax : current.scaleMax,
+    status: current.status === previous.status ? latest.status : current.status,
+    trackIds: sameStringSet(current.trackIds, previous.trackIds) ? latest.trackIds : current.trackIds,
+    opensAt: current.opensAt === previous.opensAt ? latest.opensAt : current.opensAt,
+    closesAt: current.closesAt === previous.closesAt ? latest.closesAt : current.closesAt,
+    anonymizeAuthors: current.anonymizeAuthors === previous.anonymizeAuthors
+      ? latest.anonymizeAuthors
+      : current.anonymizeAuthors,
+    showPeerScores: current.showPeerScores === previous.showPeerScores
+      ? latest.showPeerScores
+      : current.showPeerScores,
+    criteria: sameCriteriaDrafts(current.criteria, previous.criteria) ? latest.criteria : current.criteria,
+    reviewers: sameReviewerAssignments(current.reviewers, previous.reviewers) ? latest.reviewers : current.reviewers,
+  };
+}
+
 /** A `<Select multiple>` of tracks, where selecting nothing means every track. */
 function TrackScope({
   tracks,
@@ -221,6 +255,10 @@ export function PlanEditor({
   const [reviewerLockConflict, setReviewerLockConflict] = useState(false);
   const [reviewerRecoveryLoaded, setReviewerRecoveryLoaded] = useState(false);
   const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
+  const baselineRef = useRef(baseline);
+  baselineRef.current = baseline;
+  const expectedUpdatedAtRef = useRef(expectedUpdatedAt);
+  expectedUpdatedAtRef.current = expectedUpdatedAt;
   const { runGuarded } = useGuardedAction();
   const authoritativePlan = loadedLatestPlan && (!plan || new Date(loadedLatestPlan.updatedAt) >= new Date(plan.updatedAt))
     ? loadedLatestPlan
@@ -236,6 +274,18 @@ export function PlanEditor({
   const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
 
   useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    if (!plan) return;
+    const currentRevision = expectedUpdatedAtRef.current;
+    if (currentRevision && new Date(plan.updatedAt) <= new Date(currentRevision)) return;
+
+    const latest = draftFrom(plan);
+    const previous = baselineRef.current;
+    setDraft((current) => rebaseDraft(current, previous, latest));
+    setBaseline(latest);
+    setExpectedUpdatedAt(plan.updatedAt);
+  }, [plan]);
 
   useEffect(() => {
     let timer: number | null = null;
