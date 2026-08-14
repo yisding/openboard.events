@@ -10,6 +10,7 @@ import { api } from "@/shared/lib/api-client";
 import { eventDtoSchema, LIMITS, plainTextLength, type EventDTO } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { RESERVED_SLUGS } from "@/shared/lib/slug";
+import { timeZoneOptionLabel } from "@/shared/lib/time";
 import { EVENT_TYPES, type EventType } from "../schemas";
 import { BrandingPanel } from "./branding-panel";
 
@@ -287,7 +288,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
           </Field>
           <Field label="Timezone" required>
             <Select required value={draft.timezone} onChange={(e) => setDraft((current) => ({ ...current, timezone: e.target.value }))}>
-              {timeZones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+              {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
             </Select>
           </Field>
         </div>

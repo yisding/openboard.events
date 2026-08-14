@@ -215,6 +215,7 @@ test.describe("self-service signup to first value", () => {
       await eventNameInput(page).fill(eventName);
       await eventTimezoneInput(page).selectOption(ONBOARDING_TIMEZONE);
       await expect(eventTimezoneInput(page)).toHaveValue(ONBOARDING_TIMEZONE);
+      await expect(eventTimezoneInput(page).locator("option:checked")).toHaveText("Pacific Time — Los Angeles");
       await chooseEventDateTime(page, "Starts", 30, "09:00");
       await chooseEventDateTime(page, "Ends", 31, "17:00");
       const createPayloads: unknown[] = [];

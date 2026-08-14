@@ -26,6 +26,7 @@ describe("EventForm accessibility", () => {
     expect(html).toContain('id="event-slug-help"');
     expect(html).toContain('id="event-starts-at"');
     expect(html).toContain('id="event-ends-at"');
+    expect(html).toContain('<option value="America/Los_Angeles" selected="">Pacific Time — Los Angeles</option>');
     expect(html).toContain('type="submit"');
   });
 

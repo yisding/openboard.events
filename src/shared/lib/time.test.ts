@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, timeZoneOptionLabel, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -29,6 +29,13 @@ describe("event timezone API", () => {
   it("always appends the zone label", () => {
     expect(formatInZone("2026-10-15T19:00:00.000Z", LA, "dateTime")).toMatch(/PDT$/);
     expect(formatInZone("2026-12-15T20:00:00.000Z", LA, "dateTime")).toMatch(/PST$/);
+  });
+
+  it("presents canonical timezone values as readable selector labels", () => {
+    expect(timeZoneOptionLabel(LA)).toBe("Pacific Time — Los Angeles");
+    expect(timeZoneOptionLabel("Europe/London")).toBe("United Kingdom Time — London");
+    expect(timeZoneOptionLabel("UTC")).toBe("UTC");
+    expect(timeZoneOptionLabel("Not_A_Real_Zone")).toBe("Not A Real Zone");
   });
 
   it("accepts Intl style shortcuts without mixing component options", () => {

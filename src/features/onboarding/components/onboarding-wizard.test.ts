@@ -116,6 +116,7 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('id="onboarding-event-slug-help"');
     expect(html).toContain('id="onboarding-event-starts-at"');
     expect(html).toContain('id="onboarding-event-ends-at"');
+    expect(html).toContain('<option value="America/Los_Angeles" selected="">Pacific Time — Los Angeles</option>');
     expect(html).toContain('type="submit"');
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('class="sr-only">Step 1: Event details</h2>');
