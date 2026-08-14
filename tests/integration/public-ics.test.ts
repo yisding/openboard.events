@@ -15,6 +15,7 @@ function required<T>(value: T | null | undefined, message: string): T {
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
 
 const env = parseEnv({
   APP_ENV: "local",
@@ -29,6 +30,8 @@ const speakerId = "c1000000-0000-4000-8000-000000000020";
 const sessionKeep = "c1000000-0000-4000-8000-000000000030";
 const sessionRemove = "c1000000-0000-4000-8000-000000000031";
 const sessionDraft = "c1000000-0000-4000-8000-000000000032";
+const roomOriginal = "c1000000-0000-4000-8000-000000000040";
+const roomUpdated = "c1000000-0000-4000-8000-000000000041";
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -39,6 +42,7 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationPublicScheduleRevision);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -50,8 +54,12 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
       [speakerId, eventId],
     );
     await pglite.query(
-      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status) VALUES($1,$2,'Keep Me','keep-me','<p>Keep description</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published')",
-      [sessionKeep, eventId],
+      "INSERT INTO rooms(id,event_id,name) VALUES($1,$2,'Auditorium'),($3,$2,'Garden Stage')",
+      [roomOriginal, eventId, roomUpdated],
+    );
+    await pglite.query(
+      "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,schedule_revision,room_id) VALUES($1,$2,'Keep Me','keep-me','<p>Keep description</p>','2026-09-16T05:30:00Z','2026-09-16T06:00:00Z','published',3,$3)",
+      [sessionKeep, eventId, roomOriginal],
     );
     await pglite.query(
       "INSERT INTO sessions(id,event_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,'Also Published','also-published','2026-09-16T07:00:00Z','2026-09-16T07:30:00Z','published')",
@@ -111,10 +119,24 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     expect(ics).toContain("STATUS:CONFIRMED");
   });
 
-  it("carries a stable UID for the same session across repeated exports", async () => {
+  it("keeps the UID stable while advancing sequence, time, and location with a schedule revision", async () => {
     const first = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionKeep], env), "expected a calendar");
+    expect(first.ics).toContain("SEQUENCE:3\r\n");
+    expect(first.ics).toContain("DTSTART:20260916T053000Z\r\n");
+    expect(first.ics).toContain("DTEND:20260916T060000Z\r\n");
+    expect(first.ics).toContain("LOCATION:Auditorium\r\n");
+
+    await pglite.query(
+      "UPDATE sessions SET starts_at='2026-09-16T06:30:00Z',ends_at='2026-09-16T07:15:00Z',room_id=$2,schedule_revision=4 WHERE id=$1",
+      [sessionKeep, roomUpdated],
+    );
+
     const second = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionKeep], env), "expected a calendar");
     const uidOf = (ics: string) => /UID:([^\r\n]+)/.exec(ics)?.[1];
     expect(uidOf(first.ics)).toBe(uidOf(second.ics));
+    expect(second.ics).toContain("SEQUENCE:4\r\n");
+    expect(second.ics).toContain("DTSTART:20260916T063000Z\r\n");
+    expect(second.ics).toContain("DTEND:20260916T071500Z\r\n");
+    expect(second.ics).toContain("LOCATION:Garden Stage\r\n");
   });
 });
