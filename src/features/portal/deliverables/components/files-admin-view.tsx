@@ -422,7 +422,7 @@ export function FilesAdminView({
       </div>
 
       <section className="panel data-panel">
-        <div className="data-toolbar">
+        <div className="data-toolbar files-data-toolbar">
           <label className="table-search">
             <Search size={16} />
             <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />

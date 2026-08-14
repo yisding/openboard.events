@@ -1130,7 +1130,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-skeleton--event-card{height:220px;border:1px solid var(--line)}
 .route-loading-title>div{display:block}
 .route-workspace-loading{display:grid;gap:24px;max-width:1180px;min-height:420px}
-.route-workspace-loading>header{display:flex;align-items:end;justify-content:space-between;gap:24px}
+.route-workspace-loading>header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
 .route-workspace-loading__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .route-skeleton--panel{height:190px;border:1px solid var(--line)}
 .route-skeleton--panel-wide{grid-column:1/3;height:240px}
@@ -1913,6 +1913,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .admin-sidebar:not(.open){overflow:hidden}
 }
 
+/* Files has more filters than the other data tables. Keep its search readable
+   and let filters wrap when the admin sidebar reduces the available width. */
+.files-data-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:11px}
+.files-data-toolbar .table-search{flex:1 1 280px;min-width:260px}
+
 /* The data toolbar is one nowrap flex row about 680px wide (search + two
    filter buttons + column picker + row count). With the sidebar still in
    place the content column is narrower than that from 1024 down, so the row
@@ -1923,6 +1928,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 }
 @media(max-width:768px){
   .data-toolbar .table-search{flex:1 0 100%;width:100%}
+  .files-data-toolbar .table-search{min-width:0}
   .data-toolbar select{flex:1 1 140px;min-width:0}
 
   /* Form filters stay keyboard-reachable in a horizontal rail while the
@@ -2466,7 +2472,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 /* Evaluation audit trail in the organizer's proposal drawer. */
 .review-history-list{display:grid;gap:10px;margin:12px 0 0;padding:0;list-style:none}
 .review-history-list>li{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:var(--surface)}
-.review-history-list header{display:flex;justify-content:space-between;gap:12px;align-items:start}
+.review-history-list header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .review-history-list header div{display:grid;gap:2px}
 .review-history-list header span{color:var(--muted);font-size:12px}
 .review-history-list header strong{color:var(--accent);font-size:16px}
