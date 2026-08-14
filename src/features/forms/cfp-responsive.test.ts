@@ -32,6 +32,7 @@ describe("CFP progress responsive styles", () => {
     const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
 
     expect(source).toContain("public-form-progress-${flowSteps.length}");
+    expect(source).toContain("<b>{cfpProgressLabel(name)}</b>");
     expect(source).toContain('<span aria-hidden="true">{complete ? "✓" : index + 1}</span>');
     expect(css).toContain(".public-form-progress-4{grid-template-columns:repeat(4,minmax(0,1fr))}");
     expect(css).toContain('.public-form-progress li:not(:last-child)::after{content:"";position:absolute');
@@ -66,5 +67,7 @@ describe("CFP progress responsive styles", () => {
     expect(phone).toContain(".cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}");
     expect(phone).toContain(".cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}");
     expect(phone).toContain(".public-form-welcome .welcome-facts{grid-template-columns:1fr}");
+    expect(phone).toContain("main.cfp-container{padding-inline:12px}");
+    expect(phone).toContain("main.cfp-container .cfp-step{padding:16px}");
   });
 });

@@ -1892,6 +1892,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .cfp-account-form>.cfp-code-actions{display:grid;grid-template-columns:1fr 1fr}
   .cfp-account-form>.cfp-code-actions>.button:last-child{grid-column:1/-1}
 
+  /* Four 12px progress labels need more than the desktop card's nested
+     24px + 24px insets leave at 320px. Keep the page gutter, but let each
+     public CFP step own a full, readable label cell. */
+  main.cfp-container{padding-inline:12px}
+  main.cfp-container .cfp-step{padding:16px}
+
   .public-form-welcome .welcome-facts{grid-template-columns:1fr}
 }
 

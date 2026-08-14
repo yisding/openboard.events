@@ -20,6 +20,14 @@ import { Button } from "@/shared/ui/ui-kit";
  * code before they ever press submit.
  */
 type Step = "account" | "submission" | "speaker" | "review" | "done";
+type CfpFlowStep = Exclude<Step, "done">;
+
+const CFP_PROGRESS_LABELS: Record<CfpFlowStep, string> = {
+  account: "Account",
+  submission: "Proposal",
+  speaker: "Speaker",
+  review: "Review",
+};
 
 type Answers = Record<string, AnswerValue | undefined>;
 export type ParticipantDraft = { clientId: string; role: SecondaryParticipantRole; answers: Answers };
@@ -41,10 +49,14 @@ export type CfpSubmitSettlement = "ordinary-failure" | "stale-failure" | "succes
 
 const STALE_FORM_MESSAGE = "The organizer updated this form while you were working. Reload the updated form to continue with the latest questions; your saved draft will be restored.";
 
-export function cfpFlowSteps(collectParticipants: boolean): Array<Exclude<Step, "done">> {
+export function cfpFlowSteps(collectParticipants: boolean): CfpFlowStep[] {
   return collectParticipants
     ? ["account", "submission", "speaker", "review"]
     : ["account", "submission", "review"];
+}
+
+export function cfpProgressLabel(step: CfpFlowStep): string {
+  return CFP_PROGRESS_LABELS[step];
 }
 
 export function focusCfpAccountControl(
@@ -697,7 +709,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
           return (
             <li key={name} className={step === name ? "active" : complete ? "complete" : ""} aria-current={step === name ? "step" : undefined}>
               <span aria-hidden="true">{complete ? "✓" : index + 1}</span>
-              <b>{name}</b>
+              <b>{cfpProgressLabel(name)}</b>
             </li>
           );
         })}
