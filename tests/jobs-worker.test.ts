@@ -15,6 +15,7 @@ import { isJobName, runPrivateJob } from "../workers/job-service";
 const env: Env = {
   APP_BASE_URL: "https://sb-web.example.test",
   CRON_SECRET: "cron-secret",
+  JOB_TRANSPORT: "rpc",
   WEB_JOBS: { runJob: async () => new Response(null, { status: 200 }) },
 };
 
@@ -22,6 +23,7 @@ describe("scheduled jobs Worker", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("keeps the Worker main module free of accidental named runtime entrypoints", () => {
@@ -49,24 +51,52 @@ describe("scheduled jobs Worker", () => {
     expect(logged).not.toContain("cron-secret");
   });
 
-  it("uses the authenticated public callback only when RPC is unavailable", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const rpc = vi.fn<JobRpc>(async () => { throw new Error("entrypoint is not deployed"); });
+  it("uses the authenticated public callback only in explicit compatibility mode", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const rpc = vi.fn<JobRpc>();
     const fetcher = vi.fn<JobFetcher>(async () => new Response(null, { status: 200 }));
 
-    await dispatchJob(env, "outbox", { rpc, fetcher });
+    await dispatchJob({ ...env, JOB_TRANSPORT: "public-compat" }, "outbox", { rpc, fetcher });
 
+    expect(rpc).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [request] = fetcher.mock.calls[0] ?? [];
     expect(request).toBeInstanceOf(Request);
     expect((request as Request).url).toBe("https://sb-web.example.test/api/jobs/outbox");
     expect((request as Request).headers.get("x-cron-secret")).toBe("cron-secret");
     expect((request as Request).signal.aborted).toBe(false);
-    const logged = warning.mock.calls.map(([value]) => String(value)).join("\n");
-    expect(logged).toContain('"transport":"public-fallback"');
-    expect(logged).not.toContain("entrypoint is not deployed");
+    const logged = info.mock.calls.map(([value]) => String(value)).join("\n");
+    expect(logged).toContain('"transport":"public-compat"');
     expect(logged).not.toContain("cron-secret");
+  });
+
+  it("never replays an RPC exception through the public route", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const rpc = vi.fn<JobRpc>(async () => { throw new Error("connection lost after invocation"); });
+    const fetcher = vi.fn<JobFetcher>();
+
+    await expect(dispatchJob(env, "outbox", { rpc, fetcher })).rejects.toThrow(
+      "connection lost after invocation",
+    );
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("bounds the RPC promise even when the web handler ignores its request signal", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const pending = new Promise<Response>((resolve) => { void resolve; });
+    const rpc = vi.fn<JobRpc>(() => pending);
+    const fetcher = vi.fn<JobFetcher>();
+
+    const dispatched = dispatchJob(env, "cleanup", { rpc, fetcher });
+    const rejection = expect(dispatched).rejects.toThrow(
+      `Scheduled job cleanup RPC timed out after ${JOB_FETCH_TIMEOUT_MS}ms`,
+    );
+    await vi.advanceTimersByTimeAsync(JOB_FETCH_TIMEOUT_MS);
+    await rejection;
+
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("rejects a non-success response without logging its raw body", async () => {

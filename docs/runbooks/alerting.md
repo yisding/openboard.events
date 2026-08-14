@@ -32,7 +32,7 @@ them:
    **Workers & Pages → `sb-jobs[-preview]` → Triggers → Past Events**. Workers Logs receive
    `scheduled.job_complete`, `scheduled.job_failed`, or `scheduled.job_request_failed` with job,
    transport, status, and duration only; response bodies are never copied into the dispatcher log.
-   `transport: "rpc"` is the healthy rollout state; any `public-fallback` blocks removal of the
+   `transport: "rpc"` is the healthy rollout state; any `public-compat` blocks removal of the
    compatibility adapter. A web-job 500 also reaches path 2 through `captureError`, but a binding,
    authentication, or network failure may exist only in this Cloudflare status/log path. Past Events is currently a runtime signal, not
    an independently routed pager; inspect it during deployment and incident triage, and treat any
@@ -75,7 +75,7 @@ the workflow run.
 |---|---|---|
 | `pnpm worker:size` compressed bundle | warn `> 2.5 MiB`, fail `> 3 MiB` | `scripts/check-worker-size.sh`, already a CI gate (`.github/workflows/ci.yml`'s `artifacts` job) — listed here only so it appears in one place alongside the runtime thresholds, not duplicated as a new check. |
 | Post-deploy smoke (`scripts/post-deploy-smoke.sh --strict`) | any failure or skip | `.github/workflows/deploy.yml`'s `Smoke test the deployed web worker` step (followed, on preview only, by the self-service signup journey) — a failed deploy workflow run is itself the alert; see `docs/runbooks/rollback.md` for the response. |
-| Jobs Cron Trigger invocation | any `public-fallback`, failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The web route owns raw error capture; dispatcher logs stay metadata-only. |
+| Jobs Cron Trigger invocation | any `public-compat`, failed Past Events status, `scheduled.job_failed`, or `scheduled.job_request_failed` | Cloudflare `sb-jobs[-preview]` Past Events and Workers Logs. The web route owns raw error capture; dispatcher logs stay metadata-only. |
 
 ## R2 / storage
 

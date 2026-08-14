@@ -7,6 +7,7 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "keep_vars": true,
   "triggers": { "crons": ["* * * * *"] },
+  "vars": { "JOB_TRANSPORT": "rpc" },
   "services": [
     { "binding": "WEB_JOBS", "service": "sb-web-local", "entrypoint": "JobsEntrypoint" }
   ],
@@ -16,6 +17,7 @@
     "preview": {
       "name": "sb-jobs-preview",
       "triggers": { "crons": ["* * * * *"] },
+      "vars": { "JOB_TRANSPORT": "rpc" },
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web-preview", "entrypoint": "JobsEntrypoint" }
       ],
@@ -24,6 +26,7 @@
     "production": {
       "name": "sb-jobs",
       "triggers": { "crons": ["* * * * *"] },
+      "vars": { "JOB_TRANSPORT": "rpc" },
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web", "entrypoint": "JobsEntrypoint" }
       ],

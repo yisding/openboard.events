@@ -226,8 +226,9 @@ Finish sections 0–5 and migrate `sb-test` before starting this section.
   ```
 
 - [x] Confirm `sb-jobs-preview` has the `WEB_JOBS` Service Binding to
-  `sb-web-preview#JobsEntrypoint` and only the temporary `APP_BASE_URL` / `CRON_SECRET`
-  compatibility bindings; do not copy database, session, R2, Resend, or Airtable credentials to it.
+  `sb-web-preview#JobsEntrypoint`, `JOB_TRANSPORT=rpc`, and only the temporary
+  `APP_BASE_URL` / `CRON_SECRET` compatibility bindings; do not copy database, session, R2,
+  Resend, or Airtable credentials to it.
 - [x] Run the preview smoke check. Without the `SMOKE_*` fixture ids the dashboard,
   submit-form, and headshot checks skip instead of running; `--strict` turns any skip into a
   failure, which is how the deploy workflow runs it:

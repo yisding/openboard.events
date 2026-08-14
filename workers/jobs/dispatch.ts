@@ -5,7 +5,12 @@ import {
   type JobService,
 } from "../job-service";
 
-export interface Env { APP_BASE_URL: string; CRON_SECRET: string; WEB_JOBS: JobService }
+export interface Env {
+  APP_BASE_URL: string;
+  CRON_SECRET: string;
+  JOB_TRANSPORT: "rpc" | "public-compat";
+  WEB_JOBS: JobService;
+}
 export type JobFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export type JobRpc = (job: JobName) => Promise<Response>;
 
@@ -14,6 +19,20 @@ export type JobRpc = (job: JobName) => Promise<Response>;
 // Worker runtime's wall-time ceiling and prevents a stuck sibling Worker
 // request from living forever or hiding behind overlapping cron invocations.
 export const JOB_FETCH_TIMEOUT_MS = JOB_REQUEST_TIMEOUT_MS;
+
+async function runRpcWithDeadline(rpc: JobRpc, job: JobName): Promise<Response> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Scheduled job ${job} RPC timed out after ${JOB_FETCH_TIMEOUT_MS}ms`));
+    }, JOB_FETCH_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([rpc(job), deadline]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
 
 export function jobsForScheduledTime(scheduledTime: number): JobName[] {
   const scheduled = new Date(scheduledTime);
@@ -35,23 +54,16 @@ export async function dispatchJob(
 ): Promise<void> {
   const startedAt = Date.now();
   let response: Response;
-  let transport: "rpc" | "public-fallback" = "rpc";
+  const transport = env.JOB_TRANSPORT;
   try {
-    try {
-      response = await (options?.rpc ?? ((name) => env.WEB_JOBS.runJob(name)))(job);
-      if (!(response instanceof Response)) throw new Error("job RPC returned an invalid response");
-    } catch {
-      // One compatibility release keeps the authenticated HTTP callback as a
-      // rollback adapter. Never retry a valid 500 response: the private request
-      // reached the job and replaying it here could duplicate side effects.
-      transport = "public-fallback";
-      console.warn(JSON.stringify({
-        level: "warn",
-        msg: "scheduled.job_rpc_unavailable",
-        job,
-        transport,
-      }));
+    if (transport === "public-compat") {
       response = await (options?.fetcher ?? fetch)(privateJobRequest(env, job));
+    } else {
+      response = await runRpcWithDeadline(
+        options?.rpc ?? ((name) => env.WEB_JOBS.runJob(name)),
+        job,
+      );
+      if (!(response instanceof Response)) throw new Error("job RPC returned an invalid response");
     }
   } catch (error) {
     console.error(JSON.stringify({
