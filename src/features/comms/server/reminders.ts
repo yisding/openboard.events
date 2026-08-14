@@ -2,7 +2,18 @@ import { sql } from "drizzle-orm";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { communicationLogs } from "@/db/schema";
-import { idem, type CommStatus, type ContactId, type EventId, type JobStats, type SendReminderNowResult, type SubmissionId, type TaskId } from "@/shared/contracts";
+import {
+  idem,
+  type BulkReminderResult,
+  type BulkReminderTargetResult,
+  type CommStatus,
+  type ContactId,
+  type EventId,
+  type JobStats,
+  type SendReminderNowResult,
+  type SubmissionId,
+  type TaskId,
+} from "@/shared/contracts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 
 /**
@@ -336,25 +347,50 @@ export async function sendReminderNow(
  * idempotent — not a second enqueue path — capped by the route's own zod
  * schema (200) so a bulk click never spends more of the Workers Free
  * subrequest budget than `notifySchedule`'s per-recipient loop already does
- * for a published session.
+ * for a published session. The production `db` handle commits each target
+ * independently on purpose: one bad address does not roll back reminders
+ * already accepted for other speakers. A durable batch attempt makes that
+ * partial boundary recoverable instead — retry observes committed target keys
+ * before filling only the missing rows.
  */
 export async function sendRemindersNowIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   targets: readonly { taskId: TaskId; contactId: ContactId; submissionId: SubmissionId | null }[],
   now: number = Date.now(),
-): Promise<{ enqueued: number; total: number }> {
+  attemptId?: string,
+): Promise<BulkReminderResult> {
   let enqueued = 0;
+  const results: BulkReminderTargetResult[] = [];
   for (const target of targets) {
-    const result = await sendReminderNowIn(dbOrTx, eventId, target.taskId, target.contactId, target.submissionId, now);
+    // The batch id is intentionally shared: `taskReminderManualAttempt` also
+    // includes the target coordinates, so a partial retry recovers each
+    // already-committed row and fills only the missing targets.
+    const result = await sendReminderNowIn(
+      dbOrTx,
+      eventId,
+      target.taskId,
+      target.contactId,
+      target.submissionId,
+      now,
+      attemptId,
+    );
     if (result.enqueued) enqueued += 1;
+    results.push({
+      ...target,
+      enqueued: result.enqueued,
+      ...(result.attemptStatus
+        ? { attemptStatus: result.attemptStatus }
+        : result.enqueued ? { attemptStatus: "queued" as const } : {}),
+    });
   }
-  return { enqueued, total: targets.length };
+  return { enqueued, total: targets.length, results };
 }
 
 export function sendRemindersNow(
   eventId: EventId,
   targets: readonly { taskId: TaskId; contactId: ContactId; submissionId: SubmissionId | null }[],
-): Promise<{ enqueued: number; total: number }> {
-  return sendRemindersNowIn(db, eventId, targets);
+  attemptId?: string,
+): Promise<BulkReminderResult> {
+  return sendRemindersNowIn(db, eventId, targets, Date.now(), attemptId);
 }

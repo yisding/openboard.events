@@ -24,7 +24,20 @@ vi.mock("@/features/comms/index.bulk-send-recovery", () => ({
   loadBulkSendRecovery: () => ({ ok: true, snapshot: null }),
   speakerBulkSendRecoveryIdentity: () => ({ eventId: "event-1" }),
 }));
-vi.mock("@/features/comms/index.client", () => ({ UnreadableBulkSendRecovery: () => null }));
+vi.mock("@/features/comms/index.client", () => ({
+  UnreadableBulkSendRecovery: () => null,
+  BulkReminderRecoveryDialog: () => null,
+  useBulkReminderRecovery: () => ({
+    blocked: false,
+    recovery: null,
+    sending: false,
+    unreadable: false,
+    start: vi.fn(),
+    retry: vi.fn(),
+    finishCleanup: vi.fn(),
+    clearUnreadable: vi.fn(),
+  }),
+}));
 vi.mock("@/shared/ui/app/confirm-dialog", () => ({ ConfirmDialog: () => null }));
 vi.mock("@/shared/ui/app/data-table", () => ({ DataTable: () => null }));
 vi.mock("@/shared/ui/app/use-flow-keyboard-nav", () => ({ useFlowKeyboardNav: () => undefined }));

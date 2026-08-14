@@ -45,6 +45,8 @@ const taskId = taskIdSchema.parse("d0000000-0000-4000-8000-000000000040");
 const secondTaskId = taskIdSchema.parse("d0000000-0000-4000-8000-000000000041");
 const reminderAttemptId = "d0000000-0000-4000-8000-000000000050";
 const secondReminderAttemptId = "d0000000-0000-4000-8000-000000000051";
+const bulkReminderAttemptId = "d0000000-0000-4000-8000-000000000052";
+const secondBulkReminderAttemptId = "d0000000-0000-4000-8000-000000000053";
 
 type LogRow = { idempotency_key: string; status: string; error: string | null; task_id: string | null; submission_id: string | null; contact_id: string };
 
@@ -466,7 +468,14 @@ describe("reminder + assignment scan", () => {
         { taskId, contactId: speakerId, submissionId: null },
         { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
       ]);
-      expect(result).toEqual({ enqueued: 2, total: 2 });
+      expect(result).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
       expect(await logs("task_reminder")).toHaveLength(2);
     });
 
@@ -476,15 +485,130 @@ describe("reminder + assignment scan", () => {
         { taskId, contactId: speakerId, submissionId: null },
         { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
       ]);
-      expect(result).toEqual({ enqueued: 1, total: 2 });
+      expect(result).toEqual({
+        enqueued: 1,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: false },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
       const rows = await logs("task_reminder");
       expect(rows).toHaveLength(1);
       expect(rows[0]?.contact_id).toBe(coSpeakerId);
     });
 
     it("is the identity mapping over an empty selection", async () => {
-      expect(await sendRemindersNowIn(tx, eventId, [])).toEqual({ enqueued: 0, total: 0 });
+      expect(await sendRemindersNowIn(tx, eventId, [])).toEqual({ enqueued: 0, total: 0, results: [] });
       expect(await logs("task_reminder")).toHaveLength(0);
+    });
+
+    it("recovers a partially committed batch after a minute and reports terminal target status", async () => {
+      const targets = [
+        { taskId, contactId: speakerId, submissionId: null },
+        { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null },
+      ] as const;
+      const firstRequestAt = 1_770_000_000_000;
+      await pglite.exec(`
+        CREATE FUNCTION fail_second_bulk_reminder() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.contact_id = '${coSpeakerId}' AND NEW.template_key = 'task_reminder' THEN
+            RAISE EXCEPTION 'forced second bulk reminder failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_second_bulk_reminder
+        BEFORE INSERT ON communication_logs
+        FOR EACH ROW EXECUTE FUNCTION fail_second_bulk_reminder();
+      `);
+
+      await expect(sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt,
+        bulkReminderAttemptId,
+      )).rejects.toThrow("Failed query");
+      expect(await logs("task_reminder")).toEqual([
+        expect.objectContaining({
+          idempotency_key: idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+          contact_id: speakerId,
+        }),
+      ]);
+
+      await pglite.exec("DROP TRIGGER fail_second_bulk_reminder ON communication_logs; DROP FUNCTION fail_second_bulk_reminder();");
+      const recovered = await sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt + 181_000,
+        bulkReminderAttemptId,
+      );
+      expect(recovered).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
+      expect(new Set((await logs("task_reminder")).map((row) => row.idempotency_key))).toEqual(new Set([
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId),
+      ]));
+
+      await pglite.query(
+        "UPDATE communication_logs SET status='sent', sent_at=now() WHERE idempotency_key=$1",
+        [idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId)],
+      );
+      await pglite.query(
+        "UPDATE communication_logs SET status='failed', error='provider rejected' WHERE idempotency_key=$1",
+        [idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId)],
+      );
+
+      // A deliberate later batch gives every still-open target a second row.
+      expect(await sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt + 221_000,
+        secondBulkReminderAttemptId,
+      )).toEqual({
+        enqueued: 2,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
+        ],
+      });
+      expect(new Set((await logs("task_reminder")).map((row) => row.idempotency_key))).toEqual(new Set([
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, secondBulkReminderAttemptId),
+        idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, secondBulkReminderAttemptId),
+      ]));
+
+      // Completion after the first request must not hide its durable outcome.
+      await pglite.query(
+        "INSERT INTO task_completions(event_id,task_id,contact_id,completed_via) VALUES($1,$2,$3,'manual')",
+        [eventId, taskId, speakerId],
+      );
+      expect(await sendRemindersNowIn(
+        tx,
+        eventId,
+        targets,
+        firstRequestAt + 241_000,
+        bulkReminderAttemptId,
+      )).toEqual({
+        enqueued: 0,
+        total: 2,
+        results: [
+          { taskId, contactId: speakerId, submissionId: null, enqueued: false, attemptStatus: "sent" },
+          { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: false, attemptStatus: "failed" },
+        ],
+      });
+      expect(await logs("task_reminder")).toHaveLength(4);
     });
   });
 });

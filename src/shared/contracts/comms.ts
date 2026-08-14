@@ -21,6 +21,43 @@ export const sendReminderNowResultSchema = z.object({
 });
 export type SendReminderNowResult = z.infer<typeof sendReminderNowResultSchema>;
 
+/**
+ * One coordinate in an organizer bulk-reminder batch. A batch attempt id is
+ * shared by every target, while the outbox idempotency key also includes these
+ * coordinates, giving each assignment one durable attempt of its own.
+ */
+export const bulkReminderTargetSchema = z.object({
+  taskId: taskIdSchema,
+  contactId: contactIdSchema,
+  submissionId: submissionIdSchema.nullable(),
+});
+export type BulkReminderTarget = z.infer<typeof bulkReminderTargetSchema>;
+
+export const bulkReminderTargetResultSchema = bulkReminderTargetSchema.extend({
+  enqueued: z.boolean(),
+  /** Missing means the assignment was already complete or no longer exists. */
+  attemptStatus: commStatusSchema.optional(),
+});
+export type BulkReminderTargetResult = z.infer<typeof bulkReminderTargetResultSchema>;
+
+export const bulkReminderResultSchema = z.object({
+  enqueued: z.int().nonnegative(),
+  total: z.int().nonnegative(),
+  results: z.array(bulkReminderTargetResultSchema).max(200),
+}).superRefine((value, context) => {
+  if (value.total !== value.results.length) {
+    context.addIssue({ code: "custom", path: ["total"], message: "Total must match target results" });
+  }
+  if (value.enqueued !== value.results.filter((result) => result.enqueued).length) {
+    context.addIssue({ code: "custom", path: ["enqueued"], message: "Enqueued must match target results" });
+  }
+  const keys = value.results.map((result) => `${result.taskId}:${result.contactId}:${result.submissionId ?? "-"}`);
+  if (new Set(keys).size !== keys.length) {
+    context.addIssue({ code: "custom", path: ["results"], message: "Target results must be unique" });
+  }
+});
+export type BulkReminderResult = z.infer<typeof bulkReminderResultSchema>;
+
 export const commLogRowSchema = z.object({
   id: commLogIdSchema,
   contactId: contactIdSchema.nullable(),

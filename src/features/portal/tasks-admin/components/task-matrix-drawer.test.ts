@@ -2,6 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ToastProvider } from "@/shared/ui/toast";
+import type { BulkReminderRecoveryController } from "@/features/comms/index.client";
 import type { AdminTaskDTO } from "../server/queries";
 import { TaskMatrixDrawer } from "./task-matrix-drawer";
 
@@ -26,6 +27,17 @@ const TASK: AdminTaskDTO = {
   counts: { completed: 1, open: 2, overdue: 1 },
 };
 
+const REMINDER_RECOVERY: BulkReminderRecoveryController = {
+  blocked: false,
+  recovery: null,
+  sending: false,
+  unreadable: false,
+  start: async () => true,
+  retry: async () => undefined,
+  finishCleanup: () => undefined,
+  clearUnreadable: () => undefined,
+};
+
 describe("TaskMatrixDrawer", () => {
   it("renders the loading state and the nav position before any fetch resolves", () => {
     const html = renderToStaticMarkup(withToast(React.createElement(TaskMatrixDrawer, {
@@ -33,6 +45,8 @@ describe("TaskMatrixDrawer", () => {
       task: TASK,
       timezone: "America/Los_Angeles",
       onClose: () => {},
+      reminderRecovery: REMINDER_RECOVERY,
+      reminderAcknowledgement: 0,
       nav: { index: 1, total: 5, onPrev: () => {}, onNext: () => {} },
     })));
 
@@ -49,6 +63,8 @@ describe("TaskMatrixDrawer", () => {
       task: TASK,
       timezone: "America/Los_Angeles",
       onClose: () => {},
+      reminderRecovery: REMINDER_RECOVERY,
+      reminderAcknowledgement: 0,
     })));
 
     expect(html).not.toContain("flow-nav-controls");

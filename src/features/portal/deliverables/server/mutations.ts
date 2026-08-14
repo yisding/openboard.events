@@ -3,10 +3,11 @@ import { db } from "@/db/client";
 import { sendRemindersNow } from "@/features/comms";
 import {
   contactIdSchema,
+  bulkReminderTargetSchema,
   fileCommentIdSchema,
   fileRequestIdSchema,
   submissionIdSchema,
-  taskIdSchema,
+  type BulkReminderResult,
   type EventId,
   type FileCommentDTO,
   type UserId,
@@ -42,14 +43,13 @@ export function addOrganizerComment(eventId: EventId, actorUserId: UserId, input
 
 /** The central Files view's bulk bar: remind every selected, still-open row. */
 export const bulkRemindInputSchema = z.object({
-  targets: z.array(z.object({
-    taskId: taskIdSchema,
-    contactId: contactIdSchema,
-    submissionId: submissionIdSchema.nullable(),
-  })).min(1).max(DELIVERABLE_BULK_LIMIT),
+  targets: z.array(bulkReminderTargetSchema).min(1).max(DELIVERABLE_BULK_LIMIT),
+  // Optional while older open browser bundles roll forward. New clients
+  // freeze this id with the exact target list before starting the POST.
+  attemptId: z.uuid().optional(),
 });
 export type BulkRemindInput = z.infer<typeof bulkRemindInputSchema>;
 
-export function bulkRemind(eventId: EventId, input: BulkRemindInput): Promise<{ enqueued: number; total: number }> {
-  return sendRemindersNow(eventId, input.targets);
+export function bulkRemind(eventId: EventId, input: BulkRemindInput): Promise<BulkReminderResult> {
+  return sendRemindersNow(eventId, input.targets, input.attemptId);
 }

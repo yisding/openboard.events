@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
+import type { BulkReminderRecoveryController } from "@/features/comms/index.client";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -36,12 +37,16 @@ export function TaskMatrixDrawer({
   task,
   timezone,
   onClose,
+  reminderRecovery,
+  reminderAcknowledgement,
   nav,
 }: {
   eventId: string;
   task: AdminTaskDTO;
   timezone: string;
   onClose: () => void;
+  reminderRecovery: BulkReminderRecoveryController;
+  reminderAcknowledgement: number;
   nav?: { index: number; total: number; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
 }) {
   const { toast } = useToast();
@@ -49,7 +54,9 @@ export function TaskMatrixDrawer({
   const [loadError, setLoadError] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [reminding, setReminding] = useState(false);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [reminderAcknowledgement]);
 
   // Flowing down the task list opens several tasks in a row; a late response
   // for one already passed must not replace what is on screen now. `seqRef`
@@ -112,21 +119,7 @@ export function TaskMatrixDrawer({
     const openRows = rows ?? [];
     const targets = openRows.filter((row) => !row.completed && selected.has(assignmentKey(row)));
     if (targets.length === 0) return;
-    setReminding(true);
-    try {
-      const result = await taskMutation<{ enqueued: number; total: number }>(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          targets: targets.map((row) => ({ taskId: task.id, contactId: row.contactId, submissionId: row.submissionId })),
-        }),
-      }, "Could not send reminders — try again");
-      if (!result.ok || !result.payload?.data) { toast(result.ok ? "Could not send reminders — try again" : result.message); return; }
-      toast(`Reminded ${result.payload.data.enqueued} of ${result.payload.data.total}`);
-      setSelected(new Set());
-    } finally {
-      setReminding(false);
-    }
+    await reminderRecovery.start(targets.map((row) => ({ taskId: task.id, contactId: row.contactId, submissionId: row.submissionId })));
   }
 
   const completed = rows?.filter((row) => row.completed).length ?? 0;
@@ -135,7 +128,7 @@ export function TaskMatrixDrawer({
   return (
     <Drawer
       open
-      onClose={onClose}
+      onClose={() => { if (!reminderRecovery.blocked) onClose(); }}
       title={task.name}
       {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={task.name} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
@@ -150,8 +143,8 @@ export function TaskMatrixDrawer({
             count={selected.size}
             onClear={() => setSelected(new Set())}
             actions={
-              <Button size="sm" variant="secondary" disabled={reminding} onClick={() => void remindSelected()}>
-                {reminding ? "Reminding…" : "Send reminder"}
+              <Button size="sm" variant="secondary" disabled={reminderRecovery.blocked} onClick={() => void remindSelected()}>
+                {reminderRecovery.sending ? "Reminding…" : "Send reminder"}
               </Button>
             }
           />
@@ -170,6 +163,7 @@ export function TaskMatrixDrawer({
                     <input
                       type="checkbox"
                       aria-label={`Select ${row.contactName}`}
+                      disabled={reminderRecovery.blocked}
                       checked={selected.has(key)}
                       onChange={() => toggle(key)}
                     />

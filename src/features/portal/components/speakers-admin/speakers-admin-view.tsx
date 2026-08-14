@@ -6,9 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import type { ContactFilters, ContactListRow, SpeakerFilterCounts } from "@/features/portal";
 import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
-import { UnreadableBulkSendRecovery } from "@/features/comms/index.client";
-import type { ConfirmationStatus } from "@/shared/contracts";
-import { CONFIRMATION_STATUSES } from "@/shared/contracts";
+import { BulkReminderRecoveryDialog, UnreadableBulkSendRecovery, useBulkReminderRecovery } from "@/features/comms/index.client";
+import type { ConfirmationStatus, EventId } from "@/shared/contracts";
+import { bulkReminderTargetSchema, CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
@@ -110,16 +110,30 @@ export function SpeakersAdminView({
     return () => window.removeEventListener("storage", onStorage);
   }, [eventId]);
   const [confirmReminders, setConfirmReminders] = useState(false);
-  const [reminding, setReminding] = useState(false);
+  const [loadingReminderTargets, setLoadingReminderTargets] = useState(false);
   // M57 — the row a click opens: a flow-through slide-over over this page's
   // rows, not a navigation. The full editable profile is one click further,
   // from inside the drawer.
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const rowIds = useMemo(() => rows.map((row) => row.contactId as string), [rows]);
   const reminderTargetCount = selected.filter((row) => row.openTasks > 0).length;
-  useFlowKeyboardNav({ ids: rowIds, activeId: openContactId, onNavigate: setOpenContactId, onClose: () => setOpenContactId(null) });
   const openIndex = openContactId ? rowIds.indexOf(openContactId) : -1;
   const openRow = openIndex !== -1 ? rows[openIndex] : undefined;
+  const reminderRecovery = useBulkReminderRecovery({
+    eventId: eventId as EventId,
+    surface: "speakers",
+    onAcknowledged: () => {
+      setSelected([]);
+      setSelectionEpoch((epoch) => epoch + 1);
+      setConfirmReminders(false);
+    },
+  });
+  useFlowKeyboardNav({
+    ids: rowIds,
+    activeId: openContactId,
+    onNavigate: (id) => { if (!reminderRecovery.blocked) setOpenContactId(id); },
+    onClose: () => { if (!reminderRecovery.blocked) setOpenContactId(null); },
+  });
 
   function openBulkEmail(selectedRows: ContactListRow[]) {
     const loaded = loadBulkSendRecovery(window.localStorage, speakerBulkSendRecoveryIdentity(eventId));
@@ -143,7 +157,7 @@ export function SpeakersAdminView({
       toast("Nothing to remind — every selected speaker is caught up");
       return false;
     }
-    setReminding(true);
+    setLoadingReminderTargets(true);
     try {
       const perSpeaker = await Promise.all(targets.map(async (row) => {
         const response = await fetch(`/api/internal/comms/${eventId}/open-assignments?contactId=${row.contactId}`);
@@ -151,30 +165,18 @@ export function SpeakersAdminView({
         if (!response.ok || !payload?.data) throw new Error("assignment lookup failed");
         return payload.data.map((assignment) => ({ taskId: assignment.taskId, contactId: row.contactId, submissionId: assignment.submissionId }));
       }));
-      const flatTargets = perSpeaker.flat();
+      const flatTargets = perSpeaker.flat().map((target) => bulkReminderTargetSchema.parse(target));
       if (flatTargets.length === 0) {
         toast("Nothing to remind — every selected speaker is caught up");
         return false;
       }
-      const response = await fetch(`/api/internal/deliverables/remind?eventId=${encodeURIComponent(eventId)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targets: flatTargets }),
-      });
-      const payload = await response.json().catch(() => null) as { data?: { enqueued: number; total: number } } | null;
-      if (!response.ok || !payload?.data) {
-        toast("Could not send reminders — try again", { kind: "error" });
-        return false;
-      }
-      toast(`Reminded ${payload.data.enqueued} of ${payload.data.total} assignment${payload.data.total === 1 ? "" : "s"}`);
-      setSelected([]);
-      setSelectionEpoch((epoch) => epoch + 1);
-      return true;
+      setConfirmReminders(false);
+      return reminderRecovery.start(flatTargets);
     } catch {
       toast("Could not load or send reminders — try again", { kind: "error" });
       return false;
     } finally {
-      setReminding(false);
+      setLoadingReminderTargets(false);
     }
   }
 
@@ -276,7 +278,7 @@ export function SpeakersAdminView({
         data={rows}
         columnVisibilityKey={`speakers:${eventId}`}
         getRowId={(row) => row.contactId}
-        onRowClick={(row) => setOpenContactId(row.contactId)}
+        onRowClick={(row) => { if (!reminderRecovery.blocked) setOpenContactId(row.contactId); }}
         enableSelection
         getRowLabel={(row) => row.name || row.email}
         onSelectionChange={setSelected}
@@ -289,12 +291,14 @@ export function SpeakersAdminView({
             actions={<>
               <Button
                 size="sm"
-                disabled={bulkEmailRecoveryUnreadable}
-                title={bulkEmailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
+                disabled={bulkEmailRecoveryUnreadable || reminderRecovery.blocked}
+                title={bulkEmailRecoveryUnreadable
+                  ? "Clear the unreadable email recovery before starting another send"
+                  : reminderRecovery.blocked ? "Finish the saved reminder attempt before starting another send" : undefined}
                 onClick={() => openBulkEmail(selectedRows)}
               ><Mail size={14} /> Email selected</Button>
-              <Button size="sm" variant="secondary" disabled={reminding || reminderCount === 0} onClick={() => { setSelected(selectedRows); setConfirmReminders(true); }}>
-                <Bell size={14} /> {reminding ? "Reminding…" : "Send reminder"}
+              <Button size="sm" variant="secondary" disabled={loadingReminderTargets || reminderRecovery.blocked || reminderCount === 0} onClick={() => { setSelected(selectedRows); setConfirmReminders(true); }}>
+                <Bell size={14} /> {loadingReminderTargets || reminderRecovery.sending ? "Reminding…" : "Send reminder"}
               </Button>
             </>}
           />;
@@ -361,12 +365,12 @@ export function SpeakersAdminView({
         <SpeakerFlowDrawer
           eventId={eventId}
           row={openRow}
-          onClose={() => setOpenContactId(null)}
+          onClose={() => { if (!reminderRecovery.blocked) setOpenContactId(null); }}
           nav={{
             index: openIndex,
             total: rowIds.length,
-            ...(rowIds[openIndex - 1] ? { onPrev: () => setOpenContactId(rowIds[openIndex - 1] as string) } : {}),
-            ...(rowIds[openIndex + 1] ? { onNext: () => setOpenContactId(rowIds[openIndex + 1] as string) } : {}),
+            ...(rowIds[openIndex - 1] && !reminderRecovery.blocked ? { onPrev: () => setOpenContactId(rowIds[openIndex - 1] as string) } : {}),
+            ...(rowIds[openIndex + 1] && !reminderRecovery.blocked ? { onNext: () => setOpenContactId(rowIds[openIndex + 1] as string) } : {}),
           }}
         />
       )}
@@ -375,9 +379,11 @@ export function SpeakersAdminView({
         title={`Send reminders to ${reminderTargetCount} speaker${reminderTargetCount === 1 ? "" : "s"}?`}
         body="This immediately queues a reminder for every open assignment belonging to the selected speakers. Suppression and current task state are rechecked before delivery."
         confirmLabel="Queue reminders"
-        onConfirm={async () => { if (await bulkRemind()) setConfirmReminders(false); }}
+        confirmDisabled={loadingReminderTargets}
+        onConfirm={async () => { await bulkRemind(); }}
         onCancel={() => setConfirmReminders(false)}
       />
+      <BulkReminderRecoveryDialog controller={reminderRecovery} />
     </div>
   );
 }
