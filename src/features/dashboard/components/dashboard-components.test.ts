@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatInZone } from "@/shared/lib/time";
 import type { EventId } from "@/shared/contracts";
-import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/components/saved-form-actions";
+import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/index.client";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
 import { resolveDashboardTab } from "../lib/dashboard-tab";
 import { ToastProvider } from "@/shared/ui/toast";

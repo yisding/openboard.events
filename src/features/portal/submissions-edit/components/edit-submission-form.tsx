@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { FormFieldRenderer } from "@/features/forms/components/form-field-renderer";
+import { FormFieldRenderer } from "@/features/forms/index.client";
 import { formatCode } from "@/features/submissions/index.client";
 import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";

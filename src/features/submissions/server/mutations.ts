@@ -20,13 +20,13 @@ import {
   type SubmissionStatus,
   type UserId,
 } from "@/shared/contracts";
-import { secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "@/features/forms/participant-roles";
+import {
+  deriveMappedFields,
+  getPinnedSnapshotIn,
+  secondaryParticipantRoleSchema,
+  type SecondaryParticipantRole,
+} from "@/features/forms/index.submission";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
-// Deep imports rather than the `@/features/forms` barrel: that barrel re-exports
-// the submit pipeline, which imports this file's `createSubmissionIn`, and a
-// cycle through two feature barrels is a debugging expense nobody needs.
-import { deriveMappedFields } from "@/features/forms/server/pipeline";
-import { getPinnedSnapshotIn } from "@/features/forms/server/snapshots";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone } from "@/shared/lib/time";

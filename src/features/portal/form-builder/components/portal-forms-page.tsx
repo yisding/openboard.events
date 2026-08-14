@@ -10,7 +10,7 @@ import {
   formCreateOutcomeUnknown,
   openFormCreateLifecycle,
   requestFormCreate,
-} from "@/features/forms/form-create-request";
+} from "@/features/forms/index.client";
 import type { TaskTarget } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";

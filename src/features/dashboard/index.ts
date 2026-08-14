@@ -1,4 +1,4 @@
-import type { FormAvailability } from "@/features/forms/lib/form-open";
+import type { FormAvailability } from "@/features/forms/index.availability";
 import type { EventId, SubmissionStatus } from "@/shared/contracts";
 
 export type DashboardOverview = {
