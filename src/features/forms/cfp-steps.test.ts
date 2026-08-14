@@ -11,6 +11,7 @@ import {
   cfpAutosaveDisposition,
   cfpRequest,
   cfpFlowSteps,
+  cfpProgressLabel,
   cfpStaleRecoveryState,
   cfpStepHeading,
   cfpSubmitFailure,
@@ -58,6 +59,10 @@ describe("CFP validation routing", () => {
   it("omits the speaker step when participant collection is disabled", () => {
     expect(cfpFlowSteps(false)).toEqual(["account", "submission", "review"]);
     expect(cfpFlowSteps(true)).toContain("speaker");
+  });
+
+  it("uses concise, customer-facing progress labels", () => {
+    expect(cfpFlowSteps(true).map(cfpProgressLabel)).toEqual(["Account", "Proposal", "Speaker", "Review"]);
   });
 
   it("returns participant errors to the speaker step", () => {

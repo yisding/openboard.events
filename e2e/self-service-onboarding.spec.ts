@@ -442,6 +442,34 @@ test.describe("self-service signup to first value", () => {
       await expect(liveFormPage).toHaveURL(publicLink);
       await expect(liveFormPage.getByRole("heading", { name: "Verify your email", level: 2 })).toBeVisible();
       await expect(liveFormPage.getByRole("button", { name: "Send me a code" })).toBeVisible();
+      const liveFormViewport = liveFormPage.viewportSize();
+      await liveFormPage.setViewportSize({ width: 320, height: 700 });
+      const progress = liveFormPage.getByRole("list", { name: "Submission progress" });
+      await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+      const progressLayout = await progress.evaluate((element) => {
+        const items = [...element.querySelectorAll(":scope > li")];
+        const measurements = items.map((item) => {
+          const label = item.querySelector("b");
+          if (!label) throw new Error("Progress item is missing its label");
+          return { item: item.getBoundingClientRect(), label: label.getBoundingClientRect() };
+        });
+        let minLabelGap = Number.POSITIVE_INFINITY;
+        measurements.forEach((measurement, index) => {
+          if (index === 0) return;
+          const previous = measurements.at(index - 1);
+          if (previous) minLabelGap = Math.min(minLabelGap, measurement.label.left - previous.label.right);
+        });
+        return {
+          labelsFit: measurements.every(({ item, label }) => label.left >= item.left && label.right <= item.right),
+          minLabelGap,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(progressLayout.labelsFit).toBe(true);
+      expect(progressLayout.minLabelGap).toBeGreaterThanOrEqual(4);
+      expect(progressLayout.scrollWidth).toBeLessThanOrEqual(progressLayout.viewportWidth);
+      if (liveFormViewport) await liveFormPage.setViewportSize(liveFormViewport);
       await liveFormPage.close();
     });
 

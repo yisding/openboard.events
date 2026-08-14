@@ -190,6 +190,52 @@ test.describe("guided onboarding responsiveness", () => {
   });
 });
 
+test.describe("public CFP phone layout", () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("keeps every progress label readable inside its own step", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="cfp-container">
+        <section class="cfp-step cfp-step--compact">
+          <ol class="public-form-progress public-form-progress-4" aria-label="Submission progress">
+            <li class="active"><span aria-hidden="true">1</span><b>Account</b></li>
+            <li><span aria-hidden="true">2</span><b>Proposal</b></li>
+            <li><span aria-hidden="true">3</span><b>Speaker</b></li>
+            <li><span aria-hidden="true">4</span><b>Review</b></li>
+          </ol>
+        </section>
+      </main>
+    </body></html>`);
+
+    const progress = page.getByRole("list", { name: "Submission progress" });
+    await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+    const layout = await progress.evaluate((element) => {
+      const items = [...element.querySelectorAll(":scope > li")];
+      const measurements = items.map((item) => {
+        const label = item.querySelector("b");
+        if (!label) throw new Error("Progress item is missing its label");
+        return { item: item.getBoundingClientRect(), label: label.getBoundingClientRect() };
+      });
+      let minLabelGap = Number.POSITIVE_INFINITY;
+      measurements.forEach((measurement, index) => {
+        if (index === 0) return;
+        const previous = measurements.at(index - 1);
+        if (previous) minLabelGap = Math.min(minLabelGap, measurement.label.left - previous.label.right);
+      });
+      return {
+        labelsFit: measurements.every(({ item, label }) => label.left >= item.left && label.right <= item.right),
+        minLabelGap,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.labelsFit).toBe(true);
+    expect(layout.minLabelGap).toBeGreaterThanOrEqual(4);
+    expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  });
+});
+
 test.describe("mobile auth touch targets", () => {
   test.use({ viewport: { width: 320, height: 700 } });
 
