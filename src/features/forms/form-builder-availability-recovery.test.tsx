@@ -126,10 +126,10 @@ async function mount(initialForm = form()) {
 }
 
 async function requestClose() {
-  await act(async () => buttonNamed("Close")?.click());
+  await act(async () => buttonNamed("Stop accepting submissions")?.click());
   const dialog = container.querySelector("dialog");
   if (!dialog) throw new Error("Close confirmation was not rendered");
-  await act(async () => buttonNamed("Close form", dialog)?.click());
+  await act(async () => buttonNamed("Stop accepting submissions", dialog)?.click());
   await settle();
 }
 
@@ -158,11 +158,39 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  vi.useRealTimers();
   container.remove();
   vi.unstubAllGlobals();
 });
 
 describe("form availability outcome recovery", () => {
+  it("updates a scheduled lifecycle action when the opening boundary passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:00:00.000Z"));
+    await mount(form({ opensAt: "2026-08-13T12:00:00.100Z" }));
+
+    expect(buttonNamed("Cancel scheduled opening")).toBeDefined();
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+
+    expect(buttonNamed("Stop accepting submissions")).toBeDefined();
+    expect(buttonNamed("Cancel scheduled opening")).toBeUndefined();
+  });
+
+  it("refreshes effective availability again when the lifecycle action is requested", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:00:00.000Z"));
+    await mount(form({ opensAt: "2026-08-13T12:01:00.000Z" }));
+    expect(buttonNamed("Cancel scheduled opening")).toBeDefined();
+
+    // Simulate a backgrounded tab whose boundary timer was throttled.
+    vi.setSystemTime(new Date("2026-08-13T12:02:00.000Z"));
+    await act(async () => buttonNamed("Cancel scheduled opening")?.click());
+
+    const dialog = container.querySelector("dialog");
+    expect(dialog?.textContent).toContain("Stop accepting submissions now?");
+    expect(buttonNamed("Stop accepting submissions", dialog ?? container)).toBeDefined();
+  });
+
   it("adopts the full concurrent server form while preserving only dirty authoring targets after recovery", async () => {
     const opensAt = "2026-09-01T16:00:00.000Z";
     const closesAt = "2026-09-15T23:00:00.000Z";
@@ -220,7 +248,7 @@ describe("form availability outcome recovery", () => {
     expect(deadlineInputs.map((input) => input.value)).toEqual([display(opensAt), display(closesAt)]);
     expect(container.querySelector<HTMLInputElement>('input[type="number"]')?.value).toBe("7");
 
-    await act(async () => buttonNamed("Save")?.click());
+    await act(async () => buttonNamed("Publish version")?.click());
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const settingsBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
@@ -274,7 +302,7 @@ describe("form availability outcome recovery", () => {
     expect(container.textContent).toContain(recoveryMessage);
     expect(buttonNamed("Confirm current status")).toBeDefined();
     expect(container.querySelector("dialog")).toBeNull();
-    const close = buttonNamed("Close");
+    const close = buttonNamed("Stop accepting submissions");
     expect(close?.disabled).toBe(true);
     await act(async () => close?.click());
     await settle();
@@ -290,7 +318,7 @@ describe("form availability outcome recovery", () => {
     ]);
     expect(title?.value).toBe("Unsaved while offline");
     expect(container.textContent).toContain("Form status is unconfirmed");
-    expect(buttonNamed("Close")?.disabled).toBe(true);
+    expect(buttonNamed("Stop accepting submissions")?.disabled).toBe(true);
     expect(toastMock).toHaveBeenCalledWith(recoveryMessage, { kind: "error" });
   });
 

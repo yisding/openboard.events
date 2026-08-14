@@ -23,7 +23,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // M51 added `contacts.workflow_status`; `getOrCreateContact`'s unqualified
 // `.returning()` (used for the submitter contact) now selects it.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
-const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0036_submission_limit_guards.sql", import.meta.url), "utf8");
+const migrationSubmissionGuards = readFileSync(new URL("../../drizzle/0037_submission_limit_guards.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e0000000-0000-4000-8000-000000000001");
 const openForm = formIdSchema.parse("e0000000-0000-4000-8000-000000000002");

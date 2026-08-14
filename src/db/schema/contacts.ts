@@ -1,4 +1,5 @@
-import { integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { events, users } from "./core";
 import { confirmationStatusEnum, speakerWorkflowStatusEnum, tokenPurposeEnum } from "./enums";
 
@@ -56,3 +57,18 @@ export const apiKeys = pgTable("api_keys", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
   name: text("name").notNull(), keyHash: text("key_hash").notNull().unique(), lastUsedAt: timestamp("last_used_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.id, table.eventId)]);
+
+/**
+ * Durable proof that an API-key creation committed. It deliberately does not
+ * reference `api_keys`: revocation must consume the caller-owned operation id
+ * forever so a delayed response retry cannot resurrect the deleted key.
+ */
+export const apiKeyCreationReceipts = pgTable("api_key_creation_receipts", {
+  operationId: uuid("operation_id").primaryKey(),
+  eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  payloadFingerprint: text("payload_fingerprint").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("api_key_creation_receipts_event_idx").on(table.eventId),
+  check("api_key_creation_receipts_payload_fingerprint_ck", sql`btrim(${table.payloadFingerprint}) <> ''`),
+]);

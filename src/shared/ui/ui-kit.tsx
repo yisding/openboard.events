@@ -84,9 +84,9 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
   return <header className="page-header"><div>{eyebrow && <div className="page-eyebrow">{eyebrow}</div>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
 }
 
-// Native <dialog> provides focus trapping and Escape-to-close. Because React
-// unmounts the dialog, cleanup restores the control that opened it explicitly.
-function ModalDialog({ onClose, title, className, children, initialFocusRef }: { onClose: () => void; title: string; className: string; children: ReactNode; initialFocusRef?: RefObject<HTMLElement | null> | undefined }) {
+// Native <dialog> provides focus trapping and, when dismissible, Escape-to-close.
+// Because React unmounts the dialog, cleanup restores the opener explicitly.
+function ModalDialog({ onClose, title, className, children, initialFocusRef, dismissible }: { onClose: () => void; title: string; className: string; children: ReactNode; initialFocusRef?: RefObject<HTMLElement | null> | undefined; dismissible: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -99,14 +99,14 @@ function ModalDialog({ onClose, title, className, children, initialFocusRef }: {
       if (returnFocus?.isConnected) returnFocus.focus();
     };
   }, [initialFocusRef]);
-  return <dialog ref={ref} className="modal-shell" aria-label={title} onCancel={(event) => { event.preventDefault(); onClose(); }} onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+  return <dialog ref={ref} className="modal-shell" aria-label={title} onCancel={(event) => { event.preventDefault(); if (dismissible) onClose(); }} onMouseDown={(event) => { if (dismissible && event.currentTarget === event.target) onClose(); }}>
     <section className={className}>{children}</section>
   </dialog>;
 }
 
-export function Modal({ open, onClose, title, description, children, footer, wide = false, initialFocusRef }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean; initialFocusRef?: RefObject<HTMLElement | null> | undefined }) {
+export function Modal({ open, onClose, title, description, children, footer, wide = false, initialFocusRef, dismissible = true }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean; initialFocusRef?: RefObject<HTMLElement | null> | undefined; dismissible?: boolean }) {
   if (!open) return null;
-  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
+  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef} dismissible={dismissible}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{dismissible && <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>}</header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
 function DrawerDialog({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {

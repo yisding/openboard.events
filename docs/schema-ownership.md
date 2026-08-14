@@ -11,11 +11,11 @@ Run the drift gate with:
 pnpm schema:check
 ```
 
-The gate creates a clean in-memory Postgres database, applies all 36 entries in
+The gate creates a clean in-memory Postgres database, applies all 37 entries in
 `drizzle/meta/_journal.json`, and compares the result with Drizzle's runtime
 metadata. It checks:
 
-- all 83 tables and 747 modeled columns, including type, nullability, and the
+- all 84 tables and 752 modeled columns, including type, nullability, and the
   presence of a database default;
 - all 33 enum names and their ordered values;
 - primary keys, checks, foreign keys, unique constraints, and indexes;
