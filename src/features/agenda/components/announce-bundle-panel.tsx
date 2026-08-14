@@ -2,7 +2,7 @@
 
 import { Check, Clipboard, Megaphone, Share2 } from "lucide-react";
 import { useState } from "react";
-import type { AnnounceBundle } from "../server/announce";
+import type { AnnounceBundle } from "../schemas";
 import { Button, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 

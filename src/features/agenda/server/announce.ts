@@ -4,6 +4,9 @@ import { signSpeakerShareToken } from "@/features/portal/index.share";
 import { contactIdSchema, eventIdSchema, type EventId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { formatInZone } from "@/shared/lib/time";
+import type { AnnounceBundle, AnnounceSpeakerLink } from "../schemas";
+
+export type { AnnounceBundle, AnnounceSpeakerLink } from "../schemas";
 
 /**
  * M60 — "The 'ready to announce' bundle... Packaging over proven surfaces"
@@ -14,16 +17,6 @@ import { formatInZone } from "@/shared/lib/time";
  * panel on: assembling this before anything is public would hand an
  * organizer a bundle of broken links.
  */
-export type AnnounceSpeakerLink = { contactId: string; name: string; shareUrl: string | null };
-
-export type AnnounceBundle = {
-  hasPublishedSchedule: boolean;
-  publicUrls: { agenda: string; sessions: string; speakers: string; gallery: string; itinerary: string };
-  embedSnippet: string;
-  speakerLinks: AnnounceSpeakerLink[];
-  announcementCopy: string;
-};
-
 type AnnounceDb = {
   execute(query: SQLWrapper | string): PromiseLike<{ rows: Record<string, unknown>[] }>;
 };
@@ -69,16 +62,17 @@ export async function getAnnounceBundleIn(dbOrTx: AnnounceDb, eventId: EventId, 
       ORDER BY c.last_name, c.first_name
     `);
     speakerLinks = await Promise.all((speakerRows.rows as SpeakerRow[]).map(async (row) => {
+      const contactId = contactIdSchema.parse(row.contact_id);
       let shareUrl: string | null = null;
       try {
-        const token = await signSpeakerShareToken({ eventId, contactId: contactIdSchema.parse(row.contact_id) });
+        const token = await signSpeakerShareToken({ eventId, contactId });
         shareUrl = `${appBaseUrl}/speaking/${token}`;
       } catch {
         // SPEAKER_SHARE_SECRET not provisioned yet in this environment — the
         // rest of the bundle (URLs, embed, copy) is still useful without it.
         shareUrl = null;
       }
-      return { contactId: row.contact_id, name: displayName(row), shareUrl };
+      return { contactId, name: displayName(row), shareUrl };
     }));
   }
 

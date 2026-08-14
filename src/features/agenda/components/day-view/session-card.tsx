@@ -24,7 +24,7 @@ export function isCompactSession(durationMinutes: number): boolean {
  * moves the whole session, the two `ResizeHandles` strips on its edges adjust
  * one boundary each.
  *
- * The conflict outline reads M29's server-authoritative result via the
+ * The conflict outline reads M29's live session-cache result via the
  * day-view-local store, recomputed by `day-view.tsx` on every session-list
  * change (including the optimistic patch, before any server round trip) — this
  * component never runs `detectConflicts` itself.

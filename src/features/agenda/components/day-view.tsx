@@ -10,7 +10,6 @@ import {
 } from "@dnd-kit/core";
 import { LayoutGrid, MapPin } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { zonedInputToUtc } from "@/shared/lib/time";
@@ -58,7 +57,6 @@ export default function DayView(props: AgendaViewProps) {
 }
 
 function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onEdit }: AgendaViewProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [autoPlaceOpen, setAutoPlaceOpen] = useState(false);
   const days = useMemo(
@@ -220,7 +218,6 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
         onClose={() => {
           setAutoPlaceOpen(false);
           void queryClient.invalidateQueries({ queryKey: agendaKeys.allSessions(eventId) });
-          router.refresh();
         }}
       />
     </div>
