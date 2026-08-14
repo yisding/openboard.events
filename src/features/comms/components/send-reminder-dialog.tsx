@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ContactId, EventId, SendReminderNowInput } from "@/shared/contracts";
 import type { OpenAssignmentRow } from "@/features/comms";
 import { isAppError } from "@/shared/lib/errors";
@@ -9,6 +9,11 @@ import { Dash } from "@/shared/ui/app/dash";
 import { Button, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useOpenAssignments, useSendReminderNow } from "../hooks/use-send-reminder";
+import {
+  clearTargetedReminderRecovery,
+  loadTargetedReminderRecovery,
+  persistTargetedReminderRecovery,
+} from "../targeted-reminder-recovery";
 
 type FrozenReminderAttempt = {
   assignment: OpenAssignmentRow;
@@ -46,6 +51,17 @@ export function SendReminderDialog({
   const [sentAssignmentKey, setSentAssignmentKey] = useState<string | null>(null);
   const [pending, setPending] = useState<FrozenReminderAttempt | null>(null);
 
+  useEffect(() => {
+    const recovered = loadTargetedReminderRecovery(window.localStorage, eventId, contactId);
+    if (recovered) {
+      setPending((current) => current ?? {
+        assignment: recovered.assignment,
+        input: recovered.input,
+        outcomeUnknown: true,
+      });
+    }
+  }, [contactId, eventId]);
+
   function beginAttempt(assignment: OpenAssignmentRow) {
     setPending({
       assignment,
@@ -60,8 +76,20 @@ export function SendReminderDialog({
   }
 
   async function send(attempt: FrozenReminderAttempt) {
+    const recoveryStored = persistTargetedReminderRecovery(window.localStorage, {
+      version: 1,
+      eventId,
+      contactId,
+      assignment: attempt.assignment,
+      input: attempt.input,
+    });
+    if (!recoveryStored) {
+      toast("Could not prepare a safe reminder retry. The reminder was not sent.", { kind: "error" });
+      return;
+    }
     try {
       const result = await sendReminder.mutateAsync(attempt.input);
+      clearTargetedReminderRecovery(window.localStorage, eventId, contactId, attempt.input.attemptId);
       if (result.enqueued) setSentAssignmentKey(assignmentKey(attempt.assignment));
       toast(result.enqueued ? "Reminder queued — it will arrive in about a second" : "Already complete — nothing to remind");
       setPending((current) => current?.input.attemptId === attempt.input.attemptId ? null : current);
@@ -73,6 +101,7 @@ export function SendReminderDialog({
         toast("Could not confirm whether that reminder was queued", { kind: "error" });
         return;
       }
+      clearTargetedReminderRecovery(window.localStorage, eventId, contactId, attempt.input.attemptId);
       setPending((current) => current?.input.attemptId === attempt.input.attemptId ? null : current);
       toast(isAppError(caught) ? caught.message : "Could not queue that reminder", { kind: "error" });
     }
@@ -113,7 +142,12 @@ export function SendReminderDialog({
           if (!pending) return;
           await send(pending);
         }}
-        onCancel={() => setPending(null)}
+        onCancel={() => {
+          if (pending) {
+            clearTargetedReminderRecovery(window.localStorage, eventId, contactId, pending.input.attemptId);
+          }
+          setPending(null);
+        }}
       />
     </>
   );

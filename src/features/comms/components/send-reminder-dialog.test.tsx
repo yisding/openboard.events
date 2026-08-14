@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, submissionIdSchema, taskIdSchema } from "@/shared/contracts";
+import { targetedReminderRecoveryKey } from "../targeted-reminder-recovery";
 import { SendReminderDialog } from "./send-reminder-dialog";
 
 const sendMock = vi.hoisted(() => vi.fn());
@@ -50,6 +51,7 @@ beforeEach(() => {
   sendMock.mockReset();
   toastMock.mockReset();
   closeMock.mockReset();
+  window.localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -60,10 +62,11 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
 });
 
 describe("targeted reminder recovery", () => {
-  it("retries one frozen attempt after a lost response and acknowledges it once", async () => {
+  it("restores and retries one frozen attempt after a lost response, then acknowledges it once", async () => {
     sendMock
       .mockRejectedValueOnce(new TypeError("response lost"))
       .mockResolvedValue({ enqueued: true });
@@ -93,6 +96,17 @@ describe("targeted reminder recovery", () => {
     expect(buttonNamed("Retry reminder")).toBeDefined();
     expect(closeMock).not.toHaveBeenCalled();
 
+    // A route transition or reload remounts the dialog. Its persisted frozen
+    // operation must remain the only send the organizer can retry.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+    ));
+    await settle();
+    expect(container.textContent).toContain("The outcome is unknown");
+    expect(buttonNamed("Retry reminder")).toBeDefined();
+
     await act(async () => buttonNamed("Retry reminder")?.click());
     await settle();
 
@@ -100,6 +114,7 @@ describe("targeted reminder recovery", () => {
     expect(sendMock.mock.calls[1]?.[0]).toEqual(firstPayload);
     expect(buttonNamed("Retry reminder")).toBeUndefined();
     expect(buttonNamed("Sent")).toBeDefined();
+    expect(window.localStorage.getItem(targetedReminderRecoveryKey(eventId, contactId))).toBeNull();
     expect(toastMock.mock.calls.filter(([message]) => message === "Reminder queued — it will arrive in about a second"))
       .toHaveLength(1);
 
@@ -111,5 +126,25 @@ describe("targeted reminder recovery", () => {
     expect(sendMock).toHaveBeenCalledTimes(3);
     expect(sendMock.mock.calls[2]?.[0]).toEqual(expect.objectContaining({ taskId, contactId, submissionId }));
     expect(sendMock.mock.calls[2]?.[0].attemptId).not.toBe(firstPayload.attemptId);
+  });
+
+  it("does not start a send when its exact retry identity cannot be persisted", async () => {
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new DOMException("storage blocked"); });
+    sendMock.mockResolvedValue({ enqueued: true });
+
+    await act(async () => root.render(
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+    ));
+    await act(async () => buttonNamed("Send reminder")?.click());
+    await act(async () => buttonNamed("Send reminder")?.click());
+    await settle();
+
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(buttonNamed("Send reminder")).toBeDefined();
+    expect(buttonNamed("Cancel")?.disabled).toBe(false);
+    expect(toastMock).toHaveBeenCalledWith(
+      "Could not prepare a safe reminder retry. The reminder was not sent.",
+      { kind: "error" },
+    );
   });
 });
