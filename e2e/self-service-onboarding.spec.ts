@@ -613,12 +613,12 @@ test.describe("self-service signup to first value", () => {
         LIMIT 1
       `, [eventId, SIGNUP_EMAIL]);
       if (!fixture) throw new Error("the submitted speaker contact was not created");
-      const confirmedSpeaker = await apiData<{ confirmationStatus: string }>(
+      const confirmedSpeaker = await apiData<{ contact: { confirmationStatus: string } }>(
         page.request,
         `/api/internal/speakers/${eventId}/${fixture.contact_id}`,
         { method: "PATCH", data: { confirmationStatus: "confirmed" } },
       );
-      expect(confirmedSpeaker.confirmationStatus).toBe("confirmed");
+      expect(confirmedSpeaker.contact.confirmationStatus).toBe("confirmed");
 
       const sessionStartsAt = new Date(new Date(fixture.starts_at).getTime() + 60 * 60 * 1_000);
       const sessionEndsAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1_000);
