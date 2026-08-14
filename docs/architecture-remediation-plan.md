@@ -87,6 +87,15 @@ reject production-local Query clients/providers, `useQuery` `initialData`,
 literal query keys (including shorthand aliases), and modules that combine
 query invalidation with `router.refresh()`.
 
+The identity-ownership workstream is complete in PRs #410, #411, and #412.
+Migration `0041` added stable product-user/event-contact links, a PII-free
+backfill audit, and ambiguous-match quarantine. Invitation and reminder writers
+now provision links explicitly; reminder reads use stable keys only. CRM merge,
+erasure, suppression, invitation, and ambiguous-recipient tests cover the
+cross-identity boundaries, while the final AST guard resolves renamed imports,
+namespace imports, and table aliases before rejecting feature-local email
+joins.
+
 ## Sequencing and workstreams
 
 ### 1. Establish architectural and schema guardrails
@@ -235,6 +244,12 @@ Exit criteria:
 - Merge, erasure, invitation, and suppression tests cover linked and ambiguous
   identities.
 
+Status: complete in PRs #410, #411, and #412. The additive migration backfilled
+and audited existing memberships, the compatibility release established
+dual-write, and the cutover release removed the last legacy read join. The
+organization-authorized erasure candidate is confined to the explicit resolver
+and aborts on ambiguous merge ancestry.
+
 ### 7. Make public-cache invalidation explicit
 
 Define freshness budgets for agenda, session, speaker, embed, and asset-backed
@@ -308,9 +323,11 @@ Exit criteria:
    #389, #396, and #403).
 6. Client consistency (completed in PRs #404, #405, #406, and #408); public
    cache invalidation remains a separate workstream.
-7. Identity link model and staged backfill.
-8. R2 key migration and lifecycle enablement.
-9. Sign-in capacity controls and DMARC enforcement.
+7. Identity link model and staged backfill (completed in PRs #410, #411, and
+   #412).
+8. Public-cache invalidation and deployed alias/embed verification.
+9. R2 key migration and lifecycle enablement.
+10. Sign-in capacity controls and DMARC enforcement.
 
 Each PR must include migration rollback/forward-recovery notes when it changes
 stored data, focused tests for the failure mode it closes, and before/after
