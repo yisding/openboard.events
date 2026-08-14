@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmailTemplateRow } from "@/features/comms";
+import { sanitizeTemplateBody } from "@/features/comms/template-body";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
@@ -182,7 +183,7 @@ export function TemplatesTab({ eventId, initialData }: { eventId: EventId; initi
                 <button type="button" aria-pressed={bodyMode === "html"} className={bodyMode === "html" ? "active" : ""} onClick={() => changeBodyMode("html")}>HTML</button>
               </div>
               {bodyMode === "rich"
-                ? <div onFocusCapture={() => setFocusTarget("body")}><RichTextEditor ref={richBodyRef} ariaLabel="Email body" value={bodyHtml} onChange={(html) => { setBodyHtml(html); setDirty(true); }} placeholder="Write the email…" /></div>
+                ? <div onFocusCapture={() => setFocusTarget("body")}><RichTextEditor ref={richBodyRef} ariaLabel="Email body" value={bodyHtml} onChange={(html) => { setBodyHtml(html); setDirty(true); }} sanitizeHtml={sanitizeTemplateBody} placeholder="Write the email…" /></div>
                 : <textarea
                     ref={bodyRef}
                     className="html-source-editor"

@@ -2,7 +2,6 @@
 
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
-import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
@@ -36,6 +35,8 @@ export type RichTextEditorHandle = {
 export type RichTextEditorProps = {
   value: string;
   onChange: (html: string) => void;
+  /** Defaults to the shared allowlist; feature editors may preserve safe placeholders. */
+  sanitizeHtml?: (html: string) => string;
   maxChars?: number;
   placeholder?: string;
   ariaLabel?: string;
@@ -49,6 +50,7 @@ export type RichTextEditorProps = {
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
   value,
   onChange,
+  sanitizeHtml = sanitize,
   maxChars,
   placeholder,
   ariaLabel = "Rich text editor",
@@ -72,11 +74,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         // Everything the sanitizer would strip is off, so the toolbar cannot
         // offer formatting that does not survive a save.
         horizontalRule: false,
-        codeBlock: false,
         strike: false,
         link: false,
       }),
-      Underline,
       Link.configure({ openOnClick: false, autolink: false, protocols: ["http", "https", "mailto"] }),
       ...(placeholder ? [Placeholder.configure({ placeholder })] : []),
     ],
@@ -93,7 +93,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         ...(required ? { "aria-required": "true" } : {}),
       },
     },
-    onUpdate: ({ editor: instance }) => onChange(sanitize(instance.getHTML())),
+    onUpdate: ({ editor: instance }) => onChange(sanitizeHtml(instance.getHTML())),
   });
 
   // `useEditor` never rebuilds the instance for a changed `content`, and
@@ -107,13 +107,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   // an externally driven change from firing `onChange` straight back out.
   useEffect(() => {
     if (!editor) return;
-    const current = sanitize(editor.getHTML());
+    const current = sanitizeHtml(editor.getHTML());
     if (current === value) return;
     // An empty document round-trips as `<p></p>`, which callers that store "no
     // answer" as `""` would otherwise re-seed on every emptying keystroke.
     if (plainTextLength(current) === 0 && plainTextLength(value) === 0) return;
     editor.commands.setContent(value, { emitUpdate: false });
-  }, [editor, value]);
+  }, [editor, sanitizeHtml, value]);
 
   useEffect(() => {
     editor?.setEditable(!disabled);
