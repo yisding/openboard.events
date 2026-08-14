@@ -35,6 +35,52 @@ test.describe("rendered UI polish", () => {
   });
 });
 
+test.describe("self-service auth readability", () => {
+  test.skip(!targetConfigured(), NO_TARGET);
+  test.use({ viewport: { width: 320, height: 700 } });
+
+  test("wraps long signup addresses and gives explanatory copy readable rhythm", async ({ page }) => {
+    const email = "very.long.organizer.address+signup@example.com";
+    await page.goto(`/signup/check-email?email=${encodeURIComponent(email)}&next=%2Forganizations`);
+
+    const address = page.getByText(email, { exact: true });
+    const intro = address.locator("..");
+    await expect(intro).toBeVisible();
+    const layout = await intro.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return {
+        lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+        right: box.right,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+    expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+
+    const resendHint = page.getByText("A new link can only be sent to the address used to create this account.", { exact: true });
+    const hintStyle = await resendHint.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        color: style.color,
+        lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+      };
+    });
+    expect(hintStyle.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+    expect(hintStyle.color).toBe(await intro.evaluate((element) => getComputedStyle(element).color));
+
+    await page.goto("/signup/verified?error=invalid&next=%2Forganizations");
+    const invalidLinkCopy = page.getByText("The confirmation link may be expired or invalid. Enter your email and we will send a fresh one.", { exact: true });
+    const invalidCopyRatio = await invalidLinkCopy.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+    });
+    expect(invalidCopyRatio).toBeGreaterThanOrEqual(1.4);
+  });
+});
+
 test.describe("shared primitives inside feature hosts", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 1280, height: 900 } });

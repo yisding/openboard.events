@@ -174,6 +174,21 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("link", { name: "Start again with the correct address" }))
         .toHaveAttribute("href", "/signup?next=%2Forganizations");
 
+      const desktopViewport = page.viewportSize();
+      await page.setViewportSize({ width: 320, height: 700 });
+      const inboxCopy = page.getByText(SIGNUP_EMAIL, { exact: true }).locator("..");
+      const mobileReadability = await inboxCopy.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          lineHeightRatio: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
+          scrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(mobileReadability.lineHeightRatio).toBeGreaterThanOrEqual(1.4);
+      expect(mobileReadability.scrollWidth).toBeLessThanOrEqual(mobileReadability.viewportWidth);
+      if (desktopViewport) await page.setViewportSize(desktopViewport);
+
       if (E2E_FALLBACK_ACTIVATION) {
         const fallback = page.getByRole("link", { name: "Confirm email and continue" });
         await expect(fallback, "the explicit non-production fallback should surface the one-time activation link").toBeVisible();
