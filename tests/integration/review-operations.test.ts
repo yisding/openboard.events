@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { communicationLogs } from "@/db/schema";
 import { listOutstandingReviewersIn, sendReviewRemindersIn } from "@/features/comms";
 import { buildContext, type OutboxRow } from "@/features/comms/server/context";
-import { renderTemplateContent } from "@/features/comms/server/render";
+import { renderTemplateContent } from "@/features/comms/index.render";
 import { DEFAULT_TEMPLATES } from "@/features/comms/server/templates";
 import { parseEnv } from "@/shared/lib/env";
 import {

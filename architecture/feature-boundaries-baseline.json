@@ -1,19 +1,5 @@
 {
-  "directCrossFeatureImports": [
-    "src/features/auth/server/admin-mail.ts -> @/features/comms/server/layout",
-    "src/features/auth/server/admin-mail.ts -> @/features/comms/server/render",
-    "src/features/auth/server/admin-mail.ts -> @/features/comms/server/resend",
-    "src/features/auth/server/admin-mail.ts -> @/features/organizations/server/invitations",
-    "src/features/organizations/server/invitations.ts -> @/features/auth/server/secret-payload",
-    "src/features/portal/lib/session-calendar-links.ts -> @/features/comms/ics",
-    "src/features/portal/server/admin-speakers.ts -> @/features/comms/server/queries",
-    "src/features/portal/server/admin-speakers.ts -> @/features/comms/server/render",
-    "src/features/portal/submissions-edit/server/queries.ts -> @/features/submissions/server/mutations",
-    "src/features/public/server/public-ics.ts -> @/features/comms/ics",
-    "src/features/public/server/public-ics.ts -> @/features/comms/server/render",
-    "src/features/shell/admin-shell.tsx -> @/features/events/components/event-switcher",
-    "src/features/submissions/server/mutations.ts -> @/features/comms/server/render"
-  ],
+  "directCrossFeatureImports": [],
   "featureCycles": [
     [
       "auth",

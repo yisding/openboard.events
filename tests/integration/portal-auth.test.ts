@@ -6,7 +6,7 @@ import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { consumeToken, issuePortalToken, requestPortalLoginIn } from "@/features/auth";
 import { createPortalSessionRowIn, findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
-import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/server/secret-payload";
+import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/index.payloads";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
 import { getOrCreateContact, updateContactFields } from "@/features/portal";
 import { contactIdSchema, eventIdSchema, tokenIdSchema } from "@/shared/contracts";
