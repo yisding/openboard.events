@@ -36,7 +36,8 @@ export const submissionStatusRevisions = pgTable("submission_status_revisions", 
   changedAt: timestamp("changed_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   unique().on(table.id, table.eventId),
-  index("submission_status_revisions_submission_idx").on(table.eventId, table.submissionId, table.changedAt),
+  index("submission_status_revisions_submission_idx")
+    .on(table.eventId, table.submissionId, table.changedAt.desc().nullsFirst()),
   foreignKey({ columns: [table.submissionId, table.eventId], foreignColumns: [submissions.id, submissions.eventId] }).onDelete("cascade"),
 ]);
 

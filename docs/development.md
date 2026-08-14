@@ -7,8 +7,9 @@ what Openboard does and how to use it, start with the [README](../README.md).
 ## Status
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
-  typecheck, lint, architecture boundaries, invariant checks, the full Vitest suite (2,376
-  cases across two shards as of 2026-08-13), the Next.js build, and the Worker artifact gates.
+  typecheck, lint, architecture and schema drift checks, invariant checks, the full Vitest suite
+  (2,384 cases across two shards as of 2026-08-13), the Next.js build, and the Worker artifact
+  gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
   post-deploy smoke — and production deploys run through the same workflow behind a protected
@@ -21,7 +22,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
-- Snapshot counts (re-run the commands in **Testing** for current numbers): 34 migrations in
+- Snapshot counts (re-run the commands in **Testing** for current numbers): 35 migrations in
   [`drizzle/`](../drizzle), 13 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
   the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
 
@@ -112,6 +113,8 @@ at a Neon-protocol endpoint; a plain local Postgres socket does not work out of 
 ```bash
 pnpm typecheck          # tsc --noEmit
 pnpm lint                # eslint --max-warnings=0
+pnpm architecture:check  # AST feature-boundary and cycle ratchet
+pnpm schema:check        # full migration journal vs Drizzle metadata and SQL-only ledger
 pnpm invariants          # CI greps: single sanitizer/evaluator/dispatcher, no stray process.env, etc.
 pnpm audit:prod          # fail on any known production-dependency advisory
 pnpm test                # vitest: unit + PGlite integration suites
