@@ -447,7 +447,7 @@ test.describe("self-service signup to first value", () => {
       const liveFormViewport = liveFormPage.viewportSize();
       await liveFormPage.setViewportSize({ width: 320, height: 700 });
       const progress = liveFormPage.getByRole("list", { name: "Submission progress" });
-      await expect(progress.locator("b")).toHaveText(["Account", "Proposal", "Speaker", "Review"]);
+      await expect(progress.locator("b")).toHaveText(["Account", "Submission", "Speaker", "Review"]);
       const progressLayout = await progress.evaluate((element) => {
         const items = [...element.querySelectorAll(":scope > li")];
         const measurements = items.map((item) => {
