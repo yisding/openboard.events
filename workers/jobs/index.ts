@@ -4,10 +4,10 @@ type WorkerContext = { waitUntil(promise: Promise<unknown>): void };
 export type JobName = "outbox" | "reminders" | "airtable" | "cleanup";
 export type JobFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-// A tick may dispatch up to 50 emails sequentially, so this is deliberately
-// longer than one minute. It is still well below the scheduled Worker runtime's
-// wall-time ceiling and prevents a stuck sibling Worker request from living
-// forever or hiding behind overlapping cron invocations.
+// A tick may dispatch two 50-row outboxes in bounded recipient lanes, so this
+// is deliberately longer than one minute. It is still well below the scheduled
+// Worker runtime's wall-time ceiling and prevents a stuck sibling Worker
+// request from living forever or hiding behind overlapping cron invocations.
 export const JOB_FETCH_TIMEOUT_MS = 120_000;
 
 export function jobsForScheduledTime(scheduledTime: number): JobName[] {
