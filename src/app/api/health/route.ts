@@ -27,7 +27,7 @@ export async function GET() {
     return Response.json({
       ok: true,
       service: "sb-web",
-      sha: env.NEXT_PUBLIC_BUILD_SHA ?? "local",
+      sha: env.BUILD_SHA ?? "local",
       deployment: env.DEPLOYMENT_ID ?? "local",
       env: appEnv,
       db: { ok: true, version },
