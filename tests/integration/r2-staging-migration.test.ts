@@ -89,6 +89,7 @@ describe("version-1 R2 staging migration", () => {
 
     const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
       now: () => NOW,
+      presignGraceMinutes: 0,
       headObject: async (key) => objects.get(key) ?? null,
       copyKey: async (source, destination) => {
         const object = objects.get(source);
@@ -120,6 +121,7 @@ describe("version-1 R2 staging migration", () => {
 
     const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
       now: () => NOW,
+      presignGraceMinutes: 0,
       headObject: async (key) => objects.get(key) ?? null,
       copyKey: async (_source, destination) => {
         objects.set(destination, { size: 8, etag: "different" });
@@ -138,6 +140,7 @@ describe("version-1 R2 staging migration", () => {
     await insertLegacyAsset();
     const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
       now: () => NOW,
+      presignGraceMinutes: 0,
       headObject: async () => null,
       copyKey: async () => undefined,
       deleteKey: async () => true,
@@ -155,6 +158,7 @@ describe("version-1 R2 staging migration", () => {
 
     const result = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, {
       now: () => NOW,
+      presignGraceMinutes: 0,
       headObject: async (key) => objects.get(key) ?? null,
       copyKey: async (source, destination) => {
         const object = objects.get(source);
@@ -182,6 +186,7 @@ describe("version-1 R2 staging migration", () => {
     };
     const options = {
       now: () => NOW,
+      presignGraceMinutes: 0,
       headObject: async () => null,
       copyKey: async () => undefined,
       deleteKey: async (key: string) => {
@@ -208,5 +213,47 @@ describe("version-1 R2 staging migration", () => {
       "SELECT complete,cursor FROM r2_staging_migration_state WHERE singleton",
     );
     expect(state.rows[0]).toMatchObject({ complete: true, cursor: null });
+  });
+
+  it("rescans after the presign window and catches an object recreated behind an early zero", async () => {
+    const orphan = keys("77777777-7777-4777-8777-777777777798").legacy;
+    let current = NOW;
+    const objects = new Map<string, Date>();
+    const deleted: string[] = [];
+    const options = {
+      now: () => current,
+      headObject: async () => null,
+      copyKey: async () => undefined,
+      deleteKey: async (key: string) => {
+        deleted.push(key);
+        objects.delete(key);
+        return true;
+      },
+      listPage: async (): Promise<ListObjectsPage> => ({
+        objects: [...objects].map(([key, lastModified]) => ({ key, lastModified })),
+        nextToken: null,
+      }),
+    };
+
+    const earlyZero = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, options);
+    expect(earlyZero.migrationComplete).toBe(0);
+
+    objects.set(orphan, new Date(NOW.getTime() + 14 * 60 * 1000));
+    current = new Date(NOW.getTime() + 16 * 60 * 1000);
+    const recreated = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, options);
+    expect(recreated).toMatchObject({
+      legacyObjectsFound: 1,
+      legacyObjectsRemaining: 1,
+      migrationComplete: 0,
+    });
+
+    current = new Date(NOW.getTime() + 30 * 60 * 1000);
+    const expired = await migrateLegacyStagingIn(testDb as unknown as DbOrTx, options);
+    expect(deleted).toEqual([orphan]);
+    expect(expired).toMatchObject({
+      legacyObjectsDeleted: 1,
+      legacyObjectsRemaining: 0,
+      migrationComplete: 1,
+    });
   });
 });

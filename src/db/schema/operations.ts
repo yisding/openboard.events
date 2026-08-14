@@ -45,6 +45,7 @@ export const r2StagingMigrationState = pgTable("r2_staging_migration_state", {
   failures: integer("failures").notNull().default(0),
   complete: boolean("complete").notNull().default(false),
   rowVersion: integer("row_version").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [

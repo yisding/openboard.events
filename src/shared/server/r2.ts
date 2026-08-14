@@ -885,6 +885,7 @@ type LegacyMigrationOptions = {
   deleteKey?: (key: string) => Promise<boolean>;
   listPage?: (continuationToken?: string) => Promise<ListObjectsPage>;
   maxInventoryPages?: number;
+  presignGraceMinutes?: number;
 };
 
 type LegacyMigrationCheckpoint = {
@@ -893,6 +894,7 @@ type LegacyMigrationCheckpoint = {
   failures: number;
   complete: boolean;
   rowVersion: number;
+  startedAt: Date;
 };
 
 type LegacyRowMigration = {
@@ -1057,8 +1059,8 @@ async function migrateLegacyRowsIn(
   return result;
 }
 
-async function readLegacyMigrationCheckpointIn(dbOrTx: DbOrTx): Promise<LegacyMigrationCheckpoint> {
-  await dbOrTx.insert(r2StagingMigrationState).values({ singleton: true }).onConflictDoNothing();
+async function readLegacyMigrationCheckpointIn(dbOrTx: DbOrTx, startedAt: Date): Promise<LegacyMigrationCheckpoint> {
+  await dbOrTx.insert(r2StagingMigrationState).values({ singleton: true, startedAt }).onConflictDoNothing();
   const [row] = await dbOrTx
     .select({
       cursor: r2StagingMigrationState.cursor,
@@ -1066,6 +1068,7 @@ async function readLegacyMigrationCheckpointIn(dbOrTx: DbOrTx): Promise<LegacyMi
       failures: r2StagingMigrationState.failures,
       complete: r2StagingMigrationState.complete,
       rowVersion: r2StagingMigrationState.rowVersion,
+      startedAt: r2StagingMigrationState.startedAt,
     })
     .from(r2StagingMigrationState)
     .where(eq(r2StagingMigrationState.singleton, true))
@@ -1174,7 +1177,7 @@ export async function migrateLegacyStagingIn(
   const deleteKey = options.deleteKey ?? liveDeleteObject;
   const listPage = options.listPage ?? ((token?: string) => listObjectsPage(token, "evt_"));
   const maxInventoryPages = options.maxInventoryPages ?? LEGACY_MIGRATION_INVENTORY_PAGES;
-  const checkpoint = await readLegacyMigrationCheckpointIn(dbOrTx);
+  const checkpoint = await readLegacyMigrationCheckpointIn(dbOrTx, now());
   const rowMigration = await migrateLegacyRowsIn(dbOrTx, {
     now,
     batchSize: options.batchSize ?? LEGACY_MIGRATION_BATCH_SIZE,
@@ -1214,13 +1217,32 @@ export async function migrateLegacyStagingIn(
     return { ...base, legacyObjectsRemaining: 0, migrationComplete: 1 };
   }
 
+  // Do not even begin the accepted inventory cycle while a version-1 PUT URL
+  // could still be valid. Otherwise a late PUT could recreate an object on a
+  // page this cycle already passed and hide behind the eventual zero result.
+  const graceElapsed = now().getTime() >= checkpoint.startedAt.getTime()
+    + (options.presignGraceMinutes ?? LEGACY_PRESIGN_GRACE_MINUTES) * 60 * 1000;
+  if (!graceElapsed) {
+    base.checkpointWritten = await writeLegacyMigrationCheckpointIn(dbOrTx, checkpoint, {
+      cursor: null,
+      cycleRemainingObjects: 0,
+      remainingLegacyRows: 0,
+      remainingLegacyObjects: 0,
+      failures: rowMigration.failures,
+      complete: false,
+      completedAt: null,
+    }, now()) ? 1 : 0;
+    return base;
+  }
+
   const scan = await scanLegacyObjectPagesIn(dbOrTx, checkpoint.cursor, { now, deleteKey, listPage, maxInventoryPages });
   const startingCycle = checkpoint.cursor === null;
   const cycleRemaining = (startingCycle ? 0 : checkpoint.cycleRemainingObjects) + scan.remaining;
   const cycleFailures = (startingCycle ? 0 : checkpoint.failures) + scan.failures;
   const scanFinished = scan.nextToken === null;
   const finalRemainingRows = scanFinished ? await countLegacyRowsIn(dbOrTx) : 0;
-  const complete = scanFinished && finalRemainingRows === 0 && cycleRemaining === 0 && cycleFailures === 0;
+  const complete = scanFinished && finalRemainingRows === 0
+    && cycleRemaining === 0 && cycleFailures === 0;
   const written = await writeLegacyMigrationCheckpointIn(dbOrTx, checkpoint, {
     cursor: scanFinished ? null : scan.nextToken,
     cycleRemainingObjects: scanFinished ? 0 : cycleRemaining,

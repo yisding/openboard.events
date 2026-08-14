@@ -71,8 +71,11 @@ After the row count reaches zero, the job walks `evt_` objects through the S3 co
 deleting old, unowned version-1 objects. `r2_staging_migration_state` stores that opaque cursor and
 advances it with a row-version compare-and-swap, so overlapping cron ticks can repeat safe work but
 cannot move inventory backwards. A completed cycle records zero legacy rows, zero legacy objects,
-and zero failures. Protected deployments poll that state through `pnpm r2:migration:wait`; a
-non-zero or incomplete inventory blocks promotion and leaves dual parsing in place.
+and zero failures. Completion requires a fresh full zero cycle after the checkpoint has existed for
+the entire 15-minute presign lifetime, so an old URL cannot recreate an object behind an accepted
+inventory. Protected deployments poll that state through `pnpm r2:migration:wait` and independently
+verify the elapsed window; a non-zero or incomplete inventory blocks promotion and leaves dual
+parsing in place.
 
 The migration never changes a published key. If copying, fingerprinting, or the row CAS fails, the
 version-1 row remains finalizable and is retried on the next tick. Rolling application code back to

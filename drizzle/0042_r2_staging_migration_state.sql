@@ -7,6 +7,7 @@ CREATE TABLE "r2_staging_migration_state" (
   "failures" integer DEFAULT 0 NOT NULL,
   "complete" boolean DEFAULT false NOT NULL,
   "row_version" integer DEFAULT 0 NOT NULL,
+  "started_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   "completed_at" timestamp with time zone,
   CONSTRAINT "r2_staging_migration_state_singleton_ck" CHECK ("singleton"),
