@@ -33,6 +33,8 @@ describe("PublicItinerary", () => {
     expect(html).toContain("Agents");
     expect(html).toContain("My Schedule");
     expect(html).toContain("itinerary-star");
+    expect(html).toContain("9:00–9:30 AM PDT · Main Hall");
+    expect(html).not.toContain("9:00 AM PDT – 9:30 AM PDT");
   });
 
   it("starts with the export disabled (nothing starred pre-hydration)", () => {

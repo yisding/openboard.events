@@ -17,6 +17,7 @@ describe("agenda workspace responsive styles", () => {
     expect(css).toContain(".room-headings{min-width:650px");
     expect(css).toContain(".day-grid-body{min-width:650px");
     expect(css).toContain(".agenda-daybar{min-width:0;overflow:hidden;gap:12px}");
+    expect(css).toContain(".agenda-view-tabs{height:55px;min-height:55px;align-self:flex-start}");
     expect(css).toContain(".agenda-daybar>.agenda-daybar-scroll{min-width:0;flex:1;display:flex;height:100%;overflow-x:auto");
     expect(toolbar).toContain('className="button button-secondary button-sm agenda-invited-link"');
     expect(toolbar).toContain('className="agenda-toolbar-actions"');

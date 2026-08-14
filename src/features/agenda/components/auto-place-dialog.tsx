@@ -13,7 +13,7 @@ import {
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
-import { formatInZone } from "@/shared/lib/time";
+import { formatInZone, formatTimeRangeInZone } from "@/shared/lib/time";
 import { Button, Modal, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
@@ -103,7 +103,8 @@ export function AutoPlaceDialog({ eventId, timezone, open, onClose }: {
   }
 
   function whenLabel(row: Pick<PlacedSuggestionDTO, "startsAt" | "endsAt">): string {
-    return `${formatInZone(row.startsAt, timezone, "date")} · ${formatInZone(row.startsAt, timezone, "time")}–${formatInZone(row.endsAt, timezone, "time")}`;
+    const date = formatInZone(row.startsAt, timezone, { month: "short", day: "numeric", year: "numeric" });
+    return `${date} · ${formatTimeRangeInZone(row.startsAt, row.endsAt, timezone)}`;
   }
 
   return (
