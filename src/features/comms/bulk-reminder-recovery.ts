@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   bulkReminderResultSchema,
   bulkReminderTargetSchema,
   eventIdSchema,
@@ -27,7 +28,7 @@ export const bulkReminderRecoverySchema = z.object({
   originId: z.uuid().optional(),
   /** Canonical set identity for the exact rows selected by that document. */
   targetFingerprint: z.string().min(1).max(30_000).optional(),
-  targets: z.array(bulkReminderTargetSchema).min(1).max(200),
+  targets: z.array(bulkReminderTargetSchema).min(1).max(BULK_REMINDER_TARGET_LIMIT),
   resolution: bulkReminderResolutionSchema.optional(),
 }).superRefine((value, context) => {
   if (value.targetFingerprint !== undefined

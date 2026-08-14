@@ -3,6 +3,14 @@ import { commStatusSchema, templateKeySchema, type TemplateKey } from "./enums";
 import { commLogIdSchema, contactIdSchema, sessionIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
 
 /**
+ * One bulk reminder request deliberately writes each missing target in its own
+ * statement so an exact retry can fill partial progress. Keep that fan-out
+ * comfortably below Cloudflare Workers' 50-subrequest ceiling after auth and
+ * the two batch authority reads.
+ */
+export const BULK_REMINDER_TARGET_LIMIT = 20;
+
+/**
  * One organizer-confirmed targeted reminder. `attemptId` is optional while
  * older clients roll forward; new clients retain it across an ambiguous
  * response so a retry identifies the same durable outbox row.
@@ -43,7 +51,7 @@ export type BulkReminderTargetResult = z.infer<typeof bulkReminderTargetResultSc
 export const bulkReminderResultSchema = z.object({
   enqueued: z.int().nonnegative(),
   total: z.int().nonnegative(),
-  results: z.array(bulkReminderTargetResultSchema).max(200),
+  results: z.array(bulkReminderTargetResultSchema).max(BULK_REMINDER_TARGET_LIMIT),
 }).superRefine((value, context) => {
   if (value.total !== value.results.length) {
     context.addIssue({ code: "custom", path: ["total"], message: "Total must match target results" });

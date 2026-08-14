@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   contactIdSchema,
   eventIdSchema,
   idem,
@@ -49,6 +50,33 @@ const bulkReminderAttemptId = "d0000000-0000-4000-8000-000000000052";
 const secondBulkReminderAttemptId = "d0000000-0000-4000-8000-000000000053";
 
 type LogRow = { idempotency_key: string; status: string; error: string | null; task_id: string | null; submission_id: string | null; contact_id: string };
+
+function instrumentQueries(base: TxDb, afterFirstExecute?: () => Promise<void>) {
+  let queryCount = 0;
+  let executeCount = 0;
+  const instrumented = new Proxy(base as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (property !== "execute" && property !== "insert") return value.bind(target);
+      return (...args: unknown[]) => {
+        queryCount += 1;
+        const result = value.apply(target, args);
+        if (property === "execute") {
+          executeCount += 1;
+          if (executeCount === 1 && afterFirstExecute) {
+            return Promise.resolve(result).then(async (resolved) => {
+              await afterFirstExecute();
+              return resolved;
+            });
+          }
+        }
+        return result;
+      };
+    },
+  }) as TxDb;
+  return { db: instrumented, count: () => queryCount };
+}
 
 describe("reminder + assignment scan", () => {
   let pglite: PGlite;
@@ -538,8 +566,9 @@ describe("reminder + assignment scan", () => {
       ]);
 
       await pglite.exec("DROP TRIGGER fail_second_bulk_reminder ON communication_logs; DROP FUNCTION fail_second_bulk_reminder();");
+      const partialRetryQueries = instrumentQueries(tx);
       const recovered = await sendRemindersNowIn(
-        tx,
+        partialRetryQueries.db,
         eventId,
         targets,
         firstRequestAt + 181_000,
@@ -553,6 +582,9 @@ describe("reminder + assignment scan", () => {
           { taskId: secondTaskId, contactId: coSpeakerId, submissionId: null, enqueued: true, attemptStatus: "queued" },
         ],
       });
+      // One batch status read, one batch assignment read, and only the one
+      // missing insert. The already-committed target performs no query.
+      expect(partialRetryQueries.count()).toBe(3);
       expect(new Set((await logs("task_reminder")).map((row) => row.idempotency_key))).toEqual(new Set([
         idem.taskReminderManualAttempt(eventId, taskId, speakerId, null, bulkReminderAttemptId),
         idem.taskReminderManualAttempt(eventId, secondTaskId, coSpeakerId, null, bulkReminderAttemptId),
@@ -609,6 +641,72 @@ describe("reminder + assignment scan", () => {
         ],
       });
       expect(await logs("task_reminder")).toHaveLength(4);
+    });
+
+    it("stays within the Worker budget at the enforced maximum and replays in one query", async () => {
+      const ids = Array.from({ length: BULK_REMINDER_TARGET_LIMIT }, (_, index) => taskIdSchema.parse(
+        `d0000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+      ));
+      for (const id of ids) await insertTask(id);
+      const targets = ids.map((id) => ({ taskId: id, contactId: speakerId, submissionId: null }));
+      const firstQueries = instrumentQueries(tx);
+
+      const first = await sendRemindersNowIn(
+        firstQueries.db,
+        eventId,
+        targets,
+        1_770_000_000_000,
+        bulkReminderAttemptId,
+      );
+
+      expect(first).toMatchObject({ enqueued: BULK_REMINDER_TARGET_LIMIT, total: BULK_REMINDER_TARGET_LIMIT });
+      expect(await logs("task_reminder")).toHaveLength(BULK_REMINDER_TARGET_LIMIT);
+      // One status snapshot + one assignment snapshot + one independently
+      // committed insert per target: 22, leaving 28 Workers subrequests for
+      // auth and route work before best-effort dispatch yields to the cron.
+      expect(firstQueries.count()).toBe(BULK_REMINDER_TARGET_LIMIT + 2);
+
+      const replayQueries = instrumentQueries(tx);
+      const replay = await sendRemindersNowIn(
+        replayQueries.db,
+        eventId,
+        targets,
+        1_770_000_181_000,
+        bulkReminderAttemptId,
+      );
+      expect(replay).toEqual(first);
+      expect(replayQueries.count()).toBe(1);
+      expect(await logs("task_reminder")).toHaveLength(BULK_REMINDER_TARGET_LIMIT);
+    });
+
+    it("returns the serialized row status when a concurrent exact attempt wins after the batch snapshot", async () => {
+      const target = { taskId, contactId: speakerId, submissionId: null } as const;
+      const idempotencyKey = idem.taskReminderManualAttempt(
+        eventId, target.taskId, target.contactId, target.submissionId, bulkReminderAttemptId,
+      );
+      const queries = instrumentQueries(tx, async () => {
+        await pglite.query(
+          `INSERT INTO communication_logs(event_id,contact_id,template_key,idempotency_key,status,task_id,sent_at)
+           VALUES($1,$2,'task_reminder',$3,'sent',$4,now())`,
+          [eventId, speakerId, idempotencyKey, taskId],
+        );
+      });
+
+      expect(await sendRemindersNowIn(
+        queries.db,
+        eventId,
+        [target],
+        1_770_000_000_000,
+        bulkReminderAttemptId,
+      )).toEqual({
+        enqueued: 0,
+        total: 1,
+        results: [{ ...target, enqueued: false, attemptStatus: "sent" }],
+      });
+      expect(queries.count()).toBe(3);
+      expect(await logs("task_reminder")).toEqual([
+        expect.objectContaining({ idempotency_key: idempotencyKey, status: "sent" }),
+      ]);
     });
   });
 });

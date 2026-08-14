@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { sendRemindersNow } from "@/features/comms";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   contactIdSchema,
   bulkReminderTargetSchema,
   fileCommentIdSchema,
@@ -13,7 +14,6 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { addFileCommentIn } from "../../server/deliverable-slot";
-import { DELIVERABLE_BULK_LIMIT } from "../bulk-limit";
 
 /**
  * The organizer's half of a deliverable's comment thread. The speaker's half
@@ -43,7 +43,7 @@ export function addOrganizerComment(eventId: EventId, actorUserId: UserId, input
 
 /** The central Files view's bulk bar: remind every selected, still-open row. */
 export const bulkRemindInputSchema = z.object({
-  targets: z.array(bulkReminderTargetSchema).min(1).max(DELIVERABLE_BULK_LIMIT),
+  targets: z.array(bulkReminderTargetSchema).min(1).max(BULK_REMINDER_TARGET_LIMIT),
   // Optional while older open browser bundles roll forward. New clients
   // freeze this id with the exact target list before starting the POST.
   attemptId: z.uuid().optional(),

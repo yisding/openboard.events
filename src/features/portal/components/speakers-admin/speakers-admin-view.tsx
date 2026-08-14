@@ -8,7 +8,7 @@ import type { ContactFilters, ContactListRow, SpeakerFilterCounts } from "@/feat
 import { bulkSendRecoveryStorageKey, loadBulkSendRecovery, speakerBulkSendRecoveryIdentity, type BulkSendRecoverySnapshot } from "@/features/comms/index.bulk-send-recovery";
 import { BulkReminderRecoveryDialog, UnreadableBulkSendRecovery, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
 import type { ConfirmationStatus, EventId } from "@/shared/contracts";
-import { bulkReminderTargetSchema, CONFIRMATION_STATUSES } from "@/shared/contracts";
+import { BULK_REMINDER_TARGET_LIMIT, bulkReminderTargetSchema, CONFIRMATION_STATUSES } from "@/shared/contracts";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
@@ -183,6 +183,10 @@ export function SpeakersAdminView({
       const flatTargets = perSpeaker.flat().map((target) => bulkReminderTargetSchema.parse(target));
       if (flatTargets.length === 0) {
         toast("Nothing to remind — every selected speaker is caught up");
+        return false;
+      }
+      if (flatTargets.length > BULK_REMINDER_TARGET_LIMIT) {
+        toast(`That selection has ${flatTargets.length} open assignments. Send up to ${BULK_REMINDER_TARGET_LIMIT} at a time; your speaker selection is still available.`, { kind: "error" });
         return false;
       }
       reminderSelectionRef.current = {

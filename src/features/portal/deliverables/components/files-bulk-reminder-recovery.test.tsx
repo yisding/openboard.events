@@ -5,6 +5,7 @@ import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BULK_REMINDER_TARGET_LIMIT,
   contactIdSchema,
   deliverableRowDtoSchema,
   eventIdSchema,
@@ -57,6 +58,7 @@ vi.mock("@/shared/ui/app/data-table", () => ({
     };
     return <div>
       <button type="button" onClick={() => update(data.slice(0, 1))}>Select Ada</button>
+      <button type="button" onClick={() => update(data)}>Select all rows</button>
       {renderSelectionBar?.({
         selectedRows: selected,
         countLabel: `${selected.length} selected`,
@@ -144,6 +146,40 @@ afterEach(async () => {
 });
 
 describe("Files bulk reminder recovery", () => {
+  it("keeps an over-budget selection intact and sends nothing", async () => {
+    const rows = Array.from({ length: BULK_REMINDER_TARGET_LIMIT + 1 }, (_, index) => deliverableRowDtoSchema.parse({
+      ...row,
+      taskId: `e2000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+      contactId: `e2000000-0000-4000-8001-${String(100 + index).padStart(12, "0")}`,
+      fileRequestId: `e2000000-0000-4000-8002-${String(100 + index).padStart(12, "0")}`,
+      contactName: `Speaker ${index + 1}`,
+    }));
+    await act(async () => root.render(<FilesAdminView
+      eventId={eventId}
+      rows={rows}
+      counts={{ all: rows.length, open: rows.length, overdue: 0, completed: 0 }}
+      state="all"
+      taskId=""
+      fileRequestId=""
+      hasUpload=""
+      search=""
+      fileRequests={[]}
+      tasks={[]}
+    />));
+
+    await act(async () => buttonNamed("Select all rows")?.click());
+    await act(async () => buttonNamed("Send reminder")?.click());
+    await settle();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(bulkReminderRecoveryStorageKey(eventId))).toBeNull();
+    expect(buttonNamed("Send reminder")).toBeDefined();
+    expect(toastMock).toHaveBeenCalledWith(
+      `Send reminders to up to ${BULK_REMINDER_TARGET_LIMIT} assignments at a time. Your selection is still available.`,
+      { kind: "error" },
+    );
+  });
+
   it("clears the exact selection once before a remotely acknowledged attempt unlocks", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockRejectedValueOnce(new TypeError("response lost"));
