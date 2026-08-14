@@ -192,10 +192,10 @@ by keyboard, not merely by counting tags.
 ([#116](https://github.com/yisding/symmetrical-happiness/issues/116))
 
 Admin scheduling, review windows, task deadlines, and speaker unavailability now use the shared
-`DateTimePicker`, with the event timezone named at entry. `src/features/native-date-controls.test.ts`
-guards against new raw `date`/`datetime-local` controls on admin surfaces. The public form renderer's
-deliberate **Date** question remains a native date control; it represents a calendar date rather than
-an instant and therefore has no timezone conversion.
+`DateTimePicker`, with the event timezone named at entry. `tests/unit/source-invariants.test.ts`
+guards against new raw `date`/`datetime-local` controls on every surface. The public form renderer's
+deliberate **Date** question uses `CalendarDatePicker`; it represents a calendar date rather than an
+instant and therefore has no timezone conversion.
 
 ---
 

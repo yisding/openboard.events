@@ -62,3 +62,9 @@ The end state is an empty direct-import baseline and no cyclic feature group.
 Until then, follow-up PRs remove one coherent dependency cluster at a time,
 move neutral contracts into `src/shared/contracts`, and keep orchestration in
 explicit composition services.
+
+Syntax-sensitive repository policies are enforced separately by
+`pnpm source:check`. That gate parses TypeScript and TSX instead of relying on
+text patterns for imports, JSX attributes, environment and storage access,
+reviewer-role calls, or inline numeric styles. `pnpm invariants` composes it
+with greps that remain appropriate for literal configuration and CSS values.
