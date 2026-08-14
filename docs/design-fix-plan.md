@@ -122,8 +122,9 @@ Confirmed: two `<h1>`s on screen at once (`DashboardTabs.tsx:37` event name,
 - **Fix:**
   - One `<h1>`: the event name. The greeting block collapses into a single muted line (or is
     removed; the date defect in 0.1 lives there too).
-  - The celebration banner ("Your first submission arrived") demotes below the tabs and becomes
-    dismiss-once (persisted), not a recurring peer of the attention queue.
+  - The celebration banner ("Your first submission arrived") demotes below the tabs. Preserve
+    its existing dismiss-once `localStorage` behavior; this is a hierarchy change, not a new
+    persistence task.
   - Status summary and form progress remain, after the tabs, in that order.
 - **Acceptance:** exactly one `h1` in the DOM; the visual order is event heading → needs
   attention → tabs → content; axe/heading-order check passes.
@@ -148,9 +149,10 @@ titles; short sessions clip to illegibility.
 ## Phase 5 — Form builder action model
 
 Confirmed: `Rocket` icon on the availability toggle whose label is "Close" when the form is open
-(`form-builder.tsx:393`) — a launch icon on a stop action. Also confirmed: **autosave already
-exists** ("Version 1 · All changes saved" indicator; the rail documents "Every save pins a new
-immutable version"), which makes this a naming/IA fix, not new machinery.
+(`form-builder.tsx:393`) — a launch icon on a stop action. The builder **does not autosave**:
+organizers persist edits through the explicit step/question save actions, and the unsaved-work
+guard protects dirty local state. "All changes saved" only means there are no current local edits.
+Keep that manual persistence model explicit; this is a naming/IA fix, not new save machinery.
 
 - **Fix:**
   - "Save" → **"Publish version"** (it pins an immutable snapshot; say so).
@@ -161,7 +163,8 @@ immutable version"), which makes this a naming/IA fix, not new machinery.
   - If a duplicate bottom save action exists on long pages, it becomes a link to the header
     action rather than a second primary button.
 - **Acceptance:** no icon whose common meaning opposes its label; the header reads
-  [autosave state] · [Publish version] · [availability control, visually separate].
+  [manual edit state] · [Publish version] · [availability control, visually separate], and no
+  copy implies unpublished edits persist automatically.
 
 ## Phase 6 — Abstracts navigation and labels
 
