@@ -81,6 +81,7 @@ const NAV_ITEMS: Array<{ key: PublicSurface; label: string }> = [
 
 export function PublicEventShell({
   children,
+  heroControls,
   active,
   eventSlug,
   event,
@@ -88,6 +89,7 @@ export function PublicEventShell({
   embedOptions = DEFAULT_EMBED_OPTIONS,
 }: {
   children: React.ReactNode;
+  heroControls?: React.ReactNode;
   active: PublicSurface;
   eventSlug: string;
   event: PublicEventInfo;
@@ -164,9 +166,14 @@ export function PublicEventShell({
         )}
         <div className="public-event-container">
           {range && <span className="public-eyebrow">{range.toUpperCase()}</span>}
-          <h1>{event.name}</h1>
+          <h1 className="public-event-hero-title">{event.name}</h1>
         </div>
       </section>
+      {heroControls && (
+        <div className="public-event-hero-controls">
+          <div className="public-event-container">{heroControls}</div>
+        </div>
+      )}
       {children}
       <footer className="public-event-footer">
         <div className="public-event-container">

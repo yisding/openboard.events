@@ -162,6 +162,20 @@ export function PublicAgenda({
     }
   }
 
+  const dayTabs = days.length > 0 ? (
+    <div className="public-day-tabs" role="group" aria-label="Agenda days">
+      {days.map((dayKey) => {
+        const label = dayLabel(dayKey, event.timezone);
+        return (
+          <button key={dayKey} type="button" aria-pressed={day === dayKey} className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
+            <b>{label.weekday}</b>
+            <span>{label.date}</span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
@@ -177,20 +191,9 @@ export function PublicAgenda({
       description="Its configured track, format, or location filters currently exclude every published session. Ask the organizer to update the embed settings."
     />
   ) : (
-    <>
-      <div className="schedule-controls">
-        <div className="public-day-tabs">
-          {days.map((dayKey) => {
-            const label = dayLabel(dayKey, event.timezone);
-            return (
-              <button key={dayKey} type="button" aria-pressed={day === dayKey} className={day === dayKey ? "active" : ""} onClick={() => selectDay(dayKey)}>
-                <b>{label.weekday}</b>
-                <span>{label.date}</span>
-              </button>
-            );
-          })}
-        </div>
-        <section className="schedule-list">
+    <div className="schedule-controls">
+      {embed && dayTabs}
+      <section className="schedule-list">
           {grouped.map(([time, items]) => (
             <div className="schedule-time-group" key={time}>
               <time>{formatInZone(time, event.timezone, { hour: "numeric", minute: "2-digit" })}</time>
@@ -243,13 +246,12 @@ export function PublicAgenda({
               </div>
             </div>
           ))}
-        </section>
-      </div>
-    </>
+      </section>
+    </div>
   );
 
   return (
-    <PublicEventShell active="agenda" eventSlug={eventSlug} event={event} embed={embed} embedOptions={embedOptions}>
+    <PublicEventShell active="agenda" eventSlug={eventSlug} event={event} embed={embed} embedOptions={embedOptions} heroControls={!embed ? dayTabs : null}>
       <main className={`public-schedule ${embed ? "embed-content" : "public-event-container"}`}>
         <header>
           <div>

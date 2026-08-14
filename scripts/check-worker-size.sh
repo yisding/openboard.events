@@ -77,10 +77,51 @@ command -v wrangler >/dev/null 2>&1 || {
 
 mkdir -p .wrangler
 output_file=".wrangler/worker-size.txt"
-wrangler deploy --env production --dry-run 2>&1 | tee "$output_file"
+worker_env="${WORKER_SIZE_ENV:-production}"
+wrangler deploy --env "$worker_env" --dry-run 2>&1 | tee "$output_file"
 
 gzip_kib=$(sed -nE 's/.*gzip[^0-9]*([0-9]+([.][0-9]+)?) KiB.*/\1/p' "$output_file" | tail -1)
 [[ -n "$gzip_kib" ]] || { echo "Could not read compressed Worker size from Wrangler output" >&2; exit 2; }
+upload_kib=$(sed -nE 's/.*Total Upload:[^0-9]*([0-9]+([.][0-9]+)?) KiB.*/\1/p' "$output_file" | tail -1)
+[[ -n "$upload_kib" ]] || { echo "Could not read uncompressed Worker size from Wrangler output" >&2; exit 2; }
+
+IFS=$'\t' read -r handler_inputs server_chunks static_assets < <(
+  node --input-type=module -e '
+    import { readFileSync, readdirSync } from "node:fs";
+    import { join } from "node:path";
+    const [metaPath, chunkDir, assetsDir] = process.argv.slice(1);
+    const metafile = JSON.parse(readFileSync(metaPath, "utf8"));
+    const output = Object.entries(metafile.outputs).find(([name]) => name.endsWith("handler.mjs"));
+    if (!output) process.exit(2);
+    const countFiles = (directory) => readdirSync(directory, { withFileTypes: true })
+      .reduce((count, entry) => count + (entry.isDirectory() ? countFiles(join(directory, entry.name)) : 1), 0);
+    process.stdout.write([
+      Object.keys(output[1].inputs).length,
+      readdirSync(chunkDir).filter((file) => file.endsWith(".js")).length,
+      countFiles(assetsDir),
+    ].join("\t") + "\n");
+  ' "$meta" "$chunk_dir" .open-next/assets
+)
+
+next_version="$(node -p 'require("./node_modules/next/package.json").version')"
+opennext_version="$(node -p 'require("./node_modules/@opennextjs/cloudflare/package.json").version')"
+wrangler_version="$(node -p 'require("./node_modules/wrangler/package.json").version')"
+compatibility_date="$(sed -nE 's/.*"compatibility_date"[[:space:]]*:[[:space:]]*"([0-9-]+)".*/\1/p' wrangler.jsonc | head -1)"
+
+echo "Worker artifact metrics: env=$worker_env upload_kib=$upload_kib gzip_kib=$gzip_kib handler_inputs=$handler_inputs server_chunks=$server_chunks static_assets=$static_assets"
+echo "Worker compatibility matrix: next=$next_version opennext=$opennext_version wrangler=$wrangler_version compatibility_date=$compatibility_date"
+
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "### Worker artifact ($worker_env)"
+    echo
+    echo "| gzip KiB | upload KiB | handler inputs | server chunks | static assets |"
+    echo "| ---: | ---: | ---: | ---: | ---: |"
+    echo "| $gzip_kib | $upload_kib | $handler_inputs | $server_chunks | $static_assets |"
+    echo
+    echo "Next $next_version · OpenNext Cloudflare $opennext_version · Wrangler $wrangler_version · compatibility date $compatibility_date"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 awk -v size="$gzip_kib" 'BEGIN {
   if (size > 3072) { printf "Worker %.2f KiB exceeds the Workers Free 3072 KiB limit\n", size > "/dev/stderr"; exit 1 }

@@ -2,11 +2,10 @@
 
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
-import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { plainTextLength } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -28,20 +27,16 @@ import { richTextLinkError } from "./rich-text-link";
  * Loaded through `next/dynamic` with `ssr: false` by `rich-text-editor-lazy` so
  * TipTap never enters the server graph.
  */
-export function RichTextEditor({
-  value,
-  onChange,
-  maxChars,
-  placeholder,
-  ariaLabel = "Rich text editor",
-  ariaLabelledBy,
-  ariaDescribedBy,
-  ariaInvalid = false,
-  required = false,
-  disabled = false,
-}: {
+export type RichTextEditorHandle = {
+  /** Insert plain text at the current selection and restore editor focus. */
+  insertAtCursor: (text: string) => boolean;
+};
+
+export type RichTextEditorProps = {
   value: string;
   onChange: (html: string) => void;
+  /** Defaults to the shared allowlist; feature editors may preserve safe placeholders. */
+  sanitizeHtml?: (html: string) => string;
   maxChars?: number;
   placeholder?: string;
   ariaLabel?: string;
@@ -50,7 +45,21 @@ export function RichTextEditor({
   ariaInvalid?: boolean;
   required?: boolean;
   disabled?: boolean;
-}) {
+};
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
+  value,
+  onChange,
+  sanitizeHtml = sanitize,
+  maxChars,
+  placeholder,
+  ariaLabel = "Rich text editor",
+  ariaLabelledBy,
+  ariaDescribedBy,
+  ariaInvalid = false,
+  required = false,
+  disabled = false,
+}, ref) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
   const [linkError, setLinkError] = useState("");
@@ -65,11 +74,9 @@ export function RichTextEditor({
         // Everything the sanitizer would strip is off, so the toolbar cannot
         // offer formatting that does not survive a save.
         horizontalRule: false,
-        codeBlock: false,
         strike: false,
         link: false,
       }),
-      Underline,
       Link.configure({ openOnClick: false, autolink: false, protocols: ["http", "https", "mailto"] }),
       ...(placeholder ? [Placeholder.configure({ placeholder })] : []),
     ],
@@ -86,7 +93,7 @@ export function RichTextEditor({
         ...(required ? { "aria-required": "true" } : {}),
       },
     },
-    onUpdate: ({ editor: instance }) => onChange(sanitize(instance.getHTML())),
+    onUpdate: ({ editor: instance }) => onChange(sanitizeHtml(instance.getHTML())),
   });
 
   // `useEditor` never rebuilds the instance for a changed `content`, and
@@ -100,17 +107,26 @@ export function RichTextEditor({
   // an externally driven change from firing `onChange` straight back out.
   useEffect(() => {
     if (!editor) return;
-    const current = sanitize(editor.getHTML());
+    const current = sanitizeHtml(editor.getHTML());
     if (current === value) return;
     // An empty document round-trips as `<p></p>`, which callers that store "no
     // answer" as `""` would otherwise re-seed on every emptying keystroke.
     if (plainTextLength(current) === 0 && plainTextLength(value) === 0) return;
     editor.commands.setContent(value, { emitUpdate: false });
-  }, [editor, value]);
+  }, [editor, sanitizeHtml, value]);
 
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
+
+  useImperativeHandle(ref, () => ({
+    insertAtCursor(text: string) {
+      if (!editor || disabled) return false;
+      // A text node prevents a token containing punctuation from ever being
+      // interpreted as source markup by TipTap's string-content parser.
+      return editor.chain().focus().insertContent({ type: "text", text }).run();
+    },
+  }), [disabled, editor]);
 
   const openLinkDialog = useCallback(() => {
     if (!editor) return;
@@ -224,4 +240,4 @@ export function RichTextEditor({
       </Modal>
     </div>
   );
-}
+});

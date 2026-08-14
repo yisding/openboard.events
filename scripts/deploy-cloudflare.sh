@@ -60,6 +60,10 @@ vars=(
 [[ -n "${AIRTABLE_BASE_ID:-}" ]] && vars+=(--var "AIRTABLE_BASE_ID:$AIRTABLE_BASE_ID")
 
 pnpm build:worker --env "$target_env"
+# Re-run the supported-artifact contract against the exact environment before
+# mutating the remote Worker. CI measures production, while this also records
+# preview/production-specific compatibility flags in the deployment summary.
+WORKER_SIZE_ENV="$target_env" pnpm worker:size
 # OpenNext's deploy helper also initializes a local platform proxy and would
 # otherwise load ignored developer env files while populating cache assets.
 # Keep the same isolation boundary used by the reproducible build.

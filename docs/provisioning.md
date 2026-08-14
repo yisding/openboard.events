@@ -300,8 +300,8 @@ flag Cloudflare rejects the scheduled subrequest with error 1042.
   values to make the same journey additionally prove delivery through Resend; configuring only
   one deliberately falls back instead of partially exercising the provider path.
 
-- [x] Leave the repository variable `PRODUCTION_DEPLOY_ENABLED` unset. While it is unset, a
-  successful `main` CI run deploys `preview` only.
+- [x] Keep production promotion manual. A successful `main` CI run always deploys `preview`
+  only, leaving time for its scheduled uptime checks before protected promotion.
 - [ ] Merge to `main` (or run the `Deploy` workflow for `preview`) and verify the automatic
   migration → web → jobs → smoke succeeds. The `preview` environment must have no required
   reviewer, or every merge will queue an approval instead of deploying.
@@ -336,13 +336,14 @@ stores only the credentials and direct database URL needed by the deployment wor
   `EMAIL_ALLOWLIST`.
 - [ ] Create `sb-jobs` with the production `CRON_SECRET` attached on its first deploy, using
   the same `--secrets-file` pattern as preview with `--env production`.
-- [ ] Manually run the `Deploy` workflow for `production` and approve its protected
-  environment gate.
-- [ ] Confirm migration → web → jobs → smoke succeeds.
+- [ ] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
+  `Deploy` workflow for `production` and approve its protected environment gate. The workflow
+  first replays the exact commit through preview; production cannot be selected alone.
+- [ ] Confirm preview migration → web → jobs → smoke → browser canary succeeds, followed by the
+  production migration → web → jobs → smoke leg.
 - [ ] Confirm the real production health response and jobs cron logs.
-- [ ] Only after both preview and production are proven, add the repository variable
-  `PRODUCTION_DEPLOY_ENABLED=1` to enable successful `main` CI runs to deploy production. The
-  production deploy then runs as a second leg after `preview`, and a failed preview stops it.
+- [ ] Keep automatic production promotion disabled after launch. Subsequent production releases
+  use the same protected manual dispatch so every release retains a preview soak and canary.
 
 Production web secrets are:
 

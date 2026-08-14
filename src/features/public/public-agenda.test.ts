@@ -39,6 +39,19 @@ describe("PublicAgenda", () => {
     expect(html.toLowerCase().split(range)).toHaveLength(2);
   });
 
+  it("places the hosted day selector directly below the compact hero", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicAgenda, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+    }));
+
+    const heroControls = html.indexOf('class="public-event-hero-controls"');
+    const main = html.indexOf('class="public-schedule public-event-container"');
+    expect(heroControls).toBeGreaterThan(-1);
+    expect(heroControls).toBeLessThan(main);
+    expect(html.match(/class="public-day-tabs"/g)).toHaveLength(1);
+  });
+
   it("omits attendee-facing placeholders for missing session content", () => {
     const session = PUBLISHED_SCHEDULE_FIXTURE.sessions[0];
     if (!session) throw new Error("fixture must carry a session");
@@ -68,6 +81,8 @@ describe("PublicAgenda", () => {
 
     expect(html).not.toContain(PUBLISHED_SCHEDULE_FIXTURE.event.logoUrl);
     expect(html).not.toContain(PUBLISHED_SCHEDULE_FIXTURE.event.backgroundUrl);
+    expect(html).not.toContain('class="public-event-hero-controls"');
+    expect(html).toContain('class="public-day-tabs"');
   });
 
   it("jumps the active day tab to a deep-linked session on a later day (?session=<id>)", () => {

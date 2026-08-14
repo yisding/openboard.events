@@ -11,12 +11,14 @@ export function RouteErrorState({
   reset,
   backHref,
   backLabel = "Back to events",
+  backTarget,
 }: {
   title: string;
   description: string;
   reset: () => void;
   backHref: string;
   backLabel?: string;
+  backTarget?: React.HTMLAttributeAnchorTarget;
 }) {
   const [retrying, startRetry] = useTransition();
   const titleId = useId();
@@ -32,7 +34,7 @@ export function RouteErrorState({
         <Button disabled={retrying} onClick={() => startRetry(reset)}>
           <RotateCw size={15} aria-hidden /> {retrying ? "Retrying…" : "Try again"}
         </Button>
-        <Link className="button button-secondary" href={backHref}>
+        <Link className="button button-secondary" href={backHref} target={backTarget}>
           <ArrowLeft size={15} aria-hidden /> {backLabel}
         </Link>
       </div>

@@ -73,6 +73,15 @@ function buttonsNamed(name: string): HTMLButtonElement[] {
     .filter((button) => button.textContent?.trim() === name);
 }
 
+async function waitForEnabledButton(name: string) {
+  await act(async () => {
+    await vi.waitFor(() => {
+      const button = buttonsNamed(name)[0];
+      if (!button || button.disabled) throw new Error(`${name} is not enabled yet`);
+    });
+  });
+}
+
 async function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {
     const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -142,9 +151,8 @@ describe("targeted speaker email recovery", () => {
     await change(body, bodyHtml);
     await act(async () => {
       buttonsNamed("Refresh preview")[0]?.click();
-      await Promise.resolve();
-      await Promise.resolve();
     });
+    await waitForEnabledButton("Send to 1");
 
     // The other tab completes X and a later intentional preview advances the
     // exact fingerprint to Y. This stale X preview must not resurrect itself.
@@ -181,9 +189,8 @@ describe("targeted speaker email recovery", () => {
     await change(body, "<p>Hello</p>");
     await act(async () => {
       buttonsNamed("Refresh preview")[0]?.click();
-      await Promise.resolve();
-      await Promise.resolve();
     });
+    await waitForEnabledButton("Send to 1");
     Object.defineProperty(navigator, "locks", {
       configurable: true,
       value: { request: async (_name: string, _options: unknown, callback: (lock: null) => unknown) => callback(null) },
@@ -220,10 +227,8 @@ describe("targeted speaker email recovery", () => {
 
     await act(async () => {
       buttonsNamed("Refresh preview")[0]?.click();
-      await Promise.resolve();
-      await Promise.resolve();
     });
-    expect(buttonsNamed("Send to 1")[0]?.disabled).toBe(false);
+    await waitForEnabledButton("Send to 1");
     await act(async () => buttonsNamed("Send to 1")[0]?.click());
     await act(async () => buttonsNamed("Send to 1").at(-1)?.click());
 
