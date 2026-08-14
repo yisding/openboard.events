@@ -125,6 +125,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -167,6 +168,22 @@ describe("evaluation plan assignment locking", () => {
       { kind: "error" },
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("locks reviewer controls when the close deadline passes while editing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    await renderEditor({ ...plan("open"), closesAt: "2026-08-14T12:00:01.000Z" });
+
+    expect(reviewerCheckbox("Grace Hopper")?.closest("fieldset")?.disabled).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(1_100);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(container.textContent).toContain("Extend this round’s close date before changing reviewer assignments.");
+    expect(reviewerCheckbox("Grace Hopper")?.closest("fieldset")?.disabled).toBe(true);
   });
 
   it("preserves reviewer edits and loads the latest round after closure between save stages", async () => {

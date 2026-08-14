@@ -115,6 +115,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -143,6 +144,29 @@ describe("evaluation assignment drawer loading recovery", () => {
 
     expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
     expect(reviewerCheckbox("Round A reviewer")?.checked).toBe(true);
+    expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
+    expect(buttonNamed("Assign 1")?.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks an open drawer at its close deadline without waiting for another render", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const timedPlan = { ...PLAN_A, closesAt: "2026-08-14T12:00:01.000Z" };
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [SUBMISSION_A] } }));
+    await renderDrawer(timedPlan);
+
+    await act(async () => reviewerCheckbox("Round A reviewer")?.click());
+    await act(async () => buttonNamed("Select all shown")?.click());
+    expect(buttonNamed("Assign 1")?.disabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_100);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(container.textContent).toContain("Assignments are locked. Extend this round’s close date before changing reviewer assignments.");
     expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
     expect(buttonNamed("Assign 1")?.disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);

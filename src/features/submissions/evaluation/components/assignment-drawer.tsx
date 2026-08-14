@@ -8,7 +8,7 @@ import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { assignmentLockGuidance, assignmentLockReason } from "../assignment-writability";
+import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { AssignableSubmission, PlanDTO } from "../types";
 import { evaluationFailureMessage, evaluationRequest } from "./evaluation-request";
 
@@ -121,11 +121,24 @@ export function AssignmentDrawer({
   const [mode, setMode] = useState<AssignmentMode>("add");
   const [busy, setBusy] = useState(false);
   const [confirmEmptyReplace, setConfirmEmptyReplace] = useState(false);
-  const assignmentLock = assignmentLockReason(plan);
+  const [assignmentNowMs, setAssignmentNowMs] = useState(() => Date.now());
+  const assignmentLock = assignmentLockReason(plan, new Date(assignmentNowMs));
   const assignmentGuidance = assignmentLock ? assignmentLockGuidance(assignmentLock) : null;
   const dirty = assignmentDraftChanged({ reviewerIds, submissionIds: selected, mode });
   useUnsavedWorkGuard(dirty);
   const { runGuarded } = useGuardedAction();
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const refreshLock = () => {
+      const nowMs = Date.now();
+      setAssignmentNowMs(nowMs);
+      const delay = nextAssignmentLockRefreshMs([{ status: plan.status, closesAt: plan.closesAt }], nowMs);
+      if (delay !== null) timer = window.setTimeout(refreshLock, delay);
+    };
+    refreshLock();
+    return () => { if (timer !== null) window.clearTimeout(timer); };
+  }, [plan.closesAt, plan.status]);
 
   function requestClose() {
     requestGuardedEditorClose({ busy, dirty, runGuarded, close: onClose });

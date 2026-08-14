@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { nextAssignmentLockRefreshMs } from "../assignment-writability";
 import { assignmentDraftChanged, canSubmitAssignments, keepShownAssignmentSelection, needsEmptyReplacementConfirmation } from "./assignment-drawer";
 
 const ready = {
@@ -14,6 +15,14 @@ const ready = {
 };
 
 describe("assignment drawer submission safety", () => {
+  it("schedules the exact close transition and safely revisits distant deadlines", () => {
+    const now = Date.parse("2026-08-14T12:00:00.000Z");
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2026-08-14T12:00:01.000Z" }], now)).toBe(1_025);
+    expect(nextAssignmentLockRefreshMs([{ status: "closed", closesAt: "2026-08-14T12:00:01.000Z" }], now)).toBeNull();
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2026-08-14T11:59:59.000Z" }], now)).toBeNull();
+    expect(nextAssignmentLockRefreshMs([{ status: "open", closesAt: "2027-08-14T12:00:00.000Z" }], now)).toBe(2_147_483_647);
+  });
+
   it("keeps assignment checkboxes compact inside full-row labels", () => {
     const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
 

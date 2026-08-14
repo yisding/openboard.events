@@ -116,6 +116,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -130,6 +131,36 @@ describe("evaluation reminder exact-recipient preflight", () => {
     expect(rowButton("Expired round", "Assign")?.closest("tr")?.textContent).toContain("Extend to assign");
     expect(rowButton("Round A", "Assign")?.disabled).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an open assignment drawer synchronized with refreshed round props", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ data: { submissions: [] } }));
+    await renderPlans([PLAN_A]);
+    await act(async () => rowButton("Round A", "Assign")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("Assign work · Round A");
+    await renderPlans([{ ...PLAN_A, status: "closed" }]);
+
+    expect(container.textContent).toContain("Assignments are locked. Reopen this round before changing reviewer assignments.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the assignment entry point when its deadline passes on screen", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    const timedPlan = { ...PLAN_A, closesAt: "2026-08-14T12:00:01.000Z" };
+    await renderPlans([timedPlan]);
+
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(1_100);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(rowButton("Round A", "Assign")?.disabled).toBe(true);
+    expect(rowButton("Round A", "Assign")?.closest("tr")?.textContent).toContain("Extend to assign");
   });
 
   it("previews exact recipients before one explicit, double-click-safe send", async () => {
