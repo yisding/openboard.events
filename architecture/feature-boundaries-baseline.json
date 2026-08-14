@@ -1,14 +1,9 @@
 {
   "directCrossFeatureImports": [
-    "src/features/agenda/server/announce.ts -> @/features/portal/server/share",
     "src/features/auth/server/admin-mail.ts -> @/features/comms/server/layout",
     "src/features/auth/server/admin-mail.ts -> @/features/comms/server/render",
     "src/features/auth/server/admin-mail.ts -> @/features/comms/server/resend",
     "src/features/auth/server/admin-mail.ts -> @/features/organizations/server/invitations",
-    "src/features/comms/server/review-reminders.ts -> @/features/portal/server/contacts",
-    "src/features/crm/components/crm-import-dialog.tsx -> @/features/portal/server/speaker-csv",
-    "src/features/crm/server/csv-import.ts -> @/features/portal/server/speaker-csv",
-    "src/features/crm/server/mutations.ts -> @/features/portal/server/contacts",
     "src/features/organizations/server/invitations.ts -> @/features/auth/server/secret-payload",
     "src/features/portal/lib/session-calendar-links.ts -> @/features/comms/ics",
     "src/features/portal/server/admin-speakers.ts -> @/features/comms/server/queries",

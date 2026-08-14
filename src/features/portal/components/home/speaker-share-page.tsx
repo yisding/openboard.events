@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { CalendarDays, MapPin, Sparkles } from "lucide-react";
-import type { SpeakerShareDTO } from "@/features/portal/server/share";
+import type { SpeakerShareDTO } from "@/features/portal/index.share";
 import { formatInZone } from "@/shared/lib/time";
 
 /**

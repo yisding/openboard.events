@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
 import { organizationContactActivity, organizationContacts } from "@/db/schema";
-import { parseCsv } from "@/features/portal/server/speaker-csv";
+import { parseCsv } from "@/features/portal/index.csv";
 import {
   CRM_CSV_FIELDS,
   crmCsvRowOutcomeSchema,
