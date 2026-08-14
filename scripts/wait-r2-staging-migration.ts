@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { basename } from "node:path";
 import {
   migrationStateIsVerified,
   parseMigrationState,
@@ -34,4 +35,9 @@ async function main() {
   throw new Error(`R2 staging migration did not reach zero inventory: ${JSON.stringify(last)}`);
 }
 
-await main();
+if (process.argv[1] && basename(process.argv[1]) === "wait-r2-staging-migration.ts") {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

@@ -1,5 +1,10 @@
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrationStateIsVerified, parseMigrationState } from "./r2-staging-migration-state";
+import {
+  migrationStateIsVerified,
+  parseMigrationState,
+} from "../../scripts/lib/r2-staging-migration-state";
 
 const valid = {
   complete: true,
@@ -29,5 +34,19 @@ describe("R2 staging migration deployment state", () => {
       completed_at: "2026-08-14T18:14:59.999Z",
     });
     expect(migrationStateIsVerified(state)).toBe(false);
+  });
+
+  it("starts under the repository CommonJS tsx configuration", () => {
+    const env = { ...process.env };
+    delete env.DATABASE_URL_DIRECT;
+    const result = spawnSync(
+      resolve("node_modules/.bin/tsx"),
+      [resolve("scripts/wait-r2-staging-migration.ts")],
+      { encoding: "utf8", env },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("DATABASE_URL_DIRECT is required");
+    expect(result.stderr).not.toContain("Top-level await");
   });
 });
