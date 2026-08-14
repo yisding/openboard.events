@@ -184,6 +184,56 @@ test.describe("speaker portal sign-in rhythm", () => {
   });
 });
 
+test.describe("portal email-preferences rhythm", () => {
+  test("keeps the preference state compact instead of inheriting dashboard empty-state height", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <main class="login-page">
+        <section class="login-card portal-preferences-card">
+          <div class="login-card__brand"><span style="display:block;width:32px;height:32px"></span></div>
+          <div class="empty-state">
+            <div class="empty-icon"></div>
+            <h1>This unsubscribe link is invalid</h1>
+            <p>The link may have expired. Contact the event organizer if you need help.</p>
+          </div>
+        </section>
+      </main>
+    </body></html>`);
+
+    for (const width of [320, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await page.locator(".portal-preferences-card").evaluate((card) => {
+        const brand = card.querySelector(".login-card__brand");
+        const icon = card.querySelector(".empty-icon");
+        const heading = card.querySelector("h1");
+        const copy = card.querySelector(".empty-state>p");
+        if (!brand || !icon || !heading || !copy) throw new Error("Email-preferences fixture is incomplete");
+        const cardBox = card.getBoundingClientRect();
+        const brandBox = brand.getBoundingClientRect();
+        const iconBox = icon.getBoundingClientRect();
+        const headingBox = heading.getBoundingClientRect();
+        const copyBox = copy.getBoundingClientRect();
+        const copyStyle = getComputedStyle(copy);
+        return {
+          brandToIcon: iconBox.top - brandBox.bottom,
+          iconToHeading: headingBox.top - iconBox.bottom,
+          headingToCopy: copyBox.top - headingBox.bottom,
+          copyLineHeightRatio: Number.parseFloat(copyStyle.lineHeight) / Number.parseFloat(copyStyle.fontSize),
+          cardFits: cardBox.left >= 0 && cardBox.right <= window.innerWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(layout.brandToIcon).toBeCloseTo(16, 0);
+      expect(layout.iconToHeading).toBeCloseTo(16, 0);
+      expect(layout.headingToCopy).toBeCloseTo(8, 0);
+      expect(layout.copyLineHeightRatio).toBeGreaterThanOrEqual(1.5);
+      expect(layout.cardFits).toBe(true);
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
+  });
+});
+
 test.describe("self-service auth readability", () => {
   test.skip(!targetConfigured(), NO_TARGET);
   test.use({ viewport: { width: 320, height: 700 } });
