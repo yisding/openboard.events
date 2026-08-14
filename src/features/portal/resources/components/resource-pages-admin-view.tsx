@@ -217,7 +217,7 @@ export function ResourcePagesAdminView({
       id: "published",
       header: "Status",
       accessorFn: (page) => page.published,
-      cell: ({ row }) => <StatusBadge value={row.original.published ? "Published" : "Draft"} />,
+      cell: ({ row }) => <StatusBadge value={row.original.published ? "published" : "draft"} />,
     },
     {
       id: "updatedAt",

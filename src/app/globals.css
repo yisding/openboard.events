@@ -1,6 +1,6 @@
 /*
  * Design tokens. Every colour in this stylesheet resolves to one of these.
- * Contrast ratios are recorded in plan/design/design-system.md; the pairs
+ * Contrast ratios are recorded in docs/design-system.md; the pairs
  * marked AA there are verified against WCAG 2.1 1.4.3.
  *
  * The neutral ramp is deliberately green-tinted (hue ~170, derived from the
@@ -493,13 +493,13 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .dashboard-footer-note { margin: 16px 0 0; display: flex; align-items: center; gap: 8px; justify-content: center; color: var(--muted); font-size:var(--text-xs); }
 
 /* Badges */
-.status-badge { width: max-content; height: 23px; padding: 0 8px; border-radius: 99px; display: inline-flex; align-items: center; vertical-align: middle; gap: 6px; background: var(--fill); color: var(--muted); text-transform: capitalize; font-size:var(--text-xs); font-weight: var(--weight-control); white-space: nowrap; }
+.status-badge { width: max-content; height: 23px; padding: 0 8px; border-radius: 99px; display: inline-flex; align-items: center; vertical-align: middle; gap: 6px; background: var(--fill); color: var(--muted); font-size:var(--text-xs); font-weight: var(--weight-control); white-space: nowrap; }
 .status-badge i { width: 5px; height: 5px; border-radius: 50%; background: currentcolor; }
-.status-live, .status-open, .status-accepted, .status-confirmed, .status-sent, .status-published, .status-complete, .status-ready { background: var(--green-soft); color: var(--green); }
-.status-pending, .status-scheduled, .status-unconfirmed, .status-skipped, .status-1-task, .status-2-tasks, .status-3-tasks, .status-4-tasks { background: var(--amber-soft); color: var(--amber); }
-.status-declined, .status-failed, .status-overdue, .status-closed, .status-bounced, .status-complained { background: var(--red-soft); color: var(--red); }
-.status-draft, .status-ended, .status-withdrawn, .status-queued { background: var(--fill); color: var(--muted); }
-.status-accept-queue { background: var(--accent-soft); color:var(--accent-dark); }
+.status-tone-success { background: var(--green-soft); color: var(--green); }
+.status-tone-review { background: var(--blue-soft); color: var(--blue); }
+.status-tone-queued, .status-tone-warning { background: var(--amber-soft); color: var(--amber); }
+.status-tone-danger { background: var(--red-soft); color: var(--red); }
+.status-tone-neutral { background: var(--fill); color: var(--muted); }
 
 /* Dialogs and overlays */
 .modal-shell { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: visible; }

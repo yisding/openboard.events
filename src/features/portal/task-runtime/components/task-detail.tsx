@@ -154,8 +154,8 @@ export function TaskDetailView({
 
       <header className="portal-page-header">
         <div className="portal-task-meta">
-          <StatusBadge value={completed ? "Complete" : task.completionMode.replace("_", " ")} />
-          {task.overdue && <StatusBadge value="Overdue" />}
+          <StatusBadge value={completed ? "complete" : task.completionMode} />
+          {task.overdue && <StatusBadge value="overdue" />}
           {task.dueAt && <span className="due-label">Due <TzTime instant={task.dueAt} tz={timezone} style="long" /></span>}
         </div>
         <h1>{task.taskName}</h1>

@@ -133,7 +133,7 @@ test.describe("shared primitives inside feature hosts", () => {
     await page.setContent(`<!doctype html><html><head>${styles}</head><body>
       <main>
         <table class="dashboard-recent"><tbody><tr><td>
-          <span class="status-badge status-open" id="hosted-badge"><i></i>open</span>
+          <span class="status-badge status-tone-success" id="hosted-badge"><i></i>Open</span>
         </td></tr></tbody></table>
         <div class="admin-task-progress">
           <div class="admin-task-progress-copy"><b>2/4</b><span>50%</span></div>

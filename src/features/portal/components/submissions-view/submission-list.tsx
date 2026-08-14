@@ -4,6 +4,7 @@ import type { PortalSubmissionRow } from "@/features/portal";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
+import { PORTAL_STATUS_BADGES } from "@/shared/ui/status-badge";
 import { participantRoleLabel } from "../../lib/participant-role";
 
 /**
@@ -37,7 +38,7 @@ export function SubmissionList({
         <article className="portal-submission" key={row.submissionId}>
           <header>
             <span className="submission-code">SESS-{row.code}</span>
-            <StatusBadge value={row.status} />
+            <StatusBadge value={PORTAL_STATUS_BADGES[row.status]} />
           </header>
           <h2>
             <Link href={`/portal/${encodeURIComponent(eventSlug)}/submissions/${row.submissionId}`}>{row.title}</Link>
