@@ -33,9 +33,9 @@ extracted shared delivery and sealed-payload infrastructure, PR #371 established
 event-contact ownership, and PR #372 introduced the CFP composition service;
 together they reduced the seven-feature strongly connected group to none.
 
-The resulting measurements are 42 feature dependency directions, zero direct
+The resulting measurements are 43 feature dependency directions, zero direct
 cross-feature implementation imports, zero cyclic groups, zero server-to-UI or
-route imports, 85 tables, 756 modeled columns, 33 enums, and 40 migrations. CI
+route imports, 88 tables, 779 modeled columns, 33 enums, and 43 migrations. CI
 now ratchets each zero-debt architecture baseline and the migration/query-schema
 comparison.
 
@@ -105,6 +105,37 @@ free, including the legacy speaker-list fallback dependency. Preview canary run
 speaker, event, and embed state, and observed each result inside the 10-second
 mutation budget. The run also proved that React's server-rendered hydration
 markers must be removed before comparing visible text in raw HTML.
+
+The R2 staging-layout workstream is complete in PRs #415, #416, #417, and #419.
+New uploads use the lifecycle-covered `staging/evt_<eventId>/...` namespace, the
+two-day `staging/` lifecycle rule is reconciled without replacing unrelated
+rules, and the deployed browser canary exercises a real presign, R2 upload,
+finalization, and published row. The bounded migration copied and fingerprinted
+legacy objects before compare-and-swap row updates. Preview run 31833950542 and
+production run 31835677697 each completed a fresh post-presign-window inventory
+with zero legacy rows, zero legacy objects, and zero failures. Compatibility
+parsing, scheduling, and the private runtime name are removed. The completed
+checkpoint table and heartbeat value remain as inert database tombstones so a
+retained older Worker version can still be rolled back safely.
+
+The sign-in-capacity workstream is complete in PR #418. Atomic Postgres IP and
+account-key burst guards run before the durable application throttle and PBKDF2,
+and each Worker isolate admits at most one credential verification at a time.
+The exact implementation commit passed preview and production promotion in run
+31843683115. Its deployed hostile-burst gate returned one generic `401` and
+eleven controlled `429` responses across twelve requests, with no `5xx` and a
+2,251 ms p95 against the 5,000 ms budget.
+
+Operational hardening has entered its evidence-gathering phase. PR #420 added a
+production-protected, serialized Cloudflare DMARC reporting workflow and a
+runbook with owner, approved Resend path, stage dwell times, evidence gates, and
+rollback thresholds. After the production zone ID was recorded, read-only run
+31846568946 reached the DMARC endpoint directly and failed safely with a `403`,
+proving that the existing Worker deployment token does not have DMARC access.
+PR #421 separates a zone-scoped DMARC Read/Write credential and requires that
+zone ID without granting Zone Read. Reporting, the observation window, and
+staged quarantine/reject remain deliberately open until that credential is
+provisioned and aggregate evidence satisfies the runbook gates.
 
 ## Sequencing and workstreams
 
@@ -177,9 +208,10 @@ Exit criteria:
 - Version upgrades have a documented compatibility test instead of relying on
   `next build` alone.
 
-Status: complete in PR #386. The custom override remains intentionally because
-the measured Next default exceeds the compressed Worker limit; its exact
-removal conditions and reproduction are documented with the supported matrix.
+Status: complete in PRs #386, #407, and #409. The custom override remains
+intentionally because the measured Next default exceeds the compressed Worker
+limit; its exact removal conditions and reproduction are documented with the
+supported matrix.
 
 ### 4. Unify client data consistency
 
@@ -296,6 +328,12 @@ Exit criteria:
 - An inventory report shows zero legacy staging keys before compatibility code
   is removed.
 
+Status: complete in PRs #415, #416, #417, and #419. Both protected environments
+proved a full zero inventory after the legacy presign window before compatibility
+code and scheduling were removed. Database tombstones remain intentionally for
+the documented mixed-version rollback guarantee; no current runtime can invoke
+the retired job.
+
 ### 9. Protect sign-in capacity
 
 Move a cheap, distributed IP and account-key rate limit ahead of password hash
@@ -313,6 +351,10 @@ Exit criteria:
 - Credential verification latency, CPU failures, and throttle decisions are
   observable without logging addresses or passwords.
 
+Status: complete in PR #418. The exact commit passed both preview and production,
+and the deployed twelve-request hostile burst stayed within the latency budget
+with controlled generic responses and no Worker failure.
+
 ### 10. Complete operational hardening
 
 Move DMARC from monitoring to enforcement in stages: inspect aggregate reports,
@@ -326,13 +368,20 @@ Exit criteria:
 - Aggregate reports show no unidentified legitimate sender before `p=reject`.
 - The runbook names owners, monitoring, and rollback thresholds.
 
+Status: in progress in PRs #420 and #421. The protected reporting operation and
+runbook are implemented; live reporting awaits the dedicated production DMARC
+token, followed by the required aggregate-report observation and enforcement
+dwell periods. No quarantine or reject policy will be published before those
+evidence gates pass.
+
 ## Proposed pull-request order
 
 1. Fallback-auth retirement (completed in PR #345).
 2. Import/schema/invariant guardrails (completed in PRs #351, #352, #356,
    #359, #361, #362, #363, #365, #368, #369, #371, and #372).
 3. Submission concurrency redesign (completed in PRs #374 and #381).
-4. Worker artifact compatibility hardening (completed in PR #386).
+4. Worker artifact compatibility hardening (completed in PRs #386, #407, and
+   #409).
 5. Shared outbox engine and private scheduled invocation (completed in PRs
    #389, #396, and #403).
 6. Client consistency (completed in PRs #404, #405, #406, and #408).
@@ -340,8 +389,11 @@ Exit criteria:
    #412).
 8. Public-cache invalidation and deployed alias/embed verification (completed
    in PR #414).
-9. R2 key migration and lifecycle enablement.
-10. Sign-in capacity controls and DMARC enforcement.
+9. R2 key migration and lifecycle enablement (completed in PRs #415, #416,
+   #417, and #419).
+10. Sign-in capacity controls (completed in PR #418).
+11. DMARC reporting and staged enforcement (reporting automation in PRs #420
+    and #421; evidence-gated policy rollout remains open).
 
 Each PR must include migration rollback/forward-recovery notes when it changes
 stored data, focused tests for the failure mode it closes, and before/after
