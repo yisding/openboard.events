@@ -7,7 +7,7 @@ import { AppError, isAppError } from "@/shared/lib/errors";
 import { applyCalendarInvite, buildContext, isAdminAuthTemplate, SkipEmail, type OutboxRow } from "./context";
 import { prepareInviteIn, type PreparedInvite } from "./invites";
 import { renderTemplateContent } from "./render";
-import { sendViaResend, type EmailMessage } from "./resend";
+import { sendViaResend, type EmailMessage } from "@/shared/server/email-provider";
 
 export type OutboxStats = JobStats & { claimed: number; sent: number; skipped: number; failed: number; retried: number };
 type Sender = (message: EmailMessage) => Promise<string>;

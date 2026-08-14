@@ -17,7 +17,7 @@ import { parseEnv } from "@/shared/lib/env";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
-import type { EmailMessage } from "./server/resend";
+import type { EmailMessage } from "@/shared/server/email-provider";
 import { recordSuppressionIn } from "./server/suppression";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";

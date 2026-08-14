@@ -10,10 +10,10 @@ export type EmailMessage = {
   text: string;
   idempotencyKey: string;
   attachments?: Array<{ filename: string; content: string; content_type: string }>;
-  /** P3-EMAIL: `List-Unsubscribe` on non-transactional sends — see `isTransactionalTemplate`. */
   headers?: Record<string, string>;
 };
 
+/** Minimal Resend transport shared by the platform and event outboxes. */
 export async function sendViaResend(message: EmailMessage, fetcher: typeof fetch = fetch): Promise<string> {
   const response = await fetcher("https://api.resend.com/emails", {
     method: "POST",
@@ -44,3 +44,4 @@ export async function sendViaResend(message: EmailMessage, fetcher: typeof fetch
   if (typeof id !== "string" || !id) throw new AppError("INTERNAL", "email provider response is missing an id");
   return id;
 }
+

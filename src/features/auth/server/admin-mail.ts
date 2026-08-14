@@ -6,10 +6,12 @@ import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { isEmailAllowed } from "@/shared/server/email-allowlist";
-import { emailLayout, escapeHtml, sendViaResend, type EmailMessage } from "@/features/comms/index.delivery";
 import { assertOrganizationInvitationTokenForEmailIn } from "@/features/organizations/index.invitations";
+import { escapeHtml } from "@/shared/lib/html";
+import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload, type AdminLinkPayload } from "@/shared/server/admin-link-payload";
+import { emailLayout } from "@/shared/server/email-layout";
+import { sendViaResend, type EmailMessage } from "@/shared/server/email-provider";
 import { SIGNUP_VERIFICATION_CALLBACK } from "../signup-context";
-import { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload, type AdminLinkPayload } from "./secret-payload";
 
 export type AdminAuthTemplateKey = Extract<TemplateKey, "admin_password_reset" | "admin_email_verification">;
 type OutboxRow = typeof adminAuthEmailOutbox.$inferSelect;
