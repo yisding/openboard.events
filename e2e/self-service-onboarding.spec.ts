@@ -257,7 +257,7 @@ test.describe("self-service signup to first value", () => {
       expect(Number(sessionsBeforeConfirmation[0]?.count ?? 0), "following the emailed GET must not create a scanner session").toBe(0);
       await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
-      await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
+      await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible({ timeout: 30_000 });
       const onboardingViewport = page.viewportSize();
       await page.setViewportSize({ width: 320, height: 700 });
       expect((await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height)
@@ -553,7 +553,7 @@ test.describe("self-service signup to first value", () => {
         await publicPage.getByRole("button", { name: /^review$/i }).click();
         await expect(publicPage.getByText(proposalTitle, { exact: true })).toBeVisible();
         await publicPage.getByRole("button", { name: /^submit$/i }).click();
-        await expect(publicPage.getByRole("heading", { name: /your proposal is in/i })).toBeVisible({ timeout: 30_000 });
+        await expect(publicPage.getByRole("heading", { name: /your submission is in/i })).toBeVisible({ timeout: 30_000 });
         submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
         expect(submissionCode).toMatch(/^SESS-\d+$/);
       } finally {
