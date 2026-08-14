@@ -30,6 +30,7 @@
     "smoke:worker": "bash scripts/smoke-worker-artifact.sh",
     "smoke:fixture-ids": "tsx scripts/print-smoke-fixture-ids.ts",
     "probe:auth-capacity": "tsx scripts/probe-admin-signin-capacity.ts",
+    "dmarc:manage": "tsx scripts/manage-dmarc.ts",
     "bundle:client": "tsx scripts/check-client-bundle.ts",
     "release:check": "pnpm typecheck && pnpm lint && pnpm architecture:check && pnpm schema:check && pnpm invariants && pnpm audit:prod && pnpm test && pnpm cf-typegen:check && pnpm build:worker && pnpm bundle:client && pnpm worker:size && pnpm smoke:worker",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",

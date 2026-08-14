@@ -84,6 +84,8 @@ application-level backstop, and the parser accepts only the current root-prefixe
   throttle. Legitimate retries inside that one-second window receive a generic `429`; the preview
   deployment gate proves an unpaced burst cannot escape as Worker `1102`/`503`. See
   `docs/runbooks/sign-in-capacity.md`.
-- **DMARC is monitor-only.** Deliverability is proven aligned (`dkim=pass`, `spf=pass`,
-  `dmarc=pass` on the `EMAIL_FROM` domain), but the published policy is `p=NONE`; tightening to
-  `quarantine`/`reject` is optional hardening, not a gate.
+- **DMARC changes are report-gated and From-subdomain scoped.** Cloudflare DMARC Management
+  collects aggregate reports from the organizational record. Enforcement is published at
+  `_dmarc.mail.openboard.events`, matching the only production From domain, so unrelated apex
+  mail is not changed accidentally. Production-environment approval and the dwell/evidence gates
+  in `docs/runbooks/dmarc.md` are required before each quarantine or reject stage.
