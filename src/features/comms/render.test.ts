@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateVars } from "@/shared/contracts";
+import { SAMPLE_VARS } from "./components/sample-vars";
 import { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
 
 const common = {
-  event: { name: "AI Engineer", start_date: "September 15, 2026 PDT", location: "Fort Mason", timezone: "America/Los_Angeles" },
+  event: { name: "AI Engineer", start_date: "September 15, 2026", location: "Fort Mason", timezone: "PDT" },
   speaker: { first_name: "Nadia", last_name: "Lee", email: "nadia@example.com" },
   portal: { magic_link: "https://example.com/portal/event/verify?token=secret" },
   unsubscribe: { url: "https://example.com/portal/event/unsubscribe" },
 };
 
 describe("communications template renderer", () => {
+  it("shows a recipient-friendly timezone in the schedule preview", () => {
+    const rendered = renderTemplate("schedule_assigned", SAMPLE_VARS.schedule_assigned);
+    expect(rendered.html).toContain("10:00 AM–10:40 AM PDT");
+    expect(rendered.html).not.toContain("America/Los_Angeles");
+  });
+
   it("escapes hostile values in the subject and body", () => {
     const vars = { ...common, submission: { title: ";lkj<img onerror=alert(1)>", code: "SESS-7" } } as TemplateVars;
     const rendered = renderTemplate("submission_received", vars);

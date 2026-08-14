@@ -150,4 +150,13 @@ describe("Files deliverable detail recovery", () => {
     const receipt = source.indexOf("comment.id === draft.attemptedId && comment.body === draft.attemptedBody");
     expect(source.indexOf("removeStoredCommentDraft(fileCommentDraftStorageKey(eventId, key))", receipt)).toBeGreaterThan(receipt);
   });
+
+  it("keeps the Files search readable when fullscreen filters need to wrap", () => {
+    const source = readFileSync(new URL("./files-admin-view.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
+    expect(source).toContain('className="data-toolbar files-data-toolbar"');
+    expect(css).toContain(".files-data-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:11px}");
+    expect(css).toContain(".files-data-toolbar .table-search{flex:1 1 280px;min-width:260px}");
+    expect(css).toContain(".files-data-toolbar .table-search{min-width:0}");
+  });
 });

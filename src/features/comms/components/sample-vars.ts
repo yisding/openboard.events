@@ -8,7 +8,7 @@ import { z } from "zod";
  * load.
  */
 const common = {
-  event: { name: "AI Engineer World's Fair", start_date: "September 15, 2026", location: "Fort Mason, San Francisco", timezone: "America/Los_Angeles" },
+  event: { name: "AI Engineer World's Fair", start_date: "September 15, 2026", location: "Fort Mason, San Francisco", timezone: "PDT" },
   speaker: { first_name: "Nadia", last_name: "Lee", email: "nadia@example.com" },
   portal: { magic_link: "https://openboard.events/portal/ai-engineer/verify?token=sample" },
   unsubscribe: { url: "https://openboard.events/portal/ai-engineer/unsubscribe?token=sample" },
@@ -28,7 +28,7 @@ const session = {
   title: "Scaling agentic workflows in production",
   start_time_local: "10:00 AM",
   end_time_local: "10:40 AM",
-  timezone: "America/Los_Angeles",
+  timezone: "PDT",
   room: "Bayview",
   track: "AI Agents",
 };
