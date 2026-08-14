@@ -5,18 +5,18 @@ import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/m
 describe("evaluation plan editor lifecycle", () => {
   const source = readFileSync(new URL("./plan-editor.tsx", import.meta.url), "utf8");
 
-  it("derives dirty state from an immutable baseline and protects partial saves", () => {
-    expect(source).toContain("const [baseline] = useState<PlanDraft>");
+  it("derives dirty state from the authoritative baseline and protects partial saves", () => {
+    expect(source).toContain("const [baseline, setBaseline] = useState<PlanDraft>");
     expect(source).toContain("pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline)");
     expect(source).toContain("useUnsavedWorkGuard(dirty)");
   });
 
   it("routes every dismiss gesture through one guarded close and bypasses it after success", () => {
     expect(source).toContain("function closeEditor()");
-    expect(source).toContain("requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: onClose })");
+    expect(source).toContain("requestGuardedEditorClose({ busy: saving || loadingLatest, dirty, runGuarded, close: onClose })");
     expect(source).toContain("<Drawer open onClose={closeEditor}");
-    expect(source).toContain('disabled={saving} onClick={closeEditor}>Cancel');
-    expect(source).toMatch(/toast\(plan \? `\$\{draft\.name\} updated` : `\$\{draft\.name\} created`\);\s+onClose\(\);/u);
+    expect(source).toContain('disabled={saving || loadingLatest} onClick={closeEditor}>Cancel');
+    expect(source).toMatch(/toast\(persistedPlanId \? `\$\{draft\.name\} updated` : `\$\{draft\.name\} created`\);\s+onClose\(\);/u);
   });
 
   it("allows pristine close, confirms dirty close, and suppresses close while saving", () => {

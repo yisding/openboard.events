@@ -1,6 +1,6 @@
 export type EvaluationRequestResult<T> =
   | { ok: true; data: T }
-  | { ok: false; kind: "response" | "transport"; message: string };
+  | { ok: false; kind: "response" | "transport"; message: string; code?: string };
 
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -21,9 +21,14 @@ export async function evaluationRequest<T>(
 ): Promise<EvaluationRequestResult<T>> {
   try {
     const response = await request(input, init);
-    const payload = await response.json().catch(() => null) as { data?: T; error?: { message?: string } } | null;
+    const payload = await response.json().catch(() => null) as { data?: T; error?: { code?: string; message?: string } } | null;
     if (!response.ok || payload?.data === undefined) {
-      return { ok: false, kind: "response", message: payload?.error?.message ?? fallbackMessage };
+      return {
+        ok: false,
+        kind: "response",
+        message: payload?.error?.message ?? fallbackMessage,
+        ...(payload?.error?.code ? { code: payload.error.code } : {}),
+      };
     }
     return { ok: true, data: payload.data };
   } catch {

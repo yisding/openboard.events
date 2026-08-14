@@ -161,7 +161,13 @@ function TrackScope({
 
 export type PlanReviewerSaveResult =
   | { ok: true; planId: string }
-  | { ok: false; kind: "response" | "transport"; message: string; pendingReviewerPlanId: string | null };
+  | {
+      ok: false;
+      kind: "response" | "transport";
+      message: string;
+      code?: string;
+      pendingReviewerPlanId: string | null;
+    };
 
 /** Two-stage round saves can be retried safely: once the round write succeeds,
  * its id is retained and later attempts run only the reviewer replacement. */
@@ -173,12 +179,12 @@ export async function completePlanAndReviewerSave(
   const planResult = pendingReviewerPlanId
     ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
     : await savePlan();
-  if (!planResult.ok) return { ok: false, kind: planResult.kind, message: planResult.message, pendingReviewerPlanId: null };
+  if (!planResult.ok) return { ...planResult, pendingReviewerPlanId: null };
 
   const reviewerResult = await saveReviewers(planResult.data.planId);
   return reviewerResult.ok
     ? { ok: true, planId: planResult.data.planId }
-    : { ok: false, kind: reviewerResult.kind, message: reviewerResult.message, pendingReviewerPlanId: planResult.data.planId };
+    : { ...reviewerResult, pendingReviewerPlanId: planResult.data.planId };
 }
 
 export function PlanEditor({
@@ -202,11 +208,16 @@ export function PlanEditor({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [baseline] = useState<PlanDraft>(() => plan ? draftFrom(plan) : emptyDraft(nextRound));
+  const [baseline, setBaseline] = useState<PlanDraft>(() => plan ? draftFrom(plan) : emptyDraft(nextRound));
   const [draft, setDraft] = useState<PlanDraft>(baseline);
   const [createPlanId] = useState(() => plan?.id ?? crypto.randomUUID());
+  const [persistedPlanId, setPersistedPlanId] = useState<string | null>(plan?.id ?? null);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(plan?.updatedAt);
   const [saving, setSaving] = useState(false);
+  const [loadingLatest, setLoadingLatest] = useState(false);
   const [pendingReviewerPlanId, setPendingReviewerPlanId] = useState<string | null>(null);
+  const [reviewerLockConflict, setReviewerLockConflict] = useState(false);
+  const [reviewerRecoveryLoaded, setReviewerRecoveryLoaded] = useState(false);
   const { runGuarded } = useGuardedAction();
   const dirty = pendingReviewerPlanId !== null || editorDraftChanged(draft, baseline);
   const reviewerAssignmentsChanged = !sameReviewerAssignments(draft.reviewers, baseline.reviewers);
@@ -240,7 +251,38 @@ export function PlanEditor({
   }
 
   function closeEditor() {
-    requestGuardedEditorClose({ busy: saving, dirty, runGuarded, close: onClose });
+    requestGuardedEditorClose({ busy: saving || loadingLatest, dirty, runGuarded, close: onClose });
+  }
+
+  async function loadLatestRound() {
+    if (!pendingReviewerPlanId || loadingLatest) return;
+    setLoadingLatest(true);
+    try {
+      const result = await evaluationRequest<{ plans: PlanDTO[] }>(
+        `/api/internal/evaluation/${eventId}/plans`,
+        { method: "GET" },
+        "The latest round could not be loaded",
+      );
+      if (!result.ok) {
+        toast(evaluationFailureMessage(result), { kind: "error" });
+        return;
+      }
+      const latest = result.data.plans.find((candidate) => candidate.id === pendingReviewerPlanId);
+      if (!latest) {
+        toast("This round no longer exists", { kind: "error" });
+        return;
+      }
+      const latestBaseline = draftFrom(latest);
+      setBaseline(latestBaseline);
+      setDraft((current) => ({ ...latestBaseline, reviewers: current.reviewers }));
+      setPersistedPlanId(latest.id);
+      setExpectedUpdatedAt(latest.updatedAt);
+      setPendingReviewerPlanId(null);
+      setReviewerLockConflict(false);
+      setReviewerRecoveryLoaded(true);
+    } finally {
+      setLoadingLatest(false);
+    }
   }
 
   async function save() {
@@ -248,10 +290,11 @@ export function PlanEditor({
       refuseTerminalAssignmentEdits();
       return;
     }
+    setReviewerRecoveryLoaded(false);
     setSaving(true);
     try {
       const body = {
-        ...(!plan ? { planId: createPlanId } : {}),
+        ...(!persistedPlanId ? { planId: createPlanId } : {}),
         name: draft.name,
         round: draft.round,
         scaleMin: draft.scaleMin,
@@ -275,13 +318,13 @@ export function PlanEditor({
         })),
         // Optimistic concurrency, so a second organizer's edit is a conflict
         // the first one sees rather than an overwrite they never learn about.
-        ...(plan ? { expectedUpdatedAt: plan.updatedAt } : {}),
+        ...(persistedPlanId ? { expectedUpdatedAt } : {}),
       };
       const result = await completePlanAndReviewerSave(
         pendingReviewerPlanId,
         () => evaluationRequest<{ planId: string }>(
-          plan ? `/api/internal/evaluation/${eventId}/plans/${plan.id}` : `/api/internal/evaluation/${eventId}/plans`,
-          { method: plan ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          persistedPlanId ? `/api/internal/evaluation/${eventId}/plans/${persistedPlanId}` : `/api/internal/evaluation/${eventId}/plans`,
+          { method: persistedPlanId ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
           "That round did not save",
         ),
         (savedPlanId) => reviewerAssignmentsChanged
@@ -299,11 +342,12 @@ export function PlanEditor({
       );
       if (!result.ok) {
         setPendingReviewerPlanId(result.pendingReviewerPlanId);
+        setReviewerLockConflict(Boolean(result.pendingReviewerPlanId && result.code === "CONFLICT"));
         toast(evaluationFailureMessage(result), { kind: "error" });
         if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
-      toast(plan ? `${draft.name} updated` : `${draft.name} created`);
+      toast(persistedPlanId ? `${draft.name} updated` : `${draft.name} created`);
       onClose();
       router.refresh();
     } catch {
@@ -321,11 +365,25 @@ export function PlanEditor({
   }));
 
   return (
-    <Drawer open onClose={closeEditor} title={plan ? `Edit ${plan.name}` : "New evaluation plan"}>
+    <Drawer open onClose={closeEditor} title={persistedPlanId ? `Edit ${plan?.name ?? draft.name}` : "New evaluation plan"}>
       <div className="form-stack drawer-body">
         {pendingReviewerPlanId && (
-          <p className="portal-note" role="alert">
-            <b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.
+          <div className="portal-note" role="alert">
+            {reviewerLockConflict ? (
+              <>
+                <p><b>Round details are saved, but assignments are now locked.</b> Load the latest round, then reopen it or extend its close date before saving your preserved reviewer changes.</p>
+                <Button size="sm" variant="secondary" disabled={loadingLatest} onClick={loadLatestRound}>
+                  {loadingLatest ? "Loading latest…" : "Load latest round"}
+                </Button>
+              </>
+            ) : (
+              <p><b>Round details are saved.</b> Reviewer assignment is still pending. The saved details are locked below; update the reviewer choices, then retry.</p>
+            )}
+          </div>
+        )}
+        {reviewerRecoveryLoaded && (
+          <p className="portal-note" role="status">
+            <b>Latest round loaded.</b> Your reviewer changes are preserved. {assignmentGuidance ?? "Save again to apply them."}
           </p>
         )}
         <fieldset disabled={pendingReviewerPlanId !== null} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: "contents" }}>
@@ -501,9 +559,9 @@ export function PlanEditor({
           Rounds are ordered plans — to run a second one, create it with a narrower scope, then sort Abstracts by rating and move the survivors.
         </p>
         <div className="drawer-actions">
-          <Button variant="secondary" disabled={saving} onClick={closeEditor}>Cancel</Button>
-          <Button disabled={saving || draft.name.trim() === ""} onClick={save}>
-            {saving ? "Saving…" : pendingReviewerPlanId ? "Retry reviewer assignments" : plan ? "Save round" : "Create round"}
+          <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>
+          <Button disabled={saving || loadingLatest || reviewerLockConflict || draft.name.trim() === ""} onClick={save}>
+            {saving ? "Saving…" : reviewerLockConflict ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
           </Button>
         </div>
       </div>
