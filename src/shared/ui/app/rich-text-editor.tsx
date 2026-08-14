@@ -6,7 +6,7 @@ import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Underline as UnderlineIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { plainTextLength } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -28,18 +28,12 @@ import { richTextLinkError } from "./rich-text-link";
  * Loaded through `next/dynamic` with `ssr: false` by `rich-text-editor-lazy` so
  * TipTap never enters the server graph.
  */
-export function RichTextEditor({
-  value,
-  onChange,
-  maxChars,
-  placeholder,
-  ariaLabel = "Rich text editor",
-  ariaLabelledBy,
-  ariaDescribedBy,
-  ariaInvalid = false,
-  required = false,
-  disabled = false,
-}: {
+export type RichTextEditorHandle = {
+  /** Insert plain text at the current selection and restore editor focus. */
+  insertAtCursor: (text: string) => boolean;
+};
+
+export type RichTextEditorProps = {
   value: string;
   onChange: (html: string) => void;
   maxChars?: number;
@@ -50,7 +44,20 @@ export function RichTextEditor({
   ariaInvalid?: boolean;
   required?: boolean;
   disabled?: boolean;
-}) {
+};
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
+  value,
+  onChange,
+  maxChars,
+  placeholder,
+  ariaLabel = "Rich text editor",
+  ariaLabelledBy,
+  ariaDescribedBy,
+  ariaInvalid = false,
+  required = false,
+  disabled = false,
+}, ref) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
   const [linkError, setLinkError] = useState("");
@@ -111,6 +118,15 @@ export function RichTextEditor({
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
+
+  useImperativeHandle(ref, () => ({
+    insertAtCursor(text: string) {
+      if (!editor || disabled) return false;
+      // A text node prevents a token containing punctuation from ever being
+      // interpreted as source markup by TipTap's string-content parser.
+      return editor.chain().focus().insertContent({ type: "text", text }).run();
+    },
+  }), [disabled, editor]);
 
   const openLinkDialog = useCallback(() => {
     if (!editor) return;
@@ -224,4 +240,4 @@ export function RichTextEditor({
       </Modal>
     </div>
   );
-}
+});
