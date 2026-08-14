@@ -268,7 +268,7 @@ export function ReviewQueueView({
   }, [plan, active, eventId, recusalReason, router, toast]);
 
   // 1–5 scores and `n` advances: a reviewer working through a queue should not
-  // have to reach for the mouse between proposals.
+  // have to reach for the mouse between submissions.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -276,8 +276,7 @@ export function ReviewQueueView({
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       if (!plan || !active) return;
       if (event.key === "n") {
-        const index = rows.findIndex((row) => row.submissionId === active.submissionId);
-        const next = rows[index + 1];
+        const next = rows[activeIndex + 1];
         if (next) requestOpen(next.submissionId);
         return;
       }
@@ -297,7 +296,7 @@ export function ReviewQueueView({
     }
     globalThis.addEventListener("keydown", onKey);
     return () => globalThis.removeEventListener("keydown", onKey);
-  }, [plan, active, rows, scale, requestOpen]);
+  }, [plan, active, activeIndex, rows, scale, requestOpen]);
 
   if (!plan) {
     return (

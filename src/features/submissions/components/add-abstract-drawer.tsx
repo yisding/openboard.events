@@ -168,7 +168,7 @@ export function AddAbstractDrawer({
       open={open}
       onClose={requestClose}
       title="Add a submission"
-      description="Create an abstract submission on behalf of a speaker. It gets the next SESS number and sends nobody an email."
+      description="Create a submission on behalf of a speaker. It gets the next SESS number and sends nobody an email."
       wide
       footer={
         <>
