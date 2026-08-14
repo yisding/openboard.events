@@ -7,8 +7,8 @@ what Openboard does and how to use it, start with the [README](../README.md).
 ## Status
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
-  typecheck, lint, invariant greps, the full Vitest suite (2,371 cases across two shards as of
-  2026-08-13), the Next.js build, and the Worker artifact gates.
+  typecheck, lint, architecture boundaries, invariant checks, the full Vitest suite (2,376
+  cases across two shards as of 2026-08-13), the Next.js build, and the Worker artifact gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
   post-deploy smoke — and production deploys run through the same workflow behind a protected
