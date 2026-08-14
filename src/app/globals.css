@@ -1568,6 +1568,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .onboarding-team-prompt small{margin-top:2px;color:var(--muted);font-size:var(--text-xs);line-height:1.4}
 .onboarding-team-prompt .button{white-space:nowrap}
 
+@media(max-width:768px){
+  .onboarding-wizard .cfp-actions:has(>:nth-child(2)){flex-wrap:wrap}
+  .onboarding-wizard .cfp-actions:has(>:nth-child(2))>*{flex:1 1 calc(50% - 4px);justify-content:center}
+}
+
 /* Organizer form preview — the public renderer without the speaker OTP,
    draft, or submission side effects. */
 .organizer-form-preview{width:min(900px,100%);margin:0 auto;display:grid;gap:16px}
@@ -1603,6 +1608,7 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
   .onboarding-track-sync .button{width:100%}
   .onboarding-wizard .cfp-actions{flex-wrap:wrap}
   .onboarding-wizard .cfp-actions>*{flex:1 1 100%;justify-content:center}
+  .onboarding-wizard .cfp-actions:has(>:nth-child(2))>*{flex:1 1 100%}
   .onboarding-link-row{flex-direction:column}
   .onboarding-link-row .button{width:100%;justify-content:center}
   .onboarding-team-prompt{grid-template-columns:32px minmax(0,1fr)}
