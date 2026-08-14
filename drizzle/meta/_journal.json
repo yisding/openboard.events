@@ -288,6 +288,13 @@
       "when": 1786702984000,
       "tag": "0040_vocab_dependency_locks",
       "breakpoints": false
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786714300000,
+      "tag": "0041_stable_user_contact_links",
+      "breakpoints": false
     }
   ]
 }
