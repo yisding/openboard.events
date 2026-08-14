@@ -253,6 +253,13 @@
       "when": 1786674000000,
       "tag": "0035_crm_pipeline_creation_payload",
       "breakpoints": false
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786683300000,
+      "tag": "0036_api_key_creation_receipts",
+      "breakpoints": false
     }
   ]
 }
