@@ -1088,6 +1088,9 @@ describe("review operations", () => {
     const outstanding = await listOutstandingReviewersIn(db, eventId, planId);
     expect(outstanding.map((target) => target.reviewerUserId).sort()).toEqual([ada, grace].sort());
     expect(outstanding.find((target) => target.reviewerUserId === ada)?.outstanding).toBe(2);
+    // Ada has a same-email event contact, but the preview cannot infer that it
+    // belongs to her. The send action below makes the relationship durable.
+    expect(outstanding.find((target) => target.reviewerUserId === ada)?.contactId).toBeNull();
 
     const sent = await sendReviewRemindersIn(db, eventId, planId, null, REMINDER_ATTEMPT_A, AT_OPEN.getTime());
     // Grace is an existing event member with no contact row. Reminding the

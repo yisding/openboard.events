@@ -71,8 +71,8 @@ async function ensureReviewerContact(
  * one's mail would go to.
  *
  * Reviewers are `users`; the outbox addresses `contacts`. Stable links are the
- * authority. The email join is a temporary dual-read fallback for the rollout
- * window; `ensureReviewerContact` writes the durable relationship before any
+ * authority. An unlinked reviewer has no contact at read time;
+ * `ensureReviewerContact` must write the durable relationship before any
  * reminder is enqueued.
  */
 export async function listOutstandingReviewersIn(
@@ -82,7 +82,7 @@ export async function listOutstandingReviewersIn(
 ): Promise<Array<ReviewReminderTarget & { contactId: string | null }>> {
   const result = await dbOrTx.execute<OutstandingRow>(sql`
     SELECT u.id AS reviewer_user_id, u.name, u.email,
-           coalesce(linked_contact.id, legacy_contact.id) AS contact_id,
+           linked_contact.id AS contact_id,
            count(*)::int AS outstanding
     FROM review_assignments ra
     JOIN users u ON u.id = ra.reviewer_user_id
@@ -90,13 +90,11 @@ export async function listOutstandingReviewersIn(
       ON identity.event_id = ra.event_id AND identity.user_id = ra.reviewer_user_id
     LEFT JOIN contacts linked_contact
       ON linked_contact.event_id = identity.event_id AND linked_contact.id = identity.contact_id
-    LEFT JOIN contacts legacy_contact
-      ON legacy_contact.event_id = ra.event_id AND legacy_contact.email = u.email
     LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
       AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
     WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
       AND ra.status = 'assigned' AND r.id IS NULL
-    GROUP BY u.id, u.name, u.email, linked_contact.id, legacy_contact.id
+    GROUP BY u.id, u.name, u.email, linked_contact.id
     ORDER BY lower(u.name), u.email
   `);
   return (result.rows ?? []).map((row) => ({
