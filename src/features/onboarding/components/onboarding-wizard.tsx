@@ -305,7 +305,7 @@ async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       payload = await response.json() as typeof payload;
     } catch {
-      if (attempt === 0 && response.status >= 500) continue;
+      if (attempt === 0 && (response.ok || response.status >= 500)) continue;
       throw new Error("That request failed");
     }
     if (response.ok && payload.data !== undefined) return payload.data;

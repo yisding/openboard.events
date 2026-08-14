@@ -82,6 +82,14 @@ function failure(message: string, status = 503): Response {
   });
 }
 
+function unreadableSuccess(): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => { throw new TypeError("connection closed before the response body completed"); },
+  } as unknown as Response;
+}
+
 beforeEach(() => {
   toastMock.mockReset();
   fetchMock = vi.fn();
@@ -227,7 +235,10 @@ describe("first-form publication preflight", () => {
     });
   });
 
-  it("retries a transient completion checkpoint failure before showing the ready handoff", async () => {
+  it.each([
+    { failureKind: "server failure", firstResponse: () => failure("temporarily unavailable") },
+    { failureKind: "truncated successful response", firstResponse: unreadableSuccess },
+  ])("retries a $failureKind before showing the ready handoff", async ({ firstResponse }) => {
     const cachedOpen = {
       id: "30000000-0000-4000-8000-000000000002",
       internalName: "Speaker applications",
@@ -243,7 +254,7 @@ describe("first-form publication preflight", () => {
         const body = JSON.parse(String(init?.body)) as { step: string };
         if (body.step === "complete") {
           completionAttempts += 1;
-          if (completionAttempts === 1) return failure("temporarily unavailable");
+          if (completionAttempts === 1) return firstResponse();
         }
         return success(body);
       }
