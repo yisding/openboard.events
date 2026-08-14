@@ -443,8 +443,8 @@ export const processFileExportJob = (eventId: EventId, jobId: string) => process
  * logged rather than retried from a database that no longer has anywhere to
  * retry it from.
  *
- * Wired into the existing `/api/jobs/cleanup` cron slot alongside R2's own
- * orphan sweep and the M47 retention sweep (`src/app/api/jobs/cleanup/route.ts`)
+ * Wired into the private cleanup cron slot alongside R2's own orphan sweep
+ * and the M47 retention sweep (`src/app/worker-jobs/cleanup/route.ts`)
  * rather than self-scheduling here. That same cron tick is also this
  * module's fallback forward-progress mechanism for a job nobody is polling
  * (see `nudgeStalledFileExportsIn` below).

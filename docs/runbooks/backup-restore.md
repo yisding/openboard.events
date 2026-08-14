@@ -124,8 +124,8 @@ matching R2 state, or vice versa, will disagree with itself. Concretely:
   the restore point but never re-recorded will look, to `cleanupOrphans`'s R2-listing sweep, like
   a staging object with no owning row — because it now has no owning row. If you've just done a
   restore and are not yet sure everything reconciled, disable the cleanup cron tick (comment out
-  the `cleanup` job in `workers/jobs/dispatch.ts`'s dispatch list and redeploy the jobs Worker, or
-  simply don't run `POST /api/jobs/cleanup` by hand) until you've confirmed R2 and Neon agree
+  the `cleanup` job in `workers/jobs/dispatch.ts`'s dispatch list and redeploy the jobs Worker)
+  until you've confirmed R2 and Neon agree
   again — a sweep is a one-way, best-effort delete with no undo of its own.
 
 ## After any restore

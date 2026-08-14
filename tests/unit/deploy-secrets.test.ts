@@ -7,12 +7,12 @@ describe("deployment secret preflight", () => {
     expect(requiredDeploySecrets("web")).toBe(WEB_DEPLOY_SECRET_NAMES);
   });
 
-  it("requires only the shared cron credential on the jobs Worker", () => {
-    expect(requiredDeploySecrets("jobs")).toEqual(["CRON_SECRET"]);
+  it("requires no secret bindings on the jobs Worker", () => {
+    expect(requiredDeploySecrets("jobs")).toEqual([]);
   });
 
   it("reports every absent binding without exposing values", () => {
-    expect(missingDeploySecrets(["DATABASE_URL", "SESSION_SECRET", "CRON_SECRET"], ["SESSION_SECRET"]))
-      .toEqual(["DATABASE_URL", "CRON_SECRET"]);
+    expect(missingDeploySecrets(["DATABASE_URL", "SESSION_SECRET"], ["SESSION_SECRET"]))
+      .toEqual(["DATABASE_URL"]);
   });
 });

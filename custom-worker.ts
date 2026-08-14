@@ -4,17 +4,19 @@ import handler from "./.open-next/worker.js";
 // @ts-expect-error `cloudflare:workers` is provided by workerd at runtime.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
+  blockPrivateJobRoutes,
+  privateJobRequest,
   runPrivateJob,
   type JobRouteHandler,
-  type PrivateJobEnv,
 } from "./workers/job-service";
 
 // Keep this entrypoint structurally typed: Wrangler's generated CloudflareEnv
 // references this module for the self-binding, so importing it here would form
 // a recursive type graph that makes project type-checking pathologically slow.
-type WebWorkerEnv = PrivateJobEnv & Record<string, unknown>;
+type WebWorkerEnv = Record<string, unknown>;
 type WebHandler = JobRouteHandler<WebWorkerEnv, unknown>;
-const webHandler = handler as WebHandler;
+const rawWebHandler = handler as WebHandler;
+const publicWebHandler = blockPrivateJobRoutes(rawWebHandler);
 
 /** Account-scoped RPC surface used only by the separately deployed jobs Worker. */
 export class JobsEntrypoint extends WorkerEntrypoint {
@@ -22,11 +24,15 @@ export class JobsEntrypoint extends WorkerEntrypoint {
   declare readonly ctx: unknown;
 
   async runJob(job: unknown): Promise<Response> {
-    return runPrivateJob(webHandler, this.env, this.ctx, job);
+    return runPrivateJob(job, (name) => rawWebHandler.fetch(
+      privateJobRequest(this.env.APP_BASE_URL, name),
+      this.env,
+      this.ctx,
+    ));
   }
 }
 
-export default webHandler;
+export default publicWebHandler;
 
 // The re-exports are required by OpenNext's cache implementation.
 // @ts-expect-error The generated module is intentionally absent in a clean checkout.

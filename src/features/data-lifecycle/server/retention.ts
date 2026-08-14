@@ -6,7 +6,7 @@ import type { JobStats } from "@/shared/contracts";
 /**
  * M47 — retention for the three data classes the roadmap names: expired
  * tokens, expired sessions, and rendered email bodies. Wired into the
- * existing cleanup cron (`/api/jobs/cleanup`) beside M08/P3-OPS's R2 orphan
+ * existing private cleanup job beside M08/P3-OPS's R2 orphan
  * sweep — same job slot, same "independent statements, no wrapping
  * transaction" shape as `cleanupOrphans` already uses for its own two
  * sweeps: a crash mid-sweep just leaves the remaining rows for the next

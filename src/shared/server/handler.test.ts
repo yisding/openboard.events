@@ -131,7 +131,7 @@ describe("defineHandler origin check (CSRF, PLAN P3-SEC)", () => {
     expect(response.status).toBe(200);
   });
 
-  it("exempts a guard marked csrfExempt (cronAuth/apiKeyAuth's own contract)", async () => {
+  it("exempts a guard marked csrfExempt (apiKeyAuth's own contract)", async () => {
     const exemptGuard = Object.assign(async () => null, { csrfExempt: true });
     const exemptRoute = defineHandler({ auth: exemptGuard, input: z.object({}), handler: async () => ({ ok: true }) });
     const response = await exemptRoute(new NextRequest("https://example.test/resource", {

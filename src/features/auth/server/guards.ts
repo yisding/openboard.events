@@ -4,9 +4,8 @@ import { apiKeys, events } from "@/db/schema";
 import { eventIdSchema, organizationIdSchema, type ApiKeyId } from "@/shared/contracts";
 import type { HandlerGuard, RouteParams } from "@/shared/server/handler";
 import { AppError } from "@/shared/lib/errors";
-import { getEnv } from "@/shared/lib/env";
 import { getAdminIdentity, requireAdmin, requireOrganizationAdmin } from "./admin";
-import { safeEqual, sha256 } from "@/shared/lib/crypto";
+import { sha256 } from "@/shared/lib/crypto";
 import { requirePortalByEventId } from "./portal";
 
 /**
@@ -82,18 +81,6 @@ export const authenticatedAuth = (): HandlerGuard => async () => {
   return { actorId: identity.userId, role: "authenticated" };
 };
 
-// Shared-secret header, not a browser cookie: a cross-site page cannot forge
-// it, so this guard is exempt from defineHandler's origin check.
-export const cronAuth = (): HandlerGuard => Object.assign(
-  (async (request: Parameters<HandlerGuard>[0]) => {
-    const secret = getEnv().CRON_SECRET;
-    const provided = request.headers.get("x-cron-secret") ?? "";
-    if (!secret || !provided || !safeEqual(provided, secret)) throw new AppError("UNAUTHORIZED", "Invalid cron secret");
-    return { actorId: "cron", role: "cron" };
-  }) as HandlerGuard,
-  { csrfExempt: true },
-);
-
 export const publicAuth = (): HandlerGuard => async () => null;
 
 export const portalAuth = (): HandlerGuard => async (_request, eventId) => {
@@ -127,7 +114,7 @@ export async function authenticateApiKey(dbOrTx: DbOrTx, request: Parameters<Han
   return { actorId: key.id as ApiKeyId, role: "api_key", eventId: eventIdSchema.parse(key.eventId) };
 }
 
-// Bearer token, not a browser cookie: same exemption rationale as cronAuth.
+// Bearer tokens are not browser cookies, so cross-site pages cannot forge one.
 export const apiKeyAuth = (): HandlerGuard => Object.assign(
   (async (request, eventId, params) => authenticateApiKey(db, request, eventId, params)) as HandlerGuard,
   { csrfExempt: true },

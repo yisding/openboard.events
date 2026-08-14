@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   dispatchJob,
@@ -6,16 +6,17 @@ import {
   jobsForScheduledTime,
   runScheduledJobs,
   type Env,
-  type JobFetcher,
   type JobRpc,
 } from "../workers/jobs/dispatch";
 import worker from "../workers/jobs/index";
-import { isJobName, runPrivateJob } from "../workers/job-service";
+import {
+  blockPrivateJobRoutes,
+  isJobName,
+  privateJobRequest,
+  runPrivateJob,
+} from "../workers/job-service";
 
 const env: Env = {
-  APP_BASE_URL: "https://sb-web.example.test",
-  CRON_SECRET: "cron-secret",
-  JOB_TRANSPORT: "rpc",
   WEB_JOBS: { runJob: async () => new Response(null, { status: 200 }) },
 };
 
@@ -35,51 +36,38 @@ describe("scheduled jobs Worker", () => {
 
   it("dispatches through the private binding with a privacy-safe success log", async () => {
     const info = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const fetcher = vi.fn<JobFetcher>();
     const rpc = vi.fn<JobRpc>(async () => Response.json({ job: "outbox", secret: "must-not-be-logged" }));
 
-    await dispatchJob(env, "outbox", { rpc, fetcher });
+    await dispatchJob(env, "outbox", { rpc });
 
     expect(rpc).toHaveBeenCalledWith("outbox");
-    expect(fetcher).not.toHaveBeenCalled();
     expect(JOB_FETCH_TIMEOUT_MS).toBe(120_000);
 
     const logged = info.mock.calls.map(([value]) => String(value)).join("\n");
     expect(logged).toContain('"msg":"scheduled.job_complete"');
     expect(logged).toContain('"transport":"rpc"');
     expect(logged).not.toContain("must-not-be-logged");
-    expect(logged).not.toContain("cron-secret");
   });
 
-  it("uses the authenticated public callback only in explicit compatibility mode", async () => {
-    const info = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const rpc = vi.fn<JobRpc>();
-    const fetcher = vi.fn<JobFetcher>(async () => new Response(null, { status: 200 }));
-
-    await dispatchJob({ ...env, JOB_TRANSPORT: "public-compat" }, "outbox", { rpc, fetcher });
-
-    expect(rpc).not.toHaveBeenCalled();
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [request] = fetcher.mock.calls[0] ?? [];
-    expect(request).toBeInstanceOf(Request);
-    expect((request as Request).url).toBe("https://sb-web.example.test/api/jobs/outbox");
-    expect((request as Request).headers.get("x-cron-secret")).toBe("cron-secret");
-    expect((request as Request).signal.aborted).toBe(false);
-    const logged = info.mock.calls.map(([value]) => String(value)).join("\n");
-    expect(logged).toContain('"transport":"public-compat"');
-    expect(logged).not.toContain("cron-secret");
+  it("has no public callback or compatibility transport path", () => {
+    const dispatchSource = readFileSync(new URL("../workers/jobs/dispatch.ts", import.meta.url), "utf8");
+    const configSource = readFileSync(new URL("../workers/jobs/wrangler.jsonc", import.meta.url), "utf8");
+    expect(dispatchSource).not.toContain("fetch(");
+    expect(dispatchSource).not.toContain("public-compat");
+    expect(configSource).not.toContain("global_fetch_strictly_public");
+    expect(configSource).not.toContain("JOB_TRANSPORT");
+    for (const job of ["outbox", "reminders", "cleanup"]) {
+      expect(existsSync(new URL(`../src/app/api/jobs/${job}/route.ts`, import.meta.url))).toBe(false);
+    }
   });
 
-  it("never replays an RPC exception through the public route", async () => {
+  it("propagates an RPC exception without another dispatch path", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const rpc = vi.fn<JobRpc>(async () => { throw new Error("connection lost after invocation"); });
-    const fetcher = vi.fn<JobFetcher>();
 
-    await expect(dispatchJob(env, "outbox", { rpc, fetcher })).rejects.toThrow(
+    await expect(dispatchJob(env, "outbox", { rpc })).rejects.toThrow(
       "connection lost after invocation",
     );
-
-    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("bounds the RPC promise even when the web handler ignores its request signal", async () => {
@@ -87,30 +75,25 @@ describe("scheduled jobs Worker", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const pending = new Promise<Response>((resolve) => { void resolve; });
     const rpc = vi.fn<JobRpc>(() => pending);
-    const fetcher = vi.fn<JobFetcher>();
 
-    const dispatched = dispatchJob(env, "cleanup", { rpc, fetcher });
+    const dispatched = dispatchJob(env, "cleanup", { rpc });
     const rejection = expect(dispatched).rejects.toThrow(
       `Scheduled job cleanup RPC timed out after ${JOB_FETCH_TIMEOUT_MS}ms`,
     );
     await vi.advanceTimersByTimeAsync(JOB_FETCH_TIMEOUT_MS);
     await rejection;
-
-    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("rejects a non-success response without logging its raw body", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const fetcher = vi.fn<JobFetcher>();
     const rpc: JobRpc = async () => Response.json(
       { error: "postgres://user:password@example.test/private" },
       { status: 500 },
     );
 
-    await expect(dispatchJob(env, "cleanup", { rpc, fetcher })).rejects.toThrow(
+    await expect(dispatchJob(env, "cleanup", { rpc })).rejects.toThrow(
       "Scheduled job cleanup returned HTTP 500",
     );
-    expect(fetcher).not.toHaveBeenCalled();
 
     const logged = error.mock.calls.map(([value]) => String(value)).join("\n");
     expect(logged).toContain('"msg":"scheduled.job_failed"');
@@ -144,31 +127,50 @@ describe("scheduled jobs Worker", () => {
   });
 
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {
-    expect(["outbox", "reminders", "airtable", "cleanup"].every(isJobName)).toBe(true);
+    expect(["outbox", "reminders", "cleanup"].every(isJobName)).toBe(true);
+    expect(isJobName("airtable")).toBe(false);
     expect(isJobName("billing")).toBe(false);
   });
 
-  it("validates the named entrypoint input before invoking the web handler", async () => {
-    const context = { marker: "execution-context" };
-    const fetchHandler = vi.fn<(
-      request: Request,
-      handlerEnv: Env,
-      handlerContext: typeof context,
-    ) => Promise<Response>>(async () => new Response(null, { status: 202 }));
-    const handler = { fetch: fetchHandler };
-
-    const accepted = await runPrivateJob(handler, env, context, "reminders");
+  it("validates the named entrypoint input before invoking a job", async () => {
+    const runner = vi.fn(async () => new Response(null, { status: 202 }));
+    const accepted = await runPrivateJob("reminders", runner);
     expect(accepted.status).toBe(202);
-    expect(fetchHandler).toHaveBeenCalledTimes(1);
-    const [request, passedEnv, passedContext] = fetchHandler.mock.calls[0] ?? [];
-    expect(request).toBeInstanceOf(Request);
-    expect((request as Request).url).toBe("https://sb-web.example.test/api/jobs/reminders");
-    expect(passedEnv).toBe(env);
-    expect(passedContext).toBe(context);
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(runner).toHaveBeenCalledWith("reminders");
 
-    const rejected = await runPrivateJob(handler, env, context, "billing");
+    const rejected = await runPrivateJob("billing", runner);
     expect(rejected.status).toBe(400);
-    expect(fetchHandler).toHaveBeenCalledTimes(1);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds the in-isolate request from the web origin", () => {
+    const request = privateJobRequest("https://sb-web-preview.example.test", "cleanup");
+    expect(request.url)
+      .toBe("https://sb-web-preview.example.test/worker-jobs/cleanup");
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("x-openboard-private-job")).toBe("JobsEntrypoint");
+    expect(privateJobRequest(undefined, "outbox").url)
+      .toBe("http://localhost:3000/worker-jobs/outbox");
+  });
+
+  it("blocks every private job path on the default web entrypoint", async () => {
+    const rawFetch = vi.fn(async () => new Response("public", { status: 200 }));
+    const handler = blockPrivateJobRoutes({ fetch: rawFetch });
+
+    const blocked = await handler.fetch(
+      new Request("https://example.test/worker-jobs/outbox", {
+        headers: { "x-openboard-private-job": "JobsEntrypoint" },
+      }),
+      env,
+      {},
+    );
+    expect(blocked.status).toBe(404);
+    expect(rawFetch).not.toHaveBeenCalled();
+
+    const publicResponse = await handler.fetch(new Request("https://example.test/api/health"), env, {});
+    expect(publicResponse.status).toBe(200);
+    expect(rawFetch).toHaveBeenCalledTimes(1);
   });
 
   it("passes the aggregate promise to waitUntil so a failed job marks the cron invocation failed", async () => {

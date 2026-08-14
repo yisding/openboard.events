@@ -267,7 +267,7 @@ function clampBudget(requested: number | undefined, fallback: number): number {
   return Math.min(Math.max(Math.trunc(requested), 1), fallback);
 }
 
-/** Wired to `POST /api/jobs/reminders` (%15). */
+/** Wired to the private `reminders` scheduled job (%15). */
 export async function scanReminders(): Promise<JobStats> {
   return scanRemindersIn(db);
 }

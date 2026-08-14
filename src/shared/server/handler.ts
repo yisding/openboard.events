@@ -12,9 +12,8 @@ export type RouteParams = Record<string, string | string[] | undefined>;
 export type AuthSession = { actorId: string; role: string; eventId?: EventId } | null;
 /**
  * `csrfExempt` marks guards that never rely on an ambient browser credential
- * (cookies) for the caller's identity — today `cronAuth` (shared-secret
- * header) and `apiKeyAuth` (bearer token). Those cannot be forged by a
- * cross-site page the way a cookie-authenticated request can, so
+ * (cookies) for the caller's identity — today `apiKeyAuth` (bearer token).
+ * It cannot be forged by a cross-site page the way a cookie-authenticated request can, so
  * `defineHandler`'s origin check skips them; every other guard (including
  * `publicAuth`) is checked. Set on the returned guard function itself
  * (`Object.assign`) rather than threaded through `defineHandler`'s options,

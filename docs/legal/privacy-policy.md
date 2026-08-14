@@ -59,8 +59,8 @@ account/event data, and controller-instructed processing for contact data.]
 - **Expired authentication tokens and sessions** (`portal_tokens`,
   `admin_sessions`, `admin_verifications`, `portal_sessions`): purged
   automatically 30 days after expiry by the daily retention job
-  (`src/features/data-lifecycle/server/retention.ts`, wired into
-  `/api/jobs/cleanup`).
+  (`src/features/data-lifecycle/server/retention.ts`, invoked through the
+  private scheduled-job entrypoint).
 - **Rate-limit and sign-in-throttle counters** (`rate_limit_buckets`,
   `admin_login_attempts`): purged automatically by the same daily job 7 days
   after the last request counted against them. These rows hold a one-way

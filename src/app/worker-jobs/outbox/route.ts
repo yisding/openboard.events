@@ -1,10 +1,10 @@
-import { dispatchOutbox } from "@/features/comms";
-import { dispatchAdminAuthEmailOutbox } from "@/features/auth";
-import { defineJobRoute } from "../_lib";
+import { dispatchAdminAuthEmailOutbox } from "@/features/auth/server/admin-mail";
+import { dispatchOutbox } from "@/features/comms/server/dispatcher";
+import { definePrivateJobRoute } from "../_lib";
 
 export const dynamic = "force-dynamic";
 
-export const { POST } = defineJobRoute("outbox", async () => {
+export const { POST } = definePrivateJobRoute("outbox", async () => {
   const [communications, auth] = await Promise.all([
     dispatchOutbox(50),
     dispatchAdminAuthEmailOutbox(50),
