@@ -305,7 +305,9 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: "Save and continue" }).click();
       expect((await correctedResponse).status(), "event correction should update the existing event").toBe(200);
       await expect(page.getByRole("heading", { name: "Step 2: Tracks" })).toBeVisible();
-      await page.getByRole("button", { name: /main stage/i }).click();
+      const mainStageSuggestion = page.locator(".onboarding-tracks-step .chip-picker")
+        .getByRole("button", { name: "Main Stage", exact: true });
+      await mainStageSuggestion.click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       const createdTrack = await queryRows<{ id: string }>(`
         SELECT id FROM tracks WHERE event_id = (
@@ -324,7 +326,7 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByRole("heading", { name: "Remove Main Stage?" })).toBeVisible();
       await page.getByRole("button", { name: "Remove track" }).click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toHaveCount(0);
-      await page.getByRole("button", { name: /main stage/i }).click();
+      await mainStageSuggestion.click();
       await expect(page.locator(".onboarding-track-list").getByText("Main Stage", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: /^continue/i }).click();
       await expect(page.getByRole("heading", { name: "Step 3: First form" })).toBeVisible();
