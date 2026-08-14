@@ -295,6 +295,13 @@
       "when": 1786714300000,
       "tag": "0041_stable_user_contact_links",
       "breakpoints": false
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786730400000,
+      "tag": "0042_r2_staging_migration_state",
+      "breakpoints": false
     }
   ]
 }
