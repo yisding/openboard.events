@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, KeyRound, Search, UserMinus, UserPlus } from "lucide-react";
+import { AlertTriangle, Check, KeyRound, Search, UserMinus, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
@@ -12,19 +12,62 @@ import {
   type EventId,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { type AppError, isAppError } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 
 const removedSchema = z.object({ removed: z.boolean() });
 type GrantRole = "organizer" | "reviewer";
+type EventAccessRecovery =
+  | { action: "grant"; candidate: EventAccessGrantCandidateDTO; requestedRole: GrantRole; replayRejected: boolean }
+  | { action: "remove"; member: EventAccessMemberDTO; replayRejected: boolean };
 
 const roleOrder = { owner: 0, organizer: 1, reviewer: 2 } as const;
 
 function orderMembers(members: EventAccessMemberDTO[]): EventAccessMemberDTO[] {
   return [...members].sort((left, right) =>
     roleOrder[left.role] - roleOrder[right.role] || left.email.localeCompare(right.email));
+}
+
+function isDefinitiveEventAccessError(error: unknown): error is AppError {
+  return isAppError(error) && error.code !== "INTERNAL";
+}
+
+function recoverySubject(recovery: EventAccessRecovery): string {
+  return recovery.action === "grant" ? recovery.candidate.email : recovery.member.email;
+}
+
+function authoritativeAccess(
+  overview: EventAccessOverviewDTO,
+  recovery: EventAccessRecovery,
+): EventAccessMemberDTO | undefined {
+  const userId = recovery.action === "grant" ? recovery.candidate.userId : recovery.member.userId;
+  return overview.members.find((member) => member.userId === userId);
+}
+
+function requestedStateIsCurrent(
+  overview: EventAccessOverviewDTO,
+  recovery: EventAccessRecovery,
+): boolean {
+  const current = authoritativeAccess(overview, recovery);
+  if (recovery.action === "remove") return current === undefined;
+  return current !== undefined && roleOrder[current.role] <= roleOrder[recovery.requestedRole];
+}
+
+function currentAccessDescription(
+  overview: EventAccessOverviewDTO,
+  recovery: EventAccessRecovery,
+): string {
+  const current = authoritativeAccess(overview, recovery);
+  return current
+    ? `${recoverySubject(recovery)} currently has ${current.role} access to this event.`
+    : `${recoverySubject(recovery)} currently has no access to this event.`;
+}
+
+function appendGuidance(message: string, guidance: string): string {
+  return `${message}${/[.!?]$/.test(message) ? " " : ". "}${guidance}`;
 }
 
 /** The canonical recovery surface for every current event_members row. */
@@ -43,7 +86,11 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [grantRole, setGrantRole] = useState<GrantRole>("reviewer");
   const [grantError, setGrantError] = useState("");
+  const [recovery, setRecovery] = useState<EventAccessRecovery | null>(null);
   const grantSearchRef = useRef<HTMLInputElement>(null);
+  const writeInFlight = useRef(false);
+  const locked = busy || recovery !== null;
+  useUnsavedWorkGuard(locked, { blocking: locked });
 
   const applyOverview = useCallback((overview: EventAccessOverviewDTO) => {
     setMembers(overview.members);
@@ -69,10 +116,29 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function removeAccess() {
-    if (!pendingRemove || busy) return;
-    const removed = pendingRemove;
+  function beginWrite(): boolean {
+    if (writeInFlight.current || recovery !== null) return false;
+    writeInFlight.current = true;
     setBusy(true);
+    return true;
+  }
+
+  function endWrite(): void {
+    writeInFlight.current = false;
+    setBusy(false);
+  }
+
+  function completeRecovery(overview: EventAccessOverviewDTO, operation: EventAccessRecovery): void {
+    applyOverview(overview);
+    setRecovery(null);
+    setPendingRemove(null);
+    setGrantOpen(false);
+    toast(`Event access checked: ${currentAccessDescription(overview, operation)}`);
+  }
+
+  async function removeAccess() {
+    if (!pendingRemove || !beginWrite()) return;
+    const removed = pendingRemove;
     try {
       await api(`events/${eventId}/access/${removed.userId}`, removedSchema, { method: "DELETE" });
       setMembers((current) => current.filter((member) => member.userId !== removed.userId));
@@ -80,13 +146,31 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       toast(`${removed.email} no longer has access to this event`);
       void requestOverview().then(applyOverview).catch(() => undefined);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That event access removal failed", { kind: "error" });
+      if (isDefinitiveEventAccessError(caught)) {
+        setPendingRemove(null);
+        try {
+          applyOverview(await requestOverview());
+          toast(caught.message, { kind: "error" });
+        } catch {
+          const message = appendGuidance(
+            caught.message,
+            "Event access could not be refreshed; reload before trying another access change.",
+          );
+          setError(message);
+          toast(message, { kind: "error" });
+        }
+      } else {
+        setPendingRemove(null);
+        setRecovery({ action: "remove", member: removed, replayRejected: false });
+        toast("That access removal is unconfirmed. Keep this page open and retry the exact removal or check event access.", { kind: "error" });
+      }
     } finally {
-      setBusy(false);
+      endWrite();
     }
   }
 
   function openGrant() {
+    if (locked) return;
     setGrantSearch("");
     setSelectedUserId(null);
     setGrantRole("reviewer");
@@ -95,25 +179,31 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
   }
 
   function closeGrant() {
-    if (busy) return;
+    if (locked) return;
     setGrantOpen(false);
     setGrantError("");
   }
 
   async function grantAccess() {
-    if (!selectedUserId || busy) return;
+    if (!selectedUserId || locked) return;
     const candidate = candidates.find((person) => person.userId === selectedUserId);
     if (!candidate) {
       setGrantError("That teammate is no longer available. Choose another teammate.");
       return;
     }
-    setBusy(true);
+    const operation: Extract<EventAccessRecovery, { action: "grant" }> = {
+      action: "grant",
+      candidate,
+      requestedRole: grantRole,
+      replayRejected: false,
+    };
+    if (!beginWrite()) return;
     setGrantError("");
     try {
       const granted = await api(
         `events/${eventId}/access/${candidate.userId}`,
         eventAccessMemberDtoSchema,
-        { method: "PATCH", body: { role: grantRole } },
+        { method: "PATCH", body: { role: operation.requestedRole } },
       );
       setMembers((current) => orderMembers([
         ...current.filter((member) => member.userId !== granted.userId),
@@ -121,29 +211,99 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       ]));
       setCandidates((current) => current.filter((person) => person.userId !== granted.userId));
       setGrantOpen(false);
-      toast(granted.role === grantRole
+      toast(granted.role === operation.requestedRole
         ? `${candidate.name || candidate.email} can now open this event as ${granted.role}`
         : `${candidate.name || candidate.email} already has stronger ${granted.role} access`);
     } catch (caught) {
-      const stale = isAppError(caught) && (caught.code === "FORBIDDEN" || caught.code === "NOT_FOUND");
-      if (!stale) {
-        setGrantError(isAppError(caught) ? caught.message : "Event access could not be granted");
-        return;
-      }
-      try {
-        const refreshed = await requestOverview();
-        applyOverview(refreshed);
-        if (!refreshed.canGrant) {
-          setGrantOpen(false);
-          toast(refreshed.grantRestriction ?? "Your event access permissions changed", { kind: "error" });
+      if (isDefinitiveEventAccessError(caught)) {
+        const staleOverview = caught.code === "FORBIDDEN" || caught.code === "NOT_FOUND";
+        if (!staleOverview) {
+          setGrantError(caught.message);
         } else {
-          setSelectedUserId(null);
-          setGrantError("That teammate's access changed while you were choosing. The list is refreshed.");
+          try {
+            const refreshed = await requestOverview();
+            applyOverview(refreshed);
+            if (!refreshed.canGrant) {
+              setGrantOpen(false);
+              toast(refreshed.grantRestriction ?? "Your event access permissions changed", { kind: "error" });
+            } else {
+              setSelectedUserId(null);
+              setGrantError("That teammate's access changed while you were choosing. The list is refreshed.");
+            }
+          } catch {
+            setGrantError(appendGuidance(caught.message, "Event access could not be refreshed; close this picker and reload before trying again."));
+          }
         }
-      } catch {
-        setGrantError("That teammate's access changed. Close this picker and reload Event access before trying again.");
+      } else {
+        setGrantOpen(false);
+        setRecovery(operation);
+        toast("That access grant is unconfirmed. Keep this page open and retry the exact grant or check event access.", { kind: "error" });
       }
     } finally {
+      endWrite();
+    }
+  }
+
+  async function retryExactAction() {
+    if (!recovery || writeInFlight.current) return;
+    const operation = recovery;
+    writeInFlight.current = true;
+    setBusy(true);
+    try {
+      if (operation.action === "grant") {
+        await api(
+          `events/${eventId}/access/${operation.candidate.userId}`,
+          eventAccessMemberDtoSchema,
+          { method: "PATCH", body: { role: operation.requestedRole } },
+        );
+      } else {
+        await api(`events/${eventId}/access/${operation.member.userId}`, removedSchema, { method: "DELETE" });
+      }
+      completeRecovery(await requestOverview(), operation);
+    } catch (caught) {
+      const definitive = isDefinitiveEventAccessError(caught);
+      if (definitive) setRecovery({ ...operation, replayRejected: true });
+      const message = definitive
+        ? appendGuidance(caught.message, "Check current event access to finish recovery without repeating a rejected action.")
+        : "The access change is still unconfirmed. Restore your connection, then retry this exact action or check event access.";
+      toast(message, { kind: "error" });
+    } finally {
+      writeInFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function checkEventAccess() {
+    if (!recovery || writeInFlight.current) return;
+    const operation = recovery;
+    writeInFlight.current = true;
+    setBusy(true);
+    try {
+      const overview = await requestOverview();
+      applyOverview(overview);
+      if (operation.replayRejected || requestedStateIsCurrent(overview, operation)) {
+        completeRecovery(overview, operation);
+      } else {
+        toast(`Event access checked: ${currentAccessDescription(overview, operation)} The earlier change may still be finishing; retry the exact action before leaving.`, { kind: "error" });
+      }
+    } catch (caught) {
+      if (isDefinitiveEventAccessError(caught)) {
+        const message = appendGuidance(
+          caught.message,
+          "The access change can’t be confirmed from this account. Leave this page or restore access and retry loading.",
+        );
+        setRecovery(null);
+        setPendingRemove(null);
+        setGrantOpen(false);
+        setCanGrant(false);
+        setCandidates([]);
+        setError(message);
+        toast(message, { kind: "error" });
+      } else {
+        toast("Event access still couldn’t be checked. Restore your connection or permissions and try again.", { kind: "error" });
+      }
+    } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   }
@@ -163,9 +323,22 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
           <h2><KeyRound size={16} /> Event access</h2>
           <p>Everyone who can open this event, including former organization teammates.</p>
         </div>
-        {!loading && !error && canGrant && <Button size="sm" onClick={openGrant}><UserPlus size={14} /> Grant access</Button>}
+        {!loading && !error && canGrant && <Button size="sm" disabled={locked} onClick={openGrant}><UserPlus size={14} /> Grant access</Button>}
       </header>
       <div style={{ padding: "0 24px 24px" }}>
+        {recovery && <div className="locked-banner" role="alert">
+          <AlertTriangle size={17} aria-hidden />
+          <div>
+            <b>Event access change unconfirmed</b>
+            <span>We don’t know whether {recoverySubject(recovery)} currently has the requested access. The roster may be stale; other access changes and navigation are locked until recovery finishes.</span>
+          </div>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void retryExactAction()}>
+            {busy ? "Retrying…" : recovery.action === "grant" ? "Retry exact grant" : "Retry exact removal"}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkEventAccess()}>
+            {busy ? "Checking…" : "Check event access"}
+          </Button>
+        </div>}
         {loading && <p className="loading-note" role="status">Loading event access…</p>}
         {error && <div className="form-stack"><p className="field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => void load()}>Retry</Button></div>}
         {!loading && !error && members.length === 0 && (
@@ -177,7 +350,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
             <StatusBadge value={member.role} />
             <small>{member.organizationMember ? "Current organization teammate" : "No longer in this organization"}</small>
             {member.canRemove
-              ? <Button size="sm" variant="danger" disabled={busy} onClick={() => setPendingRemove(member)}><UserMinus size={14} /> Remove access</Button>
+              ? <Button size="sm" variant="danger" disabled={locked} onClick={() => setPendingRemove(member)}><UserMinus size={14} /> Remove access</Button>
               : <small>{member.role === "owner" ? "Transfer ownership before removing" : "Ask another organizer to remove you"}</small>}
           </article>)}
         </div>}
@@ -191,8 +364,8 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       description="Choose a current organization teammate. Event access is separate from their organization role."
       initialFocusRef={grantSearchRef}
       footer={<>
-        <Button variant="secondary" disabled={busy} onClick={closeGrant}>Cancel</Button>
-        <Button disabled={busy || !selectedCandidate} onClick={() => void grantAccess()}>
+        <Button variant="secondary" disabled={locked} onClick={closeGrant}>Cancel</Button>
+        <Button disabled={locked || !selectedCandidate} onClick={() => void grantAccess()}>
           {busy ? "Granting…" : "Grant access"}
         </Button>
       </>}
@@ -209,6 +382,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
                 <Search size={15} aria-hidden />
                 <input
                   ref={grantSearchRef}
+                  disabled={locked}
                   value={grantSearch}
                   onChange={(event) => {
                     setGrantSearch(event.target.value);
@@ -223,6 +397,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
               {filteredCandidates.map((candidate) => <button
                 key={candidate.userId}
                 type="button"
+                disabled={locked}
                 aria-pressed={selectedUserId === candidate.userId}
                 onClick={() => {
                   setSelectedUserId(candidate.userId);
@@ -236,7 +411,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
               {filteredCandidates.length === 0 && <p className="event-access-no-results">No teammates match “{grantSearch.trim()}”.</p>}
             </div>
             <Field label="Event role" required>
-              <Select value={grantRole} onChange={(event) => setGrantRole(event.target.value as GrantRole)}>
+              <Select disabled={locked} value={grantRole} onChange={(event) => setGrantRole(event.target.value as GrantRole)}>
                 <option value="reviewer">Reviewer</option>
                 <option value="organizer">Organizer</option>
               </Select>
@@ -246,7 +421,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       {grantError && <p className="field-error" role="alert">{grantError}</p>}
     </Modal>
     <ConfirmDialog
-      open={pendingRemove !== null}
+      open={pendingRemove !== null && recovery === null}
       title={`Remove ${pendingRemove?.email ?? "this person"} from the event?`}
       body={pendingRemove?.organizationMember
         ? "They will lose access to this event. Their organization membership is unchanged."

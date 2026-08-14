@@ -338,17 +338,18 @@ export async function removeEventAccessMemberIn(
       WHERE membership.event_id = ${eventId}::uuid
         AND membership.user_id = ${actorUserId}::uuid
         AND membership.role IN ('owner', 'organizer')
-    ), existing AS (
+    ), existing AS MATERIALIZED (
       SELECT membership.role
       FROM event_members membership
       JOIN authorized_event ON authorized_event.event_id = membership.event_id
       WHERE membership.user_id = ${targetUserId}::uuid
+      FOR UPDATE OF membership
     ), removed AS (
       DELETE FROM event_members membership
-      USING authorized_event
+      USING authorized_event, existing
       WHERE membership.event_id = authorized_event.event_id
         AND membership.user_id = ${targetUserId}::uuid
-        AND membership.role <> 'owner'
+        AND existing.role <> 'owner'
       RETURNING membership.role
     )
     SELECT
@@ -359,7 +360,12 @@ export async function removeEventAccessMemberIn(
   const [row] = rowsOf<{ authorized: boolean; existing_role: MemberRole | null; removed_role: MemberRole | null }>(result);
   if (!row?.authorized) throw new AppError("FORBIDDEN", "Only an event organizer can remove event access");
   if (row.existing_role === "owner") throw new AppError("VALIDATION", "Event owner access cannot be removed here");
-  if (!row.removed_role) throw new AppError("NOT_FOUND", "That person has no access to this event");
+  if (row.existing_role !== null && !row.removed_role) {
+    throw new AppError("CONFLICT", "Event access changed while it was being removed. Reload current access before trying again.");
+  }
+  // A lost response must be safe to replay. Once actor authority and the
+  // owner guard have been checked above, an absent target is already in the
+  // requested state and is therefore the canonical successful outcome.
 }
 export const removeEventAccessMember = (eventId: EventId, actorUserId: UserId, targetUserId: UserId): Promise<void> =>
   removeEventAccessMemberIn(db, eventId, actorUserId, targetUserId);

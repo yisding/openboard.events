@@ -493,6 +493,13 @@ describe("organization tenancy (M43)", () => {
         )).resolves.toMatchObject({ userId: reviewerUserId, role: "organizer" });
         expect((await getEventAccessOverviewIn(db, legacyEventB, organizerUserId)).candidates).toEqual([]);
         await removeEventAccessMemberIn(db, legacyEventB, organizerUserId, reviewerUserId);
+        // Replaying a committed removal after a lost response is canonical
+        // success, while the actor and owner checks below stay fail-closed.
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, reviewerUserId,
+        )).resolves.toBeUndefined();
+        expect((await getEventAccessOverviewIn(db, legacyEventB, organizerUserId)).members)
+          .not.toEqual(expect.arrayContaining([expect.objectContaining({ userId: reviewerUserId })]));
 
         await expect(removeEventAccessMemberIn(
           db, legacyEventA, reviewerUserId, organizerUserId,
@@ -591,6 +598,44 @@ describe("organization tenancy (M43)", () => {
         await pglite.query("DELETE FROM event_members WHERE user_id=$1 AND event_id IN ($2,$3)", [organizerUserId, legacyEventB, otherEvent]);
         await pglite.query("DELETE FROM events WHERE id=$1", [otherEvent]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [otherOrg.id]);
+      }
+    });
+
+    it("fails closed when an existing membership is not removed", async () => {
+      await pglite.query(
+        "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'organizer'),($3,$2,'reviewer') ON CONFLICT(user_id,event_id) DO UPDATE SET role=EXCLUDED.role",
+        [organizerUserId, legacyEventB, reviewerUserId],
+      );
+      await pglite.exec(`
+        CREATE FUNCTION skip_event_access_delete() RETURNS trigger AS $$
+        BEGIN
+          RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER skip_event_access_delete
+          BEFORE DELETE ON event_members
+          FOR EACH ROW
+          WHEN (OLD.event_id = '${legacyEventB}'::uuid AND OLD.user_id = '${reviewerUserId}'::uuid)
+          EXECUTE FUNCTION skip_event_access_delete();
+      `);
+      try {
+        // PostgreSQL can produce the same result shape when a concurrent role
+        // update makes DELETE recheck its predicate: the target existed in the
+        // statement snapshot, but no row was removed. It must never be treated
+        // as the canonical already-absent replay.
+        await expect(removeEventAccessMemberIn(
+          db, legacyEventB, organizerUserId, reviewerUserId,
+        )).rejects.toMatchObject({ code: "CONFLICT" });
+        expect(await pglite.query<{ role: string }>(
+          "SELECT role FROM event_members WHERE event_id=$1 AND user_id=$2",
+          [legacyEventB, reviewerUserId],
+        )).toMatchObject({ rows: [{ role: "reviewer" }] });
+      } finally {
+        await pglite.exec("DROP TRIGGER skip_event_access_delete ON event_members; DROP FUNCTION skip_event_access_delete()");
+        await pglite.query(
+          "DELETE FROM event_members WHERE event_id=$1 AND user_id IN ($2,$3)",
+          [legacyEventB, organizerUserId, reviewerUserId],
+        );
       }
     });
   });
