@@ -95,8 +95,10 @@ describe("sweepOrphanStagingObjectsIn", () => {
   });
 
   it("deletes a stale staging object no row points to, and spares one a row still owns", async () => {
-    const owned = "55555555-5555-4555-8555-000000000001";
-    await insertAsset(owned, "evt_1/staging/headshot/owned/me.png");
+    const ownedLegacy = "55555555-5555-4555-8555-000000000001";
+    const ownedCurrent = "55555555-5555-4555-8555-000000000002";
+    await insertAsset(ownedLegacy, "evt_1/staging/headshot/owned-legacy/me.png");
+    await insertAsset(ownedCurrent, "staging/evt_1/headshot/owned-current/me.png");
 
     const old = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     const recent = new Date().toISOString();
@@ -105,9 +107,11 @@ describe("sweepOrphanStagingObjectsIn", () => {
       hasCredentials: () => true,
       listPage: async () => page([
         // Stale, no matching row: the real orphan.
-        { key: "evt_1/staging/headshot/gone/deleted-row.png", lastModified: new Date(old) },
-        // Stale, but a row's r2_key still equals this exact staging key: still mid-upload.
-        { key: "evt_1/staging/headshot/owned/me.png", lastModified: new Date(old) },
+        { key: "evt_1/staging/headshot/gone-legacy/deleted-row.png", lastModified: new Date(old) },
+        { key: "staging/evt_1/headshot/gone-current/deleted-row.png", lastModified: new Date(old) },
+        // Stale, but rows' r2_key values still equal these exact staging keys: still mid-upload.
+        { key: "evt_1/staging/headshot/owned-legacy/me.png", lastModified: new Date(old) },
+        { key: "staging/evt_1/headshot/owned-current/me.png", lastModified: new Date(old) },
         // Fresh, no matching row: too young to touch.
         { key: "evt_1/staging/headshot/fresh/new.png", lastModified: new Date(recent) },
         // Not a staging key at all: never a candidate.
@@ -119,8 +123,11 @@ describe("sweepOrphanStagingObjectsIn", () => {
       },
     });
 
-    expect(deletedKeys).toEqual(["evt_1/staging/headshot/gone/deleted-row.png"]);
-    expect(result).toEqual({ deleted: 1, scanned: 4, skipped: false });
+    expect(deletedKeys).toEqual([
+      "evt_1/staging/headshot/gone-legacy/deleted-row.png",
+      "staging/evt_1/headshot/gone-current/deleted-row.png",
+    ]);
+    expect(result).toEqual({ deleted: 2, scanned: 6, skipped: false });
   });
 
   it("logs but does not throw when deletes resolve false or reject", async () => {
@@ -128,7 +135,7 @@ describe("sweepOrphanStagingObjectsIn", () => {
       hasCredentials: () => true,
       listPage: async () => page([
         { key: "evt_1/staging/upload/stranded/false.pdf", lastModified: new Date(0) },
-        { key: "evt_1/staging/upload/stranded/rejected.pdf", lastModified: new Date(0) },
+        { key: "staging/evt_1/upload/stranded/rejected.pdf", lastModified: new Date(0) },
       ]),
       deleteKey: async (key) => {
         if (key.endsWith("rejected.pdf")) throw new Error("R2 unavailable");
@@ -145,7 +152,7 @@ describe("sweepOrphanStagingObjectsIn", () => {
       listPage: async (token) => {
         calls += 1;
         if (!token) return page([{ key: "evt_1/staging/upload/p1/a.pdf", lastModified: new Date(0) }], "next-page");
-        return page([{ key: "evt_1/staging/upload/p2/b.pdf", lastModified: new Date(0) }], null);
+        return page([{ key: "staging/evt_1/upload/p2/b.pdf", lastModified: new Date(0) }], null);
       },
       deleteKey: async () => true,
     });

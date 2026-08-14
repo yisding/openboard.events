@@ -1,17 +1,16 @@
 # R2 lifecycle rules
 
-M07's own status note carries an open item since PR #15/#17: "an R2 lifecycle rule expiring the
-`staging/` prefix" on `sb-files-preview`/`sb-files`, filed as a provisioning follow-up because
-"the durable fix is a lifecycle rule ... infrastructure, not app code, and not this lane's to
-run". This is that follow-up, plus the finding that changes
-what "expiring the `staging/` prefix" can actually mean today.
+M07's status note carried an open item since PR #15/#17: an R2 lifecycle rule expiring staging
+uploads on `sb-files-preview` and `sb-files`. The original event-first key layout made that rule
+unsafe. This runbook owns the versioned layout, compatibility window, deployment reconciliation,
+and verification that close the gap.
 
 ## What a presigned upload leaves behind
 
-`buildStagingKey` (`src/shared/server/r2.ts`) writes every presigned-PUT target as:
+`buildStagingKey` (`src/shared/server/r2.ts`) writes every new presigned-PUT target as:
 
 ```
-evt_<eventId>/staging/<kind>/<fileId>/<filename>
+staging/evt_<eventId>/<kind>/<fileId>/<filename>
 ```
 
 and the published key `finalizeUpload` copies it to, once validated, is:
@@ -27,55 +26,37 @@ and both already deployed:
 - **`cleanupOrphanUploads`** deletes a `file_assets` row (and its object) once the row is older
   than the TTL and orphaned by the DB-side predicate.
 - **`sweepOrphanStagingObjectsIn`** (the "P3-OPS" sweep in the same file) lists the bucket via the
-  S3 API, keeps any key containing `/staging/` older than the TTL with no owning `file_assets`
-  row, and deletes it.
+  S3 API, parses both versioned staging layouts, keeps old keys with no owning `file_assets` row,
+  and deletes them.
 
 Both run daily via `cleanupOrphans`, wired to the `cleanup` job at 09:00 UTC
 (`workers/jobs/dispatch.ts`). **This is the durable, already-proven mitigation** — an R2-native
 lifecycle rule is additional defense in depth (it survives even if the cron stops ticking, or a
 future code path forgets to call the sweep), not a replacement for it.
 
-## The finding: no single static prefix isolates `staging/` today
+## Layout transition and safety boundary
 
 R2 object lifecycle rules use the same `PutBucketLifecycleConfiguration` shape as S3: a rule's
 `Prefix` filter matches an object key **only when the key begins with that exact string**
 (anchored at position 0 — `Prefix: "logs/"` matches `logs/2026-08-09.txt`, never
-`app/logs/2026-08-09.txt`). Verified directly against this project's key scheme:
+`app/logs/2026-08-09.txt`). Version 2 therefore hoists `staging/` to the bucket root. Published
+objects still start with `evt_`, so the fleet-wide rule cannot match immutable downloads.
 
-- Every object in `sb-files-preview`/`sb-files` — staging **and** published alike — starts with
-  `evt_<eventId>/`. `staging` is the *second* path segment, not the first, and `<eventId>` is a
-  different string for every event, generated at event-creation time.
-- There is therefore no fixed prefix string that a lifecycle rule authored once, today, can match
-  against "any event's staging objects." `Prefix: "staging/"` matches **zero objects** in either
-  bucket — every key starts with `evt_`, not `staging/`. `Prefix: "evt_"` matches **every**
-  object, staging and published, which would silently expire published headshots and attachments
-  too.
-- A per-event rule (`Prefix: "evt_<id>/staging/"`) is technically valid and does work — see
-  "Optional: a per-event rule" below — but it does not scale: it protects only the event it was
-  authored for, and provides **zero** protection for any event created afterward until a human
-  remembers to add another rule for it. Do not treat a per-event rule as the fleet-wide mitigation
-  the roadmap item is asking for.
-
-This is a real gap between what M07's status note assumed ("the `staging/` prefix") and what the
-shipped key scheme actually produces. The fix that makes a single, static, fleet-wide rule
-possible is a key-scheme change — hoisting the segment so every staging key starts with the
-literal bucket-root prefix `staging/`:
+The versioned parser continues to accept the legacy event-first layout while in-flight URLs and
+live rows are migrated:
 
 ```
-staging/evt_<eventId>/<kind>/<fileId>/<filename>   ← proposed, not implemented
+evt_<eventId>/staging/<kind>/<fileId>/<filename>   # version 1, compatibility only
+staging/evt_<eventId>/<kind>/<fileId>/<filename>   # version 2, all new uploads
 ```
 
-That is a change to `buildStagingKey`, `STAGING_SEGMENT`/the orphan-sweep predicate, and anything
-else in `src/shared/server/r2.ts` that parses or asserts the key layout — R2 storage's own owned
-path (M07, `src/shared/server/r2.ts`), not this module's. **Flagged here as a scoped
-follow-up for that module's owner, not made in this change**: it touches a path any in-flight
-presigned URL depends on, and a key-scheme migration for an object-storage module deserves that
-module's own review, not a drive-by edit from an unrelated ops task. Once it lands, the rule below
-("Recommended: the fleet-wide rule") becomes literally correct with no further change.
+Finalization recognizes both versions, but download authorization recognizes neither: only the
+published key is ready to serve. Do not remove version 1 until the migration inventory reports
+zero database rows and zero bucket objects after the 15-minute presign window.
 
 ## What to actually provision, today
 
-### Recommended: the fleet-wide rule (works once the key-scheme follow-up above lands)
+### Fleet-wide rule
 
 ```bash
 # Preview bucket
@@ -94,20 +75,12 @@ gracefully rather than failing the cron tick over this), not to race it. Require
 `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` in the shell — the same credentials
 `scripts/deploy-cloudflare.sh` uses (`docs/provisioning.md` §5).
 
-### Optional, today: a per-event rule for a specific high-traffic event
+Protected deployments call `pnpm r2:lifecycle:ensure preview|production` before deploying the
+Workers. The command reads the whole lifecycle configuration, preserves rules owned elsewhere,
+adds or repairs the exact `expire-staging` rule, and reads it back. A token without `Workers R2
+Storage Write` fails the deployment before application code is changed.
 
-Only worth doing for an event under active heavy upload traffic where you want R2-native
-insurance *now*, before the key-scheme follow-up lands, and are willing to repeat this per event:
-
-```bash
-pnpm exec wrangler r2 bucket lifecycle add sb-files-preview expire-staging-<slug> \
-  "evt_<eventId>/staging/" --expire-days 2
-```
-
-Delete it once the fleet-wide rule above supersedes it (`wrangler r2 bucket lifecycle remove
-sb-files-preview --name expire-staging-<slug>`) so the two don't both need auditing.
-
-### Dashboard steps (either rule above, done by hand)
+### Dashboard steps (manual fallback)
 
 1. Cloudflare dashboard → **R2 object storage**.
 2. Select the bucket (`sb-files-preview` or `sb-files`).
@@ -134,17 +107,15 @@ later.
 ### Remove a rule
 
 ```bash
-pnpm exec wrangler r2 bucket lifecycle remove sb-files-preview --name expire-staging
+pnpm exec wrangler r2 bucket lifecycle remove sb-files-preview --id expire-staging
 ```
 
-## Not recommended: incomplete-multipart-upload expiration
+## Incomplete multipart uploads
 
-`wrangler r2 bucket lifecycle add` also supports `--abort-multipart-days`, which is a real,
-bucket-safe, prefix-independent rule (multipart uploads carry their own upload-id state,
-independent of the final object key, so this filter has no prefix-anchoring gap). It is *not*
-provisioned here because nothing in this codebase performs a multipart upload — `presign` only
-ever signs a single-shot PUT (`src/shared/server/r2.ts`) — so the rule would be a permanent no-op
-today. Revisit only if a future upload path adopts multipart.
+Browser presigns are single-shot PUTs, while deliverables ZIP exports use R2 multipart uploads.
+R2 buckets include a default rule that aborts incomplete multipart uploads after seven days. The
+deployment reconciler preserves every unrelated rule, including that default; do not replace the
+whole lifecycle configuration with a staging-only JSON document.
 
 ## See also
 

@@ -17,6 +17,7 @@ import {
 } from "./helpers/env";
 
 const ONBOARDING_TIMEZONE = "America/Los_Angeles";
+const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 async function waitForPublicContent(
   request: APIRequestContext,
@@ -607,6 +608,47 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText("Your first submission arrived", { exact: true })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(proposalTitle, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Get your first submission" })).toHaveCount(0);
+    });
+
+    await test.step("a real R2 upload stages under the lifecycle-compatible prefix", async () => {
+      const filename = `staging-prefix-canary-${stamp}.png`;
+      const bytes = Buffer.from(PNG_1X1_BASE64, "base64");
+      const upload = await apiData<{
+        fileId: string;
+        uploadUrl: string;
+        requiredHeaders: Record<string, string>;
+      }>(page.request, "/api/uploads/presign", {
+        method: "POST",
+        data: {
+          eventId,
+          kind: "headshot",
+          filename,
+          mime: "image/png",
+          sizeBytes: bytes.byteLength,
+        },
+      });
+      const [pending] = await queryRows<{ r2_key: string }>(
+        "SELECT r2_key FROM file_assets WHERE id = $1",
+        [upload.fileId],
+      );
+      expect(pending?.r2_key).toBe(`staging/evt_${eventId}/headshot/${upload.fileId}/${filename}`);
+
+      const put = await page.request.put(upload.uploadUrl, {
+        data: bytes,
+        headers: upload.requiredHeaders,
+      });
+      expect(put.ok(), `presigned R2 PUT failed (${put.status()}): ${await put.text()}`).toBe(true);
+      const finalized = await apiData<{ status: string }>(page.request, "/api/uploads/finalize", {
+        method: "POST",
+        data: { fileId: upload.fileId },
+      });
+      expect(finalized.status).toBe("ready");
+
+      const [published] = await queryRows<{ r2_key: string }>(
+        "SELECT r2_key FROM file_assets WHERE id = $1",
+        [upload.fileId],
+      );
+      expect(published?.r2_key).toBe(`evt_${eventId}/headshot/${upload.fileId}/${filename}`);
     });
 
     await test.step("public aliases and embeds observe domain invalidation within budget", async () => {
