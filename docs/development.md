@@ -44,12 +44,14 @@ what Openboard does and how to use it, start with the [README](../README.md).
 
 Two Cloudflare Workers, one Next.js repository:
 
-- **`sb-web`** — Next.js 15 (App Router) deployed via OpenNext. Owns the web application's bindings: Neon
-  Postgres, sessions, R2 presigning, Resend, ICS, Better Auth. (The jobs Worker below holds the
-  only two bindings outside it.)
-- **`workers/jobs`** — a dumb cron dispatcher with no application imports. It holds only
-  `APP_BASE_URL` and a `CRON_SECRET`, and calls back into `sb-web`'s `/api/jobs/*` routes on a
-  minute-modulo schedule (outbox drain, reminders, cleanup).
+- **`sb-web`** — Next.js 15 (App Router) deployed via OpenNext. Owns the web application's bindings:
+  Neon Postgres, sessions, R2 presigning, Resend, ICS, Better Auth, and the account-scoped
+  `JobsEntrypoint` used by the scheduler.
+- **`workers/jobs`** — a dumb cron dispatcher with no database or provider credentials. Its
+  `WEB_JOBS` Service Binding invokes `sb-web` privately on a minute-modulo schedule (outbox drain,
+  reminders, cleanup). `APP_BASE_URL`, `CRON_SECRET`, and the explicit
+  `JOB_TRANSPORT=public-compat` mode remain for one compatibility release only, so operators can
+  select the old route before dispatch while rolling back to an older web Worker.
 
 Inside `src`:
 

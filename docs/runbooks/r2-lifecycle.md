@@ -31,7 +31,7 @@ and both already deployed:
   row, and deletes it.
 
 Both run daily via `cleanupOrphans`, wired to the `cleanup` job at 09:00 UTC
-(`workers/jobs/index.ts`). **This is the durable, already-proven mitigation** — an R2-native
+(`workers/jobs/dispatch.ts`). **This is the durable, already-proven mitigation** — an R2-native
 lifecycle rule is additional defense in depth (it survives even if the cron stops ticking, or a
 future code path forgets to call the sweep), not a replacement for it.
 
