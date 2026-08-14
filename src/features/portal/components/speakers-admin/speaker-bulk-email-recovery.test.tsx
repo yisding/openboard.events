@@ -74,12 +74,11 @@ function buttonsNamed(name: string): HTMLButtonElement[] {
 }
 
 async function waitForEnabledButton(name: string) {
-  await act(async () => {
-    await vi.waitFor(() => {
-      const button = buttonsNamed(name)[0];
-      if (!button || button.disabled) throw new Error(`${name} is not enabled yet`);
-    }, { timeout: 5_000 });
-  });
+  await vi.waitFor(async () => {
+    await act(async () => { await Promise.resolve(); });
+    const button = buttonsNamed(name)[0];
+    if (!button || button.disabled) throw new Error(`${name} is not enabled yet`);
+  }, { timeout: 5_000 });
 }
 
 async function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
