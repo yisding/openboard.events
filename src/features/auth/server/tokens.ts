@@ -4,7 +4,7 @@ import { portalTokens } from "@/db/schema";
 import type { ContactId, EventId, TokenId, TokenPurpose } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { addDuration } from "@/shared/lib/time";
-import { randomBytes, randomInt, sha256, toBase64Url } from "@/shared/lib/crypto";
+import { randomBytes, randomInt, safeEqual, sha256, toBase64Url } from "@/shared/lib/crypto";
 
 export type IssuedPortalToken = { tokenId: TokenId; raw: string; otp?: string; expiresAt: Date };
 export type ConsumedPortalToken = { contactId: ContactId; eventId: EventId };
@@ -92,7 +92,12 @@ export async function consumeToken(dbOrTx: DbOrTx, input: { raw?: string; code?:
     .orderBy(desc(portalTokens.createdAt))
     .limit(1);
   if (!challenge || challenge.attempts >= 5) return null;
-  if (challenge.otpHash !== await sha256(input.code)) {
+  // Constant-time, like every other credential comparison in the codebase —
+  // `admin-password.ts` checks a PBKDF2 digest through the same helper. The
+  // column is `isNotNull`-filtered in the query above, so the coalesce is
+  // narrowing rather than a case to handle: an empty string mismatches on
+  // length and spends an attempt, exactly as a null already did.
+  if (!safeEqual(challenge.otpHash ?? "", await sha256(input.code))) {
     await dbOrTx.update(portalTokens).set({
       attempts: sql`${portalTokens.attempts} + 1`,
       consumedAt: sql`CASE WHEN ${portalTokens.attempts} + 1 >= 5 THEN now() ELSE ${portalTokens.consumedAt} END`,
