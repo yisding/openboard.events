@@ -189,8 +189,19 @@ export async function createEventIn(
       throw new AppError("VALIDATION", "That event creation request was already used");
     }
     if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
-    const [colliding] = await dbOrTx.select({ id: events.id }).from(events).where(eq(events.slug, slugCandidate)).limit(1);
-    if (colliding && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
+    // `organizationId` is checked here for the same reason the id branch above
+    // checks it: `events_slug_key` is global, so a colliding row can belong to
+    // a different tenant. If organization A's create crashed between the
+    // `events` INSERT and `grantOwnerIn`, it leaves a zero-member, unseeded row
+    // — repairable by this heuristic — and the next user in organization B
+    // whose event name slugifies the same way was granted `owner` on it. B's
+    // "new" event then lived under A's `organization_id`: wrong tenant for the
+    // org directory, for team access, and for billing, while A's own retry was
+    // told "That slug is taken".
+    const [colliding] = await dbOrTx.select({ id: events.id, organizationId: events.organizationId })
+      .from(events).where(eq(events.slug, slugCandidate)).limit(1);
+    const collidingOrganizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
+    if (colliding && collidingOrganizationMatches && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
       const orphanId = colliding.id as EventId;
       await grantOwnerIn(dbOrTx, orphanId, actorUserId);
       await seedEventDefaultsIn(dbOrTx, orphanId);

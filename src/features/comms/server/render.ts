@@ -85,9 +85,30 @@ function withLinkTargets(html: string): string {
   });
 }
 
+/**
+ * Every block-level closer the template sanitizer allows through
+ * (`shared/lib/sanitize.ts`), plus `<br>`. Breaking on `<br>` and `</p>` alone
+ * left `<li>`, headings, blockquotes and table cells with no separator at all,
+ * so `parseTag` deleted their tags and ran the text together:
+ * `{{tasks.outstanding_list}}` is emitted by `buildOutstandingList` as a plain
+ * `<ul><li>…</li></ul>` and is the entire payload of the default
+ * `task_reminder` body, so every reminder's text/plain alternative read
+ * "Upload your headshot — September 1Sign the speaker agreement — September 5".
+ * The same function produces the calendar invite's and public feed's
+ * `DESCRIPTION`, so a bulleted session abstract was equally unreadable there.
+ *
+ * `</td>` gets a space rather than a newline — cells are a row, not a list —
+ * and the `\n{3,}` collapse below already absorbs the extra breaks.
+ */
+const BLOCK_CLOSERS = /<\/(?:p|li|ul|ol|h[1-6]|blockquote|pre|div|tr|thead|tbody|table)\s*>/giu;
+const CELL_CLOSERS = /<\/(?:td|th)\s*>/giu;
+
 export function stripHtml(html: string, options: { keepLinkTargets?: boolean } = {}): string {
   const source = options.keepLinkTargets === true ? withLinkTargets(html) : html;
-  const withLines = source.replace(/<br\s*\/?\s*>/giu, "\n").replace(/<\/p\s*>/giu, "\n");
+  const withLines = source
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(CELL_CLOSERS, " ")
+    .replace(BLOCK_CLOSERS, "\n");
   const withoutTags = parseTag(withLines, () => "", (value) => value);
   return decodeEntities(withoutTags).replace(/[ \t]+\n/gu, "\n").replace(/\n[ \t]+/gu, "\n").replace(/\n{3,}/gu, "\n\n").replace(/[ \t]{2,}/gu, " ").trim();
 }

@@ -48,6 +48,29 @@ describe("communications template renderer", () => {
       .toThrowError(/missing variable submission\.title/u);
   });
 
+  it("breaks a line for every block-level closer, not only <br> and </p>", () => {
+    // `{{tasks.outstanding_list}}` is a bare `<ul><li>…</li></ul>` and is the
+    // entire payload of the default `task_reminder` body. Breaking only on
+    // `<br>` and `</p>` left `parseTag` to delete the list tags with no
+    // separator, so the text/plain alternative every plain-text reader and
+    // every spam filter sees ran the items together:
+    // "Upload your headshot — September 1Sign the agreement — September 5".
+    const body = "<p>Here are your tasks:</p><ul><li>Upload your headshot</li><li>Sign the agreement</li></ul><h2>Then</h2><blockquote>Reply to us</blockquote>";
+    const rendered = renderTemplateContent("task_reminder", "Tasks", body, {
+      ...common,
+      task: { name: "Upload your headshot", due_date: "September 1", portal_url: "https://example.com/portal" },
+      tasks: { outstanding_list: "" },
+    } as unknown as TemplateVars);
+
+    expect(rendered.text).toContain("Upload your headshot\nSign the agreement");
+    expect(rendered.text).not.toContain("headshotSign");
+    // The list/heading boundary yields a blank line, which is what a reader
+    // wants; the \n{3,} collapse keeps it to exactly one.
+    expect(rendered.text).toContain("Sign the agreement\n\nThen\nReply to us");
+    // The HTML part is untouched.
+    expect(rendered.html).toContain("<li>Upload your headshot</li>");
+  });
+
   it("carries each link's destination into the plain-text alternative", () => {
     // Stripping tags deletes the href, so the text/plain part used to read
     // "Open your speaker portal" with no address anywhere in it — and the
