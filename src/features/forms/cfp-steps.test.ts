@@ -29,6 +29,7 @@ import {
   scheduleCfpRecoveryFocus,
   settleCfpSubmitFailure,
   settleCfpSubmitSuccess,
+  abstractAnswersOnly,
   stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
@@ -95,6 +96,36 @@ describe("CFP validation routing", () => {
       role: "co_speaker",
       answers: { [fieldId("email")]: { t: "s", v: "co@example.com" } },
     }])).toBe(false);
+  });
+
+  it("evaluates a co-speaker's conditional questions without the primary's answers", () => {
+    // The server builds a participant's visibility context from the abstract
+    // answers plus that participant's own (`submit.ts`'s `abstractContext`).
+    // Handing a co-speaker the wizard's whole `answers` object also handed them
+    // the *primary's* participant answers, so the two sides disagreed about
+    // which questions exist — leaving a submission blocked on a question the
+    // co-speaker's form never rendered.
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT);
+    const participantSection = snapshot.sections.find((section) => section.key === "participant");
+    if (!participantSection) throw new Error("fixture has no participant section");
+    const gate = participantSection.fields[0];
+    const dependent = participantSection.fields.find((field) => field.id !== gate?.id);
+    if (!gate || !dependent) throw new Error("fixture needs two participant fields");
+    dependent.required = true;
+    dependent.visibility = { match: "all", conditions: [{ sourceFieldId: gate.id, op: "answered" }] };
+
+    // The primary answered the gate; this co-speaker did not.
+    const primaryAnswers = { [gate.id]: { t: "s" as const, v: "Primary" } };
+    const coSpeakerAnswers = {};
+
+    expect(abstractAnswersOnly(snapshot, primaryAnswers)).toEqual({});
+    // With the abstract-only context the dependent stays hidden, so it is not
+    // demanded of a co-speaker who never saw it.
+    expect(stepFieldErrors(snapshot, ["participant"], coSpeakerAnswers, abstractAnswersOnly(snapshot, primaryAnswers))[dependent.id])
+      .toBeUndefined();
+    // Passing the primary's answers through is what produced the dead end.
+    expect(stepFieldErrors(snapshot, ["participant"], coSpeakerAnswers, primaryAnswers)[dependent.id])
+      .toEqual(expect.stringContaining("required"));
   });
 
   it("blocks an empty required field before leaving its step", () => {
