@@ -71,6 +71,24 @@ describe("communications template renderer", () => {
     expect(rendered.text).not.toContain("https://example.com/x (https://example.com/x)");
   });
 
+  it("unescapes an entity once, not twice, on the way to plain text", () => {
+    // `&amp;lt;` is the escaped *text* `&lt;`, so the plain-text part should
+    // read `&lt;`. Decoding `&amp;` before `&lt;` unescaped it a second time
+    // and produced a `<` the author had deliberately escaped — and the same
+    // ordering shortened any link whose query string carried an `&amp;amp;`.
+    const vars = { ...common, submission: { title: "A talk", code: "SESS-7" } } as TemplateVars;
+    const rendered = renderTemplateContent(
+      "submission_received",
+      "Received",
+      '<p>&amp;lt;b&amp;gt; &amp;amp; friends</p><p><a href="https://example.com/x?a=1&amp;amp;b=2">Link</a></p>',
+      vars,
+    );
+    expect(rendered.text).toContain("&lt;b&gt; &amp; friends");
+    expect(rendered.text).not.toContain("<b>");
+    // The query separator survives as one `&`, and the link is not cut short.
+    expect(rendered.text).toContain("https://example.com/x?a=1&b=2");
+  });
+
   it("escapes hostile values in the subject and body", () => {
     const vars = { ...common, submission: { title: ";lkj<img onerror=alert(1)>", code: "SESS-7" } } as TemplateVars;
     const rendered = renderTemplate("submission_received", vars);

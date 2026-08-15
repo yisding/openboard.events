@@ -364,7 +364,9 @@ export async function getAdminAuthFallbackLinkIn(
   }
   const href = /<a\s+href="([^"]+)"/iu.exec(row.bodyRenderedHtml ?? "")?.[1];
   if (!href) return null;
-  const decoded = href.replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&#39;", "'");
+  // `&amp;` last: decoding it first would let an escaped `&amp;quot;` collapse
+  // into a bare `"` and cut the recovered link short.
+  const decoded = href.replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
   try {
     const url = new URL(decoded);
     return url.searchParams.has("token") ? url.toString() : null;
