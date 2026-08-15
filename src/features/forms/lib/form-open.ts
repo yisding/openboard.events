@@ -79,6 +79,20 @@ export function formAvailability(
   return "closed";
 }
 
+/**
+ * Is this form still part of an open call — accepting submissions now, or
+ * waiting for its opening date?
+ *
+ * Read this rather than `forms.status`. Nothing flips that column when
+ * `closes_at` elapses (`0038_form_open_wall_clock.sql` compares against
+ * `clock_timestamp()` instead), so the ordinary end state of every call for
+ * speakers is `status = 'open'` with a close date in the past. Consumers that
+ * test the column directly therefore never observe a CFP ending.
+ */
+export function formAcceptsOrWillAccept(availability: FormAvailability): boolean {
+  return availability === "live" || availability === "scheduled";
+}
+
 /** Honest preflight copy for the builder's consequential availability action. */
 export function formAvailabilityActionCopy(
   action: FormAvailabilityAction,

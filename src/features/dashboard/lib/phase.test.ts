@@ -12,8 +12,25 @@ describe("computeEventPhase", () => {
   });
 
   it("is decisions once the form closes and submissions are still awaiting a call", () => {
-    const closed = overview({ forms: FIXTURE_OVERVIEW.forms.map((form) => ({ ...form, status: "closed" })) });
+    const closed = overview({ forms: FIXTURE_OVERVIEW.forms.map((form) => ({ ...form, availability: "closed" as const })) });
     expect(computeEventPhase(closed)).toBe("decisions");
+  });
+
+  it("leaves cfp when the deadline elapses, not only when the form is closed by hand", () => {
+    // Nothing writes `forms.status` when `closes_at` passes, so the ordinary
+    // end state of a call is `status: "open"` with a past deadline. Reading the
+    // column left the dashboard in `cfp` forever.
+    const elapsed = overview({
+      forms: FIXTURE_OVERVIEW.forms.map((form) => ({ ...form, status: "open" as const, availability: "ended" as const })),
+    });
+    expect(computeEventPhase(elapsed)).toBe("decisions");
+  });
+
+  it("stays in cfp while a form is still waiting for its opening date", () => {
+    const scheduled = overview({
+      forms: FIXTURE_OVERVIEW.forms.map((form) => ({ ...form, availability: "scheduled" as const })),
+    });
+    expect(computeEventPhase(scheduled)).toBe("cfp");
   });
 
   it("is onboarding once decisions are made and speakers are accepted", () => {
