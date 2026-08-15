@@ -77,13 +77,13 @@ function ImpersonateButton({ eventId, contactId, firstName }: { eventId: string;
         }).then((response) => {
           if (!response.ok || !tab) {
             tab?.close();
-            toast("Could not start impersonation");
+            toast("Could not start impersonation", { kind: "error" });
             return;
           }
           tab.location.href = response.url;
         }).catch(() => {
           tab?.close();
-          toast("Could not start impersonation");
+          toast("Could not start impersonation", { kind: "error" });
         }).finally(() => setPending(false));
       }}
     >
@@ -152,7 +152,7 @@ function HeadshotField({ eventId, contactId, headshotFileId, onSaved }: {
       toast("Photo updated");
       return true;
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save that photo");
+      toast(error instanceof Error ? error.message : "Could not save that photo", { kind: "error" });
       return false;
     }
   }
@@ -199,7 +199,7 @@ function BioField({ eventId, contactId, bioHtml, onSaved }: {
               setEditing(false);
               toast("Biography updated");
             } catch (error) {
-              toast(error instanceof Error ? error.message : "Could not save that change");
+              toast(error instanceof Error ? error.message : "Could not save that change", { kind: "error" });
             } finally {
               setSaving(false);
             }
@@ -227,7 +227,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
       setDetail(next);
       toast(status === "declined" ? "Confirmation set to declined — removed from the public gallery" : "Confirmation updated");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not update confirmation");
+      toast(error instanceof Error ? error.message : "Could not update confirmation", { kind: "error" });
     } finally {
       setSavingConfirmation(false);
     }

@@ -164,7 +164,12 @@ describe("speaker logistics outcome recovery", () => {
     expect(logisticsInput(container).value).toBe("Old hotel");
     expect(logisticsInput(container).disabled).toBe(false);
     expect(harness.guard).toEqual({ active: false, blocking: false });
-    expect(harness.toast).toHaveBeenCalledWith("That value is not allowed. The previous value was restored.");
+    // A reverted save is a failure: it must announce assertively and stay on
+    // screen, not render as a green success that auto-dismisses in 3.2s.
+    expect(harness.toast).toHaveBeenCalledWith(
+      "That value is not allowed. The previous value was restored.",
+      { kind: "error" },
+    );
   });
 
   it("adopts a concurrent third value and requires a deliberate overwrite with the protected attempt", async () => {
