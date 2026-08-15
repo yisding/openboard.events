@@ -523,7 +523,7 @@ export async function pruneExpiredFileExportsIn(dbOrTx: DbOrTx): Promise<{ delet
       DELETE FROM file_assets WHERE id = ANY(${uuidArraySql(resultFileIds)}) RETURNING r2_key
     `);
     const { stranded } = await deleteObjects((keys.rows ?? []).map((row) => row.r2_key));
-    reportStrandedObjects(stranded, { feature: "portal", requestId: "cron" });
+    reportStrandedObjects(stranded, { feature: "portal", requestId: "cron", code: "R2_STRANDED_EXPORT_PRUNE" });
   }
   return { deleted: rows.length };
 }

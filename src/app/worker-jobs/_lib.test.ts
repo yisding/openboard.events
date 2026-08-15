@@ -80,10 +80,12 @@ describe("private job adapter", () => {
 
     expect(response.status).toBe(500);
     // A `Promise.all` here reported `{}` — as if none of the four had run.
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      stats: { deletedOrphans: 7, deletedExpiredExports: 2 },
-    });
+    const body = await response.json();
+    expect(body.ok).toBe(false);
+    expect(body.stats).toEqual({ deletedOrphans: 7, deletedExpiredExports: 2 });
+    // Partial stats must not read as a healthy tick: no heartbeat is written,
+    // so `scheduled_jobs` health still goes stale.
+    expect(recordJobSuccess).not.toHaveBeenCalled();
     expect(captureError).toHaveBeenCalledTimes(2);
     expect(captureError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "retention query timed out" }),
@@ -106,7 +108,9 @@ describe("private job adapter", () => {
     ]));
     const response = await POST(request());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, stats: { sent: 3, authSent: 1 } });
+    const merged = await response.json();
+    expect(merged.ok).toBe(true);
+    expect(merged.stats).toEqual({ sent: 3, authSent: 1 });
     expect(recordJobSuccess).toHaveBeenCalledWith("outbox", expect.any(Number));
   });
 });

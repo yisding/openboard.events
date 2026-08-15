@@ -745,7 +745,7 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
     // The row that held the key is already gone, so a failed delete can never be
     // retried from the database — log the keys or the object is silently stranded.
     const { stranded } = await deleteObjects(keys);
-    reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron" });
+    reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron", code: "R2_STRANDED_ORPHAN_ROWS" });
   }
   return { deleted: keys.length };
 }
@@ -883,7 +883,7 @@ export async function sweepOrphanStagingObjectsIn(
   if (orphanKeys.length === 0) return { deleted: 0, scanned, skipped: false };
 
   const stranded = await failedDeleteKeys(orphanKeys, deleteKey);
-  reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron" });
+  reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron", code: "R2_STRANDED_STAGING_SWEEP" });
   return { deleted: orphanKeys.length - stranded.length, scanned, skipped: false };
 }
 
@@ -935,6 +935,21 @@ export async function deleteObjects(keys: readonly string[]): Promise<{ stranded
 }
 
 /**
+ * Which sweep stranded the object. This is the only field an operator can
+ * filter the persisted record on, so the four sites stay distinguishable —
+ * a failed nightly cleanup and a failed right-to-erasure purge call for very
+ * different responses.
+ */
+export type StrandedObjectSource =
+  | "R2_STRANDED_ORPHAN_ROWS"
+  | "R2_STRANDED_STAGING_SWEEP"
+  | "R2_STRANDED_CONTACT_ERASURE"
+  | "R2_STRANDED_EXPORT_PRUNE";
+
+/** Keys named in full before the message summarizes the rest. */
+const STRANDED_KEYS_LOGGED = 20;
+
+/**
  * A stranded key's owning `file_assets` row is already gone, so nothing can
  * ever retry the delete: the object is unreachable and billed forever, and no
  * sweep can find it (the orphan sweep only lists the `staging/` prefix).
@@ -946,12 +961,19 @@ export async function deleteObjects(keys: readonly string[]): Promise<{ stranded
  */
 export function reportStrandedObjects(
   keys: readonly string[],
-  context: { feature: string; requestId: string; eventId?: EventId },
+  context: { feature: string; requestId: string; code: StrandedObjectSource; eventId?: EventId },
 ): void {
   if (keys.length === 0) return;
+  // `operational_error_buckets` persists only feature, code, and a fingerprint —
+  // never the message — so `code` is the whole of what an operator can filter
+  // on, and a routine cron hygiene failure must not read the same as a
+  // right-to-erasure leak. The key list stays bounded: an unbounded join can
+  // exceed a log entry's size limit and be dropped in full.
+  const shown = keys.slice(0, STRANDED_KEYS_LOGGED);
+  const suffix = keys.length > shown.length ? ` (+${keys.length - shown.length} more)` : "";
   captureError(
-    new Error(`R2 objects were not deleted and can no longer be reached: ${keys.join(", ")}`),
-    { ...context, code: "R2_OBJECT_STRANDED" },
+    new Error(`${keys.length} R2 object(s) were not deleted and can no longer be reached: ${shown.join(", ")}${suffix}`),
+    context,
   );
 }
 
@@ -999,7 +1021,7 @@ export async function purgeOrphanedFileAssets(candidateIds: readonly string[]): 
   const keys = (deleted.rows ?? []).map((row) => row.r2_key);
   if (keys.length === 0) return { deleted: 0 };
   const { stranded } = await deleteObjects(keys);
-  reportStrandedObjects(stranded, { feature: "uploads", requestId: "gdpr" });
+  reportStrandedObjects(stranded, { feature: "uploads", requestId: "gdpr", code: "R2_STRANDED_CONTACT_ERASURE" });
   return { deleted: keys.length };
 }
 

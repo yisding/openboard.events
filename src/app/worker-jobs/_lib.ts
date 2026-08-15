@@ -70,14 +70,10 @@ export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>
       // a single capture of the summary would name the sweeps and explain
       // none of them.
       const failures = error instanceof JobSweepError
-        ? error.failures
-        : [{ name: job, reason: error }];
+        ? error.failures.map((failure) => ({ reason: failure.reason, code: `${job}.${failure.name}` }))
+        : [{ reason: error, code: job as string }];
       for (const failure of failures) {
-        captureError(failure.reason, {
-          requestId,
-          feature: "jobs",
-          code: failure.name === job ? job : `${job}.${failure.name}`,
-        });
+        captureError(failure.reason, { requestId, feature: "jobs", code: failure.code });
       }
       const result: JobResult = {
         job,
