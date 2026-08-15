@@ -126,7 +126,7 @@ The exact implementation commit passed preview and production promotion in run
 eleven controlled `429` responses across twelve requests, with no `5xx` and a
 2,251 ms p95 against the 5,000 ms budget.
 
-Operational hardening has entered its evidence-gathering phase. PR #420 added a
+Operational hardening has entered its final evidence-gathering phase. PR #420 added a
 production-protected, serialized Cloudflare DMARC reporting workflow and a
 runbook with owner, approved Resend path, stage dwell times, evidence gates, and
 rollback thresholds. After the production zone ID was recorded, read-only run
@@ -140,13 +140,27 @@ inventory is empty. The earliest possible quarantine-10 entry is
 `2026-08-22T03:40:22Z`, and only if reports from two independent receivers plus
 Gmail and Outlook `dmarc=pass` evidence satisfy the runbook gates.
 PR #423 records that live baseline and separates completed reporting setup from
-the still-open enforcement checklist. Production probes at `2026-08-15T03:50Z`
-then passed aligned DKIM, SPF, and DMARC at both Gmail and Outlook; Outlook also
-reported `compauth=pass`, but placed its message in Junk. That placement is now
-the documented pre-enforcement reputation/content baseline, not a DMARC failure,
-and must be compared with a repeat Outlook probe before quarantine-10. Gmail
-placed its cleanly authenticated message in Inbox, completing the other
-receiver's placement baseline.
+the enforcement checklist. Production probes at `2026-08-15T03:50Z` then passed
+aligned DKIM, SPF, and DMARC at both Gmail and Outlook; Outlook also reported
+`compauth=pass`, but placed its message in Junk. Gmail placed its message in
+Inbox. After confirming that this repository's Resend configuration is the only
+sender for the exact From domain, the repository/zone owner approved a compressed
+rollout and published `p=quarantine; pct=100` at
+`2026-08-15T04:36Z`. This skips, but does not claim completion of, the originally
+planned reporting, quarantine-10, and quarantine-50 dwell periods. The policy is
+scoped to `_dmarc.mail.openboard.events`; the apex reporting record and unrelated
+apex-domain mail remain unchanged.
+
+PR #430 established `Openboard <hello@mail.openboard.events>` as the one From and
+Reply-To identity for both application outboxes. Resend Receiving verified the
+priority-10 inbound MX at `mail.openboard.events`, and a fresh provider-level
+message appeared in its Receiving feed. PR #431 records that external state and
+closes a status-observability gap: the protected operation now distinguishes the
+apex reporting policy from the sender-subdomain enforcement policy and fails when
+Cloudflare and Google public DNS disagree. The remaining roadmap gate is reject:
+full quarantine must produce two independent aggregate-report periods with no
+unidentified passing source or legitimate failure, followed by no-regression
+Gmail and Outlook authentication and placement probes.
 
 ## Sequencing and workstreams
 
@@ -379,14 +393,15 @@ Exit criteria:
 - Aggregate reports show no unidentified legitimate sender before `p=reject`.
 - The runbook names owners, monitoring, and rollback thresholds.
 
-Status: in progress in PRs #420, #421, and #423. The protected reporting
-operation and runbook are implemented, and live aggregate reporting began at
-`2026-08-15T03:40:22Z` in run 31862396508. The required seven-day, two-receiver
-observation and enforcement dwell periods remain. No quarantine or reject
-policy will be published before those evidence gates pass. Gmail and Outlook
-authentication evidence is clean; Outlook Junk placement is recorded as the
-baseline and Gmail Inbox placement is recorded as its counterpart. Both require
-a no-regression retest before the first policy change.
+Status: in progress in PRs #420, #421, #423, #430, and #431. Aggregate reporting,
+full quarantine, the stable sender identity, and the reply-capable inbound route
+are live. The repository/zone owner explicitly approved the compressed move to
+`p=quarantine; pct=100` after confirming the single Resend sender inventory and
+clean Gmail/Outlook alignment. That exception supersedes the earlier percentage
+schedule without manufacturing dwell evidence. Before reject, full quarantine
+must still produce two aggregate-report periods from independent receivers with
+no unidentified legitimate sender or legitimate failure; Gmail Inbox and Outlook
+Junk placement plus authentication must be rechecked for regression.
 
 ## Proposed pull-request order
 
@@ -406,9 +421,10 @@ a no-regression retest before the first policy change.
 9. R2 key migration and lifecycle enablement (completed in PRs #415, #416,
    #417, and #419).
 10. Sign-in capacity controls (completed in PR #418).
-11. DMARC reporting and staged enforcement (reporting automation and baseline
-    evidence in PRs #420, #421, and #423; evidence-gated policy rollout remains
-    open).
+11. DMARC reporting, sender stabilization, and enforcement (reporting and
+    baseline evidence in PRs #420, #421, and #423; stable From/Reply-To and
+    Receiving in PR #430; live full-quarantine record and independent policy
+    observation in PR #431; evidence-gated reject remains open).
 
 Each PR must include migration rollback/forward-recovery notes when it changes
 stored data, focused tests for the failure mode it closes, and before/after
