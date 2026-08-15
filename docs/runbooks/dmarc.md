@@ -110,8 +110,9 @@ compared with the pre-enforcement baseline. Authentication results determine DMA
 folder placement is the separate regression signal. A receiver without a recorded baseline blocks
 promotion until one is captured.
 
-For the calendar-specific receiver gate, manually run **Production mail delivery probe** with one
-authorized Gmail address and one authorized Outlook address. The protected production job creates
+For the calendar-specific receiver gate, manually run **Production mail delivery probe**, type
+`production` in its confirmation input, and provide one authorized Gmail address and one authorized
+Outlook address. The protected production job creates
 one temporary published session through the agenda mutation layer, waits for provider acceptance
 of the initial REQUEST and a rescheduled REQUEST, removes both speakers and waits for CANCEL, then
 deletes the session. A failed run also hard-deletes the temporary session so any already-accepted

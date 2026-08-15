@@ -3,6 +3,10 @@ name: Production mail delivery probe
 on:
   workflow_dispatch:
     inputs:
+      confirm:
+        description: Type production to run the production delivery probe
+        required: true
+        type: string
       gmail_recipient:
         description: Gmail inbox authorized for the controlled probe
         required: true
@@ -31,7 +35,7 @@ jobs:
       cancel-in-progress: false
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
-      DELIVERY_PROBE_CONFIRM: production
+      DELIVERY_PROBE_CONFIRM: ${{ inputs.confirm }}
       DELIVERY_PROBE_EVENT_SLUG: ${{ inputs.event_slug }}
       DELIVERY_PROBE_RECIPIENTS: ${{ inputs.gmail_recipient }},${{ inputs.outlook_recipient }}
     steps:

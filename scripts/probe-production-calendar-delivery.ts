@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { z } from "zod";
 import * as schema from "@/db/schema";
-import { calendarInvites, communicationLogs, contacts, events } from "@/db/schema";
+import { calendarInvites, communicationLogs, contacts, events, sessions } from "@/db/schema";
 import { deleteSessionIn, saveSessionIn } from "@/features/agenda/server/mutations";
 import {
   contactIdSchema,
@@ -135,14 +135,31 @@ async function loadProbeTarget(database: ProbeDatabase, config: ProbeConfig): Pr
   };
 }
 
+async function deleteCommittedProbeSession(
+  database: ProbeDatabase,
+  eventId: EventId,
+  sessionId: ScheduledSessionDTO["id"],
+): Promise<void> {
+  const [committed] = await database.select({ rowVersion: sessions.rowVersion })
+    .from(sessions)
+    .where(and(eq(sessions.eventId, eventId), eq(sessions.id, sessionId)))
+    .limit(1);
+  if (!committed) return;
+  await deleteSessionIn(database, eventId, sessionId, committed.rowVersion);
+}
+
 async function runProbe(config: ProbeConfig): Promise<void> {
   const database = createDatabase(config.databaseUrl);
   const target = await loadProbeTarget(database, config);
   const schedule = probeSchedule(target.startsAt, target.endsAt);
+  const creationId = sessionIdSchema.parse(crypto.randomUUID());
+  // Keep the caller-owned identity even if saveSessionIn commits and its
+  // post-write notification enqueue throws before returning a DTO.
+  let committedSessionId: ScheduledSessionDTO["id"] | null = creationId;
   let session: ScheduledSessionDTO | null = null;
   try {
     session = await saveSessionIn(database, target.eventId, {
-      creationId: sessionIdSchema.parse(crypto.randomUUID()),
+      creationId,
       title: `Openboard calendar delivery probe ${new Date().toISOString()}`,
       descriptionHtml: "<p>Controlled production deliverability probe. This temporary session is removed after REQUEST, reschedule, and CANCEL delivery.</p>",
       startsAt: schedule.initialStart.toISOString(),
@@ -190,7 +207,8 @@ async function runProbe(config: ProbeConfig): Promise<void> {
       database, target.eventId, session.id, target.contactIds, session.scheduleRevision, "cancel",
     );
     console.log(`CANCEL accepted for ${target.contactIds.length} recipient(s)`);
-    await deleteSessionIn(database, target.eventId, session.id, session.rowVersion);
+    await deleteCommittedProbeSession(database, target.eventId, session.id);
+    committedSessionId = null;
     session = null;
     console.log(JSON.stringify({ ok: true, recipients: target.contactIds.length, messages: target.contactIds.length * 3 }));
   } finally {
@@ -198,7 +216,9 @@ async function runProbe(config: ProbeConfig): Promise<void> {
     // agenda. Hard delete captures a durable cancellation job for every
     // REQUEST the provider may already have accepted, including a race between
     // the last poll and this cleanup.
-    if (session) await deleteSessionIn(database, target.eventId, session.id, session.rowVersion);
+    if (committedSessionId) {
+      await deleteCommittedProbeSession(database, target.eventId, committedSessionId);
+    }
   }
 }
 
