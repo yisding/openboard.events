@@ -3,7 +3,9 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Wand2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { ScheduledSessionDTO } from "@/shared/contracts";
+import { emojiRain } from "@/shared/ui/emoji-rain";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button } from "@/shared/ui/ui-kit";
 import type { NameLookup } from "../../store";
@@ -63,6 +65,16 @@ function TrayCard({
   );
 }
 
+/**
+ * Placing the very last unscheduled session is the agenda's finish line — a
+ * moment worth a small celebration, but only when the organizer actually
+ * crossed it. Arriving at an already-empty tray (page load, view switch)
+ * celebrates nothing. Exported pure so the guard is testable.
+ */
+export function boardJustCleared(previousCount: number, currentCount: number): boolean {
+  return previousCount > 0 && currentCount === 0;
+}
+
 export function UnscheduledPanel({
   sessions,
   lookup,
@@ -76,6 +88,17 @@ export function UnscheduledPanel({
   onAutoPlace: () => void;
   onEdit?: (id: string) => void;
 }) {
+  // Easter egg: the last session leaving the tray — by drag, edit, or
+  // auto-place — earns a brief shower over the finished board. The same
+  // self-cleaning overlay the app's other eggs use; a no-op under
+  // prefers-reduced-motion.
+  const previousCount = useRef(sessions.length);
+  useEffect(() => {
+    const previous = previousCount.current;
+    previousCount.current = sessions.length;
+    if (boardJustCleared(previous, sessions.length)) emojiRain(["🗓️", "🎉", "✨"], 18);
+  }, [sessions.length]);
+
   return (
     <aside className="dv-unscheduled-panel">
       <header>
