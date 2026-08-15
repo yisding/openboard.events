@@ -168,10 +168,14 @@ export async function saveResourcePageIn(
 }
 
 export async function deleteResourcePageIn(dbOrTx: DbOrTx, eventId: EventId, pageId: string): Promise<void> {
-  const result = await dbOrTx.execute<{ id: string }>(sql`
-    DELETE FROM resource_pages WHERE id = ${pageId} AND event_id = ${eventId} RETURNING id
+  // Absence is the canonical end state. The route authenticates the actor for
+  // `eventId` before reaching this event-scoped statement, so a lost response
+  // can safely replay the exact DELETE without turning the already-completed
+  // operation into a misleading 404. A UUID belonging to another event is
+  // likewise only "absent from this event" and is never touched.
+  await dbOrTx.execute(sql`
+    DELETE FROM resource_pages WHERE id = ${pageId} AND event_id = ${eventId}
   `);
-  if ((result.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "Resource page not found");
 }
 
 /**

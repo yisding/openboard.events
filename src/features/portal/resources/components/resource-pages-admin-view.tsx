@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, BookOpen, Plus } from "lucide-react";
+import { z } from "zod";
+import { AlertTriangle, ArrowDown, ArrowUp, BookOpen, Plus } from "lucide-react";
+import { apiDataSchema, apiErrorSchema } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { ResourcePageDTO, ResourcePageRow } from "../server/queries";
@@ -13,11 +16,38 @@ import { ResourcePageEditor } from "./resource-page-editor";
 
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
 
+const resourcePageRowSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  slug: z.string(),
+  summary: z.string(),
+  published: z.boolean(),
+  sortOrder: z.number(),
+  updatedAt: z.string(),
+});
+const resourcePageListSchema = apiDataSchema(z.array(resourcePageRowSchema));
+const deletedResourcePageSchema = apiDataSchema(z.object({ ok: z.literal(true) }));
+
+type DeleteResourcePageResult =
+  | { kind: "confirmed" }
+  | { kind: "definitive"; message: string }
+  | { kind: "ambiguous" };
+
+type ResourcePageDeleteRecovery = {
+  eventId: string;
+  page: ResourcePageRow;
+};
+
 export async function fetchResourcePages(eventId: string, request: Requester = fetch): Promise<ResourcePageRow[]> {
   const response = await request(`/api/internal/resources/${eventId}`);
-  const payload = await response.json().catch(() => null) as { data?: ResourcePageRow[]; error?: { message?: string } } | null;
-  if (!response.ok || !payload?.data) throw new Error(payload?.error?.message ?? "Could not refresh resource pages");
-  return payload.data;
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const parsedError = apiErrorSchema.safeParse(payload);
+    throw new Error(parsedError.success ? parsedError.data.error.message : "Could not refresh resource pages");
+  }
+  const parsed = resourcePageListSchema.safeParse(payload);
+  if (!parsed.success) throw new Error("Could not refresh resource pages");
+  return parsed.data.data;
 }
 
 export async function persistResourcePageOrder(eventId: string, orderedIds: string[], request: Requester = fetch): Promise<void> {
@@ -29,45 +59,19 @@ export async function persistResourcePageOrder(eventId: string, orderedIds: stri
   if (!response.ok) throw new Error("Could not reorder pages");
 }
 
-export async function deleteResourcePage(eventId: string, page: ResourcePageRow, request: Requester = fetch): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function deleteResourcePage(eventId: string, page: ResourcePageRow, request: Requester = fetch): Promise<DeleteResourcePageResult> {
   try {
     const response = await request(`/api/internal/resources/${eventId}/${page.id}`, { method: "DELETE" });
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-    return response.ok
-      ? { ok: true }
-      : { ok: false, message: payload?.error?.message ?? "That page could not be deleted" };
+    const payload: unknown = await response.json().catch(() => null);
+    if (response.ok) {
+      return deletedResourcePageSchema.safeParse(payload).success ? { kind: "confirmed" } : { kind: "ambiguous" };
+    }
+    const parsedError = apiErrorSchema.safeParse(payload);
+    if (!parsedError.success || parsedError.data.error.code === "INTERNAL") return { kind: "ambiguous" };
+    return { kind: "definitive", message: parsedError.data.error.message };
   } catch {
-    return { ok: false, message: "That page could not be deleted" };
+    return { kind: "ambiguous" };
   }
-}
-
-export async function completeResourcePageDelete(
-  eventId: string,
-  page: ResourcePageRow,
-  effects: {
-    onError: (message: string) => void;
-    onDeleted: () => void;
-    removeRow: () => void;
-    refresh: () => Promise<void>;
-    onRefreshError: () => void;
-    closeConfirmation: () => void;
-  },
-  request: Requester = fetch,
-): Promise<boolean> {
-  const result = await deleteResourcePage(eventId, page, request);
-  if (!result.ok) {
-    effects.onError(result.message);
-    return false;
-  }
-  effects.onDeleted();
-  effects.removeRow();
-  try {
-    await effects.refresh();
-  } catch {
-    effects.onRefreshError();
-  }
-  effects.closeConfirmation();
-  return true;
 }
 
 export async function completeResourcePageReorder(
@@ -132,13 +136,36 @@ export function ResourcePagesAdminView({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorLoading, setEditorLoading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ResourcePageRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteRecovery, setDeleteRecovery] = useState<ResourcePageDeleteRecovery | null>(null);
   const [reordering, setReordering] = useState(false);
+  const deleteInFlight = useRef(false);
+  const mutationLocked = deleteBusy || deleteRecovery !== null;
+  useUnsavedWorkGuard(mutationLocked, { blocking: mutationLocked });
+
+  const requestAuthoritativePages = useCallback(async () => fetchResourcePages(eventId), [eventId]);
 
   const refresh = useCallback(async () => {
-    setPages(await fetchResourcePages(eventId));
-  }, [eventId]);
+    setPages(await requestAuthoritativePages());
+  }, [requestAuthoritativePages]);
+
+  const applyCheckedPages = useCallback((authoritative: ResourcePageRow[], operation: ResourcePageDeleteRecovery) => {
+    setPages(authoritative);
+    const absent = !authoritative.some((page) => page.id === operation.page.id);
+    toast(absent
+      ? `Resources checked: “${operation.page.title}” is not in the current resource list.`
+      : `Resources checked: “${operation.page.title}” is currently in the resource list.`);
+    return absent;
+  }, [toast]);
+
+  const startCreate = useCallback(() => {
+    if (mutationLocked || reordering) return;
+    setCreating(true);
+    setEditorOpen(true);
+  }, [mutationLocked, reordering]);
 
   const openEditor = useCallback(async (pageId: string) => {
+    if (mutationLocked || reordering) return;
     setEditorLoading(true);
     setEditorOpen(true);
     try {
@@ -156,7 +183,7 @@ export function ResourcePagesAdminView({
     } finally {
       setEditorLoading(false);
     }
-  }, [eventId, toast]);
+  }, [eventId, mutationLocked, reordering, toast]);
 
   function closeEditor() {
     setEditorOpen(false);
@@ -164,8 +191,104 @@ export function ResourcePagesAdminView({
     setEditingPage(null);
   }
 
+  async function settleConfirmedDelete(operation: ResourcePageDeleteRecovery, recovering: boolean): Promise<void> {
+    try {
+      const authoritative = await requestAuthoritativePages();
+      if (recovering) applyCheckedPages(authoritative, operation);
+      else {
+        setPages(authoritative);
+        toast(`${operation.page.title} deleted`);
+      }
+      setDeleteRecovery(null);
+    } catch {
+      if (recovering) {
+        toast("The deletion was accepted, but the current resource list could not be checked. Recovery remains locked; restore your connection and check resources.", { kind: "error" });
+      } else {
+        setPages((current) => current.filter((page) => page.id !== operation.page.id));
+        toast("Page deleted, but the current resource list could not be refreshed", { kind: "error" });
+      }
+    }
+  }
+
+  async function requestDelete(operation: ResourcePageDeleteRecovery, recovering: boolean): Promise<void> {
+    const result = await deleteResourcePage(operation.eventId, operation.page);
+    if (result.kind === "confirmed") {
+      await settleConfirmedDelete(operation, recovering);
+      return;
+    }
+    if (result.kind === "definitive") {
+      if (!recovering) {
+        setDeleteRecovery(null);
+        toast(result.message, { kind: "error" });
+        return;
+      }
+      try {
+        const authoritative = await requestAuthoritativePages();
+        if (applyCheckedPages(authoritative, operation)) {
+          setDeleteRecovery(null);
+        } else {
+          toast(`${result.message} The page is currently still listed, so retry the exact deletion before leaving.`, { kind: "error" });
+        }
+      } catch {
+        toast(`${result.message} The current resource list could not be checked, so deletion recovery remains locked.`, { kind: "error" });
+      }
+      return;
+    }
+    setDeleteRecovery(operation);
+    toast(recovering
+      ? "The deletion is still unconfirmed. Restore your connection, then retry this exact deletion or check resources."
+      : "That deletion is unconfirmed. Keep this page open and retry the exact deletion or check resources.", { kind: "error" });
+  }
+
+  async function remove(page: ResourcePageRow): Promise<void> {
+    if (deleteInFlight.current || deleteRecovery || reordering) return;
+    const operation = { eventId, page };
+    deleteInFlight.current = true;
+    setDeleteBusy(true);
+    setPendingDelete(null);
+    try {
+      await requestDelete(operation, false);
+    } finally {
+      deleteInFlight.current = false;
+      setDeleteBusy(false);
+    }
+  }
+
+  async function retryExactDelete(): Promise<void> {
+    if (!deleteRecovery || deleteInFlight.current) return;
+    const operation = deleteRecovery;
+    deleteInFlight.current = true;
+    setDeleteBusy(true);
+    try {
+      await requestDelete(operation, true);
+    } finally {
+      deleteInFlight.current = false;
+      setDeleteBusy(false);
+    }
+  }
+
+  async function checkResources(): Promise<void> {
+    if (!deleteRecovery || deleteInFlight.current) return;
+    const operation = deleteRecovery;
+    deleteInFlight.current = true;
+    setDeleteBusy(true);
+    try {
+      const authoritative = await requestAuthoritativePages();
+      if (applyCheckedPages(authoritative, operation)) {
+        setDeleteRecovery(null);
+      } else {
+        toast("The page is currently still listed. The earlier deletion may still be finishing; retry the exact deletion before leaving.", { kind: "error" });
+      }
+    } catch {
+      toast("Resources still could not be checked. Restore your connection, then retry this exact deletion or check again.", { kind: "error" });
+    } finally {
+      deleteInFlight.current = false;
+      setDeleteBusy(false);
+    }
+  }
+
   const move = useCallback(async (index: number, delta: number) => {
-    if (reordering) return;
+    if (reordering || mutationLocked) return;
     const nextIndex = index + delta;
     if (index < 0 || nextIndex < 0 || nextIndex >= pages.length) return;
     const previousIds = pages.map((page) => page.id);
@@ -186,20 +309,7 @@ export function ResourcePagesAdminView({
     } finally {
       setReordering(false);
     }
-  }, [eventId, pages, reordering, toast, refresh]);
-
-  async function remove(page: ResourcePageRow): Promise<boolean> {
-    return completeResourcePageDelete(eventId, page, {
-      onError: (message) => toast(message, { kind: "error" }),
-      onDeleted: () => toast(`${page.title} deleted`),
-      // The DELETE is authoritative. Remove the row immediately so a later
-      // refresh transport failure cannot leave an item visible after it is gone.
-      removeRow: () => setPages((current) => current.filter((candidate) => candidate.id !== page.id)),
-      refresh,
-      onRefreshError: () => toast("Page deleted, but the list could not be refreshed", { kind: "error" }),
-      closeConfirmation: () => setPendingDelete(null),
-    });
-  }
+  }, [eventId, pages, reordering, mutationLocked, toast, refresh]);
 
   const columns = useMemo<Array<ColumnDef<ResourcePageRow, unknown>>>(() => [
     {
@@ -237,14 +347,14 @@ export function ResourcePagesAdminView({
               type="button"
               className="icon-button"
               aria-label={`Move ${row.original.title} up`}
-              disabled={reordering || index <= 0}
+              disabled={reordering || mutationLocked || index <= 0}
               onClick={() => move(index, -1)}
             ><ArrowUp size={14} /></button>
             <button
               type="button"
               className="icon-button"
               aria-label={`Move ${row.original.title} down`}
-              disabled={reordering || index === -1 || index >= pages.length - 1}
+              disabled={reordering || mutationLocked || index === -1 || index >= pages.length - 1}
               onClick={() => move(index, 1)}
             ><ArrowDown size={14} /></button>
           </span>
@@ -257,12 +367,14 @@ export function ResourcePagesAdminView({
       enableSorting: false,
       cell: ({ row }) => (
         <span className="row-actions">
-          <Button size="sm" variant="secondary" onClick={() => openEditor(row.original.id)}>Edit</Button>
-          <Button size="sm" variant="ghost" onClick={() => setPendingDelete(row.original)}>Delete</Button>
+          <Button size="sm" variant="secondary" disabled={mutationLocked || reordering} onClick={() => openEditor(row.original.id)}>Edit</Button>
+          <Button size="sm" variant="ghost" disabled={mutationLocked || reordering} onClick={() => {
+            if (!mutationLocked && !reordering) setPendingDelete(row.original);
+          }}>Delete</Button>
         </span>
       ),
     },
-  ], [pages, timezone, reordering, move, openEditor]);
+  ], [pages, timezone, reordering, mutationLocked, move, openEditor]);
 
   return (
     <div className="page">
@@ -270,8 +382,22 @@ export function ResourcePagesAdminView({
         eyebrow="PORTALS"
         title="Resources"
         description="Wiki pages speakers read in the portal — a handbook, venue info, an FAQ."
-        actions={<Button onClick={() => { setCreating(true); setEditorOpen(true); }}><Plus size={16} /> New page</Button>}
+        actions={<Button disabled={mutationLocked || reordering} onClick={startCreate}><Plus size={16} /> New page</Button>}
       />
+
+      {deleteRecovery && <div className="locked-banner" role="alert">
+        <AlertTriangle size={17} aria-hidden />
+        <div>
+          <b>Page deletion outcome unconfirmed</b>
+          <span>We don’t know whether “{deleteRecovery.page.title}” was deleted. The resource list may be stale; other resource changes and navigation are locked until recovery finishes.</span>
+        </div>
+        <Button size="sm" variant="secondary" disabled={deleteBusy} onClick={() => void retryExactDelete()}>
+          {deleteBusy ? "Working…" : "Retry exact deletion"}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={deleteBusy} onClick={() => void checkResources()}>
+          {deleteBusy ? "Checking…" : "Check resources"}
+        </Button>
+      </div>}
 
       <DataTable
         columns={columns}
@@ -283,7 +409,7 @@ export function ResourcePagesAdminView({
             icon={<BookOpen size={20} />}
             title="No resource pages yet"
             description="Add a Speaker Guide, venue info, or an FAQ."
-            action={<Button onClick={() => { setCreating(true); setEditorOpen(true); }}>New page</Button>}
+            action={<Button disabled={mutationLocked || reordering} onClick={startCreate}>New page</Button>}
           />
         }
       />
@@ -305,14 +431,14 @@ export function ResourcePagesAdminView({
       />
 
       <ConfirmDialog
-        open={pendingDelete !== null}
+        open={pendingDelete !== null && deleteRecovery === null}
         title={pendingDelete ? `Delete “${pendingDelete.title}”?` : ""}
         body="Speakers reading this page in the portal lose access immediately. This cannot be undone."
         confirmLabel="Delete page"
         onConfirm={async () => {
           if (pendingDelete) await remove(pendingDelete);
         }}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={() => { if (!mutationLocked) setPendingDelete(null); }}
       />
     </div>
   );
