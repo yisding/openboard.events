@@ -97,7 +97,20 @@ function redactCredentials(value: string): string {
     // A preserved auth destination can itself contain an invitation token.
     // URLSearchParams encodes its `?token=` delimiter inside `next`; redact
     // that second bearer value from persisted rendered history as well.
-    .replace(/((?:%3f|%26)token%3d)[^"'&\s<%]+/giu, "$1[redacted]");
+    //
+    // The delimiter is matched at any encoding depth (`%(?:25)*3f`). Password
+    // reset encodes `next` exactly once, so `%3Ftoken%3D` was all this pattern
+    // ever saw — and that is the only shape the existing test fixture builds.
+    // Verification mail encodes twice: `existingSignupVerificationCallback`
+    // (better-auth.ts:109) already percent-encodes `next`, and the whole
+    // `callbackURL` is encoded again by `URLSearchParams` at better-auth.ts:197
+    // (Better Auth's own signup path does the same), producing
+    // `next%3D%252Fjoin%253Ftoken%253D<raw>`. A single-depth pattern missed it,
+    // so every invited-but-unverified user's confirmation mail persisted a live
+    // `/join` bearer token in `body_rendered_html` — the one value the sealed
+    // payload is nulled on send (`:319`) specifically to avoid retaining — until
+    // retention blanked the body 90 days later.
+    .replace(/((?:%(?:25)*3f|%(?:25)*26)token%(?:25)*3d)[^"'&\s<%]+/giu, "$1[redacted]");
 }
 
 export async function sendAdminAuthEmailIn(

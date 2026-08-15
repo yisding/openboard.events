@@ -244,6 +244,48 @@ describe("platform admin auth mail outbox", () => {
     expect(sent?.secretPayloadCiphertext).toBeNull();
   });
 
+  it("redacts a nested invitation credential from verification mail, which encodes it twice", async () => {
+    // The URL the confirmation path actually builds. `next` is percent-encoded
+    // once by `existingSignupVerificationCallback`, then the whole
+    // `callbackURL` again by `URLSearchParams` — so the invitation token's
+    // delimiter lands as `%253Ftoken%253D`, not the `%3Ftoken%3D` the reset
+    // path produces and the case above fixtures. A single-depth pattern left
+    // this live `/join` bearer token in the persisted body.
+    const next = `/join?token=${encodeURIComponent("invite-secret")}`;
+    const callbackURL = `/signup/verified?confirmed=1&next=${encodeURIComponent(next)}`;
+    const url = new URL("/api/auth/verify-email", "http://localhost:3000");
+    url.search = new URLSearchParams({ token: "verification-secret", callbackURL }).toString();
+
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_email_verification",
+      userId,
+      email: "organizer@example.com",
+      name: "Ada Organizer",
+      url: url.toString(),
+      expiresIn: "1 hour",
+    }, logEnv);
+    const sendEnv = parseEnv({
+      ...logEnv,
+      EMAIL_MODE: "send",
+      EMAIL_FALLBACK_UI: "0",
+      EMAIL_FROM: "Openboard <hello@example.com>",
+      EMAIL_ALLOWLIST: "organizer@example.com",
+      RESEND_API_KEY: "re_test",
+    });
+
+    await dispatchAdminAuthEmailOutboxIn(tx, 10, {
+      env: sendEnv,
+      sender: vi.fn().mockResolvedValue("double-encoded-redaction-id"),
+    });
+
+    const [sent] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, result.messageId));
+    expect(sent?.bodyRenderedHtml).toContain("token=[redacted]");
+    expect(sent?.bodyRenderedHtml).toContain("token%253D[redacted]");
+    expect(sent?.bodyRenderedHtml).not.toContain("verification-secret");
+    expect(sent?.bodyRenderedHtml).not.toContain("invite-secret");
+    expect(sent?.secretPayloadCiphertext).toBeNull();
+  });
+
   it("retains encrypted payloads when a rotated secret makes a row terminal", async () => {
     const result = await sendAdminAuthEmailIn(tx, {
       templateKey: "admin_password_reset",
