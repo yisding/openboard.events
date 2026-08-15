@@ -133,9 +133,14 @@ rollback thresholds. After the production zone ID was recorded, read-only run
 31846568946 reached the DMARC endpoint directly and failed safely with a `403`,
 proving that the existing Worker deployment token does not have DMARC access.
 PR #421 separates a zone-scoped DMARC Read/Write credential and requires that
-zone ID without granting Zone Read. Reporting, the observation window, and
-staged quarantine/reject remain deliberately open until that credential is
-provisioned and aggregate evidence satisfies the runbook gates.
+zone ID without granting Zone Read. Protected run 31862396508 then enabled and
+verified reporting at `2026-08-15T03:40:22Z`; Cloudflare and Google DNS resolve
+the generated `rua`, policy remains `p=none`, and the initial approved-source
+inventory is empty. The earliest possible quarantine-10 entry is
+`2026-08-22T03:40:22Z`, and only if reports from two independent receivers plus
+Gmail and Outlook `dmarc=pass` evidence satisfy the runbook gates.
+PR #423 records that live baseline and separates completed reporting setup from
+the still-open enforcement checklist.
 
 ## Sequencing and workstreams
 
@@ -368,11 +373,11 @@ Exit criteria:
 - Aggregate reports show no unidentified legitimate sender before `p=reject`.
 - The runbook names owners, monitoring, and rollback thresholds.
 
-Status: in progress in PRs #420 and #421. The protected reporting operation and
-runbook are implemented; live reporting awaits the dedicated production DMARC
-token, followed by the required aggregate-report observation and enforcement
-dwell periods. No quarantine or reject policy will be published before those
-evidence gates pass.
+Status: in progress in PRs #420, #421, and #423. The protected reporting
+operation and runbook are implemented, and live aggregate reporting began at
+`2026-08-15T03:40:22Z` in run 31862396508. The required seven-day, two-receiver
+observation and enforcement dwell periods remain. No quarantine or reject
+policy will be published before those evidence gates pass.
 
 ## Proposed pull-request order
 
@@ -392,8 +397,9 @@ evidence gates pass.
 9. R2 key migration and lifecycle enablement (completed in PRs #415, #416,
    #417, and #419).
 10. Sign-in capacity controls (completed in PR #418).
-11. DMARC reporting and staged enforcement (reporting automation in PRs #420
-    and #421; evidence-gated policy rollout remains open).
+11. DMARC reporting and staged enforcement (reporting automation and baseline
+    evidence in PRs #420, #421, and #423; evidence-gated policy rollout remains
+    open).
 
 Each PR must include migration rollback/forward-recovery notes when it changes
 stored data, focused tests for the failure mode it closes, and before/after
