@@ -338,6 +338,40 @@ describe("organization-level speaker CRM (M55)", () => {
     `, [pipelineId])).rows).toEqual([{ notes: input.notes, history: 1, activity: 1 }]);
   });
 
+  it("treats a pipeline id held by another organization as taken, not as a replay", async () => {
+    const ownerContactId = await createOrganizationContactIn(db, orgB, {
+      email: "cross.tenant.owner@example.com",
+      firstName: "Beatrice",
+      lastName: "Owner",
+    });
+    const sharedId = crmPipelineIdSchema.parse("c55a0000-0000-4000-8000-0000000000e9");
+    await createCrmPipelineEntryIn(db, orgB, {
+      id: sharedId,
+      organizationContactId: ownerContactId,
+      notes: "Org B's prospect",
+    });
+
+    const intruderContactId = await createOrganizationContactIn(db, orgA, {
+      email: "cross.tenant.intruder@example.com",
+      firstName: "Alice",
+      lastName: "Intruder",
+    });
+    // Scoping the replay lookup makes this id "not found" for Org A, so the
+    // insert is what settles it. That path has to stay a conflict: dropping
+    // the tenant filter without teaching it about a taken id turns an ordinary
+    // client mistake into a 500.
+    await expect(createCrmPipelineEntryIn(db, orgA, {
+      id: sharedId,
+      organizationContactId: intruderContactId,
+      notes: "Org A's prospect",
+    })).rejects.toSatisfy((error) => isAppError(error) && error.code === "CONFLICT");
+
+    expect((await pglite.query<{ organization_id: string; notes: string }>(
+      "SELECT organization_id, notes FROM organization_contact_pipeline WHERE id=$1",
+      [sharedId],
+    )).rows).toEqual([{ organization_id: orgB, notes: "Org B's prospect" }]);
+  });
+
   it("atomically transitions a prospect, replays once, and refuses a stale move over a later stage", async () => {
     const contactId = await createOrganizationContactIn(db, orgA, {
       email: "atomic.pipeline.transition@example.com",
