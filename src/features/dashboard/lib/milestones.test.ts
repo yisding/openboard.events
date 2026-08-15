@@ -114,4 +114,22 @@ describe("computeMilestones", () => {
     expect(result.map((m) => m.id)).toEqual(["first_submission", "cfp_closed", "decisions_sent", "scheduling_complete"]);
     expect(result.every((m) => m.href.startsWith("/events/event-1/"))).toBe(true);
   });
+
+  it("does not claim everyone is scheduled while nothing is on the public schedule", () => {
+    // Accepted abstracts promoted into *draft* sessions that have times:
+    // `unscheduledAccepted` is 0 because each has a timed session, but
+    // `scheduledSessions` counts only published ones. The milestone used to
+    // fire and read "Everyone accepted is on the schedule — 0 sessions placed."
+    const result = computeMilestones(overview({
+      kpis: { submissions: 4, acceptedSpeakers: 3, scheduledSessions: 0, unscheduledAccepted: 0 },
+    }));
+    expect(result.map((milestone) => milestone.id)).not.toContain("scheduling_complete");
+  });
+
+  it("still reports scheduling complete once sessions are published", () => {
+    const result = computeMilestones(overview({
+      kpis: { submissions: 4, acceptedSpeakers: 3, scheduledSessions: 3, unscheduledAccepted: 0 },
+    }));
+    expect(result.map((milestone) => milestone.id)).toContain("scheduling_complete");
+  });
 });

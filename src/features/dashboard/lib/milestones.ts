@@ -75,7 +75,19 @@ export function computeMilestones(overview: MilestoneInput): Milestone[] {
   // "zero conflicts" (the overview carries no conflict count — inventing one
   // here would be a fact this function does not actually have), but the
   // adjacent milestone this data honestly supports.
-  if (overview.kpis.acceptedSpeakers > 0 && overview.kpis.unscheduledAccepted === 0) {
+  //
+  // The two counts answer different questions: `unscheduledAccepted` asks
+  // whether an accepted abstract has a *timed* session, while
+  // `scheduledSessions` counts `published_sessions_v` — published *and* timed.
+  // Promote a batch of accepted abstracts into draft sessions with times and
+  // the first is 0 while the second is still 0, which printed "Everyone
+  // accepted is on the schedule — 0 sessions placed." Requiring the detail's
+  // own number to be non-zero keeps the claim and its evidence together.
+  if (
+    overview.kpis.acceptedSpeakers > 0
+    && overview.kpis.unscheduledAccepted === 0
+    && overview.kpis.scheduledSessions > 0
+  ) {
     milestones.push({
       id: "scheduling_complete",
       title: "Everyone accepted is on the schedule",
